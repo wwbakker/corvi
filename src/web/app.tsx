@@ -1,6 +1,8 @@
 import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, type Change, type ProvisionResult } from "./api.ts";
+import { Breadcrumb } from "./Breadcrumb.tsx";
+import { stateClass } from "./changeState.tsx";
 import { Wizard } from "./Wizard.tsx";
 import { ChangeView } from "./ChangeView.tsx";
 
@@ -11,7 +13,8 @@ type View =
   | { name: "change"; id: string; provision?: ProvisionResult[] };
 
 function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => void }) {
-  const [changes, setChanges] = useState<Change[]>([]);
+  // undefined until the list has been read: "none yet" and "not known yet" are different things.
+  const [changes, setChanges] = useState<Change[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(
@@ -26,15 +29,18 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
   return (
     <div className="page">
       <header>
-        <h2>Changes</h2>
+        <Breadcrumb onHome={() => {}} />
         <span className="spacer" />
-        <button onClick={onNew}>New change</button>
+        <button className="create" onClick={onNew}>
+          New change
+        </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
       <table className="table">
         <thead>
           <tr>
             <th>Change</th>
+            <th>State</th>
             <th>Branch</th>
             <th>Jira</th>
             <th>Repositories</th>
@@ -43,9 +49,10 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
           </tr>
         </thead>
         <tbody>
-          {changes.map((c) => (
+          {(changes ?? []).map((c) => (
             <tr key={c.id} onClick={() => onOpen(c.id)}>
               <td>{c.id}</td>
+              <td className={stateClass(c.state)}>{c.state ?? "In Progress"}</td>
               <td>{c.branch}</td>
               <td>{c.jira ?? "—"}</td>
               <td>{c.repos.length}</td>
@@ -53,9 +60,16 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
               <td>{c.completedAt ? c.completedAt.slice(0, 10) : "—"}</td>
             </tr>
           ))}
-          {changes.length === 0 && (
+          {changes?.length === 0 && (
             <tr>
-              <td colSpan={6}>no changes yet</td>
+              <td colSpan={7}>no changes yet</td>
+            </tr>
+          )}
+          {!changes && !error && (
+            <tr>
+              <td colSpan={7} className="hint">
+                loading…
+              </td>
             </tr>
           )}
         </tbody>
@@ -95,7 +109,6 @@ function App() {
 
   return (
     <div className="app">
-      <h1 onClick={() => setView({ name: "home" })}>Integrated Work Environment</h1>
       {view.name === "home" && (
         <Home
           onOpen={(id) => setView({ name: "change", id })}
@@ -104,6 +117,7 @@ function App() {
       )}
       {view.name === "new" && (
         <Wizard
+          onHome={() => setView({ name: "home" })}
           onCreated={(c, provision) => setView({ name: "change", id: c.id, provision })}
           onCancel={() => setView({ name: "home" })}
         />
@@ -112,7 +126,7 @@ function App() {
         <ChangeView
           id={view.id}
           provision={view.provision}
-          onBack={() => setView({ name: "home" })}
+          onHome={() => setView({ name: "home" })}
         />
       )}
     </div>

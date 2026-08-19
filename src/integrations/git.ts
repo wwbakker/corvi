@@ -74,6 +74,24 @@ async function repoItem(change: Change, repo: string): Promise<WidgetItem> {
   return { label, detail: `${detail} · ${entry.path}`, state };
 }
 
+/** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
+ * remote. New branches start here rather than at a local main that may be days behind. */
+export async function remoteDefaultBranch(repo: string): Promise<string | undefined> {
+  if (!(await sh(["git", "remote"], repo)).stdout) return undefined;
+  const read = async (): Promise<string | undefined> => {
+    const r = await sh(
+      ["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
+      repo,
+    );
+    return r.code === 0 && r.stdout ? r.stdout : undefined;
+  };
+  const known = await read();
+  if (known) return known;
+  // A clone made with --single-branch has no origin/HEAD until it is asked for.
+  await sh(["git", "remote", "set-head", "origin", "-a"], repo);
+  return (await read()) ?? "origin/main";
+}
+
 /** Create the worktree for this change in `repo`; existing ones are left alone. */
 async function createWorktree(change: Change, repo: string): Promise<void> {
   if (await worktreeFor(change, repo)) return;
@@ -81,8 +99,17 @@ async function createWorktree(change: Change, repo: string): Promise<void> {
     (await sh(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
       .code === 0;
   // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
-  const create = exists ? [] : ["--create"];
-  await shOrThrow(await wt(change, ["-C", repo, "switch", ...create, change.branch, "--no-cd"]));
+  if (exists) {
+    await shOrThrow(await wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
+    return;
+  }
+  // Branch from the remote's default branch, fetched first: a local main is often behind.
+  const base = await remoteDefaultBranch(repo);
+  if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
+  const baseArgs = base ? ["--base", base] : [];
+  await shOrThrow(
+    await wt(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
+  );
 }
 
 /** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
@@ -169,15 +196,8 @@ export const git: Integration = {
   name: "git",
   title: "Local changes",
 
-  async status(change: Change): Promise<Widget> {
-    const items = await Promise.all(change.repos.map((r) => repoItem(change, r)));
-    const missing = items.filter((i) => i.state === "none").length;
-    const state: WidgetState = change.repos.length === 0 ? "warn" : missing ? "none" : "ok";
-    const summary =
-      change.repos.length === 0
-        ? "no repositories yet"
-        : `${items.length - missing}/${items.length} worktrees on ${change.branch}`;
-    return { integration: "git", title: git.title, state, summary, items };
+  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
+    return [await repoItem(change, repo)];
   },
 
   async provision(change: Change): Promise<void> {

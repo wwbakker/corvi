@@ -1,0 +1,13 @@
+<!-- Maskable variant: the same mark inside the 80% safe zone, on a full bleed background, so
+     Android and macOS can crop it to any shape without cutting the rows. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" fill="#0d0f12"/>
+  <g transform="translate(512 512) scale(0.72) translate(-512 -512)">
+    <rect x="170" y="250" width="180" height="100" rx="50" fill="#ff6400"/>
+    <rect x="380" y="250" width="474" height="100" rx="50" fill="#2b3038"/>
+    <rect x="170" y="462" width="180" height="100" rx="50" fill="#0000ff"/>
+    <rect x="380" y="462" width="330" height="100" rx="50" fill="#2b3038"/>
+    <rect x="170" y="674" width="180" height="100" rx="50" fill="#e8eaee"/>
+    <rect x="380" y="674" width="400" height="100" rx="50" fill="#2b3038"/>
+  </g>
+</svg>

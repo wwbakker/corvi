@@ -1,3 +1,9 @@
+/** Where a change stands, as you see it. Kept by hand rather than derived: the tools disagree
+ * often enough (a merged PR with the ticket still open, review happening in a call) that your
+ * own answer is the useful one. Completing a change sets it to "Completed". */
+export const CHANGE_STATES = ["In Progress", "Awaiting Review", "Completed"] as const;
+export type ChangeState = (typeof CHANGE_STATES)[number];
+
 /** A unit of work spanning one or more repositories, plus the tickets/PRs/builds around it. */
 export type Change = {
   /** Directory name under the changes root; also the default branch name. */
@@ -8,6 +14,8 @@ export type Change = {
   repos: string[];
   /** Optional Jira issue key, e.g. PROJ-123. */
   jira?: string;
+  /** Absent on changes made before this existed; treated as "In Progress". */
+  state?: ChangeState;
   createdAt: string;
   /** Set when the change was completed: pull requests merged and the ticket closed. */
   completedAt?: string;
@@ -45,7 +53,14 @@ export type Widget = {
 export type Integration = {
   name: string;
   title: string;
-  status(change: Change): Promise<Widget>;
+  /** Asks for the tall column of its own on a wide window: the tree of a CI component is much
+   * taller than the rest put together. */
+  wide?: boolean;
+  /** Whole-widget status, for components that do not work per repository (Jira). */
+  status?(change: Change): Promise<Widget>;
+  /** Rows for one repository. Components that have these are fetched a repository at a time, so
+   * a change with many repositories fills in one by one instead of all at the end. */
+  repoStatus?(change: Change, repo: string): Promise<WidgetItem[]>;
   /** Bring this component in line with a newly created change: worktrees, ticket status, ... */
   provision?(change: Change): Promise<void>;
   /** Perform `action` (an id handed out by `status`) on this change. */

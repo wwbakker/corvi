@@ -56,7 +56,7 @@ export async function completeChange(change: Change): Promise<Change> {
   // The work is on the remote now, so the worktrees have nothing left to hold.
   for (const repo of change.repos) await removeWorktree(change, repo);
 
-  const completed: Change = { ...change, completedAt: new Date().toISOString() };
+  const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
   await writeChange(completed);
   await archiveChange(change.id);
   return completed;

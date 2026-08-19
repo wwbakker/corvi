@@ -4,13 +4,15 @@ A local dashboard for a *change*: the work spanning one or more repositories, pl
 worktrees, pull requests, tickets and builds around it.
 
 State lives in one directory per change (`~/changes/<id>/`, `~/changes/archive/<id>/` once
-completed), holding `change.json`, a `wt.toml` that points `wt` at that directory, and the git
+completed), holding `change.json`, `notes.md`, a `wt.toml` that points `wt` at that directory, and the git
 worktrees themselves. Everything else (PR status,
 ticket status, pipeline runs) is read live from the vendors' own CLIs, so this tool stores no
 secrets and owns no copy of their data.
 
 Creating a change provisions it: the Jira issue is assigned and moved to `In Progress`, and a git
-worktree on the change's branch is created in every selected repository. Components that fail are
+worktree on the change's branch is created in every selected repository. New branches start from
+the remote's default branch (`origin/HEAD`, fetched first), never from a local `main` that may be
+behind. Components that fail are
 reported on the dashboard; the change itself is written first and always survives.
 
 ## Run
@@ -79,6 +81,9 @@ The dashboard shows three widgets, in this order:
 - **Jira** — the issue, its status and assignee. No transition buttons: `In Progress` is set when
   the change is created, and `Done` belongs to completing the change as a whole.
 - **Local changes** — the worktree per repository: clean or dirty, ahead/behind, merged.
+On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
+column of its own beside the others; narrower windows stack everything.
+
 - **CI** — per repository, the pull request and the pipeline runs it triggered, since "is this
   change green?" is one question even though two vendors answer it. Rows form a collapsible tree:
 
@@ -94,6 +99,15 @@ The dashboard shows three widgets, in this order:
   `1 unresolved comment · approved` is visible as its own state. Resolved threads are not
   mentioned; `ready to merge` is reserved for an approval with nothing left open.
 
+  A pipeline's own dot follows its **newest** run: an older failure that a later run fixed does
+  not keep the pipeline, the repository or the whole CI card red. The failed run keeps its red dot
+  in the list, where it belongs.
+
+  A successful run also shows the artifact version its pipeline printed
+  (`Version is: '…'`, `pushing manifest for …`, `Built and pushed image as …`, the patterns from
+  `example-legacy-misc/scripts/version-from-pr`). Logs are searched newest step first, five at a time,
+  and the answer is cached per run id: a finished build's logs never change.
+
   A run still in flight shows the time it has been busy and a bar against the mean duration of
   that pipeline's last `IWE_AZURE_HISTORY` (default 10) finished runs, across branches. The clock
   ticks in the browser, so it stays smooth between the widget's 15s refreshes, and an overrun
@@ -101,7 +115,23 @@ The dashboard shows three widgets, in this order:
 
   Azure DevOps reports `repository.name` as null, so pipelines are attributed to a repository by
   their pipeline folder (`\example-worker`), which mirrors the service directories of a
-  monorepo. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
+  monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
+  builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
+
+## Installing it as an app
+
+The page ships a web manifest and icons, so it installs as a standalone macOS app:
+
+- **Safari** — open the app, File → *Add to Dock*.
+- **Chrome** — ⋮ → Cast, Save and Share → *Install page as app*.
+
+Installed, the layout uses the full window (`@media (display-mode: standalone)`); in a browser tab
+it keeps a readable 1200px column.
+
+`http://127.0.0.1:4000` counts as a secure context, so no TLS is needed. The icon source is
+`assets/icon.svg` (and `assets/icon-maskable.svg` for the padded, croppable variant); edit those
+and run `bun run icons` to regenerate `src/web/icons/*.png` with `rsvg-convert`
+(`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
 
 ## Looking at the UI
 
@@ -133,6 +163,34 @@ Applying an edit creates a worktree per added repository and removes one per dro
 - uncommitted changes — the whole edit is refused, naming the repositories: revert or commit
   first. The server enforces this, not the dialog.
 
+## Notes
+
+Each change has a free-text note in the left column, stored as `notes.md` in its directory, so it
+travels into the archive with everything else. It saves shortly after you stop typing, on blur,
+and when you navigate away.
+
+## Change state
+
+Every change carries one of `In Progress`, `Awaiting Review` or `Completed`, chosen in the select
+beside `Complete change` and shown as a column on the overview. It is kept by hand rather than
+derived, because the tools disagree often enough (a merged pull request with the ticket still
+open, a review that happened in a call) that your own answer is the useful one. Completing a
+change sets it to `Completed`. Changes made before this existed read as `In Progress`.
+
+## Actions
+
+The `Actions` button on a dashboard holds what you can do to the change as a whole:
+
+- **Copy PR description** — puts the ticket and one link per repository on the clipboard:
+
+      PROJ-1627 - Anonimiseren van bezorgernamen op ACCEPTATIE omgeving (vanuit Security)
+      https://github.com/acme/example-service/pull/720
+      https://github.com/acme/example-deploy/pull/135
+
+  A repository whose pull request does not exist yet is listed by name, so the list stays
+  complete.
+- **Complete change** — last in the menu, because it is the irreversible one.
+
 ## Completing a change
 
 `Complete change` on a dashboard squash-merges every outstanding pull request and moves the Jira
@@ -160,14 +218,28 @@ the browser's Back button all work.
 ## Dashboard loading
 
 The page renders immediately: `GET /api/changes/:id` returns the change with no CLI calls, and
-each component is fetched separately from `GET /api/changes/:id/:integration`. A card shows
-"loading…" until its own integration answers, refreshes itself every 15s, and a slow or broken
-CLI delays only its own card.
+each component is fetched separately.
+
+Every card cancels its requests when it goes away. Without that, the ten-odd slow per-repository
+requests of a big change keep saturating the browser's six connections per origin (HTTP/1.1 on
+localhost, so no multiplexing), and the next page waits seconds for a free one: measured at
+2387ms for `GET /api/changes` mid-load versus 4ms idle.
+
+Widget data is kept in a small in-memory cache in the browser (`src/web/cache.ts`), keyed by
+change, component and repository, so leaving a change and coming back paints the last known rows
+straight away while they refresh in the background. A page reload starts empty.
+
+Components that work per repository (Local changes, CI) declare `repoStatus` instead of `status`,
+and the browser fetches `GET /api/changes/:id/:integration/repo?path=…` once per repository. The
+rows appear one at a time as each repository answers, so a change with many repositories fills in
+progressively instead of staying empty until the slowest CLI call returns. Everything refreshes
+every 15s, and a slow or broken CLI delays only its own row.
 
 ## Adding an integration
 
-Implement `Integration` from `src/types.ts` (a `status(change)` returning a widget, optionally
-`provision(change)` for the creation step and `run(change, action, arg)` for buttons) and add it to the table in `src/integrations/index.ts`. The UI
+Implement `Integration` from `src/types.ts`: either `status(change)` for a whole widget or
+`repoStatus(change, repo)` to be fetched a repository at a time, optionally `provision(change)`
+for the creation step and `run(change, action, arg)` for buttons and add it to the table in `src/integrations/index.ts`. The UI
 renders whatever widgets come back; no frontend change needed.
 
 ## Layout
@@ -183,3 +255,5 @@ renders whatever widgets come back; no frontend change needed.
     src/web/IssueTable.tsx    filterable Jira board table
     src/web/ChangeView.tsx    widget dashboard for one change
     src/web/RepoBrowser.tsx   repository picker
+    src/web/manifest.webmanifest  installable app metadata
+    src/web/icons/            generated from assets/*.svg by `bun run icons`

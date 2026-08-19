@@ -4,6 +4,14 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Integrated Work Environment</title>
+    <!-- Installable from Safari (Add to Dock) and Chrome (Install page as app). -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <!-- Relative: the HTML bundler resolves and fingerprints these. The manifest is fetched at
+         runtime instead, so it keeps absolute paths served by the /icons route. -->
+    <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#14161a" />
+    <meta name="apple-mobile-web-app-title" content="IWE" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>

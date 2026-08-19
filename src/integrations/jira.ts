@@ -184,9 +184,14 @@ async function me(): Promise<string> {
   return r.code === 0 ? (r.stdout.split("\n")[0]?.trim() ?? "") : "";
 }
 
-async function currentStatus(key: string): Promise<string | undefined> {
+/** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
+export async function issueByKey(key: string): Promise<Issue | undefined> {
   const r = await sh(["jira", "issue", "list", "-q", `key = ${key}`, ...issueColumns]);
-  return parseIssues(r.stdout, "", false)[0]?.status;
+  return parseIssues(r.stdout, "", false)[0];
+}
+
+async function currentStatus(key: string): Promise<string | undefined> {
+  return (await issueByKey(key))?.status;
 }
 
 /** Base URL of the Jira instance, taken from jira-cli's own config so we configure nothing twice. */

@@ -35,19 +35,10 @@ const worst = (items: WidgetItem[]): WidgetState =>
 export const ci: Integration = {
   name: "ci",
   title: "CI",
+  wide: true,
 
-  async status(change: Change): Promise<Widget> {
-    const per = await Promise.all(change.repos.map((r) => repoItem(change, r)));
-    const items = per.map((p) => p.item);
-    const prs = per.reduce((n, p) => n + p.prs, 0);
-    const runs = per.reduce((n, p) => n + p.runs, 0);
-    return {
-      integration: "ci",
-      title: ci.title,
-      state: worst(items),
-      summary: `${prs} pull request(s), ${runs} pipeline run(s)`,
-      items,
-    };
+  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
+    return [(await repoItem(change, repo)).item];
   },
 
   async run(change: Change, action: string, repo?: string): Promise<void> {

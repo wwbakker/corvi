@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  aborted,
   api,
+  patch,
   post,
+  CHANGE_STATES,
+  type ChangeState,
   type Change,
   type Completion,
   type IntegrationInfo,
   type ProvisionResult,
+  type RepoItems,
   type Widget,
   type WidgetItem,
 } from "./api.ts";
+import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
+import { Breadcrumb } from "./Breadcrumb.tsx";
+import { cached, putCached, useCached } from "./cache.ts";
+import { stateClass } from "./changeState.tsx";
 import { EditReposDialog } from "./EditReposDialog.tsx";
+import { NotesCard } from "./NotesCard.tsx";
 
 function Dot({ state }: { state?: string }) {
   return <span className={`dot ${state ?? "none"}`} />;
@@ -110,35 +120,168 @@ function Item({
   );
 }
 
-/** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
-function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInfo }) {
-  const [widget, setWidget] = useState<Widget | null>(null);
-  const [busy, setBusy] = useState(false);
+const worstOf = (items: WidgetItem[]): string =>
+  ["error", "pending", "warn", "ok"].find((s) => items.some((i) => i.state === s)) ?? "none";
+
+const nameOf = (repo: string): string => repo.split("/").pop() ?? repo;
+
+/** Branch names start with the change id, which the crumb already shows: drop the repetition. */
+const branchLabel = (id: string, branch: string): string =>
+  branch.startsWith(`${id}-`) ? branch.slice(id.length + 1) : branch;
+
+/**
+ * A card whose rows come from a per-repository component: every repository is fetched on its own,
+ * so they appear one by one instead of the card staying empty until the slowest one answers.
+ */
+function PerRepoCard({
+  changeId,
+  info,
+  repos,
+  onReposChanged,
+}: {
+  changeId: string;
+  info: IntegrationInfo;
+  repos: string[];
+  onReposChanged: () => void;
+}) {
+  const key = (repo: string) => `${changeId}:${info.name}:${repo}`;
+  // undefined while that repository is still loading; seeded from the cache so coming back to a
+  // change shows its last known rows immediately.
+  const [items, setItems] = useState<Record<string, WidgetItem[] | undefined>>(() =>
+    Object.fromEntries(repos.map((repo) => [repo, cached<WidgetItem[]>(key(repo))])),
+  );
+  const [busy, setBusy] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
 
+  const loadRepo = useCallback(
+    (repo: string, signal?: AbortSignal): Promise<void> =>
+      api<RepoItems>(`/changes/${changeId}/${info.name}/repo?path=${encodeURIComponent(repo)}`, {
+        signal,
+      })
+        .then((r) => {
+          putCached(key(repo), r.items);
+          setItems((all) => ({ ...all, [repo]: r.items }));
+        })
+        .catch((e: Error) => {
+          if (aborted(e)) return;
+          setItems((all) => ({
+            ...all,
+            [repo]: [{ label: nameOf(repo), detail: e.message, state: "error" }],
+          }));
+        }),
+    [changeId, info.name],
+  );
+
+  useEffect(() => {
+    // Cancel on unmount: these requests are slow, and the browser only allows six at a time, so
+    // leaving them open makes the next page wait seconds for a free connection.
+    const ac = new AbortController();
+    const tick = () => repos.forEach((repo) => void loadRepo(repo, ac.signal));
+    tick();
+    const timer = setInterval(tick, 15000);
+    return () => {
+      ac.abort();
+      clearInterval(timer);
+    };
+  }, [loadRepo, repos.join(",")]);
+
+  const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
+    setBusy(repo);
+    return post<RepoItems>(`/changes/${changeId}/${info.name}/${actionId}`, { arg })
+      .then((r) => {
+        putCached(key(repo), r.items);
+        setItems((all) => ({ ...all, [repo]: r.items }));
+      })
+      .catch((e: Error) =>
+        setItems((all) => ({
+          ...all,
+          [repo]: [{ label: nameOf(repo), detail: e.message, state: "error" }],
+        })),
+      )
+      .finally(() => setBusy(null));
+  };
+
+  const loaded = repos.filter((r) => items[r]);
+  const all = loaded.flatMap((r) => items[r]!);
+  return (
+    <section className={`widget ${loaded.length === repos.length ? "" : "loading"}`}>
+      <h3>
+        <Dot state={loaded.length ? worstOf(all) : undefined} />
+        {info.title}
+        {/* The repository list belongs to the change, and git is the component that shows it. */}
+        {info.name === "git" && (
+          <>
+            <span className="spacer" />
+            <button className="icon" title="Edit repositories" onClick={() => setEditing(true)}>
+              ✎
+            </button>
+          </>
+        )}
+      </h3>
+      {/* No summary once everything is in: the rows already say it. */}
+      {loaded.length < repos.length && (
+        <div className="summary">{`${loaded.length}/${repos.length} repositories loaded…`}</div>
+      )}
+      {repos.map((repo) =>
+        items[repo] ? (
+          items[repo]!.map((item) => (
+            <Item
+              key={item.label}
+              item={item}
+              busy={busy === repo}
+              onAction={(actionId, arg) => act(repo, actionId, arg)}
+            />
+          ))
+        ) : (
+          <div key={repo} className="item depth-0 pending-row">
+            <span className="toggle-spacer" />
+            <Dot />
+            <span className="label">{nameOf(repo)}</span>
+            <span className="detail">loading…</span>
+          </div>
+        ),
+      )}
+      {info.name === "git" && (
+        <EditReposDialog
+          changeId={changeId}
+          open={editing}
+          onClose={() => setEditing(false)}
+          onSaved={onReposChanged}
+        />
+      )}
+    </section>
+  );
+}
+
+/** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
+function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInfo }) {
+  const [widget, setWidget] = useCached<Widget>(`${changeId}:${info.name}`);
+  const [busy, setBusy] = useState(false);
+
   const load = useCallback(
-    (): Promise<void> =>
-      api<Widget>(`/changes/${changeId}/${info.name}`)
+    (signal?: AbortSignal): Promise<void> =>
+      api<Widget>(`/changes/${changeId}/${info.name}`, { signal })
         .then(setWidget)
-        .catch((e: Error) =>
+        .catch((e: Error) => {
+          if (aborted(e)) return;
           setWidget({
             integration: info.name,
             title: info.title,
             state: "error",
             summary: e.message,
             items: [],
-          }),
-        ),
+          });
+        }),
     [changeId, info.name, info.title],
   );
 
   useEffect(() => {
-    let live = true;
-    const tick = () => live && void load();
+    const ac = new AbortController();
+    const tick = () => void load(ac.signal);
     tick();
     const timer = setInterval(tick, 15000);
     return () => {
-      live = false;
+      ac.abort();
       clearInterval(timer);
     };
   }, [load]);
@@ -156,31 +299,14 @@ function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInf
       <h3>
         <Dot state={widget?.state} />
         {info.title}
-        {/* The repository list belongs to the change, and git is the component that shows it. */}
-        {info.name === "git" && (
-          <>
-            <span className="spacer" />
-            <button className="icon" title="Edit repositories" onClick={() => setEditing(true)}>
-              ✎
-            </button>
-          </>
-        )}
       </h3>
-      <div className="summary">{widget ? widget.summary : "loading…"}</div>
+      {/* The summary is only worth the line while loading, or when it carries an error. */}
+      {(!widget || widget.state === "error") && (
+        <div className="summary">{widget ? widget.summary : "loading…"}</div>
+      )}
       {(widget?.items ?? []).map((item) => (
         <Item key={item.label} item={item} busy={busy} onAction={act} />
       ))}
-      {info.name === "git" && (
-        <EditReposDialog
-          changeId={changeId}
-          open={editing}
-          onClose={() => setEditing(false)}
-          onSaved={() => {
-            setEditing(false);
-            void load();
-          }}
-        />
-      )}
     </section>
   );
 }
@@ -188,19 +314,20 @@ function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInf
 export function ChangeView({
   id,
   provision,
-  onBack,
+  onHome,
 }: {
   id: string;
   /** Results of the creation step, shown once: it is the one moment something can fail
    * without you having clicked it. */
   provision?: ProvisionResult[];
-  onBack: () => void;
+  onHome: () => void;
 }) {
-  const [change, setChange] = useState<Change | null>(null);
-  const [infos, setInfos] = useState<IntegrationInfo[]>([]);
-  const [completion, setCompletion] = useState<Completion | null>(null);
+  const [change, setChange] = useCached<Change>(`${id}:change`);
+  const [infos, setInfos] = useCached<IntegrationInfo[]>("integrations");
+  const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
   const [generation, setGeneration] = useState(0);
 
@@ -217,18 +344,48 @@ export function ChangeView({
   // Whether completing is allowed, refreshed alongside the widgets.
   useEffect(() => {
     if (change?.completedAt) return;
-    let live = true;
+    const ac = new AbortController();
     const load = () =>
-      api<Completion>(`/changes/${id}/complete`)
-        .then((c) => live && setCompletion(c))
-        .catch(() => live && setCompletion(null));
+      api<Completion>(`/changes/${id}/complete`, { signal: ac.signal })
+        .then(setCompletion)
+        .catch(() => {}); // keep the last verdict rather than blanking the button
     void load();
     const timer = setInterval(load, 15000);
     return () => {
-      live = false;
+      ac.abort();
       clearInterval(timer);
     };
   }, [id, change?.completedAt, generation]);
+
+  const card = (info: IntegrationInfo) =>
+    info.perRepo ? (
+      <PerRepoCard
+        key={`${info.name}-${generation}`}
+        changeId={id}
+        info={info}
+        repos={change?.repos ?? []}
+        onReposChanged={reload}
+      />
+    ) : (
+      <WidgetCard key={`${info.name}-${generation}`} changeId={id} info={info} />
+    );
+
+  // Re-read the change and remount the cards: its repository list just changed.
+  const reload = () => {
+    api<Change>(`/changes/${id}`)
+      .then(setChange)
+      .catch((e: Error) => setError(e.message));
+    setGeneration((g) => g + 1);
+  };
+
+  const copyDescription = () =>
+    api<{ text: string }>(`/changes/${id}/description`)
+      .then(({ text }) => navigator.clipboard.writeText(text))
+      .then(() => {
+        setNotice("Pull request description copied");
+        setTimeout(() => setNotice(null), 2500);
+      })
+      .catch((e: Error) => setError(e.message));
 
   const complete = () => {
     setCompleting(true);
@@ -242,27 +399,48 @@ export function ChangeView({
       .finally(() => setCompleting(false));
   };
 
+  // Completing is last: it is the irreversible one.
+  const changeActions: Action[] = [
+    { label: "Copy PR description", onSelect: copyDescription },
+    {
+      label: completing ? "Completing…" : "Complete change",
+      separated: true,
+      disabled: completing || !completion?.ready,
+      // Every repository must be approved or already merged.
+      title: completion?.reasons.join("\n") || undefined,
+      onSelect: complete,
+    },
+  ];
+
   return (
     <div className="page">
       <header>
-        <button onClick={onBack}>← Changes</button>
-        <h2>{id}</h2>
-        {change && <span>branch {change.branch}</span>}
-        {change?.jira && <span>{change.jira}</span>}
+        <Breadcrumb trail={[change ? `${id} - ${branchLabel(id, change.branch)}` : id]} onHome={onHome} />
         <span className="spacer" />
+        {change && (
+          <select
+            className={stateClass(change.state)}
+            value={change.state ?? "In Progress"}
+            // Your own view of where the change stands; completing it sets "Completed".
+            onChange={(e) =>
+              patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
+                .then(setChange)
+                .catch((err: Error) => setError(err.message))
+            }
+          >
+            {CHANGE_STATES.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        )}
         {change?.completedAt ? (
           <span className="badge ok">completed {change.completedAt.slice(0, 10)}</span>
         ) : (
-          // The title sits on the wrapper: a disabled button fires no mouse events, so its own
-          // tooltip would never appear. Every repository must be approved or already merged.
-          <span title={completion?.reasons.join("\n") || undefined}>
-            <button className="primary" disabled={completing || !completion?.ready} onClick={complete}>
-              {completing ? "Completing…" : "Complete change"}
-            </button>
-          </span>
+          <ActionsMenu actions={changeActions} />
         )}
       </header>
       {error && <div className="error-banner">{error}</div>}
+      {notice && <div className="notice">{notice}</div>}
       {(provision ?? [])
         .filter((r) => !r.ok)
         .map((r) => (
@@ -271,10 +449,13 @@ export function ChangeView({
           </div>
         ))}
       <div className="widgets">
-        {infos.map((info) => (
-          <WidgetCard key={`${info.name}-${generation}`} changeId={id} info={info} />
-        ))}
+        <div className="column">
+          {(infos ?? []).filter((i) => !i.wide).map(card)}
+          <NotesCard changeId={id} />
+        </div>
+        <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
       </div>
     </div>
   );
 }
+

@@ -8,7 +8,8 @@
     "start": "NODE_ENV=production bun src/server.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "shot": "bun scripts/shot.ts"
+    "shot": "bun scripts/shot.ts",
+    "icons": "bun scripts/icons.ts"
   },
   "dependencies": {
     "react": "^19.2.8",

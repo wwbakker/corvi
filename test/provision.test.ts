@@ -1,9 +1,16 @@
 import { test, expect } from "bun:test";
 import { provision, integrations } from "../src/integrations/index.ts";
 import { describe, findWorktree, setRepos, unsafeIn, type WtEntry } from "../src/integrations/git.ts";
-import { averageDuration, folderFor, refFor, runState } from "../src/integrations/azure.ts";
+import {
+  averageDuration,
+  folderFor,
+  refsFor,
+  runState,
+  versionInLines,
+} from "../src/integrations/azure.ts";
 import { readiness, repoFromUrl } from "../src/integrations/github.ts";
 import { verdict } from "../src/complete.ts";
+import { describeChange } from "../src/description.ts";
 import type { Change, Integration } from "../src/types.ts";
 
 const change: Change = {
@@ -57,9 +64,13 @@ test("worktree status is read from wt's own output", () => {
   expect(findWorktree(entries, "absent")).toBeUndefined();
 });
 
-test("pipelines are looked up by PR merge ref once a PR exists", () => {
-  expect(refFor("PROJ-1-thing")).toBe("refs/heads/PROJ-1-thing");
-  expect(refFor("PROJ-1-thing", 719)).toBe("refs/pull/719/merge");
+test("pipelines are looked up by both the merge ref and the branch", () => {
+  expect(refsFor("PROJ-1-thing")).toEqual(["refs/heads/PROJ-1-thing"]);
+  // Validation builds run on the merge ref, CI-triggered ones stay on the branch: both matter.
+  expect(refsFor("PROJ-1-thing", 719)).toEqual([
+    "refs/pull/719/merge",
+    "refs/heads/PROJ-1-thing",
+  ]);
 
   const run = (status: string, result?: string) =>
     runState({ id: 1, buildNumber: "1", status, result, sourceBranch: "x" });
@@ -192,4 +203,37 @@ test("a change cannot edit itself down to no repositories", () => {
   expect(setRepos({ ...change, repos: ["/r/a"] }, ["  "])).rejects.toThrow(
     "at least one repository",
   );
+});
+
+test("the artifact version is read from the build log lines", () => {
+  expect(versionInLines(["...", "2026-08-18T11:53:21Z Version is: '20260818_115321_16daedb'"])).toBe(
+    "20260818_115321_16daedb",
+  );
+  expect(versionInLines(["pushing manifest for registry/app:20260818.4"])).toBe("20260818.4");
+  expect(versionInLines(["Built and pushed image as registry/app:20260818.4"])).toBe("20260818.4");
+  // "Version      : 1.0.0" is the agent's own banner, not an artifact version.
+  expect(versionInLines(["2026-08-18T11:40:02Z Version      : 1.0.0", "git version 2.52.0"])).toBeUndefined();
+});
+
+test("the pull request description lists the ticket and one link per repository", () => {
+  // The formatting, without the CLIs: heading, then one entry per repository.
+  const text = describeChange("PROJ-1627", "Anonymize customers", [
+    "https://github.com/org/a/pull/1",
+    "b-without-a-pr",
+  ]);
+  expect(text).toBe(
+    "PROJ-1627 - Anonymize customers\nhttps://github.com/org/a/pull/1\nb-without-a-pr\n",
+  );
+  expect(describeChange(undefined, undefined, ["a"])).toBe("\na\n");
+});
+
+test("a pipeline's dot follows its newest run, not its history", () => {
+  const run = (id: number, result: string) =>
+    ({ id, buildNumber: String(id), status: "completed", result, sourceBranch: "x" }) as const;
+  // Newest first, as the runs list is sorted.
+  expect(runState(run(3, "succeeded"))).toBe("ok");
+  expect(runState(run(2, "failed"))).toBe("error");
+  // The pipeline row takes the first (newest) child; an older failure keeps its own red dot.
+  const children = [run(3, "succeeded"), run(2, "failed")].map((r) => runState(r));
+  expect(children[0]).toBe("ok");
 });

@@ -64,12 +64,46 @@ a {
   padding: 16px 24px 48px;
 }
 
-.app > h1 {
-  font-size: 14px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+/* Installed as an app (dock, no browser chrome): the window is the app, so use all of it.
+   In a browser tab the column keeps the page readable next to everything else. */
+@media (display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen) {
+  .app {
+    max-width: none;
+  }
+}
+
+/* Breadcrumb: the app mark, then where you are. */
+.crumbs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
   color: var(--muted);
+}
+
+.crumbs img {
+  border-radius: 5px;
   cursor: pointer;
+}
+
+.crumbs a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.crumbs a:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.crumbs .sep {
+  margin: 0 8px;
+  color: var(--line);
+}
+
+.crumbs .current {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .page header,
@@ -78,6 +112,7 @@ a {
   align-items: center;
   gap: 12px;
   margin-bottom: 16px;
+  min-height: 34px;
 }
 
 .page h2 {
@@ -215,10 +250,25 @@ button.primary:not(:disabled) {
 }
 
 /* Widgets */
-/* One widget per row: items inside them are wide (paths, PR titles, pipeline names). */
+/* Narrow: one column, everything stacked. Wide: the component that asks for it (CI, whose tree
+   is taller than the rest together) gets a column of its own beside the others. */
 .widgets {
   display: grid;
   gap: 16px;
+}
+
+.column {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+  min-width: 0;
+}
+
+@media (min-width: 1280px) {
+  .widgets {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    align-items: start;
+  }
 }
 
 .widget {
@@ -517,4 +567,99 @@ button.icon {
 
 dialog.wide {
   width: min(1000px, 92vw);
+}
+
+/* A repository whose rows have not arrived yet */
+.item.pending-row .label {
+  opacity: 0.6;
+}
+
+/* Change state: yours to do, waiting on someone else, done. */
+.state-in-progress {
+  color: var(--pending);
+}
+
+.state-awaiting-review {
+  color: #6cb6ff;
+}
+
+.state-completed {
+  color: var(--ok);
+}
+
+select.state-in-progress {
+  border-color: var(--pending);
+}
+
+select.state-awaiting-review {
+  border-color: #6cb6ff;
+}
+
+select.state-completed {
+  border-color: var(--ok);
+}
+
+/* Creating something is the affirmative action on the overview. */
+button.create {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 25%, transparent);
+}
+
+button.create:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--ok) 40%, transparent);
+}
+
+/* Actions menu */
+.menu {
+  position: relative;
+}
+
+.menu-items {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 10;
+  display: grid;
+  min-width: 220px;
+  padding: 4px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+}
+
+.menu-items button {
+  background: transparent;
+  border-color: transparent;
+  text-align: left;
+}
+
+.menu-items button.separated {
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
+  margin-top: 4px;
+  padding-top: 8px;
+}
+
+.menu-items button:hover:not(:disabled) {
+  background: #262b33;
+}
+
+.notice {
+  background: #16281a;
+  border: 1px solid var(--ok);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+}
+
+textarea.notes {
+  width: 100%;
+  font: inherit;
+  color: var(--text);
+  background: #12151a;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
 }

@@ -1,0 +1,13 @@
+<!-- Source of truth for the app icon: three status rows, in the brand's orange and blue.
+     Rendered to PNG by `bun run icons`; edit here, never the generated files. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <rect width="1024" height="1024" rx="230" fill="#0d0f12"/>
+  <g>
+    <rect x="170" y="250" width="180" height="100" rx="50" fill="#ff6400"/>
+    <rect x="380" y="250" width="474" height="100" rx="50" fill="#2b3038"/>
+    <rect x="170" y="462" width="180" height="100" rx="50" fill="#0000ff"/>
+    <rect x="380" y="462" width="330" height="100" rx="50" fill="#2b3038"/>
+    <rect x="170" y="674" width="180" height="100" rx="50" fill="#e8eaee"/>
+    <rect x="380" y="674" width="400" height="100" rx="50" fill="#2b3038"/>
+  </g>
+</svg>

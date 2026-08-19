@@ -50,6 +50,18 @@ export async function writeChange(change: Change): Promise<void> {
   await Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n");
 }
 
+/** Free-text notes, kept beside change.json so they travel into the archive with it. */
+export async function readNotes(id: string): Promise<string> {
+  const dir = await existingDir(id);
+  return dir ? await Bun.file(join(dir, "notes.md")).text().catch(() => "") : "";
+}
+
+export async function writeNotes(id: string, text: string): Promise<void> {
+  const dir = (await existingDir(id)) ?? changeDir(id);
+  await mkdir(dir, { recursive: true });
+  await Bun.write(join(dir, "notes.md"), text);
+}
+
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
 export async function archiveChange(id: string): Promise<void> {
@@ -99,6 +111,7 @@ export async function createChange(input: {
     branch: input.branch?.trim() || id,
     repos,
     jira: input.jira?.trim() || undefined,
+    state: "In Progress",
     createdAt: new Date().toISOString(),
   };
   await writeChange(change);

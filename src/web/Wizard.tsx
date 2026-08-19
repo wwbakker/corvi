@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { branchFor } from "../branch.ts";
 import { post, type Change, type Created, type Issue } from "./api.ts";
+import { Breadcrumb } from "./Breadcrumb.tsx";
 import { IssueTable } from "./IssueTable.tsx";
 import { RepoBrowser } from "./RepoBrowser.tsx";
 
@@ -10,9 +11,11 @@ const steps = ["Jira", "Change", "Repositories"] as const;
 export function Wizard({
   onCreated,
   onCancel,
+  onHome,
 }: {
   onCreated: (change: Change, provision: Created["provision"]) => void;
   onCancel: () => void;
+  onHome: () => void;
 }) {
   const [step, setStep] = useState(0);
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -44,6 +47,10 @@ export function Wizard({
 
   return (
     <div className="wizard">
+      <header>
+        <Breadcrumb trail={["New change"]} onHome={onHome} />
+      </header>
+
       <nav className="steps">
         {steps.map((label, i) => (
           <button

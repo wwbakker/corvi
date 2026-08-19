@@ -1,4 +1,4 @@
-import type { Change, Integration, Widget } from "../types.ts";
+import type { Change, Integration, Widget, WidgetItem } from "../types.ts";
 import { git } from "./git.ts";
 import { jira } from "./jira.ts";
 import { ci } from "./ci.ts";
@@ -33,6 +33,7 @@ export async function provision(change: Change): Promise<ProvisionResult[]> {
 /** One integration's widget; a thrown error becomes a red card rather than a failed request. */
 export async function statusOne(integration: Integration, change: Change): Promise<Widget> {
   try {
+    if (!integration.status) throw new Error(`${integration.name} reports per repository`);
     return await integration.status(change);
   } catch (e) {
     return {
@@ -42,5 +43,26 @@ export async function statusOne(integration: Integration, change: Change): Promi
       summary: e instanceof Error ? e.message : String(e),
       items: [],
     };
+  }
+}
+
+/** One repository's rows, for the components that report per repository. A failure becomes a
+ * red row for that repository only: the others keep loading. */
+export async function repoStatusOf(
+  integration: Integration,
+  change: Change,
+  repo: string,
+): Promise<WidgetItem[]> {
+  try {
+    if (!integration.repoStatus) throw new Error(`${integration.name} has no per-repository view`);
+    return await integration.repoStatus(change, repo);
+  } catch (e) {
+    return [
+      {
+        label: repo.split("/").pop() ?? repo,
+        detail: e instanceof Error ? e.message : String(e),
+        state: "error",
+      },
+    ];
   }
 }
