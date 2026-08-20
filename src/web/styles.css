@@ -663,3 +663,131 @@ textarea.notes {
   padding: 8px;
   resize: vertical;
 }
+
+/* Tabs inside a change */
+.tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 16px;
+}
+
+.tabs .tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 8px 14px;
+}
+
+.tabs .tab.current {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* The terminal fills what is left of the window: the frame takes the space, the hint takes the
+ * line it needs, and nothing is left over at the bottom. */
+.terminal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* Everything around it: header, tabs and the page's own padding above and below. */
+  height: calc(100vh - 170px);
+  min-height: 320px;
+}
+
+.terminal iframe {
+  flex: 1;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #0d1117;
+}
+
+.keys {
+  border-collapse: collapse;
+  margin-bottom: 12px;
+}
+
+.keys td {
+  padding: 3px 16px 3px 0;
+  vertical-align: top;
+}
+
+.keys th {
+  text-align: left;
+  padding: 12px 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.keys td:first-child {
+  white-space: nowrap;
+}
+
+/* The tmux windows of a change, as tabs above the terminal. */
+.windows {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.windows .win {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: var(--muted);
+  background: var(--panel);
+}
+
+.windows .win.current {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.windows .win .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pending);
+}
+
+.windows .win.add {
+  padding: 4px 12px;
+}
+
+/* A selected repository: what it is on the first line, how it is set up on the second.
+ * Qualified with the list, which sets its own display on every row. */
+.entries li.selection {
+  display: block;
+  padding: 8px 0;
+}
+
+.selection .row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.selection .row + .row {
+  margin-top: 6px;
+}
+
+.selection .path {
+  flex: 1;
+}
+
+.selection select {
+  font-size: 13px;
+  padding: 2px 6px;
+}
+
+.selection select.base {
+  flex: 1;
+  min-width: 0;
+}

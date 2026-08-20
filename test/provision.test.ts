@@ -8,9 +8,10 @@ import {
   runState,
   versionInLines,
 } from "../src/integrations/azure.ts";
-import { readiness, repoFromUrl } from "../src/integrations/github.ts";
+import { readiness, repoFromUrl, groupChecks, stackRequest, describeStack } from "../src/integrations/github.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
+import { windowLabel } from "../src/web/WindowStrip.tsx";
 import type { Change, Integration } from "../src/types.ts";
 
 const change: Change = {
@@ -236,4 +237,72 @@ test("a pipeline's dot follows its newest run, not its history", () => {
   // The pipeline row takes the first (newest) child; an older failure keeps its own red dot.
   const children = [run(3, "succeeded"), run(2, "failed")].map((r) => runState(r));
   expect(children[0]).toBe("ok");
+});
+
+test("pull request checks are grouped by build, so one build is one row", () => {
+  const check = (name: string, bucket: string) => ({ name, bucket, state: bucket, link: `u/${name}` });
+  const items = groupChecks([
+    check("acme.frontend-app", "pass"),
+    check("acme.frontend-app (CI App @acme/example-app)", "fail"),
+    check("acme.frontend-app (CI Affected Build)", "pending"),
+    check("sonarqube", "pass"),
+  ]);
+  expect(items.map((i) => i.label)).toEqual(["acme.frontend-app", "sonarqube"]);
+
+  const [turbo, sonar] = items;
+  // A failure anywhere in the group colours the group, and the counts say what is going on.
+  expect(turbo!.state).toBe("error");
+  expect(turbo!.detail).toBe("3 checks · 1 failing · 1 running");
+  // The check named exactly like the group is the build itself, not one of its jobs.
+  expect(turbo!.children!.map((c) => c.label)).toEqual([
+    "overall",
+    "CI App @acme/example-app",
+    "CI Affected Build",
+  ]);
+
+  // A lone check needs no children, and keeps its own link.
+  expect(sonar!.children).toBeUndefined();
+  expect(sonar!.url).toBe("u/sonarqube");
+});
+
+test("a terminal window is labelled by where it is, or what you named it", () => {
+  const w = (over: Partial<Parameters<typeof windowLabel>[0]>) =>
+    windowLabel({
+      index: 0,
+      name: "zsh",
+      command: "zsh",
+      active: true,
+      activity: false,
+      directory: "example-worker",
+      named: false,
+      ...over,
+    });
+  // tmux's default name is the command, which says less than the directory does.
+  expect(w({})).toBe("example-worker");
+  expect(w({ command: "vim" })).toBe("example-worker - (vim)");
+  // A window you named yourself keeps its name, wherever it wandered off to.
+  expect(w({ name: "deploy", command: "gradle", named: true })).toBe("deploy - (gradle)");
+  // Nothing is repeated: a window named after what runs in it says it once.
+  expect(w({ name: "logs", command: "logs", directory: "x", named: true })).toBe("logs");
+})
+
+test("a stacked pull request joins the stack below it, or starts one", () => {
+  // The pull request below already belongs to a stack: append to it, nothing else.
+  expect(stackRequest("org/repo", 161, 162, 163)).toEqual([
+    "repos/org/repo/stacks/163/add",
+    "-F",
+    "pull_requests[]=162",
+  ]);
+  // It does not: the two of them become a stack, bottom first.
+  expect(stackRequest("org/repo", 161, 162)).toEqual([
+    "repos/org/repo/stacks",
+    "-F",
+    "pull_requests[]=161",
+    "-F",
+    "pull_requests[]=162",
+  ]);
+});
+
+test("a pull request says where it sits in its stack", () => {
+  expect(describeStack({ number: 163, size: 2, position: 1 })).toBe("1 of 2 in stack #163");
 });

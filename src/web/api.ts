@@ -7,7 +7,18 @@ export { CHANGE_STATES };
 export type Listing = { root: string; path: string; entries: Entry[] };
 export type IntegrationInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
 export type RepoItems = { items: WidgetItem[] };
-export type RepoState = { path: string; name: string; unsafe?: { kind: string; text: string } };
+export type RepoState = {
+  path: string;
+  name: string;
+  direct: boolean;
+  base?: string;
+  unsafe?: { kind: string; text: string };
+};
+
+/** A repository chosen for a change: how it will be worked on, and what its branch starts from. */
+export type Selection = { path: string; direct: boolean; base?: string };
+
+export type Branches = { branches: string[]; default?: string };
 export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: string; number: number }[] };
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };

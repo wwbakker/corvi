@@ -20,6 +20,8 @@ import { cached, putCached, useCached } from "./cache.ts";
 import { stateClass } from "./changeState.tsx";
 import { EditReposDialog } from "./EditReposDialog.tsx";
 import { NotesCard } from "./NotesCard.tsx";
+import { TerminalPane } from "./TerminalPane.tsx";
+import { CheatSheet } from "./CheatSheet.tsx";
 
 function Dot({ state }: { state?: string }) {
   return <span className={`dot ${state ?? "none"}`} />;
@@ -328,8 +330,25 @@ export function ChangeView({
   const [completing, setCompleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The terminal keeps its shells whichever tab you are on, so it is mounted once the tab has
+  // been opened and only hidden afterwards.
+  const [tab, setTab] = useState<"dashboard" | "terminals">("dashboard");
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const [terminal, setTerminal] = useState<string | null>(null);
+  const [terminalError, setTerminalError] = useState<string | null>(null);
+  const [cheatSheet, setCheatSheet] = useState(false);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
   const [generation, setGeneration] = useState(0);
+
+  // Asked for on arrival, not when the Terminals tab is clicked: by then the widgets have all
+  // six connections the browser allows per origin busy with slow CLI calls, and the terminal
+  // would wait its turn. Starting ttyd here means the tab is ready the moment it is opened.
+  useEffect(() => {
+    setTerminal(null);
+    api<{ url: string }>(`/changes/${id}/terminal`)
+      .then(({ url }) => setTerminal(url))
+      .catch((e: Error) => setTerminalError(e.message));
+  }, [id]);
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
   useEffect(() => {
@@ -439,6 +458,28 @@ export function ChangeView({
           <ActionsMenu actions={changeActions} />
         )}
       </header>
+      <nav className="tabs">
+        {(["dashboard", "terminals"] as const).map((name) => (
+          <button
+            key={name}
+            className={tab === name ? "tab current" : "tab"}
+            onClick={() => {
+              setTab(name);
+              if (name === "terminals") setTerminalOpened(true);
+            }}
+          >
+            {name === "dashboard" ? "Dashboard" : "Terminals"}
+          </button>
+        ))}
+        <span className="spacer" />
+        {/* Only where it means something: tmux keys are no help on the dashboard. */}
+        {tab === "terminals" && (
+          <button className="tab" onClick={() => setCheatSheet(true)}>
+            tmux cheat sheet
+          </button>
+        )}
+      </nav>
+      <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {(provision ?? [])
@@ -448,13 +489,29 @@ export function ChangeView({
             {r.integration}: {r.error}
           </div>
         ))}
-      <div className="widgets">
-        <div className="column">
-          {(infos ?? []).filter((i) => !i.wide).map(card)}
-          <NotesCard changeId={id} />
+      {/* Unmounted rather than hidden while you are in the terminal: their per-repository CLI
+          calls hold every connection the browser allows per origin for seconds at a time, and
+          the terminal's own polling would queue behind them. Coming back repaints from the
+          cache and refreshes. */}
+      {tab === "dashboard" && (
+        <div className="widgets">
+          <div className="column">
+            {(infos ?? []).filter((i) => !i.wide).map(card)}
+            <NotesCard changeId={id} />
+          </div>
+          <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
         </div>
-        <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
-      </div>
+      )}
+      {terminalOpened && (
+        <div hidden={tab !== "terminals"}>
+          <TerminalPane
+            changeId={id}
+            url={terminal}
+            error={terminalError}
+            visible={tab === "terminals"}
+          />
+        </div>
+      )}
     </div>
   );
 }

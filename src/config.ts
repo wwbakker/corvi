@@ -8,6 +8,9 @@ type Config = {
   changesRoot: string;
   /** Base directory the repository browser starts from. */
   reposRoot: string;
+  /** Directory the browser opens on, inside reposRoot. Going up to reposRoot stays possible;
+   * this only saves the clicks you make every single time. */
+  reposStart: string;
   /** Who a change's Jira issue is assigned to on creation. Empty means "the logged-in user". */
   jiraAssignee: string;
   /** Transition a change's Jira issue moves to on creation. */
@@ -49,6 +52,10 @@ const resolve = (value: string | undefined, fallback: string): string => {
 export const config: Config = {
   changesRoot: resolve(process.env.IWE_ROOT ?? file.changesRoot, defaults.changesRoot),
   reposRoot: resolve(process.env.IWE_REPOS_ROOT ?? file.reposRoot, defaults.reposRoot),
+  reposStart: resolve(
+    process.env.IWE_REPOS_START ?? file.reposStart,
+    process.env.IWE_REPOS_ROOT ?? file.reposRoot ?? defaults.reposRoot,
+  ),
   jiraAssignee: process.env.IWE_JIRA_ASSIGNEE ?? file.jiraAssignee ?? "",
   jiraStartTransition:
     process.env.IWE_JIRA_START_TRANSITION ?? file.jiraStartTransition ?? "In Progress",

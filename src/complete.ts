@@ -4,6 +4,7 @@ import { mergeReadiness, mergePr } from "./integrations/github.ts";
 import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
 import { moveIssue } from "./integrations/jira.ts";
 import { archiveChange, writeChange } from "./changes.ts";
+import { stopTerminal } from "./terminal.ts";
 import { config } from "./config.ts";
 
 export type Completion = {
@@ -55,6 +56,8 @@ export async function completeChange(change: Change): Promise<Change> {
 
   // The work is on the remote now, so the worktrees have nothing left to hold.
   for (const repo of change.repos) await removeWorktree(change, repo);
+  // The terminal sits in a directory that is about to move into the archive.
+  await stopTerminal(change.id);
 
   const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
   await writeChange(completed);

@@ -12,6 +12,13 @@ export type Change = {
   branch: string;
   /** Absolute paths to the source repositories this change touches. Editable later. */
   repos: string[];
+  /** Branch each repository's work started from, keyed by repository path, e.g.
+   * `origin/main` or another change's branch when this work is stacked on it. Absent means the
+   * remote's default branch, which is what every change made before this used. */
+  base?: Record<string, string>;
+  /** The subset of `repos` worked on in place: the repository's own checkout is switched to the
+   * branch and linked from the change directory, instead of getting a worktree. */
+  direct?: string[];
   /** Optional Jira issue key, e.g. PROJ-123. */
   jira?: string;
   /** Absent on changes made before this existed; treated as "In Progress". */

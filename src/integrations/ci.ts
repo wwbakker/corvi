@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
-import { prItem, createPr } from "./github.ts";
+import { prItem, createPr, checkItems } from "./github.ts";
 import { pipelineItems } from "./azure.ts";
 
 /** Pull requests and the pipelines they trigger, per repository: one question ("is this change
@@ -12,13 +12,27 @@ async function repoItem(
 ): Promise<{ item: WidgetItem; prs: number; runs: number }> {
   const { number, item: pr } = await prItem(change, repo);
   // Pipelines run on the PR merge ref once a PR exists, so the two are looked up together.
-  const { items: pipelines, count } = await pipelineItems(change, repo, number);
+  const { items: azure, count } = await pipelineItems(change, repo, number);
+  // Nothing found in Azure DevOps does not mean nothing ran: a repository can be built by
+  // GitHub Actions, or by pipelines in another Azure project than the configured one. The pull
+  // request itself knows about all of them, so fall back to what it reports.
+  const pipelines = count === 0 && number ? await fallbackChecks(change, repo, number, azure) : azure;
   const item: WidgetItem = {
     label: basename(repo),
     state: worst([pr, ...pipelines]),
     children: [{ ...pr, children: pipelines }],
   };
   return { item, prs: number ? 1 : 0, runs: count };
+}
+
+async function fallbackChecks(
+  change: Change,
+  repo: string,
+  number: number,
+  azure: WidgetItem[],
+): Promise<WidgetItem[]> {
+  const checks = await checkItems(change, repo, number);
+  return checks.length ? checks : azure;
 }
 
 const worst = (items: WidgetItem[]): WidgetState =>

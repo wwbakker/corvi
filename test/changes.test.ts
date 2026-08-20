@@ -13,7 +13,7 @@ import {
   readNotes,
   writeNotes,
 } from "../src/changes.ts";
-import { git, worktreeFor } from "../src/integrations/git.ts";
+import { git, worktreeFor, currentBranch } from "../src/integrations/git.ts";
 import { sh } from "../src/sh.ts";
 
 let tmp: string;
@@ -28,6 +28,16 @@ beforeAll(async () => {
   await sh(["git", "add", "."], repo);
   await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 });
+
+/** A repository with one commit on main, for the in-place tests. */
+async function makeRepo(name: string): Promise<string> {
+  const path = join(tmp, name);
+  await sh(["git", "init", "-b", "main", path]);
+  await Bun.write(join(path, "README.md"), `${name}\n`);
+  await sh(["git", "add", "."], path);
+  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], path);
+  return path;
+}
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
@@ -135,4 +145,66 @@ test("notes live beside change.json and survive archiving", async () => {
 
   await archiveChange(change.id);
   expect(await readNotes(change.id)).toBe("ask about the flag\n");
+});
+
+test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
+  const { setRepos, isDirect } = await import("../src/integrations/git.ts");
+  const clean = await makeRepo("clean");
+  const dirty = await makeRepo("dirty");
+  await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
+
+  const change = await createChange({
+    id: "PROJ-DIRECT",
+    branch: "PROJ-DIRECT-work",
+    repos: [clean, dirty],
+    direct: [clean, dirty],
+  });
+  expect(isDirect(change, clean)).toBe(true);
+  await git.provision!(change);
+
+  // Both are linked from the change directory, so it still shows everything the change touches.
+  for (const repo of [clean, dirty]) {
+    expect(await realpath(join(changeDir(change.id), basename(repo)))).toBe(await realpath(repo));
+  }
+  // The clean one moved to the branch; the dirty one kept its own, uncommitted work intact.
+  expect(await currentBranch(clean)).toBe("PROJ-DIRECT-work");
+  expect(await currentBranch(dirty)).toBe("main");
+  expect(await Bun.file(join(dirty, "scratch.txt")).text()).toBe("half-finished work\n");
+
+  // Dropping it removes the link only: the checkout and its branch stay.
+  const result = await setRepos(change, [dirty], true, [dirty]);
+  expect("change" in result).toBe(true);
+  expect(await Bun.file(join(changeDir(change.id), "clean")).exists()).toBe(false);
+  expect(await currentBranch(clean)).toBe("PROJ-DIRECT-work");
+});
+
+test("a worktree starts from the base branch it was given, not the remote default", async () => {
+  // A repository with main, plus a branch ahead of it that another change might be sitting on.
+  const origin = await makeRepo("stack-origin");
+  await sh(["git", "switch", "-c", "PROJ-1-first"], origin);
+  await Bun.write(join(origin, "first.txt"), "work of the change below\n");
+  await sh(["git", "add", "."], origin);
+  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "first"], origin);
+  await sh(["git", "switch", "main"], origin);
+
+  const clone = join(tmp, "stacked");
+  await sh(["git", "clone", "--quiet", origin, clone]);
+
+  const change = await createChange({
+    id: "PROJ-STACK",
+    branch: "PROJ-STACK-second",
+    repos: [clone],
+    base: { [clone]: "origin/PROJ-1-first" },
+  });
+  await git.provision!(change);
+
+  // The file only the base branch has must be there: the new branch grew out of it.
+  const worktree = (await worktreeFor(change, clone))!;
+  expect(await Bun.file(join(worktree, "first.txt")).text()).toBe("work of the change below\n");
+
+  // And a change without a base still starts from the remote default, which has no such file.
+  const plain = await createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] });
+  await git.provision!(plain);
+  const plainTree = (await worktreeFor(plain, clone))!;
+  expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });

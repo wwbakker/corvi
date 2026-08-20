@@ -10,10 +10,17 @@ import {
 } from "./changes.ts";
 import { integrations, provision, repoStatusOf, statusOne } from "./integrations/index.ts";
 import { boardIssues, createIssue } from "./integrations/jira.ts";
-import { browse } from "./repos.ts";
+import { browse, remoteBranches, absolutePath } from "./repos.ts";
 import { repoStates, setRepos } from "./integrations/git.ts";
 import { completeChange, completionOf } from "./complete.ts";
 import { prDescription } from "./description.ts";
+import {
+  terminalUrl,
+  stopAllTerminals,
+  listWindows,
+  newWindow,
+  selectWindow,
+} from "./terminal.ts";
 import { CHANGE_STATES, type Change, type ChangeState } from "./types.ts";
 
 const json = (data: unknown, status = 200): Response => Response.json(data, { status });
@@ -90,8 +97,13 @@ const server = Bun.serve({
       GET: async (req) => withChange(req.params.id, async (c) => json(await repoStates(c))),
       POST: async (req) =>
         withChange(req.params.id, async (c) => {
-          const body = (await req.json()) as { repos: string[]; force?: boolean };
-          const result = await setRepos(c, body.repos, body.force);
+          const body = (await req.json()) as {
+            repos: string[];
+            direct?: string[];
+            base?: Record<string, string>;
+            force?: boolean;
+          };
+          const result = await setRepos(c, body.repos, body.force, body.direct, body.base);
           // 409: nothing was changed, the browser should ask about the unpushed work first.
           return "needsForce" in result ? json(result, 409) : json(result.change);
         }),
@@ -105,6 +117,27 @@ const server = Bun.serve({
           const body = (await req.json()) as { text?: string };
           await writeNotes(c.id, body.text ?? "");
           return json({ text: body.text ?? "" });
+        }),
+    },
+
+    // The change's terminal: a tmux session in the change directory, served by ttyd. Starting
+    // it is what asking for the URL does.
+    "/api/changes/:id/terminal": {
+      GET: async (req) =>
+        withChange(req.params.id, async (c) => json({ url: await terminalUrl(c) })),
+    },
+
+    // The windows of the change's tmux session, and the two things you do to them. tmux is the
+    // source of truth: this only reads and pokes it.
+    "/api/changes/:id/terminal/windows": {
+      GET: async (req) => withChange(req.params.id, async (c) => json(await listWindows(c.id))),
+      POST: async (req) =>
+        withChange(req.params.id, async (c) => {
+          const body = (await req.json()) as { action: "new" | "select"; index?: number };
+          if (body.action === "new") await newWindow(c.id);
+          else if (body.action === "select") await selectWindow(c.id, body.index ?? 0);
+          else throw new Error(`unknown window action: ${body.action}`);
+          return json(await listWindows(c.id));
         }),
     },
 
@@ -180,7 +213,22 @@ const server = Bun.serve({
     "/api/repos": {
       GET: async (req) => {
         try {
-          return json(await browse(new URL(req.url).searchParams.get("path") ?? ""));
+          // No path parameter at all: open where the configuration says. An explicit empty
+          // one is the root, which is how "up" out of the starting directory works.
+          return json(await browse(new URL(req.url).searchParams.get("path") ?? undefined));
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    },
+
+    // Branches a new worktree can start from, for the base selector.
+    "/api/repos/branches": {
+      GET: async (req) => {
+        try {
+          const path = new URL(req.url).searchParams.get("path") ?? "";
+          // Absolute paths come from the change itself; relative ones from the browser.
+          return json(await remoteBranches(path.startsWith("/") ? path : absolutePath(path)));
         } catch (e) {
           return fail(e);
         }
@@ -199,3 +247,10 @@ const server = Bun.serve({
 });
 
 console.log(`iwe on ${server.url}`);
+
+// Detached ttyd processes outlive us unless we say otherwise.
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    void stopAllTerminals().finally(() => process.exit(0));
+  });
+}

@@ -97,6 +97,8 @@ export async function createChange(input: {
   id: string;
   branch?: string;
   repos?: string[];
+  direct?: string[];
+  base?: Record<string, string>;
   jira?: string;
 }): Promise<Change> {
   const id = input.id.trim();
@@ -110,6 +112,8 @@ export async function createChange(input: {
     id,
     branch: input.branch?.trim() || id,
     repos,
+    direct: input.direct?.filter((r) => repos.includes(r)),
+    base: input.base,
     jira: input.jira?.trim() || undefined,
     state: "In Progress",
     createdAt: new Date().toISOString(),

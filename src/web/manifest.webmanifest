@@ -5,6 +5,8 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["tabbed", "standalone"],
+  "tab_strip": { "new_tab_button": { "url": "/" } },
   "background_color": "#14161a",
   "theme_color": "#14161a",
   "icons": [

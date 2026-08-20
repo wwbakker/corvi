@@ -12,6 +12,14 @@ type View =
   | { name: "new" }
   | { name: "change"; id: string; provision?: ProvisionResult[] };
 
+/** Date and time of day: two changes made on one day are the normal case, and which came first
+ * is the useful part. Local time, since that is when you were sitting there. */
+const moment = (iso: string): string => {
+  const at = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
+};
+
 function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => void }) {
   // undefined until the list has been read: "none yet" and "not known yet" are different things.
   const [changes, setChanges] = useState<Change[] | undefined>(undefined);
@@ -42,7 +50,6 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
             <th>Change</th>
             <th>State</th>
             <th>Branch</th>
-            <th>Jira</th>
             <th>Repositories</th>
             <th>Created</th>
             <th>Completed</th>
@@ -54,20 +61,19 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
               <td>{c.id}</td>
               <td className={stateClass(c.state)}>{c.state ?? "In Progress"}</td>
               <td>{c.branch}</td>
-              <td>{c.jira ?? "—"}</td>
               <td>{c.repos.length}</td>
-              <td>{c.createdAt.slice(0, 10)}</td>
-              <td>{c.completedAt ? c.completedAt.slice(0, 10) : "—"}</td>
+              <td>{moment(c.createdAt)}</td>
+              <td>{c.completedAt ? moment(c.completedAt) : "—"}</td>
             </tr>
           ))}
           {changes?.length === 0 && (
             <tr>
-              <td colSpan={7}>no changes yet</td>
+              <td colSpan={6}>no changes yet</td>
             </tr>
           )}
           {!changes && !error && (
             <tr>
-              <td colSpan={7} className="hint">
+              <td colSpan={6} className="hint">
                 loading…
               </td>
             </tr>

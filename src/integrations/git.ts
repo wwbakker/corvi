@@ -1,7 +1,8 @@
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { symlink, lstat, unlink } from "node:fs/promises";
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { sh, shOrThrow, json } from "../sh.ts";
-import { writeChange, writeWtConfig } from "../changes.ts";
+import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
 
 /** The subset of `wt list --format=json` we use. */
 export type WtEntry = {
@@ -59,6 +60,7 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
 }
 
 async function repoItem(change: Change, repo: string): Promise<WidgetItem> {
+  if (isDirect(change, repo)) return directItem(change, repo);
   const label = basename(repo);
   const entry = findWorktree(await listWorktrees(change, repo), change.branch);
   if (!entry) {
@@ -92,8 +94,79 @@ export async function remoteDefaultBranch(repo: string): Promise<string | undefi
   return (await read()) ?? "origin/main";
 }
 
+/** The branch this repository's work starts from: what you chose, or the remote's default. */
+export async function baseFor(change: Change, repo: string): Promise<string | undefined> {
+  return change.base?.[repo] ?? (await remoteDefaultBranch(repo));
+}
+
+/** Repositories worked on in place rather than through a worktree. */
+export const isDirect = (change: Change, repo: string): boolean =>
+  change.direct?.includes(repo) ?? false;
+
+/** Where the change directory links to a repository used in place, so the change directory
+ * still shows everything the change touches. */
+const linkPath = (change: Change, repo: string): string => join(changeDir(change.id), basename(repo));
+
+export const currentBranch = async (repo: string): Promise<string> =>
+  (await sh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout;
+
+export const isDirty = async (repo: string): Promise<boolean> =>
+  (await sh(["git", "status", "--porcelain"], repo)).stdout !== "";
+
+/**
+ * Work in the repository itself: link it from the change directory and put its checkout on the
+ * change's branch, freshly branched off the remote default like a worktree would be.
+ *
+ * A repository with uncommitted work is linked but not touched otherwise: switching branches
+ * under half-finished edits is the kind of help nobody wants. The widget then says so, and the
+ * action can be repeated once the tree is clean.
+ */
+async function useInPlace(change: Change, repo: string): Promise<void> {
+  await symlink(repo, linkPath(change, repo)).catch(() => {}); // already linked
+  if ((await currentBranch(repo)) === change.branch) return;
+  if (await isDirty(repo)) return; // reported by the widget; the user decides what to do
+  const exists =
+    (await sh(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
+      .code === 0;
+  if (exists) {
+    await shOrThrow(["git", "switch", change.branch], repo);
+    return;
+  }
+  const base = await baseFor(change, repo);
+  if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
+  await shOrThrow(["git", "switch", "--create", change.branch, ...(base ? [base] : [])], repo);
+}
+
+/** Stop using a repository in place: the link goes, the checkout stays exactly as it is. */
+async function unlinkInPlace(change: Change, repo: string): Promise<void> {
+  const path = linkPath(change, repo);
+  if (await lstat(path).then(() => true, () => false)) await unlink(path);
+}
+
+/** How a repository used in place stands: which branch it is on, and whether it needs a hand. */
+async function directItem(change: Change, repo: string): Promise<WidgetItem> {
+  const label = basename(repo);
+  const [branch, dirty] = await Promise.all([currentBranch(repo), isDirty(repo)]);
+  if (branch !== change.branch) {
+    return {
+      label,
+      detail: dirty
+        ? `in place, on ${branch} with uncommitted changes — commit or stash, then switch to ${change.branch} yourself`
+        : `in place, on ${branch}`,
+      detailTone: "warn",
+      state: "warn",
+      actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
+    };
+  }
+  // On the right branch: wt's own listing describes the main checkout as well as a worktree.
+  const entry = findWorktree(await listWorktrees(change, repo), change.branch);
+  const described = entry ? describe(entry) : { detail: dirty ? "uncommitted changes" : "clean", state: dirty ? "pending" : ("ok" as WidgetState) };
+  return { label, detail: `in place · ${described.detail} · ${repo}`, state: described.state };
+}
+
 /** Create the worktree for this change in `repo`; existing ones are left alone. */
 async function createWorktree(change: Change, repo: string): Promise<void> {
+  if (isDirect(change, repo)) return useInPlace(change, repo);
   if (await worktreeFor(change, repo)) return;
   const exists =
     (await sh(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
@@ -103,8 +176,9 @@ async function createWorktree(change: Change, repo: string): Promise<void> {
     await shOrThrow(await wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
     return;
   }
-  // Branch from the remote's default branch, fetched first: a local main is often behind.
-  const base = await remoteDefaultBranch(repo);
+  // Branch from the chosen base, fetched first: a local main is often behind. The base is the
+  // remote default unless this change is stacked on another one's branch.
+  const base = await baseFor(change, repo);
   if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
   const baseArgs = base ? ["--base", base] : [];
   await shOrThrow(
@@ -143,11 +217,13 @@ export async function unsafeToRemove(change: Change, repo: string): Promise<Unsa
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
 export async function repoStates(
   change: Change,
-): Promise<{ path: string; name: string; unsafe?: Unsafe }[]> {
+): Promise<{ path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]> {
   return Promise.all(
     change.repos.map(async (path) => ({
       path,
       name: basename(path),
+      direct: isDirect(change, path),
+      base: await baseFor(change, path),
       unsafe: await unsafeToRemove(change, path),
     })),
   );
@@ -159,11 +235,17 @@ export async function setRepos(
   change: Change,
   repos: string[],
   force = false,
+  direct?: string[],
+  base?: Record<string, string>,
 ): Promise<{ change: Change } | { needsForce: string[] }> {
   const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
   if (wanted.length === 0) throw new Error("a change needs at least one repository");
-  const removed = change.repos.filter((r) => !wanted.includes(r));
-  const added = wanted.filter((r) => !change.repos.includes(r));
+  const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
+  // A repository whose mode changed is torn down and set up again: the old worktree or link is
+  // as wrong as a repository that was dropped.
+  const switched = wanted.filter((r) => isDirect(change, r) !== wantedDirect.includes(r));
+  const removed = [...change.repos.filter((r) => !wanted.includes(r)), ...switched];
+  const added = [...wanted.filter((r) => !change.repos.includes(r)), ...switched];
 
   const unsafe = await Promise.all(
     removed.map(async (repo) => ({ repo, unsafe: await unsafeToRemove(change, repo) })),
@@ -178,7 +260,15 @@ export async function setRepos(
   if (unpushed.length && !force) return { needsForce: unpushed.map((u) => basename(u.repo)) };
 
   for (const repo of removed) await removeWorktree(change, repo);
-  const updated: Change = { ...change, repos: wanted };
+  const bases = Object.fromEntries(
+    Object.entries(base ?? change.base ?? {}).filter(([repo]) => wanted.includes(repo)),
+  );
+  const updated: Change = {
+    ...change,
+    repos: wanted,
+    direct: wantedDirect.length ? wantedDirect : undefined,
+    base: Object.keys(bases).length ? bases : undefined,
+  };
   await writeChange(updated);
   for (const repo of added) await createWorktree(updated, repo);
   return { change: updated };
@@ -186,6 +276,7 @@ export async function setRepos(
 
 /** Drop the worktree once its work is merged; the branch goes with it. */
 export async function removeWorktree(change: Change, repo: string): Promise<void> {
+  if (isDirect(change, repo)) return unlinkInPlace(change, repo);
   if (!(await worktreeFor(change, repo))) return;
   await shOrThrow(
     await wt(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),

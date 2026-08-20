@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { branchFor } from "../branch.ts";
-import { post, type Change, type Created, type Issue } from "./api.ts";
+import { post, type Change, type Created, type Issue, type Selection } from "./api.ts";
 import { Breadcrumb } from "./Breadcrumb.tsx";
 import { IssueTable } from "./IssueTable.tsx";
 import { RepoBrowser } from "./RepoBrowser.tsx";
@@ -21,7 +21,7 @@ export function Wizard({
   const [issue, setIssue] = useState<Issue | null>(null);
   const [id, setId] = useState("");
   const [branch, setBranch] = useState("");
-  const [repos, setRepos] = useState<string[]>([]);
+  const [repos, setRepos] = useState<Selection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -33,13 +33,24 @@ export function Wizard({
     setBranch(branchFor(picked.key, picked.summary));
   };
 
-  const addRepo = (path: string) => setRepos(repos.includes(path) ? repos : [...repos, path]);
-  const removeRepo = (path: string) => setRepos(repos.filter((r) => r !== path));
+  // Added as a worktree off the remote default; both are changed per repository afterwards.
+  const addRepo = (path: string) =>
+    setRepos(repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }]);
+  const removeRepo = (path: string) => setRepos(repos.filter((r) => r.path !== path));
+  const changeRepo = (path: string, patch: Partial<Selection>) =>
+    setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
 
   const create = () => {
     setBusy(true);
     setError(null);
-    post<Created>("/changes", { id, branch, jira: issue?.key, repos })
+    post<Created>("/changes", {
+      id,
+      branch,
+      jira: issue?.key,
+      repos: repos.map((r) => r.path),
+      direct: repos.filter((r) => r.direct).map((r) => r.path),
+      base: Object.fromEntries(repos.filter((r) => r.base).map((r) => [r.path, r.base!])),
+    })
       .then((created) => onCreated(created.change, created.provision))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
@@ -106,10 +117,18 @@ export function Wizard({
       {step === 2 && (
         <div className="form wide">
           <p className="hint">
-            Select the repositories this change touches. A git worktree on{" "}
-            <code>{branch || id || "the branch"}</code> is created in each.
+            Select the repositories this change touches. Each one is set up on{" "}
+            <code>{branch || id || "the branch"}</code>: as a <b>worktree</b>, a separate checkout
+            in the change directory, or <b>in place</b>, which puts the repository's own checkout
+            on that branch and links it here. The second box is the branch the work starts from —
+            the remote default, unless this change builds on another one.
           </p>
-          <RepoBrowser selected={repos} onAdd={addRepo} onRemove={removeRepo} />
+          <RepoBrowser
+            selected={repos}
+            onAdd={addRepo}
+            onRemove={removeRepo}
+            onChange={changeRepo}
+          />
         </div>
       )}
 

@@ -1,31 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
-import { api, type Entry, type Listing } from "./api.ts";
+import { api, type Branches, type Entry, type Listing, type Selection } from "./api.ts";
 
 /** Directory browser under the configured repos root. Browsing and selecting are separate
- * actions on every row, because a directory can be both a repository and a parent of others. */
+ * actions on every row, because a directory can be both a repository and a parent of others.
+ * How a repository is worked on, and what its branch starts from, is decided per selected
+ * repository on the right. */
 export function RepoBrowser({
   selected,
   onAdd,
   onRemove,
+  onChange,
 }: {
-  /** Absolute repository paths already chosen. */
-  selected: string[];
+  /** Repositories already chosen, with their mode and base branch. */
+  selected: Selection[];
   onAdd: (absolutePath: string) => void;
   onRemove: (absolutePath: string) => void;
+  onChange: (absolutePath: string, patch: Partial<Selection>) => void;
 }) {
   const [listing, setListing] = useState<Listing>({ root: "", path: "", entries: [] });
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  // Branches per repository, fetched once each: the base selector needs somewhere to choose from.
+  const [branches, setBranches] = useState<Record<string, Branches>>({});
 
-  const open = (path: string) => {
-    api<Listing>(`/repos?path=${encodeURIComponent(path)}`)
+  // No argument opens the configured starting directory; an explicit "" is the root.
+  const open = (path?: string) => {
+    api<Listing>(path === undefined ? "/repos" : `/repos?path=${encodeURIComponent(path)}`)
       .then((next) => {
         setListing(next);
         setFilter(""); // a filter from the previous directory means nothing here
       })
       .catch((e: Error) => setError(e.message));
   };
-  useEffect(() => open(""), []);
+  useEffect(() => open(), []);
+
+  // Every selected repository needs its branches, whether it was just added or came with the
+  // change; the default is what a repository starts from unless you say otherwise.
+  useEffect(() => {
+    for (const { path } of selected) {
+      if (branches[path]) continue;
+      setBranches((known) => ({ ...known, [path]: { branches: [] } })); // claim it, fetch once
+      api<Branches>(`/repos/branches?path=${encodeURIComponent(path)}`)
+        .then((found) => setBranches((known) => ({ ...known, [path]: found })))
+        .catch(() => {});
+    }
+  }, [selected]);
 
   const parent = listing.path.includes("/")
     ? listing.path.slice(0, listing.path.lastIndexOf("/"))
@@ -67,7 +86,7 @@ export function RepoBrowser({
           <ul className="entries">
             {entries.map((entry) => {
               const path = absolute(entry);
-              const added = selected.includes(path);
+              const added = selected.some((s) => s.path === path);
               return (
                 <li key={entry.path}>
                   <button type="button" className="dir" onClick={() => open(entry.path)}>
@@ -93,14 +112,44 @@ export function RepoBrowser({
         <div className="pane selected-pane">
           <div className="breadcrumb">Selected ({selected.length})</div>
           <ul className="entries">
-            {selected.map((path) => (
-              <li key={path}>
-                <span className="path">{path.replace(`${listing.root}/`, "")}</span>
-                <button type="button" title="Remove" onClick={() => onRemove(path)}>
-                  ✕
-                </button>
-              </li>
-            ))}
+            {selected.map(({ path, direct, base }) => {
+              const known = branches[path];
+              const options = known?.branches.length
+                ? known.branches
+                : [base ?? known?.default ?? "loading…"];
+              return (
+                <li key={path} className="selection">
+                  <div className="row">
+                    <span className="path">{path.replace(`${listing.root}/`, "")}</span>
+                    <button type="button" title="Remove" onClick={() => onRemove(path)}>
+                      ✕
+                    </button>
+                  </div>
+                  <div className="row">
+                    <select
+                      value={direct ? "direct" : "worktree"}
+                      title="a separate checkout, or this repository's own"
+                      onChange={(e) => onChange(path, { direct: e.target.value === "direct" })}
+                    >
+                      <option value="worktree">worktree</option>
+                      <option value="direct">in place</option>
+                    </select>
+                    <select
+                      className="base"
+                      value={base ?? known?.default ?? ""}
+                      title="the branch this work starts from"
+                      onChange={(e) => onChange(path, { base: e.target.value })}
+                    >
+                      {options.map((branch) => (
+                        <option key={branch} value={branch}>
+                          {branch}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </li>
+              );
+            })}
             {selected.length === 0 && <li className="hint">no repositories selected</li>}
           </ul>
         </div>

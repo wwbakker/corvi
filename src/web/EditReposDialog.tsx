@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, post, type ApiError, type Change, type RepoState } from "./api.ts";
+import { api, post, type ApiError, type Change, type RepoState, type Selection } from "./api.ts";
 import { RepoBrowser } from "./RepoBrowser.tsx";
 
 /**
@@ -19,7 +19,7 @@ export function EditReposDialog({
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [current, setCurrent] = useState<RepoState[]>([]);
-  const [draft, setDraft] = useState<string[]>([]);
+  const [draft, setDraft] = useState<Selection[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,7 +34,7 @@ export function EditReposDialog({
     api<RepoState[]>(`/changes/${changeId}/repos`)
       .then((repos) => {
         setCurrent(repos);
-        setDraft(repos.map((r) => r.path));
+        setDraft(repos.map((r) => ({ path: r.path, direct: r.direct, base: r.base })));
       })
       .catch((e: Error) => setError(e.message));
   }, [open, changeId]);
@@ -42,7 +42,12 @@ export function EditReposDialog({
   const save = (force = false) => {
     setBusy(true);
     setError(null);
-    post<Change>(`/changes/${changeId}/repos`, { repos: draft, force })
+    post<Change>(`/changes/${changeId}/repos`, {
+      repos: draft.map((d) => d.path),
+      direct: draft.filter((d) => d.direct).map((d) => d.path),
+      base: Object.fromEntries(draft.filter((d) => d.base).map((d) => [d.path, d.base!])),
+      force,
+    })
       .then(onSaved)
       .catch((e: ApiError) => {
         const needsForce = (e.body as { needsForce?: string[] })?.needsForce;
@@ -65,8 +70,12 @@ export function EditReposDialog({
       .finally(() => setBusy(false));
   };
 
-  const dropped = current.filter((r) => !draft.includes(r.path));
-  const added = draft.filter((path) => !current.some((r) => r.path === path));
+  const has = (path: string): boolean => draft.some((d) => d.path === path);
+  const dropped = current.filter((r) => !has(r.path));
+  // A repository whose mode changed counts as added: it is set up again the other way.
+  const added = draft.filter(
+    (d) => !current.some((r) => r.path === d.path && r.direct === d.direct),
+  );
 
   return (
     <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
@@ -74,8 +83,11 @@ export function EditReposDialog({
       {error && <div className="error-banner">{error}</div>}
       <RepoBrowser
         selected={draft}
-        onAdd={(path) => setDraft(draft.includes(path) ? draft : [...draft, path])}
-        onRemove={(path) => setDraft(draft.filter((p) => p !== path))}
+        onAdd={(path) => setDraft(has(path) ? draft : [...draft, { path, direct: false }])}
+        onRemove={(path) => setDraft(draft.filter((d) => d.path !== path))}
+        onChange={(path, patch) =>
+          setDraft(draft.map((d) => (d.path === path ? { ...d, ...patch } : d)))
+        }
       />
       <p className="hint">
         {added.length || dropped.length
@@ -86,7 +98,7 @@ export function EditReposDialog({
                   .map((r) => `${r.name} has ${r.unsafe!.text}`)
                   .join(", ")}`
               : "")
-          : "No changes yet: worktrees are created and removed when you press OK."}
+          : "No changes yet: worktrees and links are created and removed when you press OK."}
       </p>
       <div className="dialog-actions">
         <button type="button" onClick={onClose} disabled={busy}>

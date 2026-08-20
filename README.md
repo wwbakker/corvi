@@ -15,6 +15,10 @@ the remote's default branch (`origin/HEAD`, fetched first), never from a local `
 behind. Components that fail are
 reported on the dashboard; the change itself is written first and always survives.
 
+## Requirements
+
+`git`, `wt`, `gh`, `jira` and `az` for the integrations; `tmux` and `ttyd` for the Terminals tab.
+
 ## Run
 
 ```bash
@@ -30,6 +34,7 @@ bun run dev          # http://127.0.0.1:4000
 {
   "changesRoot": "~/changes",
   "reposRoot": "~/Repos",
+  "reposStart": "~/Repos/acme/example-legacy",
   "jiraAssignee": "",
   "jiraStartTransition": "In Progress",
   "jiraDoneTransition": "Done",
@@ -41,8 +46,9 @@ bun run dev          # http://127.0.0.1:4000
 Empty values fall back to the CLIs' own configuration: `jira me` for the assignee, and
 `az devops configure` for the Azure DevOps organisation and project.
 
-`changesRoot` holds one directory per change; `reposRoot` is where the repository browser starts.
-Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
+`changesRoot` holds one directory per change; `reposRoot` bounds the repository browser and
+`reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
+Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
 `IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`.
 
 The server binds to localhost and runs as you: it has no auth of its own because it delegates
@@ -99,6 +105,15 @@ column of its own beside the others; narrower windows stack everything.
   `1 unresolved comment · approved` is visible as its own state. Resolved threads are not
   mentioned; `ready to merge` is reserved for an approval with nothing left open.
 
+  A pull request that belongs to a GitHub stack says so: `1 of 2 in stack #163`, read in the same
+  GraphQL query as the unresolved comments, so it costs no extra call. Where the preview feature
+  is not enabled the query is repeated without those fields rather than losing the comment counts.
+
+  A repository whose pipelines Azure DevOps does not know about — built by GitHub Actions, or by
+  pipelines in another Azure project than the configured one — falls back to the checks the pull
+  request itself reports. Those are grouped by the part of the name before the bracket, so a build
+  with thirty jobs (`acme.frontend-app (CI App @acme/example-app)`) is one row you can open.
+
   A pipeline's own dot follows its **newest** run: an older failure that a later run fixed does
   not keep the pipeline, the repository or the whole CI card red. The failed run keeps its red dot
   in the list, where it belongs.
@@ -143,6 +158,52 @@ bun run shot                       # screenshots the running app into shots/
 Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1:4000`) and reports
 any console errors. Faster than describing a layout bug in prose.
 
+## Terminals
+
+Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
+change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
+(`brew install ttyd`).
+
+ttyd is started when the change page is opened, not when the tab is clicked: the dashboard's CLI
+calls occupy every connection the browser allows per origin, and a terminal asked for afterwards
+waits behind them. For the same reason the dashboard cards are unmounted while the Terminals tab
+is in front — otherwise their per-repository calls starve the window strip's polling. Returning
+to the dashboard repaints from the cache and refreshes.
+
+Above the terminal is a strip of the session's windows, labelled by **where they are** — the
+directory of the pane, which is the repository you are in — with **what is running there** in
+brackets after it: `example-service`, `example-web - (vim)`. A plain shell adds nothing, so it is
+left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
+renaming it for you at that point and so do we. A dot marks a window whose
+output arrived while you were looking elsewhere, and `+` opens another. The keyboard stays in the
+terminal throughout: the strip's buttons refuse the focus a mousedown would give them, and opening
+the tab focuses the terminal, so you can type straight away. Clicking one selects it. tmux stays the source of truth — the strip calls
+`list-windows`, `new-window` and `select-window`, so the keys keep working and a session attached
+from a terminal stays in step.
+
+Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
+beside the tabs lists them — which is also the answer to "how do I get more than one terminal":
+tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
+pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
+yourself keep your own settings — a change needs no terminal at all
+some days and three in one repository on others, so IWE opens none for you. The session is the
+real thing, not a copy: `tmux attach -t iwe-PROJ-1627` from iTerm2 reaches exactly what the browser
+shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
+`lo0` only.
+
+Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option** while dragging
+to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
+honours on macOS, and only because ttyd is started with `macOptionClickForcesSelection=true`.) A
+drag without it is tmux's selection, which lands in a tmux buffer (`ctrl-b ]` pastes it) and not in the Mac clipboard — this build of ttyd has no
+OSC 52 support, so tmux cannot reach the system clipboard by itself.
+
+A terminal that comes up blank: ttyd logs to `/tmp/iwe-ttyd-<change id>.log`, and the session is
+reachable from a normal terminal, which tells you quickly whether the problem is tmux or the
+browser. After changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
+
+Completing a change kills its session and ttyd, since the change directory moves into the archive
+underneath it.
+
 ## Notes on jira-cli output
 
 Plain mode pads columns with the delimiter, so column positions cannot be recovered: issue
@@ -162,6 +223,88 @@ Applying an edit creates a worktree per added repository and removes one per dro
   branch, so the commits remain reachable;
 - uncommitted changes — the whole edit is refused, naming the repositories: revert or commit
   first. The server enforces this, not the dialog.
+
+## Worktree or in place
+
+Each selected repository carries two choices, made in the boxes under its path:
+
+**How it is worked on** — one of two ways:
+
+- **Worktree** — a separate checkout on the change's branch inside the change directory. The
+  repository you browsed from keeps whatever it was doing.
+- **In place** — the repository's own checkout is switched to the change's branch (created from
+  the remote default, after a fetch) and symlinked into the change directory, so the change
+  directory still lists everything the change touches.
+
+A repository with uncommitted work is linked but not switched: the card says which branch it is
+on and offers the switch again once you have committed or stashed. Removing an in-place
+repository, or completing the change, removes only the link — your checkout and its branch stay
+exactly where they were.
+
+**What it starts from** — the second box lists the remote's branches, newest first, with the
+default (`origin/main`) selected. Choosing another change's branch stacks this work on top of it:
+the worktree branches off there, and `gh pr create` targets that branch, so the pull request shows
+your commits alone rather than both changes' together. GitHub retargets it to `main` by itself
+once the branch below merges — and since these repositories squash-merge, rebase afterwards with
+`git rebase --onto origin/main <branch-below> <your-branch>` rather than merging `main` in.
+
+When the branch below has a pull request of its own, IWE also registers the two as a **GitHub
+stack** (a public preview feature): the new pull request is appended to that stack, or a stack of
+the two is created. Reviewers then see the order of the work, and merging the bottom one carries
+the rest along. It is best effort — a repository without the preview feature, or a base branch
+with no pull request, simply gets the correct base and nothing more.
+
+Stacking is worth avoiding when you can simply wait for the change below to merge; two deep is
+manageable, four is a research project every time the bottom one moves.
+
+`reposStart` in the config sets the directory the browser opens on; `↑ Up` still walks back to
+`reposRoot`.
+
+## Terminals
+
+Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
+change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
+(`brew install ttyd`).
+
+ttyd is started when the change page is opened, not when the tab is clicked: the dashboard's CLI
+calls occupy every connection the browser allows per origin, and a terminal asked for afterwards
+waits behind them. For the same reason the dashboard cards are unmounted while the Terminals tab
+is in front — otherwise their per-repository calls starve the window strip's polling. Returning
+to the dashboard repaints from the cache and refreshes.
+
+Above the terminal is a strip of the session's windows, labelled by **where they are** — the
+directory of the pane, which is the repository you are in — with **what is running there** in
+brackets after it: `example-service`, `example-web - (vim)`. A plain shell adds nothing, so it is
+left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
+renaming it for you at that point and so do we. A dot marks a window whose
+output arrived while you were looking elsewhere, and `+` opens another. The keyboard stays in the
+terminal throughout: the strip's buttons refuse the focus a mousedown would give them, and opening
+the tab focuses the terminal, so you can type straight away. Clicking one selects it. tmux stays the source of truth — the strip calls
+`list-windows`, `new-window` and `select-window`, so the keys keep working and a session attached
+from a terminal stays in step.
+
+Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
+beside the tabs lists them — which is also the answer to "how do I get more than one terminal":
+tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
+pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
+yourself keep your own settings — a change needs no terminal at all
+some days and three in one repository on others, so IWE opens none for you. The session is the
+real thing, not a copy: `tmux attach -t iwe-PROJ-1627` from iTerm2 reaches exactly what the browser
+shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
+`lo0` only.
+
+Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option** while dragging
+to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
+honours on macOS, and only because ttyd is started with `macOptionClickForcesSelection=true`.) A
+drag without it is tmux's selection, which lands in a tmux buffer (`ctrl-b ]` pastes it) and not in the Mac clipboard — this build of ttyd has no
+OSC 52 support, so tmux cannot reach the system clipboard by itself.
+
+A terminal that comes up blank: ttyd logs to `/tmp/iwe-ttyd-<change id>.log`, and the session is
+reachable from a normal terminal, which tells you quickly whether the problem is tmux or the
+browser. After changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
+
+Completing a change kills its session and ttyd, since the change directory moves into the archive
+underneath it.
 
 ## Notes
 
@@ -241,6 +384,13 @@ Implement `Integration` from `src/types.ts`: either `status(change)` for a whole
 `repoStatus(change, repo)` to be fetched a repository at a time, optionally `provision(change)`
 for the creation step and `run(change, action, arg)` for buttons and add it to the table in `src/integrations/index.ts`. The UI
 renders whatever widgets come back; no frontend change needed.
+
+## Testing the terminal
+
+`test/terminal.test.ts` drives the real thing: it starts a server on a temporary root, opens the
+Terminals tab in Chromium, types `pwd > out.txt` into the frame and reads the file back, then
+checks `ctrl-b c` reaches tmux, mouse mode is on, and that asking twice reuses one ttyd. It skips
+itself when `ttyd` or `tmux` is missing rather than failing.
 
 ## Layout
 
