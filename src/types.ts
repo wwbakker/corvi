@@ -41,6 +41,9 @@ export type WidgetItem = {
   /** Actions applicable to this item; `arg` is passed back to the integration. `confirm` asks
    * the question before running, for anything that could surprise. */
   actions?: { id: string; label: string; arg?: string; confirm?: string }[];
+  /** Actions that belong to the row but not on it: shown behind a ⋯ button, for things you do
+   * occasionally (open this repository somewhere) rather than act on. */
+  menu?: { id: string; label: string; arg?: string; confirm?: string }[];
   /** Something still running: the browser ticks the elapsed time and draws a bar against the
    * expected duration, so a 15s poll does not make the clock stutter. */
   progress?: { startedAt: string; expectedMs?: number };
@@ -72,4 +75,23 @@ export type Integration = {
   provision?(change: Change): Promise<void>;
   /** Perform `action` (an id handed out by `status`) on this change. */
   run?(change: Change, action: string, arg?: string): Promise<void>;
+};
+
+/** One thing completing a change does, and how it went. Written to disk as it happens: a
+ * completion that stops half way — a merge that hung, a ticket that refused to move — has to be
+ * legible afterwards, from a page that was never open. */
+export type CompletionStep = {
+  id: string;
+  label: string;
+  state: "waiting" | "running" | "done" | "failed";
+  /** What it did, or why it did not. */
+  detail?: string;
+};
+
+export type CompletionProgress = {
+  startedAt: string;
+  finishedAt?: string;
+  steps: CompletionStep[];
+  /** Set when a step failed; the change is left as that step found it. */
+  error?: string;
 };

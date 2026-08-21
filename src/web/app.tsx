@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { api, type Change, type ProvisionResult } from "./api.ts";
 import { Breadcrumb } from "./Breadcrumb.tsx";
 import { stateClass } from "./changeState.tsx";
+import { Leftovers } from "./Leftovers.tsx";
 import { Wizard } from "./Wizard.tsx";
 import { ChangeView } from "./ChangeView.tsx";
 
@@ -80,6 +81,7 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
           )}
         </tbody>
       </table>
+      <Leftovers />
     </div>
   );
 }

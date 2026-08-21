@@ -22,7 +22,7 @@ const checkState = (bucket: string): WidgetState =>
  * The checks of a pull request, as the tree shows them when Azure DevOps has nothing to say about
  * this repository: its pipelines live in another project, or it is built by GitHub Actions.
  *
- * Names like `acme.frontend-app (CI App @acme/example-app)` are grouped by the part before
+ * Names like `owner.pipeline (CI App @scope/one-app)` are grouped by the part before
  * the bracket, so thirty jobs of one build read as one row you can open.
  */
 export async function checkItems(change: Change, repo: string, number: number): Promise<WidgetItem[]> {

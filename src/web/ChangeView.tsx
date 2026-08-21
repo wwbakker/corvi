@@ -21,7 +21,9 @@ import { stateClass } from "./changeState.tsx";
 import { EditReposDialog } from "./EditReposDialog.tsx";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
+import { type TerminalWindow } from "./WindowStrip.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";
+import { CompletionCard } from "./CompletionCard.tsx";
 
 function Dot({ state }: { state?: string }) {
   return <span className={`dot ${state ?? "none"}`} />;
@@ -97,6 +99,19 @@ function Item({
         <span className={`detail ${item.detailTone ?? ""}`}>{item.detail}</span>
         {item.progress && <Progress {...item.progress} />}
         <span className="spacer" />
+        {item.menu?.length ? (
+          <ActionsMenu
+            className="dots"
+            label="⋯"
+            actions={item.menu.map((a) => ({
+              label: a.label,
+              disabled: busy,
+              onSelect: () => {
+                if (!a.confirm || window.confirm(a.confirm)) onAction(a.id, a.arg);
+              },
+            }))}
+          />
+        ) : null}
         {(item.actions ?? []).map((a) => (
           <button
             key={a.id + (a.arg ?? "")}
@@ -337,6 +352,7 @@ export function ChangeView({
   const [terminal, setTerminal] = useState<string | null>(null);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [cheatSheet, setCheatSheet] = useState(false);
+  const [windows, setWindows] = useState<TerminalWindow[]>([]);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
   const [generation, setGeneration] = useState(0);
 
@@ -345,10 +361,25 @@ export function ChangeView({
   // would wait its turn. Starting ttyd here means the tab is ready the moment it is opened.
   useEffect(() => {
     setTerminal(null);
+    if (change?.completedAt) return; // archived: there is nothing left to attach to
     api<{ url: string }>(`/changes/${id}/terminal`)
       .then(({ url }) => setTerminal(url))
       .catch((e: Error) => setTerminalError(e.message));
   }, [id]);
+
+  // The windows of the terminal, for the strip and for the count on the tab. Slowly while you
+  // are on the dashboard: it is one number there, and the dashboard's own calls are slow enough
+  // to queue behind.
+  useEffect(() => {
+    if (change?.completedAt) return setWindows([]);
+    const load = () =>
+      api<TerminalWindow[]>(`/changes/${id}/terminal/windows`)
+        .then(setWindows)
+        .catch(() => {}); // no session yet: the next tick will find it
+    void load();
+    const timer = setInterval(load, tab === "terminals" ? 1500 : 10_000);
+    return () => clearInterval(timer);
+  }, [id, tab, change?.completedAt]);
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
   useEffect(() => {
@@ -409,11 +440,13 @@ export function ChangeView({
   const complete = () => {
     setCompleting(true);
     setError(null);
-    post<Change>(`/changes/${id}/complete`, {})
-      .then((updated) => {
+    post<{ change: Change; notes: string[] }>(`/changes/${id}/complete`, {})
+      .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
       })
+      // Where it stopped is in the completion card, which reads it from disk; this is only for
+      // a refusal before anything started, such as a pull request that is not approved.
       .catch((e: Error) => setError(e.message))
       .finally(() => setCompleting(false));
   };
@@ -468,7 +501,9 @@ export function ChangeView({
               if (name === "terminals") setTerminalOpened(true);
             }}
           >
-            {name === "dashboard" ? "Dashboard" : "Terminals"}
+            {name === "dashboard"
+              ? "Dashboard"
+              : `Terminals${windows.length ? ` (${windows.length})` : ""}`}
           </button>
         ))}
         <span className="spacer" />
@@ -496,6 +531,7 @@ export function ChangeView({
       {tab === "dashboard" && (
         <div className="widgets">
           <div className="column">
+            <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
             {(infos ?? []).filter((i) => !i.wide).map(card)}
             <NotesCard changeId={id} />
           </div>
@@ -509,6 +545,8 @@ export function ChangeView({
             url={terminal}
             error={terminalError}
             visible={tab === "terminals"}
+            windows={windows}
+            onWindowsChanged={setWindows}
           />
         </div>
       )}

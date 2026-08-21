@@ -27,7 +27,10 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
-async function azDefaults(): Promise<{ organization?: string; project?: string }> {
+async function azDefaults(): Promise<{
+  organization?: string;
+  project?: string;
+}> {
   if (defaults) return defaults;
   const r = await sh(["az", "devops", "configure", "-l"]);
   const read = (key: string): string | undefined =>
@@ -57,28 +60,83 @@ export function runState(run: Run): WidgetState {
  * while CI-triggered pipelines (publishing a client, for instance) keep running on the branch,
  * so asking for only one of them hides half the builds once a pull request exists. */
 export const refsFor = (branch: string, pr?: number): string[] =>
-  pr ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`] : [`refs/heads/${branch}`];
+  pr
+    ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`]
+    : [`refs/heads/${branch}`];
 
 /** Azure DevOps pipeline folders mirror the service directories of a monorepo (`\service-x`),
  * which is how runs are attributed to a repository: `repository.name` comes back null. */
 export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 
-async function listDefinitions(repo: string): Promise<Definition[]> {
-  const r = await sh(["az", "pipelines", "list", "--folder-path", folderFor(repo), "-o", "json"]);
-  return r.code === 0 ? json<Definition[]>(r.stdout, []) : [];
+/**
+ * One call per distinct question, however many rows ask it. Every repository of a change asks
+ * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
+ * milliseconds of CPU per invocation — it is a Python program, started afresh each time.
+ *
+ * In-flight calls are shared outright; finished ones are reused for `ttl`, which is short enough
+ * that a refresh still sees a build that started since the last one.
+ */
+const pending = new Map<string, { at: number; work: Promise<unknown> }>();
+
+function once<T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> {
+  const found = pending.get(key);
+  if (found && Date.now() - found.at < ttl) return found.work as Promise<T>;
+  const started = { at: Date.now(), work: work() };
+  pending.set(key, started);
+  // A failure must not be remembered: the next caller should try again.
+  void started.work.catch(() => pending.delete(key));
+  return started.work as Promise<T>;
 }
 
-async function runsFor(refs: string[]): Promise<{ runs: Run[]; error?: string }> {
+/** Pipelines are moved between folders about never; runs happen while you watch. */
+const DEFINITIONS_TTL = 5 * 60_000;
+const RUNS_TTL = 5_000;
+
+async function listDefinitions(repo: string): Promise<Definition[]> {
+  return once(`definitions:${folderFor(repo)}`, DEFINITIONS_TTL, async () => {
+    const r = await sh([
+      "az",
+      "pipelines",
+      "list",
+      "--folder-path",
+      folderFor(repo),
+      "-o",
+      "json",
+    ]);
+    return r.code === 0 ? json<Definition[]>(r.stdout, []) : [];
+  });
+}
+
+async function runsFor(
+  refs: string[],
+): Promise<{ runs: Run[]; error?: string }> {
   // One query per ref; grouping per pipeline happens here rather than in a query per pipeline.
+  // The branch ref is the same for every repository of a change, so this is asked six times at
+  // once and answered once.
   const results = await Promise.all(
     refs.map((ref) =>
-      sh(["az", "pipelines", "runs", "list", "--branch", ref, "--top", "50", "-o", "json"]),
+      once(`runs:${ref}`, RUNS_TTL, () =>
+        sh([
+          "az",
+          "pipelines",
+          "runs",
+          "list",
+          "--branch",
+          ref,
+          "--top",
+          "50",
+          "-o",
+          "json",
+        ]),
+      ),
     ),
   );
   const failed = results.find((r) => r.code !== 0);
-  if (failed) return { runs: [], error: (failed.stderr || failed.stdout).split("\n")[0] };
+  if (failed)
+    return { runs: [], error: (failed.stderr || failed.stdout).split("\n")[0] };
   const byId = new Map<number, Run>();
-  for (const r of results) for (const run of json<Run[]>(r.stdout, [])) byId.set(run.id, run);
+  for (const r of results)
+    for (const run of json<Run[]>(r.stdout, [])) byId.set(run.id, run);
   // Newest first, so slicing per pipeline keeps the most recent runs.
   return { runs: [...byId.values()].sort((a, b) => b.id - a.id) };
 }
@@ -96,26 +154,32 @@ export function averageDuration(runs: Run[]): number | undefined {
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
 }
 
-async function expectedDuration(definitionId: number): Promise<number | undefined> {
-  const r = await sh([
-    "az",
-    "pipelines",
-    "runs",
-    "list",
-    "--pipeline-ids",
-    String(definitionId),
-    "--status",
-    "completed",
-    "--top",
-    historySize(),
-    "-o",
-    "json",
-  ]);
-  return r.code === 0 ? averageDuration(json<Run[]>(r.stdout, [])) : undefined;
+async function expectedDuration(
+  definitionId: number,
+): Promise<number | undefined> {
+  return once(`duration:${definitionId}`, DEFINITIONS_TTL, async () => {
+    const r = await sh([
+      "az",
+      "pipelines",
+      "runs",
+      "list",
+      "--pipeline-ids",
+      String(definitionId),
+      "--status",
+      "completed",
+      "--top",
+      historySize(),
+      "-o",
+      "json",
+    ]);
+    return r.code === 0
+      ? averageDuration(json<Run[]>(r.stdout, []))
+      : undefined;
+  });
 }
 
 /** The artifact version a build produced, as printed by the pipelines themselves. Ported from
- * example-legacy-misc/scripts/version-from-pr. */
+ * a shell script that read the same lines out of build logs. */
 const VERSION_PATTERNS = [
   /Version is: '([^']+)'/,
   // Deliberately looser than the source script: docker prints the tag after a full image
@@ -135,7 +199,11 @@ export function versionInLines(lines: string[]): string | undefined {
 }
 
 /** Log ids of a run, newest step last. */
-async function logIds(project: string, pipelineId: number, runId: number): Promise<number[]> {
+async function logIds(
+  project: string,
+  pipelineId: number,
+  runId: number,
+): Promise<number[]> {
   const r = await sh([
     "az",
     "devops",
@@ -154,10 +222,16 @@ async function logIds(project: string, pipelineId: number, runId: number): Promi
     "json",
   ]);
   if (r.code !== 0) return [];
-  return json<{ logs?: { id: number }[] }>(r.stdout, {}).logs?.map((l) => l.id) ?? [];
+  return (
+    json<{ logs?: { id: number }[] }>(r.stdout, {}).logs?.map((l) => l.id) ?? []
+  );
 }
 
-async function logLines(project: string, runId: number, logId: number): Promise<string[]> {
+async function logLines(
+  project: string,
+  runId: number,
+  logId: number,
+): Promise<string[]> {
   const r = await sh([
     "az",
     "devops",
@@ -175,19 +249,27 @@ async function logLines(project: string, runId: number, logId: number): Promise<
     "-o",
     "json",
   ]);
-  return r.code === 0 ? (json<{ value?: string[] }>(r.stdout, {}).value ?? []) : [];
+  return r.code === 0
+    ? (json<{ value?: string[] }>(r.stdout, {}).value ?? [])
+    : [];
 }
 
 /** A finished run's logs never change, so a version is looked up once and kept. */
 const versions = new Map<number, string | undefined>();
 
-async function versionOf(run: Run, project: string): Promise<string | undefined> {
+async function versionOf(
+  run: Run,
+  project: string,
+): Promise<string | undefined> {
   // Only successful builds produced an artifact worth naming.
-  if (run.status !== "completed" || run.result !== "succeeded") return undefined;
+  if (run.status !== "completed" || run.result !== "succeeded")
+    return undefined;
   if (versions.has(run.id)) return versions.get(run.id);
 
   const pipelineId = run.definition?.id;
-  const version = pipelineId ? await findVersion(project, pipelineId, run.id) : undefined;
+  const version = pipelineId
+    ? await findVersion(project, pipelineId, run.id)
+    : undefined;
   versions.set(run.id, version);
   return version;
 }
@@ -202,7 +284,9 @@ async function findVersion(
   const ids = (await logIds(project, pipelineId, runId)).sort((a, b) => b - a);
   for (let i = 0; i < ids.length; i += 5) {
     const batch = await Promise.all(
-      ids.slice(i, i + 5).map(async (id) => versionInLines(await logLines(project, runId, id))),
+      ids
+        .slice(i, i + 5)
+        .map(async (id) => versionInLines(await logLines(project, runId, id))),
     );
     const found = batch.find(Boolean);
     if (found) return found;
@@ -228,8 +312,15 @@ export async function pipelineItems(
   pr?: number,
 ): Promise<{ items: WidgetItem[]; count: number }> {
   const refs = refsFor(change.branch, pr);
-  const [definitions, { runs, error }] = await Promise.all([listDefinitions(repo), runsFor(refs)]);
-  if (error) return { items: [{ label: "pipelines", detail: error, state: "error" }], count: 0 };
+  const [definitions, { runs, error }] = await Promise.all([
+    listDefinitions(repo),
+    runsFor(refs),
+  ]);
+  if (error)
+    return {
+      items: [{ label: "pipelines", detail: error, state: "error" }],
+      count: 0,
+    };
 
   const { organization, project } = await azDefaults();
   const url = (id: number): string | undefined =>
@@ -239,10 +330,13 @@ export async function pipelineItems(
 
   // Definitions come from this repository's folder; runs that match none of them are ignored,
   // which is what keeps a monorepo's other services out of this widget.
-  const byDefinition = new Map<number, Run[]>(definitions.map((d) => [d.id, []]));
+  const byDefinition = new Map<number, Run[]>(
+    definitions.map((d) => [d.id, []]),
+  );
   for (const run of runs) {
     const id = run.definition?.id;
-    if (id !== undefined && byDefinition.has(id)) byDefinition.get(id)!.push(run);
+    if (id !== undefined && byDefinition.has(id))
+      byDefinition.get(id)!.push(run);
   }
 
   let count = 0;
@@ -260,47 +354,62 @@ export async function pipelineItems(
     ),
   );
 
-  const items = await Promise.all(definitions.map(async (definition): Promise<WidgetItem> => {
-    const mine = (byDefinition.get(definition.id) ?? []).slice(0, runsPerPipeline());
-    count += mine.length;
-    const children = mine.map((run): WidgetItem => {
-      const done = run.status === "completed";
-      return {
-        label: run.buildNumber,
-        detail: done ? (run.result ?? "completed") : run.status,
-        url: url(run.id),
-        state: runState(run),
-        progress:
-          !done && run.startTime
-            ? { startedAt: run.startTime, expectedMs: expected.get(definition.id) }
-            : undefined,
-      };
-    });
-    // The version each successful build produced, read from its logs.
-    if (project) {
-      await Promise.all(
-        mine.map(async (run, index) => {
-          const version = await versionOf(run, project);
-          const child = children[index]!;
-          if (version) child.detail = [child.detail, version].filter(Boolean).join(" · ");
-        }),
+  const items = await Promise.all(
+    definitions.map(async (definition): Promise<WidgetItem> => {
+      const mine = (byDefinition.get(definition.id) ?? []).slice(
+        0,
+        runsPerPipeline(),
       );
-    }
-    return {
-      label: definition.name,
-      // Runs speak for themselves when listed; their absence does not.
-      detail: children.length
-        ? undefined
-        : `no runs for ${pr ? "this pull request or branch" : "this branch"}`,
-      // The newest run is the truth about a pipeline: an older failure that a later run fixed
-      // must not keep the dot red. The failed run keeps its own red dot in the list.
-      state: children[0]?.state ?? "none",
-      children,
-    };
-  }));
+      count += mine.length;
+      const children = mine.map((run): WidgetItem => {
+        const done = run.status === "completed";
+        return {
+          label: run.buildNumber,
+          detail: done ? (run.result ?? "completed") : run.status,
+          url: url(run.id),
+          state: runState(run),
+          progress:
+            !done && run.startTime
+              ? {
+                  startedAt: run.startTime,
+                  expectedMs: expected.get(definition.id),
+                }
+              : undefined,
+        };
+      });
+      // The version each successful build produced, read from its logs.
+      if (project) {
+        await Promise.all(
+          mine.map(async (run, index) => {
+            const version = await versionOf(run, project);
+            const child = children[index]!;
+            if (version)
+              child.detail = [child.detail, version]
+                .filter(Boolean)
+                .join(" · ");
+          }),
+        );
+      }
+      return {
+        label: definition.name,
+        // Runs speak for themselves when listed; their absence does not.
+        detail: children.length
+          ? undefined
+          : `no runs for ${pr ? "this pull request or branch" : "this branch"}`,
+        // The newest run is the truth about a pipeline: an older failure that a later run fixed
+        // must not keep the dot red. The failed run keeps its own red dot in the list.
+        state: children[0]?.state ?? "none",
+        children,
+      };
+    }),
+  );
 
   if (items.length === 0) {
-    items.push({ label: "pipelines", detail: `none in ${folderFor(repo)}`, state: "none" });
+    items.push({
+      label: "pipelines",
+      detail: `none in ${folderFor(repo)}`,
+      state: "none",
+    });
   }
   return { items, count };
 }

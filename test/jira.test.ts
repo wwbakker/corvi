@@ -15,7 +15,7 @@ test("branch name derived from a picked issue", () => {
 test("CSV parsing keeps commas and quotes inside summaries", () => {
   const csv = [
     "TYPE,KEY,SUMMARY,ASSIGNEE,STATUS",
-    'Story,PROJ-1,"Compare start, end and ""deactivation"" dates",Wessel Bakker,In Progress',
+    'Story,PROJ-1,"Compare start, end and ""deactivation"" dates",Ada Lovelace,In Progress',
     "Bug,PROJ-2,Unassigned bug,,To Do",
     "Epic,PROJ-3,An epic we do not work on directly,,To Do",
     "no result found for given query",
@@ -25,7 +25,7 @@ test("CSV parsing keeps commas and quotes inside summaries", () => {
       type: "Story",
       key: "PROJ-1",
       summary: 'Compare start, end and "deactivation" dates',
-      assignee: "Wessel Bakker",
+      assignee: "Ada Lovelace",
       status: "In Progress",
       sprint: "Sprint 42",
     },
@@ -43,9 +43,9 @@ test("CSV parsing keeps commas and quotes inside summaries", () => {
 });
 
 test("sprint list is read despite tab padding", () => {
-  const stdout = ["ID\tNAME\t\t\t\tSTATE", "19025\t2026-17-Example-Legacy sprint\tactive", "8970\tExample-Legacy Refinement\t\tactive"].join("\n");
+  const stdout = ["ID\tNAME\t\t\t\tSTATE", "19025\t2026-17-Project sprint\tactive", "8970\tProject Refinement\t\tactive"].join("\n");
   expect(parseSprints(stdout)).toEqual([
-    { id: "19025", name: "2026-17-Example-Legacy sprint", state: "active" },
-    { id: "8970", name: "Example-Legacy Refinement", state: "active" },
+    { id: "19025", name: "2026-17-Project sprint", state: "active" },
+    { id: "8970", name: "Project Refinement", state: "active" },
   ]);
 });

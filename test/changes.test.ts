@@ -208,3 +208,124 @@ test("a worktree starts from the base branch it was given, not the remote defaul
   const plainTree = (await worktreeFor(plain, clone))!;
   expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });
+
+test("a completed change is listed once, even when its directory is left behind", async () => {
+  const change = await createChange({ id: "PROJ-TWICE", repos: [repo] });
+  await archiveChange(change.id);
+  // A terminal, or a build, writing into the old path recreates it after the archive moved.
+  await Bun.write(join(changeDir(change.id), "terminal.json"), "{}\n");
+
+  const listed = (await listChanges()).filter((c) => c.id === "PROJ-TWICE");
+  expect(listed.length).toBe(1);
+});
+
+test("directories left by finished changes are found, and only those", async () => {
+  const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
+  const active = await createChange({ id: "PROJ-ALIVE", repos: [repo] });
+
+  // A change that was completed: change.json moved to the archive, the directory stayed.
+  const done = await createChange({ id: "PROJ-DONE", repos: [repo] });
+  await archiveChange(done.id);
+  await Bun.write(join(changeDir(done.id), "target", "build.jar"), "artifact\n");
+
+  const leftovers = await listLeftovers();
+  const names = leftovers.map((l) => l.name);
+  expect(names).toContain("PROJ-DONE");
+  expect(names).not.toContain(active.id); // an active change is not litter
+  expect(names).not.toContain("archive"); // nor is the archive itself
+  expect(leftovers.find((l) => l.name === "PROJ-DONE")?.entries).toEqual([
+    { name: "target", directory: true },
+  ]);
+
+  // Deleting one takes the directory with it, and refuses to touch a change that is still live.
+  expect(removeLeftover(active.id)).rejects.toThrow(/active change/);
+  await removeLeftover("PROJ-DONE");
+  expect(await Bun.file(join(changeDir("PROJ-DONE"), "target", "build.jar")).exists()).toBe(false);
+  expect((await listLeftovers()).map((l) => l.name)).not.toContain("PROJ-DONE");
+  // The archived change itself is untouched: only the leftover directory went.
+  expect(await readChange("PROJ-DONE")).toMatchObject({ id: "PROJ-DONE" });
+});
+
+test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
+  const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
+  const change = await createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] });
+  await git.provision!(change);
+  // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
+  const worktree = (await worktreeFor(change, repo))!;
+  expect(worktree).toBe(await realpath(join(changeDir(change.id), "myrepo")));
+
+  // A change whose record is gone while its worktree is not: an interrupted creation, or a
+  // change.json lost by hand. Completing removes worktrees first, so it cannot happen that way.
+  await rm(join(changeDir(change.id), "change.json"));
+  const listed = (await listLeftovers()).find((l) => l.name === change.id)!;
+  // Shown as what it is, so the warning before deleting can say so.
+  expect(listed.entries).toContainEqual({ name: "myrepo", directory: true, git: "worktree" });
+
+  await removeLeftover(change.id);
+  // git forgets the worktree as well: a stale registration would block reusing the path.
+  const registered = await sh(["git", "worktree", "list"], repo);
+  expect(registered.stdout).not.toContain(worktree);
+});
+
+test("a completion says which steps it will take, and where it stopped", async () => {
+  const { progressOf, stepsFor } = await import("../src/complete.ts");
+  const { writeSidecar } = await import("../src/changes.ts");
+  const change = await createChange({ id: "PROJ-HALF", repos: [repo], jira: "PROJ-9" });
+
+  // Named before anything runs, so the page can show what is still to come.
+  const steps = stepsFor(change, {
+    ready: true,
+    reasons: [],
+    toMerge: [{ repo, number: 7 }],
+  });
+  expect(steps.map((s) => s.id)).toEqual([
+    `merge:${repo}`,
+    "jira",
+    "worktrees",
+    "terminal",
+    "archive",
+  ]);
+  expect(steps[0]!.label).toBe("merge myrepo #7");
+  expect(steps.every((s) => s.state === "waiting")).toBe(true);
+
+  // A completion that stopped: written to disk, so it is legible from a page opened later.
+  expect(await progressOf(change.id)).toBeNull();
+
+  await writeSidecar(
+    change.id,
+    "completion.json",
+    JSON.stringify({
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      error: "could not merge #7: Merge conflict.",
+      steps: [{ ...steps[0], state: "failed", detail: "could not merge #7: Merge conflict." }],
+    }),
+  );
+  const stopped = (await progressOf(change.id))!;
+  expect(stopped.error).toBe("could not merge #7: Merge conflict.");
+  expect(stopped.steps[0]!.state).toBe("failed");
+
+  // And it travels with the change when that is archived.
+  await archiveChange(change.id);
+  expect((await progressOf(change.id))?.error).toBe("could not merge #7: Merge conflict.");
+  expect(await Bun.file(join(archiveDir(change.id), "completion.json")).exists()).toBe(true);
+});
+
+test("a completion records itself before it starts checking anything", async () => {
+  const { completeChange, progressOf } = await import("../src/complete.ts");
+  const change = await createChange({ id: "PROJ-EARLY", repos: [repo] });
+
+  // Nothing yet: a change that was never completed has no record at all.
+  expect(await progressOf(change.id)).toBeNull();
+
+  // The repository has no remote, so the readiness check refuses. That refusal is recorded too:
+  // it used to be a message in a dialog, which a page opened later would never see.
+  expect(completeChange(change)).rejects.toThrow(/cannot complete/);
+  await Bun.sleep(2000);
+  const failed = (await progressOf(change.id))!;
+  expect(failed.startedAt).toBeTruthy();
+  expect(failed.steps[0]).toMatchObject({ id: "check", state: "failed" });
+  expect(failed.steps[0]!.detail).toContain("no worktree");
+  expect(failed.error).toContain("cannot complete");
+  expect(failed.finishedAt).toBeTruthy();
+}, 20_000);

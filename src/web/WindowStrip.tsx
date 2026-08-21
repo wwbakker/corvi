@@ -1,5 +1,4 @@
-import { useEffect, useState } from "react";
-import { api, post } from "./api.ts";
+import { post } from "./api.ts";
 
 export type TerminalWindow = {
   index: number;
@@ -28,28 +27,18 @@ export const windowLabel = (w: TerminalWindow): string => {
  */
 export function WindowStrip({
   changeId,
-  active,
+  windows,
+  onChanged,
   focusTerminal,
 }: {
   changeId: string;
-  active: boolean;
+  /** Polled by the change view, which needs the count for the tab as well. */
+  windows: TerminalWindow[];
+  onChanged: (windows: TerminalWindow[]) => void;
   /** Puts the keyboard back in the terminal, for the cases where the click did take it. */
   focusTerminal: () => void;
 }) {
-  const [windows, setWindows] = useState<TerminalWindow[]>([]);
-
-  // Only while the tab is in front: polling a hidden strip would ask tmux every second for
-  // something nobody is looking at.
-  useEffect(() => {
-    if (!active) return;
-    const load = () =>
-      api<TerminalWindow[]>(`/changes/${changeId}/terminal/windows`)
-        .then(setWindows)
-        .catch(() => {}); // the session may not exist yet; the next tick will find it
-    void load();
-    const timer = setInterval(load, 1500);
-    return () => clearInterval(timer);
-  }, [changeId, active]);
+  const setWindows = onChanged;
 
   const act = (body: { action: "new" | "select"; index?: number }) =>
     post<TerminalWindow[]>(`/changes/${changeId}/terminal/windows`, body)

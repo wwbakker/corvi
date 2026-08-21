@@ -12,7 +12,15 @@ export type Action = {
 
 /** A button that opens a list of actions. Closes on Escape, on an outside click, and after
  * picking something, which is all a menu owes you. */
-export function ActionsMenu({ actions }: { actions: Action[] }) {
+export function ActionsMenu({
+  actions,
+  label = "Actions ▾",
+  className = "primary",
+}: {
+  actions: Action[];
+  label?: string;
+  className?: string;
+}) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -32,8 +40,14 @@ export function ActionsMenu({ actions }: { actions: Action[] }) {
 
   return (
     <div className="menu" ref={ref}>
-      <button className="primary" aria-expanded={open} onClick={() => setOpen(!open)}>
-        Actions ▾
+      <button
+        className={className}
+        aria-expanded={open}
+        // Keeps the focus where it was: on the terminal tab this button sits above a terminal.
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => setOpen(!open)}
+      >
+        {label}
       </button>
       {open && (
         <div className="menu-items">

@@ -19,6 +19,13 @@ export type RepoState = {
 export type Selection = { path: string; direct: boolean; base?: string };
 
 export type Branches = { branches: string[]; default?: string };
+
+export type Leftover = {
+  name: string;
+  path: string;
+  entries: { name: string; directory: boolean; git?: "worktree" | "repository" }[];
+  kilobytes: number;
+};
 export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: string; number: number }[] };
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };
@@ -45,6 +52,8 @@ export const patch = <T,>(path: string, body: unknown): Promise<T> =>
 
 export const put = <T,>(path: string, body: unknown): Promise<T> =>
   api<T>(path, { method: "PUT", body: JSON.stringify(body) });
+
+export const del = <T,>(path: string): Promise<T> => api<T>(path, { method: "DELETE" });
 
 export const post = <T,>(path: string, body: unknown): Promise<T> =>
   api<T>(path, { method: "POST", body: JSON.stringify(body) });

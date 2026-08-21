@@ -11,12 +11,15 @@ import {
 import { integrations, provision, repoStatusOf, statusOne } from "./integrations/index.ts";
 import { boardIssues, createIssue } from "./integrations/jira.ts";
 import { browse, remoteBranches, absolutePath } from "./repos.ts";
+import { listLeftovers, removeLeftover } from "./leftovers.ts";
+import { proxyToTtyd, bridge, keysScript, type Bridge } from "./terminalProxy.ts";
+import type { ServerWebSocket } from "bun";
 import { repoStates, setRepos } from "./integrations/git.ts";
-import { completeChange, completionOf } from "./complete.ts";
+import { completeChange, completionOf, progressOf } from "./complete.ts";
 import { prDescription } from "./description.ts";
 import {
-  terminalUrl,
-  stopAllTerminals,
+  terminalPath,
+  terminalPort,
   listWindows,
   newWindow,
   selectWindow,
@@ -38,12 +41,45 @@ async function withChange(id: string, fn: (c: Change) => Promise<Response>): Pro
   }
 }
 
+/** ttyd's page and its socket, served from here: see src/terminalProxy.ts for why. */
+async function portForChange(id: string): Promise<number | undefined> {
+  const change = await readChange(id);
+  return change && !change.completedAt ? terminalPort(change) : undefined;
+}
+
 const server = Bun.serve({
   port: Number(process.env.IWE_PORT ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
   development: process.env.NODE_ENV !== "production",
+  // Typed here rather than on Bun.serve: naming the socket's data type there would take the
+  // route handlers' own inference with it.
+  websocket: {
+    open: (ws) => bridge.open(ws as unknown as ServerWebSocket<Bridge>),
+    message: (ws, message) => bridge.message(ws as unknown as ServerWebSocket<Bridge>, message),
+    close: (ws) => bridge.close(ws as unknown as ServerWebSocket<Bridge>),
+  },
+
   routes: {
+    // ttyd, served from here so the page and the terminal share an origin. Both the page and
+    // its WebSocket come through this one route.
+    "/terminal/:id/*": async (req, srv) => {
+      const id = decodeURIComponent(req.params.id);
+      const port = await portForChange(id);
+      if (!port) return new Response("no terminal for this change", { status: 404 });
+      if (req.headers.get("upgrade") === "websocket") {
+        const data: Bridge = { queue: [], port };
+        return srv.upgrade(req, { data: data as never })
+          ? undefined
+          : new Response("upgrade failed", { status: 400 });
+      }
+      const rest = new URL(req.url).pathname.slice(`/terminal/${req.params.id}/`.length);
+      return proxyToTtyd(req, port, rest);
+    },
+
+    "/terminal-keys.js": () =>
+      new Response(keysScript, { headers: { "content-type": "text/javascript" } }),
+
     "/api/changes": {
       GET: async () => json(await listChanges()),
       // Creates the change, then provisions each component (worktrees, ticket status). The
@@ -124,7 +160,10 @@ const server = Bun.serve({
     // it is what asking for the URL does.
     "/api/changes/:id/terminal": {
       GET: async (req) =>
-        withChange(req.params.id, async (c) => json({ url: await terminalUrl(c) })),
+        withChange(req.params.id, async (c) => {
+          await terminalPort(c); // starts or adopts it, so the frame has something to load
+          return json({ url: terminalPath(c.id) });
+        }),
     },
 
     // The windows of the change's tmux session, and the two things you do to them. tmux is the
@@ -149,6 +188,11 @@ const server = Bun.serve({
 
     // Completing a change: merge every outstanding pull request and close the ticket. GET
     // reports whether that is currently allowed, so the button can explain itself.
+    // How far a completion got: written as it happens, so this answers even after a restart.
+    "/api/changes/:id/complete/progress": {
+      GET: async (req) => withChange(req.params.id, async (c) => json(await progressOf(c.id))),
+    },
+
     "/api/changes/:id/complete": {
       GET: async (req) => withChange(req.params.id, async (c) => json(await completionOf(c))),
       POST: async (req) => withChange(req.params.id, async (c) => json(await completeChange(c))),
@@ -209,6 +253,22 @@ const server = Bun.serve({
       },
     },
 
+    // Directories left in the changes root by changes that are done: shown, never removed on
+    // your behalf.
+    "/api/leftovers": {
+      GET: async () => json(await listLeftovers()),
+    },
+    "/api/leftovers/:name": {
+      DELETE: async (req) => {
+        try {
+          await removeLeftover(req.params.name);
+          return json(await listLeftovers());
+        } catch (e) {
+          return fail(e);
+        }
+      },
+    },
+
     // Directory browser rooted at the configured repos root; paths that escape it are rejected.
     "/api/repos": {
       GET: async (req) => {
@@ -247,10 +307,3 @@ const server = Bun.serve({
 });
 
 console.log(`iwe on ${server.url}`);
-
-// Detached ttyd processes outlive us unless we say otherwise.
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
-  process.on(signal, () => {
-    void stopAllTerminals().finally(() => process.exit(0));
-  });
-}

@@ -50,17 +50,23 @@ export async function writeChange(change: Change): Promise<void> {
   await Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n");
 }
 
-/** Free-text notes, kept beside change.json so they travel into the archive with it. */
-export async function readNotes(id: string): Promise<string> {
+/** A file beside change.json — notes, completion progress — which therefore travels into the
+ * archive with it. Read from wherever the change currently lives. */
+export async function readSidecar(id: string, name: string): Promise<string> {
   const dir = await existingDir(id);
-  return dir ? await Bun.file(join(dir, "notes.md")).text().catch(() => "") : "";
+  return dir ? await Bun.file(join(dir, name)).text().catch(() => "") : "";
 }
 
-export async function writeNotes(id: string, text: string): Promise<void> {
+export async function writeSidecar(id: string, name: string, text: string): Promise<void> {
   const dir = (await existingDir(id)) ?? changeDir(id);
   await mkdir(dir, { recursive: true });
-  await Bun.write(join(dir, "notes.md"), text);
+  await Bun.write(join(dir, name), text);
 }
+
+/** Free-text notes, kept beside change.json so they travel into the archive with it. */
+export const readNotes = (id: string): Promise<string> => readSidecar(id, "notes.md");
+export const writeNotes = (id: string, text: string): Promise<void> =>
+  writeSidecar(id, "notes.md", text);
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
@@ -86,11 +92,13 @@ export async function listChanges(): Promise<Change[]> {
     directoriesIn(root()),
     directoriesIn(join(root(), ARCHIVE)),
   ]);
-  const entries = [...active.filter((name) => name !== ARCHIVE), ...archived];
+  // A completed change can leave its directory behind — a terminal writing in it, a build
+  // dropping target/ into it — while change.json has already moved to the archive. Both names
+  // then resolve to the same change, and it must still be listed once.
+  const entries = [...new Set([...active.filter((name) => name !== ARCHIVE), ...archived])];
   const changes = await Promise.all(entries.map(readChange));
-  return changes
-    .filter((c): c is Change => c !== null)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const byId = new Map(changes.filter((c): c is Change => c !== null).map((c) => [c.id, c]));
+  return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
 export async function createChange(input: {

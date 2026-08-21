@@ -166,3 +166,22 @@ test("switching modes with unpushed commits asks first, and keeps them when forc
   expect(await currentBranch(repo)).toBe(change.branch);
   expect(await Bun.file(join(repo, "unpushed.txt")).text()).toBe("only here\n");
 });
+
+test("an in-place branch does not track the branch it started from", async () => {
+  const repo = await clonedRepo("no-track");
+  const change = await changeFor("PROJ-TRACK", [repo], [repo]);
+  await git.provision!(change);
+
+  // Tracking origin/main would make `git push` aim at main, which is the one thing this must
+  // never do. A fresh branch has no upstream until it is pushed.
+  const upstream = await sh(
+    ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    repo,
+  );
+  expect(upstream.code).not.toBe(0);
+  expect(await currentBranch(repo)).toBe(change.branch);
+
+  // And it did start from main, so the work below it is there.
+  const base = await sh(["git", "rev-list", "--count", `origin/main..${change.branch}`], repo);
+  expect(base.stdout).toBe("0");
+});

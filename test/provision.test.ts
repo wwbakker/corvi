@@ -1,6 +1,15 @@
 import { test, expect } from "bun:test";
 import { provision, integrations } from "../src/integrations/index.ts";
-import { describe, findWorktree, setRepos, unsafeIn, type WtEntry } from "../src/integrations/git.ts";
+import {
+  describe,
+  findWorktree,
+  setRepos,
+  unsafeIn,
+  openers,
+  parseWorktrees,
+  parseStatus,
+  type WtEntry,
+} from "../src/integrations/git.ts";
 import {
   averageDuration,
   folderFor,
@@ -8,9 +17,9 @@ import {
   runState,
   versionInLines,
 } from "../src/integrations/azure.ts";
-import { readiness, repoFromUrl } from "../src/integrations/github.ts";
+import { readiness, repoFromUrl, headRef } from "../src/integrations/github.ts";
 import { groupChecks } from "../src/integrations/checks.ts";
-import { stackRequest, describeStack } from "../src/integrations/stacks.ts";
+import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
 import { windowLabel } from "../src/web/WindowStrip.tsx";
@@ -86,9 +95,7 @@ test("pipelines are looked up by both the merge ref and the branch", () => {
 });
 
 test("pipelines are attributed to a repository by its Azure DevOps folder", () => {
-  expect(folderFor("/Users/me/Repos/acme/example-legacy/example-worker")).toBe(
-    "\\example-worker",
-  );
+  expect(folderFor("/Users/me/Repos/acme/example-api")).toBe("\\example-api");
 });
 
 test("expected build duration averages finished runs and ignores unfinished ones", () => {
@@ -112,9 +119,9 @@ test("expected build duration averages finished runs and ignores unfinished ones
 });
 
 test("owner and name come from the pull request url", () => {
-  expect(repoFromUrl("https://github.com/acme/example-service/pull/720")).toEqual({
-    owner: "acme",
-    name: "example-service",
+  expect(repoFromUrl("https://github.com/owner/example-api-service/pull/720")).toEqual({
+    owner: "octocat",
+    name: "example-api-service",
   });
   // The directory name is not the repository name, which is why the URL is the source.
   expect(repoFromUrl("https://example.com/nope")).toBeUndefined();
@@ -244,12 +251,12 @@ test("a pipeline's dot follows its newest run, not its history", () => {
 test("pull request checks are grouped by build, so one build is one row", () => {
   const check = (name: string, bucket: string) => ({ name, bucket, state: bucket, link: `u/${name}` });
   const items = groupChecks([
-    check("acme.frontend-app", "pass"),
-    check("acme.frontend-app (CI App @acme/example-app)", "fail"),
-    check("acme.frontend-app (CI Affected Build)", "pending"),
+    check("owner.frontend-app", "pass"),
+    check("owner.frontend-app (CI App @scope/one-app)", "fail"),
+    check("owner.frontend-app (CI Affected Build)", "pending"),
     check("sonarqube", "pass"),
   ]);
-  expect(items.map((i) => i.label)).toEqual(["acme.frontend-app", "sonarqube"]);
+  expect(items.map((i) => i.label)).toEqual(["owner.frontend-app", "sonarqube"]);
 
   const [turbo, sonar] = items;
   // A failure anywhere in the group colours the group, and the counts say what is going on.
@@ -258,7 +265,7 @@ test("pull request checks are grouped by build, so one build is one row", () => 
   // The check named exactly like the group is the build itself, not one of its jobs.
   expect(turbo!.children!.map((c) => c.label)).toEqual([
     "overall",
-    "CI App @acme/example-app",
+    "CI App @scope/one-app",
     "CI Affected Build",
   ]);
 
@@ -275,13 +282,13 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
       command: "zsh",
       active: true,
       activity: false,
-      directory: "example-worker",
+      directory: "example-api",
       named: false,
       ...over,
     });
   // tmux's default name is the command, which says less than the directory does.
-  expect(w({})).toBe("example-worker");
-  expect(w({ command: "vim" })).toBe("example-worker - (vim)");
+  expect(w({})).toBe("example-api");
+  expect(w({ command: "vim" })).toBe("example-api - (vim)");
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true })).toBe("deploy - (gradle)");
   // Nothing is repeated: a window named after what runs in it says it once.
@@ -307,4 +314,106 @@ test("a stacked pull request joins the stack below it, or starts one", () => {
 
 test("a pull request says where it sits in its stack", () => {
   expect(describeStack({ number: 163, size: 2, position: 1 })).toBe("1 of 2 in stack #163");
+});
+
+test("opening a repository uses macOS's own launcher, by application name", () => {
+  const command = (id: string) => openers.find((o) => o.id === id)!.command("/w/repo");
+  // No -n: the running IntelliJ gets the project and places it as you have configured.
+  expect(command("open-idea")).toEqual(["open", "-a", "IntelliJ IDEA", "/w/repo"]);
+  expect(command("open-finder")).toEqual(["open", "/w/repo"]);
+});
+
+test("a worktree's state is read from git's own porcelain output", () => {
+  const worktrees = parseWorktrees(
+    [
+      "worktree /repo",
+      "HEAD aaa",
+      "branch refs/heads/main",
+      "",
+      "worktree /changes/PROJ-1/repo",
+      "HEAD bbb",
+      "branch refs/heads/PROJ-1-thing",
+      "",
+      "worktree /detached",
+      "HEAD ccc",
+      "detached",
+    ].join("\n"),
+  );
+  // A detached worktree belongs to no branch and so to no change.
+  expect(worktrees).toEqual([
+    { path: "/repo", branch: "main" },
+    { path: "/changes/PROJ-1/repo", branch: "PROJ-1-thing" },
+  ]);
+
+  const dirty = parseStatus(
+    [
+      "# branch.head PROJ-1-thing",
+      "# branch.upstream origin/PROJ-1-thing",
+      "# branch.ab +2 -1",
+      "1 .M N... 100644 100644 100644 aaa bbb src/a.ts",
+      "? build/out.js",
+    ].join("\n"),
+  );
+  expect(dirty).toEqual({
+    staged: false, // the first letter is the staged state, the second the unstaged one
+    modified: true,
+    untracked: true,
+    upstream: "origin/PROJ-1-thing",
+    ahead: 2,
+    behind: 1,
+  });
+
+  // A branch that was never pushed has no upstream and no counts.
+  const fresh = parseStatus("# branch.head PROJ-1-thing\n");
+  expect(fresh).toEqual({
+    staged: false,
+    modified: false,
+    untracked: false,
+    upstream: undefined,
+    ahead: 0,
+    behind: 0,
+  });
+});
+
+test("an asynchronous merge is followed until it is no longer pending", () => {
+  // Keep waiting only while it is running; both of the other endings are endings.
+  expect(outcomeOf({ status: "pending", details: { uuid: "u" } })).toEqual({ waiting: true });
+  expect(outcomeOf({ status: "merged", details: { sha: "abc" } })).toEqual({ waiting: false });
+  // A stack that went into the merge queue has left our hands, and did not fail.
+  expect(outcomeOf({ status: "enqueued" })).toEqual({
+    waiting: false,
+    note: "added to the merge queue",
+  });
+  // Whatever GitHub says is why, said back: "the merge failed" helps nobody.
+  expect(outcomeOf({ status: "failed", details: { message: "Merge conflict." } })).toEqual({
+    waiting: false,
+    error: "Merge conflict.",
+  });
+  expect(outcomeOf({ status: "failed" }).error).toBe("the merge failed");
+});
+
+test("a pull request is looked up by the branch that was pushed", () => {
+  // The ordinary case: the branch is its own upstream.
+  expect(headRef("PROJ-1", "origin/PROJ-1", "origin/main")).toBe("PROJ-1");
+  expect(headRef("PROJ-1", undefined, "origin/main")).toBe("PROJ-1"); // never pushed
+
+  // Renamed, or made around work that already existed: the pull request belongs to the branch
+  // that was pushed, not to the one you have locally.
+  expect(headRef("PROJ-1671-2", "origin/PROJ-1671-improve-mileage", "origin/master")).toBe(
+    "PROJ-1671-improve-mileage",
+  );
+
+  // Tracking the default branch is the old in-place bug, not a pull request to go looking for.
+  expect(headRef("PROJ-1", "origin/main", "origin/main")).toBe("PROJ-1");
+})
+
+test("a merge poll that fails is not mistaken for one still running", () => {
+  expect(pollResult(0, '{"status":"merged","details":{"sha":"abc"}}')).toEqual({
+    status: "merged",
+    details: { sha: "abc" },
+  });
+  // 404 when the merge request expired, or any other failure: unreadable, not pending.
+  expect(pollResult(1, '{"message":"Not Found","status":"404"}')).toBeUndefined();
+  expect(pollResult(0, "")).toBeUndefined();
+  expect(pollResult(0, "not json at all")).toBeUndefined();
 });

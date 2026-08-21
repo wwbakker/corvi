@@ -791,3 +791,94 @@ textarea.notes {
   flex: 1;
   min-width: 0;
 }
+
+/* The ⋯ button on a widget row: present, but not competing with the row's own text. */
+.win.dots,
+button.dots {
+  padding: 2px 8px;
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+}
+
+button.dots:hover:not(:disabled) {
+  color: var(--text);
+  background: #262b33;
+}
+
+/* What completing a change is doing, while it does it. ".steps" is the wizard's, and a flex row. */
+.doing {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+dialog progress {
+  width: 100%;
+  height: 4px;
+}
+
+/* What changes leave behind in the changes root. */
+.leftovers {
+  margin-top: 20px;
+}
+
+.leftovers .files .tag.warn {
+  margin-left: 8px;
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.leftovers .files {
+  margin: 0 0 8px 34px;
+  padding: 0;
+  list-style: none;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+}
+
+/* How far completing a change got. */
+.completion.failed {
+  border-color: var(--error);
+}
+
+.completion.finished .summary {
+  color: var(--ok);
+}
+
+.progress-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.progress-steps li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  padding: 3px 0;
+  color: var(--muted);
+}
+
+.progress-steps li.done,
+.progress-steps li.running {
+  color: var(--text);
+}
+
+.progress-steps li.done .mark {
+  color: var(--ok);
+}
+
+.progress-steps li.running .mark {
+  color: var(--pending);
+}
+
+.progress-steps li.failed,
+.progress-steps li.failed .mark {
+  color: var(--error);
+}
+
+.progress-steps .detail {
+  color: var(--muted);
+}

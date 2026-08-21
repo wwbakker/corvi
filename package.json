@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --hot src/server.ts",
     "start": "NODE_ENV=production bun src/server.ts",
-    "test": "bun test",
+    "test": "bun test --timeout 30000",
     "typecheck": "tsc --noEmit",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts"

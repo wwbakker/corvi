@@ -4,7 +4,14 @@ import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../ty
 import { sh, shOrThrow, json } from "../sh.ts";
 import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
 
-/** The subset of `wt list --format=json` we use. */
+/**
+ * One worktree, in the shape `wt list --format=json` used to hand us.
+ *
+ * It is read with plain git now: `wt list` costs 1-13 seconds of CPU per call (it gathers far
+ * more than this, in parallel), against ~25ms for the two git commands below, and the dashboard
+ * asks once per repository per refresh. wt still owns where worktrees live — it creates and
+ * removes them — this only reads what is there.
+ */
 export type WtEntry = {
   branch: string;
   path: string;
@@ -28,18 +35,81 @@ const wt = async (change: Change, args: string[]): Promise<string[]> => [
   ...args,
 ];
 
-/** Worktrees known to wt in `repo`. wt owns their location, so we ask rather than compute it. */
-export async function listWorktrees(change: Change, repo: string): Promise<WtEntry[]> {
-  const r = await sh(await wt(change, ["-C", repo, "list", "--format=json"]));
-  return r.code === 0 ? json<WtEntry[]>(r.stdout, []) : [];
-}
-
 export const findWorktree = (entries: WtEntry[], branch: string): WtEntry | undefined =>
   entries.find((e) => e.branch === branch);
 
+/** Where each worktree of `repo` is, and which branch it holds. The main checkout is included,
+ * which is what makes a repository used in place look like any other. */
+export function parseWorktrees(porcelain: string): { path: string; branch: string }[] {
+  const found: { path: string; branch: string }[] = [];
+  let path = "";
+  for (const line of porcelain.split("\n")) {
+    if (line.startsWith("worktree ")) path = line.slice("worktree ".length);
+    // Detached worktrees have no branch line at all, and belong to no change.
+    else if (line.startsWith("branch refs/heads/") && path) {
+      found.push({ path, branch: line.slice("branch refs/heads/".length) });
+    }
+  }
+  return found;
+}
+
+/** What `git status --porcelain=v2 --branch` says about a working tree. */
+export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]> & {
+  upstream?: string;
+  ahead: number;
+  behind: number;
+} {
+  const lines = status.split("\n");
+  const upstream = lines.find((l) => l.startsWith("# branch.upstream "))?.slice(18);
+  const ab = /^# branch\.ab \+(\d+) -(\d+)/.exec(lines.find((l) => l.startsWith("# branch.ab ")) ?? "");
+  // 1 and 2 are tracked changes, u unmerged, ? untracked; the two letters after are the staged
+  // and unstaged states, in that order.
+  const changes = lines.filter((l) => /^[12u] /.test(l));
+  return {
+    staged: changes.some((l) => l[2] !== "."),
+    modified: changes.some((l) => l[3] !== "."),
+    untracked: lines.some((l) => l.startsWith("? ")),
+    upstream,
+    ahead: Number(ab?.[1] ?? 0),
+    behind: Number(ab?.[2] ?? 0),
+  };
+}
+
+/** The worktree holding this change's branch in `repo`, with everything the dashboard says
+ * about it. Undefined when the change has no worktree there. */
+export async function entryFor(change: Change, repo: string): Promise<WtEntry | undefined> {
+  const worktrees = parseWorktrees(
+    (await sh(["git", "worktree", "list", "--porcelain"], repo)).stdout,
+  );
+  const found = worktrees.find((w) => w.branch === change.branch);
+  if (!found) return undefined;
+
+  const [status, base] = await Promise.all([
+    sh(["git", "status", "--porcelain=v2", "--branch"], found.path),
+    remoteDefaultBranch(repo),
+  ]);
+  const tree = parseStatus(status.stdout);
+  // Whether main already has everything on this branch, which is how a merged change is spotted.
+  const beyond = base
+    ? Number((await sh(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout)
+    : NaN;
+  return {
+    branch: change.branch,
+    path: found.path,
+    working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
+    remote: tree.upstream
+      ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
+      : null,
+    // "diverged" for commits main does not have, which is what makes them worth warning about
+    // before a removal. Unknown (no remote to compare with) stays undefined.
+    main_state: Number.isNaN(beyond) ? undefined : beyond === 0 ? "integrated" : "diverged",
+    is_main: found.path === repo,
+  };
+}
+
 /** Absolute path of the worktree for `branch` in `repo`, or undefined when it does not exist. */
 export async function worktreeFor(change: Change, repo: string): Promise<string | undefined> {
-  return findWorktree(await listWorktrees(change, repo), change.branch)?.path;
+  return (await entryFor(change, repo))?.path;
 }
 
 /** Human summary of one worktree, and how alarming it is. */
@@ -62,7 +132,7 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
 async function repoItem(change: Change, repo: string): Promise<WidgetItem> {
   if (isDirect(change, repo)) return directItem(change, repo);
   const label = basename(repo);
-  const entry = findWorktree(await listWorktrees(change, repo), change.branch);
+  const entry = await entryFor(change, repo);
   if (!entry) {
     return {
       label,
@@ -73,12 +143,25 @@ async function repoItem(change: Change, repo: string): Promise<WidgetItem> {
   }
   const { detail, state } = describe(entry);
   // Adding and removing repositories happens in the edit dialog, not per row.
-  return { label, detail: `${detail} · ${entry.path}`, state };
+  return { label, detail: `${detail} · ${entry.path}`, state, menu: openMenu(repo) };
 }
+
+/** Remembered for the life of the process: a remote's default branch changes about as often as
+ * the repository is renamed, and asking costs two processes. */
+const defaultBranches = new Map<string, Promise<string | undefined>>();
 
 /** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
  * remote. New branches start here rather than at a local main that may be days behind. */
 export async function remoteDefaultBranch(repo: string): Promise<string | undefined> {
+  const known = defaultBranches.get(repo);
+  if (known) return known;
+  const asking = askDefaultBranch(repo);
+  defaultBranches.set(repo, asking);
+  void asking.then((found) => found ?? defaultBranches.delete(repo)); // do not cache "no remote"
+  return asking;
+}
+
+async function askDefaultBranch(repo: string): Promise<string | undefined> {
   if (!(await sh(["git", "remote"], repo)).stdout) return undefined;
   const read = async (): Promise<string | undefined> => {
     const r = await sh(
@@ -98,6 +181,24 @@ export async function remoteDefaultBranch(repo: string): Promise<string | undefi
 export async function baseFor(change: Change, repo: string): Promise<string | undefined> {
   return change.base?.[repo] ?? (await remoteDefaultBranch(repo));
 }
+
+/**
+ * Somewhere to open a repository from its row. macOS applications are opened by name rather than
+ * by a command-line launcher, which not everyone installs; `open` is always there.
+ */
+export const openers: { id: string; label: string; command: (path: string) => string[] }[] = [
+  {
+    id: "open-idea",
+    label: "Open in IntelliJ",
+    // Handed to the running IntelliJ rather than starting a second one, so it opens the project
+    // the way you have it configured (Settings > Appearance & Behavior > System Settings >
+    // "Open project in").
+    command: (path) => ["open", "-a", "IntelliJ IDEA", path],
+  },
+  { id: "open-finder", label: "Open in Finder", command: (path) => ["open", path] },
+];
+
+const openMenu = (repo: string) => openers.map(({ id, label }) => ({ id, label, arg: repo }));
 
 /** Repositories worked on in place rather than through a worktree. */
 export const isDirect = (change: Change, repo: string): boolean =>
@@ -134,7 +235,13 @@ async function useInPlace(change: Change, repo: string): Promise<void> {
   }
   const base = await baseFor(change, repo);
   if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
-  await shOrThrow(["git", "switch", "--create", change.branch, ...(base ? [base] : [])], repo);
+  // --no-track: branching off origin/main would otherwise make origin/main the upstream, and
+  // the first `git push` would try to push your work straight onto it. The branch gets its own
+  // upstream when it is first pushed, as a worktree's does.
+  await shOrThrow(
+    ["git", "switch", "--create", change.branch, ...(base ? ["--no-track", base] : [])],
+    repo,
+  );
 }
 
 /** Stop using a repository in place: the link goes, the checkout stays exactly as it is. */
@@ -158,10 +265,16 @@ async function directItem(change: Change, repo: string): Promise<WidgetItem> {
       actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
     };
   }
-  // On the right branch: wt's own listing describes the main checkout as well as a worktree.
-  const entry = findWorktree(await listWorktrees(change, repo), change.branch);
+  // On the right branch: the main checkout is a worktree like any other as far as git is
+  // concerned, so the same reading describes it.
+  const entry = await entryFor(change, repo);
   const described = entry ? describe(entry) : { detail: dirty ? "uncommitted changes" : "clean", state: dirty ? "pending" : ("ok" as WidgetState) };
-  return { label, detail: `in place · ${described.detail} · ${repo}`, state: described.state };
+  return {
+    label,
+    detail: `in place · ${described.detail} · ${repo}`,
+    state: described.state,
+    menu: openMenu(repo),
+  };
 }
 
 /** Create the worktree for this change in `repo`; existing ones are left alone. */
@@ -212,7 +325,7 @@ export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
 }
 
 export async function unsafeToRemove(change: Change, repo: string): Promise<Unsafe | undefined> {
-  return unsafeIn(findWorktree(await listWorktrees(change, repo), change.branch));
+  return unsafeIn(await entryFor(change, repo));
 }
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
@@ -303,6 +416,14 @@ export const git: Integration = {
   async run(change: Change, action: string, repo?: string): Promise<void> {
     if (!repo) throw new Error("repo required");
     if (action === "add") return createWorktree(change, repo);
+
+    // Opening: the worktree when there is one, the repository itself when it is used in place.
+    const opener = openers.find((o) => o.id === action);
+    if (opener) {
+      const path = (await worktreeFor(change, repo)) ?? repo;
+      await shOrThrow(opener.command(path));
+      return;
+    }
 
 
     // --foreground so the widget refresh that follows sees the removal; --force because build

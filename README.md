@@ -34,7 +34,7 @@ bun run dev          # http://127.0.0.1:4000
 {
   "changesRoot": "~/changes",
   "reposRoot": "~/Repos",
-  "reposStart": "~/Repos/acme/example-legacy",
+  "reposStart": "~/Repos/acme",
   "jiraAssignee": "",
   "jiraStartTransition": "In Progress",
   "jiraDoneTransition": "Done",
@@ -72,7 +72,7 @@ falls back to typing an id by hand.
    both editable.
 3. **Repositories** — at least one is required, from a directory browser rooted at `reposRoot`. Clicking a name browses into
    it, the button beside it adds it to the selection: a directory that is both a repository and
-   a parent of repositories (`acme/example-legacy`) can be either. Selected repositories are listed on
+   a parent of repositories (`acme/services`) can be either. Selected repositories are listed on
    the right and removed with the cross. A worktree is created per selected repository.
 
 Only issue types in `IWE_JIRA_ISSUE_TYPES` (default `Story,Bug`) are listed: epics and subtasks
@@ -93,17 +93,23 @@ column of its own beside the others; narrower windows stack everything.
 - **CI** — per repository, the pull request and the pipeline runs it triggered, since "is this
   change green?" is one question even though two vendors answer it. Rows form a collapsible tree:
 
-      example-worker
+      example-api
       └─ #719 Fix the thing
-         ├─ build-example-worker      2 run(s)
+         ├─ build-example-api                2 run(s)
          │  ├─ 20260818.3                   succeeded
          │  └─ 20260818.2                   succeeded
-         └─ deploy-example-worker     no runs for this branch
+         └─ deploy-example-api               no runs for this branch
 
   A pull request row shows unresolved review threads in amber (`gh api graphql`, since neither
   `gh pr list` nor the REST API exposes resolution state) *and* the review decision, so
   `1 unresolved comment · approved` is visible as its own state. Resolved threads are not
   mentioned; `ready to merge` is reserved for an approval with nothing left open.
+
+  The pull request is looked up by the branch that was **pushed**, not by the change's branch
+  name: a branch that was renamed, or made around work that already existed, lives on the remote
+  under another name, and the pull request belongs to that one. When the two differ the row says
+  `pushed as <branch>`, because it is worth knowing. A branch still tracking `origin/main` is
+  ignored — that is a mistake, not a pull request.
 
   A pull request that belongs to a GitHub stack says so: `1 of 2 in stack #163`, read in the same
   GraphQL query as the unresolved comments, so it costs no extra call. Where the preview feature
@@ -112,7 +118,7 @@ column of its own beside the others; narrower windows stack everything.
   A repository whose pipelines Azure DevOps does not know about — built by GitHub Actions, or by
   pipelines in another Azure project than the configured one — falls back to the checks the pull
   request itself reports. Those are grouped by the part of the name before the bracket, so a build
-  with thirty jobs (`acme.frontend-app (CI App @acme/example-app)`) is one row you can open.
+  with thirty jobs (`owner.frontend-app (CI App @scope/one-app)`) is one row you can open.
 
   A pipeline's own dot follows its **newest** run: an older failure that a later run fixed does
   not keep the pipeline, the repository or the whole CI card red. The failed run keeps its red dot
@@ -120,7 +126,7 @@ column of its own beside the others; narrower windows stack everything.
 
   A successful run also shows the artifact version its pipeline printed
   (`Version is: '…'`, `pushing manifest for …`, `Built and pushed image as …`, the patterns from
-  `example-legacy-misc/scripts/version-from-pr`). Logs are searched newest step first, five at a time,
+  a shell script that read the same lines). Logs are searched newest step first, five at a time,
   and the answer is cached per run id: a finished build's logs never change.
 
   A run still in flight shows the time it has been busy and a bar against the mean duration of
@@ -129,7 +135,7 @@ column of its own beside the others; narrower windows stack everything.
   fills the bar and keeps counting.
 
   Azure DevOps reports `repository.name` as null, so pipelines are attributed to a repository by
-  their pipeline folder (`\example-worker`), which mirrors the service directories of a
+  their pipeline folder (`\example-api`), which mirrors the service directories of a
   monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
   builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
 
@@ -158,57 +164,20 @@ bun run shot                       # screenshots the running app into shots/
 Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1:4000`) and reports
 any console errors. Faster than describing a layout bug in prose.
 
-## Terminals
-
-Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
-change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
-(`brew install ttyd`).
-
-ttyd is started when the change page is opened, not when the tab is clicked: the dashboard's CLI
-calls occupy every connection the browser allows per origin, and a terminal asked for afterwards
-waits behind them. For the same reason the dashboard cards are unmounted while the Terminals tab
-is in front — otherwise their per-repository calls starve the window strip's polling. Returning
-to the dashboard repaints from the cache and refreshes.
-
-Above the terminal is a strip of the session's windows, labelled by **where they are** — the
-directory of the pane, which is the repository you are in — with **what is running there** in
-brackets after it: `example-service`, `example-web - (vim)`. A plain shell adds nothing, so it is
-left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
-renaming it for you at that point and so do we. A dot marks a window whose
-output arrived while you were looking elsewhere, and `+` opens another. The keyboard stays in the
-terminal throughout: the strip's buttons refuse the focus a mousedown would give them, and opening
-the tab focuses the terminal, so you can type straight away. Clicking one selects it. tmux stays the source of truth — the strip calls
-`list-windows`, `new-window` and `select-window`, so the keys keep working and a session attached
-from a terminal stays in step.
-
-Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
-beside the tabs lists them — which is also the answer to "how do I get more than one terminal":
-tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
-pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
-yourself keep your own settings — a change needs no terminal at all
-some days and three in one repository on others, so IWE opens none for you. The session is the
-real thing, not a copy: `tmux attach -t iwe-PROJ-1627` from iTerm2 reaches exactly what the browser
-shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
-`lo0` only.
-
-Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option** while dragging
-to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
-honours on macOS, and only because ttyd is started with `macOptionClickForcesSelection=true`.) A
-drag without it is tmux's selection, which lands in a tmux buffer (`ctrl-b ]` pastes it) and not in the Mac clipboard — this build of ttyd has no
-OSC 52 support, so tmux cannot reach the system clipboard by itself.
-
-A terminal that comes up blank: ttyd logs to `/tmp/iwe-ttyd-<change id>.log`, and the session is
-reachable from a normal terminal, which tells you quickly whether the problem is tmux or the
-browser. After changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
-
-Completing a change kills its session and ttyd, since the change directory moves into the archive
-underneath it.
-
 ## Notes on jira-cli output
 
 Plain mode pads columns with the delimiter, so column positions cannot be recovered: issue
 queries therefore use `--csv`. `sprint list --table` ignores `--csv` and pads with tabs, so its
 rows are read by dropping empty fields. Both are covered by tests.
+
+## Opening a repository
+
+Every repository row in **Local changes** has a ⋯ menu: **Open in IntelliJ** and **Open in
+Finder**. Both go through macOS's `open`, by application name, so nothing has to be installed on
+the path. IntelliJ receives the project rather than being launched again, so where it lands — new
+window, current window, or a prompt — is whatever *Settings > Appearance & Behavior > System
+Settings > Open project in* says. The worktree is opened when there is one, the repository itself when it is used in
+place.
 
 ## Changing which repositories a change touches
 
@@ -266,6 +235,14 @@ Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, s
 change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
 (`brew install ttyd`).
 
+A terminal outlives the server: ttyd is detached, its pid and port are written to
+`terminal.json` in the change directory, and the next start adopts it if it is still answering.
+Restarting IWE — which is constant while working on IWE itself — therefore costs you nothing, and
+the page keeps working straight through it. Completing a change is what ends a terminal for good.
+
+The **Terminals** tab shows how many windows the session has, so a build running in one of them is
+visible from the dashboard.
+
 ttyd is started when the change page is opened, not when the tab is clicked: the dashboard's CLI
 calls occupy every connection the browser allows per origin, and a terminal asked for afterwards
 waits behind them. For the same reason the dashboard cards are unmounted while the Terminals tab
@@ -274,7 +251,7 @@ to the dashboard repaints from the cache and refreshes.
 
 Above the terminal is a strip of the session's windows, labelled by **where they are** — the
 directory of the pane, which is the repository you are in — with **what is running there** in
-brackets after it: `example-service`, `example-web - (vim)`. A plain shell adds nothing, so it is
+brackets after it: `example-api`, `example-web - (vim)`. A plain shell adds nothing, so it is
 left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
 renaming it for you at that point and so do we. A dot marks a window whose
 output arrived while you were looking elsewhere, and `+` opens another. The keyboard stays in the
@@ -289,9 +266,20 @@ tmux does that, IWE does not duplicate it. Mouse mode is switched on for the ses
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
 yourself keep your own settings — a change needs no terminal at all
 some days and three in one repository on others, so IWE opens none for you. The session is the
-real thing, not a copy: `tmux attach -t iwe-PROJ-1627` from iTerm2 reaches exactly what the browser
+real thing, not a copy: `tmux attach -t iwe-PROJ-123` from iTerm2 reaches exactly what the browser
 shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
 `lo0` only.
+
+**Shift-Enter and Ctrl-Enter.** A browser terminal cannot encode these by itself: xterm.js sends a
+carriage return for Enter whatever modifier is held — there is no legacy encoding for a modified
+Enter, and it implements neither of the modern ones. So IWE serves ttyd from its own origin, and
+injects a small script that sends the CSI u sequence instead (`ESC [13;2u` for shift, `;5` for
+ctrl, `;6` for both). tmux is started with `extended-keys on`, which passes those through to
+applications that ask for them — which is what an application means when it says *"tmux
+extended-keys is off. Modified Enter keys may not work."*
+
+Shift-Tab has always worked because it *does* have a legacy encoding (`ESC [Z`), which is the
+difference between the two keys.
 
 Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option** while dragging
 to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
@@ -312,6 +300,23 @@ Each change has a free-text note in the left column, stored as `notes.md` in its
 travels into the archive with everything else. It saves shortly after you stop typing, on blur,
 and when you navigate away.
 
+## Left behind
+
+Under the changes list is a card for directories in the changes root that no longer belong to a
+change: what a completed one left behind — a build's `target/`, a shell's history, the terminal's
+note — or a change that was never finished being created. Each one opens to show what is in it,
+with its size, and a Delete button. Nothing is removed on your behalf: `target/` is rubbish, the
+scratch file next to it might not be.
+
+Deletion refuses anything that still has a `change.json`, so an active change cannot be tidied
+away by accident, and the archived copy of a completed change is untouched — only the directory
+that outlived it goes.
+
+Directories inside a leftover are labelled when git cares about them: `git worktree` for one still
+registered with its repository, `git repository` for a clone with a history of its own. Both are
+named in the confirmation, and after deleting a worktree the repository is pruned, so git does not
+keep a registration for a path that is gone.
+
 ## Change state
 
 Every change carries one of `In Progress`, `Awaiting Review` or `Completed`, chosen in the select
@@ -326,15 +331,37 @@ The `Actions` button on a dashboard holds what you can do to the change as a who
 
 - **Copy PR description** — puts the ticket and one link per repository on the clipboard:
 
-      PROJ-1627 - Anonimiseren van bezorgernamen op ACCEPTATIE omgeving (vanuit Security)
-      https://github.com/acme/example-service/pull/720
-      https://github.com/acme/example-deploy/pull/135
+      PROJ-123 - Anonymise customer names on the acceptance environment
+      https://github.com/owner/example-api-service/pull/720
+      https://github.com/owner/example-deploy/pull/135
 
   A repository whose pull request does not exist yet is listed by name, so the list stays
   complete.
 - **Complete change** — last in the menu, because it is the irreversible one.
 
 ## Completing a change
+
+A pull request that belongs to a GitHub stack cannot go through the ordinary merge: GitHub
+refuses, because merging one takes everything below it along and that runs in the background.
+Those are merged with the asynchronous merge API instead — submit, then poll until it is no
+longer pending — and a stack that lands in a merge queue rather than on the branch is reported as
+such, because the change is then finished here but not yet on main.
+
+Every step is written to `completion.json` in the change directory as it starts and as it
+finishes, and the **Completing** card shows it: which step is running, which are done, and where
+it stopped. Because it is on disk rather than in the page, a completion that fails is legible
+afterwards — from a page opened later, or after a restart — and `Try again` picks up what is
+left, since a merge that already happened is no longer outstanding.
+
+The first thing recorded is the readiness check itself, before it runs — it is slow, and a page
+that just asked for a completion should see something at once. A refusal ("not approved yet") is
+recorded there too, rather than only in the page that asked.
+
+The card stays for completions that finished, so an archived change still shows what was done and
+when. A change that was never completed has no card. A completed change no longer starts a terminal: doing so would write into a directory
+that has just moved to the archive, and the change would then be listed twice, once under each
+name. It is listed once regardless, since a leftover directory (a build's `target/`, a shell's
+history) is not a second change.
 
 `Complete change` on a dashboard squash-merges every outstanding pull request and moves the Jira
 issue to `jiraDoneTransition` (default `Done`), then records `completedAt` in `change.json`.
@@ -357,6 +384,25 @@ even if the pull request is approved: removing it would throw that work away.
 `/` lists changes, `/new` is the wizard, `/changes/<id>` is a dashboard. Navigation uses
 `history.pushState`, the server serves the app for any non-`/api` path, so deep links, reload and
 the browser's Back button all work.
+
+## The cost of a refresh
+
+The dashboard is CLI calls, and they are not all alike. `IWE_TRACE=1` counts them and adds up
+what each tool costs; measured on a six-repository change, one refresh used to be **131 processes
+and 180 seconds of CPU**, and is now **60 processes and 6 seconds**. What changed:
+
+- **Worktree state is read with git, not `wt list`.** `wt list` gathers CI, diffs and summaries in
+  parallel and costs 1-13 seconds of CPU per call; `git worktree list --porcelain` plus
+  `git status --porcelain=v2` costs ~25ms and answers everything the card shows. wt still creates
+  and removes worktrees — it owns where they live.
+- **Azure DevOps calls are shared.** `az` is a Python program, a few hundred milliseconds of CPU
+  per invocation, and every repository of a change asks about the same branch at the same moment.
+  Pipeline definitions are held for five minutes, runs for five seconds, and calls in flight are
+  shared outright.
+- **`origin/HEAD` is asked once per repository**, not twice per repository per refresh.
+
+The rest is network-bound rather than CPU-bound: `gh` and `jira` are Go binaries that spend their
+time waiting.
 
 ## Dashboard loading
 
@@ -398,8 +444,10 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/branch.ts             branch-name derivation (shared with the browser)
     src/config.ts             config file + env overrides
     src/repos.ts              directory browsing under reposRoot, remote branches
+    src/leftovers.ts          directories in the changes root without a change
     src/description.ts        the pull request description an action copies
     src/terminal.ts           tmux sessions and the ttyd that serves them
+    src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
     src/integrations/         git.ts (wt), jira.ts, azure.ts, index.ts (the registry)
                               github.ts (pull requests) + checks.ts, stacks.ts
                               ci.ts joins pull requests, pipelines and checks into one card
@@ -411,6 +459,7 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/RepoBrowser.tsx   repository picker: mode and base branch per repository
     src/web/TerminalPane.tsx  the terminal tab, with WindowStrip.tsx and CheatSheet.tsx
     src/web/NotesCard.tsx     notes.md for a change
+    src/web/CompletionCard.tsx  how far completing a change got
     src/web/manifest.webmanifest  installable app metadata
     src/web/icons/            generated from assets/*.svg by `bun run icons`
     test/changes.test.ts      change.json, notes, in-place provisioning, base branches

@@ -55,3 +55,108 @@ export async function stackOnBase(worktree: string, baseBranch: string, number: 
   );
   if (r.code !== 0) console.warn(`could not stack #${number} onto #${below}: ${r.stderr.trim()}`);
 }
+
+/** What a merge request says about itself; the same object comes back from both endpoints. */
+export type MergeResult = {
+  status: "pending" | "merged" | "enqueued" | "failed";
+  details?: { message?: string; uuid?: string; sha?: string };
+};
+
+/**
+ * What to do with a merge result: keep waiting, stop happily, or fail with what GitHub said.
+ * `enqueued` is an ending too — the stack went into the base branch's merge queue, and the queue
+ * owns it from there.
+ */
+export function outcomeOf(result: MergeResult): { waiting: boolean; note?: string; error?: string } {
+  switch (result.status) {
+    case "pending":
+      return { waiting: true };
+    case "merged":
+      return { waiting: false };
+    case "enqueued":
+      return { waiting: false, note: "added to the merge queue" };
+    default:
+      return { waiting: false, error: result.details?.message ?? "the merge failed" };
+  }
+}
+
+/** A merge result read from a response, or nothing when the response was not one: a poll can
+ * fail (the request expired, the network hiccuped) and that is not the same as "still running". */
+export function pollResult(code: number, stdout: string): MergeResult | undefined {
+  if (code !== 0) return undefined;
+  const parsed = json<Partial<MergeResult>>(stdout, {});
+  return parsed.status ? (parsed as MergeResult) : undefined;
+}
+
+/** Whether the pull request is merged, asked of the pull request itself. The merge request is a
+ * report about the work; this is the work. */
+async function merged(worktree: string, repository: string, number: number): Promise<boolean> {
+  const r = await sh(["gh", "api", `repos/${repository}/pulls/${number}`, "-q", ".merged"], worktree);
+  return r.stdout.trim() === "true";
+}
+
+/**
+ * Merge a stacked pull request. A stack cannot go through the ordinary merge endpoint at all —
+ * GitHub refuses and points here — because merging one pull request of a stack merges everything
+ * below it too, which takes long enough that it runs in the background.
+ *
+ * Submit, then poll until it is no longer pending.
+ */
+export async function mergeStacked(
+  worktree: string,
+  repository: string,
+  number: number,
+  method = "squash",
+): Promise<string | undefined> {
+  const submit = await sh(
+    [
+      "gh",
+      "api",
+      "--method",
+      "PUT",
+      ...STACKS_API,
+      `repos/${repository}/pulls/${number}/merge-async`,
+      "-f",
+      `merge_method=${method}`,
+      // default: merge directly, or use the merge queue when the branch demands one.
+      "-f",
+      "merge_action=default",
+    ],
+    worktree,
+  );
+  // 409 means a merge request already exists; its uuid comes back all the same, so poll that one.
+  const submitted = json<MergeResult>(submit.stdout, { status: "failed" });
+  if (submit.code !== 0 && !submitted.details?.uuid) {
+    throw new Error(`could not start the merge of #${number}: ${submit.stderr || submit.stdout}`);
+  }
+
+  let result = submitted;
+  const uuid = submitted.details?.uuid;
+  const deadline = Date.now() + 5 * 60_000;
+  while (outcomeOf(result).waiting && uuid) {
+    if (Date.now() > deadline) {
+      // It may well have landed while we were failing to hear about it.
+      if (await merged(worktree, repository, number)) return undefined;
+      throw new Error(`the merge of #${number} is still running after 5m`);
+    }
+    await Bun.sleep(1000);
+    const poll = await sh(
+      ["gh", "api", ...STACKS_API, `repos/${repository}/pulls/${number}/merge-async/${uuid}`],
+      worktree,
+    );
+    const read = pollResult(poll.code, poll.stdout);
+    // A failed poll used to be read as "still pending", which turned any hiccup into five
+    // minutes of silence and then a timeout — while the merge had usually happened.
+    if (!read) {
+      if (await merged(worktree, repository, number)) return undefined;
+      throw new Error(
+        `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
+      );
+    }
+    result = read;
+  }
+
+  const outcome = outcomeOf(result);
+  if (outcome.error) throw new Error(`could not merge #${number}: ${outcome.error}`);
+  return outcome.note;
+}

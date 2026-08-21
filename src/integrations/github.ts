@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { worktreeFor, baseFor, remoteDefaultBranch } from "./git.ts";
-import { stackOnBase, describeStack, type Stack } from "./stacks.ts";
+import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { sh, shOrThrow, json } from "../sh.ts";
 
 type Pr = {
@@ -53,21 +53,46 @@ function checksState(pr: Pr): { state: WidgetState; text: string } {
   return { state: "ok", text: "checks passed" };
 }
 
+/**
+ * Which branch on the remote a pull request would be for. Usually the change's own branch, but a
+ * branch that was renamed, or made around work that already existed, pushes somewhere else — and
+ * a pull request belongs to the branch that was pushed, not to the one you have locally.
+ *
+ * The remote's default branch is never it: a branch left tracking `origin/main` is the old
+ * in-place bug, not a pull request.
+ */
+export function headRef(branch: string, upstream?: string, remoteDefault?: string): string {
+  if (!upstream || upstream === remoteDefault) return branch;
+  const name = upstream.slice(upstream.indexOf("/") + 1);
+  return name || branch;
+}
+
+async function pushedAs(worktree: string, repo: string, branch: string): Promise<string> {
+  const upstream = (
+    await sh(
+      ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
+      worktree,
+    )
+  ).stdout;
+  return headRef(branch, upstream || undefined, await remoteDefaultBranch(repo));
+}
+
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
  * change's branch. Returns undefined when the worktree does not exist yet. */
 async function prQuery(
   change: Change,
   repo: string,
-): Promise<{ worktree: string; prs: Pr[] } | undefined> {
+): Promise<{ worktree: string; head: string; prs: Pr[] } | undefined> {
   const wt = await worktreeFor(change, repo);
   if (!wt) return undefined;
+  const head = await pushedAs(wt, repo, change.branch);
   const r = await sh(
     [
       "gh",
       "pr",
       "list",
       "--head",
-      change.branch,
+      head,
       "--state",
       "all",
       "--limit",
@@ -78,7 +103,7 @@ async function prQuery(
     wt,
   );
   if (r.code !== 0) throw new Error(r.stderr.split("\n")[0] ?? "gh failed");
-  return { worktree: wt, prs: json<Pr[]>(r.stdout, []) };
+  return { worktree: wt, head, prs: json<Pr[]>(r.stdout, []) };
 }
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -155,7 +180,7 @@ export async function prItem(
 ): Promise<{ number?: number; item: WidgetItem }> {
   // The repository is the parent row in the tree, so these labels do not repeat it.
   const label = "pull request";
-  let found: { worktree: string; prs: Pr[] } | undefined;
+  let found: { worktree: string; head: string; prs: Pr[] } | undefined;
   try {
     found = await prQuery(change, repo);
   } catch (e) {
@@ -178,6 +203,8 @@ export async function prItem(
   // merged and closed are the exceptions, since nothing else on the row says so. Comment counts
   // are the one thing you cannot see anywhere else on this page.
   const notable = pr.isDraft ? "draft" : ["MERGED", "CLOSED"].includes(pr.state) ? pr.state.toLowerCase() : undefined;
+  // Surprising enough to say: the work goes to a branch with another name.
+  const elsewhere = found.head !== change.branch ? `pushed as ${found.head}` : undefined;
   // A merged or closed pull request is not waiting for anything, so it only says so.
   const settled = ["MERGED", "CLOSED"].includes(pr.state);
   const details = await prDetails(found.worktree, pr.url, pr.number);
@@ -189,7 +216,7 @@ export async function prItem(
       label: `#${pr.number} ${pr.title}`,
       // The stack goes last: it describes the work around this pull request, not its state.
       detail:
-        [notable, status.text, details.stack && describeStack(details.stack)]
+        [notable, elsewhere, status.text, details.stack && describeStack(details.stack)]
           .filter(Boolean)
           .join(" · ") || undefined,
       detailTone: status.tone,
@@ -222,12 +249,44 @@ export async function mergeReadiness(change: Change, repo: string): Promise<Merg
   return { ready: true, merged: false, number: pr.number };
 }
 
-/** Squash-merge the pull request. Both Acme repositories allow squash only, and delete the
- * remote branch themselves; --delete-branch also drops the local one. */
-export async function mergePr(change: Change, repo: string, number: number): Promise<void> {
+/**
+ * Squash-merge the pull request: the repositories this was written for allow squash only, and
+ * delete the remote branch themselves.
+ *
+ * A pull request in a stack cannot be merged this way — GitHub refuses, because merging one
+ * takes everything below it along and that runs in the background — so those go through the
+ * asynchronous merge API instead.
+ */
+export async function mergePr(
+  change: Change,
+  repo: string,
+  number: number,
+): Promise<string | undefined> {
   const wt = await worktreeFor(change, repo);
   if (!wt) throw new Error(`no worktree for ${change.branch} in ${repo}`);
-  await shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
+
+  const stacked = await isStacked(wt, repo, number);
+  if (!stacked) {
+    await shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
+    return undefined;
+  }
+  // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
+  const note = await mergeStacked(wt, stacked, number);
+  return note && `${basename(repo)} #${number}: ${note}`;
+}
+
+/** The repository as `owner/name` when this pull request belongs to a stack, otherwise nothing. */
+async function isStacked(
+  worktree: string,
+  repo: string,
+  number: number,
+): Promise<string | undefined> {
+  const repository = (
+    await sh(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)
+  ).stdout;
+  if (!repository) return undefined;
+  const pr = await sh(["gh", "api", `repos/${repository}/pulls/${number}`], worktree);
+  return json<{ stack?: unknown }>(pr.stdout, {}).stack ? repository : undefined;
 }
 
 /** Push the branch and open a pull request for it. */

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { WindowStrip } from "./WindowStrip.tsx";
+import { WindowStrip, type TerminalWindow } from "./WindowStrip.tsx";
 
 /**
  * The change's terminal: a tmux session in the change directory, rendered by ttyd.
@@ -12,18 +12,25 @@ export function TerminalPane({
   url,
   error,
   visible,
+  windows,
+  onWindowsChanged,
 }: {
   changeId: string;
   url: string | null;
   error: string | null;
-  /** Whether the Terminals tab is the one in front; the strip only polls when it is. */
+  /** Whether the Terminals tab is the one in front: what to focus, and when. */
   visible: boolean;
+  windows: TerminalWindow[];
+  onWindowsChanged: (windows: TerminalWindow[]) => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // Opening the tab should be enough to start typing.
+  // Opening the tab should be enough to start typing. Same-origin now, so the terminal's own
+  // input can be focused rather than just the frame around it.
   useEffect(() => {
-    if (visible) frame.current?.contentWindow?.focus();
+    if (!visible) return;
+    const inner = frame.current?.contentDocument;
+    (inner?.querySelector("textarea") ?? frame.current?.contentWindow)?.focus();
   }, [visible, url]);
 
   if (error) {
@@ -40,7 +47,8 @@ export function TerminalPane({
     <div className="terminal">
       <WindowStrip
         changeId={changeId}
-        active={visible}
+        windows={windows}
+        onChanged={onWindowsChanged}
         focusTerminal={() => frame.current?.contentWindow?.focus()}
       />
       <iframe ref={frame} src={url} title={`terminal for ${changeId}`} />
