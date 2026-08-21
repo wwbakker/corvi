@@ -397,13 +397,23 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/changes.ts            change.json read/write, worktree paths
     src/branch.ts             branch-name derivation (shared with the browser)
     src/config.ts             config file + env overrides
-    src/repos.ts              directory browsing under reposRoot
-    src/integrations/         git.ts (wt), github.ts, jira.ts, azure.ts, index.ts (the registry)
+    src/repos.ts              directory browsing under reposRoot, remote branches
+    src/description.ts        the pull request description an action copies
+    src/terminal.ts           tmux sessions and the ttyd that serves them
+    src/integrations/         git.ts (wt), jira.ts, azure.ts, index.ts (the registry)
+                              github.ts (pull requests) + checks.ts, stacks.ts
+                              ci.ts joins pull requests, pipelines and checks into one card
     src/server.ts             Bun.serve: /api/* plus the React app
     src/web/app.tsx           shell + changes list
     src/web/Wizard.tsx        per-component change wizard
     src/web/IssueTable.tsx    filterable Jira board table
     src/web/ChangeView.tsx    widget dashboard for one change
-    src/web/RepoBrowser.tsx   repository picker
+    src/web/RepoBrowser.tsx   repository picker: mode and base branch per repository
+    src/web/TerminalPane.tsx  the terminal tab, with WindowStrip.tsx and CheatSheet.tsx
+    src/web/NotesCard.tsx     notes.md for a change
     src/web/manifest.webmanifest  installable app metadata
     src/web/icons/            generated from assets/*.svg by `bun run icons`
+    test/changes.test.ts      change.json, notes, in-place provisioning, base branches
+    test/repos.test.ts        editing a change's repositories against real git repositories
+    test/terminal.test.ts     the terminal tab end to end (skipped without ttyd/tmux)
+    test/provision.test.ts    the pure logic of every component

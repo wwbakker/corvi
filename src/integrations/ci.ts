@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
-import { prItem, createPr, checkItems } from "./github.ts";
+import { prItem, createPr } from "./github.ts";
+import { checkItems } from "./checks.ts";
 import { pipelineItems } from "./azure.ts";
 
 /** Pull requests and the pipelines they trigger, per repository: one question ("is this change

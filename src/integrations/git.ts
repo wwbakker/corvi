@@ -200,8 +200,9 @@ export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   if (tree.staged || tree.modified || tree.untracked) {
     return { kind: "dirty", text: "uncommitted changes" };
   }
-  // Commits ahead of the upstream, or commits on a branch that was never pushed at all: both
-  // disappear with the worktree, since wt deletes the branch along with it.
+  // Commits ahead of the upstream, or commits on a branch that was never pushed at all. The
+  // branch itself survives a removal while it is unmerged, but the worktree they were made in
+  // does not, and nothing else points at them: worth a question before going ahead.
   const ahead = entry.remote?.ahead ?? 0;
   if (ahead > 0) return { kind: "unpushed", text: `${ahead} unpushed commit(s)` };
   if (!entry.remote?.branch && !inMain(entry.main_state)) {
@@ -274,7 +275,11 @@ export async function setRepos(
   return { change: updated };
 }
 
-/** Drop the worktree once its work is merged; the branch goes with it. */
+/**
+ * Drop the worktree. wt deletes the branch with it when it has been merged, and keeps it when it
+ * has not — which is what makes switching a repository to in-place work: the worktree goes, the
+ * branch stays, and the repository's own checkout picks it up.
+ */
 export async function removeWorktree(change: Change, repo: string): Promise<void> {
   if (isDirect(change, repo)) return unlinkInPlace(change, repo);
   if (!(await worktreeFor(change, repo))) return;

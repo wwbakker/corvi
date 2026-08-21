@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { worktreeFor, baseFor, remoteDefaultBranch } from "./git.ts";
+import { stackOnBase, describeStack, type Stack } from "./stacks.ts";
 import { sh, shOrThrow, json } from "../sh.ts";
 
 type Pr = {
@@ -86,9 +87,6 @@ export function repoFromUrl(url: string): { owner: string; name: string } | unde
   return m ? { owner: m[1]!, name: m[2]! } : undefined;
 }
 
-/** Where a pull request sits in its stack, when it is in one. */
-export type Stack = { number: number; size: number; position: number };
-
 type Details = { unresolved?: number; stack?: Stack };
 
 const detailsQuery = (withStack: boolean): string =>
@@ -149,10 +147,6 @@ async function prDetails(worktree: string, url: string, number: number): Promise
     stack: stack && position ? { number: stack.number, size: stack.size, position } : undefined,
   };
 }
-
-/** How a stack reads on the pull request row. */
-export const describeStack = (stack: Stack): string =>
-  `${stack.position} of ${stack.size} in stack #${stack.number}`;
 
 /** The pull request for this change in `repo`, plus a row describing it. */
 export async function prItem(
@@ -236,55 +230,6 @@ export async function mergePr(change: Change, repo: string, number: number): Pro
   await shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
 }
 
-/** GitHub's stacked pull requests are a preview feature, so the API version has to be asked for
- * by name. */
-const STACKS_API = ["-H", "X-GitHub-Api-Version: 2026-03-10"];
-
-/**
- * The call that puts a new pull request on top of the one below it: appended to that pull
- * request's stack when it already has one, otherwise a stack of the two of them.
- *
- * Pull requests are given bottom to top, and each one's base must be the previous one's head —
- * which is exactly how a change based on another change's branch is already set up.
- */
-export function stackRequest(
-  repo: string,
-  below: number,
-  number: number,
-  stack?: number,
-): string[] {
-  return stack
-    ? [`repos/${repo}/stacks/${stack}/add`, "-F", `pull_requests[]=${number}`]
-    : [`repos/${repo}/stacks`, "-F", `pull_requests[]=${below}`, "-F", `pull_requests[]=${number}`];
-}
-
-/**
- * Tie a new pull request to the one it was branched off, as a GitHub stack: reviewers then see
- * the order of the work, and merging the bottom one moves the rest along.
- *
- * Best effort. The stack is a nicety on top of a pull request that already targets the right
- * branch, so a repository without the preview feature, or a base branch with no pull request of
- * its own, changes nothing else.
- */
-async function stackOnBase(worktree: string, baseBranch: string, number: number): Promise<void> {
-  const repo = (await sh(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], worktree)).stdout;
-  const below = json<{ number: number }[]>(
-    (await sh(["gh", "pr", "list", "--head", baseBranch, "--state", "open", "--json", "number", "--limit", "1"], worktree)).stdout,
-    [],
-  )[0]?.number;
-  if (!repo || !below) return; // the branch below has no pull request: nothing to stack onto
-
-  const stack = json<{ stack?: { number?: number } }>(
-    (await sh(["gh", "api", `repos/${repo}/pulls/${below}`, ...STACKS_API], worktree)).stdout,
-    {},
-  ).stack?.number;
-  const r = await sh(
-    ["gh", "api", "-X", "POST", ...STACKS_API, ...stackRequest(repo, below, number, stack)],
-    worktree,
-  );
-  if (r.code !== 0) console.warn(`could not stack #${number} onto #${below}: ${r.stderr.trim()}`);
-}
-
 /** Push the branch and open a pull request for it. */
 export async function createPr(change: Change, repo: string): Promise<void> {
   const wt = await worktreeFor(change, repo);
@@ -303,85 +248,4 @@ export async function createPr(change: Change, repo: string): Promise<void> {
     );
     if (number) await stackOnBase(wt, target!, number);
   }
-}
-
-export type Check = {
-  name: string;
-  state: string;
-  bucket: string;
-  link?: string;
-  startedAt?: string;
-  completedAt?: string;
-};
-
-/** GitHub's own word for a check, which is the only vocabulary shared by Actions, Azure Pipelines
- * in any project, Cypress and whatever else a repository has bolted on. */
-const checkState = (bucket: string): WidgetState =>
-  ({ pass: "ok", fail: "error", pending: "pending", skipping: "none", cancel: "warn" })[bucket] as
-    | WidgetState
-    | undefined ?? "none";
-
-/**
- * The checks of a pull request, as the tree shows them when Azure DevOps has nothing to say about
- * this repository: its pipelines live in another project, or it is built by GitHub Actions.
- *
- * Names like `acme.frontend-app (CI App @acme/example-app)` are grouped by the part before
- * the bracket, so thirty jobs of one build read as one row you can open.
- */
-export async function checkItems(change: Change, repo: string, number: number): Promise<WidgetItem[]> {
-  const worktree = (await worktreeFor(change, repo)) ?? repo;
-  // Non-zero means "something is failing or pending", which is a result, not an error.
-  const r = await sh(
-    ["gh", "pr", "checks", String(number), "--json", "name,state,bucket,link,startedAt,completedAt"],
-    worktree,
-  );
-  return groupChecks(json<Check[]>(r.stdout, []));
-}
-
-/** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
- * row you can open. */
-export function groupChecks(checks: Check[]): WidgetItem[] {
-  if (checks.length === 0) return [];
-  const groups = new Map<string, Check[]>();
-  for (const check of checks) {
-    const group = check.name.split(" (")[0]!;
-    groups.set(group, [...(groups.get(group) ?? []), check]);
-  }
-  return [...groups].map(([name, members]): WidgetItem => {
-    const states = members.map((c) => checkState(c.bucket));
-    const state = states.includes("error")
-      ? "error"
-      : states.includes("pending")
-        ? "pending"
-        : states.includes("ok")
-          ? "ok"
-          : "none";
-    const failed = states.filter((s) => s === "error").length;
-    const running = states.filter((s) => s === "pending").length;
-    return {
-      label: name,
-      detail: [
-        `${members.length} check${members.length === 1 ? "" : "s"}`,
-        failed ? `${failed} failing` : undefined,
-        running ? `${running} running` : undefined,
-      ]
-        .filter(Boolean)
-        .join(" · "),
-      state,
-      url: members.length === 1 ? members[0]!.link : undefined,
-      // A single check is its own row already; more than one is worth opening.
-      children:
-        members.length === 1
-          ? undefined
-          : members.map((c): WidgetItem => ({
-              // The check named exactly like the group is the build as a whole; the rest are its
-              // jobs, named by what is left after the group's name.
-              label: c.name.slice(name.length).replace(/^ \(|\)$/g, "") || "overall",
-              detail: c.state.toLowerCase(),
-              url: c.link,
-              state: checkState(c.bucket),
-              progress: c.bucket === "pending" && c.startedAt ? { startedAt: c.startedAt } : undefined,
-            })),
-    };
-  });
 }

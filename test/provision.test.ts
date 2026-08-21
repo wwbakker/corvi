@@ -8,7 +8,9 @@ import {
   runState,
   versionInLines,
 } from "../src/integrations/azure.ts";
-import { readiness, repoFromUrl, groupChecks, stackRequest, describeStack } from "../src/integrations/github.ts";
+import { readiness, repoFromUrl } from "../src/integrations/github.ts";
+import { groupChecks } from "../src/integrations/checks.ts";
+import { stackRequest, describeStack } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
 import { windowLabel } from "../src/web/WindowStrip.tsx";
