@@ -17,7 +17,7 @@ import {
   runState,
   versionInLines,
 } from "../src/integrations/azure.ts";
-import { readiness, repoFromUrl, headRef } from "../src/integrations/github.ts";
+import { readiness, repoFromUrl, headRef, waitingOnYou } from "../src/integrations/github.ts";
 import { groupChecks } from "../src/integrations/checks.ts";
 import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
@@ -291,6 +291,9 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(w({ command: "vim" })).toBe("example-api - (vim)");
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true })).toBe("deploy - (gradle)");
+  // An agent is `node` to tmux, which says nothing; what it says about itself replaces that.
+  expect(w({ command: "node", agent: "working" })).toBe("example-api - (pi working)");
+  expect(w({ command: "node", agent: "waiting" })).toBe("example-api - (pi waiting)");
   // Nothing is repeated: a window named after what runs in it says it once.
   expect(w({ name: "logs", command: "logs", directory: "x", named: true })).toBe("logs");
 })
@@ -416,4 +419,26 @@ test("a merge poll that fails is not mistaken for one still running", () => {
   expect(pollResult(1, '{"message":"Not Found","status":"404"}')).toBeUndefined();
   expect(pollResult(0, "")).toBeUndefined();
   expect(pollResult(0, "not json at all")).toBeUndefined();
+});
+
+test("a review thread you answered last is not waiting on you", () => {
+  const thread = (isResolved: boolean, ...logins: string[]) => ({
+    isResolved,
+    comments: { nodes: logins.map((login) => ({ author: { login } })) },
+  });
+  const threads = [
+    thread(false, "reviewer"), // asked, unanswered: yours
+    thread(false, "reviewer", "octocat"), // you replied: theirs to resolve
+    thread(false, "octocat", "reviewer"), // they came back: yours again
+    thread(true, "reviewer"), // resolved, whoever spoke last
+  ];
+  expect(waitingOnYou(threads, "octocat")).toBe(2);
+
+  // Only the reviewer resolves a thread, so without this every answered thread would sit in the
+  // count until they got round to looking.
+  expect(threads.filter((t) => !t.isResolved).length).toBe(3);
+
+  // No viewer to compare against, or an author we cannot read: counted, since "yes" is safe.
+  expect(waitingOnYou(threads, undefined)).toBe(3);
+  expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
 });

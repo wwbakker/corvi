@@ -12,6 +12,8 @@ import { integrations, provision, repoStatusOf, statusOne } from "./integrations
 import { boardIssues, createIssue } from "./integrations/jira.ts";
 import { browse, remoteBranches, absolutePath } from "./repos.ts";
 import { listLeftovers, removeLeftover } from "./leftovers.ts";
+import { summaryOf } from "./summary.ts";
+import { refreshTitles } from "./titles.ts";
 import { proxyToTtyd, bridge, keysScript, type Bridge } from "./terminalProxy.ts";
 import type { ServerWebSocket } from "bun";
 import { repoStates, setRepos } from "./integrations/git.ts";
@@ -25,6 +27,22 @@ import {
   selectWindow,
 } from "./terminal.ts";
 import { CHANGE_STATES, type Change, type ChangeState } from "./types.ts";
+import { loadCache, saveCache } from "./cache.ts";
+
+// What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
+// `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
+const restored = await loadCache();
+
+// Written now and then rather than on every entry: this is a cache, and losing the last minute
+// of it costs one refresh.
+setInterval(() => void saveCache().catch(() => {}), 30_000).unref();
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    void saveCache()
+      .catch(() => {})
+      .finally(() => process.exit(0));
+  });
+}
 
 const json = (data: unknown, status = 200): Response => Response.json(data, { status });
 
@@ -96,6 +114,12 @@ const server = Bun.serve({
       },
     },
 
+    // What each change is called, refreshed from Jira in one query for the whole page. Its own
+    // route, and not part of /api/changes: the list must stay instant, this waits for a CLI.
+    "/api/titles": {
+      GET: async () => json(await refreshTitles()),
+    },
+
     // The components a dashboard shows. The browser asks each of them for its own widget, so
     // one slow CLI cannot hold up the rest of the page.
     "/api/integrations": {
@@ -143,6 +167,12 @@ const server = Bun.serve({
           // 409: nothing was changed, the browser should ask about the unpushed work first.
           return "needsForce" in result ? json(result, 409) : json(result.change);
         }),
+    },
+
+    // The three numbers a change's card on the overview shows. One request per card, so a
+    // change whose CLIs are slow holds up only its own card.
+    "/api/changes/:id/summary": {
+      GET: async (req) => withChange(req.params.id, async (c) => json(await summaryOf(c))),
     },
 
     // Whatever you want to remember about this change; plain text in the change directory.
@@ -306,4 +336,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`iwe on ${server.url}`);
+console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);

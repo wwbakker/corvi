@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { sh, json } from "../sh.ts";
+import { swr } from "../cache.ts";
 import { config } from "../config.ts";
 
 type Run = {
@@ -68,32 +69,20 @@ export const refsFor = (branch: string, pr?: number): string[] =>
  * which is how runs are attributed to a repository: `repository.name` comes back null. */
 export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 
-/**
- * One call per distinct question, however many rows ask it. Every repository of a change asks
+/*
+ * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
- * milliseconds of CPU per invocation — it is a Python program, started afresh each time.
- *
- * In-flight calls are shared outright; finished ones are reused for `ttl`, which is short enough
- * that a refresh still sees a build that started since the last one.
+ * milliseconds of CPU per invocation — it is a Python program, started afresh each time. The
+ * sharing and the staleness both live in src/cache.ts now.
  */
-const pending = new Map<string, { at: number; work: Promise<unknown> }>();
 
-function once<T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> {
-  const found = pending.get(key);
-  if (found && Date.now() - found.at < ttl) return found.work as Promise<T>;
-  const started = { at: Date.now(), work: work() };
-  pending.set(key, started);
-  // A failure must not be remembered: the next caller should try again.
-  void started.work.catch(() => pending.delete(key));
-  return started.work as Promise<T>;
-}
-
-/** Pipelines are moved between folders about never; runs happen while you watch. */
+/** Pipelines are moved between folders about never; runs happen while you watch. Both are
+ * served from the cache while the refresh runs, so neither number is ever waited for twice. */
 const DEFINITIONS_TTL = 5 * 60_000;
-const RUNS_TTL = 5_000;
+const RUNS_TTL = 10_000;
 
 async function listDefinitions(repo: string): Promise<Definition[]> {
-  return once(`definitions:${folderFor(repo)}`, DEFINITIONS_TTL, async () => {
+  return swr(`az:definitions:${folderFor(repo)}`, DEFINITIONS_TTL, async () => {
     const r = await sh([
       "az",
       "pipelines",
@@ -115,7 +104,7 @@ async function runsFor(
   // once and answered once.
   const results = await Promise.all(
     refs.map((ref) =>
-      once(`runs:${ref}`, RUNS_TTL, () =>
+      swr(`az:runs:${ref}`, RUNS_TTL, () =>
         sh([
           "az",
           "pipelines",
@@ -141,6 +130,24 @@ async function runsFor(
   return { runs: [...byId.values()].sort((a, b) => b.id - a.id) };
 }
 
+/**
+ * How many runs of this repository's pipelines are in flight for this change — the one number
+ * the overview needs. Both queries behind it are the cached ones the dashboard uses, so asking
+ * for it costs nothing extra while a change is open, and it skips durations, logs and versions.
+ */
+export async function activeRuns(change: Change, repo: string, pr?: number): Promise<number> {
+  const [definitions, { runs, error }] = await Promise.all([
+    listDefinitions(repo),
+    runsFor(refsFor(change.branch, pr)),
+  ]);
+  if (error) return 0;
+  const mine = new Set(definitions.map((d) => d.id));
+  return runs.filter((r) => {
+    const id = r.definition?.id;
+    return r.status !== "completed" && id !== undefined && mine.has(id);
+  }).length;
+}
+
 /** Mean duration of the last finished runs of a pipeline, across branches. */
 export function averageDuration(runs: Run[]): number | undefined {
   const durations = runs
@@ -157,7 +164,7 @@ export function averageDuration(runs: Run[]): number | undefined {
 async function expectedDuration(
   definitionId: number,
 ): Promise<number | undefined> {
-  return once(`duration:${definitionId}`, DEFINITIONS_TTL, async () => {
+  return swr(`az:duration:${definitionId}`, DEFINITIONS_TTL, async () => {
     const r = await sh([
       "az",
       "pipelines",

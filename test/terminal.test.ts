@@ -143,25 +143,35 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
     `${id} repo`,
   );
 
+  // An agent that says what it is doing is taken at its word: `node` never would. This is what
+  // pi's busy-title extension sets on its own pane.
+  await page.keyboard.type("tmux set -p @agent working\n");
+  expect(
+    await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi working)"),
+  ).toBe("repo - (pi working)");
+  await page.keyboard.type("tmux set -p @agent waiting\n");
+  expect(
+    await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi waiting)"),
+  ).toBe("repo - (pi waiting)");
+  // Unset when the agent leaves, and the window is a shell in a directory again.
+  await page.keyboard.type("tmux set -p -u @agent\n");
+  expect(await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo")).toBe("repo");
+
+  // A new window starts where the current one is, not back at the change: the second window
+  // walked into the repository above, so this one starts there too.
   await page.locator(".windows .win.add").click();
   expect(await until(() => strip.count(), 3)).toBe(3);
-
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(3);
+  expect(await until(async () => (await strip.allInnerTexts())[2]?.trim(), "repo")).toBe("repo");
+
+  // cmd-t does the same, from inside the terminal, where the keyboard is.
+  await page.keyboard.press("Meta+t");
+  expect(await until(() => strip.count(), 4)).toBe(4);
 
   // Selecting one makes it tmux's current window.
   await strip.first().click();
   await Bun.sleep(500);
   expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe("0");
-
-  // Clicking a window must not take the keyboard with it: you click a window to type in it.
-  await page.locator(".windows .win.add").click();
-  await Bun.sleep(1000);
-  await page.keyboard.type("pwd > typed-after-click.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
-  expect(await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()).toBe(true);
 
   // Clicking a window must not take the keyboard with it: you click a window to type in it.
   await page.locator(".windows .win.add").click();

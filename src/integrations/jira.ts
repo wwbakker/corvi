@@ -1,5 +1,6 @@
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { sh, shOrThrow } from "../sh.ts";
+import { swr, invalidate } from "../cache.ts";
 import { config } from "../config.ts";
 
 export type Issue = {
@@ -176,6 +177,7 @@ export async function createIssue(input: {
 export async function moveIssue(key: string, status: string): Promise<void> {
   await shOrThrow(["jira", "issue", "move", key, status]);
   cache = null;
+  invalidate("jira:"); // the status we would otherwise keep showing is the one we just changed
 }
 
 /** The logged-in Jira account, used when no assignee is configured. */
@@ -183,6 +185,30 @@ async function me(): Promise<string> {
   const r = await sh(["jira", "me"]);
   return r.code === 0 ? (r.stdout.split("\n")[0]?.trim() ?? "") : "";
 }
+
+/**
+ * Several issues in one query, for the overview: one `jira` call for a whole page of changes
+ * rather than one per row. An unknown key is simply absent from the result.
+ */
+export async function issuesByKeys(keys: string[]): Promise<Map<string, Issue>> {
+  if (keys.length === 0) return new Map();
+  // A ticket's summary and status change a few times a day at most, and the same keys are asked
+  // for by the overview on every visit.
+  return swr(`jira:keys:${[...keys].sort().join(",")}`, ISSUE_TTL, async () => {
+    const r = await sh([
+      "jira",
+      "issue",
+      "list",
+      "-q",
+      `key in (${keys.join(",")})`,
+      ...issueColumns,
+    ]);
+    return new Map(parseIssues(r.stdout, "", false).map((i) => [i.key, i]));
+  });
+}
+
+/** Jira is the slowest of the CLIs and the least volatile of the sources. */
+const ISSUE_TTL = 60_000;
 
 /** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
 export async function issueByKey(key: string): Promise<Issue | undefined> {
@@ -229,7 +255,10 @@ export const jira: Integration = {
         items: [],
       };
     }
-    const r = await sh(["jira", "issue", "list", "-q", `key = ${change.jira}`, ...issueColumns]);
+    // The widget is a display, so it may be a minute old; the transition check below is not.
+    const r = await swr(`jira:issue:${change.jira}`, ISSUE_TTL, () =>
+      sh(["jira", "issue", "list", "-q", `key = ${change.jira}`, ...issueColumns]),
+    );
     const issue = parseIssues(r.stdout, "", false)[0];
     if (!issue) {
       return {

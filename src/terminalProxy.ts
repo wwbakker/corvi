@@ -45,6 +45,14 @@ export const keysScript = `
     return true;
   };
 
+  // The terminal fills the page, so this is where cmd-t is pressed; the page around the frame
+  // is the one that can open a window, hence the message rather than a call.
+  window.addEventListener("keydown", (e) => {
+    if (e.key !== "t" || !e.metaKey || e.ctrlKey || e.altKey) return;
+    e.preventDefault();
+    parent.postMessage({ iwe: "new-window" }, location.origin);
+  });
+
   // Capture phase: xterm.js listens on the textarea and would otherwise send its carriage
   // return first.
   window.addEventListener(

@@ -15,7 +15,36 @@ const traceKey = (cmd: string[]): string =>
     ? cmd.slice(0, cmd[0] === "az" ? 3 : 2).join(" ")
     : (cmd[0] ?? "");
 
+/**
+ * How many CLIs may run at once. A dashboard asks about six repositories in parallel and each
+ * asks two or three vendors, so without a bound a single refresh forks thirty processes — and
+ * `az` alone is a few hundred milliseconds of CPU each. Queueing them costs nothing in wall
+ * time on a laptop with fewer cores than that, and keeps the machine usable while it happens.
+ */
+const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
+
+let running = 0;
+const waiting: (() => void)[] = [];
+
+async function slot(): Promise<() => void> {
+  if (running >= LIMIT) await new Promise<void>((resume) => waiting.push(resume));
+  running++;
+  return () => {
+    running--;
+    waiting.shift()?.();
+  };
+}
+
 export async function sh(cmd: string[], cwd?: string): Promise<Result> {
+  const release = await slot();
+  try {
+    return await spawn(cmd, cwd);
+  } finally {
+    release();
+  }
+}
+
+async function spawn(cmd: string[], cwd?: string): Promise<Result> {
   const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
   const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([

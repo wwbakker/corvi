@@ -49,7 +49,8 @@ Empty values fall back to the CLIs' own configuration: `jira me` for the assigne
 `changesRoot` holds one directory per change; `reposRoot` bounds the repository browser and
 `reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
 Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
-`IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`.
+`IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`,
+`IWE_CACHE` (where the cache is stored) and `IWE_PARALLEL` (how many CLIs may run at once).
 
 The server binds to localhost and runs as you: it has no auth of its own because it delegates
 to `git`, `gh` and `jira`, which already hold your credentials (`gh auth login`, `jira init`).
@@ -104,6 +105,12 @@ column of its own beside the others; narrower windows stack everything.
   `gh pr list` nor the REST API exposes resolution state) *and* the review decision, so
   `1 unresolved comment · approved` is visible as its own state. Resolved threads are not
   mentioned; `ready to merge` is reserved for an approval with nothing left open.
+
+  Counted are the threads **waiting on you**: unresolved, and not last spoken in by you. Only the
+  reviewer can resolve a thread, so a thread you answered stays unresolved for as long as they
+  take to look at it — counting those made the number say you had work when you had none. Your
+  own login comes from `viewer{login}` in the same query, so it costs no extra call. A thread
+  whose last author cannot be read counts, since the safe answer to "is this mine?" is yes.
 
   The pull request is looked up by the branch that was **pushed**, not by the change's branch
   name: a branch that was renamed, or made around work that already existed, lives on the remote
@@ -253,8 +260,44 @@ Above the terminal is a strip of the session's windows, labelled by **where they
 directory of the pane, which is the repository you are in — with **what is running there** in
 brackets after it: `example-api`, `example-web - (vim)`. A plain shell adds nothing, so it is
 left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
-renaming it for you at that point and so do we. A dot marks a window whose
-output arrived while you were looking elsewhere, and `+` opens another. The keyboard stays in the
+renaming it for you at that point and so do we.
+
+A window running a **coding agent** says what the agent is doing — `example-api - (pi working)`,
+`example-api - (pi waiting)` — instead of `node`, which says nothing. The agent reports that
+itself, in the `@agent` **tmux pane option**, which `agentIn()` reads out of the same
+`list-windows` call as everything else. The overview believes it over the process name: an agent
+waiting for you is not work in progress, though its process is very much running.
+
+`extensions/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent working`,
+`agent_settled` sets `waiting`, `session_shutdown` unsets it. Settled rather than ended, because
+after `agent_end` pi may still retry, auto-compact or pick up queued messages, none of which are
+"waiting for you".
+
+```bash
+bun run extension:install     # symlinks it into ~/.pi/agent/extensions/
+bun run extension:uninstall
+tmux display -p '#{@agent}'   # what the pane you are in says about itself
+```
+
+A symlink rather than a copy, so editing it here is editing the installed one and `/reload` in pi
+picks it up; the script refuses to touch anything at that path it did not put there.
+
+A pane option rather than the terminal title, which was the first attempt: the title is shared.
+pi rewrites it whenever the session name changes — right after a run, when it names the session
+from your first message — and the shell rewrites it between commands, so the marker kept
+vanishing seconds after it appeared. Nobody else writes `@agent`, and tmux drops it when the pane
+dies, so a crashed agent leaves nothing stale behind. The option is read from each window's
+**active pane**, so an agent left in the inactive half of a split is not seen.
+
+A dot marks a window whose output arrived while you were looking elsewhere, and `+` — or
+**cmd-t** — opens another.
+
+A new window starts **where the current one is**, not back in the change directory: a new tab is
+almost always "the same place, another thing", and `#{pane_current_path}` is what tmux's own
+`ctrl-b c` binding uses anyway. cmd-t works from inside the terminal too, where the keyboard
+usually is: the injected key script cannot open a window itself, so it forwards the key to the
+page around the frame. In a browser tab Chrome keeps cmd-t for itself; installed as an app it
+reaches us. The keyboard stays in the
 terminal throughout: the strip's buttons refuse the focus a mousedown would give them, and opening
 the tab focuses the terminal, so you can type straight away. Clicking one selects it. tmux stays the source of truth — the strip calls
 `list-windows`, `new-window` and `select-window`, so the keys keep working and a session attached
@@ -317,10 +360,49 @@ registered with its repository, `git repository` for a clone with a history of i
 named in the confirmation, and after deleting a worktree the repository is pruned, so git does not
 keep a registration for a path that is gone.
 
+## The overview
+
+The front page is two lists, because they are read for two reasons.
+
+A change is named by **its ticket's summary** — "Anonymise customer names on the acceptance
+environment" — rather than its branch, which says how the work is spelled and not what it is. A
+change without a ticket shows its branch instead, in monospace, since that is an identifier and
+reads as one.
+
+The summary is stored in `change.json` the first time it is read, so the list carries it and the
+page is complete the moment it loads; `GET /api/titles` then refreshes every change on the page
+in **one** `jira` query and writes back what changed. A Jira that answers nothing — down,
+unauthenticated, ticket deleted — leaves the stored name alone rather than falling back to a
+branch nobody recognises, and an archived change keeps its name for good.
+
+**Active changes** are cards, one per change and the full width of the page, in two rows: **what
+it is** — the id and the ticket's summary, which read as one sentence — and underneath, **how it
+is doing** — the facts on the left, state and dates on the right. A table row has no space for
+the second row, which is the reason these are cards at all. Below 720px the bottom row becomes
+as many lines as it needs. Besides the branch, the repository count and when it
+started, each card carries three facts, fetched per card from `/api/changes/:id/summary`:
+
+- `2 pipelines active` / `pipelines idle` — runs in flight across every repository.
+- `2 terminal processes active` / `terminals idle` — tmux windows running something that is not
+  a shell: a build, an editor, a server. An agent that marks its title is taken at its word, so
+  one sitting at its prompt does not count.
+- `3 unresolved comments` — threads waiting on you, as on the dashboard: unresolved and not last
+  answered by you. **Nothing at all** when there are none: an empty inbox needs no line, and a
+  row of zeroes is noise.
+
+Idle facts are grey, so the eye lands on the cards that want something. One request per card,
+because those numbers cost CLI calls: a change whose Azure DevOps is slow delays its own card and
+no other. The queries behind them are the cached ones the dashboard already makes
+(`activeRuns` skips durations, logs and versions; `prSummary` asks the pull request only for its
+open threads), so a change you have open answers immediately.
+
+**Completed changes** stay a table — id, story, repositories, created, completed. No state
+column: every row in it is `Completed`, which is what the heading says.
+
 ## Change state
 
 Every change carries one of `In Progress`, `Awaiting Review` or `Completed`, chosen in the select
-beside `Complete change` and shown as a column on the overview. It is kept by hand rather than
+beside `Complete change`, and it decides which half of the overview a change appears in. It is kept by hand rather than
 derived, because the tools disagree often enough (a merged pull request with the ticket still
 open, a review that happened in a call) that your own answer is the useful one. Completing a
 change sets it to `Completed`. Changes made before this existed read as `In Progress`.
@@ -385,6 +467,48 @@ even if the pull request is approved: removing it would throw that work away.
 `history.pushState`, the server serves the app for any non-`/api` path, so deep links, reload and
 the browser's Back button all work.
 
+## Caching
+
+Everything on a page costs a subprocess, and the same answers are wanted by the overview, the
+dashboard and the summaries within seconds of each other. `src/cache.ts` is one
+stale-while-revalidate store for all of them:
+
+```typescript
+swr(`az:runs:${ref}`, 10_000, () => sh(["az", "pipelines", "runs", "list", ...]))
+```
+
+The first caller waits; everyone after that gets the stored answer at once. Past the ttl the
+stored answer is still handed over immediately and a refresh runs behind it, so a page paints
+from what was true a moment ago instead of waiting for what is true now. Callers asking at the
+same moment share one run — six repositories asking Azure DevOps about the same branch is one
+`az`.
+
+Two rules keep that honest, and they are in the code rather than only here:
+
+- **Decisions never read the cache.** `completionOf`, `mergeReadiness` and the merge itself call
+  the CLIs live. A pull request that was approved ninety seconds ago is not a merge. The display
+  path (`prItem`, `prSummary`) uses the cached lookup; `mergeReadiness` uses the raw one.
+- **A failed refresh keeps the last good answer.** A Jira that is down means "no news", not "no
+  data". With nothing to fall back on, the failure is the answer.
+
+Actions forget what they just made wrong: `createPr` invalidates `gh:pr:<change>`, `moveIssue`
+invalidates `jira:`.
+
+What is cached, and for how long: pipeline definitions 5min, pipeline runs 10s, expected build
+durations 5min, pull requests and their review threads 20s, pull request checks 15s, Jira issues
+60s. Anything `git` answers is not cached — it costs about five milliseconds and changes while
+you type.
+
+The store is written to `~/.cache/iwe/state.json` every 30 seconds and on exit, and read at
+startup (`IWE_CACHE` overrides the path). Restarting is normal — a config change, a crash, an
+edit `bun --hot` cannot take — and without it every page waits for the CLIs all over again.
+Entries older than six hours are not restored: a page painted from yesterday's builds is worse
+than a page that waits.
+
+Subprocesses are bounded at eight at once (`IWE_PARALLEL`). A dashboard of six repositories asks
+about thirty things in parallel, and `az` is a few hundred milliseconds of CPU each; queueing
+them costs nothing in wall time and keeps the machine usable while it happens.
+
 ## The cost of a refresh
 
 The dashboard is CLI calls, and they are not all alike. `IWE_TRACE=1` counts them and adds up
@@ -446,6 +570,9 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/repos.ts              directory browsing under reposRoot, remote branches
     src/leftovers.ts          directories in the changes root without a change
     src/description.ts        the pull request description an action copies
+    src/cache.ts              stale-while-revalidate for everything the CLIs answer
+    src/summary.ts            the numbers on an overview card
+    src/titles.ts             what a change is called, from its ticket
     src/terminal.ts           tmux sessions and the ttyd that serves them
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
     src/integrations/         git.ts (wt), jira.ts, azure.ts, index.ts (the registry)
@@ -460,9 +587,13 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/TerminalPane.tsx  the terminal tab, with WindowStrip.tsx and CheatSheet.tsx
     src/web/NotesCard.tsx     notes.md for a change
     src/web/CompletionCard.tsx  how far completing a change got
+    src/web/ChangeCard.tsx      one active change on the overview
+    extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
+    scripts/extension.ts        installs/removes that extension
     src/web/manifest.webmanifest  installable app metadata
     src/web/icons/            generated from assets/*.svg by `bun run icons`
     test/changes.test.ts      change.json, notes, in-place provisioning, base branches
     test/repos.test.ts        editing a change's repositories against real git repositories
     test/terminal.test.ts     the terminal tab end to end (skipped without ttyd/tmux)
+    test/cache.test.ts        the cache: sharing, staleness, failure, restarts, parallelism
     test/provision.test.ts    the pure logic of every component

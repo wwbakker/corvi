@@ -3,6 +3,7 @@ import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { worktreeFor, baseFor, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { sh, shOrThrow, json } from "../sh.ts";
+import { swr, invalidate } from "../cache.ts";
 
 type Pr = {
   number: number;
@@ -106,6 +107,16 @@ async function prQuery(
   return { worktree: wt, head, prs: json<Pr[]>(r.stdout, []) };
 }
 
+/**
+ * How long a pull request's state is worth reusing. Long enough that the overview, the dashboard
+ * and the summaries share one lookup; short enough that pushing and refreshing shows the change.
+ * Only the *display* paths use it — merging asks GitHub itself, every time.
+ */
+const PR_TTL = 20_000;
+
+const shownPr = (change: Change, repo: string) =>
+  swr(`gh:pr:${change.id}:${repo}`, PR_TTL, () => prQuery(change, repo));
+
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
 export function repoFromUrl(url: string): { owner: string; name: string } | undefined {
   const m = /github\.com\/([^/]+)\/([^/]+)\/pull\//.exec(url);
@@ -115,22 +126,47 @@ export function repoFromUrl(url: string): { owner: string; name: string } | unde
 type Details = { unresolved?: number; stack?: Stack };
 
 const detailsQuery = (withStack: boolean): string =>
-  "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)" +
-  "{pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved}}" +
+  "query($owner:String!,$name:String!,$number:Int!){viewer{login} repository(owner:$owner,name:$name)" +
+  "{pullRequest(number:$number){reviewThreads(first:100){nodes{isResolved " +
+  "comments(last:1){nodes{author{login}}}}}" +
   (withStack ? " stack{number size} stackEntry{position}" : "") +
   "}}}";
 
+type Thread = {
+  isResolved: boolean;
+  comments?: { nodes?: { author?: { login?: string } | null }[] };
+};
+
 type DetailsResponse = {
   data?: {
+    viewer?: { login?: string };
     repository?: {
       pullRequest?: {
-        reviewThreads?: { nodes?: { isResolved: boolean }[] };
+        reviewThreads?: { nodes?: Thread[] };
         stack?: { number: number; size: number } | null;
         stackEntry?: { position: number } | null;
       };
     };
   };
 };
+
+/**
+ * Threads still waiting for you: unresolved, and not last spoken in by you.
+ *
+ * A thread you answered last is out of your hands — you replied, or you asked a question back —
+ * and counting it makes the number say "you have work" when you do not. Only the reviewer
+ * resolves a thread, so an answered one stays unresolved for as long as they take to look, and
+ * before this those never went away.
+ */
+export function waitingOnYou(threads: Thread[], me?: string): number {
+  return threads.filter((t) => {
+    if (t.isResolved) return false;
+    const last = t.comments?.nodes?.at(-1)?.author?.login;
+    // No login to compare against (an unknown viewer, a deleted author): count it, since the
+    // safe answer to "is this waiting for me?" is yes.
+    return !me || !last || last !== me;
+  }).length;
+}
 
 /**
  * Unresolved review threads and stack membership in one query: the only comment count worth
@@ -141,6 +177,10 @@ type DetailsResponse = {
  * and the whole query fails, so that case asks again without them rather than losing the counts.
  */
 async function prDetails(worktree: string, url: string, number: number): Promise<Details> {
+  return swr(`gh:details:${url}`, PR_TTL, () => readDetails(worktree, url, number));
+}
+
+async function readDetails(worktree: string, url: string, number: number): Promise<Details> {
   const repo = repoFromUrl(url);
   if (!repo) return {};
   const ask = async (withStack: boolean) =>
@@ -164,13 +204,31 @@ async function prDetails(worktree: string, url: string, number: number): Promise
   if (r.code !== 0) r = await ask(false);
   if (r.code !== 0) return {};
 
-  const pr = json<DetailsResponse>(r.stdout, {}).data?.repository?.pullRequest;
+  const data = json<DetailsResponse>(r.stdout, {}).data;
+  const pr = data?.repository?.pullRequest;
   const stack = pr?.stack;
   const position = pr?.stackEntry?.position;
   return {
-    unresolved: (pr?.reviewThreads?.nodes ?? []).filter((t) => !t.isResolved).length,
+    unresolved: waitingOnYou(pr?.reviewThreads?.nodes ?? [], data?.viewer?.login),
     stack: stack && position ? { number: stack.number, size: stack.size, position } : undefined,
   };
+}
+
+/**
+ * The pull request of this repository as the overview needs it: its number, and how many review
+ * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
+ * none. Failures are not errors here — the overview says nothing rather than a red card.
+ */
+export async function prSummary(
+  change: Change,
+  repo: string,
+): Promise<{ number?: number; unresolved: number }> {
+  const found = await shownPr(change, repo).catch(() => undefined);
+  const pr = found?.prs[0];
+  if (!found || !pr) return { unresolved: 0 };
+  if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0 };
+  const details = await prDetails(found.worktree, pr.url, pr.number);
+  return { number: pr.number, unresolved: details.unresolved ?? 0 };
 }
 
 /** The pull request for this change in `repo`, plus a row describing it. */
@@ -182,7 +240,7 @@ export async function prItem(
   const label = "pull request";
   let found: { worktree: string; head: string; prs: Pr[] } | undefined;
   try {
-    found = await prQuery(change, repo);
+    found = await shownPr(change, repo);
   } catch (e) {
     return { item: { label, detail: e instanceof Error ? e.message : String(e), state: "error" } };
   }
@@ -232,6 +290,7 @@ export type MergeReadiness =
   | { ready: true; merged: false; number: number }
   | { ready: false; reason: string };
 
+/** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
 export async function mergeReadiness(change: Change, repo: string): Promise<MergeReadiness> {
   const name = basename(repo);
   const found = await prQuery(change, repo);
@@ -307,4 +366,6 @@ export async function createPr(change: Change, repo: string): Promise<void> {
     );
     if (number) await stackOnBase(wt, target!, number);
   }
+  // The cached answer says there is no pull request, and it was right until a moment ago.
+  invalidate(`gh:pr:${change.id}`);
 }

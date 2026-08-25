@@ -250,10 +250,29 @@ export type TerminalWindow = {
   /** Whether the name is one you gave it. tmux renames a window after whatever runs in it until
    * you name it yourself, which switches automatic renaming off. */
   named: boolean;
+  /** What a coding agent in this window is doing, when it says so in the pane title. */
+  agent?: AgentState;
 };
 
+export type AgentState = "working" | "waiting";
+
+/**
+ * An agent's own account of itself, read from the `@agent` tmux pane option.
+ *
+ * A window running pi looks like any other `node` process, so nothing here can tell "thinking"
+ * from "waiting for you to answer" — which is the one thing worth knowing about it. pi's
+ * `busy-title` extension sets `@agent` on its pane (`tmux set -p @agent working`).
+ *
+ * A pane option rather than the pane title: the title is shared with pi's own session name and
+ * with the shell, which rewrite it constantly, and the marker kept being overwritten seconds
+ * after it was set. Nobody else writes `@agent`, and tmux drops it when the pane dies, so a
+ * crashed agent leaves nothing stale behind.
+ */
+export const agentIn = (option: string): AgentState | undefined =>
+  option === "working" || option === "waiting" ? option : undefined;
+
 const FORMAT =
-  "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}";
+  "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{@agent}";
 
 export async function listWindows(id: string): Promise<TerminalWindow[]> {
   const r = await sh(["tmux", "list-windows", "-t", sessionName(id), "-F", FORMAT]);
@@ -262,7 +281,7 @@ export async function listWindows(id: string): Promise<TerminalWindow[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => {
-      const [index, name, command, active, activity, path, auto] = line.split("\t");
+      const [index, name, command, active, activity, path, auto, agent] = line.split("\t");
       return {
         index: Number(index),
         name: name ?? "",
@@ -271,11 +290,26 @@ export async function listWindows(id: string): Promise<TerminalWindow[]> {
         activity: activity === "1",
         directory: basename(path ?? ""),
         named: auto === "0",
+        agent: agentIn(agent ?? ""),
       };
     });
 }
 
+/**
+ * A new window beside the current one, starting where the current one is: a new tab is nearly
+ * always "the same place, another thing", and `#{pane_current_path}` is what tmux's own `c`
+ * binding uses. Falls back to the change directory when there is no current pane to ask.
+ */
 export async function newWindow(id: string): Promise<void> {
+  const here = await sh([
+    "tmux",
+    "new-window",
+    "-t",
+    sessionName(id),
+    "-c",
+    "#{pane_current_path}",
+  ]);
+  if (here.code === 0) return;
   await shOrThrow(["tmux", "new-window", "-t", sessionName(id), "-c", changeDir(id)]);
 }
 

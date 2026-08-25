@@ -1,6 +1,7 @@
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { worktreeFor } from "./git.ts";
 import { sh, json } from "../sh.ts";
+import { swr } from "../cache.ts";
 
 export type Check = {
   name: string;
@@ -26,13 +27,24 @@ const checkState = (bucket: string): WidgetState =>
  * the bracket, so thirty jobs of one build read as one row you can open.
  */
 export async function checkItems(change: Change, repo: string, number: number): Promise<WidgetItem[]> {
-  const worktree = (await worktreeFor(change, repo)) ?? repo;
-  // Non-zero means "something is failing or pending", which is a result, not an error.
-  const r = await sh(
-    ["gh", "pr", "checks", String(number), "--json", "name,state,bucket,link,startedAt,completedAt"],
-    worktree,
-  );
-  return groupChecks(json<Check[]>(r.stdout, []));
+  // Checks move while you watch, but not faster than this, and every repository of the change
+  // asks at the same moment.
+  return swr(`gh:checks:${repo}:${number}`, 15_000, async () => {
+    const worktree = (await worktreeFor(change, repo)) ?? repo;
+    // Non-zero means "something is failing or pending", which is a result, not an error.
+    const r = await sh(
+      [
+        "gh",
+        "pr",
+        "checks",
+        String(number),
+        "--json",
+        "name,state,bucket,link,startedAt,completedAt",
+      ],
+      worktree,
+    );
+    return groupChecks(json<Check[]>(r.stdout, []));
+  });
 }
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one

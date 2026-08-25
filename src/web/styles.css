@@ -882,3 +882,116 @@ dialog progress {
 .progress-steps .detail {
   color: var(--muted);
 }
+
+/* The overview: changes you are working on as cards, the rest as a table. */
+.page h2.section {
+  font-size: 15px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin: 22px 0 10px;
+}
+
+/* One card per row, the full width of the page: a change is read across, not down. */
+.change-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.change-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.change-card:hover {
+  border-color: var(--accent);
+}
+
+/* What it is; how it is doing. */
+.change-card .top,
+.change-card .bottom {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.change-card .bottom {
+  margin-top: 8px;
+  gap: 12px 20px;
+}
+
+.change-card h3 {
+  margin: 0;
+  font-size: 16px;
+  white-space: nowrap;
+}
+
+/* A branch name is an identifier and reads as one; a summary is a sentence. */
+.change-card .branch {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.change-card .story {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.change-card .facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+  flex: 1;
+}
+
+.change-card .fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.change-card .fact.idle {
+  color: var(--muted);
+}
+
+.change-card .meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.badge.state-in-progress {
+  border-color: var(--pending);
+}
+
+.badge.state-awaiting-review {
+  border-color: #6cb6ff;
+}
+
+.badge.state-completed {
+  border-color: var(--ok);
+}
+
+/* Too narrow to read across: the bottom row becomes as many lines as it needs. */
+@media (max-width: 720px) {
+  .change-card .bottom {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .change-card .meta {
+    text-align: left;
+  }
+}

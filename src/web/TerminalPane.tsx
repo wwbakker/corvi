@@ -50,6 +50,7 @@ export function TerminalPane({
         windows={windows}
         onChanged={onWindowsChanged}
         focusTerminal={() => frame.current?.contentWindow?.focus()}
+        active={visible}
       />
       <iframe ref={frame} src={url} title={`terminal for ${changeId}`} />
     </div>

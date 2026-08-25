@@ -21,6 +21,10 @@ export type Change = {
   direct?: string[];
   /** Optional Jira issue key, e.g. PROJ-123. */
   jira?: string;
+  /** The ticket's summary as of the last time Jira was asked. A label, kept so the overview can
+   * name a change without a CLI call per row, and so an archived change still reads as English
+   * years later. Never a source of truth: `jira` is. */
+  title?: string;
   /** Absent on changes made before this existed; treated as "In Progress". */
   state?: ChangeState;
   createdAt: string;

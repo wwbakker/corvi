@@ -329,3 +329,75 @@ test("a completion records itself before it starts checking anything", async () 
   expect(failed.error).toContain("cannot complete");
   expect(failed.finishedAt).toBeTruthy();
 }, 20_000);
+
+test("the overview counts windows that are running something, not windows", async () => {
+  const { busyWindows } = await import("../src/summary.ts");
+  // A prompt is not work; a build, an editor and a server are.
+  expect(
+    busyWindows([
+      { command: "zsh" },
+      { command: "-zsh" },
+      { command: "nvim" },
+      { command: "gradle" },
+      { command: "" }, // no session, or tmux told us nothing
+    ]),
+  ).toBe(2);
+
+  // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
+  // otherwise count as work for as long as the window stayed open.
+  expect(
+    busyWindows([
+      { command: "node", agent: "working" },
+      { command: "node", agent: "waiting" },
+      { command: "node" }, // no marker: something is running, count it
+    ]),
+  ).toBe(2);
+});
+
+test("an agent's own account of itself is read from the @agent pane option", async () => {
+  const { agentIn } = await import("../src/terminal.ts");
+  // What pi's busy-title extension sets with `tmux set -p @agent ...`.
+  expect(agentIn("working")).toBe("working");
+  expect(agentIn("waiting")).toBe("waiting");
+  // Unset, or set to something else by something else: no claim is made about the window.
+  expect(agentIn("")).toBeUndefined();
+  expect(agentIn("busy")).toBeUndefined();
+});
+
+test("a change is named after its ticket, and keeps that name when Jira is not there", async () => {
+  const { refreshTitles } = await import("../src/titles.ts");
+  const issue = (key: string, summary: string) => [
+    key,
+    { key, summary, type: "Story", assignee: "", status: "", sprint: "" },
+  ];
+
+  const named = await createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" });
+  const bare = await createChange({ id: "PROJ-BARE", repos: [repo] });
+
+  // Captured rather than asserted inside: refreshTitles treats a failing lookup as "Jira is
+  // not answering", which would swallow the failure and pass the test for the wrong reason.
+  let asked: string[] = [];
+  const titles = await refreshTitles(async (keys) => {
+    asked = keys;
+    return new Map(<any>[issue("PROJ-7", "Split the invoice export")]);
+  });
+  // One query for the whole page, and only for changes that have a ticket at all.
+  expect(asked).toContain("PROJ-7");
+  expect(asked).not.toContain("PROJ-BARE");
+  expect(titles["PROJ-NAMED"]).toBe("Split the invoice export");
+  expect(titles["PROJ-BARE"]).toBeUndefined(); // no ticket: the page falls back to the branch
+
+  // Stored, so the list itself carries the name and the page needs no CLI call to draw.
+  expect((await readChange(named.id))?.title).toBe("Split the invoice export");
+  expect((await readChange(bare.id))?.title).toBeUndefined();
+
+  // A renamed ticket is followed.
+  await refreshTitles(async () => new Map(<any>[issue("PROJ-7", "Split the export in two")]));
+  expect((await readChange(named.id))?.title).toBe("Split the export in two");
+
+  // A Jira that answers nothing — down, unauthenticated, ticket deleted — keeps the last name
+  // rather than falling back to a branch nobody recognises.
+  const kept = await refreshTitles(async () => new Map());
+  expect(kept["PROJ-NAMED"]).toBe("Split the export in two");
+  expect((await readChange(named.id))?.title).toBe("Split the export in two");
+});

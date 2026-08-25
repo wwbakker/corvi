@@ -2,8 +2,9 @@ import { StrictMode, useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { api, type Change, type ProvisionResult } from "./api.ts";
 import { Breadcrumb } from "./Breadcrumb.tsx";
-import { stateClass } from "./changeState.tsx";
+import { ChangeCard } from "./ChangeCard.tsx";
 import { Leftovers } from "./Leftovers.tsx";
+import { moment } from "./moment.ts";
 import { Wizard } from "./Wizard.tsx";
 import { ChangeView } from "./ChangeView.tsx";
 
@@ -12,14 +13,6 @@ type View =
   | { name: "home" }
   | { name: "new" }
   | { name: "change"; id: string; provision?: ProvisionResult[] };
-
-/** Date and time of day: two changes made on one day are the normal case, and which came first
- * is the useful part. Local time, since that is when you were sitting there. */
-const moment = (iso: string): string => {
-  const at = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
-};
 
 function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => void }) {
   // undefined until the list has been read: "none yet" and "not known yet" are different things.
@@ -35,6 +28,24 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
   );
   useEffect(() => void load(), [load]);
 
+  // Names come with the list (they are stored in change.json), so the page is complete at once;
+  // this only refreshes them from Jira, in one query for every change on the page.
+  useEffect(() => {
+    if (!changes) return;
+    api<Record<string, string>>("/titles")
+      .then((titles) =>
+        setChanges((current) =>
+          current?.map((c) => (titles[c.id] ? { ...c, title: titles[c.id] } : c)),
+        ),
+      )
+      .catch(() => {});
+    // Once per visit: a ticket is not renamed while you look at the list.
+  }, [changes !== undefined]);
+
+  // Two lists, because they are read for different reasons: what is going on, and what happened.
+  const active = (changes ?? []).filter((c) => c.state !== "Completed");
+  const completed = (changes ?? []).filter((c) => c.state === "Completed");
+
   return (
     <div className="page">
       <header>
@@ -45,42 +56,46 @@ function Home({ onOpen, onNew }: { onOpen: (id: string) => void; onNew: () => vo
         </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
-      <table className="table">
-        <thead>
-          <tr>
-            <th>Change</th>
-            <th>State</th>
-            <th>Branch</th>
-            <th>Repositories</th>
-            <th>Created</th>
-            <th>Completed</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(changes ?? []).map((c) => (
-            <tr key={c.id} onClick={() => onOpen(c.id)}>
-              <td>{c.id}</td>
-              <td className={stateClass(c.state)}>{c.state ?? "In Progress"}</td>
-              <td>{c.branch}</td>
-              <td>{c.repos.length}</td>
-              <td>{moment(c.createdAt)}</td>
-              <td>{c.completedAt ? moment(c.completedAt) : "—"}</td>
-            </tr>
-          ))}
-          {changes?.length === 0 && (
-            <tr>
-              <td colSpan={6}>no changes yet</td>
-            </tr>
-          )}
-          {!changes && !error && (
-            <tr>
-              <td colSpan={6} className="hint">
-                loading…
-              </td>
-            </tr>
-          )}
-        </tbody>
-      </table>
+
+      <h2 className="section">Active changes</h2>
+      {!changes && !error && <p className="hint">loading…</p>}
+      {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
+      <div className="change-cards">
+        {active.map((c) => (
+          <ChangeCard key={c.id} change={c} onOpen={() => onOpen(c.id)} />
+        ))}
+      </div>
+
+      {completed.length > 0 && (
+        <>
+          <h2 className="section">Completed changes</h2>
+          <table className="table">
+            <thead>
+              <tr>
+                {/* No state column: every row here is Completed, which is what the heading says. */}
+                <th>Change</th>
+                {/* What the work was, not what the branch was called: the branch stands in only
+                    when there is no ticket to ask. */}
+                <th>Story</th>
+                <th>Repositories</th>
+                <th>Created</th>
+                <th>Completed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {completed.map((c) => (
+                <tr key={c.id} onClick={() => onOpen(c.id)}>
+                  <td>{c.id}</td>
+                  <td className="summary">{c.title ?? c.branch}</td>
+                  <td>{c.repos.length}</td>
+                  <td>{moment(c.createdAt)}</td>
+                  <td>{c.completedAt ? moment(c.completedAt) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
       <Leftovers />
     </div>
   );
