@@ -185,3 +185,57 @@ test("an in-place branch does not track the branch it started from", async () =>
   const base = await sh(["git", "rev-list", "--count", `origin/main..${change.branch}`], repo);
   expect(base.stdout).toBe("0");
 });
+
+test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
+  const { localChanges, fileDiff, parseStatus } = await import("../src/local.ts");
+  const repo = await clonedRepo("local");
+  const change = await changeFor("PROJ-LOCAL", [repo]);
+  await git.provision!(change);
+  const wt = (await worktreeFor(change, repo))!;
+
+  // Nothing yet, which is a state of its own and not an error.
+  expect((await localChanges(change, repo)).files).toEqual([]);
+
+  await Bun.write(join(wt, "README.md"), "local\nedited\n");
+  await Bun.write(join(wt, "added.txt"), "staged\n");
+  await Bun.write(join(wt, "new.txt"), "untracked\n");
+  await sh(["git", "add", "added.txt"], wt);
+
+  const status = await localChanges(change, repo);
+  const by = (path: string) => status.files.find((f) => f.path === path)!;
+  // Alphabetical as a reader reads, not as ASCII sorts: `added.txt` before `README.md`.
+  expect(status.files.map((f) => f.path)).toEqual(["added.txt", "new.txt", "README.md"]);
+  expect(by("added.txt")).toMatchObject({ staged: true, unstaged: false, index: "A" });
+  expect(by("README.md")).toMatchObject({ staged: false, unstaged: true, worktree: "M" });
+  // The unstaged half of an entry used to lose its first character: v1 porcelain starts such a
+  // line with a space, and `sh` trims what a CLI prints.
+  expect(by("README.md").path).toBe("README.md");
+  expect(by("new.txt")).toMatchObject({ untracked: true, staged: false });
+
+  // A file can be in both lists at once, with different contents in each.
+  await sh(["git", "add", "README.md"], wt);
+  await Bun.write(join(wt, "README.md"), "local\nedited\nagain\n");
+  const both = await localChanges(change, repo);
+  expect(both.files.find((f) => f.path === "README.md")).toMatchObject({
+    staged: true,
+    unstaged: true,
+  });
+
+  // And the diff is of one or the other, which is why the staged flag travels with the request.
+  expect(await fileDiff(change, repo, "README.md", true)).toContain("+edited");
+  expect(await fileDiff(change, repo, "README.md", true)).not.toContain("+again");
+  expect(await fileDiff(change, repo, "README.md", false)).toContain("+again");
+
+  // git knows nothing about an untracked file, so it is diffed against nothing.
+  expect(await fileDiff(change, repo, "new.txt", false)).toContain("+untracked");
+
+  // A rename carries where it came from: the new name alone loses the point. A path with a
+  // space in it survives, since the path is the last field and everything before it is counted.
+  const v2 =
+    "2 R. N... 100644 100644 100644 aaa bbb R100 new name\0old name\0" +
+    "1 .M N... 100644 100644 100644 aaa bbb other\0";
+  expect(parseStatus(v2)).toEqual([
+    { path: "new name", index: "R", worktree: ".", staged: true, unstaged: false, untracked: false, from: "old name" },
+    { path: "other", index: ".", worktree: "M", staged: false, unstaged: true, untracked: false, from: undefined },
+  ]);
+});

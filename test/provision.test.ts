@@ -442,3 +442,19 @@ test("a review thread you answered last is not waiting on you", () => {
   expect(waitingOnYou(threads, undefined)).toBe(3);
   expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
 });
+
+test("a repository's line says what is uncommitted in it, or that nothing is", async () => {
+  const { summarise } = await import("../src/web/LocalPane.tsx");
+  const status = (files: unknown[]) => ({ repo: "/r", name: "r", files: files as never[] });
+
+  // "Nothing here" is an answer, and gets a heading of its own rather than being left out.
+  expect(summarise(status([]))).toEqual({ text: "clean", state: "ok" });
+  expect(summarise(status([1]))).toEqual({ text: "1 change", state: "pending" });
+  expect(summarise(status([1, 2]))).toEqual({ text: "2 changes", state: "pending" });
+  expect(summarise({ ...status([]), error: "no worktree" })).toEqual({
+    text: "no worktree",
+    state: "error",
+  });
+  // Not asked yet is not the same as clean.
+  expect(summarise(undefined)).toEqual({ text: "…", state: "none" });
+});

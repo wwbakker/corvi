@@ -1,7 +1,12 @@
 /** Where a change stands, as you see it. Kept by hand rather than derived: the tools disagree
  * often enough (a merged PR with the ticket still open, review happening in a call) that your
- * own answer is the useful one. Completing a change sets it to "Completed". */
-export const CHANGE_STATES = ["In Progress", "Awaiting Review", "Completed"] as const;
+ * own answer is the useful one. Completing a change sets it to "Completed".
+ *
+ * The order is the order the work moves through, which is the order the select offers.
+ * "Blocked" is waiting on something you cannot do yourself — an answer, a decision, another
+ * change — as opposed to "Awaiting Review", which is waiting on a named person to look at
+ * finished work. Everything that is not "Completed" counts as active on the overview. */
+export const CHANGE_STATES = ["In Progress", "Blocked", "Awaiting Review", "Completed"] as const;
 export type ChangeState = (typeof CHANGE_STATES)[number];
 
 /** A unit of work spanning one or more repositories, plus the tickets/PRs/builds around it. */
@@ -98,4 +103,20 @@ export type CompletionProgress = {
   steps: CompletionStep[];
   /** Set when a step failed; the change is left as that step found it. */
   error?: string;
+};
+
+/** One file git has something to say about, in the vocabulary git itself uses. Lives here rather
+ * than in local.ts because the page needs the type and must not pull the server's modules in. */
+export type FileChange = {
+  path: string;
+  /** Status of the index against HEAD, and of the working tree against the index: git's own XY
+   * pair, e.g. `M`, `A`, `D`, `R`. A dot means "nothing here" in porcelain v2. */
+  index: string;
+  worktree: string;
+  /** Where it will be listed. A file can be both: staged edits with more edits on top. */
+  staged: boolean;
+  unstaged: boolean;
+  untracked: boolean;
+  /** Where a renamed file came from, since the new name alone loses the point. */
+  from?: string;
 };

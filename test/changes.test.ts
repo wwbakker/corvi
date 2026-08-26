@@ -331,7 +331,7 @@ test("a completion records itself before it starts checking anything", async () 
 }, 20_000);
 
 test("the overview counts windows that are running something, not windows", async () => {
-  const { busyWindows } = await import("../src/summary.ts");
+  const { busyWindows } = await import("../src/windows.ts");
   // A prompt is not work; a build, an editor and a server are.
   expect(
     busyWindows([
@@ -400,4 +400,20 @@ test("a change is named after its ticket, and keeps that name when Jira is not t
   const kept = await refreshTitles(async () => new Map());
   expect(kept["PROJ-NAMED"]).toBe("Split the export in two");
   expect((await readChange(named.id))?.title).toBe("Split the export in two");
+});
+
+test("a change may be blocked, which is active but not workable", async () => {
+  const { CHANGE_STATES } = await import("../src/types.ts");
+  const { stateClass } = await import("../src/web/changeState.tsx");
+
+  // The order the work moves through, which is the order the select offers.
+  expect(CHANGE_STATES).toEqual(["In Progress", "Blocked", "Awaiting Review", "Completed"]);
+  expect(stateClass("Blocked")).toBe("state-blocked");
+
+  // The server accepts it, and the overview counts it among the active changes: only
+  // "Completed" is finished.
+  const change = await createChange({ id: "PROJ-BLOCKED", repos: [repo] });
+  await writeChange({ ...change, state: "Blocked" });
+  expect((await readChange(change.id))?.state).toBe("Blocked");
+  expect(CHANGE_STATES.filter((s) => s !== "Completed")).toContain("Blocked");
 });

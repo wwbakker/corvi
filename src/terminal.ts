@@ -5,6 +5,7 @@ import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
 import { sh, shOrThrow } from "./sh.ts";
+import type { AgentState } from "./terminalTypes.ts";
 
 /**
  * A terminal for a change: one tmux session, started in the change directory, served to the
@@ -254,7 +255,7 @@ export type TerminalWindow = {
   agent?: AgentState;
 };
 
-export type AgentState = "working" | "waiting";
+export type { AgentState };
 
 /**
  * An agent's own account of itself, read from the `@agent` tmux pane option.

@@ -24,6 +24,8 @@ import { TerminalPane } from "./TerminalPane.tsx";
 import { type TerminalWindow } from "./WindowStrip.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";
 import { CompletionCard } from "./CompletionCard.tsx";
+import { LocalPane } from "./LocalPane.tsx";
+import { busyWindows } from "../windows.ts";
 
 function Dot({ state }: { state?: string }) {
   return <span className={`dot ${state ?? "none"}`} />;
@@ -347,12 +349,15 @@ export function ChangeView({
   const [notice, setNotice] = useState<string | null>(null);
   // The terminal keeps its shells whichever tab you are on, so it is mounted once the tab has
   // been opened and only hidden afterwards.
-  const [tab, setTab] = useState<"dashboard" | "terminals">("dashboard");
+  const [tab, setTab] = useState<"dashboard" | "terminals" | "local">("dashboard");
   const [terminalOpened, setTerminalOpened] = useState(false);
   const [terminal, setTerminal] = useState<string | null>(null);
   const [terminalError, setTerminalError] = useState<string | null>(null);
   const [cheatSheet, setCheatSheet] = useState(false);
   const [windows, setWindows] = useState<TerminalWindow[]>([]);
+  // Windows running something rather than sitting at a prompt, counted the way the overview
+  // counts them, so the tab and the card cannot disagree.
+  const busy = busyWindows(windows);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
   const [generation, setGeneration] = useState(0);
 
@@ -492,7 +497,7 @@ export function ChangeView({
         )}
       </header>
       <nav className="tabs">
-        {(["dashboard", "terminals"] as const).map((name) => (
+        {(["dashboard", "terminals", "local"] as const).map((name) => (
           <button
             key={name}
             className={tab === name ? "tab current" : "tab"}
@@ -501,9 +506,23 @@ export function ChangeView({
               if (name === "terminals") setTerminalOpened(true);
             }}
           >
-            {name === "dashboard"
-              ? "Dashboard"
-              : `Terminals${windows.length ? ` (${windows.length})` : ""}`}
+            {name === "dashboard" ? (
+              "Dashboard"
+            ) : name === "local" ? (
+              "Local changes"
+            ) : (
+              <>
+                Terminals
+                {/* What the terminals are doing, in the same words the overview uses: a build
+                    running is worth seeing from another tab. */}
+                {windows.length > 0 && (
+                  <span className="state">
+                    <span className={`dot ${busy > 0 ? "ok" : "none"}`} />
+                    {busy > 0 ? `${busy} active` : "idle"}
+                  </span>
+                )}
+              </>
+            )}
           </button>
         ))}
         <span className="spacer" />
@@ -538,6 +557,8 @@ export function ChangeView({
           <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
         </div>
       )}
+      {/* Every repository in one list: a change is the unit of work, not a checkout. */}
+      {tab === "local" && <LocalPane changeId={id} repos={change?.repos ?? []} />}
       {terminalOpened && (
         <div hidden={tab !== "terminals"}>
           <TerminalPane

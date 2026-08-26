@@ -13,6 +13,7 @@ import { boardIssues, createIssue } from "./integrations/jira.ts";
 import { browse, remoteBranches, absolutePath } from "./repos.ts";
 import { listLeftovers, removeLeftover } from "./leftovers.ts";
 import { summaryOf } from "./summary.ts";
+import { localChanges, fileDiff } from "./local.ts";
 import { refreshTitles } from "./titles.ts";
 import { proxyToTtyd, bridge, keysScript, type Bridge } from "./terminalProxy.ts";
 import type { ServerWebSocket } from "bun";
@@ -173,6 +174,32 @@ const server = Bun.serve({
     // change whose CLIs are slow holds up only its own card.
     "/api/changes/:id/summary": {
       GET: async (req) => withChange(req.params.id, async (c) => json(await summaryOf(c))),
+    },
+
+    // What is uncommitted in one repository, and the diff of one file of it. Live: this is the
+    // work you are doing, and a cached answer would be a wrong one.
+    "/api/changes/:id/local": {
+      GET: async (req) =>
+        withChange(req.params.id, async (c) => {
+          const repo = new URL(req.url).searchParams.get("path");
+          if (!repo) return json({ error: "path required" }, 400);
+          return json(await localChanges(c, repo));
+        }),
+    },
+
+    "/api/changes/:id/local/diff": {
+      GET: async (req) =>
+        withChange(req.params.id, async (c) => {
+          const params = new URL(req.url).searchParams;
+          const repo = params.get("path");
+          const file = params.get("file");
+          if (!repo || !file) return json({ error: "path and file required" }, 400);
+          try {
+            return json({ text: await fileDiff(c, repo, file, params.get("staged") === "1") });
+          } catch (e) {
+            return fail(e);
+          }
+        }),
     },
 
     // Whatever you want to remember about this change; plain text in the change directory.

@@ -256,6 +256,11 @@ waits behind them. For the same reason the dashboard cards are unmounted while t
 is in front — otherwise their per-repository calls starve the window strip's polling. Returning
 to the dashboard repaints from the cache and refreshes.
 
+The **Terminals** tab carries its own state, in the same words the overview card uses: a green
+dot and `2 active` when something is running in a window, a grey dot and `idle` when every window
+is sitting at a prompt. Both count with `busyWindows` in `src/windows.ts` — pure and free of node
+imports, so the page and the server cannot drift apart about what "busy" means.
+
 Above the terminal is a strip of the session's windows, labelled by **where they are** — the
 directory of the pane, which is the repository you are in — with **what is running there** in
 brackets after it: `example-api`, `example-web - (vim)`. A plain shell adds nothing, so it is
@@ -337,6 +342,51 @@ browser. After changing the manifest, reinstall the app — Chrome keeps the old
 Completing a change kills its session and ttyd, since the change directory moves into the archive
 underneath it.
 
+## Local changes
+
+The last tab: everything uncommitted across the change on the left, the diff of whatever you
+click on the right — an IDE's local-changes window, for a unit of work that spans repositories
+rather than for one checkout.
+
+The list is grouped by repository, each with a dot and what it amounts to:
+
+    example-worker
+    ● clean
+
+    example-web
+    ● 2 changes
+      M app.ts   src    staged  modified
+      M README.md              modified
+
+A row is one line, always: the filename keeps its width until there is none left, the directory
+gives way first — losing its front, since the last segments are what tell two files with the same
+name apart — and the full path is in the tooltip. Wrapping a path breaks it character by
+character, which spells a filename down the side of the pane.
+
+A clean repository keeps its heading rather than disappearing: one repository clean and another
+not is the normal case, and the absence is worth seeing rather than inferring from a missing
+row.
+
+Staged rows come first and are tagged `staged`, because that is the order they will be committed
+in — and a file with staged edits *and* more edits on top appears twice, which is what git means
+by both: the same path, two different diffs, which is why the staged flag travels with the diff
+request. Untracked files are diffed against nothing (`git diff --no-index` against `/dev/null`,
+which is how git itself shows a file it does not know).
+
+The list is re-read every three seconds, and the diff with it: you edit in the terminal or an IDE
+while this is open, and watching your own edits appear is the point. `git status` costs about
+five milliseconds, so nothing here is cached — a second-old answer about the file you are editing
+is a wrong one.
+
+Status comes from `git status --porcelain=v2 -z`. Version 2 rather than the older format because
+v1 begins a line with a space when only the working tree changed (` M file`), and `sh` trims what
+a CLI prints, which quietly ate the first character of every unstaged path. NUL-separated because
+paths may contain anything, including newlines; a rename puts the old path in the next field,
+which is why the parser walks the list rather than mapping over it.
+
+Read-only for now: staging, unstaging and discarding are the obvious next step, and all three
+destroy work if they are wrong, so they want more care than a click.
+
 ## Notes
 
 Each change has a free-text note in the left column, stored as `notes.md` in its directory, so it
@@ -401,11 +451,19 @@ column: every row in it is `Completed`, which is what the heading says.
 
 ## Change state
 
-Every change carries one of `In Progress`, `Awaiting Review` or `Completed`, chosen in the select
-beside `Complete change`, and it decides which half of the overview a change appears in. It is kept by hand rather than
-derived, because the tools disagree often enough (a merged pull request with the ticket still
-open, a review that happened in a call) that your own answer is the useful one. Completing a
-change sets it to `Completed`. Changes made before this existed read as `In Progress`.
+Every change carries one of `In Progress` (amber), `Blocked` (purple), `Awaiting Review` (blue)
+or `Completed` (green), chosen in the select beside `Complete change`, and it decides which half
+of the overview a change appears in — only `Completed` is finished.
+
+`Blocked` is waiting on something you cannot do yourself: an answer, a decision, another change.
+That is a different thing from `Awaiting Review`, which is waiting on a named person to look at
+work that is done, and the distinction is worth a colour because one of them is your problem to
+chase and the other is not.
+
+The state is kept by hand rather than derived, because the tools disagree often enough (a merged
+pull request with the ticket still open, a review that happened in a call) that your own answer
+is the useful one. Completing a change sets it to `Completed`. Changes made before this existed
+read as `In Progress`.
 
 ## Actions
 
@@ -572,6 +630,8 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/description.ts        the pull request description an action copies
     src/cache.ts              stale-while-revalidate for everything the CLIs answer
     src/summary.ts            the numbers on an overview card
+    src/windows.ts            which tmux windows count as busy (page and server share it)
+    src/local.ts              uncommitted work in a repository, and one file's diff
     src/titles.ts             what a change is called, from its ticket
     src/terminal.ts           tmux sessions and the ttyd that serves them
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
@@ -588,6 +648,7 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/NotesCard.tsx     notes.md for a change
     src/web/CompletionCard.tsx  how far completing a change got
     src/web/ChangeCard.tsx      one active change on the overview
+    src/web/LocalPane.tsx       the local-changes tab: files, and a diff
     extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
     src/web/manifest.webmanifest  installable app metadata

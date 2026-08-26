@@ -10,6 +10,8 @@
   --none: #565f6c;
   --warn: #d29922;
   --accent: #316dca;
+  /* Change state "Blocked": distinct from amber (in progress) and blue (awaiting review). */
+  --purple: #a371f7;
 }
 
 * {
@@ -574,7 +576,11 @@ dialog.wide {
   opacity: 0.6;
 }
 
-/* Change state: yours to do, waiting on someone else, done. */
+/* Change state: yours to do, stuck on something else, waiting on someone else, done. */
+.state-blocked {
+  color: var(--purple);
+}
+
 .state-in-progress {
   color: var(--pending);
 }
@@ -585,6 +591,10 @@ dialog.wide {
 
 .state-completed {
   color: var(--ok);
+}
+
+select.state-blocked {
+  border-color: var(--purple);
 }
 
 select.state-in-progress {
@@ -971,6 +981,10 @@ dialog progress {
   white-space: nowrap;
 }
 
+.badge.state-blocked {
+  border-color: var(--purple);
+}
+
 .badge.state-in-progress {
   border-color: var(--pending);
 }
@@ -994,4 +1008,196 @@ dialog progress {
   .change-card .meta {
     text-align: left;
   }
+}
+
+/* Local changes: the files on the left, the diff of the selected one on the right. */
+.subtabs {
+  display: flex;
+  gap: 4px;
+  margin: -8px 0 12px;
+}
+
+.subtabs .tab {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.subtabs .tab.current {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* What a tab's subject is doing, beside its name: "Terminals ● 2 active". */
+.tabs .tab .state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.local {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) 1fr;
+  gap: 12px;
+  /* Everything around it: header, both rows of tabs, and the page's own padding. */
+  height: calc(100vh - 190px);
+}
+
+.local .files,
+.local .diff-pane {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  overflow: auto;
+}
+
+/* One group per repository: its name, how it is doing, and its files. */
+.local .group {
+  margin-bottom: 14px;
+}
+
+.local .group h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.local .group .state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Which half of git a row belongs to, where that is not obvious from the letter alone. */
+.local .file .tag {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  margin-right: 6px;
+}
+
+.local .file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.local .file:hover {
+  background: #232830;
+}
+
+.local .file.selected {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* git's own letter, coloured by what it means. */
+.local .file .mark {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  width: 12px;
+  color: var(--pending); /* modified */
+}
+
+.local .file .mark.add {
+  color: var(--ok);
+}
+
+.local .file .mark.del,
+.local .file .mark.conflict {
+  color: var(--error);
+}
+
+.local .file .mark.move {
+  color: #6cb6ff;
+}
+
+/* A row is one line: the name in full if it fits, the directory giving way first, and the
+   description pinned to the right. Wrapping a path breaks it character by character, which is
+   how a filename ends up spelled down the side of the pane. */
+.local .file .mark {
+  flex: 0 0 12px;
+}
+
+.local .file .name {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.local .file .dir,
+.local .file .what {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* The directory is what gives way, and it loses its front rather than its end: the last few
+   segments are what tell two files with the same name apart. */
+.local .file .dir {
+  /* Basis zero: it uses what is left over, so the filename keeps its width until there is none
+     left and is the last thing to be shortened. */
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+/* The description sits at the right end of the row, out of the way of the name. */
+.local .file .what {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.diff {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.diff .line {
+  display: block;
+  white-space: pre;
+  padding: 0 6px;
+}
+
+.diff .line.add {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: #7ee787;
+}
+
+.diff .line.del {
+  background: color-mix(in srgb, var(--error) 18%, transparent);
+  color: #ffa198;
+}
+
+.diff .line.hunk {
+  color: #6cb6ff;
+  margin-top: 6px;
+}
+
+.diff .line.meta {
+  color: var(--muted);
 }
