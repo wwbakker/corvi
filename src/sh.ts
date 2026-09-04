@@ -1,3 +1,5 @@
+import { currentEnv } from "./context.ts";
+
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
 export type Result = { code: number; stdout: string; stderr: string };
@@ -46,7 +48,23 @@ export async function sh(cmd: string[], cwd?: string): Promise<Result> {
 
 async function spawn(cmd: string[], cwd?: string): Promise<Result> {
   const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
-  const proc = Bun.spawn(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
+  let proc;
+  try {
+    // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
+    // Empty outside a request, which is every call IWE made before workspaces existed.
+    const env = currentEnv();
+    proc = Bun.spawn(cmd, {
+      cwd,
+      env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+  } catch (e) {
+    // A missing tool, or a working directory that is not there any more — a repository moved
+    // or deleted out from under a change. That is a failed command, not a broken server: every
+    // caller already knows what to do with a non-zero code, and none of them expect a throw.
+    return { code: 127, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+  }
   const [stdout, stderr, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

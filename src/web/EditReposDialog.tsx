@@ -92,6 +92,7 @@ export function EditReposDialog({
       <p className="hint">
         {added.length || dropped.length
           ? `${added.length} to add, ${dropped.length} to remove` +
+            (draft.length === 0 ? " — leaving the change with none, which you can add back" : "") +
             (dropped.some((r) => r.unsafe)
               ? ` — ${dropped
                   .filter((r) => r.unsafe)
@@ -107,7 +108,9 @@ export function EditReposDialog({
         <button
           type="button"
           className="primary"
-          disabled={busy || draft.length === 0 || (!added.length && !dropped.length)}
+          // Emptying the list is allowed: removing a repository and adding it back is how you
+          // get a fresh worktree, and that has an empty moment in the middle.
+          disabled={busy || (!added.length && !dropped.length)}
           onClick={() => save()}
         >
           {busy ? "Applying…" : "OK"}

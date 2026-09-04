@@ -100,8 +100,9 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
 
 test.skipIf(!usable)("the terminal tab runs a shell in the change directory", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`);
-  await page.getByRole("button", { name: "Terminals" }).click();
+  // Straight to the terminal page: the navigation column has no "Terminals" button, because
+  // "the terminals" is not something to look at — a window is.
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal iframe");
 
   // ttyd draws into a canvas, so what the shell did has to be read from the shell, not the page.
@@ -133,8 +134,8 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   // Scrolling should scroll, which is tmux's mouse mode rather than the shell's history.
   expect(await tmux("show-options", "-t", session, "mouse")).toBe("mouse on");
 
-  // The strip lists tmux's windows, and its buttons are tmux's own commands.
-  const strip = page.locator(".windows .win").filter({ hasNotText: "+" });
+  // The navigation column lists tmux's windows, and its entries are tmux's own commands.
+  const strip = page.locator(".sidebar .entry.window");
   expect(await until(() => strip.count(), 2)).toBe(2); // the shell, and the ctrl-b c one above
   // Windows are labelled by where they are, so a window that walks into a repository says so.
   expect((await strip.allInnerTexts()).every((l) => l.trim() === id)).toBe(true);
@@ -159,7 +160,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
   // A new window starts where the current one is, not back at the change: the second window
   // walked into the repository above, so this one starts there too.
-  await page.locator(".windows .win.add").click();
+  await page.locator(".sidebar .new-window").click();
   expect(await until(() => strip.count(), 3)).toBe(3);
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(3);
   expect(await until(async () => (await strip.allInnerTexts())[2]?.trim(), "repo")).toBe("repo");
@@ -174,7 +175,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe("0");
 
   // Clicking a window must not take the keyboard with it: you click a window to type in it.
-  await page.locator(".windows .win.add").click();
+  await page.locator(".sidebar .new-window").click();
   await Bun.sleep(1000);
   await page.keyboard.type("pwd > typed-after-click.txt\n");
   for (let i = 0; i < 30; i++) {
@@ -195,18 +196,21 @@ test.skipIf(!usable)("the page sends CSI u for the keys a terminal cannot encode
   // The script is what IWE owns; tmux's forwarding of those sequences is tmux's business, and
   // is governed by `extended-keys`. A stub socket makes the bytes visible without a shell.
   const page = await browser.newPage();
-  await page.setContent(
-    `<script>
-       window.__sent = [];
-       // A socket the script can capture, standing in for the one ttyd opens.
-       window.WebSocket = class {
-         constructor() { this.readyState = 1; }
-         send(frame) { window.__sent.push(new TextDecoder().decode(frame)); }
-       };
-     </script>
-     <script src="http://127.0.0.1:${port}/terminal-keys.js"></script>
-     <textarea id="t"></textarea>`,
-  );
+  // From our own origin, as the terminal page is: the server refuses requests another site made,
+  // and a fixture on about:blank is another site. Loading it there passed until that was true.
+  await page.addInitScript(() => {
+    (window as unknown as { __sent: string[] }).__sent = [];
+    // A socket the script can capture, standing in for the one ttyd opens.
+    window.WebSocket = class {
+      readyState = 1;
+      send(frame: ArrayBuffer): void {
+        (window as unknown as { __sent: string[] }).__sent.push(new TextDecoder().decode(frame));
+      }
+    } as unknown as typeof WebSocket;
+  });
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<textarea id="t"></textarea>'));
+  await page.addScriptTag({ url: "/terminal-keys.js" });
   const frames = await page.evaluate(() => {
     new WebSocket("ws://127.0.0.1:1/never"); // the script keeps a reference to it
     const press = (init: KeyboardEventInit) =>

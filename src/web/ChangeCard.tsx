@@ -1,14 +1,8 @@
 import { useEffect, useState } from "react";
 import { api, type Change } from "./api.ts";
+import type { ChangeSummary } from "../types.ts";
 import { stateClass } from "./changeState.tsx";
 import { moment } from "./moment.ts";
-
-export type ChangeSummary = {
-  pipelines: number;
-  terminals: number;
-  windows: number;
-  unresolved: number;
-};
 
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;

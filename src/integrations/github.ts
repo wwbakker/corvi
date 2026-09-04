@@ -222,13 +222,16 @@ async function readDetails(worktree: string, url: string, number: number): Promi
 export async function prSummary(
   change: Change,
   repo: string,
-): Promise<{ number?: number; unresolved: number }> {
+): Promise<{ number?: number; unresolved: number; checks: WidgetState }> {
   const found = await shownPr(change, repo).catch(() => undefined);
   const pr = found?.prs[0];
-  if (!found || !pr) return { unresolved: 0 };
-  if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0 };
+  if (!found || !pr) return { unresolved: 0, checks: "none" };
+  // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
+  // that was already made — so the state of the build costs nothing extra here.
+  const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
+  if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0, checks };
   const details = await prDetails(found.worktree, pr.url, pr.number);
-  return { number: pr.number, unresolved: details.unresolved ?? 0 };
+  return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
 }
 
 /** The pull request for this change in `repo`, plus a row describing it. */

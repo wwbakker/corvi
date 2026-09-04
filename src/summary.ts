@@ -1,21 +1,22 @@
-import type { Change } from "./types.ts";
+import type { Change, ChangeSummary, WidgetState } from "./types.ts";
+
+export type { ChangeSummary };
 import { activeRuns } from "./integrations/azure.ts";
 import { prSummary } from "./integrations/github.ts";
 import { listWindows } from "./terminal.ts";
 import { busyWindows } from "./windows.ts";
 
-/** What a change's card on the overview says beyond the change itself: the three things that
- * change while you are not looking at it. */
-export type ChangeSummary = {
-  /** Pipeline runs in flight across every repository of the change. */
-  pipelines: number;
-  /** tmux windows running something other than a shell: a build, an editor, a server. */
-  terminals: number;
-  /** Windows in the change's tmux session, so "idle" can be told from "no terminal". */
-  windows: number;
-  /** Open review threads across every pull request of the change. */
-  unresolved: number;
-};
+/** One red build decides the colour; then one still running; then green. */
+export const worst = (states: WidgetState[]): WidgetState =>
+  states.includes("error")
+    ? "error"
+    : states.includes("pending")
+      ? "pending"
+      : states.includes("warn")
+        ? "warn"
+        : states.includes("ok")
+          ? "ok"
+          : "none";
 
 /**
  * The overview's per-change numbers, gathered per repository in parallel.
@@ -29,8 +30,8 @@ export async function summaryOf(change: Change): Promise<ChangeSummary> {
   const windows = await listWindows(change.id);
   const perRepo = await Promise.all(
     change.repos.map(async (repo) => {
-      const { number, unresolved } = await prSummary(change, repo);
-      return { pipelines: await activeRuns(change, repo, number), unresolved };
+      const { number, unresolved, checks } = await prSummary(change, repo);
+      return { pipelines: await activeRuns(change, repo, number), unresolved, checks };
     }),
   );
   return {
@@ -38,5 +39,11 @@ export async function summaryOf(change: Change): Promise<ChangeSummary> {
     unresolved: perRepo.reduce((n, r) => n + r.unresolved, 0),
     terminals: busyWindows(windows),
     windows: windows.length,
+    // A pipeline in flight is a build running, whatever the pull request's checks say about the
+    // last one.
+    ci: worst([
+      ...perRepo.map((r) => r.checks),
+      ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
+    ]),
   };
 }

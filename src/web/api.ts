@@ -39,6 +39,16 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: init?.body ? { "content-type": "application/json" } : undefined,
   });
+  // A route the server does not have falls through to the app's own HTML, which arrives as a
+  // perfectly good 200. Parsing that as JSON produces a browser's idea of a parse error —
+  // Safari's is "The string did not match the expected pattern" — and the page then shows it
+  // as though the server had said something. It has not: it is out of date.
+  if (!res.headers.get("content-type")?.includes("json")) {
+    throw Object.assign(
+      new Error(`the server has no ${path} — it is probably running older code, restart it`),
+      { status: res.status, body: undefined },
+    ) as ApiError;
+  }
   const body = await res.json();
   if (!res.ok) {
     const message = (body as { error?: string }).error ?? res.statusText;

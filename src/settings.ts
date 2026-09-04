@@ -1,0 +1,155 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, isAbsolute } from "node:path";
+import {
+  config,
+  configPath,
+  readFile,
+  reloadConfig,
+  expandTilde,
+  ENV_OVERRIDES,
+  type Config,
+  type Workspace,
+} from "./config.ts";
+import { invalidate } from "./cache.ts";
+import { TOOLING } from "./tooling.ts";
+
+/**
+ * Reading and writing the settings file from the page.
+ *
+ * The file stays the source of truth — it is hand-editable, it is what the README documents, and
+ * a settings page that kept its own copy would be a second one. This only writes it, and then
+ * refills the object every module already imported, so a change takes effect on the next request
+ * rather than on the next restart.
+ *
+ * Validation is here rather than in the browser because the file can be edited by hand: bad
+ * values must be caught wherever they come from, and a page that duplicated the rules would
+ * eventually disagree with them.
+ */
+
+/** What may be written: the config file's own shape. Everything is optional — an absent value
+ * means "the default", which is what an empty file has always meant. */
+export type Settings = Partial<Config>;
+
+export type SettingsView = {
+  /** Which file this is, so the page can say where to look when something is edited by hand. */
+  path: string;
+  /** What the file holds, as written. */
+  file: Settings;
+  /** What is actually in effect, defaults and environment included. */
+  effective: Config;
+  /** Setting to the environment variable currently overriding it. Those are shown as locked:
+   * the variable wins, so writing the file would change nothing and look like a bug. */
+  overridden: Record<string, string>;
+  /** What `worktreeCopy` is when it is not set, so the page can offer it back. */
+  toolingDefault: string[];
+};
+
+/** Only the variables that are actually set: an override nobody has made is not one. */
+function overridden(): Record<string, string> {
+  const found: Record<string, string> = {};
+  for (const [field, variable] of Object.entries(ENV_OVERRIDES)) {
+    if (process.env[variable] !== undefined) found[field] = variable;
+  }
+  return found;
+}
+
+export const settingsView = (): SettingsView => ({
+  path: configPath(),
+  file: readFile(),
+  effective: config,
+  overridden: overridden(),
+  toolingDefault: TOOLING,
+});
+
+/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
+ * it has to be a word, and it has to keep meaning the same workspace. */
+const ID = /^[\w.-]+$/;
+/** A directory copied into a worktree is a name next to the code, not a path: `../.ssh` is not
+ * a thing anyone should be able to ask for by typing it into a settings page. */
+const NAME = /^[^/\\]+$/;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+const absolute = (value: string | undefined): boolean =>
+  !value || isAbsolute(expandTilde(value));
+
+/** Everything wrong with these settings, in the order it appears on the page. Empty means they
+ * can be written. */
+export function problems(next: Settings): string[] {
+  const found: string[] = [];
+
+  for (const field of ["changesRoot", "reposRoot", "reposStart"] as const) {
+    if (!absolute(next[field])) found.push(`${field} must be an absolute path`);
+  }
+
+  const seen = new Set<string>();
+  for (const workspace of next.workspaces ?? []) {
+    const where = workspace.name || workspace.id || "a workspace";
+    if (!workspace.id?.trim()) found.push(`${where} has no id`);
+    else if (!ID.test(workspace.id)) found.push(`workspace id "${workspace.id}" must be a word`);
+    else if (seen.has(workspace.id)) found.push(`two workspaces share the id "${workspace.id}"`);
+    else seen.add(workspace.id);
+    if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
+    if (!absolute(workspace.reposStart)) {
+      found.push(`${where}: repositories start must be an absolute path`);
+    }
+    for (const key of Object.keys(workspace.env ?? {})) {
+      if (!ENV_NAME.test(key)) found.push(`${where}: "${key}" is not an environment variable name`);
+    }
+  }
+
+  for (const name of next.worktreeCopy ?? []) {
+    if (!name.trim() || !NAME.test(name)) {
+      found.push(`"${name}" is not a directory name next to the code`);
+    }
+  }
+
+  const deploy = next.azureDeploy;
+  if (deploy) {
+    if (deploy.pipeline && deploy.pipeline.filter(Boolean).length !== 2) {
+      found.push("the pipeline naming needs both a build prefix and a deploy prefix");
+    }
+    if (deploy.environments && deploy.environments.some((e) => !e.trim())) {
+      found.push("an environment has no name");
+    }
+  }
+
+  return found;
+}
+
+/** Values nobody set are left out, so the file stays a page of decisions rather than a dump of
+ * every default. An empty string is "not set": that is what clearing a field on the page means. */
+function prune(value: unknown): unknown {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === "object") {
+    const kept = Object.entries(value as Record<string, unknown>)
+      .map(([k, v]) => [k, prune(v)] as const)
+      .filter(([, v]) => v !== undefined && v !== "");
+    return kept.length ? Object.fromEntries(kept) : undefined;
+  }
+  return value;
+}
+
+/**
+ * Write the settings and put them into effect.
+ *
+ * Merged over what the file holds, not replacing it: a key IWE does not know about was put there
+ * by hand, for a version of IWE that does, and losing it silently would be rude.
+ */
+export async function writeSettings(next: Settings): Promise<SettingsView> {
+  const wrong = problems(next);
+  if (wrong.length) throw new Error(wrong.join("; "));
+
+  const merged = prune({ ...readFile(), ...next }) as Settings;
+  await mkdir(dirname(configPath()), { recursive: true });
+  await writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`);
+
+  reloadConfig();
+  // Everything the CLIs answered was answered for the old settings: another organisation, another
+  // Jira site, another set of environments. Cheaper to ask again than to reason about which.
+  invalidate("");
+  return settingsView();
+}
+
+/** A workspace as the page adds one: everything off by default is wrong — a new context is
+ * usually another client, with both. */
+export const blankWorkspace = (id: string): Workspace => ({ id, name: "" });

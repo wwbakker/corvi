@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import { branchFor } from "../src/branch.ts";
-import { parseIssues, parseSprints } from "../src/integrations/jira.ts";
+import { issueFrom } from "../src/integrations/jira.ts";
+import { parseJiraConfig } from "../src/integrations/jiraHttp.ts";
 
 test("branch name derived from a picked issue", () => {
   expect(branchFor("PROJ-123", "Fix the flaky import")).toBe("PROJ-123-fix-the-flaky-import");
@@ -12,40 +13,75 @@ test("branch name derived from a picked issue", () => {
   expect(long).not.toEndWith("-");
 });
 
-test("CSV parsing keeps commas and quotes inside summaries", () => {
-  const csv = [
-    "TYPE,KEY,SUMMARY,ASSIGNEE,STATUS",
-    'Story,PROJ-1,"Compare start, end and ""deactivation"" dates",Ada Lovelace,In Progress',
-    "Bug,PROJ-2,Unassigned bug,,To Do",
-    "Epic,PROJ-3,An epic we do not work on directly,,To Do",
-    "no result found for given query",
-  ].join("\n");
-  expect(parseIssues(csv, "Sprint 42")).toEqual([
-    {
-      type: "Story",
-      key: "PROJ-1",
-      summary: 'Compare start, end and "deactivation" dates',
-      assignee: "Ada Lovelace",
-      status: "In Progress",
-      sprint: "Sprint 42",
-    },
-    {
-      type: "Bug",
-      key: "PROJ-2",
-      summary: "Unassigned bug",
-      assignee: "",
-      status: "To Do",
-      sprint: "Sprint 42",
-    },
-  ]);
-  // Epics are still readable when a change links to one directly.
-  expect(parseIssues(csv, "", false).map((i) => i.key)).toEqual(["PROJ-1", "PROJ-2", "PROJ-3"]);
+test("an issue is read from the fields we asked Jira for", () => {
+  // Commas and quotes are nobody's problem any more: this used to be CSV, parsed by hand,
+  // because jira-cli's plain output could not be split reliably.
+  expect(
+    issueFrom(
+      {
+        key: "PROJ-1",
+        fields: {
+          summary: 'Compare start, end and "deactivation" dates ',
+          status: { name: "In Progress" },
+          assignee: { displayName: "Ada Lovelace" },
+          issuetype: { name: "Story" },
+        },
+      },
+      "Sprint 42",
+    ),
+  ).toEqual({
+    key: "PROJ-1",
+    summary: 'Compare start, end and "deactivation" dates',
+    assignee: "Ada Lovelace",
+    status: "In Progress",
+    type: "Story",
+    sprint: "Sprint 42",
+  });
+
+  // Unassigned is null rather than absent, and an issue found by key belongs to no sprint here:
+  // the sprint is which query found it, not a property of the issue.
+  expect(issueFrom({ key: "PROJ-2", fields: { summary: "Bug", assignee: null } })).toEqual({
+    key: "PROJ-2",
+    summary: "Bug",
+    assignee: "",
+    status: "",
+    type: "",
+    sprint: "",
+  });
 });
 
-test("sprint list is read despite tab padding", () => {
-  const stdout = ["ID\tNAME\t\t\t\tSTATE", "19025\t2026-17-Project sprint\tactive", "8970\tProject Refinement\t\tactive"].join("\n");
-  expect(parseSprints(stdout)).toEqual([
-    { id: "19025", name: "2026-17-Project sprint", state: "active" },
-    { id: "8970", name: "Project Refinement", state: "active" },
-  ]);
+test("the site, account and board come from jira-cli's own config", () => {
+  // Thousands of lines of custom-field schema, four values that matter, all at a known depth.
+  const yaml = [
+    "auth_type: basic",
+    "board:",
+    "    id: 169",
+    "    name: PROJ board",
+    "    type: simple",
+    "issue:",
+    "    fields:",
+    "        custom:",
+    "            - name: Sprint",
+    "              key: customfield_10104",
+    "login: someone@example.com",
+    "project:",
+    "    key: PROJ",
+    "    type: next-gen",
+    "server: https://example.atlassian.net/",
+  ].join("\n");
+  expect(parseJiraConfig(yaml)).toEqual({
+    // The trailing slash goes: every path is joined onto this.
+    server: "https://example.atlassian.net",
+    login: "someone@example.com",
+    board: "169",
+    project: "PROJ",
+  });
+
+  // A file that is not there, or not jira-cli's, says so by having nothing in it.
+  expect(parseJiraConfig("")).toEqual({
+    server: undefined,
+    login: undefined,
+    board: undefined,
+    project: undefined,
+  });
 });

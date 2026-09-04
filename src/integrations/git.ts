@@ -2,6 +2,8 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { sh, shOrThrow, json } from "../sh.ts";
+import { config } from "../config.ts";
+import { copyTooling } from "../tooling.ts";
 import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
 
 /**
@@ -287,7 +289,7 @@ async function createWorktree(change: Change, repo: string): Promise<void> {
   // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
   if (exists) {
     await shOrThrow(await wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
-    return;
+    return await carryTooling(repo, change);
   }
   // Branch from the chosen base, fetched first: a local main is often behind. The base is the
   // remote default unless this change is stacked on another one's branch.
@@ -297,6 +299,25 @@ async function createWorktree(change: Change, repo: string): Promise<void> {
   await shOrThrow(
     await wt(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
   );
+  await carryTooling(repo, change);
+}
+
+/**
+ * Give the new worktree the IDE and build-tool state the repository has, so opening it is
+ * opening a configured project rather than importing one.
+ *
+ * Never fatal: the worktree is the thing that was asked for, and a change that failed to
+ * provision over a copy of `.idea` would be a poor trade.
+ */
+async function carryTooling(repo: string, change: Change): Promise<void> {
+  if (!config.worktreeCopy.length) return;
+  const created = await worktreeFor(change, repo);
+  if (!created) return;
+  try {
+    await copyTooling(repo, created, config.worktreeCopy);
+  } catch (error) {
+    console.error(`could not copy IDE state into ${created}:`, error);
+  }
 }
 
 /** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
@@ -343,8 +364,16 @@ export async function repoStates(
   );
 }
 
-/** Apply a new repository list in one go: everything added gets a worktree, everything dropped
- * loses one. Refuses the whole edit if any removal would destroy uncommitted work. */
+/**
+ * Apply a new repository list in one go: everything added gets a worktree, everything dropped
+ * loses one. Refuses the whole edit if any removal would destroy uncommitted work.
+ *
+ * The list may be emptied. A change with no repositories is not much of a change, but it is a
+ * step on the way to one: taking a repository out and putting it back is how you get a fresh
+ * worktree when the one you have is beyond saving, and refusing the middle of that made the whole
+ * thing impossible. The protections that matter — uncommitted work, unpushed commits — are per
+ * repository and still apply.
+ */
 export async function setRepos(
   change: Change,
   repos: string[],
@@ -353,7 +382,6 @@ export async function setRepos(
   base?: Record<string, string>,
 ): Promise<{ change: Change } | { needsForce: string[] }> {
   const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
-  if (wanted.length === 0) throw new Error("a change needs at least one repository");
   const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
   // A repository whose mode changed is torn down and set up again: the old worktree or link is
   // as wrong as a repository that was dropped.

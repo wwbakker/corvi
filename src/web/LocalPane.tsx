@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.ts";
+import { api, post } from "./api.ts";
+import { CommitDialog } from "./CommitDialog.tsx";
 import type { FileChange } from "../types.ts";
 
 export type LocalStatus = {
@@ -7,8 +8,13 @@ export type LocalStatus = {
   name: string;
   worktree?: string;
   files: FileChange[];
+  /** Commits the remote has not got. */
+  unpushed: number;
+  tracked: boolean;
   error?: string;
 };
+
+type PushResult = { repo: string; name: string; ok: boolean; hash?: string; error?: string };
 
 /** Which file is being looked at: the repository as well, since two repositories may both have
  * a README.md, and the staged half, since that is a different diff of the same path. */
@@ -92,14 +98,19 @@ function FileRow({
   );
 }
 
-/** How a repository is doing, in the two words this list can say: what is uncommitted in it. */
+/** How a repository is doing: what is uncommitted in it, and what is committed but only here. */
 export const summarise = (status?: LocalStatus): { text: string; state: string } => {
   if (!status) return { text: "…", state: "none" };
   if (status.error) return { text: status.error, state: "error" };
   const n = status.files.length;
-  return n === 0
+  const parts: string[] = [];
+  if (n > 0) parts.push(`${n} change${n === 1 ? "" : "s"}`);
+  // Committed but nowhere else: worth saying even when the working tree is clean, because a
+  // clean repository with unpushed commits looks finished and is not.
+  if (status.unpushed > 0) parts.push(`${status.unpushed} unpushed`);
+  return parts.length === 0
     ? { text: "clean", state: "ok" }
-    : { text: `${n} change${n === 1 ? "" : "s"}`, state: "pending" };
+    : { text: parts.join(", "), state: "pending" };
 };
 
 /**
@@ -111,11 +122,24 @@ export const summarise = (status?: LocalStatus): { text: string; state: string }
  * answer: a change where one repository is clean and another is not is the normal case, and the
  * absence should be visible rather than inferred from a missing row.
  */
-export function LocalPane({ changeId, repos }: { changeId: string; repos: string[] }) {
+export function LocalPane({
+  changeId,
+  repos,
+  suggestion,
+}: {
+  changeId: string;
+  repos: string[];
+  /** What a commit message starts as: the change, and what it is about. */
+  suggestion: string;
+}) {
   const [statuses, setStatuses] = useState<Record<string, LocalStatus>>({});
   const [selected, setSelected] = useState<Selection | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [pushing, setPushing] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -135,7 +159,7 @@ export function LocalPane({ changeId, repos }: { changeId: string; repos: string
       alive = false;
       clearInterval(timer);
     };
-  }, [changeId, repos.join("|")]);
+  }, [changeId, repos.join("|"), reload]);
 
   // The diff follows the selection, and is re-read whenever the file changes underneath: the
   // point of the pane is watching your own edits appear.
@@ -149,10 +173,72 @@ export function LocalPane({ changeId, repos }: { changeId: string; repos: string
       .catch((e: Error) => setError(e.message));
   }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint]);
 
+  // Only repositories with something in them: a clean one has nothing to offer the dialog.
+  const candidates = repos
+    .map((repo) => statuses[repo])
+    .filter((s): s is LocalStatus => Boolean(s) && s!.files.length > 0)
+    .map((s) => ({ repo: s.repo, name: s.name, files: s.files }));
+
+  // Repositories with commits the remote has not got. A branch that was never pushed counts
+  // every commit it has, which is what makes the first push offer itself.
+  const behind = repos
+    .map((repo) => statuses[repo])
+    .filter((s): s is LocalStatus => Boolean(s) && s!.unpushed > 0);
+  const unpushed = behind.reduce((n, s) => n + s.unpushed, 0);
+
+  const push = () => {
+    setPushing(true);
+    setError(null);
+    setNotice(null);
+    post<PushResult[]>(`/changes/${changeId}/push`, { repos: behind.map((s) => s.repo) })
+      .then((results) => {
+        const failed = results.filter((r) => !r.ok);
+        // The failures are the news; the successes are visible in the counts going away.
+        if (failed.length > 0) setError(failed.map((r) => `${r.name}: ${r.error}`).join(" · "));
+        else setNotice(`pushed ${unpushed} commit${unpushed === 1 ? "" : "s"}`);
+        setReload((n) => n + 1);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setPushing(false));
+  };
+
   return (
     <div className="local">
       <div className="files">
         {error && <div className="error-banner">{error}</div>}
+        {notice && <div className="notice">{notice}</div>}
+        <div className="toolbar">
+          <button
+            className="create"
+            disabled={candidates.length === 0}
+            title={candidates.length === 0 ? "nothing to commit" : "commit across the change"}
+            onClick={() => setCommitting(true)}
+          >
+            Commit…
+          </button>
+          {/* Only when there is something to push: a button that does nothing is a question you
+              have to answer every time you look at it. */}
+          {unpushed > 0 && (
+            <button
+              disabled={pushing}
+              title={behind.map((s) => `${s.name}: ${s.unpushed}`).join(", ")}
+              onClick={push}
+            >
+              {pushing ? "Pushing…" : `Push ${unpushed}`}
+            </button>
+          )}
+        </div>
+        <CommitDialog
+          changeId={changeId}
+          open={committing}
+          candidates={candidates}
+          suggestion={suggestion}
+          onClose={() => setCommitting(false)}
+          onCommitted={() => {
+            setSelected(null); // the file it was showing may be gone now
+            setReload((n) => n + 1);
+          }}
+        />
         {repos.map((repo) => {
           const status = statuses[repo];
           const { text, state } = summarise(status);

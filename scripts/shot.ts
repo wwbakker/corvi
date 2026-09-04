@@ -1,16 +1,23 @@
 /** Screenshots the running app so the UI can be inspected without a human describing it.
  *
- *   bun run shot                 # against http://127.0.0.1:4000
+ *   bun run shot                    # WebKit, against http://127.0.0.1:4000
+ *   IWE_ENGINE=chromium bun run shot
  *   IWE_URL=... bun run shot
  *
- * Writes to shots/. Requires `bunx playwright install chromium` once. */
+ * Writes to shots/. Requires `bunx playwright install webkit chromium` once.
+ *
+ * WebKit by default because that is what the app is: the macOS window is a WKWebView, and both
+ * of the bugs that made it as far as being reported were things Chrome does and WebKit does not.
+ * Chromium is a variable away for when the difference is what you are looking at. */
 import { mkdir } from "node:fs/promises";
-import { chromium } from "playwright";
+import { chromium, webkit } from "playwright";
 
 const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";
+const engine = process.env.IWE_ENGINE === "chromium" ? chromium : webkit;
 await mkdir("shots", { recursive: true });
 
-const browser = await chromium.launch();
+const browser = await engine.launch();
+console.log(`${process.env.IWE_ENGINE ?? "webkit"} against ${url}`);
 const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
 const errors: string[] = [];
 page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

@@ -275,25 +275,48 @@ export const agentIn = (option: string): AgentState | undefined =>
 const FORMAT =
   "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{@agent}";
 
+const parseWindow = (line: string): TerminalWindow => {
+  const [index, name, command, active, activity, path, auto, agent] = line.split("\t");
+  return {
+    index: Number(index),
+    name: name ?? "",
+    command: command ?? "",
+    active: active === "1",
+    activity: activity === "1",
+    directory: basename(path ?? ""),
+    named: auto === "0",
+    agent: agentIn(agent ?? ""),
+  };
+};
+
 export async function listWindows(id: string): Promise<TerminalWindow[]> {
   const r = await sh(["tmux", "list-windows", "-t", sessionName(id), "-F", FORMAT]);
-  if (r.code !== 0) return []; // no session yet: the terminal tab was never opened
-  return r.stdout
-    .split("\n")
-    .filter(Boolean)
-    .map((line) => {
-      const [index, name, command, active, activity, path, auto, agent] = line.split("\t");
-      return {
-        index: Number(index),
-        name: name ?? "",
-        command: command ?? "",
-        active: active === "1",
-        activity: activity === "1",
-        directory: basename(path ?? ""),
-        named: auto === "0",
-        agent: agentIn(agent ?? ""),
-      };
-    });
+  if (r.code !== 0) return []; // no session yet: the terminal was never opened
+  return r.stdout.split("\n").filter(Boolean).map(parseWindow);
+}
+
+/** Which change a tmux session belongs to, or undefined for a session that is not ours. */
+export const changeOfSession = (session: string): string | undefined =>
+  session.startsWith("iwe-") ? session.slice("iwe-".length) : undefined;
+
+/**
+ * Every change's windows, in one call.
+ *
+ * The navigation column lists the terminals of every change at once, and asking tmux per change
+ * would be a process per change every few seconds. `list-windows -a` answers for every session
+ * there is; the ones that are not ours are dropped by their name.
+ */
+export async function allWindows(): Promise<Record<string, TerminalWindow[]>> {
+  const r = await sh(["tmux", "list-windows", "-a", "-F", `#{session_name}\t${FORMAT}`]);
+  if (r.code !== 0) return {}; // no server running: nobody has opened a terminal yet
+  const byChange: Record<string, TerminalWindow[]> = {};
+  for (const line of r.stdout.split("\n").filter(Boolean)) {
+    const tab = line.indexOf("\t");
+    const id = changeOfSession(line.slice(0, tab));
+    if (!id) continue;
+    (byChange[id] ??= []).push(parseWindow(line.slice(tab + 1)));
+  }
+  return byChange;
 }
 
 /**

@@ -74,6 +74,29 @@ test("adding a repository creates its worktree, removing one takes it away", asy
   expect(await worktreeFor(withBoth, b)).toBeUndefined();
 });
 
+test("a new worktree gets the IDE state the repository had, pointing at itself", async () => {
+  const repo = await clonedRepo("ide");
+  // Ignored, per-machine, written by IntelliJ: never in the clone, so never in the worktree —
+  // and only copied there because the repository does ignore it. One that does not would get an
+  // untracked directory it can never remove.
+  await Bun.write(join(repo, ".gitignore"), ".idea/\n");
+  await sh(["git", "add", ".gitignore"], repo);
+  await commit(repo, "ignore the IDE");
+  // Pushed, because the worktree branches from the remote default: an ignore rule that only
+  // exists on your local main is not one the new worktree has.
+  await sh(["git", "push", "--quiet", "origin", "main"], repo);
+  await Bun.write(join(repo, ".idea", "workspace.xml"), `<p dir="${repo}/target" />`);
+  const change = await changeFor("PROJ-IDE", [repo]);
+  await git.provision!(change);
+
+  const worktree = (await worktreeFor(change, repo))!;
+  expect(await Bun.file(join(worktree, ".idea", "workspace.xml")).text()).toBe(
+    `<p dir="${worktree}/target" />`,
+  );
+  // And the worktree is clean: our own copy must never be work you are asked about.
+  expect((await sh(["git", "status", "--porcelain"], worktree)).stdout).toBe("");
+});
+
 test("a removal that would lose commits asks first, and loses nothing until it is forced", async () => {
   const repo = await clonedRepo("unpushed");
   const keep = await clonedRepo("unpushed-keep");
@@ -138,12 +161,32 @@ test("switching a repository from worktree to in place moves the work, not delet
   expect(await repoStates(direct)).toMatchObject([{ direct: true, base: "origin/main" }]);
 });
 
-test("a change cannot be edited down to nothing", async () => {
+test("a change may be emptied and filled again, which is how a worktree is replaced", async () => {
+  // Taking a repository out and putting it back is the way to get a fresh worktree when the one
+  // you have is beyond saving, and that has a moment in the middle with nothing in it.
   const repo = await clonedRepo("last-one");
   const change = await changeFor("PROJ-LAST", [repo]);
   await git.provision!(change);
-  expect(setRepos(change, [])).rejects.toThrow(/at least one repository/);
-  expect(await worktreeFor(change, repo)).toBeDefined();
+  const before = (await worktreeFor(change, repo))!;
+
+  // Emptying is still a removal, and a removal still refuses to throw work away: the way out of
+  // a worktree you have made a mess of is to commit or revert first, not to drop it silently.
+  await Bun.write(join(before, "junk.txt"), "uncommitted\n");
+  expect(setRepos(change, [])).rejects.toThrow(/uncommitted changes/);
+  await rm(join(before, "junk.txt"));
+
+  const emptied = await setRepos(change, []);
+  expect("change" in emptied).toBe(true);
+  const none = (emptied as { change: Change }).change;
+  expect(none.repos).toEqual([]);
+  expect(await worktreeFor(none, repo)).toBeUndefined();
+
+  const refilled = await setRepos(none, [repo]);
+  const again = (refilled as { change: Change }).change;
+  expect(again.repos).toEqual([repo]);
+  // The same place, but a new checkout: this is what re-worktreeing gets you.
+  expect(await worktreeFor(again, repo)).toBe(before);
+  expect(await Bun.file(join(before, "README.md")).exists()).toBe(true);
 });
 
 test("switching modes with unpushed commits asks first, and keeps them when forced", async () => {
@@ -238,4 +281,101 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
     { path: "new name", index: "R", worktree: ".", staged: true, unstaged: false, untracked: false, from: "old name" },
     { path: "other", index: ".", worktree: "M", staged: false, unstaged: true, untracked: false, from: undefined },
   ]);
+});
+
+test("committing takes the files you ticked, in every repository at once", async () => {
+  const { commitChange } = await import("../src/commit.ts");
+  const { localChanges } = await import("../src/local.ts");
+  const a = await clonedRepo("commit-a");
+  const b = await clonedRepo("commit-b");
+  const change = await changeFor("PROJ-COMMIT", [a, b]);
+  await git.provision!(change);
+  const wtA = (await worktreeFor(change, a))!;
+  const wtB = (await worktreeFor(change, b))!;
+
+  await Bun.write(join(wtA, "README.md"), "edited\n");
+  await Bun.write(join(wtA, "new.txt"), "untracked\n"); // never seen by git before
+  await Bun.write(join(wtA, "later.txt"), "not this time\n");
+  await Bun.write(join(wtB, "README.md"), "also edited\n");
+
+  // One message, one commit per repository: a change is one piece of work.
+  const results = await commitChange(change, {
+    message: "PROJ-1 do the thing",
+    files: { [a]: ["README.md", "new.txt"], [b]: ["README.md"] },
+  });
+  expect(results.every((r) => r.ok)).toBe(true);
+  expect(results.map((r) => r.name).sort()).toEqual(["commit-a", "commit-b"]);
+  expect(results[0]!.hash).toMatch(/^[0-9a-f]{7,}$/);
+
+  const subject = async (repo: string) =>
+    (await sh(["git", "log", "-1", "--pretty=%s"], repo)).stdout;
+  expect(await subject(wtA)).toBe("PROJ-1 do the thing");
+  expect(await subject(wtB)).toBe("PROJ-1 do the thing");
+
+  // What was not ticked is still uncommitted, and nothing else was swept in.
+  const left = await localChanges(change, a);
+  expect(left.files.map((f) => f.path)).toEqual(["later.txt"]);
+
+  // A message is not optional, and neither is a file.
+  expect(commitChange(change, { message: "  ", files: { [a]: ["later.txt"] } })).rejects.toThrow(
+    /needs a message/,
+  );
+  expect(commitChange(change, { message: "x", files: { [a]: [] } })).rejects.toThrow(
+    /select at least one file/,
+  );
+});
+
+test("a repository that refuses to commit does not stop the others", async () => {
+  const { commitChange } = await import("../src/commit.ts");
+  const good = await clonedRepo("commit-good");
+  const change = await changeFor("PROJ-PARTIAL", [good]);
+  await git.provision!(change);
+  await Bun.write(join((await worktreeFor(change, good))!, "README.md"), "edited\n");
+
+  // A repository of this change without a worktree: it says so, the other one still commits.
+  const results = await commitChange(change, {
+    message: "PROJ-1 do the thing",
+    files: { [good]: ["README.md"], "/nowhere/at/all": ["README.md"] },
+  });
+  expect(results.find((r) => r.repo === good)?.ok).toBe(true);
+  expect(results.find((r) => r.repo === "/nowhere/at/all")).toMatchObject({
+    ok: false,
+    error: "no worktree",
+  });
+});
+
+test("what is committed but only here is counted, and pushing takes it away", async () => {
+  const { localChanges } = await import("../src/local.ts");
+  const { pushChange } = await import("../src/commit.ts");
+  const repo = await clonedRepo("push");
+  const change = await changeFor("PROJ-PUSH", [repo]);
+  await git.provision!(change);
+  const wt = (await worktreeFor(change, repo))!;
+
+  // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since
+  // it left the base branch is unpushed, and that is what the button has to offer.
+  await Bun.write(join(wt, "one.txt"), "1\n");
+  await sh(["git", "add", "."], wt);
+  await commit(wt, "first");
+  const before = await localChanges(change, repo);
+  expect(before).toMatchObject({ tracked: false, unpushed: 1 });
+
+  const pushed = await pushChange(change, [repo]);
+  expect(pushed.every((r) => r.ok)).toBe(true);
+  const after = await localChanges(change, repo);
+  // Now it has an upstream, and nothing is ahead of it.
+  expect(after).toMatchObject({ tracked: true, unpushed: 0 });
+
+  // A second commit is one ahead, which is the other way of counting the same thing.
+  await Bun.write(join(wt, "two.txt"), "2\n");
+  await sh(["git", "add", "."], wt);
+  await commit(wt, "second");
+  expect(await localChanges(change, repo)).toMatchObject({ tracked: true, unpushed: 1 });
+  await pushChange(change, [repo]);
+  expect((await localChanges(change, repo)).unpushed).toBe(0);
+
+  // And a repository that is not there says so instead of stopping the push.
+  const bad = await pushChange(change, ["/nowhere/at/all"]);
+  expect(bad[0]).toMatchObject({ ok: false, error: "no worktree" });
+  expect(pushChange(change, [])).rejects.toThrow(/nothing to push/);
 });

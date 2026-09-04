@@ -1,4 +1,7 @@
-import { test, expect } from "bun:test";
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { provision, integrations } from "../src/integrations/index.ts";
 import {
   describe,
@@ -22,8 +25,27 @@ import { groupChecks } from "../src/integrations/checks.ts";
 import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
-import { windowLabel } from "../src/web/WindowStrip.tsx";
+import { windowLabel } from "../src/web/windowLabel.ts";
 import type { Change, Integration } from "../src/types.ts";
+
+/**
+ * A changes root of its own, because some of what is tested here writes one.
+ *
+ * `setRepos` used to refuse an empty list before it wrote anything, so this file never touched
+ * the disk and never said where it would. Now that a change may be emptied, it does — and without
+ * this it writes into whatever changes root the machine is configured with, which on the author's
+ * machine was the real one.
+ */
+let tmp: string;
+
+beforeAll(async () => {
+  tmp = await mkdtemp(join(tmpdir(), "iwe-provision-"));
+  process.env.IWE_ROOT = tmp;
+});
+
+afterAll(async () => {
+  await rm(tmp, { recursive: true, force: true });
+});
 
 const change: Change = {
   id: "PROJ-1",
@@ -208,11 +230,15 @@ test("what a worktree removal would destroy", () => {
   expect(unsafeIn(entry({ remote: null, main_state: "integrated" }))).toBeUndefined();
 });
 
-test("a change cannot edit itself down to no repositories", () => {
-  expect(setRepos({ ...change, repos: ["/r/a"] }, [])).rejects.toThrow("at least one repository");
-  expect(setRepos({ ...change, repos: ["/r/a"] }, ["  "])).rejects.toThrow(
-    "at least one repository",
-  );
+test("blank entries are not repositories, and a repository is not listed twice", async () => {
+  // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
+  // double click rather than two repositories.
+  const emptied = await setRepos({ ...change, repos: [] }, ["  ", ""]);
+  expect((emptied as { change: Change }).change.repos).toEqual([]);
+
+  // Listed twice, and already there: nothing is created, so this needs no repository on disk.
+  const once = await setRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
+  expect((once as { change: Change }).change.repos).toEqual(["/r/a"]);
 });
 
 test("the artifact version is read from the build log lines", () => {
@@ -443,18 +469,100 @@ test("a review thread you answered last is not waiting on you", () => {
   expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
 });
 
-test("a repository's line says what is uncommitted in it, or that nothing is", async () => {
+test("a repository's line says what is uncommitted and what is only here", async () => {
   const { summarise } = await import("../src/web/LocalPane.tsx");
-  const status = (files: unknown[]) => ({ repo: "/r", name: "r", files: files as never[] });
+  const status = (files: unknown[], unpushed = 0) => ({
+    repo: "/r",
+    name: "r",
+    files: files as never[],
+    unpushed,
+    tracked: true,
+  });
 
   // "Nothing here" is an answer, and gets a heading of its own rather than being left out.
   expect(summarise(status([]))).toEqual({ text: "clean", state: "ok" });
   expect(summarise(status([1]))).toEqual({ text: "1 change", state: "pending" });
   expect(summarise(status([1, 2]))).toEqual({ text: "2 changes", state: "pending" });
+
+  // A clean repository with commits nobody else has looks finished and is not.
+  expect(summarise(status([], 3))).toEqual({ text: "3 unpushed", state: "pending" });
+  expect(summarise(status([1], 2))).toEqual({ text: "1 change, 2 unpushed", state: "pending" });
+
   expect(summarise({ ...status([]), error: "no worktree" })).toEqual({
     text: "no worktree",
     state: "error",
   });
   // Not asked yet is not the same as clean.
   expect(summarise(undefined)).toEqual({ text: "…", state: "none" });
+});
+
+test("what an environment holds is the newest run that was sent to it", async () => {
+  const { latestFor, versionIn, serviceName } = await import("../src/deployments.ts");
+  const run = (
+    id: number,
+    environment: string,
+    version: string,
+    result: string | null,
+    status = "completed",
+  ) => ({
+    id,
+    buildNumber: `${environment} - ${version}`,
+    status,
+    result,
+    sourceBranch: "refs/heads/main",
+    finishTime: "2026-09-01T10:00:00Z",
+    startTime: "2026-09-01T09:55:00Z",
+    templateParameters: { environment, dockerTag: version },
+  });
+
+  const runs = [
+    run(3, "production", "v3", "succeeded"),
+    run(2, "accept", "v3", "succeeded"),
+    run(1, "accept", "v2", "succeeded"),
+  ];
+  expect(latestFor(runs, "accept")).toMatchObject({ version: "v3", state: "ok" });
+  expect(latestFor(runs, "production")).toMatchObject({ version: "v3", state: "ok" });
+  // An environment nobody has deployed to says so rather than pretending to be empty.
+  expect(latestFor(runs, "sandbox")).toMatchObject({ state: "none", detail: "never deployed" });
+
+  // A deploy in flight is what that environment is doing, whatever it holds at this moment.
+  expect(latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept")).toMatchObject({
+    state: "pending",
+    detail: "deploying v4",
+  });
+
+  // A failed deploy leaves the previous version running: the state is red, and the version is
+  // the one that is actually there.
+  expect(latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept")).toMatchObject({
+    state: "error",
+    version: "v3",
+  });
+
+  // The version parameter is not called the same thing in every pipeline: one of these deploys
+  // an image, the other a docker tag, and both are "the thing being deployed".
+  expect(versionIn({ environment: "accept", dockerTag: "v1" })).toBe("v1");
+  expect(versionIn({ environment: "accept", imageTag: "v2" })).toBe("v2");
+  // Nothing to go on: two unknown parameters could be anything, so it says nothing.
+  expect(versionIn({ environment: "accept", a: "1", b: "2" })).toBeUndefined();
+  expect(versionIn(null)).toBeUndefined();
+
+  // The service is what the pipelines are named after.
+  expect(serviceName("deploy-example-service")).toBe("example-service");
+  expect(serviceName("something-else")).toBe("something-else");
+});
+
+test("a later environment only gets what the one before it already has", async () => {
+  const { deploy, branchOf } = await import("../src/deployments.ts");
+
+  // The gate, which is the manual step of the shell script it replaces: production gets what
+  // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.
+  expect(deploy("no-such-service", "v9", "production")).rejects.toThrow(
+    /no deploy pipeline|not on accept|no Azure/,
+  );
+  expect(deploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
+
+  // What a build was built from, said the way you would say it.
+  expect(branchOf("refs/heads/main")).toBe("main");
+  expect(branchOf("refs/pull/169/merge")).toBe("PR #169");
+  expect(branchOf(undefined)).toBe("");
 });

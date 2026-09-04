@@ -2,9 +2,10 @@ import { basename } from "node:path";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { sh, json } from "../sh.ts";
 import { swr } from "../cache.ts";
-import { config } from "../config.ts";
+import { config, type Workspace } from "../config.ts";
+import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
 
-type Run = {
+export type Run = {
   id: number;
   buildNumber: string;
   status: string;
@@ -15,7 +16,7 @@ type Run = {
   definition?: { id?: number; name?: string };
 };
 
-type Definition = { id: number; name: string; path: string };
+export type Definition = { id: number; name: string; path: string };
 
 /** How many finished runs the duration estimate averages over. Branches differ, but the same
  * pipeline on the same agents is the best predictor available. */
@@ -28,7 +29,7 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
-async function azDefaults(): Promise<{
+export async function azDefaults(): Promise<{
   organization?: string;
   project?: string;
 }> {
@@ -41,6 +42,34 @@ async function azDefaults(): Promise<{
     project: config.azureProject || read("project"),
   };
   return defaults;
+}
+
+/**
+ * Which Azure DevOps this workspace means, and how to say so on a command line.
+ *
+ * `az` has one configured default organisation and project, which is fine until a second client
+ * turns up. A workspace that names its own gets them passed explicitly; one that does not falls
+ * back to `az devops configure`, which is what every call did before workspaces existed.
+ *
+ * The key namespaces the cache: two organisations answering the same question differently is
+ * exactly the bug this prevents.
+ */
+export type Az = { key: string; args: string[]; organization?: string; project?: string };
+
+export async function azFor(workspace: Workspace): Promise<Az> {
+  const own = azureOf(workspace);
+  const fallback = await azDefaults();
+  const organization = own.organization || fallback.organization;
+  const project = own.project || fallback.project;
+  return {
+    key: workspace.id,
+    args: [
+      ...(organization ? ["--organization", organization] : []),
+      ...(project ? ["--project", project] : []),
+    ],
+    organization,
+    project,
+  };
 }
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
@@ -81,14 +110,15 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
-async function listDefinitions(repo: string): Promise<Definition[]> {
-  return swr(`az:definitions:${folderFor(repo)}`, DEFINITIONS_TTL, async () => {
+async function listDefinitions(az: Az, repo: string): Promise<Definition[]> {
+  return swr(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL, async () => {
     const r = await sh([
       "az",
       "pipelines",
       "list",
       "--folder-path",
       folderFor(repo),
+      ...az.args,
       "-o",
       "json",
     ]);
@@ -96,15 +126,13 @@ async function listDefinitions(repo: string): Promise<Definition[]> {
   });
 }
 
-async function runsFor(
-  refs: string[],
-): Promise<{ runs: Run[]; error?: string }> {
+async function runsFor(az: Az, refs: string[]): Promise<{ runs: Run[]; error?: string }> {
   // One query per ref; grouping per pipeline happens here rather than in a query per pipeline.
   // The branch ref is the same for every repository of a change, so this is asked six times at
   // once and answered once.
   const results = await Promise.all(
     refs.map((ref) =>
-      swr(`az:runs:${ref}`, RUNS_TTL, () =>
+      swr(`az:${az.key}:runs:${ref}`, RUNS_TTL, () =>
         sh([
           "az",
           "pipelines",
@@ -114,6 +142,7 @@ async function runsFor(
           ref,
           "--top",
           "50",
+          ...az.args,
           "-o",
           "json",
         ]),
@@ -136,9 +165,12 @@ async function runsFor(
  * for it costs nothing extra while a change is open, and it skips durations, logs and versions.
  */
 export async function activeRuns(change: Change, repo: string, pr?: number): Promise<number> {
+  const workspace = workspaceOf(change);
+  if (!usesAzure(workspace)) return 0; // a context without pipelines has none running
+  const az = await azFor(workspace);
   const [definitions, { runs, error }] = await Promise.all([
-    listDefinitions(repo),
-    runsFor(refsFor(change.branch, pr)),
+    listDefinitions(az, repo),
+    runsFor(az, refsFor(change.branch, pr)),
   ]);
   if (error) return 0;
   const mine = new Set(definitions.map((d) => d.id));
@@ -161,10 +193,8 @@ export function averageDuration(runs: Run[]): number | undefined {
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
 }
 
-async function expectedDuration(
-  definitionId: number,
-): Promise<number | undefined> {
-  return swr(`az:duration:${definitionId}`, DEFINITIONS_TTL, async () => {
+export async function expectedDuration(az: Az, definitionId: number): Promise<number | undefined> {
+  return swr(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL, async () => {
     const r = await sh([
       "az",
       "pipelines",
@@ -264,7 +294,7 @@ async function logLines(
 /** A finished run's logs never change, so a version is looked up once and kept. */
 const versions = new Map<number, string | undefined>();
 
-async function versionOf(
+export async function versionOf(
   run: Run,
   project: string,
 ): Promise<string | undefined> {
@@ -312,16 +342,30 @@ const worst = (states: WidgetState[]): WidgetState =>
           ? "ok"
           : "none";
 
+/** Where a run can be looked at in Azure DevOps. Undefined when we do not know the
+ * organisation or project, which is the same condition that makes everything else here empty. */
+export function buildUrl(id: number, az?: Az): string | undefined {
+  const { organization, project } = az ?? defaults ?? {};
+  return organization && project
+    ? `${organization}/${encodeURIComponent(project)}/_build/results?buildId=${id}`
+    : undefined;
+}
+
 /** One row per pipeline of this repository, with its runs for this ref as children. */
 export async function pipelineItems(
   change: Change,
   repo: string,
   pr?: number,
 ): Promise<{ items: WidgetItem[]; count: number }> {
+  const workspace = workspaceOf(change);
+  // A context without pipelines is not an empty list of them, it is silence: the card shows the
+  // pull request and nothing else, and no `az` process is started.
+  if (!usesAzure(workspace)) return { items: [], count: 0 };
+  const az = await azFor(workspace);
   const refs = refsFor(change.branch, pr);
   const [definitions, { runs, error }] = await Promise.all([
-    listDefinitions(repo),
-    runsFor(refs),
+    listDefinitions(az, repo),
+    runsFor(az, refs),
   ]);
   if (error)
     return {
@@ -329,11 +373,8 @@ export async function pipelineItems(
       count: 0,
     };
 
-  const { organization, project } = await azDefaults();
-  const url = (id: number): string | undefined =>
-    organization && project
-      ? `${organization}/${encodeURIComponent(project)}/_build/results?buildId=${id}`
-      : undefined;
+  const { project } = az;
+  const url = (id: number) => buildUrl(id, az);
 
   // Definitions come from this repository's folder; runs that match none of them are ignored,
   // which is what keeps a monorepo's other services out of this widget.
@@ -356,7 +397,7 @@ export async function pipelineItems(
     await Promise.all(
       running.map(async (d): Promise<[number, number | undefined]> => [
         d.id,
-        await expectedDuration(d.id),
+        await expectedDuration(az, d.id),
       ]),
     ),
   );

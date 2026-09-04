@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { Change, FileChange } from "./types.ts";
-import { worktreeFor } from "./integrations/git.ts";
+import { worktreeFor, baseFor } from "./integrations/git.ts";
 import { sh } from "./sh.ts";
 
 export type { FileChange };
@@ -63,21 +63,66 @@ export function parseStatus(stdout: string): FileChange[] {
   return files.sort((a, b) => a.path.localeCompare(b.path));
 }
 
+/** What the review tab knows about one repository: what is uncommitted, and what is committed
+ * but not pushed. */
+export type LocalStatus = {
+  repo: string;
+  name: string;
+  worktree?: string;
+  files: FileChange[];
+  /** Commits the remote has not got: ahead of the upstream, or everything since the base branch
+   * when the branch was never pushed. */
+  unpushed: number;
+  /** Whether the branch has an upstream at all, which decides how it is pushed. */
+  tracked: boolean;
+  error?: string;
+};
+
+/** `# branch.ab +2 -0` from porcelain v2's header: how far ahead of its upstream this branch is.
+ * Absent when there is no upstream, which is a different question, answered below. */
+export const aheadIn = (stdout: string): number | undefined => {
+  const found = /^# branch\.ab \+(\d+) /m.exec(stdout.replaceAll("\0", "\n"));
+  return found ? Number(found[1]) : undefined;
+};
+
+export const trackedIn = (stdout: string): boolean =>
+  /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
+
 /** What is uncommitted in one repository of a change. Live, never cached: this is the file you
  * are editing, and a second-old answer is a wrong one. */
-export async function localChanges(
-  change: Change,
-  repo: string,
-): Promise<{ repo: string; name: string; worktree?: string; files: FileChange[]; error?: string }> {
+export async function localChanges(change: Change, repo: string): Promise<LocalStatus> {
   const name = basename(repo);
   const worktree = await worktreeFor(change, repo);
-  if (!worktree) return { repo, name, files: [], error: "no worktree" };
+  if (!worktree) return { repo, name, files: [], unpushed: 0, tracked: false, error: "no worktree" };
+  // --branch as well: the header carries the upstream and how far ahead of it we are, which is
+  // the other half of "is this work safe anywhere but here".
   const r = await sh(
-    ["git", "status", "--porcelain=v2", "-z", "--untracked-files=all"],
+    ["git", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
     worktree,
   );
-  if (r.code !== 0) return { repo, name, worktree, files: [], error: r.stderr || r.stdout };
-  return { repo, name, worktree, files: parseStatus(r.stdout) };
+  if (r.code !== 0) {
+    return { repo, name, worktree, files: [], unpushed: 0, tracked: false, error: r.stderr || r.stdout };
+  }
+
+  const tracked = trackedIn(r.stdout);
+  return {
+    repo,
+    name,
+    worktree,
+    files: parseStatus(r.stdout),
+    tracked,
+    // A branch that was never pushed is not "0 ahead": everything on it since it left the base
+    // branch is unpushed, and that is what the button has to offer to push.
+    unpushed: tracked ? (aheadIn(r.stdout) ?? 0) : await sinceBase(change, repo, worktree),
+  };
+}
+
+/** Commits made since the branch left its base, for a branch with no upstream to compare to. */
+async function sinceBase(change: Change, repo: string, worktree: string): Promise<number> {
+  const base = await baseFor(change, repo);
+  if (!base) return 0; // no remote at all: there is nowhere to push, so nothing is unpushed
+  const r = await sh(["git", "rev-list", "--count", `${base}..HEAD`], worktree);
+  return r.code === 0 ? Number(r.stdout.trim()) || 0 : 0;
 }
 
 /**

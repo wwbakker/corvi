@@ -1,21 +1,23 @@
 import { useState } from "react";
 import { branchFor } from "../branch.ts";
 import { post, type Change, type Created, type Issue, type Selection } from "./api.ts";
-import { Breadcrumb } from "./Breadcrumb.tsx";
 import { IssueTable } from "./IssueTable.tsx";
 import { RepoBrowser } from "./RepoBrowser.tsx";
 
 /** One step per component: the change is configured component by component, then created. */
-const steps = ["Jira", "Change", "Repositories"] as const;
-
 export function Wizard({
+  workspace,
+  hasJira = true,
   onCreated,
   onCancel,
-  onHome,
 }: {
+  /** The context it is made in, recorded on the change. */
+  workspace?: string;
+  /** Whether this context has a Jira at all: a personal project has no ticket to pick, and a
+   * step that can only say so is a step in the way. */
+  hasJira?: boolean;
   onCreated: (change: Change, provision: Created["provision"]) => void;
   onCancel: () => void;
-  onHome: () => void;
 }) {
   const [step, setStep] = useState(0);
   const [issue, setIssue] = useState<Issue | null>(null);
@@ -40,12 +42,19 @@ export function Wizard({
   const changeRepo = (path: string, patch: Partial<Selection>) =>
     setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
 
+  // The steps this context has. Without Jira the first one is not empty, it is absent.
+  const steps = hasJira ? (["Jira", "Change", "Repositories"] as const) : (["Change", "Repositories"] as const);
+  const jiraStep = hasJira ? 0 : -1;
+  const changeStep = hasJira ? 1 : 0;
+  const reposStep = hasJira ? 2 : 1;
+
   const create = () => {
     setBusy(true);
     setError(null);
     post<Created>("/changes", {
       id,
       branch,
+      workspace,
       jira: issue?.key,
       repos: repos.map((r) => r.path),
       direct: repos.filter((r) => r.direct).map((r) => r.path),
@@ -59,7 +68,7 @@ export function Wizard({
   return (
     <div className="wizard">
       <header>
-        <Breadcrumb trail={["New change"]} onHome={onHome} />
+        <h2>New change</h2>
       </header>
 
       <nav className="steps">
@@ -88,11 +97,9 @@ export function Wizard({
 
       {error && <div className="error-banner">{error}</div>}
 
-      {step === 0 && (
-        <IssueTable selected={issue} onSelect={select} />
-      )}
+      {step === jiraStep && <IssueTable workspace={workspace} selected={issue} onSelect={select} />}
 
-      {step === 1 && (
+      {step === changeStep && (
         <div className="form">
           <label>
             Change id
@@ -114,7 +121,7 @@ export function Wizard({
         </div>
       )}
 
-      {step === 2 && (
+      {step === reposStep && (
         <div className="form wide">
           <p className="hint">
             Select the repositories this change touches. Each one is set up on{" "}

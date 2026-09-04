@@ -17,7 +17,8 @@ reported on the dashboard; the change itself is written first and always survive
 
 ## Requirements
 
-`git`, `wt`, `gh`, `jira` and `az` for the integrations; `tmux` and `ttyd` for the Terminals tab.
+`git`, `wt`, `gh` and `az` for the integrations; `tmux` and `ttyd` for the Terminals tab. Jira is
+talked to over its own REST API, but `jira-cli` is still what configures it — see below.
 
 ## Run
 
@@ -25,6 +26,17 @@ reported on the dashboard; the change itself is written first and always survive
 bun install
 bun run dev          # http://127.0.0.1:4000
 ```
+
+`dev` is `bun --watch`, which restarts the process, rather than `bun --hot`, which re-evaluates
+modules inside the running one. The difference matters here: `Bun.serve` takes its routes once,
+at startup, so under `--hot` a **newly added route never appears** — the request falls through to
+the app's own HTML and arrives as a perfectly good `200 text/html`. The page then tries to parse
+that as JSON and reports whatever the browser calls a parse error (Safari: "The string did not
+match the expected pattern"), which is a sentence about nothing. Restarting is cheap: the cache
+is on disk and the terminals belong to tmux, so both survive it.
+
+The browser now says so plainly instead — anything answering an `/api` call with a non-JSON body
+is reported as "the server has no /settings — it is probably running older code, restart it".
 
 ## Configuration
 
@@ -39,25 +51,70 @@ bun run dev          # http://127.0.0.1:4000
   "jiraStartTransition": "In Progress",
   "jiraDoneTransition": "Done",
   "azureOrganization": "",
-  "azureProject": ""
+  "azureProject": "",
+  "worktreeCopy": [".idea", ".bsp", ".bloop", ".scala-build", ".metals", ".vscode"]
 }
 ```
 
-Empty values fall back to the CLIs' own configuration: `jira me` for the assignee, and
-`az devops configure` for the Azure DevOps organisation and project.
+Empty values fall back to the tools' own configuration: the account the Jira token belongs to
+(`/myself`) for the assignee, and `az devops configure` for the Azure DevOps organisation and
+project.
 
 `changesRoot` holds one directory per change; `reposRoot` bounds the repository browser and
 `reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
 Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
 `IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`,
-`IWE_CACHE` (where the cache is stored) and `IWE_PARALLEL` (how many CLIs may run at once).
+`IWE_CACHE` (where the cache is stored), `IWE_PARALLEL` (how many CLIs may run at once) and
+`IWE_WORKTREE_COPY` (see below; empty disables it).
+
+### The settings page
+
+Everything above is editable at `/settings`, last in the navigation column — the file stays the
+source of truth and stays hand-editable, the page just writes it. **Saving takes effect at once**:
+the server refills the config object every module already imported rather than replacing it, so
+there is no restart and no "changes will apply next time".
+
+Two conventions run through the page:
+
+- **An empty field is "not set"**, and shows what applies anyway as its placeholder. So the
+  difference between a default and a decision stays visible, and clearing a field removes the key
+  from the file rather than writing an empty string into it.
+- **A setting an environment variable is overriding is locked**, with the variable named next to
+  it. The variable wins, so an editable box would be a lie.
+
+It writes by merging over what the file holds, so a key IWE does not know about — put there by
+hand, for a newer version — survives being saved by an older one. Validation lives on the server
+because the file can also be edited by hand: rules in the browser only would be rules that half
+the ways in ignore. It refuses a relative path, a duplicate or non-word workspace id, a nameless
+workspace, an environment name that is not one, and a `worktreeCopy` entry that is a path rather
+than a name — `../.ssh` is not something a settings page should be able to ask for.
+
+Saving also clears the cache. Everything the CLIs answered, they answered for the old settings:
+another organisation, another Jira site, another set of environments.
 
 The server binds to localhost and runs as you: it has no auth of its own because it delegates
-to `git`, `gh` and `jira`, which already hold your credentials (`gh auth login`, `jira init`).
+to `git`, `gh` and `az`, which already hold your credentials (`gh auth login`, `az login`), and
+to the Jira token in your environment.
 
-`jira-cli` reads its token from `JIRA_API_TOKEN` in the environment, so start the server from a
-shell that has it exported. Without it, the Jira widget reports the problem and the change picker
-falls back to typing an id by hand.
+**Requests from other sites are refused.** Localhost keeps other machines out but not the browser
+you already have open: any website can `POST http://127.0.0.1:4000/api/changes`, and while it
+cannot read the answer — no CORS headers are sent — it does not need to read anything to create a
+change or delete a leftover. Browsers say where a request came from (`Sec-Fetch-Site` on
+everything, `Origin` on anything that is not a plain navigation), so anything that names another
+site gets a 403. Requests with neither header — `curl`, the tests — are allowed: nothing can be
+tricked into making one of those on your behalf.
+
+The check wraps the route table in one place rather than being repeated in each handler, because
+a check you have to remember in forty places is a check that is missing from one of them.
+
+Jira is reached over its REST API, with HTTP basic auth: the account email and the token from
+`JIRA_API_TOKEN`, so start the server from a shell that has it exported. Without it, the Jira
+widget reports the problem and the change picker falls back to typing an id by hand.
+
+**The site, account, board and project come from `jira-cli`'s own config file**
+(`~/.config/.jira/.config.yml`, or `JIRA_CONFIG_FILE`), so `jira init` is still the setup step and
+nothing is configured twice. The CLI itself is no longer called: four values are read out of the
+file it wrote, and the rest is HTTP.
 
 ## Creating a change
 
@@ -79,9 +136,9 @@ falls back to typing an id by hand.
 Only issue types in `IWE_JIRA_ISSUE_TYPES` (default `Story,Bug`) are listed: epics and subtasks
 are containers, not units of work. A change may still link to any type directly.
 
-Which sprints the table covers comes from `IWE_JIRA_SPRINT_STATES` (default `active,future`);
-jira-cli has no sprint column, so the table is built from one query per sprint plus one for the
-backlog, cached for 60s.
+Which sprints the table covers comes from `IWE_JIRA_SPRINT_STATES` (default `active,future`). An
+issue's sprint is which query found it rather than a field on it, so the table is built from one
+call per sprint plus one for the backlog, cached for 60s.
 
 The dashboard shows three widgets, in this order:
 
@@ -146,6 +203,73 @@ column of its own beside the others; narrower windows stack everything.
   monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
   builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
 
+## The app
+
+```bash
+bun run app:install      # ~/Applications/Integrated Work Environment.app
+bun run app:uninstall
+```
+
+A real application: a Dock icon you can quit, a window whose title bar is the same colour as the
+page, and the server inside it. Clicking it **starts the server if nothing is listening**, shows
+"Starting IWE…" on the page's own background while it waits, then loads the app. Quitting it stops
+the server it started.
+
+**The app has its own port — 43117 — and always runs the production build.** `bun run dev` keeps
+4000. They used to share a port, and the app attached to whatever was listening: a dev server left
+running from last week silently became "the app", with last week's code and no way to tell from
+the window. That is exactly how a missing `/api/settings` came to be reported as "The string did
+not match the expected pattern". Five digits because nobody types this one — it is reached by
+clicking an icon.
+
+So the two are now separate things rather than two ways to start the same thing:
+
+| | `bun run dev` | the app |
+| --- | --- | --- |
+| for | editing IWE | using IWE |
+| port | 4000 | 43117 |
+| build | rebuilt as you edit | built once, `NODE_ENV=production` |
+| on a code change | restarts itself (`--watch`) | picks it up when you next launch it |
+| output | your terminal | `~/Library/Logs/iwe.log` |
+
+It is AppKit and WebKit, in about two hundred lines of Swift (`scripts/app/IWE.swift`), compiled
+by `swiftc` at install time. Both frameworks are in the system, so this costs a compile and
+nothing at runtime: no Electron, no Rust, no second browser. The window is still only a view onto
+the same HTTP server any browser can open, which is the point — the app is a convenience, not the
+product.
+
+What the native window buys over a Chrome `--app` window:
+
+- **A dark title bar.** A plain `--app` window ignores the manifest's `theme_color`; this one is
+  `titlebarAppearsTransparent` over the page's own `#14161a`.
+- **A Dock icon that means something**: it is there while IWE is running, and Quit stops it.
+- **cmd-t is ours.** Chrome keeps it for new tabs in a normal window; here it always reaches the
+  terminal.
+- **Links leave.** Jira, GitHub and Azure DevOps open in your browser rather than replacing the
+  page.
+- **The page's questions get asked.** A WKWebView draws no dialogs of its own and does not
+  complain either: `confirm()` returns `false` and `alert()` does nothing. Every confirmation in
+  IWE — cancelling a change, a removal that would lose commits, deleting a leftover — therefore
+  did nothing at all in the app, silently, while working in a browser. The window implements
+  `WKUIDelegate` and shows them as sheets.
+
+Two details that took a bug each:
+
+- **It runs an interactive login shell** (`zsh -ilc`). A bundle launched from the Dock inherits
+  nothing, and `bun` and `JIRA_API_TOKEN` are exported from `~/.zshrc`, which a *non-interactive*
+  login shell does not read. `zsh -lc` looked right and failed with `command not found: bun`.
+- **The root and port live in `Info.plist`**, not in the binary, so moving the repository or
+  changing the port is a reinstall of a plist rather than a rebuild.
+
+`app:install` **quits a running app and puts it back on the new build**: `open` on a running
+application only focuses it, so a rebuild would otherwise leave you looking at the previous one —
+a confusing ten minutes the first time it happens. It quits with an Apple Event rather than a
+signal, so the app stops the server it started instead of orphaning it, and it compiles to one
+side first, so a failed build leaves the app you have alone.
+
+Failures land in `~/Library/Logs/iwe.log`, and a server that never answers leaves the window
+saying so rather than showing an empty page.
+
 ## Installing it as an app
 
 The page ships a web manifest and icons, so it installs as a standalone macOS app:
@@ -161,21 +285,263 @@ it keeps a readable 1200px column.
 and run `bun run icons` to regenerate `src/web/icons/*.png` with `rsvg-convert`
 (`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
 
+## Workspaces
+
+A workspace is a **context**: a client, or your own projects. Configured, never discovered:
+
+```json
+{
+  "workspaces": [
+    { "id": "client", "name": "Acme" },
+    { "id": "personal", "name": "Personal" }
+  ]
+}
+```
+
+The switcher sits at the top of the navigation column, above everything that belongs to it, and
+filters the change list, the sidebar and what a new change is made in. `All work` shows
+everything, which is a filter rather than a workspace and is set apart in the menu for that
+reason. With no workspaces configured there is no switcher and nothing changes.
+
+A change records the workspace it was made in (`"workspace": "client"` in `change.json`) — one
+line, no directory moves, and moving a change between contexts later is one field. A change made
+before workspaces existed has none and belongs to the **first** workspace, which is where all the
+work was when there was only one place for it.
+
+Two things it does deliberately:
+
+- **A change is opened from the whole list, not the filtered one.** A link to a change in another
+  context should open it, not report that it does not exist.
+- **Nothing is listed until the workspaces are known.** A moment of "everything" before the
+  filter arrives is a moment of another client's work on your screen, which is the one thing a
+  workspace exists to prevent; the list says `loading…` for that moment instead.
+
+The choice lives in the browser, not on the server: two windows open on two clients is a
+reasonable thing to want, and the server has no business having an opinion about which one you
+are looking at.
+
+### What a workspace decides
+
+```json
+{
+  "workspaces": [
+    { "id": "client", "name": "Acme",
+      "reposStart": "~/Repos/acme",
+      "jira":  { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" },
+      "azure": { "organization": "https://dev.azure.com/org", "project": "Project" } },
+
+    { "id": "personal", "name": "Personal", "jira": false, "azure": false }
+  ]
+}
+```
+
+`false` means "this context does not have that at all", and it is subtraction rather than
+configuration:
+
+- **No Jira**: the dashboard has no Jira card, the wizard has two steps instead of three
+  (`1. Change · 2. Repositories`), provisioning does not try to move a ticket, and no `jira`
+  request is made for a change that was never going to have one.
+- **No Azure**: no pipelines are looked for, and `Deployments` is not offered in the column.
+  The CI card stays either way — it is pull requests *as well as* pipelines, and a workspace
+  without pipelines still has reviews.
+
+Anything a workspace does not say is inherited from the top-level settings, which is exactly what
+IWE did before workspaces existed.
+
+**A second client is a second site.** `jira.configFile` points at another `jira init` — its own
+server, account and board — `jira.tokenEnv` names the variable holding that site's token, and
+`azure.organization`/`project` are passed to `az` explicitly rather than relying on its single
+configured default. Two clients can be open at once.
+
+### A second client is also a second login
+
+```json
+{ "id": "client", "name": "Acme",
+  "env": {
+    "GH_CONFIG_DIR": "~/.config/gh-client",
+    "AZURE_CONFIG_DIR": "~/.azure-client"
+  },
+  "jira": { "configFile": "~/.config/.jira/client.yml", "tokenEnv": "JIRA_TOKEN_CLIENT" } }
+```
+
+`env` is added to **every** CLI IWE runs for that workspace — `git`, `gh`, `az`, `tmux`, however
+deep the call — so two GitHub accounts or two Azure tenants stop fighting over one login. `~` is
+expanded, since these are paths and a shell would have done it.
+
+It is ambient rather than a parameter (`AsyncLocalStorage`, `src/context.ts`): the alternative is
+threading an environment through forty call sites that have no other reason to know about it —
+`git status` does not care whose workspace it is in, it only has to run as the right one. A
+request about a change enters that change's workspace; a request that is not about a change
+enters the one the browser named; outside a request the environment is empty, which is exactly
+what every call did before workspaces existed.
+
+Which means **every cache key carries the context**: `az:<workspace>:runs:<ref>`,
+`jira:<site>:keys:…`. Two organisations answering the same question differently is precisely the
+bug this prevents, and it would have looked like "why is my personal change showing the client's
+pipelines".
+
+The browser sends the chosen workspace where the request is not about a change
+(`/api/deployments?workspace=…`, `/api/jira/issues?workspace=…`); where it *is* about a change,
+the change says which workspace it belongs to and nothing has to be passed.
+
+## Navigation
+
+One column, down the left, from the top of the window:
+
+    Changes                          the overview
+    ┃ PROJ-1240                  ▶     the changes still going; picking one opens its dashboard
+    ┃ Wait for the security review…
+        >_ example-web - (gradle)   its terminals, under the change they belong to
+    ┃ PROJ-1234                  ▶
+    ┃ Anonymise customer names…
+        >_ PROJ-1234
+        >_ example-web - (pi working)
+        >_ new                       another terminal, where the current one is
+
+    Dashboard | Review changes       tabs on the change itself
+
+It replaced a breadcrumb, a row of tabs and the terminal's own window strip, which between them
+said where you were three times and disagreed about how. Everything you can go to is here, one
+level deep: **a terminal in another change is one click**, not four.
+
+There is no "Dashboard" entry, because picking a change opens it, and no "Terminals" heading,
+because the icon on each row already says what it is. What is left is one flat list of
+destinations. The change's two views — **Dashboard** and **Review changes** — are tabs on the
+page instead, since they are two ways of looking at one change rather than two places to be.
+
+Every change's windows come back from **one** call, `GET /api/terminals`: `tmux list-windows -a`
+answers for every session there is, and the sessions that are not ours are dropped by their name.
+Asking per change would be a process per change every few seconds.
+
+A change is two lines — its id, then what it is about — with **a coloured bar down the left** for
+its state, in the usual amber/purple/blue/green. A colour along the whole row reads from further
+away than a dot does, and it leaves the icons to say what the *tools* are doing rather than what
+you have decided.
+
+One icon is left: a play button for the builds, coloured by the worst of them, from the same
+`/api/changes/:id/summary` the overview cards use and refreshed every thirty seconds — this is a
+glance, not a monitor. There is no terminal icon on a change, because its terminals are the rows
+underneath and each says how it is doing itself.
+
+**One thing is highlighted at a time.** On a terminal, that is the window — not the change it
+belongs to, which stays plain until you are on its dashboard or its review tab. Two highlights
+would be two answers to "where am I".
+
+A terminal's icon is green while its window runs something and grey while it sits at a prompt.
+**`>_ new`** appears only under the change you are working on: every change offering a terminal it
+has not got would be more noise than help. On a change whose session has not started, it opens the
+terminal — which starts one, with the window you were asking for.
+
+**Opening a change starts nothing.** ttyd is asked for when a terminal is opened, not when the
+dashboard is: asking on arrival left a ttyd — and, once the page connected, a tmux session —
+behind for every change you so much as looked at. A change needs no terminal at all some days.
+The cost is that the first terminal of a change takes a moment to appear, which is the honest
+price of not starting one behind your back.
+
+The column is **resizable**: drag its edge, and the width is remembered in `localStorage`. The
+whole edge is the handle, because that is what you aim at, and the drag is followed on the window
+rather than on the handle, since the thing being dragged moves out from under the pointer.
+
+The pages of a change appear only once a change is picked, and disappear again on the overview.
+Each page keeps its own URL, so a deep link opens exactly what you linked to.
+
 ## Looking at the UI
 
 ```bash
-bunx playwright install chromium   # once
-bun run shot                       # screenshots the running app into shots/
+bunx playwright install webkit chromium   # once
+bun run shot                              # WebKit, into shots/
+IWE_ENGINE=chromium bun run shot
 ```
 
 Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1:4000`) and reports
 any console errors. Faster than describing a layout bug in prose.
 
-## Notes on jira-cli output
+**WebKit by default, because that is what the app is.** The macOS window is a WKWebView — Safari's
+engine — while development happens in Chrome, and everything that has escaped to being reported
+lived in that gap:
 
-Plain mode pads columns with the delimiter, so column positions cannot be recovered: issue
-queries therefore use `--csv`. `sprint list --table` ignores `--csv` and pads with tabs, so its
-rows are read by dropping empty fields. Both are covered by tests.
+- A route the server did not have came back as the app's own HTML with a `200`, and WebKit words
+  the failed parse as *"The string did not match the expected pattern"* — a sentence about
+  nothing, in a browser that was not being tested.
+- `window.confirm` is not implemented by a WKWebView unless the app implements `WKUIDelegate`, and
+  an unimplemented `confirm()` returns `false`. Every destructive action sits behind one, so
+  cancelling a change silently did nothing — in the app only.
+
+`test/webkit.test.ts` opens every route in WebKit, saves the settings page, and fails on anything
+the engine complains about. It skips itself when the engine has not been downloaded, since that is
+a 100MB step and nothing else in the suite needs it. It earned its place immediately: it found the
+dashboard firing a readiness check that answered `400` when there is no GitHub remote, which the
+page swallowed — the menu item was disabled with nothing to say. That is now a reason like any
+other ("cannot complete: …"), which is what the reasons list is for.
+
+```bash
+bun run app:permissions   # what this terminal may do to the app's own window
+```
+
+```bash
+bun run app:sandbox 4090 --open              # a copy that cannot be mistaken for yours
+bun run app:drive "PROJ-123" Actions "Cancel change" OK
+```
+
+**Never test against the installed app.** `app:sandbox` makes a copy with its own bundle
+identifier, its own name and its own port, pointed at whatever scratch server you like. A copy
+made with `cp -R` keeps the identifier `dev.iwe.app`, and `tell application id "dev.iwe.app" to
+quit` then goes to whichever bundle the system resolves — which is how quitting a test copy quit
+the real app instead, in the middle of somebody's work. Everything that addresses a bundle now
+addresses a **path**, which is exactly one app, and the window title says which copy you are
+looking at.
+
+Clicks the app's own window by the names a screen reader reads out — the sheets it draws because
+a WKWebView draws none, its menu bar, its Dock icon. Playwright drives the page far better and
+cannot see any of that. Three things had to be true before it worked, and each of them looked
+like something else:
+
+- **The web area is invisible to assistive clients until the app opts in.** WKWebView keeps the
+  page's accessibility tree to itself, so the window had one anonymous group where its buttons
+  should be. `NSApp.setAccessibilityEnabled(true)` publishes it — which also means VoiceOver can
+  read IWE, which it could not before.
+- **A menu item that has just been clicked no longer exists**, so asking it what it was called
+  throws `Invalid index` — reported as the click having failed, when it is the click having
+  worked. Name it before clicking it.
+- **JXA hands back lazy references** into a tree that is re-rendering underneath, so a walk fails
+  halfway through for reasons unrelated to what it was looking for. Every access is guarded, and
+  a sheet already on screen is reported rather than walked past: a modal sheet makes every step
+  say "NOT FOUND" for a reason that has nothing to do with what was asked for.
+
+The page can be driven by Playwright, but the app around it — title bar, Dock icon, confirm
+sheets, menus — can only be checked by looking at the real thing, and macOS gates that per
+application. Without any permission the window *list* is still readable, which is enough to prove
+a sheet opened (that is how the `confirm()` fix was verified). Screen recording adds screenshots;
+accessibility adds clicking and reading labels. The check reports which of the two your terminal
+has and how to grant the rest.
+
+## Jira over its own API
+
+`src/integrations/jiraHttp.ts` is the whole transport: read the config `jira init` wrote, basic
+auth with `JIRA_API_TOKEN`, and one `fetch`. `src/integrations/jira.ts` is the integration on top
+of it — sprints from `/rest/agile/1.0/board/<id>/sprint`, issues from that board's sprints and
+from `/rest/api/3/search/jql`, transitions from `/rest/api/3/issue/<key>/transitions`.
+
+It replaced `jira-cli`, which cost a process per call and answered in CSV — a format its own
+plain mode could not even produce unambiguously, since it pads columns with the delimiter. The
+whole board went from **2.2s across four processes to 0.6s in one**, and the parser it needed is
+gone.
+
+Two things that only the API can do, and both matter:
+
+- **Transitions are asked for, not guessed.** `jira issue move KEY Done` fails with "transition
+  not found"; the API lists what is legal from where the issue is now, so a wrong status says
+  `cannot move to "Done" from here — available: To Do, In Progress`. That failure, silent, is
+  what once left a change merged with its ticket still open.
+- **Fields come back as fields.** No quoting rules, no column positions, and `assignee` is null
+  rather than an empty column that might be a comma.
+
+The config file is read without a YAML parser: it is a megabyte of custom-field schema and four
+scalars at known depths (`server`, `login`, `board.id`, `project.key`). A parser would be a
+dependency and a lot of code for four values.
+
+Descriptions are sent as an Atlassian document (`{type: "doc", version: 1, ...}`), which is what
+v3 takes instead of a string.
 
 ## Opening a repository
 
@@ -212,6 +578,13 @@ Each selected repository carries two choices, made in the boxes under its path:
   the remote default, after a fetch) and symlinked into the change directory, so the change
   directory still lists everything the change touches.
 
+The list may also be emptied. A change with no repositories is not much of a change, but it is a
+step on the way to one: taking a repository out and putting it back is how you get a fresh
+worktree when the one you have is beyond saving, and refusing the empty middle made the whole
+manoeuvre impossible. Creating a change still needs at least one — that is a decision about what
+the work *is*, not a step in the middle of it. What a removal protects is unchanged: uncommitted
+work refuses outright, unpushed commits ask first.
+
 A repository with uncommitted work is linked but not switched: the card says which branch it is
 on and offers the switch again once you have committed or stashed. Removing an in-place
 repository, or completing the change, removes only the link — your checkout and its branch stay
@@ -233,6 +606,37 @@ with no pull request, simply gets the correct base and nothing more.
 Stacking is worth avoiding when you can simply wait for the change below to merge; two deep is
 manageable, four is a research project every time the bottom one moves.
 
+### What a new worktree inherits
+
+A worktree is a checkout of the same repository, but to IntelliJ it is an unknown directory: no
+`.idea` means the project is imported from scratch, and no `.bsp` means there is no build server
+to import it with. So on creation IWE copies those directories over from the repository —
+`worktreeCopy` in the config, by default:
+
+```
+.idea  .bsp  .bloop  .scala-build  .metals  .vscode
+```
+
+**Only what the new worktree ignores is copied.** A worktree that does not ignore `.idea` gets an
+untracked directory the moment it is made, and that is not cosmetic: it counts as dirty for ever,
+so it cannot be removed, and the review tab offers our copy of somebody's IDE settings up for
+committing. The question is asked of the worktree rather than of the repository it came from,
+because they can disagree — a worktree branches from the remote default, which may not carry the
+`.gitignore` your checkout has.
+
+**The paths inside them are rewritten** to the new location, which is the whole point: a `.bsp`
+copied unchanged points its build server at the main checkout, so the IDE would show you one
+directory and compile another. Rewriting is careful about where a path is a path and where it is
+only a prefix — `example-api` must not be rewritten inside `example-api-client`, and that is not
+hypothetical: one repository here has a sibling's `bin` directory on the `PATH` in its
+`.scala-build/ide-envs.json`, and a naive replacement corrupts it.
+
+None of this is IWE's state and none of it is in git; it is ignored, per-machine, and written by
+other programs. It is copied once, at creation, and never touched again — a worktree that already
+has a `.idea` keeps it, since the IDE has owned it since. Build outputs (`target`, `node_modules`)
+are deliberately *not* copied: recreating them is a build, and a stale copy is worse than none.
+Failing to copy is never fatal — the worktree is what was asked for.
+
 `reposStart` in the config sets the directory the browser opens on; `↑ Up` still walks back to
 `reposRoot`.
 
@@ -247,21 +651,13 @@ A terminal outlives the server: ttyd is detached, its pid and port are written t
 Restarting IWE — which is constant while working on IWE itself — therefore costs you nothing, and
 the page keeps working straight through it. Completing a change is what ends a terminal for good.
 
-The **Terminals** tab shows how many windows the session has, so a build running in one of them is
-visible from the dashboard.
+ttyd is started when a terminal is opened, and not before: a dashboard you glanced at should not
+leave a process behind. The dashboard cards are unmounted while a terminal is in front —
+otherwise their per-repository calls, which occupy every connection the browser allows per
+origin, starve the window list's polling. Returning to the dashboard repaints from the cache and
+refreshes.
 
-ttyd is started when the change page is opened, not when the tab is clicked: the dashboard's CLI
-calls occupy every connection the browser allows per origin, and a terminal asked for afterwards
-waits behind them. For the same reason the dashboard cards are unmounted while the Terminals tab
-is in front — otherwise their per-repository calls starve the window strip's polling. Returning
-to the dashboard repaints from the cache and refreshes.
-
-The **Terminals** tab carries its own state, in the same words the overview card uses: a green
-dot and `2 active` when something is running in a window, a grey dot and `idle` when every window
-is sitting at a prompt. Both count with `busyWindows` in `src/windows.ts` — pure and free of node
-imports, so the page and the server cannot drift apart about what "busy" means.
-
-Above the terminal is a strip of the session's windows, labelled by **where they are** — the
+The session's windows are listed in the navigation column, labelled by **where they are** — the
 directory of the pane, which is the repository you are in — with **what is running there** in
 brackets after it: `example-api`, `example-web - (vim)`. A plain shell adds nothing, so it is
 left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
@@ -302,14 +698,13 @@ almost always "the same place, another thing", and `#{pane_current_path}` is wha
 `ctrl-b c` binding uses anyway. cmd-t works from inside the terminal too, where the keyboard
 usually is: the injected key script cannot open a window itself, so it forwards the key to the
 page around the frame. In a browser tab Chrome keeps cmd-t for itself; installed as an app it
-reaches us. The keyboard stays in the
-terminal throughout: the strip's buttons refuse the focus a mousedown would give them, and opening
-the tab focuses the terminal, so you can type straight away. Clicking one selects it. tmux stays the source of truth — the strip calls
-`list-windows`, `new-window` and `select-window`, so the keys keep working and a session attached
-from a terminal stays in step.
+reaches us. The keyboard stays in the terminal throughout: the navigation column's entries refuse
+the focus a mousedown would give them, and opening a terminal focuses it, so you can type straight
+away. tmux stays the source of truth — the column calls `list-windows`, `new-window` and
+`select-window`, so the keys keep working and a session attached from a terminal stays in step.
 
 Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
-beside the tabs lists them — which is also the answer to "how do I get more than one terminal":
+beside the page title lists them — which is also the answer to "how do I get more than one terminal":
 tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
 yourself keep your own settings — a change needs no terminal at all
@@ -342,9 +737,9 @@ browser. After changing the manifest, reinstall the app — Chrome keeps the old
 Completing a change kills its session and ttyd, since the change directory moves into the archive
 underneath it.
 
-## Local changes
+## Review changes
 
-The last tab: everything uncommitted across the change on the left, the diff of whatever you
+The change's second tab: everything uncommitted across it on the left, the diff of whatever you
 click on the right — an IDE's local-changes window, for a unit of work that spans repositories
 rather than for one checkout.
 
@@ -384,8 +779,32 @@ a CLI prints, which quietly ate the first character of every unstaged path. NUL-
 paths may contain anything, including newlines; a rename puts the old path in the next field,
 which is why the parser walks the list rather than mapping over it.
 
-Read-only for now: staging, unstaging and discarding are the obvious next step, and all three
-destroy work if they are wrong, so they want more care than a click.
+**Commit…** opens a dialog over the whole change: one message, one commit per repository that has
+something ticked. A change is one piece of work, and which repository a file lives in is where the
+code happens to be kept — writing the same message twice is a chore the tool should not ask for.
+The message starts as `<id> <the change's name>`, which is what people write anyway.
+
+What is ticked is what is committed: `git add -- <paths>` so untracked files and deletions are
+recorded, then `git commit -- <paths>` so **only** those paths go in. Anything else you had
+staged stays staged. Committing the whole index because you happened to open this dialog would
+be a surprise, and the surprising half would be invisible.
+
+The ticks start from what is already staged, or from everything when nothing is — the two
+readings of "I know what I am committing". A repository that refuses says why and does not stop
+the others: half a change committed is a normal state to be in.
+
+**Push** appears beside it when there is something to push, and says how much: `Push 2`. It
+pushes every repository that has commits the remote has not, with `-u`, because the first push of
+a change's branch is also where that branch comes into existence on the remote.
+
+A branch with no upstream is not "0 ahead" — everything on it since it left its base branch is
+unpushed, and that is what the button counts (`git rev-list --count <base>..HEAD`). Once it is
+tracking, the count comes from porcelain v2's `# branch.ab` header, which the status call already
+returns. A repository line says both: `1 change, 2 unpushed`, so a clean repository that is only
+clean because the work is sitting in local commits does not read as finished.
+
+Unstaging and discarding are still missing, and both destroy work when they are wrong, so they
+want more care than a click.
 
 ## Notes
 
@@ -410,6 +829,28 @@ registered with its repository, `git repository` for a clone with a history of i
 named in the confirmation, and after deleting a worktree the repository is pruned, so git does not
 keep a registration for a path that is gone.
 
+## The order things are listed in
+
+Active changes, in the navigation column and on the overview, are sorted by **state first and then
+newest first**:
+
+```
+In Progress       ← what you can get on with
+Awaiting Review   ← what is with somebody else
+Blocked           ← what is stuck
+```
+
+That is `CHANGE_STATES` itself, so there is one order and it is used twice: the state select
+offers them in it, and the lists sort by it. Within a state the newest change is on top, because
+that is the one you are most likely to be looking for.
+
+Finished changes — completed and cancelled — go to a table below, newest first, with a column
+saying which of the two it was. A change that was abandoned is not one that landed, and that is
+the first thing you want to know about a row down there.
+
+`Settings` sits at the bottom of the navigation column rather than under the list: it is where you
+go once in a while, and it should be in the same place whether you have two changes or nine.
+
 ## The overview
 
 The front page is two lists, because they are read for two reasons.
@@ -424,6 +865,12 @@ page is complete the moment it loads; `GET /api/titles` then refreshes every cha
 in **one** `jira` query and writes back what changed. A Jira that answers nothing — down,
 unauthenticated, ticket deleted — leaves the stored name alone rather than falling back to a
 branch nobody recognises, and an archived change keeps its name for good.
+
+**The name is editable**: click it in the change's header and type. A ticket's summary is written
+for whoever files tickets, and it is not always what the work is to you. Renaming sets
+`titleEdited`, and a change with that set is not asked about again — its ticket is left out of
+the query entirely, so nothing overwrites your words later. Clearing the field hands the name
+back to Jira.
 
 **Active changes** are cards, one per change and the full width of the page, in two rows: **what
 it is** — the id and the ticket's summary, which read as one sentence — and underneath, **how it
@@ -448,6 +895,124 @@ open threads), so a change you have open answers immediately.
 
 **Completed changes** stay a table — id, story, repositories, created, completed. No state
 column: every row in it is `Completed`, which is what the heading says.
+
+## Deployments
+
+A page of its own, beside `Changes` in the navigation column: one row per service, one column per
+environment, and what each of them holds.
+
+    SERVICE                ACCEPT                          PRODUCTION
+    example-service        ● 20260827_072639_9a38834  4d ago  ● 20260827_072639_9a38834  4d ago
+    example-app          ● 20260824-082948-bbba9816 8d ago  ● 20260811-085715-2a8503e7 20d ago
+
+**Not part of a change, deliberately.** You deploy a service's build to an environment, and which
+change produced that build is a separate question — often somebody else's. "What is on accept?"
+is asked before a release and during an incident, when there is no change open to ask it from.
+This is the first part of IWE that is not about a change, and it is the exception that earns it.
+
+**Nothing is stored.** A deploy run records the version and the environment it was given
+(`templateParameters`), so the newest run per environment *is* the state of that environment, and
+Azure DevOps is the one keeping it. A record of our own would be a cache of something
+authoritative, and would be wrong the moment somebody deployed from a terminal.
+
+The newest run wins even when it failed or is still running: a red deploy is news, and hiding it
+behind the last success would say the environment is fine while somebody is staring at a failed
+pipeline. A failed deploy leaves the previous version running, so the row shows that version and
+says the newer one failed.
+
+A row whose environments differ is marked in the margin — production behind acceptance is the
+normal case, and how far behind is the point of looking.
+
+The version parameter is not called the same thing in every pipeline (`dockerTag` here,
+`imageTag` for the app), so the configured name is tried first and, failing that, the only other
+parameter there is: a deploy run takes the environment and the thing to deploy, and when those
+are the only two, which is which is not a guess.
+
+Configured under `azureDeploy`, because none of these names are ours:
+
+```json
+{
+  "azureDeploy": {
+    "pipeline": ["build-", "deploy-"],
+    "versionParameter": "dockerTag",
+    "environmentParameter": "environment",
+    "environments": ["accept", "production"]
+  }
+}
+```
+
+**Deploy…** opens a dialog: which version, and where to. The versions are the service's own recent
+builds, newest first, each with the version it produced — scraped from the build's logs, because
+Azure records it nowhere else — the build number, the branch it came from, **when it finished**,
+and where that version already is.
+
+    20260828_081445_03798b3  2026-08-28 10:15  on accept and production      20260828.2 · main
+    20260828_043219_ec6405e  2026-08-28 06:32                              20260828.1 · PR #207
+
+What it is and how far it got on the left — version, when it finished, where it already is, the
+last of those coloured green once it has reached the final environment and amber while it is only
+part of the way. Which build it came from on the right, where it is available when you want it
+and out of the way when you do not.
+
+The timestamp is there because a version string is not something you can check against your
+memory of what you merged, and a time is: "the one from just after lunch" is how people actually
+identify a build. On the table the same time is a hover away, where the column says `4d ago`.
+
+A row whose environments differ also offers the promotion it is asking for directly:
+`Promote to production`, with the version and environment filled in.
+
+**A later environment only gets what the one before it already has.** Choosing a version that is
+not on acceptance says so before you click, and the server refuses it as well — the button is a
+convenience, the rule is not. This is the manual step of the shell script this replaces, where
+you read the acceptance logs yourself and decided; here the acceptance *run's own result* decides.
+
+Two more things the dialog does deliberately:
+
+- **It reads the versions when it opens**, not from the row behind it. A row is up to thirty
+  seconds old; this is the decision, not the display.
+- **The last environment's button is red**, and says what it will do rather than "OK":
+  `Deploy 20260901_124345-8356c0c8 to production`.
+
+The version parameter is learnt per pipeline from what that pipeline was given last time, so a
+service that calls it `imageTag` is deployed with `imageTag` without anybody configuring it.
+
+## Cancelling a change
+
+The other way a change ends, in the same menu as `Complete change`:
+
+```
+Cancel change    → the worktrees and the terminal go
+```
+
+Nothing anyone else can see is touched. The pull requests stay open, the ticket stays where it is,
+and the branches stay wherever wt left them — cancelling is a decision about your own desk, and
+closing somebody else's pull request or moving a ticket other people are watching is a decision
+about theirs. What is left over is listed when it finishes:
+
+```
+Cancelled. Still open: PROJ-123 is still open in Jira; example-api #12 is still open;
+the branch PROJ-123-work is kept in example-api
+```
+
+The branch line is worked out **after** the worktrees are removed rather than promised in advance,
+because wt keeps a branch that has commits nobody else has and removes one with nothing on it.
+That is the behaviour you want and not the one you would guess, so it is reported rather than
+claimed either way.
+
+The protections are a repository removal's, because it is the same act: **uncommitted work
+refuses outright** (it exists nowhere else, and no dialog makes it recoverable), and **commits
+that were never pushed ask once** (the branch survives, so they are recoverable — by someone who
+knows the branch is there). The change is archived as `Cancelled`, and stays readable: what was
+abandoned is worth being able to look up.
+
+### After it ends
+
+A finished change — completed or cancelled — keeps its dashboard, without the buttons. Its
+worktrees are gone and its directory is in the archive, so `Create worktree` and the rest offer to
+half-revive something that is over; the rows stay, because what a change touched is worth reading
+afterwards, and so does the `⋯` menu, because opening one of its repositories still makes sense.
+The action route refuses too, with a 409: the page may have been open since before the change
+ended, and the server is where the truth lives.
 
 ## Change state
 
@@ -521,9 +1086,48 @@ even if the pull request is approved: removing it would throw that work away.
 
 ## Routing
 
-`/` lists changes, `/new` is the wizard, `/changes/<id>` is a dashboard. Navigation uses
+`/` lists changes, `/new` is the wizard, `/deployments` is the deployments page, `/settings` is
+the settings page, `/changes/<id>`
+is a dashboard, and `/changes/<id>/review` and `/changes/<id>/terminals` are its other two pages. Navigation uses
 `history.pushState`, the server serves the app for any non-`/api` path, so deep links, reload and
 the browser's Back button all work.
+
+## Pushing instead of polling
+
+`GET /api/events` is one `EventSource` per tab. The server watches, and says when something
+changed:
+
+```
+event: changes     the change files moved — created, renamed, finished, repositories edited
+event: windows     tmux has different windows than it did
+```
+
+The navigation column used to ask for the terminal windows every 1.5 seconds and the overview for
+the changes every 30, from every open page, against a browser limit of six connections per origin
+— the limit that forces the dashboard's widgets to be unmounted rather than hidden while a
+terminal is on screen. Now the server looks once, on one timer, for everybody.
+
+**Events carry no data.** They say that something changed; the page then asks for it through the
+same cached routes as before. That keeps this small — no second way to fetch anything, no state to
+keep in sync — and means a missed event costs one refresh rather than a screen that disagrees with
+the disk.
+
+Three things it has to get right, all of which it got wrong first:
+
+- **The watcher stops when the last page goes.** A process quietly reading the disk and asking
+  tmux twice a second for a browser that was closed this morning is a bug you never see. Clients
+  are forgotten on the request's abort signal — the stream's own `cancel` is not called when a tab
+  closes, so without it nobody was ever removed.
+- **What was last seen survives a disconnect.** Clearing it made the first look after every
+  reconnect silent, which swallowed anything that changed while nobody was listening.
+- **A quiet stream still has to say something.** Bun closes an idle connection after ten seconds,
+  and an event stream is idle by definition. The browser reconnects, so it half-works: a drop and
+  a reconnect six times a minute, for ever, with `request timed out` in the log each time. There
+  is a heartbeat every five seconds, and `idleTimeout` is raised as well.
+
+Routes that change something announce it themselves, so your own action lands at once rather than
+within a tick. That is an optimisation, not the mechanism: the watcher would find it anyway, which
+is why a `git` command in a terminal or a hand-edited `change.json` shows up too.
 
 ## Caching
 
@@ -559,7 +1163,7 @@ you type.
 
 The store is written to `~/.cache/iwe/state.json` every 30 seconds and on exit, and read at
 startup (`IWE_CACHE` overrides the path). Restarting is normal — a config change, a crash, an
-edit `bun --hot` cannot take — and without it every page waits for the CLIs all over again.
+edit `bun --watch` cannot take — and without it every page waits for the CLIs all over again.
 Entries older than six hours are not restored: a page painted from yesterday's builds is worse
 than a page that waits.
 
@@ -613,6 +1217,15 @@ Implement `Integration` from `src/types.ts`: either `status(change)` for a whole
 for the creation step and `run(change, action, arg)` for buttons and add it to the table in `src/integrations/index.ts`. The UI
 renders whatever widgets come back; no frontend change needed.
 
+## Tests and your real changes
+
+`bun run test` sets `IWE_ROOT` to a directory under `$TMPDIR`, so no test run can write into the
+changes root you actually use. This is a safety net rather than the rule — test files set their
+own root — and it exists because the net was missing the day it was needed: `setRepos` used to
+refuse an empty repository list before writing anything, so `test/provision.test.ts` never touched
+the disk and never said where it would. Allowing a change to be emptied made that same test write
+a `PROJ-1` into the author's real `~/changes`.
+
 ## Testing the terminal
 
 `test/terminal.test.ts` drives the real thing: it starts a server on a temporary root, opens the
@@ -632,10 +1245,16 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/summary.ts            the numbers on an overview card
     src/windows.ts            which tmux windows count as busy (page and server share it)
     src/local.ts              uncommitted work in a repository, and one file's diff
+    src/commit.ts             one commit per repository, with one message
+    src/tooling.ts            IDE state carried into a new worktree, paths rewritten
+    src/settings.ts           reading and writing the config file from the page
+    src/origin.ts             refusing requests another site made
+    src/cancel.ts             abandoning a change: worktrees back, nothing else touched
     src/titles.ts             what a change is called, from its ticket
+    src/deployments.ts        what is deployed where, per service and environment
     src/terminal.ts           tmux sessions and the ttyd that serves them
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
-    src/integrations/         git.ts (wt), jira.ts, azure.ts, index.ts (the registry)
+    src/integrations/         git.ts (wt), jira.ts + jiraHttp.ts, azure.ts, index.ts (registry)
                               github.ts (pull requests) + checks.ts, stacks.ts
                               ci.ts joins pull requests, pipelines and checks into one card
     src/server.ts             Bun.serve: /api/* plus the React app
@@ -644,13 +1263,23 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/IssueTable.tsx    filterable Jira board table
     src/web/ChangeView.tsx    widget dashboard for one change
     src/web/RepoBrowser.tsx   repository picker: mode and base branch per repository
-    src/web/TerminalPane.tsx  the terminal tab, with WindowStrip.tsx and CheatSheet.tsx
+    src/web/Sidebar.tsx       the navigation column: changes, pages, terminals
+    src/web/icons.tsx         the three status glyphs, drawn in currentColor
+    src/web/state.ts          the changes list and the tmux session, owned by the app
+    src/web/workspaces.ts     which context you are in, and what belongs to it
+    src/web/TerminalPane.tsx  the terminal itself, with CheatSheet.tsx
     src/web/NotesCard.tsx     notes.md for a change
     src/web/CompletionCard.tsx  how far completing a change got
     src/web/ChangeCard.tsx      one active change on the overview
-    src/web/LocalPane.tsx       the local-changes tab: files, and a diff
+    src/web/SettingsPage.tsx  the config file, as a form
+    src/web/DeploymentsPage.tsx services against environments
+    src/web/DeployDialog.tsx    which version, and where to
+    src/web/LocalPane.tsx       the review-changes tab: files, and a diff
+    src/web/CommitDialog.tsx    committing across the change
     extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
+    scripts/app.ts              builds ~/Applications/IWE.app
+    scripts/app/IWE.swift       the window: WebKit, and the server inside it
     src/web/manifest.webmanifest  installable app metadata
     src/web/icons/            generated from assets/*.svg by `bun run icons`
     test/changes.test.ts      change.json, notes, in-place provisioning, base branches

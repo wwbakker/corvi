@@ -61,7 +61,7 @@ export function NotesCard({ changeId }: { changeId: string }) {
       </h3>
       <textarea
         className="notes"
-        rows={6}
+        rows={20}
         value={text}
         placeholder="Anything worth remembering about this change."
         onChange={(e) => change(e.target.value)}

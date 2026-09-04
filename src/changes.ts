@@ -1,6 +1,6 @@
 import { join, basename } from "node:path";
 import { readdir, mkdir, rename } from "node:fs/promises";
-import type { Change } from "./types.ts";
+import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./types.ts";
 import { config } from "./config.ts";
 export { branchFor } from "./branch.ts";
 
@@ -42,6 +42,34 @@ export async function writeWtConfig(id: string): Promise<string> {
 export async function readChange(id: string): Promise<Change | null> {
   const dir = await existingDir(id);
   return dir ? ((await Bun.file(join(dir, "change.json")).json()) as Change) : null;
+}
+
+/**
+ * The two fields you may edit by hand: what a change is called, and where it stands.
+ *
+ * Here rather than in the route, so what is allowed can be tested without a server — and so the
+ * one rule that matters is stated once: a change ends by being completed or cancelled, which
+ * merge, remove worktrees and archive. Setting the word by hand would do none of that and claim
+ * it had happened.
+ */
+export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
+  if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
+    throw new Error(`unknown state: ${patch.state}`);
+  }
+  if (patch.state && isFinished({ ...change, state: patch.state as ChangeState })) {
+    throw new Error(`${patch.state} is what completing or cancelling a change sets`);
+  }
+  const title = patch.title?.trim();
+  return {
+    ...change,
+    state: (patch.state as ChangeState) ?? change.state,
+    // An empty title hands the name back to the ticket; anything else is yours to keep.
+    ...(patch.title === undefined
+      ? {}
+      : title
+        ? { title, titleEdited: true }
+        : { title: undefined, titleEdited: undefined }),
+  };
 }
 
 export async function writeChange(change: Change): Promise<void> {
@@ -108,6 +136,7 @@ export async function createChange(input: {
   direct?: string[];
   base?: Record<string, string>;
   jira?: string;
+  workspace?: string;
 }): Promise<Change> {
   const id = input.id.trim();
   if (!id || id !== basename(id) || id.startsWith(".")) {
@@ -123,6 +152,9 @@ export async function createChange(input: {
     direct: input.direct?.filter((r) => repos.includes(r)),
     base: input.base,
     jira: input.jira?.trim() || undefined,
+    // The context it was made in. Unknown means the first workspace, which is what every change
+    // made before this belongs to.
+    workspace: input.workspace?.trim() || undefined,
     state: "In Progress",
     createdAt: new Date().toISOString(),
   };

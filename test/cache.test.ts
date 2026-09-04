@@ -127,3 +127,42 @@ test("no more CLIs run at once than the machine can afford", async () => {
   }
   expect(peak).toBeLessThanOrEqual(Number(process.env.IWE_PARALLEL ?? 8));
 });
+
+test("a command that cannot start is a failed command, not a crash", async () => {
+  const { sh } = await import("../src/sh.ts");
+  // A tool that is not installed, and a working directory that is not there any more — a
+  // repository moved or deleted out from under a change. Every caller knows what to do with a
+  // non-zero code; none of them expect a throw.
+  expect(await sh(["definitely-not-a-real-tool"])).toMatchObject({ code: 127, stdout: "" });
+  const gone = await sh(["git", "status"], "/nowhere/at/all");
+  expect(gone.code).toBe(127);
+  expect(gone.stderr).toBeTruthy();
+});
+
+test("every CLI a workspace runs gets that workspace's environment", async () => {
+  const { sh } = await import("../src/sh.ts");
+  const { withWorkspace, currentEnv } = await import("../src/context.ts");
+  const workspace = {
+    id: "client",
+    name: "Acme",
+    // How two clients stop fighting over one login: another GitHub account, another tenant.
+    env: { GH_CONFIG_DIR: "~/.config/gh-client", IWE_TEST_MARK: "client" },
+  };
+
+  // Outside a request there is nothing to add, which is every call IWE made before workspaces.
+  expect(currentEnv()).toEqual({});
+  expect((await sh(["sh", "-c", "echo ${IWE_TEST_MARK:-none}"])).stdout).toBe("none");
+
+  await withWorkspace(workspace, async () => {
+    // A tilde is a path in practice, and a shell would have expanded it.
+    expect(currentEnv().GH_CONFIG_DIR?.startsWith("/")).toBe(true);
+    expect((await sh(["sh", "-c", "echo $IWE_TEST_MARK"])).stdout).toBe("client");
+    // However deep the call is: this is the point of it being ambient rather than a parameter.
+    await (async () => {
+      expect((await sh(["sh", "-c", "echo $GH_CONFIG_DIR"])).stdout).toContain("gh-client");
+    })();
+  });
+
+  // And it is gone again afterwards.
+  expect((await sh(["sh", "-c", "echo ${IWE_TEST_MARK:-none}"])).stdout).toBe("none");
+});

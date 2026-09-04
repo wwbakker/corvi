@@ -4,14 +4,20 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bun --hot src/server.ts",
+    "dev": "bun --watch src/server.ts",
     "start": "NODE_ENV=production bun src/server.ts",
-    "test": "bun test --timeout 30000",
+    "test": "IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" bun test --timeout 30000",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
-    "extension:uninstall": "bun scripts/extension.ts uninstall"
+    "extension:uninstall": "bun scripts/extension.ts uninstall",
+    "app:install": "bun scripts/app.ts install",
+    "app:uninstall": "bun scripts/app.ts uninstall",
+    "app:permissions": "bun scripts/permissions.ts",
+    "app:drive": "osascript -l JavaScript scripts/drive.js",
+    "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
     "react": "^19.2.8",
@@ -19,10 +25,13 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
-    "playwright": "^1.62.1"
+    "eslint": "^10.9.1",
+    "playwright": "^1.62.1",
+    "typescript-eslint": "^8.69.0"
   },
   "peerDependencies": {
     "typescript": "^5"

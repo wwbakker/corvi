@@ -1,0 +1,148 @@
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { webkit, type Browser } from "playwright";
+import { sh } from "../src/sh.ts";
+
+/**
+ * Every page, in the engine the app actually uses.
+ *
+ * The macOS app is a WKWebView, which is Safari's engine, and the development server is looked at
+ * in Chrome. Twice now that gap has cost an afternoon: a missing route came back as HTML and
+ * WebKit reported it as "The string did not match the expected pattern", and `confirm()` — which
+ * a WKWebView does not implement unless the app does — silently returned false, so cancelling a
+ * change quietly did nothing. Both would have been caught by loading the pages here.
+ *
+ * This is a smoke test, deliberately: it opens every route, fails on anything the engine
+ * complains about, and checks that the page rendered rather than crashed. What each page *does*
+ * is tested elsewhere, without a browser.
+ */
+// Skipped rather than failed where the engine has not been downloaded: `bunx playwright install
+// webkit` is a 100MB step, and the rest of the suite needs none of it.
+const usable = await (async (): Promise<boolean> => {
+  try {
+    return await Bun.file(webkit.executablePath()).exists();
+  } catch {
+    return false;
+  }
+})();
+
+let tmp: string;
+let browser: Browser;
+let port: number;
+let server: ReturnType<typeof Bun.spawn>;
+const id = "PROJ-WEBKIT";
+
+beforeAll(async () => {
+  if (!usable) return;
+  tmp = await mkdtemp(join(tmpdir(), "iwe-webkit-"));
+  port = 4500 + Math.floor(Math.random() * 200);
+  const repo = join(tmp, "example-api");
+  await sh(["git", "init", "-b", "main", repo]);
+  await Bun.write(join(repo, "README.md"), "example-api\n");
+  await sh(["git", "add", "."], repo);
+  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+
+  server = Bun.spawn(["bun", "src/server.ts"], {
+    env: {
+      ...process.env,
+      IWE_ROOT: join(tmp, "changes"),
+      IWE_REPOS_ROOT: tmp,
+      IWE_PORT: String(port),
+      // A config file of its own: the settings page reads and writes a real one, and it must not
+      // be yours.
+      IWE_CONFIG: join(tmp, "config.json"),
+    },
+    stdout: "ignore",
+    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
+  });
+  for (let i = 0; i < 60; i++) {
+    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) break;
+    await Bun.sleep(100);
+  }
+  await fetch(`http://127.0.0.1:${port}/api/changes`, {
+    method: "POST",
+    body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
+  });
+  browser = await webkit.launch();
+});
+
+afterAll(async () => {
+  if (!usable) return;
+  await browser?.close();
+  server?.kill();
+  await rm(tmp, { recursive: true, force: true });
+});
+
+/** Open a page and hand back whatever the engine objected to. */
+async function open(path: string, ready: string): Promise<string[]> {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const complaints: string[] = [];
+  page.on("pageerror", (e) => complaints.push(`${path}: ${e.message}`));
+  page.on("console", (m) => m.type() === "error" && complaints.push(`${path}: ${m.text()}`));
+  // Not networkidle: the pages poll, so there is no idle moment to wait for.
+  await page.goto(`http://127.0.0.1:${port}${path}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(ready, { timeout: 15_000 });
+  await page.waitForTimeout(500); // long enough for the first round of requests to come back
+  await page.close();
+  return complaints;
+}
+
+test.skipIf(!usable)("every page renders in WebKit without the engine complaining", async () => {
+  const pages: [string, string][] = [
+    ["/", ".change-cards"],
+    ["/new", ".wizard"],
+    ["/deployments", ".page"],
+    ["/settings", "h2.section"],
+    [`/changes/${id}`, ".widget"],
+    [`/changes/${id}/review`, ".local-pane, .page"],
+  ];
+
+  const complaints: string[] = [];
+  for (const [path, ready] of pages) complaints.push(...(await open(path, ready)));
+  expect(complaints).toEqual([]);
+}, 120_000);
+
+test.skipIf(!usable)("the settings page reads and writes in WebKit", async () => {
+  // The page that broke last time, and the one whose failure mode was a sentence about nothing:
+  // /api/settings answering with the app's own HTML, parsed as JSON.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`http://127.0.0.1:${port}/settings`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("h2.section");
+  expect(await page.locator(".error-banner").count()).toBe(0);
+
+  await page.getByLabel("Transition on completing one").fill("Ready for release");
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+  await page.close();
+
+  const written = (await fetch(`http://127.0.0.1:${port}/api/settings`).then((r) => r.json())) as {
+    file: { jiraDoneTransition?: string };
+  };
+  expect(written.file.jiraDoneTransition).toBe("Ready for release");
+}, 60_000);
+
+test.skipIf(!usable)("a question the page asks is a question the engine can answer", async () => {
+  /*
+   * `window.confirm` is what every destructive action in IWE is behind. In a browser it is a
+   * dialog; in the WKWebView the app uses it is nothing at all unless the app implements
+   * `WKUIDelegate`, and a `confirm()` nobody implemented returns false — so the action silently
+   * does not happen. Playwright's WebKit auto-dismisses dialogs unless they are handled, which
+   * makes it the same shape of trap: this test states which answer it gives, so a page that stops
+   * asking is a test that fails.
+   */
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+
+  const asked: string[] = [];
+  page.on("dialog", (d) => {
+    asked.push(d.message());
+    void d.accept();
+  });
+  const answer = await page.evaluate(() => window.confirm("Cancel PROJ-WEBKIT?"));
+
+  expect(asked).toEqual(["Cancel PROJ-WEBKIT?"]);
+  expect(answer).toBe(true);
+  await page.close();
+}, 30_000);

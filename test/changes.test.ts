@@ -1,3 +1,4 @@
+import { config } from "../src/config.ts";
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -403,17 +404,124 @@ test("a change is named after its ticket, and keeps that name when Jira is not t
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
-  const { CHANGE_STATES } = await import("../src/types.ts");
+  const { CHANGE_STATES, isFinished } = await import("../src/types.ts");
   const { stateClass } = await import("../src/web/changeState.tsx");
 
-  // The order the work moves through, which is the order the select offers.
-  expect(CHANGE_STATES).toEqual(["In Progress", "Blocked", "Awaiting Review", "Completed"]);
+  // How much of your attention each state asks for: the select offers them in this order and the
+  // lists sort by it.
+  expect(CHANGE_STATES).toEqual([
+    "In Progress",
+    "Awaiting Review",
+    "Blocked",
+    "Completed",
+    "Cancelled",
+  ]);
   expect(stateClass("Blocked")).toBe("state-blocked");
 
-  // The server accepts it, and the overview counts it among the active changes: only
-  // "Completed" is finished.
+  // The server accepts it, and the overview counts it among the active changes: blocked work is
+  // work you still have.
   const change = await createChange({ id: "PROJ-BLOCKED", repos: [repo] });
-  await writeChange({ ...change, state: "Blocked" });
+  const blocked = { ...change, state: "Blocked" as const };
+  await writeChange(blocked);
   expect((await readChange(change.id))?.state).toBe("Blocked");
-  expect(CHANGE_STATES.filter((s) => s !== "Completed")).toContain("Blocked");
+  expect(isFinished(blocked)).toBe(false);
+});
+
+test("a name you wrote yourself is not overwritten by the ticket's", async () => {
+  const { refreshTitles } = await import("../src/titles.ts");
+  const issue = (key: string, summary: string) => [
+    key,
+    { key, summary, type: "Story", assignee: "", status: "", sprint: "" },
+  ];
+  const change = await createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" });
+
+  // Until you say otherwise, the ticket names the change.
+  await refreshTitles(async () => new Map(<any>[issue("PROJ-8", "As the ticket puts it")]));
+  expect((await readChange(change.id))?.title).toBe("As the ticket puts it");
+
+  // Renaming it here says the name is yours: the ticket is not asked about any more.
+  await writeChange({ ...(await readChange(change.id))!, title: "What it is really about", titleEdited: true });
+  let asked: string[] = [];
+  await refreshTitles(async (keys) => {
+    asked = keys;
+    return new Map(<any>[issue("PROJ-8", "As the ticket puts it")]);
+  });
+  expect(asked).not.toContain("PROJ-8");
+  expect((await readChange(change.id))?.title).toBe("What it is really about");
+});
+
+test("the icons take the worst of what the repositories say", async () => {
+  const { worst } = await import("../src/summary.ts");
+  // One red build is what you want to know about, so it decides the colour; then one running.
+  expect(worst(["ok", "error", "pending"])).toBe("error");
+  expect(worst(["ok", "pending", "ok"])).toBe("pending");
+  expect(worst(["ok", "warn"])).toBe("warn");
+  expect(worst(["ok", "ok"])).toBe("ok");
+  // Nothing to say is its own state: a change without pull requests has no builds, not green.
+  expect(worst([])).toBe("none");
+  expect(worst(["none"])).toBe("none");
+});
+
+test("every change's windows come back from one call, and other sessions are not ours", async () => {
+  const { changeOfSession } = await import("../src/terminal.ts");
+  // The navigation column lists the terminals of every change at once; asking tmux per change
+  // would be a process per change every few seconds.
+  expect(changeOfSession("iwe-PROJ-1")).toBe("PROJ-1");
+  expect(changeOfSession("iwe-PROJ-1671-2")).toBe("PROJ-1671-2");
+  // Sessions you started yourself are left alone, and not shown as terminals of a change.
+  expect(changeOfSession("work")).toBeUndefined();
+  expect(changeOfSession("")).toBeUndefined();
+});
+
+test("a change belongs to the context it was made in, and older ones to the first", async () => {
+  const { inWorkspace, workspaceOf, ALL } = await import("../src/web/workspaces.ts");
+  const workspaces = [
+    { id: "client", name: "Acme" },
+    { id: "personal", name: "Personal" },
+  ];
+  const change = (id: string, workspace?: string) => ({ id, workspace }) as never;
+  const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
+
+  // Made before workspaces existed: it belongs to the first one, which is where all the work
+  // was when there was only one place for it.
+  expect(workspaceOf(change("OLD-1"), workspaces)).toBe("client");
+  expect(workspaceOf(change("IWE-1", "personal"), workspaces)).toBe("personal");
+
+  expect(inWorkspace(all, "client", workspaces).map((c) => c.id)).toEqual(["PROJ-1", "OLD-1"]);
+  expect(inWorkspace(all, "personal", workspaces).map((c) => c.id)).toEqual(["IWE-1"]);
+  // Everything, whichever context it belongs to: a filter rather than a workspace.
+  expect(inWorkspace(all, ALL, workspaces).map((c) => c.id)).toEqual(["PROJ-1", "IWE-1", "OLD-1"]);
+
+  // Nothing configured: one context, and it holds everything.
+  expect(inWorkspace(all, ALL, []).length).toBe(3);
+});
+
+test("a workspace decides which components a change has, and whose Jira and Azure they are", async () => {
+  const original = { ...config };
+  const { applies, azureOf, jiraOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
+  // Two contexts: a client with everything, and personal projects with neither.
+  (config as { workspaces: unknown }).workspaces = [
+    { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
+    { id: "personal", name: "Personal", jira: false, azure: false },
+  ];
+
+  const client = { id: "PROJ-1", workspace: "client" } as never;
+  const personal = { id: "IWE-1", workspace: "personal" } as never;
+  const old = { id: "OLD-1" } as never; // made before workspaces existed
+
+  // A personal project has no ticket, and being asked about one is noise and a CLI call.
+  expect(applies("jira", client)).toBe(true);
+  expect(applies("jira", personal)).toBe(false);
+  // The CI card is pull requests as well as pipelines, so it stays either way.
+  expect(applies("ci", personal)).toBe(true);
+  expect(usesAzure(workspaceOf(personal))).toBe(false);
+
+  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one.
+  expect(azureOf(workspaceOf(client)).organization).toBe("https://dev.azure.com/one");
+  expect(jiraOf(workspaceOf(personal))).toEqual({ project: undefined, board: undefined, configFile: undefined });
+
+  // A change from before all this belongs to the first workspace.
+  expect(workspaceOf(old).id).toBe("client");
+
+  (config as { workspaces: unknown }).workspaces = original.workspaces;
 });

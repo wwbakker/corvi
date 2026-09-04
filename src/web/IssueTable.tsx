@@ -74,9 +74,12 @@ const bySprintOrder = (a: Issue, b: Issue): number =>
 /** Board issues with client-side filtering: the whole board is a few hundred rows, so filtering
  * in the browser is instant and costs no round trip. ponytail: move to JQL if the board grows. */
 export function IssueTable({
+  workspace,
   selected,
   onSelect,
 }: {
+  /** Whose Jira: a second client is a second site, and its board is not this one's. */
+  workspace?: string;
   selected: Issue | null;
   onSelect: (issue: Issue | null) => void;
 }) {
@@ -92,7 +95,12 @@ export function IssueTable({
 
   const load = (refresh = false) => {
     setLoading(true);
-    api<Board>(`/jira/issues${refresh ? "?refresh" : ""}`)
+    api<Board>(
+      `/jira/issues?${new URLSearchParams({
+        ...(workspace ? { workspace } : {}),
+        ...(refresh ? { refresh: "1" } : {}),
+      })}`,
+    )
       .then(setBoard)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -125,7 +133,7 @@ export function IssueTable({
   const create = (input: { summary: string; description: string }) => {
     setCreating(true);
     setError(null);
-    post<Issue>("/jira/issues", input)
+    post<Issue>("/jira/issues", { ...input, workspace })
       .then((issue) => {
         setDialogOpen(false);
         onSelect(issue);

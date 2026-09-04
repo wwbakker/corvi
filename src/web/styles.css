@@ -46,7 +46,8 @@ button:disabled {
   cursor: default;
 }
 
-input {
+/* Text inputs fill their field; a checkbox is a checkbox and wants none of this. */
+input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
   color: var(--text);
   background: #12151a;
@@ -56,56 +57,325 @@ input {
   width: 100%;
 }
 
+input[type="checkbox"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+
 a {
   color: #6cb6ff;
 }
 
+/* The navigation column and the page beside it, from the top of the window down. */
 .app {
-  max-width: 1200px;
-  margin: 0 auto;
+  display: flex;
+  align-items: stretch;
+  min-height: 100vh;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
   padding: 16px 24px 48px;
 }
 
-/* Installed as an app (dock, no browser chrome): the window is the app, so use all of it.
-   In a browser tab the column keeps the page readable next to everything else. */
-@media (display-mode: standalone), (display-mode: minimal-ui), (display-mode: fullscreen) {
-  .app {
-    max-width: none;
-  }
+/* The one navigation element: changes, the pages of the one you picked, its terminals. */
+.sidebar {
+  /* Width is set in the markup, because you can drag it. */
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 8px 24px;
+  background: #171a1f;
+  border-right: 1px solid var(--line);
+  /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  /* Only up and down: a long branch name or a wide entry must shorten, not push the column
+     sideways and hang a scrollbar along the bottom. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
-/* Breadcrumb: the app mark, then where you are. */
-.crumbs {
+.sidebar .entry {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 18px;
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--text);
+  text-align: left;
+}
+
+.sidebar .entry:hover {
+  background: #232830;
+}
+
+.sidebar .entry.current {
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* The changes, and the terminals: children of the entry above them. */
+.sidebar .entry.sub {
+  padding: 4px 10px 4px 18px;
+  font-size: 13px;
   color: var(--muted);
 }
 
-.crumbs img {
-  border-radius: 5px;
-  cursor: pointer;
+/* A change and its terminals: one group, with a little air between groups. */
+.sidebar .change-entry {
+  margin-bottom: 8px;
 }
 
-.crumbs a {
-  color: var(--muted);
-  text-decoration: none;
+/* A change is two lines: what it is and how it is doing, then what it is about. The bar down
+   the left is its state — a colour along the whole row reads from further away than a dot, and
+   leaves the icons to say what the tools are doing. */
+.sidebar .entry.change {
+  display: block;
+  padding: 6px 10px 6px 12px;
+  border-left: 3px solid var(--none);
+  border-radius: 0 6px 6px 0;
 }
 
-.crumbs a:hover {
-  color: var(--text);
-  text-decoration: underline;
+.sidebar .entry.change.state-in-progress {
+  border-left-color: var(--pending);
 }
 
-.crumbs .sep {
-  margin: 0 8px;
-  color: var(--line);
+.sidebar .entry.change.state-blocked {
+  border-left-color: var(--purple);
 }
 
-.crumbs .current {
-  color: var(--text);
+.sidebar .entry.change.state-awaiting-review {
+  border-left-color: #6cb6ff;
+}
+
+.sidebar .entry.change.state-cancelled {
+  border-left-color: var(--none);
+}
+
+.state-completed {
+  border-left-color: var(--ok);
+}
+
+.sidebar .entry.change .top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar .entry.change .id {
   font-weight: 600;
+  color: var(--text);
+}
+
+.sidebar .entry.change .subject {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+/* The state icons: the shape says which thing, the colour says how it is doing. */
+.sidebar .icons {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+
+.sidebar .icons svg,
+.sidebar .entry.window svg {
+  display: block;
+}
+
+.state-idle {
+  color: var(--none);
+}
+
+.state-ok {
+  color: var(--ok);
+}
+
+.state-pending {
+  color: var(--pending);
+}
+
+.state-error {
+  color: var(--error);
+}
+
+.state-warn {
+  color: var(--warn);
+}
+
+.state-none {
+  color: var(--none);
+}
+
+/* The edge is the handle: a few pixels wide, the full height, and it lights up when aimed at. */
+.sidebar .resize {
+  position: absolute;
+  top: 0;
+  /* Inside the column: sticking out past the edge is two pixels of horizontal overflow, which
+     is exactly enough for a scrollbar to appear along the bottom. */
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.sidebar .resize:hover {
+  background: var(--accent);
+}
+
+/* While dragging: the pointer is the drag, not whatever it happens to be over. */
+body.resizing {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.sidebar .entry.sub.current {
+  color: var(--text);
+}
+
+/* Pinned to the bottom of the column: in the same place whether you have two changes or nine. */
+.sidebar .entry.bottom {
+  margin-top: auto;
+}
+
+.sidebar .entry .label {
+  min-width: 0; /* a flex child refuses to shrink below its content without this */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Terminals is a heading, not a destination: there is nothing to look at called "the
+   terminals", only the windows underneath. */
+.sidebar .heading {
+  margin: 10px 0 2px;
+  padding: 0 10px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.sidebar .list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.sidebar .list .hint {
+  margin: 2px 10px 0 18px;
+  font-size: 12px;
+}
+
+.sidebar .new-window {
+  gap: 8px;
+  color: var(--muted);
+}
+
+/* Output arrived in a window you were not looking at. */
+.sidebar .bell {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--pending);
+  margin-left: auto;
+}
+
+/* A change's dot carries its state, in the colours the rest of the app uses for it. */
+.sidebar .dot.state-in-progress {
+  background: var(--pending);
+}
+
+.sidebar .dot.state-blocked {
+  background: var(--purple);
+}
+
+.sidebar .dot.state-awaiting-review {
+  background: #6cb6ff;
+}
+
+.sidebar .dot.state-cancelled {
+  background: var(--none);
+}
+
+.state-completed {
+  background: var(--ok);
+}
+
+/* Too narrow for two columns: the navigation goes on top and wraps. */
+@media (max-width: 720px) {
+  .app {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex: none;
+    width: 100%;
+    height: auto;
+    position: static;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidebar .brand,
+  .sidebar .heading {
+    padding-bottom: 6px;
+  }
+
+  .sidebar .list {
+    display: contents;
+  }
+}
+
+/* What the page is about, beside what you can do to it. */
+.page header h2,
+.wizard header h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  font-size: 20px;
+}
+
+/* The change's name, which you can rewrite: a button until you click it, an input after. */
+.page header h2 .subject {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 3px 8px;
+  text-align: left;
+}
+
+.page header h2 button.subject:hover {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.page header h2 input.subject {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--text);
+  min-width: 320px;
 }
 
 .page header,
@@ -403,6 +673,71 @@ dialog textarea {
   gap: 8px;
 }
 
+/* Committing: the message, then what goes in it. */
+dialog textarea.message {
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.commit-files {
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+
+.commit-files .group h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.commit-files .group:first-child h4 {
+  margin-top: 0;
+}
+
+/* Its own class, not the list's: the dialog lives inside the pane, and `.local .file` would
+   otherwise style these too. Overrides the dialog's stacked labels: a file is one line. */
+.commit-files .commit-file {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 3px 4px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.commit-files .commit-file:hover {
+  background: #232830;
+}
+
+.commit-files .commit-file .name {
+  overflow-wrap: anywhere;
+}
+
+.commit-files .commit-file .tag {
+  margin-left: auto;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.results .error-text {
+  margin: 2px 0;
+  color: var(--error);
+}
+
+/* Above the file list of the review tab. */
+.local .toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 /* Repository browser */
 .form.wide {
   max-width: none;
@@ -589,6 +924,11 @@ dialog.wide {
   color: #6cb6ff;
 }
 
+/* Abandoned: grey, because it is neither good news nor bad, only over. */
+.state-cancelled {
+  color: var(--none);
+}
+
 .state-completed {
   color: var(--ok);
 }
@@ -605,7 +945,11 @@ select.state-awaiting-review {
   border-color: #6cb6ff;
 }
 
-select.state-completed {
+select.state-cancelled {
+  border-color: var(--none);
+}
+
+.state-completed {
   border-color: var(--ok);
 }
 
@@ -674,7 +1018,7 @@ textarea.notes {
   resize: vertical;
 }
 
-/* Tabs inside a change */
+/* Two views of one change, under its header. */
 .tabs {
   display: flex;
   gap: 4px;
@@ -702,8 +1046,8 @@ textarea.notes {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Everything around it: header, tabs and the page's own padding above and below. */
-  height: calc(100vh - 170px);
+  /* Everything around it: the page header and its own padding above and below. */
+  height: calc(100vh - 120px);
   min-height: 320px;
 }
 
@@ -736,39 +1080,6 @@ textarea.notes {
 
 .keys td:first-child {
   white-space: nowrap;
-}
-
-/* The tmux windows of a change, as tabs above the terminal. */
-.windows {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.windows .win {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  font-size: 13px;
-  color: var(--muted);
-  background: var(--panel);
-}
-
-.windows .win.current {
-  color: var(--text);
-  border-color: var(--accent);
-}
-
-.windows .win .dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--pending);
-}
-
-.windows .win.add {
-  padding: 4px 12px;
 }
 
 /* A selected repository: what it is on the first line, how it is set up on the second.
@@ -993,7 +1304,11 @@ dialog progress {
   border-color: #6cb6ff;
 }
 
-.badge.state-completed {
+.badge.state-cancelled {
+  border-color: var(--none);
+}
+
+.state-completed {
   border-color: var(--ok);
 }
 
@@ -1032,22 +1347,12 @@ dialog progress {
   border-bottom-color: var(--accent);
 }
 
-/* What a tab's subject is doing, beside its name: "Terminals ● 2 active". */
-.tabs .tab .state {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-left: 8px;
-  font-size: 11px;
-  color: var(--muted);
-}
-
 .local {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
   gap: 12px;
-  /* Everything around it: header, both rows of tabs, and the page's own padding. */
-  height: calc(100vh - 190px);
+  /* Everything around it: the page header, the tabs, and the page's own padding. */
+  height: calc(100vh - 170px);
 }
 
 .local .files,
@@ -1200,4 +1505,277 @@ dialog progress {
 
 .diff .line.meta {
   color: var(--muted);
+}
+
+/* What is deployed where: one row per service, one column per environment. */
+.table.deployments td {
+  vertical-align: baseline;
+  padding: 6px 10px;
+}
+
+/* A version is an identifier: monospace, and small enough that two of them and the buttons fit
+   on one row without a horizontal scrollbar. */
+.table.deployments td a,
+.table.deployments td .version {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.table.deployments td .dot {
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.table.deployments td .detail {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+@media (max-width: 1250px) {
+  .table.deployments td .detail {
+    display: none;
+  }
+}
+
+/* Environments holding different versions: production behind acceptance is the normal case and
+   the one worth spotting. */
+.table.deployments tr.differs td:first-child {
+  border-left: 3px solid var(--pending);
+  padding-left: 9px;
+}
+
+.table.deployments tbody tr {
+  cursor: default;
+}
+
+.table.deployments tbody tr:hover {
+  background: transparent;
+}
+
+/* Choosing what to deploy, and where. */
+.table.deployments td.actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.table.deployments td.actions button {
+  margin-left: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.row.environments {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* A radio row that reads as a choice rather than as a form. */
+dialog .pick {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+dialog .pick:hover {
+  background: #232830;
+}
+
+dialog .pick.current {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Still building: shown so it does not look like it fell off the list, but not a choice — there
+   is no version yet to pick. */
+dialog .pick.building {
+  color: var(--muted);
+}
+
+dialog .pick.building:hover {
+  background: none;
+}
+
+dialog .versions {
+  max-height: 40vh;
+  overflow: auto;
+  margin-bottom: 12px;
+}
+
+dialog .versions .what {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+/* What it is and where it got to, on the left; which build it came from, on the right. */
+dialog .versions .when {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+dialog .versions .where {
+  font-size: 12px;
+}
+
+dialog .versions .detail {
+  margin-left: auto;
+  padding-left: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+dialog .hint.warn {
+  color: var(--warn);
+}
+
+/* The environment you cannot take it back from. */
+button.danger {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+button.danger:disabled {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+/* Which client's world this is, above everything that belongs to it. */
+.sidebar .menu {
+  margin-bottom: 8px;
+}
+
+.sidebar button.workspace {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+  padding: 6px 10px 10px;
+  text-align: left;
+  font-weight: 600;
+}
+
+.sidebar button.workspace:hover {
+  color: var(--text);
+  background: #232830;
+}
+
+/* Settings: one long form, in the same sections the config file has. */
+.page.settings .form {
+  max-width: 680px;
+}
+
+.page.settings .hint code {
+  color: var(--text);
+}
+
+/* An environment variable is overriding this one: the box is dead, and says why. */
+.settings .locked {
+  color: var(--warn);
+  font-size: 12px;
+}
+
+.settings input:disabled {
+  opacity: 0.55;
+}
+
+.settings .saved {
+  margin-right: 10px;
+}
+
+/* Several controls under one heading. A <label> would name only the first of them — and would
+   name the buttons among them instead of letting them name themselves. */
+.settings .field {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+.settings .field .row input {
+  flex: 1;
+}
+
+/* Small, square, and next to the field it removes: nothing here is destructive enough to shout. */
+.settings .row .remove {
+  padding: 0 10px;
+  color: var(--muted);
+}
+
+.settings button.add,
+.settings button.link {
+  justify-self: start;
+  background: none;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  padding: 4px 10px;
+}
+
+.settings button.link {
+  border: none;
+  text-decoration: underline;
+  padding-left: 0;
+}
+
+.settings button.add:hover,
+.settings button.link:hover {
+  color: var(--text);
+}
+
+/* One context per card, because a workspace is a thing with parts rather than a row of fields. */
+.settings .workspace-card {
+  display: grid;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.settings .workspace-card .head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings .workspace-card .head input.name {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings .workspace-card .head .remove {
+  color: var(--error);
+  border-color: transparent;
+}
+
+.settings .workspace-card .head .remove:hover {
+  border-color: var(--error);
+}
+
+/* What an integration's settings hang off: indented under the switch that turns it on. */
+.settings .nested {
+  display: grid;
+  gap: 12px;
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--line);
+}
+
+.settings label.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+
+.settings label.switch input {
+  width: auto;
 }
