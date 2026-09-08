@@ -1,21 +1,22 @@
 /**
- * Builds the macOS app: a window onto IWE, with the server inside it.
+ * Installs the app: a window onto IWE, with the server behind it.
  *
  *   bun run app:install
  *   bun run app:uninstall
  *
- * Clicking it starts the server if nothing is listening and shows the page; quitting it stops the
- * server it started (a server you started yourself, in a terminal, is left alone). The window is
- * a WKWebView, so the title bar is the same colour as the page and there is no browser around it.
- *
- * AppKit and WebKit are in the system: this costs a `swiftc` at install time and nothing at
- * runtime. No Electron, no Rust, no second browser — and the app is still only a window onto the
- * same HTTP server any browser can open.
+ * macOS builds the Swift/WKWebView bundle (below). Linux installs a desktop
+ * entry, an icon and a launcher around the WebKitGTK window in
+ * scripts/app/linux-window (scripts/app/linux.ts). Either way: clicking it
+ * starts the server if nothing is listening and shows the page; AppKit and
+ * WebKit/GTK are in the system, so this costs a `swiftc` on macOS and nothing
+ * at all on Linux. No Electron, no Rust, no second browser — the app is only
+ * a window onto the same HTTP server any browser can open.
  */
 
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { isLinux, isMac } from "../src/platform.ts";
 import { sh } from "../src/sh.ts";
 
 /** What it is called in the Dock, in the menu bar and in its own title bar. `IWE` is what the
@@ -185,9 +186,21 @@ async function uninstall(): Promise<void> {
 }
 
 const command = process.argv[2];
-if (command === "install") await install();
-else if (command === "uninstall") await uninstall();
-else {
+const usage = () => {
   console.error("usage: bun scripts/app.ts install|uninstall");
+  process.exit(1);
+};
+
+if (isMac) {
+  if (command === "install") await install();
+  else if (command === "uninstall") await uninstall();
+  else usage();
+} else if (isLinux) {
+  const linux = await import("./app/linux.ts");
+  if (command === "install") await linux.install();
+  else if (command === "uninstall") await linux.uninstall();
+  else usage();
+} else {
+  console.error("unsupported platform: the app is built for macOS and Linux");
   process.exit(1);
 }
