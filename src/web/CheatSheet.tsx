@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { Platform } from "./newWindowKey.ts";
 
 /** tmux keys worth knowing, since the terminal is a tmux session and nothing in the page hints
  * at that. Everything here is plain tmux: nothing IWE invented. */
@@ -17,9 +18,14 @@ const KEYS: [string, string][] = [
   ["ctrl-b d", "detach — the session keeps running"],
 ];
 
-/** Copying out of a terminal in a browser: the mouse belongs to tmux, so the browser's own
- * selection needs shift. tmux's buffers and the Mac clipboard are separate things. */
-const COPYING: [string, string][] = [
+/**
+ * Copying out of a terminal in a browser. The mouse belongs to tmux, and who a drag's selection
+ * belongs to differs by platform: on macOS tmux keeps it and option hands it to the browser, so
+ * the Mac clipboard is reached with ⌥ and ⌘. On Linux the browser owns a plain drag already and
+ * the terminal takes Ctrl+Shift chords; middle-click pastes the primary selection. tmux's
+ * buffers are separate from either clipboard on both.
+ */
+const COPYING_MAC: [string, string][] = [
   ["⌥-drag, then ⌘C", "select and copy to the Mac clipboard"],
   ["⌥-double-click", "select a word · ⌥-triple-click selects the line"],
   ["⌘V", "paste from the Mac clipboard"],
@@ -27,14 +33,28 @@ const COPYING: [string, string][] = [
   ["ctrl-b ]", "paste the tmux buffer"],
 ];
 
+const COPYING_LINUX: [string, string][] = [
+  ["drag", "selects — the selection is the browser's, no modifier needed"],
+  ["Ctrl+Shift+C", "copy the selection"],
+  ["Ctrl+Shift+V", "paste the clipboard"],
+  ["middle-click", "paste the primary selection, whatever was highlighted last"],
+  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the system clipboard"],
+];
+
+const copying = (platform: Platform): [string, string][] =>
+  platform === "linux" ? COPYING_LINUX : COPYING_MAC;
+
 export function CheatSheet({
   changeId,
   open,
   onClose,
+  platform,
 }: {
   changeId: string;
   open: boolean;
   onClose: () => void;
+  /** The server's platform: the copying rows are its business. */
+  platform: Platform;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
 
@@ -61,7 +81,7 @@ export function CheatSheet({
           <tr>
             <th colSpan={2}>Copying and pasting</th>
           </tr>
-          {COPYING.map(([key, what]) => (
+          {copying(platform).map(([key, what]) => (
             <tr key={key}>
               <td>
                 <code>{key}</code>

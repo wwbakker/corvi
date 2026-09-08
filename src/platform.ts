@@ -19,3 +19,7 @@ export const loopbackInterface = isMac ? "lo0" : "lo";
  * things asking are building a menu and can wait a microsecond; a stale answer would offer an
  * item that cannot work, so it is always asked fresh. */
 export const commandAvailable = (command: string): boolean => Bun.which(command) !== null;
+
+/** The platform as one word, for whoever is told only once: the client reads it from
+ * /api/workspaces and switches its key hints and shortcuts on it. */
+export const platformName = isMac ? "mac" : isLinux ? "linux" : "other";

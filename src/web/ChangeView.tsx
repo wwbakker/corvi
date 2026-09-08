@@ -23,6 +23,7 @@ import { EditReposDialog } from "./EditReposDialog.tsx";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";
+import type { Platform } from "./newWindowKey.ts";
 import { CompletionCard } from "./CompletionCard.tsx";
 import { LocalPane } from "./LocalPane.tsx";
 import { Progress } from "./Progress.tsx";
@@ -301,6 +302,7 @@ function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInf
 export function ChangeView({
   id,
   page,
+  platform,
   provision,
   terminal,
   onOpenPage,
@@ -324,6 +326,8 @@ export function ChangeView({
   onOpenPage: (page: "dashboard" | "review") => void;
   /** The change was renamed, completed or otherwise altered: the lists elsewhere are stale. */
   onChanged: () => void;
+  /** The server's platform: what the terminal's key hints and shortcut assume. */
+  platform: Platform;
 }) {
   const [change, setChange] = useCached<Change>(`${id}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
@@ -561,7 +565,7 @@ export function ChangeView({
           <ActionsMenu actions={changeActions} />
         )}
       </header>
-      <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} />
+      <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {(provision ?? [])
@@ -619,6 +623,7 @@ export function ChangeView({
             url={terminal.url}
             error={terminal.error}
             visible={page === "terminals"}
+            platform={platform}
             onNewWindow={terminal.create}
           />
         </div>
