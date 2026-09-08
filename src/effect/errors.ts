@@ -1,0 +1,64 @@
+import { Data } from "effect";
+
+/**
+ * The one error taxonomy for the Effect rewrite — see docs/effect-conventions.md. Every
+ * rewritten module fails with one of these five; nothing grows a per-module hierarchy beside
+ * them. Each carries the human-readable message the old `throw new Error(...)` had, because
+ * the strings the UI showed before are the strings it shows after.
+ *
+ * This file knows nothing about HTTP: mapping these to status codes lives in http.ts, the only
+ * place that knows what a Response is.
+ */
+
+/** The thing asked about does not exist. */
+export class NotFoundError extends Data.TaggedError("NotFoundError")<{
+  readonly message: string;
+}> {}
+
+/** The request itself is wrong: bad id, bad state transition, missing field. */
+export class BadRequestError extends Data.TaggedError("BadRequestError")<{
+  readonly message: string;
+}> {}
+
+/** The current state forbids it; the caller may retry with force. */
+export class ConflictError extends Data.TaggedError("ConflictError")<{
+  readonly message: string;
+  readonly needsForce?: boolean;
+}> {}
+
+/** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost. */
+export class CliError extends Data.TaggedError("CliError")<{
+  readonly tool: string;
+  readonly command: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+}> {}
+
+/** Schema validation failed. Where it failed decides its status code: a request body is the
+ * caller's mistake; a file or CLI JSON on disk is ours. */
+export class DecodeError extends Data.TaggedError("DecodeError")<{
+  readonly source: "request-body" | "file" | "cli";
+  readonly message: string;
+}> {}
+
+export type IweError = NotFoundError | BadRequestError | ConflictError | CliError | DecodeError;
+
+/** True when `e` is one of ours (and therefore has a status code waiting in http.ts). */
+export const isIweError = (e: unknown): e is IweError =>
+  typeof e === "object" && e !== null && "_tag" in e &&
+  ["NotFoundError", "BadRequestError", "ConflictError", "CliError", "DecodeError"].includes(
+    (e as { _tag: unknown })._tag as string,
+  );
+
+/** The human-readable message for any of ours — what `e.message` gave the old fail(). */
+export const formatError = (e: IweError): string => {
+  switch (e._tag) {
+    case "CliError":
+      return [
+        `${e.tool} failed (exit ${e.exitCode})`,
+        e.stderr ? `: ${e.stderr}` : "",
+      ].join("");
+    default:
+      return e.message;
+  }
+};
