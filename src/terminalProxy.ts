@@ -36,6 +36,7 @@ export const keysScript = (platform: Platform): string => `
   window.WebSocket = function (...args) {
     const ws = new Original(...args);
     socket = ws;
+    window.__ttydSocket = ws; // diagnostics: the page (and a probing parent) can reach ttyd's socket
     return ws;
   };
   window.WebSocket.prototype = Original.prototype;

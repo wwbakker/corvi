@@ -4,7 +4,7 @@ import { openSync, closeSync } from "node:fs";
 import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
-import { isMac, loopbackInterface, commandAvailable } from "./platform.ts";
+import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { sh, shOrThrow } from "./sh.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
@@ -67,8 +67,15 @@ const alive = (pid: number): boolean => {
 
 /** Where the browser loads the terminal from: our own origin, which proxies ttyd. Same-origin
  * so the page can reach into the frame — to focus it, and to fix up keys the browser cannot
- * encode by itself. */
-export const terminalPath = (id: string): string => `/terminal/${encodeURIComponent(id)}/`;
+ * encode by itself.
+ *
+ * On Linux the frame carries ttyd's `rendererType=canvas` override. The default WebGL renderer
+ * draws into a webgl2 canvas that WebKitGTK — this machine's NVIDIA setup included — presents
+ * a frame late: a keystroke's output reaches the page in a millisecond (measured) but lands on
+ * screen only when the next one renders, so the terminal reads one keystroke behind. The 2D
+ * canvas renderer goes through a presentation path without the problem; macOS keeps WebGL. */
+export const terminalPath = (id: string): string =>
+  `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=canvas" : ""}`;
 
 /** The port ttyd serves this change on, starting or adopting it as needed. */
 export async function terminalPort(change: Change): Promise<number> {
