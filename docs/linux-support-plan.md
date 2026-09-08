@@ -1,5 +1,14 @@
 # Linux Support Plan
 
+**Shipped.** Phases 1, 2, 3 and the tooling part of 4 are done on this branch; README's Linux
+section and this doc's status notes are phase 5. The plan below is kept as written, with what
+shipped and where reality deviated recorded in "What shipped, and where it deviated" at the end.
+
+What prompted this: the macOS app (a WKWebView) could not support everything — the voice
+extension failed silently inside it, and WKWebView has no script dialogs of its own — so the
+Linux window had to pick its engine on capability, not dependency counts. That decision is
+recorded in `docs/native-window.md`.
+
 IWE is a Bun/TypeScript HTTP server with a web UI; the macOS app is only a window onto it.
 Everything under `src/` except the items below already runs on Linux unchanged: the server,
 git/gh/az/jira integrations, tmux sessions, config in `~/.config/iwe`, the settings page.
@@ -30,6 +39,9 @@ available on Linux. The `wt` CLI is a user-supplied tool on PATH either way.
 
 ## Design decision: what "the app" is on Linux
 
+> **Superseded by `docs/native-window.md`.** The order below was the plan; the decision went the
+> other way. Kept for the record.
+
 The macOS app's philosophy is deliberate: **no Electron, no Rust, no second browser — a window
 onto the same HTTP server any browser can open**. The Linux equivalent, in order of preference:
 
@@ -50,7 +62,7 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
 
 ## Work items, in order
 
-### Phase 1 — server correctness on Linux (no UI change)
+### Phase 1 — server correctness on Linux (no UI change) — **shipped** (1e40d69)
 
 1. New `src/platform.ts`: `isMac`, `isLinux`, and platform-picked helpers, so the `if`s live in
    one place.
@@ -63,7 +75,7 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
    Fix anything that falls out — likely nothing, but `test/webkit.test.ts` may need
    `bunx playwright install webkit` documented for Linux distro differences.
 
-### Phase 2 — web UI parity
+### Phase 2 — web UI parity — **shipped** (fdefac0)
 
 1. Send `platform` (from `process.platform`) to the client once — via `/api/settings` or a small
    `/api/bootstrap` — instead of sniffing the user agent.
@@ -73,7 +85,7 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
 3. `CheatSheet.tsx`: per-platform key table (macOS keeps the current rows; Linux gets
    "drag to select", `Ctrl+Shift+C/V`, middle-click paste note).
 
-### Phase 3 — the Linux app
+### Phase 3 — the Linux app — **shipped** (f4c77dd, bdb70d0), with deviations recorded below
 
 1. Split `scripts/app.ts`: keep macOS logic in `scripts/app/macos.ts`; add
    `scripts/app/linux.ts`; `scripts/app.ts` dispatches on `process.platform`.
@@ -94,7 +106,7 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
    equivalent.
 4. Optional later: WebKitGTK wrapper (see decision above) as `scripts/app/linux-window/`.
 
-### Phase 4 — dev/test tooling parity
+### Phase 4 — dev/test tooling parity — **item 1 shipped**; items 2–3 unchanged (macOS-only, later)
 
 1. `scripts/shot.ts`: default engine per platform once the Linux window is Chromium-based
    (`--app` ⇒ chromium); explicit `IWE_ENGINE` still wins.
@@ -103,7 +115,7 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
    separate, optional follow-up — Playwright already covers the page itself.
 3. `scripts/sandbox.ts`: leave macOS-only for now; note it in `--help`/README.
 
-### Phase 5 — docs and packaging
+### Phase 5 — docs and packaging — **item 1 shipped** (README Linux section); item 2 still on demand
 
 1. README: Requirements section per OS (identical CLI list; add
    `xdg-open` is a given, `rsvg-convert` optional for icons); a Linux install paragraph;
@@ -126,3 +138,44 @@ onto the same HTTP server any browser can open**. The Linux equivalent, in order
   one — likely a non-issue, verify once.
 - **Wayland vs X11**: only affects the optional AT-SPI driving and the exact `--app` flags
   (`--ozone-platform-hint=auto`); core functionality is unaffected.
+
+## What shipped, and where it deviated
+
+**The window decision was reversed, deliberately.** The plan ranked the Chromium `--app` window
+second (recommended) and WebKitGTK third (deferred). Evaluating the candidates against the
+WKWebView lesson — the voice extension that failed silently, dialogs that answered `false` —
+flipped the order: WebKitGTK handles both as deliberate API (`permission-request` grantable per
+origin, `script-dialog` with its own or the app's dialogs), it costs zero compile via
+PyGObject, and on a stock desktop it is already installed. `docs/native-window.md` has the
+comparison. Chromium `--app` is demoted to the documented fallback the launcher uses when the
+WebKitGTK bindings are missing.
+
+**The app is not compiled at all.** The plan pictured "a tiny Vala or Python/PyGObject wrapper
+compiled at install time". Vala bought a compiler and a second language for an identical engine;
+PyGObject's bindings are generated at runtime, so even the install-time compile of the plan
+disappeared — `scripts/app/linux-window/iwe-window.py` is run where it sits.
+
+**macOS logic stayed in `scripts/app.ts`.** The plan split it into `scripts/app/macos.ts` with
+`app.ts` dispatching; the split proved to be one `if` on `src/platform.ts` with the Linux half in
+`scripts/app/linux.ts`, and the macOS flow untouched inside `app.ts` — a smaller diff for the
+same dispatch.
+
+**The lifecycle question was decided, not left open.** Closing the window leaves the server
+running (v1, as the open question proposed); the launcher writes the server's pid to
+`~/.local/state/iwe/iwe-app.pid` and `iwe-app stop` stops exactly that server — refusing a pid
+that is no longer an IWE server — which is more than the plan's "documents it".
+
+**Icons skip instead of falling back.** The plan suggested a single 512px icon when
+`rsvg-convert` is missing; the install skips icons with a clear message instead, matching the
+macOS install's "an app with the wrong icon still works".
+
+**`wt` was settled by measurement, not porting.** `docs/wt-on-linux.md` verified every
+invocation IWE makes against Worktrunk on Linux — identical behaviour, `sudo pacman -S
+worktrunk` — so nothing in the integration changed and the version requirement is "any current
+package".
+
+**The terminal chord is `ctrl-alt-t` on Linux** (with cmd-t kept on macOS), served to the client
+via the server's platform rather than user-agent sniffing — as the plan's Phase 2 sketched.
+
+**Still open, unchanged:** the Linux end-to-end driver (AT-SPI/xdotool) and `scripts/sandbox.ts`
+stay macOS-only follow-ups; AUR/Flatpak packaging waits for demand.

@@ -20,6 +20,14 @@ reported on the dashboard; the change itself is written first and always survive
 `git`, `wt`, `gh` and `az` for the integrations; `tmux` and `ttyd` for the Terminals tab. Jira is
 talked to over its own REST API, but `jira-cli` is still what configures it — see below.
 
+The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux ttyd`).
+`wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
+official Arch package, and every invocation IWE makes was verified to behave identically on Linux
+(`brew install worktrunk` on macOS; details and non-Arch installs in `docs/wt-on-linux.md`). For
+the app's own window, Linux additionally wants `webkit2gtk-4.1` and `python-gobject`
+(`sudo pacman -S --needed webkit2gtk-4.1 python-gobject` — standard on desktop installs), which
+the macOS app gets from the system it is already in.
+
 ## Run
 
 ```bash
@@ -206,14 +214,13 @@ column of its own beside the others; narrower windows stack everything.
 ## The app
 
 ```bash
-bun run app:install      # ~/Applications/Integrated Work Environment.app
-bun run app:uninstall
+bun run app:install      # macOS: ~/Applications/Integrated Work Environment.app
+bun run app:uninstall    # Linux: desktop entry, icons and the iwe-app launcher
 ```
 
-A real application: a Dock icon you can quit, a window whose title bar is the same colour as the
+A real application: an icon the app grid knows, a window whose title bar is the same colour as the
 page, and the server inside it. Clicking it **starts the server if nothing is listening**, shows
-"Starting IWE…" on the page's own background while it waits, then loads the app. Quitting it stops
-the server it started.
+"Starting IWE…" on the page's own background while it waits, then loads the app.
 
 **The app has its own port — 43117 — and always runs the production build.** `bun run dev` keeps
 4000. They used to share a port, and the app attached to whatever was listening: a dev server left
@@ -230,13 +237,14 @@ So the two are now separate things rather than two ways to start the same thing:
 | port | 4000 | 43117 |
 | build | rebuilt as you edit | built once, `NODE_ENV=production` |
 | on a code change | restarts itself (`--watch`) | picks it up when you next launch it |
-| output | your terminal | `~/Library/Logs/iwe.log` |
+| output | your terminal | macOS: `~/Library/Logs/iwe.log` · Linux: `~/.local/state/iwe/log` |
 
-It is AppKit and WebKit, in about two hundred lines of Swift (`scripts/app/IWE.swift`), compiled
-by `swiftc` at install time. Both frameworks are in the system, so this costs a compile and
-nothing at runtime: no Electron, no Rust, no second browser. The window is still only a view onto
-the same HTTP server any browser can open, which is the point — the app is a convenience, not the
-product.
+On macOS it is AppKit and WebKit, in about two hundred lines of Swift (`scripts/app/IWE.swift`),
+compiled by `swiftc` at install time. Both frameworks are in the system, so this costs a compile
+and nothing at runtime: no Electron, no Rust, no second browser. Quitting the app stops the
+server it started; a server you started yourself, in a terminal, is left alone. The window is
+still only a view onto the same HTTP server any browser can open, which is the point — the app is
+a convenience, not the product.
 
 What the native window buys over a Chrome `--app` window:
 
@@ -270,9 +278,36 @@ side first, so a failed build leaves the app you have alone.
 Failures land in `~/Library/Logs/iwe.log`, and a server that never answers leaves the window
 saying so rather than showing an empty page.
 
+### On Linux
+
+The same `app:install` puts three things in your home directory: a **desktop entry**
+(`~/.local/share/applications/iwe.desktop`), **icons** rendered from `assets/icon.svg` into
+`~/.local/share/icons/hicolor/<size>/apps/iwe.png` (skipped with a note if `rsvg-convert` is
+missing — the app works without one), and a **launcher**, `~/.local/bin/iwe-app`, with the
+repository and port written in: the same trade as `Info.plist`, so moving the repository is a
+reinstall, not a rebuild.
+
+The window is WebKitGTK driven from Python through the bindings already on the machine, in about
+three hundred lines (`scripts/app/linux-window/iwe-window.py`) — no Electron, no Rust, no second
+browser, nothing compiled. The page's own `#14161a` behind it from the first frame, the page's
+title in the title bar, `confirm()` and friends drawn as real dialogs, links to Jira, GitHub and
+Azure DevOps handed to your browser, and the microphone granted through the window — the gap that
+made a voice extension fail silently inside the macOS view, closed by asking the permission
+deliberately for our own origin. Without the WebKitGTK bindings the launcher falls back to your
+installed Chromium's `--app` mode.
+
+Lifecycle: clicking the icon (or running `iwe-app`) starts the server if nothing is listening on
+43117 — through your login shell, so `bun` and `JIRA_API_TOKEN` come from your rc file — then
+opens the window. **Closing the window leaves the server running**, the way closing the tab on a
+dev server does. `iwe-app stop` stops the server the launcher itself started: it keeps the pid in
+`~/.local/state/iwe/iwe-app.pid`, checks that pid is still an IWE server, and refuses anything
+else. Logs land in `~/.local/state/iwe/log`. `app:uninstall` removes the entry, launcher and
+icons and leaves the logs alone.
+
 ## Installing it as an app
 
-The page ships a web manifest and icons, so it installs as a standalone macOS app:
+The page ships a web manifest and icons, so it installs as a standalone app — on macOS through
+the browser, on Linux the desktop entry `app:install` writes plays that part:
 
 - **Safari** — open the app, File → *Add to Dock*.
 - **Chrome** — ⋮ → Cast, Save and Share → *Install page as app*.
@@ -457,7 +492,8 @@ Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1
 any console errors. Faster than describing a layout bug in prose.
 
 **WebKit by default, because that is what the app is.** The macOS window is a WKWebView — Safari's
-engine — while development happens in Chrome, and everything that has escaped to being reported
+engine — and the Linux window is WebKitGTK, the same engine family (`docs/native-window.md`),
+while development happens in Chrome, and everything that has escaped to being reported
 lived in that gap:
 
 - A route the server did not have came back as the app's own HTML with a `200`, and WebKit words
@@ -546,8 +582,9 @@ v3 takes instead of a string.
 ## Opening a repository
 
 Every repository row in **Local changes** has a ⋯ menu: **Open in IntelliJ** and **Open in
-Finder**. Both go through macOS's `open`, by application name, so nothing has to be installed on
-the path. IntelliJ receives the project rather than being launched again, so where it lands — new
+Finder** (on Linux, **Open in Files** — the desktop's file manager). macOS opens through `open`,
+by application name; Linux goes through `xdg-open`, with IntelliJ via its `idea` launcher script,
+which only offers the menu item when it is on the path. IntelliJ receives the project rather than being launched again, so where it lands — new
 window, current window, or a prompt — is whatever *Settings > Appearance & Behavior > System
 Settings > Open project in* says. The worktree is opened when there is one, the repository itself when it is used in
 place.
@@ -644,7 +681,7 @@ Failing to copy is never fatal — the worktree is what was asked for.
 
 Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
 change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
-(`brew install ttyd`).
+(`brew install ttyd`; on Linux the distro package, e.g. `sudo pacman -S ttyd`).
 
 A terminal outlives the server: ttyd is detached, its pid and port are written to
 `terminal.json` in the change directory, and the next start adopts it if it is still answering.
@@ -691,14 +728,15 @@ dies, so a crashed agent leaves nothing stale behind. The option is read from ea
 **active pane**, so an agent left in the inactive half of a split is not seen.
 
 A dot marks a window whose output arrived while you were looking elsewhere, and `+` — or
-**cmd-t** — opens another.
+**cmd-t** (`ctrl-alt-t` on Linux, where the meta key is unreliable) — opens another.
 
 A new window starts **where the current one is**, not back in the change directory: a new tab is
 almost always "the same place, another thing", and `#{pane_current_path}` is what tmux's own
 `ctrl-b c` binding uses anyway. cmd-t works from inside the terminal too, where the keyboard
 usually is: the injected key script cannot open a window itself, so it forwards the key to the
 page around the frame. In a browser tab Chrome keeps cmd-t for itself; installed as an app it
-reaches us. The keyboard stays in the terminal throughout: the navigation column's entries refuse
+reaches us — on Linux the chord is ctrl-alt-t for the same reason, and it works in a browser tab
+too. The keyboard stays in the terminal throughout: the navigation column's entries refuse
 the focus a mousedown would give them, and opening a terminal focuses it, so you can type straight
 away. tmux stays the source of truth — the column calls `list-windows`, `new-window` and
 `select-window`, so the keys keep working and a session attached from a terminal stays in step.
@@ -709,9 +747,8 @@ tmux does that, IWE does not duplicate it. Mouse mode is switched on for the ses
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
 yourself keep your own settings — a change needs no terminal at all
 some days and three in one repository on others, so IWE opens none for you. The session is the
-real thing, not a copy: `tmux attach -t iwe-PROJ-123` from iTerm2 reaches exactly what the browser
 shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
-`lo0` only.
+loopback only (`lo0` on macOS, `lo` on Linux).
 
 **Shift-Enter and Ctrl-Enter.** A browser terminal cannot encode these by itself: xterm.js sends a
 carriage return for Enter whatever modifier is held — there is no legacy encoding for a modified
@@ -728,7 +765,9 @@ Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option*
 to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
 honours on macOS, and only because ttyd is started with `macOptionClickForcesSelection=true`.) A
 drag without it is tmux's selection, which lands in a tmux buffer (`ctrl-b ]` pastes it) and not in the Mac clipboard — this build of ttyd has no
-OSC 52 support, so tmux cannot reach the system clipboard by itself.
+OSC 52 support, so tmux cannot reach the system clipboard by itself. On Linux the browser owns a
+plain drag already, and the terminal takes **Ctrl+Shift+C / Ctrl+Shift+V** (middle-click pastes
+the primary selection); the cheat sheet button lists the keys for the platform you are on.
 
 A terminal that comes up blank: ttyd logs to `/tmp/iwe-ttyd-<change id>.log`, and the session is
 reachable from a normal terminal, which tells you quickly whether the problem is tmux or the
@@ -1278,8 +1317,10 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/CommitDialog.tsx    committing across the change
     extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
-    scripts/app.ts              builds ~/Applications/IWE.app
-    scripts/app/IWE.swift       the window: WebKit, and the server inside it
+    scripts/app.ts              macOS: builds ~/Applications/IWE.app; Linux: installs the app
+    scripts/app/linux.ts        the Linux install: desktop entry, icons, iwe-app launcher
+    scripts/app/linux-window/   the Linux window: WebKitGTK via PyGObject (docs/native-window.md)
+    scripts/app/IWE.swift       the macOS window: WebKit, and the server inside it
     src/web/manifest.webmanifest  installable app metadata
     src/web/icons/            generated from assets/*.svg by `bun run icons`
     test/changes.test.ts      change.json, notes, in-place provisioning, base branches
