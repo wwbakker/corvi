@@ -27,6 +27,18 @@ import sys
 # take the hardware path can override with WEBKIT_DISABLE_DMABUF_RENDERER=0.
 os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 
+# Accelerated compositing on the same machine presents canvas updates a
+# frame late: in the terminal, a keystroke's echo only appeared when the
+# next one was typed (press A — nothing; press B — A shows). Measured with
+# a socket probe: the echo reaches the page in ~1 ms, so the delay is in
+# presentation, and both of xterm.js's canvas renderers are affected —
+# this is a known shape of WebKitGTK-on-NVIDIA trouble. Without
+# compositing, canvas repaints go straight to the window and typing is
+# immediate. The dashboard is mostly static UI, so the performance cost is
+# small; override with WEBKIT_DISABLE_COMPOSITING_MODE=0 to test the
+# accelerated path.
+os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
+
 import gi
 
 gi.require_version("Gtk", "3.0")
