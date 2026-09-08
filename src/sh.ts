@@ -1,4 +1,6 @@
-import { currentEnv } from "./context.ts";
+import { Duration, Effect } from "effect";
+import { currentEnvEffect } from "./context.ts";
+import { CliError } from "./effect/errors.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
@@ -17,6 +19,26 @@ const traceKey = (cmd: string[]): string =>
     ? cmd.slice(0, cmd[0] === "az" ? 3 : 2).join(" ")
     : (cmd[0] ?? "");
 
+const toolOf = (cmd: string[]): string => cmd[0] ?? "";
+
+/**
+ * Seconds a CLI may run before it is killed. A hung `az` used to hang the server forever; now
+ * the call fails with a `CliError` naming the command. This is the one sanctioned behavior
+ * change of the migration. `IWE_CLI_TIMEOUT=0` disables the timeout entirely.
+ */
+const timeoutSeconds = (): number => {
+  const raw = process.env.IWE_CLI_TIMEOUT;
+  return raw === undefined ? 120 : Number(raw);
+};
+
+const failCli = (cmd: string[], stderr: string, exitCode: number): CliError => {
+  const error = new CliError({ tool: toolOf(cmd), command: cmd.join(" "), stderr, exitCode });
+  // errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
+  // carry the human-readable message the old throw had, so set it explicitly.
+  (error as { message: string }).message = stderr;
+  return error;
+};
+
 /**
  * How many CLIs may run at once. A dashboard asks about six repositories in parallel and each
  * asks two or three vendors, so without a bound a single refresh forks thirty processes — and
@@ -25,65 +47,103 @@ const traceKey = (cmd: string[]): string =>
  */
 const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
 
-let running = 0;
-const waiting: (() => void)[] = [];
+/** The one gate every CLI call passes through, replacing the hand-rolled slot() queue. */
+const gate = Effect.runSync(Effect.makeSemaphore(LIMIT));
 
-async function slot(): Promise<() => void> {
-  if (running >= LIMIT) await new Promise<void>((resume) => waiting.push(resume));
-  running++;
-  return () => {
-    running--;
-    waiting.shift()?.();
-  };
-}
+const spawnEffect = (
+  cmd: string[],
+  cwd: string | undefined,
+  env: Record<string, string>,
+): Effect.Effect<Result, CliError> =>
+  Effect.gen(function* () {
+    const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
+    let proc;
+    try {
+      // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
+      // Empty outside a request, which is every call IWE made before workspaces existed.
+      proc = Bun.spawn(cmd, {
+        cwd,
+        env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+    } catch (e) {
+      // A missing tool, or a working directory that is not there any more — a repository moved
+      // or deleted out from under a change. That is a failed command, not a broken server: every
+      // caller already knows what to do with a non-zero code, and none of them expect a throw.
+      return { code: 127, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+    }
+    const read = Effect.all([
+      Effect.promise(() => new Response(proc.stdout).text()),
+      Effect.promise(() => new Response(proc.stderr).text()),
+      Effect.promise(() => proc.exited),
+    ]);
+    // A timed-out `git` that keeps running is a leak, not a timeout: whatever interrupted the
+    // read — a deadline or a shutdown — kills the child first. The hook sits on the read
+    // itself, the effect the interruption actually lands on (not on the CliError failure
+    // the timeout is turned into afterwards).
+    const seconds = timeoutSeconds();
+    const killHook = Effect.onInterrupt(() => Effect.sync(() => proc.kill()));
+    const guarded = seconds > 0
+      ? read.pipe(
+          killHook,
+          Effect.timeout(Duration.seconds(seconds)),
+          Effect.catchTag("TimeoutException", () =>
+            Effect.fail(failCli(cmd, `${cmd.join(" ")} timed out after ${seconds} seconds`, 124))),
+        )
+      : read.pipe(killHook);
+    const [stdout, stderr, code] = yield* guarded;
+    if (started) {
+      const usage = proc.resourceUsage();
+      const key = traceKey(cmd);
+      const seen = trace.get(key) ?? { calls: 0, cpu: 0, wall: 0 };
+      trace.set(key, {
+        calls: seen.calls + 1,
+        cpu: seen.cpu + (usage ? Number(usage.cpuTime.user + usage.cpuTime.system) / 1000 : 0),
+        wall: seen.wall + (Bun.nanoseconds() - started) / 1e6,
+      });
+    }
+    return { code, stdout: stripAnsi(stdout), stderr: stripAnsi(stderr) };
+  });
 
-export async function sh(cmd: string[], cwd?: string): Promise<Result> {
-  const release = await slot();
-  try {
-    return await spawn(cmd, cwd);
-  } finally {
-    release();
-  }
-}
+/** One CLI call, bounded by the shared semaphore: `withPermits` releases on failure and on
+ * interruption, so a killed or timed-out call cannot strand the gate. Non-zero exit codes are a
+ * successful `Result` — callers branch on `code`; the `CliError` channel is only for a timeout,
+ * the one failure the old code could not represent (it hung forever instead). */
+export const shEffect = (cmd: string[], cwd?: string): Effect.Effect<Result, CliError> =>
+  gate.withPermits(1)(
+    Effect.gen(function* () {
+      const env = yield* currentEnvEffect;
+      return yield* spawnEffect(cmd, cwd, env);
+    }),
+  );
 
-async function spawn(cmd: string[], cwd?: string): Promise<Result> {
-  const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
-  let proc;
-  try {
-    // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
-    // Empty outside a request, which is every call IWE made before workspaces existed.
-    const env = currentEnv();
-    proc = Bun.spawn(cmd, {
-      cwd,
-      env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-  } catch (e) {
-    // A missing tool, or a working directory that is not there any more — a repository moved
-    // or deleted out from under a change. That is a failed command, not a broken server: every
-    // caller already knows what to do with a non-zero code, and none of them expect a throw.
-    return { code: 127, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
-  }
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (started) {
-    const usage = proc.resourceUsage();
-    const key = traceKey(cmd);
-    const seen = trace.get(key) ?? { calls: 0, cpu: 0, wall: 0 };
-    trace.set(key, {
-      calls: seen.calls + 1,
-      cpu: seen.cpu + (usage ? Number(usage.cpuTime.user + usage.cpuTime.system) / 1000 : 0),
-      wall: seen.wall + (Bun.nanoseconds() - started) / 1e6,
-    });
-  }
-  return { code, stdout: stripAnsi(stdout), stderr: stripAnsi(stderr) };
-}
+/** Run and throw on failure, for actions where the user should see what broke. The thrown
+ * `CliError`'s message is exactly what the old `throw new Error` produced. */
+export const shOrThrowEffect = (cmd: string[], cwd?: string): Effect.Effect<string, CliError> =>
+  Effect.flatMap(shEffect(cmd, cwd), (r) => {
+    if (r.code === 0) return Effect.succeed(r.stdout);
+    const stderr = r.stderr || r.stdout;
+    return Effect.fail(failCli(cmd, stderr, r.code)).pipe(
+      Effect.mapError((e) => {
+        (e as { message: string }).message = `${cmd.join(" ")} failed: ${stderr}`;
+        return e;
+      }),
+    );
+  });
 
-/** Run and throw on failure, for actions where the user should see what broke. */
+/** TODO-MIGRATE — Promise facade over shEffect; same signature and Result shape as before. */
+export const sh = (cmd: string[], cwd?: string): Promise<Result> =>
+  Effect.runPromise(shEffect(cmd, cwd).pipe(
+    // A timed-out CLI is a failed command, not a broken server: every caller already branches
+    // on a non-zero code, so the timeout surfaces as exit code 124 with the timeout message.
+    // Converted here, inside the Effect — runPromise rejects a typed failure as a bare Error
+    // and would lose the exit code.
+    Effect.catchAll((e: CliError) =>
+      Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+  ));
+
+/** TODO-MIGRATE — Promise facade over shOrThrowEffect; throws exactly what it used to. */
 export async function shOrThrow(cmd: string[], cwd?: string): Promise<string> {
   const r = await sh(cmd, cwd);
   if (r.code !== 0) throw new Error(`${cmd.join(" ")} failed: ${r.stderr || r.stdout}`);
