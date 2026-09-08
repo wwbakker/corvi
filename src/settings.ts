@@ -1,15 +1,17 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
+import { Effect, Schema } from "effect";
 import {
   config,
   configPath,
   readFile,
-  reloadConfig,
+  reloadConfigEffect,
   expandTilde,
   ENV_OVERRIDES,
   type Config,
-  type Workspace,
 } from "./config.ts";
+import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
+import { BadRequestError } from "./effect/errors.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
 
@@ -28,7 +30,7 @@ import { TOOLING } from "./tooling.ts";
 
 /** What may be written: the config file's own shape. Everything is optional — an absent value
  * means "the default", which is what an empty file has always meant. */
-export type Settings = Partial<Config>;
+export type Settings = ConfigFile;
 
 export type SettingsView = {
   /** Which file this is, so the page can say where to look when something is edited by hand. */
@@ -53,6 +55,11 @@ function overridden(): Record<string, string> {
   return found;
 }
 
+export const settingsViewEffect = Effect.sync(() => settingsView());
+
+/** The settings page's read: the file as written, what is in effect, what is locked.
+ *
+ * TODO-MIGRATE — sync facade; the Effect form is settingsViewEffect above. */
 export const settingsView = (): SettingsView => ({
   path: configPath(),
   file: readFile(),
@@ -61,19 +68,17 @@ export const settingsView = (): SettingsView => ({
   toolingDefault: TOOLING,
 });
 
-/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
- * it has to be a word, and it has to keep meaning the same workspace. */
-const ID = /^[\w.-]+$/;
-/** A directory copied into a worktree is a name next to the code, not a path: `../.ssh` is not
- * a thing anyone should be able to ask for by typing it into a settings page. */
-const NAME = /^[^/\\]+$/;
-const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Filesystem failures are defects, not domain errors — the config directory is ours. */
+const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
+  Effect.orDie(Effect.tryPromise(work));
 
 const absolute = (value: string | undefined): boolean =>
   !value || isAbsolute(expandTilde(value));
 
 /** Everything wrong with these settings, in the order it appears on the page. Empty means they
- * can be written. */
+ * can be written. The rules that are plain shapes (a word-shaped id, a directory name, an
+ * environment variable name) are the same Schemas the config layer decodes with — one
+ * statement of the rule, used wherever it is checked. */
 export function problems(next: Settings): string[] {
   const found: string[] = [];
 
@@ -85,20 +90,24 @@ export function problems(next: Settings): string[] {
   for (const workspace of next.workspaces ?? []) {
     const where = workspace.name || workspace.id || "a workspace";
     if (!workspace.id?.trim()) found.push(`${where} has no id`);
-    else if (!ID.test(workspace.id)) found.push(`workspace id "${workspace.id}" must be a word`);
-    else if (seen.has(workspace.id)) found.push(`two workspaces share the id "${workspace.id}"`);
-    else seen.add(workspace.id);
+    else if (!Schema.is(WorkspaceId)(workspace.id)) {
+      found.push(`workspace id "${workspace.id}" must be a word`);
+    } else if (seen.has(workspace.id)) {
+      found.push(`two workspaces share the id "${workspace.id}"`);
+    } else seen.add(workspace.id);
     if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
     if (!absolute(workspace.reposStart)) {
       found.push(`${where}: repositories start must be an absolute path`);
     }
     for (const key of Object.keys(workspace.env ?? {})) {
-      if (!ENV_NAME.test(key)) found.push(`${where}: "${key}" is not an environment variable name`);
+      if (!Schema.is(EnvVarName)(key)) {
+        found.push(`${where}: "${key}" is not an environment variable name`);
+      }
     }
   }
 
   for (const name of next.worktreeCopy ?? []) {
-    if (!name.trim() || !NAME.test(name)) {
+    if (!name.trim() || !Schema.is(DirectoryName)(name)) {
       found.push(`"${name}" is not a directory name next to the code`);
     }
   }
@@ -133,23 +142,33 @@ function prune(value: unknown): unknown {
  * Write the settings and put them into effect.
  *
  * Merged over what the file holds, not replacing it: a key IWE does not know about was put there
- * by hand, for a version of IWE that does, and losing it silently would be rude.
+ * by hand, for a version of IWE that does, and losing it silently would be rude. The ENV_OVERRIDES
+ * locking and the empty-field-means-unset pruning are unchanged.
  */
-export async function writeSettings(next: Settings): Promise<SettingsView> {
-  const wrong = problems(next);
-  if (wrong.length) throw new Error(wrong.join("; "));
+export const writeSettingsEffect = (
+  next: Settings,
+): Effect.Effect<SettingsView, BadRequestError> =>
+  Effect.gen(function* () {
+    const wrong = problems(next);
+    if (wrong.length) {
+      yield* Effect.fail(new BadRequestError({ message: wrong.join("; ") }));
+    }
 
-  const merged = prune({ ...readFile(), ...next }) as Settings;
-  await mkdir(dirname(configPath()), { recursive: true });
-  await writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`);
+    const merged = prune({ ...readFile(), ...next }) as Settings;
+    yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
+    yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
-  reloadConfig();
-  // Everything the CLIs answered was answered for the old settings: another organisation, another
-  // Jira site, another set of environments. Cheaper to ask again than to reason about which.
-  invalidate("");
-  return settingsView();
-}
+    yield* reloadConfigEffect;
+    // Everything the CLIs answered was answered for the old settings: another organisation, another
+    // Jira site, another set of environments. Cheaper to ask again than to reason about which.
+    invalidate("");
+    return yield* settingsViewEffect;
+  });
+
+/** TODO-MIGRATE */
+export const writeSettings = (next: Settings): Promise<SettingsView> =>
+  Effect.runPromise(writeSettingsEffect(next));
 
 /** A workspace as the page adds one: everything off by default is wrong — a new context is
  * usually another client, with both. */
-export const blankWorkspace = (id: string): Workspace => ({ id, name: "" });
+export const blankWorkspace = (id: string): Config["workspaces"][number] => ({ id, name: "" });

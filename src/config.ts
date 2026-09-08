@@ -1,5 +1,8 @@
 import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
+import { Effect, Schema } from "effect";
+import { ConfigFile, workspacesFrom } from "./schemas/config.ts";
 import { TOOLING } from "./tooling.ts";
 
 /**
@@ -62,7 +65,7 @@ export type Config = {
    * given the version and the environment as parameters. */
   azureDeploy: {
     /** `["build-", "deploy-"]`: how a build pipeline's name becomes its deploy pipeline's. */
-    pipeline: [string, string];
+    pipeline: readonly [string, string];
     versionParameter: string;
     environmentParameter: string;
     /** In the order they are deployed to, which is the order they are shown in. */
@@ -70,6 +73,7 @@ export type Config = {
   };
 };
 
+// TODO-MIGRATE — pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>
   process.env.IWE_CONFIG ?? join(homedir(), ".config", "iwe", "config.json");
 
@@ -81,16 +85,39 @@ const defaults: Pick<Config, "changesRoot" | "reposRoot"> = {
   reposRoot: join(homedir(), "Repos"),
 };
 
+/**
+ * The config file, decoded through its Schema (src/schemas/config.ts).
+ *
+ * Reconciling the synchronous startup read with Effect: the read and decode are built as an
+ * Effect so the file boundary has exactly one implementation, but it is run with
+ * `Effect.runSync` at startup — config is needed before the first request, this is one small
+ * local file, and an async dance here would only move the await into Bun.serve's first request.
+ * Everything async (the settings page's write path) composes the same Effect.
+ */
+const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
+  Schema.decodeUnknown(Schema.parseJson(ConfigFile), { onExcessProperty: "preserve" })(text).pipe(
+    // Tolerance the README documents: an invalid config file reads as "nothing configured" —
+    // what the old try/catch around JSON.parse gave every machine that has no config at all.
+    Effect.orElseSucceed(() => ({})),
+  );
+
+/** The file's contents as an Effect: unreadable or undecodable means "nothing configured". */
+export const readFileEffect = (path: string = configPath()): Effect.Effect<ConfigFile> =>
+  Effect.gen(function* () {
+    const text = yield* Effect.try(() => readFileSync(path, "utf8"));
+    return yield* decodeConfigFile(text);
+  }).pipe(
+    // Same tolerance, for a file that cannot be read at all: nothing configured.
+    Effect.catchAll(() => Effect.succeed({})),
+  );
+
 /** What is in the file, as it is written. Invalid JSON reads as "nothing configured", which is
- * how IWE has always started on a machine that has no config at all. */
-export function readFile(): Partial<Config> {
-  try {
-    // Sync on purpose: config is needed before the first request, and this is one small file.
-    const text = require("node:fs").readFileSync(configPath(), "utf8") as string;
-    return JSON.parse(text) as Partial<Config>;
-  } catch {
-    return {};
-  }
+ * how IWE has always started on a machine that has no config at all.
+ *
+ * TODO-MIGRATE — sync facade over readFileEffect (run with Effect.runSync; see the note above). */
+export function readFile(): ConfigFile {
+  // Sync on purpose: config is needed before the first request, and this is one small file.
+  return Effect.runSync(readFileEffect());
 }
 
 const resolve = (value: string | undefined, fallback: string): string => {
@@ -118,9 +145,13 @@ export const ENV_OVERRIDES: Record<string, string> = {
   "azureDeploy.environments": "IWE_AZURE_ENVIRONMENTS",
 };
 
-/** The file and the environment, resolved into what the rest of the code reads. */
+/** The file and the environment, resolved into what the rest of the code reads. The precedence
+ * chain is unchanged: environment wins over file, file over defaults. The per-workspace
+ * tolerance (skip entries without a truthy id and name) is applied by workspacesFrom, exactly
+ * where the old inline filter sat. */
 function load(): Config {
   const file = readFile();
+  const workspaces = workspacesFrom(file.workspaces);
   return {
     changesRoot: resolve(process.env.IWE_ROOT ?? file.changesRoot, defaults.changesRoot),
     reposRoot: resolve(process.env.IWE_REPOS_ROOT ?? file.reposRoot, defaults.reposRoot),
@@ -132,9 +163,7 @@ function load(): Config {
     jiraStartTransition:
       process.env.IWE_JIRA_START_TRANSITION ?? file.jiraStartTransition ?? "In Progress",
     jiraDoneTransition: process.env.IWE_JIRA_DONE_TRANSITION ?? file.jiraDoneTransition ?? "Done",
-    workspaces: (file.workspaces ?? []).filter((w) => w?.id && w?.name).length
-      ? file.workspaces!.filter((w) => w?.id && w?.name)
-      : [DEFAULT_WORKSPACE],
+    workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     worktreeCopy:
       process.env.IWE_WORKTREE_COPY === undefined
         ? (file.worktreeCopy ?? TOOLING)
@@ -169,6 +198,14 @@ function load(): Config {
  */
 export const config: Config = load();
 
+/** The same refill as an Effect, for the settings page's Effect write path. The object is
+ * mutated in place (Object.assign) — modules hold it by reference. */
+export const reloadConfigEffect = Effect.sync(() => reloadConfig());
+
+/** Refill the one config object in place. Sync, because every caller of the settings write is
+ * synchronous today and the object identity must not change.
+ *
+ * TODO-MIGRATE — sync facade; the Effect form is reloadConfigEffect. */
 export function reloadConfig(): Config {
   return Object.assign(config, load());
 }
