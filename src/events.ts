@@ -61,11 +61,14 @@ async function poll(event: string, read: () => Promise<string>): Promise<void> {
     return; // no tmux server yet, a change being written as we look: the next tick will find it
   }
   if (last.get(event) === now) return;
-  const first = !last.has(event);
+  // Broadcast every transition, including the watcher's own first look. The old code stayed
+  // silent there — "a page that has just connected has asked for all of this anyway" — but a
+  // page's own fetches can predate the stream by the width of a session starting: the terminal
+  // comes up between the page's request and the watcher's first look, the transition is
+  // swallowed as "already there", and the page sits on stale state for ever. Always announcing
+  // costs one redundant refetch per watcher start; the silence cost a missing navigation column.
   last.set(event, now);
-  // The first look is what is already there, not news: a page that has just connected has asked
-  // for all of this anyway.
-  if (!first) broadcast(event, "");
+  broadcast(event, "");
 }
 
 function broadcast(event: string, data: string): void {
@@ -148,7 +151,9 @@ export function events(req: Request): Response {
       clients.add(self);
       start();
       // Says the stream is open, and gives the browser something to receive: an EventSource that
-      // has had nothing at all is indistinguishable from one that never connected.
+      // has had nothing at all is indistinguishable from one that never connected. The page
+      // refetches on open; the watcher's look — which now broadcasts every transition it finds,
+      // its own first one included — covers everything that moves after that.
       self.send("open", "");
       req.signal.addEventListener("abort", () => forget(self));
     },

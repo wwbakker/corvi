@@ -19,6 +19,7 @@ import { commitChange, pushChange, type CommitRequest } from "./commit.ts";
 import { refreshTitles } from "./titles.ts";
 import { deployments, versionsFor, deploy } from "./deployments.ts";
 import { proxyToTtyd, bridge, keysScript, type Bridge } from "./terminalProxy.ts";
+import { platformName } from "./platform.ts";
 import type { ServerWebSocket } from "bun";
 import { repoStates, setRepos } from "./integrations/git.ts";
 import { completeChange, completionOf, progressOf } from "./complete.ts";
@@ -128,7 +129,9 @@ const server = Bun.serve({
     },
 
     "/terminal-keys.js": () =>
-      new Response(keysScript, { headers: { "content-type": "text/javascript" } }),
+      new Response(keysScript(platformName), {
+        headers: { "content-type": "text/javascript" },
+      }),
 
     "/api/changes": {
       GET: async () => json(await listChanges()),
@@ -169,8 +172,11 @@ const server = Bun.serve({
     },
 
     // The contexts you switch between: a client, your own projects. Configured, not discovered.
+    // The response also carries the platform, once, at page bootstrap: the only place the UI
+    // learns which key hints to draw. It is the server's platform — the shell the terminal
+    // serves lives on this machine, so its conventions are the ones the page should hint at.
     "/api/workspaces": {
-      GET: () => json(config.workspaces),
+      GET: () => json({ workspaces: config.workspaces, platform: platformName }),
     },
 
     // The settings file, read and written from the page. Writing puts them into effect at once:

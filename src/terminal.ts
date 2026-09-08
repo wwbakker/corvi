@@ -4,6 +4,7 @@ import { openSync, closeSync } from "node:fs";
 import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
+import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { sh, shOrThrow } from "./sh.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
@@ -66,8 +67,15 @@ const alive = (pid: number): boolean => {
 
 /** Where the browser loads the terminal from: our own origin, which proxies ttyd. Same-origin
  * so the page can reach into the frame — to focus it, and to fix up keys the browser cannot
- * encode by itself. */
-export const terminalPath = (id: string): string => `/terminal/${encodeURIComponent(id)}/`;
+ * encode by itself.
+ *
+ * On Linux the frame carries ttyd's `rendererType=canvas` override. The default WebGL renderer
+ * draws into a webgl2 canvas that WebKitGTK — this machine's NVIDIA setup included — presents
+ * a frame late: a keystroke's output reaches the page in a millisecond (measured) but lands on
+ * screen only when the next one renders, so the terminal reads one keystroke behind. The 2D
+ * canvas renderer goes through a presentation path without the problem; macOS keeps WebGL. */
+export const terminalPath = (id: string): string =>
+  `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=canvas" : ""}`;
 
 /** The port ttyd serves this change on, starting or adopting it as needed. */
 export async function terminalPort(change: Change): Promise<number> {
@@ -110,6 +118,17 @@ const withTimeout = <T,>(work: Promise<T>, ms: number): Promise<T> =>
   ]);
 
 async function start(change: Change): Promise<Running> {
+  // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
+  // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
+  // a package install is all that is wanted.
+  if (!commandAvailable("ttyd"))
+    throw new Error(
+      `ttyd is not installed — the terminal cannot start (Arch: sudo pacman -S ttyd${isMac ? "; macOS: brew install ttyd" : ""})`,
+    );
+  if (!commandAvailable("tmux"))
+    throw new Error(
+      `tmux is not installed — the terminal cannot start (Arch: sudo pacman -S tmux${isMac ? "; macOS: brew install tmux" : ""})`,
+    );
   // Only reached when no ttyd could be adopted, so anything still running for this change is a
   // leftover that nothing can reach: a port we no longer know, or a process that stopped
   // answering. The tmux session behind it survives either way.
@@ -122,7 +141,9 @@ async function start(change: Change): Promise<Running> {
     [
       "--writable",
       "--interface",
-      "lo0", // localhost only: this is a shell, it has no business on the network
+      // Loopback by interface name (lo0 on macOS, lo on Linux): this is a shell, it has no
+      // business on the network.
+      loopbackInterface,
       "--port",
       String(port),
       "-t",
@@ -132,9 +153,9 @@ async function start(change: Change): Promise<Running> {
       // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
       // browser. xterm.js can be told to hand it back while a modifier is held — on macOS that
       // modifier is option, and only if this is switched on. Without it there is no way to
-      // select text for the system clipboard at all.
-      "-t",
-      "macOptionClickForcesSelection=true",
+      // select text for the system clipboard at all. The flag is meaningless elsewhere, where
+      // plain drag selection already reaches the clipboard, so it is macOS-only.
+      ...(isMac ? ["-t", "macOptionClickForcesSelection=true"] : []),
       "tmux",
       "new-session",
       "-A", // attach if it exists, create if it does not
@@ -186,7 +207,14 @@ async function start(change: Change): Promise<Running> {
   );
   child.unref();
   closeSync(logFd); // ttyd holds its own copy now
-  await listening(port);
+  // A spawn that failed outright (the binary vanished between the check and now, say) must be
+  // the reported cause rather than a five-second timeout: listen for it and race it against the
+  // port. After the port opens the listener is dead weight — a reject on a settled promise is a
+  // no-op, and it keeps the event from arriving unhandled.
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    listening(port).then(resolve, reject);
+  });
   const found = { port, pid: child.pid! };
   await Bun.write(notePath(change.id), JSON.stringify(found) + "\n");
   return found;

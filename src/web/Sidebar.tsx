@@ -5,6 +5,7 @@ import { CiIcon, TerminalIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, type ChangeSummary } from "../types.ts";
 import { windowLabel, type TerminalWindow } from "./windowLabel.ts";
 import { ALL, type Workspace } from "./workspaces.ts";
+import type { Platform } from "./newWindowKey.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens. */
@@ -67,6 +68,7 @@ export function Sidebar({
   onOpenChange,
   onSelectWindow,
   onNewWindow,
+  platform,
 }: {
   /** Every change of the chosen workspace; the list below "Changes" shows the ones still going. */
   changes: Change[] | undefined;
@@ -90,6 +92,8 @@ export function Sidebar({
   onOpenChange: (id: string) => void;
   onSelectWindow: (id: string, index: number) => void;
   onNewWindow: (id: string) => void;
+  /** The server's platform: which chord the new-window hint names. */
+  platform: Platform;
 }) {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
   // the newest of each at the top. The overview list is sorted the same way.
@@ -220,7 +224,13 @@ export function Sidebar({
               {selected && (
                 <button
                   className="entry sub new-window"
-                  title="new terminal here (cmd-t, or ctrl-b c)"
+                  // meta is Super on Linux, which the window manager owns: the Linux hint names
+                  // the binding that reliably reaches the page.
+                  title={
+                    platform === "mac"
+                      ? "new terminal here (cmd-t, or ctrl-b c)"
+                      : "new terminal here (ctrl-alt-t, or ctrl-b c)"
+                  }
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onNewWindow(c.id)}
                 >

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.ts";
 import type { Change } from "./api.ts";
+import type { Platform } from "./newWindowKey.ts";
 
 export type Workspace = {
   id: string;
@@ -33,12 +34,18 @@ export function useWorkspaces() {
   // would be a moment of another client's work on the screen, which is the one thing a
   // workspace exists to prevent.
   const [ready, setReady] = useState(false);
+  // The server's platform, told once with the workspaces: what the key hints and shortcuts
+  // should assume. "other" until then, which reads as the macOS bindings the UI always had.
+  const [platform, setPlatform] = useState<Platform>("other");
 
   // Read again after the settings page writes them: a context that has just been renamed should
   // not still be in the switcher under its old name.
   const reload = () =>
-    api<Workspace[]>("/workspaces")
-      .then(setWorkspaces)
+    api<{ workspaces: Workspace[]; platform: Platform }>("/workspaces")
+      .then(({ workspaces: next, platform: told }) => {
+        setWorkspaces(next);
+        setPlatform(told);
+      })
       .catch(() => {}) // no workspaces is the same as one: everything
       .finally(() => setReady(true));
 
@@ -60,6 +67,7 @@ export function useWorkspaces() {
     choose,
     current,
     ready,
+    platform,
     reload: () => void reload(),
   };
 }

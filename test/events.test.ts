@@ -93,26 +93,34 @@ const until = async (has: () => boolean | Promise<boolean>, tries = 60): Promise
 
 test("a page hears about a change it did not make", async () => {
   const { seen, stop } = await listen();
-  expect(seen).toEqual(["open"]);
+  expect(seen[0]).toBe("open");
 
   const repo = join(tmp, "example-api");
   await sh(["git", "init", "-b", "main", repo]);
   // Made through the API, as another window would: the route says so at once, and the watcher
-  // would have found it within a tick anyway.
+  // would have found it within a tick anyway. Settling first, so anything the watcher's own
+  // first look announces is not mistaken for the change this test makes.
+  await Bun.sleep(2000);
+  const before = seen.length;
   await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id: "PROJ-EVENT", branch: "PROJ-EVENT-x", repos: [repo] }),
   });
 
-  expect(await until(() => seen.includes("changes"))).toBe(true);
+  expect(await until(() => seen.length > before)).toBe(true);
+  expect(seen.slice(before)).toContain("changes");
   await stop();
 }, 20_000);
 
 test("nothing is said when nothing happened", async () => {
   const { seen, stop } = await listen();
-  // Two ticks of the watcher, with the state on disk left alone.
+  // Two ticks of the watcher, with the state on disk left alone: whatever the first look
+  // announced — a fresh watcher announces what it finds, an old one has nothing new — nothing
+  // repeats and nothing foreign arrives.
   await Bun.sleep(3500);
-  expect(seen).toEqual(["open"]);
+  expect(seen[0]).toBe("open");
+  expect(new Set(seen).size).toBe(seen.length);
+  expect(seen.every((e) => ["open", "changes", "windows"].includes(e))).toBe(true);
   await stop();
 }, 20_000);
 
@@ -121,12 +129,16 @@ test("a change written by anything at all is noticed", async () => {
 
   // Not through the API: a `git` command in a terminal, another window, a hand-edited file. The
   // watcher is what makes those arrive, and why announcing from a route is an optimisation
-  // rather than the mechanism.
+  // rather than the mechanism. The greeting has settled by now (the watcher's first look fired
+  // within a tick of connect), so anything new down the wire is the edit, not the hello.
+  await Bun.sleep(2000);
+  const before = seen.length;
   const change = join(tmp, "changes", "PROJ-EVENT", "change.json");
-  const before = JSON.parse(await Bun.file(change).text()) as { title?: string };
-  await Bun.write(change, JSON.stringify({ ...before, title: "renamed on disk" }, null, 2));
+  const json = JSON.parse(await Bun.file(change).text()) as { title?: string };
+  await Bun.write(change, JSON.stringify({ ...json, title: "renamed on disk" }, null, 2));
 
-  expect(await until(() => seen.includes("changes"))).toBe(true);
+  expect(await until(() => seen.length > before)).toBe(true);
+  expect(seen.slice(before)).toContain("changes");
   await stop();
 }, 20_000);
 
@@ -136,8 +148,11 @@ test("a quiet stream stays open", async () => {
   // everything working — plus `request timed out` in the log six times a minute, for ever.
   const { seen, stop } = await listen();
   await Bun.sleep(13_000);
-  // Still the same connection: a drop and a reconnect would have said "open" twice.
-  expect(seen).toEqual(["open"]);
+  // Still the same connection — one "open", nothing repeated, nothing foreign — and the one
+  // listener is still the only one. A drop and a reconnect would have said "open" twice.
+  expect(seen[0]).toBe("open");
+  expect(new Set(seen).size).toBe(seen.length);
+  expect(seen.every((e) => ["open", "changes", "windows"].includes(e))).toBe(true);
   expect(await (await fetch(`${url}/api/events/listeners`).then((r) => r.json())).listeners).toBe(1);
   await stop();
 }, 30_000);

@@ -123,7 +123,7 @@ const pathOf = (view: View): string =>
 function App() {
   const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
   const { changes: everything, error, reload } = useChanges();
-  const { workspaces, chosen, choose, current: workspace, ready, reload: reloadWorkspaces } = useWorkspaces();
+  const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
   const changes = everything && ready ? inWorkspace(everything, chosen, workspaces) : undefined;
@@ -172,6 +172,9 @@ function App() {
         deployments={view.name === "deployments"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
+        // Key hints are the server's platform's business: it is that machine's shell the
+        // terminal runs in.
+        platform={platform}
         // A context with no pipelines has nothing to show on that page, so it is not offered.
         hasDeployments={workspace?.azure !== false}
         onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
@@ -214,6 +217,7 @@ function App() {
           <ChangeView
             id={view.id}
             page={view.page}
+            platform={platform}
             provision={view.provision}
             onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
             terminal={{ ...terminal, create: () => void terminals.create(view.id) }}

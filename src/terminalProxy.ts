@@ -8,6 +8,7 @@
  * injected into ttyd's page sends the CSI u sequence for those keys instead.
  */
 import type { Server, ServerWebSocket } from "bun";
+import { isNewWindowKey, type Platform } from "./web/newWindowKey.ts";
 
 /** ttyd's own protocol: a client frame is one byte of command, then the payload. */
 const INPUT = "0".charCodeAt(0);
@@ -19,8 +20,13 @@ const KEYS = `
 `;
 
 /** The script injected into ttyd's page. It captures the WebSocket ttyd opens, and sends the
- * sequences itself for the keys ttyd's terminal would flatten. */
-export const keysScript = `
+ * sequences itself for the keys ttyd's terminal would flatten.
+ *
+ * The platform is baked in at serve time: the shell on the other end of the socket lives on the
+ * machine the server does, so it is the server's platform that decides which chord opens a
+ * window. The key test itself comes from web/newWindowKey.ts, embedded here as source so page
+ * and shim cannot drift apart. */
+export const keysScript = (platform: Platform): string => `
 (() => {
   ${KEYS}
   let socket = null;
@@ -30,6 +36,7 @@ export const keysScript = `
   window.WebSocket = function (...args) {
     const ws = new Original(...args);
     socket = ws;
+    window.__ttydSocket = ws; // diagnostics: the page (and a probing parent) can reach ttyd's socket
     return ws;
   };
   window.WebSocket.prototype = Original.prototype;
@@ -45,10 +52,13 @@ export const keysScript = `
     return true;
   };
 
-  // The terminal fills the page, so this is where cmd-t is pressed; the page around the frame
-  // is the one that can open a window, hence the message rather than a call.
+  const isNewWindowKey = ${isNewWindowKey};
+  const IWE_PLATFORM = "${platform}";
+
+  // The terminal fills the page, so this is where the new-window chord is pressed; the page
+  // around the frame is the one that can open a window, hence the message rather than a call.
   window.addEventListener("keydown", (e) => {
-    if (e.key !== "t" || !e.metaKey || e.ctrlKey || e.altKey) return;
+    if (!isNewWindowKey(e, IWE_PLATFORM)) return;
     e.preventDefault();
     parent.postMessage({ iwe: "new-window" }, location.origin);
   });

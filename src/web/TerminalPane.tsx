@@ -1,10 +1,12 @@
 import { useEffect, useRef } from "react";
+import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
 
 /**
  * The change's terminal: a tmux session in the change directory, rendered by ttyd.
  *
  * There is nothing around it any more — which window you are in, and how to get to another, is
- * the navigation column's job. What is left here is the frame, the focus, and cmd-t.
+ * the navigation column's job. What is left here is the frame, the focus, and the new-window
+ * chord.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.
@@ -14,13 +16,18 @@ export function TerminalPane({
   url,
   error,
   visible,
+  platform,
   onNewWindow,
 }: {
   changeId: string;
   url: string | null;
   error: string | null;
-  /** Whether this is the page in front: what to focus, and when cmd-t belongs to us. */
+  /** Whether this is the page in front: what to focus, and when the new-window chord belongs
+   * to us. */
   visible: boolean;
+  /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
+   * same test the injected shim applies, from web/newWindowKey.ts). */
+  platform: Platform;
   onNewWindow: () => void;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
@@ -33,12 +40,12 @@ export function TerminalPane({
     (inner?.querySelector("textarea") ?? frame.current?.contentWindow)?.focus();
   }, [visible, url]);
 
-  // cmd-t, from the page itself and from inside the terminal, which is where the keyboard
-  // usually is; the frame cannot open a window, so it forwards the key as a message.
+  // The new-window chord, from the page itself and from inside the terminal, which is where the
+  // keyboard usually is; the frame cannot open a window, so it forwards the key as a message.
   useEffect(() => {
     if (!visible) return;
     const key = (e: KeyboardEvent) => {
-      if (e.key !== "t" || !e.metaKey || e.ctrlKey || e.altKey) return;
+      if (!isNewWindowKey(e, platform)) return;
       e.preventDefault();
       onNewWindow();
     };
@@ -52,14 +59,17 @@ export function TerminalPane({
       window.removeEventListener("keydown", key);
       window.removeEventListener("message", message);
     };
-  }, [visible, onNewWindow]);
+  }, [visible, onNewWindow, platform]);
 
   if (error) {
     return (
       <div className="error-banner">
         {error}
-        {error.includes("ENOENT") && " — is ttyd installed? brew install ttyd"} (ttyd's own log:{" "}
-        <code>/tmp/iwe-ttyd-{changeId}.log</code>)
+        {error.includes("ENOENT") &&
+          (platform === "mac"
+            ? " — is ttyd installed? brew install ttyd"
+            : " — is ttyd installed? (Arch: sudo pacman -S ttyd)")} (
+        ttyd's own log: <code>/tmp/iwe-ttyd-{changeId}.log</code>)
       </div>
     );
   }

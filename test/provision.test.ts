@@ -13,6 +13,7 @@ import {
   parseStatus,
   type WtEntry,
 } from "../src/integrations/git.ts";
+import { isMac } from "../src/platform.ts";
 import {
   averageDuration,
   folderFor,
@@ -345,11 +346,18 @@ test("a pull request says where it sits in its stack", () => {
   expect(describeStack({ number: 163, size: 2, position: 1 })).toBe("1 of 2 in stack #163");
 });
 
-test("opening a repository uses macOS's own launcher, by application name", () => {
+test("opening a repository uses the platform's own launcher", () => {
   const command = (id: string) => openers.find((o) => o.id === id)!.command("/w/repo");
-  // No -n: the running IntelliJ gets the project and places it as you have configured.
-  expect(command("open-idea")).toEqual(["open", "-a", "IntelliJ IDEA", "/w/repo"]);
-  expect(command("open-finder")).toEqual(["open", "/w/repo"]);
+  if (isMac) {
+    // No -n: the running IntelliJ gets the project and places it as you have configured.
+    expect(command("open-idea")).toEqual(["open", "-a", "IntelliJ IDEA", "/w/repo"]);
+    expect(command("open-finder")).toEqual(["open", "/w/repo"]);
+  } else {
+    // Linux has no application registry: the desktop's file manager via xdg-open, IntelliJ only
+    // when its launcher script is installed.
+    expect(command("open-files")).toEqual(["xdg-open", "/w/repo"]);
+    expect(command("open-idea")).toEqual(["idea", "/w/repo"]);
+  }
 });
 
 test("a worktree's state is read from git's own porcelain output", () => {
