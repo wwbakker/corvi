@@ -5,6 +5,7 @@ import { sh, shOrThrow, json } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
 import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
+import { isMac, commandAvailable } from "../platform.ts";
 
 /**
  * One worktree, in the shape `wt list --format=json` used to hand us.
@@ -187,20 +188,54 @@ export async function baseFor(change: Change, repo: string): Promise<string | un
 /**
  * Somewhere to open a repository from its row. macOS applications are opened by name rather than
  * by a command-line launcher, which not everyone installs; `open` is always there.
+ *
+ * Linux has no application registry to ask, so it opens by command: the file manager through
+ * `xdg-open` (as much a given there as Finder's `open` is here), and IntelliJ through the `idea`
+ * launcher script — offered only when that launcher is actually installed, checked when the menu
+ * is built rather than once at startup, so installing an IDE is enough for the item to appear.
  */
-export const openers: { id: string; label: string; command: (path: string) => string[] }[] = [
-  {
-    id: "open-idea",
-    label: "Open in IntelliJ",
-    // Handed to the running IntelliJ rather than starting a second one, so it opens the project
-    // the way you have it configured (Settings > Appearance & Behavior > System Settings >
-    // "Open project in").
-    command: (path) => ["open", "-a", "IntelliJ IDEA", path],
-  },
-  { id: "open-finder", label: "Open in Finder", command: (path) => ["open", path] },
-];
+type Opener = {
+  id: string;
+  label: string;
+  command: (path: string) => string[];
+  /** Whether the opener can work at all. Undefined means unconditional; a check here keeps a
+   * missing tool's item out of the menu rather than presenting a button that fails. */
+  available?: () => boolean;
+};
 
-const openMenu = (repo: string) => openers.map(({ id, label }) => ({ id, label, arg: repo }));
+export const openers: Opener[] = isMac
+  ? [
+      {
+        id: "open-idea",
+        label: "Open in IntelliJ",
+        // Handed to the running IntelliJ rather than starting a second one, so it opens the project
+        // the way you have it configured (Settings > Appearance & Behavior > System Settings >
+        // "Open project in").
+        command: (path) => ["open", "-a", "IntelliJ IDEA", path],
+      },
+      { id: "open-finder", label: "Open in Finder", command: (path) => ["open", path] },
+    ]
+  : [
+      {
+        id: "open-idea",
+        label: "Open in IntelliJ",
+        // The JetBrains launcher script opens the directory as a project in the running IDE when
+        // there is one, like `open -a` does on macOS. Only on the menu when `idea` is on PATH.
+        command: (path) => ["idea", path],
+        available: () => commandAvailable("idea"),
+      },
+      {
+        id: "open-files",
+        label: "Open in Files",
+        // Opens in whatever file manager the desktop ships; `xdg-open` is on every desktop Linux.
+        command: (path) => ["xdg-open", path],
+      },
+    ];
+
+const openMenu = (repo: string) =>
+  openers
+    .filter((o) => o.available?.() ?? true)
+    .map(({ id, label }) => ({ id, label, arg: repo }));
 
 /** Repositories worked on in place rather than through a worktree. */
 export const isDirect = (change: Change, repo: string): boolean =>

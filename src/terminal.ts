@@ -4,6 +4,7 @@ import { openSync, closeSync } from "node:fs";
 import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
+import { isMac, loopbackInterface } from "./platform.ts";
 import { sh, shOrThrow } from "./sh.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
@@ -122,7 +123,9 @@ async function start(change: Change): Promise<Running> {
     [
       "--writable",
       "--interface",
-      "lo0", // localhost only: this is a shell, it has no business on the network
+      // Loopback by interface name (lo0 on macOS, lo on Linux): this is a shell, it has no
+      // business on the network.
+      loopbackInterface,
       "--port",
       String(port),
       "-t",
@@ -132,9 +135,9 @@ async function start(change: Change): Promise<Running> {
       // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
       // browser. xterm.js can be told to hand it back while a modifier is held — on macOS that
       // modifier is option, and only if this is switched on. Without it there is no way to
-      // select text for the system clipboard at all.
-      "-t",
-      "macOptionClickForcesSelection=true",
+      // select text for the system clipboard at all. The flag is meaningless elsewhere, where
+      // plain drag selection already reaches the clipboard, so it is macOS-only.
+      ...(isMac ? ["-t", "macOptionClickForcesSelection=true"] : []),
       "tmux",
       "new-session",
       "-A", // attach if it exists, create if it does not
