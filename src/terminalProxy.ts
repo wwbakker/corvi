@@ -53,6 +53,12 @@ export const keysScript = `
     parent.postMessage({ iwe: "new-window" }, location.origin);
   });
 
+  // A right click is tmux's: with mouse mode on, ttyd reports it to the pane and tmux draws its
+  // own menu in the grid. The browser does not know that happened and shows its own menu over
+  // it regardless, which is the second, unwanted one — there is nothing in a terminal to Inspect
+  // Element on, so it is switched off rather than merely out of the way.
+  window.addEventListener("contextmenu", (e) => e.preventDefault());
+
   // Capture phase: xterm.js listens on the textarea and would otherwise send its carriage
   // return first.
   window.addEventListener(

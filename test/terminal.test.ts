@@ -228,3 +228,16 @@ test.skipIf(!usable)("the page sends CSI u for the keys a terminal cannot encode
   expect(frames).toEqual(["0\u001b[13;2u", "0\u001b[13;5u", "0\u001b[13;6u"]);
   await page.close();
 }, 30_000);
+
+test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", async () => {
+  // tmux draws its own menu into the terminal grid when mouse mode reports a right click; the
+  // browser does not know that happened, and shows its own on top unless told not to.
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.addScriptTag({ url: "/terminal-keys.js" });
+  const prevented = await page.evaluate(
+    () => !window.dispatchEvent(new MouseEvent("contextmenu", { cancelable: true })),
+  );
+  expect(prevented).toBe(true);
+  await page.close();
+});

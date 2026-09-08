@@ -56,6 +56,11 @@ const plist = (): string => `<?xml version="1.0" encoding="UTF-8"?>
   <!-- The server is on plain HTTP on the loopback address, which is the only thing it listens on. -->
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
+  <!-- Without this string macOS refuses the microphone to anything in this app's process tree
+       outright — no prompt, just a denial — which is what made a voice extension work in iTerm
+       (which declares its own) and fail silently in here: the terminal is ttyd, tmux and your
+       shell, all spawned from this app, so this app is who the permission is asked of. -->
+  <key>NSMicrophoneUsageDescription</key><string>${NAME} asks for the microphone on behalf of whatever is running in its terminal — a voice extension, for instance — the same way any terminal app does.</string>
 </dict>
 </plist>
 `;
