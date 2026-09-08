@@ -169,10 +169,13 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.keyboard.press("Meta+t");
   expect(await until(() => strip.count(), 4)).toBe(4);
 
-  // Selecting one makes it tmux's current window.
+  // Selecting one makes it tmux's current window. The first entry is the lowest index, which is
+  // the session's base: 0 by default, but a user's ~/.tmux.conf may shift it — the private
+  // server this test runs still reads that file.
+  const baseIndex = (await tmux("show-window-option", "-g", "base-index")).trim().split(" ").pop() ?? "0";
   await strip.first().click();
   await Bun.sleep(500);
-  expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe("0");
+  expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe(baseIndex);
 
   // Clicking a window must not take the keyboard with it: you click a window to type in it.
   await page.locator(".sidebar .new-window").click();

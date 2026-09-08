@@ -4,7 +4,7 @@ import { openSync, closeSync } from "node:fs";
 import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
-import { isMac, loopbackInterface } from "./platform.ts";
+import { isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { sh, shOrThrow } from "./sh.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
@@ -111,6 +111,17 @@ const withTimeout = <T,>(work: Promise<T>, ms: number): Promise<T> =>
   ]);
 
 async function start(change: Change): Promise<Running> {
+  // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
+  // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
+  // a package install is all that is wanted.
+  if (!commandAvailable("ttyd"))
+    throw new Error(
+      `ttyd is not installed — the terminal cannot start (Arch: sudo pacman -S ttyd${isMac ? "; macOS: brew install ttyd" : ""})`,
+    );
+  if (!commandAvailable("tmux"))
+    throw new Error(
+      `tmux is not installed — the terminal cannot start (Arch: sudo pacman -S tmux${isMac ? "; macOS: brew install tmux" : ""})`,
+    );
   // Only reached when no ttyd could be adopted, so anything still running for this change is a
   // leftover that nothing can reach: a port we no longer know, or a process that stopped
   // answering. The tmux session behind it survives either way.
@@ -189,7 +200,14 @@ async function start(change: Change): Promise<Running> {
   );
   child.unref();
   closeSync(logFd); // ttyd holds its own copy now
-  await listening(port);
+  // A spawn that failed outright (the binary vanished between the check and now, say) must be
+  // the reported cause rather than a five-second timeout: listen for it and race it against the
+  // port. After the port opens the listener is dead weight — a reject on a settled promise is a
+  // no-op, and it keeps the event from arriving unhandled.
+  await new Promise<void>((resolve, reject) => {
+    child.once("error", reject);
+    listening(port).then(resolve, reject);
+  });
   const found = { port, pid: child.pid! };
   await Bun.write(notePath(change.id), JSON.stringify(found) + "\n");
   return found;

@@ -66,7 +66,9 @@ export function TerminalPane({
       <div className="error-banner">
         {error}
         {error.includes("ENOENT") &&
-          (platform === "mac" ? " — is ttyd installed? brew install ttyd" : " — is ttyd installed?")} (
+          (platform === "mac"
+            ? " — is ttyd installed? brew install ttyd"
+            : " — is ttyd installed? (Arch: sudo pacman -S ttyd)")} (
         ttyd's own log: <code>/tmp/iwe-ttyd-{changeId}.log</code>)
       </div>
     );
