@@ -1,11 +1,12 @@
-import { Effect, Either, Option } from "effect";
-import { isFinished, type Change, type CompletionStep, type Integration, type WidgetItem, type Widget } from "../types.ts";
+import { Effect, Either } from "effect";
+import { isFinished, type Change, type CompletionStep, type Widget, type WidgetItem } from "../types.ts";
 import type { Workspace } from "../config.ts";
 import { workspaceById, workspaceOf, usesJira } from "../workspaces.ts";
-import { provideWorkspace } from "../context.ts";
-import { workspaceOption } from "../effect/tags.ts";
+import { runRoute } from "../effect/run.ts";
+import { capabilitiesLayer } from "./services.ts";
 import type {
-  ChangeContext,
+  Card,
+  Capabilities,
   CompletionStepContributor,
   DescriptionSection,
   ExtensionFactory,
@@ -22,21 +23,25 @@ import type {
  * enablement is per request, read live from the config, which is why toggling an extension on
  * the settings page takes effect at once.
  *
- * Built-ins only, so far: the loader is this one static list. When out-of-tree extensions
- * arrive, the list becomes a discovery pass and nothing else here changes.
+ * Contributed handlers are Effects (src/extensions/api.ts). The host runs each one inside
+ * `capabilitiesLayer(workspaceOf(change))` — the request's workspace plus the four services —
+ * so an extension's requirements arrive through the R channel and nothing needs bridging:
+ * no ambient store, no promise seam. Built-ins only, so far: the loader is this one static
+ * list. When out-of-tree extensions arrive, the list becomes a discovery pass and nothing
+ * else here changes.
  */
 
 /** One extension, as loaded: its identity plus everything it contributed. */
 export type LoadedExtension = {
   name: string;
   title: string;
-  cards: Integration[];
+  cards: Card[];
   wizardSteps: WizardStep[];
   titleSources: TitleSource[];
   descriptionSections: DescriptionSection[];
   completionSteps: CompletionStepContributor[];
   /** Handlers registered with `on("change:created")`, in registration order. */
-  changeCreated: ((change: Change, ctx: ChangeContext) => Promise<void>)[];
+  changeCreated: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
   /** `"GET /issues"` → handler, under `/api/ext/<name>/…`. */
   routes: Map<string, RouteHandler>;
 };
@@ -80,8 +85,8 @@ export function loadExtension(name: string, title: string, factory: ExtensionFac
 }
 
 // The built-ins, in dashboard order: local changes, then CI, then the ticket cards. Each is a
-// module whose default export is a factory taking the API — the same shape a future out-of-tree
-// extension will have.
+// module whose default export is a factory taking the API — the same shape a future
+// out-of-tree extension will have.
 import gitExtension from "./git/index.ts";
 import ciExtension from "./ci/index.ts";
 import jiraExtension from "./jira/index.ts";
@@ -95,10 +100,10 @@ loadExtension("github-issues", "GitHub issues", githubIssuesExtension);
 /**
  * Which extensions exist for this workspace.
  *
- * A workspace that names none has all of them — which is what IWE was before extensions existed,
- * and what an unconfigured machine still gets. One legacy exception: a workspace could already
- * switch Jira off with its own `jira: false` flag, and that flag keeps meaning something until
- * Jira's settings move into its extension.
+ * A workspace that names none has all of them — which is what IWE was before extensions
+ * existed, and what an unconfigured machine still gets. One legacy exception: a workspace
+ * could already switch Jira off with its own `jira: false` flag, and that flag keeps meaning
+ * something until Jira's settings move into its extension.
  */
 export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   const names = workspace.extensions;
@@ -107,19 +112,16 @@ export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   return loaded.filter((e) => wanted.has(e.name));
 };
 
-/** The cards a change's dashboard shows: the ones its workspace has at all. */
-export const cardsFor = (change: Change): Integration[] =>
-  extensionsFor(workspaceOf(change)).flatMap((e) => e.cards);
+/** The cards a change's dashboard shows, with the extension each belongs to — the extension's
+ * name is the card's identity on the routes. */
+export const cardsFor = (change: Change): { name: string; card: Card }[] =>
+  extensionsFor(workspaceOf(change)).flatMap((e) => e.cards.map((card) => ({ name: e.name, card })));
 
-/** One card by name, across every loaded extension. A change's workspace governs which cards
- * are *listed*; a card addressed directly is looked up everywhere, as it always was. */
-export const cardByName = (name: string): Integration | undefined => {
-  for (const ext of loaded) {
-    const card = ext.cards.find((c) => c.name === name);
-    if (card) return card;
-  }
-  return undefined;
-};
+/** One card by the extension's name, across every loaded extension. A change's workspace
+ * governs which cards are *listed*; a card addressed directly is looked up everywhere, as it
+ * always was. */
+export const cardByName = (name: string): Card | undefined =>
+  loaded.find((e) => e.name === name)?.cards[0];
 
 /** The wizard steps of a workspace, in presentation order: issue steps before the change
  * details, repository-aware steps after the repositories are picked. */
@@ -141,140 +143,127 @@ export const descriptionSectionsFor = (workspace: Workspace): DescriptionSection
 export const completionStepsFor = (workspace: Workspace): CompletionStepContributor[] =>
   extensionsFor(workspace).flatMap((e) => e.completionSteps);
 
-// ---------------------------------------------------------------------------
-// Running extension code with the request's workspace attached.
-// ---------------------------------------------------------------------------
-
-/** The context handed to hooks: the workspace this request runs as. Outside a request — a test,
- * a startup call — the change's own workspace stands in. */
-const contextFor = (change: Change, ws: Workspace | undefined): ChangeContext => ({
-  workspace: ws ?? workspaceOf(change),
-});
-
-/** Run one Promise-shaped piece of extension code inside the request's workspace: every
- * subprocess it starts, however deep, carries the workspace's environment. This is the same
- * bridge the cards have always used — their methods are Promises so tests can stub them, and
- * the workspace reaches them through the ambient store. */
-export const bridged = <A>(work: (ws: Workspace | undefined) => Promise<A>): Effect.Effect<A, unknown> =>
-  Effect.flatMap(workspaceOption, (ws) =>
-    Effect.tryPromise({
-      try: () => {
-        const run = () => work(Option.getOrUndefined(ws));
-        return Option.isSome(ws) ? provideWorkspace(ws.value, run) : run();
-      },
-      catch: (e) => e,
-    }));
-
-/** A change-scoped bridge: the same, with the `ChangeContext` the hooks take. */
-const bridgedFor = <A>(
+/** Run one contributed effect as the change's workspace: the capabilities layer provides the
+ * Workspace tag, Shell, Cache, Settings and Bus, and the effect's requirements are satisfied
+ * through the R channel — nothing here bridges across a promise seam, because there is none. */
+const asWorkspace = <A, E>(
   change: Change,
-  work: (ctx: ChangeContext) => Promise<A>,
-): Effect.Effect<A, unknown> =>
-  Effect.flatMap(workspaceOption, (ws) =>
-    Effect.tryPromise({
-      try: () => {
-        const ctx = contextFor(change, Option.getOrUndefined(ws));
-        const run = () => work(ctx);
-        return Option.isSome(ws) ? provideWorkspace(ctx.workspace, run) : run();
-      },
-      catch: (e) => e,
-    }));
+  effect: Effect.Effect<A, E, Capabilities>,
+): Effect.Effect<A, E> => Effect.provide(effect, capabilitiesLayer(workspaceOf(change)));
+
+/** A failure's message, the way every surface's error handling reports it. */
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 
 /**
  * Run every `change:created` hook for a freshly created change. Failures are collected rather
  * than thrown: the change already exists, and a half-provisioned change is fixable from the
- * dashboard once you can see what went wrong.
+ * dashboard once you can see what went wrong. A hook that failed stops its own extension's
+ * later hooks — they would build on a half-done job — but never the extensions after it.
  */
 export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]> =>
   Effect.gen(function* () {
     const results: ProvisionResult[] = [];
     for (const ext of extensionsFor(workspaceOf(change))) {
       for (const handler of ext.changeCreated) {
-        const outcome = yield* bridgedFor(change, (ctx) => handler(change, ctx)).pipe(
+        const outcome = yield* asWorkspace(change, handler(change)).pipe(
           Effect.map(() => ({ integration: ext.name, ok: true }) as ProvisionResult),
-          Effect.catchAll((e) =>
-            Effect.succeed({
-              integration: ext.name,
-              ok: false,
-              error: e instanceof Error ? e.message : String(e),
-            })),
+          Effect.catchAll((e) => Effect.succeed({ integration: ext.name, ok: false, error: messageOf(e) })),
         );
         results.push(outcome);
-        // A hook that failed may have left its extension half-done, and its later hooks would
-        // build on that. Stop this extension, keep going with the others.
         if (!outcome.ok) break;
       }
     }
     return results;
   });
 
-/** Promise facade over provisionEffect, in the old signature. Kept for the test suite. */
+/** Promise facade over provisionEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified; the server uses the effect directly. */
 export const provision = (change: Change): Promise<ProvisionResult[]> =>
   Effect.runPromise(provisionEffect(change));
 
-/** One card's widget; a thrown error becomes a red card rather than a failed request. */
-export const statusOneEffect = (card: Integration, change: Change): Effect.Effect<Widget> =>
+/** One card's widget; a failed effect is a red card carrying the error's message, never a
+ * failed request. A finished change's rows lose their actions — reading, not acting. The
+ * name is the extension's own, which the browser knows the card by; the host has it wherever
+ * it found the card, and the contract keeps the Card name-free. */
+export const statusOneEffect = (name: string, card: Card, change: Change): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
-      Effect.gen(function* () {
-        if (!card.status) {
-          return yield* Effect.fail(new Error(`${card.name} reports per repository`));
-        }
-        const widget: Widget = yield* bridged(() => card.status!(change));
-        return isFinished(change) ? { ...widget, items: readOnly(widget.items) } : widget;
-      }),
+      asWorkspace(
+        change,
+        card.status
+          ? card.status(change)
+          : Effect.fail(new Error(`${card.title} reports per repository`)),
+      ),
     );
     if (Either.isLeft(found)) {
       const e = found.left;
       return {
-        integration: card.name,
+        integration: name,
         title: card.title,
         state: "error",
-        summary: e instanceof Error ? e.message : String(e),
+        summary: messageOf(e),
         items: [],
       };
     }
-    return found.right;
+    const widget = found.right;
+    return isFinished(change) ? { ...widget, items: readOnly(widget.items) } : widget;
   });
 
-/** One repository's rows, for the cards that report per repository. A failure becomes a red row
- * for that repository only: the others keep loading. */
+/** One repository's rows, for the cards that report per repository. A failed effect is a red
+ * row for that repository only: the others keep loading. */
 export const repoStatusOfEffect = (
-  card: Integration,
+  card: Card,
   change: Change,
   repo: string,
 ): Effect.Effect<WidgetItem[]> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
-      Effect.gen(function* () {
-        if (!card.repoStatus) {
-          return yield* Effect.fail(new Error(`${card.name} has no per-repository view`));
-        }
-        const items: WidgetItem[] = yield* bridged(() => card.repoStatus!(change, repo));
-        return isFinished(change) ? readOnly(items) : items;
-      }),
+      asWorkspace(
+        change,
+        card.repoStatus
+          ? card.repoStatus(change, repo)
+          : Effect.fail(new Error(`${card.title} has no per-repository view`)),
+      ),
     );
     if (Either.isLeft(found)) {
       const e = found.left;
       return [
         {
           label: repo.split("/").pop() ?? repo,
-          detail: e instanceof Error ? e.message : String(e),
+          detail: messageOf(e),
           state: "error",
         },
       ];
     }
-    return found.right;
+    const items = found.right;
+    return isFinished(change) ? readOnly(items) : items;
   });
 
-/** Promise facade over repoStatusOfEffect, in the old signature. Kept for the test suite. */
-export const repoStatusOf = (
-  card: Integration,
+/** Promise facade over repoStatusOfEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified; the server uses the effect directly. */
+export const repoStatusOf = (card: Card, change: Change, repo: string): Promise<WidgetItem[]> =>
+  Effect.runPromise(repoStatusOfEffect(card, change, repo));
+
+/** Perform an action a card's rows advertised — the POST `/api/changes/:id/:integration/:action`
+ * path. A finished change refuses: the buttons are gone from its dashboard, but a page may
+ * have been open since before it finished, and this is where the truth lives. */
+export const runCardEffect = (
+  card: Card,
   change: Change,
-  repo: string,
-): Promise<WidgetItem[]> => Effect.runPromise(repoStatusOfEffect(card, change, repo));
+  action: string,
+  arg: string | undefined,
+): Effect.Effect<void, unknown> =>
+  asWorkspace(
+    change,
+    card.run
+      ? card.run(change, action, arg)
+      : Effect.fail(new Error(`${card.title} has no actions`)),
+  );
+
+/** The widget's `integration` field is the identity the browser knows the card by — the
+ * extension's name, carried by the caller (see statusOneEffect). */
 
 /**
  * A change that is over is one to read, not one to act on.
@@ -292,7 +281,8 @@ function readOnly(items: WidgetItem[]): WidgetItem[] {
 }
 
 /** The extension routes as one dispatcher for the server's route table: `/api/ext/<name>/<path>`,
- * run as the workspace the request names. Unknown routes answer undefined, which the server
+ * run as the workspace the request names, failures mapped to status codes by the same
+ * `runRoute` the core's routes go through. Unknown routes answer undefined, which the server
  * turns into its 404. */
 export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefined => {
   const url = new URL(req.url);
@@ -301,8 +291,10 @@ export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefi
   const ext = loaded.find((e) => e.name === match[1]);
   const handler = ext?.routes.get(`${req.method} /${match[2]}`);
   if (!handler) return undefined;
-  return provideWorkspace(workspaceById(url.searchParams.get("workspace") ?? undefined), () =>
-    handler(req));
+  const route = handler(req).pipe(
+    Effect.provide(capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined))),
+  );
+  return runRoute(route);
 };
 
 /** Re-exported for the contributors' convenience; the type lives in types.ts with the rest of

@@ -1,7 +1,6 @@
 import { Effect, Either } from "effect";
-import type { Change, CompletionStep, Integration, Widget, WidgetItem, WidgetState } from "../../types.ts";
-import { config } from "../../config.ts";
-import { jiraOf, workspaceOf } from "../../workspaces.ts";
+import type { Change, CompletionStep, Widget, WidgetItem, WidgetState } from "../../types.ts";
+import { jiraOf } from "../../workspaces.ts";
 import { swrEffect } from "../../cache.ts";
 import { jiraFetchEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
 import {
@@ -11,23 +10,25 @@ import {
   issuesByKeysEffect,
   issueFrom,
   moveIssueEffect,
-  siteOf,
   type IssueJson,
   type Site,
 } from "./jira.ts";
 import { accountIdEffect } from "./account.ts";
 import { ticketOf } from "./shared.ts";
-import type { IweExtensionApi } from "../api.ts";
+import { Settings, Workspace, type IweExtensionApi } from "../api.ts";
 
 /**
- * The jira extension: the pilot migration out of the core.
+ * The jira extension: the pilot migration out of the core, now on the Effect contract.
  *
- * Everything it does is contributed, nothing assumed: a dashboard card, the wizard's issue step
- * (declared here, rendered by its client component), provisioning a new change's ticket, a
- * title source, a pull-request description section, the completion step that closes the ticket,
- * and the two routes its step fetches from. The change's ticket key is read through
+ * Everything it does is contributed, nothing assumed: a dashboard card, the wizard's issue
+ * step (declared here, rendered by its client component), provisioning a new change's ticket,
+ * a title source, a pull-request description section, the completion step that closes the
+ * ticket, and the two routes its step fetches from. The change's ticket key is read through
  * `ticketOf` — the `extensions` bag where its step now writes, or `change.jira` where it used
  * to, which is what every change recorded before extensions existed still carries.
+ *
+ * Its effects require nothing beyond the capabilities: `Workspace` for whose Jira a change's
+ * ticket belongs to, `Settings` for the assignee and the transitions.
  */
 
 /** Jira is the slowest of the sources and the least volatile. */
@@ -40,7 +41,7 @@ const stateOf = (status: string): WidgetState => {
   return "none";
 };
 
-/** The widget, in Effect: a failure is a red card rather than a thrown request. */
+/** The widget, in Effect: a failure is a red card rather than a failed request. */
 const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
@@ -84,30 +85,26 @@ const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Wi
     };
   });
 
-/** The card. No transition buttons: In Progress is set on creation, and Done belongs to
- * completing the whole change (merge the PR, close the ticket). */
-const card: Integration = {
-  name: "jira",
-  title: "Jira",
-
-  async status(change: Change): Promise<Widget> {
-    const key = ticketOf(change);
-    if (!key) {
-      return {
-        integration: "jira",
-        title: "Jira",
-        state: "none",
-        summary: "no issue linked",
-        items: [],
-      };
-    }
-    // The widget is a display, so it may be a minute old; the completion step is not.
-    return await Effect.runPromise(statusEffect(change, siteOf(change), key));
-  },
-};
-
 export default function (api: IweExtensionApi) {
-  api.registerCard(card);
+  api.registerCard({
+    title: "Jira",
+
+    status: (change) =>
+      Effect.gen(function* () {
+        const key = ticketOf(change);
+        if (!key) {
+          return {
+            integration: "jira",
+            title: "Jira",
+            state: "none" as const,
+            summary: "no issue linked",
+            items: [],
+          };
+        }
+        // The widget is a display, so it may be a minute old; the completion step is not.
+        return yield* statusEffect(change, jiraOf(yield* Workspace), key);
+      }),
+  });
 
   // The wizard's issue step: content in client.tsx, this is the declaration the page is told
   // about. Its id is the payload key the step writes the picked issue under.
@@ -115,91 +112,105 @@ export default function (api: IweExtensionApi) {
 
   // A new change means the ticket is being worked on: assign it and move it to the start
   // status. One hook, reported to the wizard under this extension's name.
-  api.on("change:created", async (change) => {
-    const key = ticketOf(change);
-    if (!key) return;
-    const site = jiraOf(workspaceOf(change));
-    const account = await Effect.runPromise(accountIdEffect(config.jiraAssignee, site));
-    if (account) {
-      await Effect.runPromise(
-        jiraFetchEffect(`/rest/api/3/issue/${key}/assignee`, {
-          configFile: site.configFile,
-          tokenEnv: site.tokenEnv,
-          method: "PUT",
-          body: { accountId: account },
-        }),
-      );
-    }
-    const current = (await Effect.runPromise(issueByKeyEffect(key, site)))?.status;
-    if (current?.toLowerCase() !== config.jiraStartTransition.toLowerCase()) {
-      await Effect.runPromise(moveIssueEffect(key, config.jiraStartTransition, site));
-    }
-  });
+  api.on(
+    "change:created",
+    (change) =>
+      Effect.gen(function* () {
+        const key = ticketOf(change);
+        if (!key) return;
+        const workspace = yield* Workspace;
+        const settings = yield* Settings;
+        const site = jiraOf(workspace);
+        const account = yield* accountIdEffect(settings.jiraAssignee, site);
+        if (account) {
+          yield* jiraFetchEffect(`/rest/api/3/issue/${key}/assignee`, {
+            configFile: site.configFile,
+            tokenEnv: site.tokenEnv,
+            method: "PUT",
+            body: { accountId: account },
+          });
+        }
+        const current = (yield* issueByKeyEffect(key, site))?.status;
+        if (current?.toLowerCase() !== settings.jiraStartTransition.toLowerCase()) {
+          yield* moveIssueEffect(key, settings.jiraStartTransition, site);
+        }
+      }),
+  );
 
   // The overview names a change after its ticket's summary.
   api.registerTitleSource({
     applies: (change) => Boolean(ticketOf(change)),
-    lookup: async (changes, ctx) => {
-      const site = jiraOf(ctx.workspace);
-      const keys = [...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k)))];
-      const issues = await Effect.runPromise(issuesByKeysEffect(keys, site));
-      const titles = new Map<string, string>();
-      for (const change of changes) {
-        const key = ticketOf(change);
-        const summary = key && issues.get(key)?.summary;
-        if (summary) titles.set(change.id, summary);
-      }
-      return titles;
-    },
+    lookup: (changes) =>
+      Effect.gen(function* () {
+        const site = jiraOf(yield* Workspace);
+        const keys = [...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k)))];
+        const issues = yield* issuesByKeysEffect(keys, site);
+        const titles = new Map<string, string>();
+        for (const change of changes) {
+          const key = ticketOf(change);
+          const summary = key && issues.get(key)?.summary;
+          if (summary) titles.set(change.id, summary);
+        }
+        return titles;
+      }),
   });
 
   // The pull-request description opens with the ticket and what it is.
   api.registerDescriptionSection({
-    heading: async (change) => {
-      const key = ticketOf(change);
-      if (!key) return undefined;
-      const issue = await Effect.runPromise(issueByKeyEffect(key, siteOf(change)));
-      return issue?.summary ? `${key} - ${issue.summary}` : key;
-    },
+    heading: (change) =>
+      Effect.gen(function* () {
+        const key = ticketOf(change);
+        if (!key) return undefined;
+        const issue = yield* issueByKeyEffect(key, jiraOf(yield* Workspace));
+        return issue?.summary ? `${key} - ${issue.summary}` : key;
+      }),
   });
 
   // Completing a change closes the ticket, after the merges and before the worktrees go.
   api.registerCompletionStep({
-    plan: (change): CompletionStep | undefined => {
+    plan: (change, world): CompletionStep | undefined => {
       const key = ticketOf(change);
       return key
-        ? { id: "jira", label: `move ${key} to ${config.jiraDoneTransition}`, state: "waiting" }
+        ? { id: "jira", label: `move ${key} to ${world.config.jiraDoneTransition}`, state: "waiting" }
         : undefined;
     },
-    run: async (change) => {
-      const key = ticketOf(change);
-      if (!key) return;
-      await Effect.runPromise(moveIssueEffect(key, config.jiraDoneTransition, siteOf(change)));
-    },
+    run: (change) =>
+      Effect.gen(function* () {
+        const key = ticketOf(change);
+        if (!key) return;
+        const site = jiraOf(yield* Workspace);
+        yield* moveIssueEffect(key, (yield* Settings).jiraDoneTransition, site);
+      }),
   });
 
   // The two routes the wizard's step fetches: the board, and creating an issue into it. An
   // error string rather than a failed request, so a broken or unconfigured Jira still leaves
   // you able to type a change id by hand.
-  api.route("GET", "/issues", async (req) => {
+  api.route("GET", "/issues", (req) => {
     const url = new URL(req.url);
-    const workspace = url.searchParams.get("workspace") ?? undefined;
-    const board = await Effect.runPromise(boardIssuesEffect(workspace, url.searchParams.has("refresh")));
-    return Response.json(board);
+    return Effect.map(
+      boardIssuesEffect(url.searchParams.get("workspace") ?? undefined, url.searchParams.has("refresh")),
+      (board) => Response.json(board),
+    );
   });
-  api.route("POST", "/issues", async (req) => {
-    const body = (await req.json().catch(() => ({}))) as {
-      summary?: string;
-      description?: string;
-      workspace?: string;
-    };
-    const issue = await Effect.runPromise(
-      createIssueEffect({
-        summary: body.summary ?? "",
+  api.route("POST", "/issues", (req) =>
+    Effect.gen(function* () {
+      const body = yield* Effect.orElseSucceed(
+        Effect.tryPromise({
+          try: () => req.json() as Promise<{ summary?: string; description?: string; workspace?: string }>,
+          catch: () => undefined,
+        }),
+        () => ({}) as { summary?: string; description?: string; workspace?: string },
+      );
+      if (!body.summary?.trim()) {
+        return Response.json({ error: "summary required" }, { status: 400 });
+      }
+      const issue = yield* createIssueEffect({
+        summary: body.summary,
         description: body.description,
         workspace: body.workspace,
-      }),
-    );
-    return Response.json(issue, { status: 201 });
-  });
+      });
+      return Response.json(issue, { status: 201 });
+    }),
+  );
 }

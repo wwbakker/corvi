@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change, Integration, WidgetItem, WidgetState } from "../../types.ts";
+import type { Change, WidgetItem, WidgetState } from "../../types.ts";
 import { createPrEffect, prItemEffect } from "../../integrations/github.ts";
 import { checkItemsEffect } from "../../integrations/checks.ts";
 import { pipelineItemsEffect } from "../../integrations/azure.ts";
@@ -70,20 +70,14 @@ const runEffect = (
     yield* createPrEffect(change, repo);
   });
 
-export const ci: Integration = {
-  name: "ci",
-  title: "CI",
-  wide: true,
-
-  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
-    return [(await Effect.runPromise(repoItemEffect(change, repo))).item];
-  },
-
-  async run(change: Change, action: string, repo?: string): Promise<void> {
-    await Effect.runPromise(runEffect(change, action, repo));
-  },
-};
-
 export default function (api: IweExtensionApi) {
-  api.registerCard(ci);
+  api.registerCard({
+    title: "CI",
+    wide: true,
+
+    repoStatus: (change, repo) =>
+      Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
+
+    run: (change, action, repo) => runEffect(change, action, repo),
+  });
 }

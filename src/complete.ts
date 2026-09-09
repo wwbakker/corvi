@@ -11,8 +11,9 @@ import {
   writeSidecarEffect,
 } from "./changes.ts";
 import { stopTerminalEffect } from "./terminal.ts";
+import { config } from "./config.ts";
 import { completionStepsFor } from "./extensions/index.ts";
-import { provideWorkspace } from "./context.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
 
@@ -115,10 +116,12 @@ export function stepsFor(
 }
 
 /** What this change's extensions plan to do, planned once and passed around: a plan that could
- * answer differently twice would be two promises about one completion. */
+ * answer differently twice would be two promises about one completion. Pure functions get
+ * plain data, so the plan reads the config and the workspace as arguments. */
 const plannedContributions = (change: Change): CompletionStep[] =>
   completionStepsFor(workspaceOf(change))
-    .map((contributor) => contributor.plan(change, { workspace: workspaceOf(change) }))
+    .map((contributor) =>
+      contributor.plan(change, { config, workspace: workspaceOf(change) }))
     .filter((s): s is CompletionStep => Boolean(s));
 
 /**
@@ -155,8 +158,9 @@ export const completeChangeEffect = (
     // The extensions' steps, planned once: named in the journal before anything runs, and run
     // from that plan so it cannot promise one thing and do another.
     const workspace = workspaceOf(change);
+    const capabilities = capabilitiesLayer(workspace);
     const contributions = completionStepsFor(workspace)
-      .map((contributor) => ({ contributor, planned: contributor.plan(change, { workspace }) }))
+      .map((contributor) => ({ contributor, planned: contributor.plan(change, { config, workspace }) }))
       .filter((c): c is { contributor: typeof c.contributor; planned: CompletionStep } =>
         Boolean(c.planned));
     progress.steps = [checked, ...stepsFor(change, completion, contributions.map((c) => c.planned))];
@@ -208,10 +212,7 @@ export const completeChangeEffect = (
         planned.id,
         Effect.map(
           Effect.catchAll(
-            Effect.tryPromise({
-              try: () => provideWorkspace(workspace, () => contributor.run(change, { workspace })),
-              catch: (e) => e,
-            }),
+            contributor.run(change).pipe(Effect.provide(capabilities)),
             (e) => new BadRequestError({ message: messageOf(e) }),
           ),
           (note) => (typeof note === "string" ? note : undefined),

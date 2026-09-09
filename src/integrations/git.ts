@@ -1,7 +1,7 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
+import type { Change, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
@@ -157,7 +157,7 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
   };
 }
 
-const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+export const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* directItemEffect(change, repo);
     const label = basename(repo);
@@ -382,7 +382,7 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
   });
 
 /** Create the worktree for this change in `repo`; existing ones are left alone. */
-const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+export const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
     if (yield* worktreeForEffect(change, repo)) return;
@@ -592,25 +592,8 @@ export const removeWorktreeEffect = (
     );
   });
 
-export const git: Integration = {
-  name: "git",
-  title: "Local changes",
-
-  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
-    return [await Effect.runPromise(repoItemEffect(change, repo))];
-  },
-
-  async provision(change: Change): Promise<void> {
-    for (const repo of change.repos) await Effect.runPromise(createWorktreeEffect(change, repo));
-  },
-
-  async run(change: Change, action: string, repo?: string): Promise<void> {
-    await Effect.runPromise(gitRunEffect(change, action, repo));
-  },
-};
-
 /** The `git` integration's action runner, in Effect. */
-const gitRunEffect = (
+export const gitRunEffect = (
   change: Change,
   action: string,
   repo?: string,

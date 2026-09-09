@@ -105,30 +105,14 @@ export type WidgetItem = {
   children?: WidgetItem[];
 };
 
-/** What one integration reports about one change: the dashboard renders this as a card. */
+/** What one extension reports about one change: the dashboard renders this as a card. The
+ * `integration` field is the extension's name — the identity the browser knows the card by. */
 export type Widget = {
   integration: string;
   title: string;
   state: WidgetState;
   summary: string;
   items: WidgetItem[];
-};
-
-export type Integration = {
-  name: string;
-  title: string;
-  /** Asks for the tall column of its own on a wide window: the tree of a CI component is much
-   * taller than the rest put together. */
-  wide?: boolean;
-  /** Whole-widget status, for components that do not work per repository (Jira). */
-  status?(change: Change): Promise<Widget>;
-  /** Rows for one repository. Components that have these are fetched a repository at a time, so
-   * a change with many repositories fills in one by one instead of all at the end. */
-  repoStatus?(change: Change, repo: string): Promise<WidgetItem[]>;
-  /** Bring this component in line with a newly created change: worktrees, ticket status, ... */
-  provision?(change: Change): Promise<void>;
-  /** Perform `action` (an id handed out by `status`) on this change. */
-  run?(change: Change, action: string, arg?: string): Promise<void>;
 };
 
 /** One thing completing a change does, and how it went. Written to disk as it happens: a

@@ -14,7 +14,9 @@ import {
   readNotes,
   writeNotes,
 } from "../src/changes.ts";
-import { git, worktreeFor, currentBranch } from "../src/integrations/git.ts";
+import { createWorktreeEffect, gitRunEffect, repoItemEffect, worktreeFor, currentBranch } from "../src/integrations/git.ts";
+import { Effect } from "effect";
+import type { Change } from "../src/types.ts";
 import { sh } from "../src/sh.ts";
 
 let tmp: string;
@@ -49,24 +51,25 @@ test("create change, provision a worktree, report status, remove it", async () =
   expect(change.branch).toBe("PROJ-1");
   expect(await listChanges()).toHaveLength(1);
 
-  const before = (await git.repoStatus!(change, repo))[0]!;
+  const before = await Effect.runPromise(repoItemEffect(change, repo));
   expect(before.state).toBe("none");
   expect(before.actions?.[0]?.id).toBe("add");
 
   // wt is pointed at the change directory, so the worktree lives with the change's own state.
   // realpath on both sides: macOS temp dirs are symlinks into /private.
-  await git.provision!(change);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
   const found = await worktreeFor(change, repo);
   expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
   expect(await Bun.file(join(found!, "README.md")).text()).toBe("hi\n");
 
-  const after = (await git.repoStatus!(change, repo))[0]!;
+  const after = await Effect.runPromise(repoItemEffect(change, repo));
   // Clean, but this fixture has no remote, so the branch is still only local.
   expect(after.state).toBe("pending");
   expect(after.detail).toContain("clean, no upstream");
 
-  await git.run!(change, "remove", repo);
-  expect((await git.repoStatus!(change, repo))[0]!.state).toBe("none");
+  await Effect.runPromise(gitRunEffect(change, "remove", repo));
+  expect((await Effect.runPromise(repoItemEffect(change, repo))).state).toBe("none");
 });
 
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
@@ -122,7 +125,8 @@ test("a new worktree branches from the remote default, not a stale local main", 
   await sh(["git", "push", "-q", "origin", "main"], other);
 
   const change = await createChange({ id: "PROJ-REMOTE", repos: [clone] });
-  await git.provision!(change);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
 
   const worktree = (await worktreeFor(change, clone))!;
   expect(await Bun.file(join(worktree, "f.txt")).text()).toBe("one\ntwo\n");
@@ -161,7 +165,8 @@ test("a repository used in place is linked and switched, dirty ones are left alo
     direct: [clean, dirty],
   });
   expect(isDirect(change, clean)).toBe(true);
-  await git.provision!(change);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
 
   // Both are linked from the change directory, so it still shows everything the change touches.
   for (const repo of [clean, dirty]) {
@@ -197,7 +202,8 @@ test("a worktree starts from the base branch it was given, not the remote defaul
     repos: [clone],
     base: { [clone]: "origin/PROJ-1-first" },
   });
-  await git.provision!(change);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
 
   // The file only the base branch has must be there: the new branch grew out of it.
   const worktree = (await worktreeFor(change, clone))!;
@@ -205,7 +211,8 @@ test("a worktree starts from the base branch it was given, not the remote defaul
 
   // And a change without a base still starts from the remote default, which has no such file.
   const plain = await createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] });
-  await git.provision!(plain);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(plain.repos, (repo) => createWorktreeEffect(plain, repo), { concurrency: 1 }));
   const plainTree = (await worktreeFor(plain, clone))!;
   expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });
@@ -250,7 +257,8 @@ test("directories left by finished changes are found, and only those", async () 
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
   const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
   const change = await createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] });
-  await git.provision!(change);
+  // The same worktrees the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
   const worktree = (await worktreeFor(change, repo))!;
   expect(worktree).toBe(await realpath(join(changeDir(change.id), "myrepo")));
@@ -376,10 +384,12 @@ test("a change is named after its ticket, and keeps that name when its vendor is
   loadExtension("stub", "Stub", (api) => {
     api.registerTitleSource({
       applies: (c) => Boolean(c.jira),
-      lookup: async (changes) => {
+      lookup: (changes) => {
         asked = changes.map((c) => c.jira!);
-        return new Map(
-          changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+        return Effect.succeed(
+          new Map(
+            changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+          ),
         );
       },
     });
@@ -452,10 +462,12 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
   loadExtension("stub", "Stub", (api) => {
     api.registerTitleSource({
       applies: (c) => Boolean(c.jira),
-      lookup: async (changes) => {
+      lookup: (changes) => {
         asked = changes.map((c) => c.jira!);
-        return new Map(
-          changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+        return Effect.succeed(
+          new Map(
+            changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+          ),
         );
       },
     });

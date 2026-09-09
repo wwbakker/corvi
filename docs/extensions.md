@@ -5,6 +5,21 @@ the "Create change" wizard, a hook that runs when a change is created, a route, 
 titles for the overview. It is the shape pi's extensions have: a module whose default export is
 a factory receiving an API object, contributing to registries instead of being wired in by hand.
 
+Handlers are **Effects**, and that is the dependency-injection contract:
+
+- **The host provides the capabilities** — the request's `Workspace` tag, a `Shell` for
+  subprocesses with the workspace's environment already applied, the answer `Cache`, the
+  `Settings`, and the event `Bus`. An effect requires what it uses through `yield*`; requiring
+  anything outside the union fails to typecheck, which is what makes "no host imports"
+  checkable rather than a matter of discipline.
+- **Failures are values in the error channel.** On the capability surfaces the host handles any
+  failure by its message (a failed card is a red card, a failed lookup contributes nothing), so
+  those channels are `unknown` — fail with whatever typed error you like. Routes are the
+  exception: their failures map to HTTP status codes, so they are typed as the taxonomy
+  (`NotFoundError`, `BadRequestError`, …), exactly like the core's own routes.
+- **Pure functions stay pure.** `applies` and `plan` are synchronous and receive plain data —
+  the completion plan must be answerable before anything runs anyway.
+
 Two ideas run through the model:
 
 - **Additive, not slots.** There is no "the task board" for a workspace to name. The jira
@@ -20,13 +35,13 @@ Two ideas run through the model:
 
 | Surface | API method | What it does |
 |---|---|---|
-| Dashboard card | `registerCard(card)` | A `Widget` per change, fetched on its own; optionally per-repository rows and actions. The same `Integration` shape the built-in components always had. |
-| Wizard step | `registerWizardStep({ id, title, phase })` | A step in "Create change". `phase: "issue"` runs before the change details (it prefills id and branch); `phase: "repos"` runs after the repositories are picked. |
-| Provisioning | `on("change:created", handler)` | Runs when a change was created and its worktrees are in place. A throw is reported to the wizard under the extension's name and never fails the change. |
-| Title source | `registerTitleSource(source)` | Names changes on the overview after their ticket. Asked once per workspace; a source that cannot answer contributes nothing, so stored titles stand. |
+| Dashboard card | `registerCard(card)` | A `Widget` per change, fetched on its own; optionally per-repository rows and actions. Effects requiring capabilities. |
+| Wizard step | `registerWizardStep(step)` | A step in "Create change". `phase: "issue"` runs before the change details (it prefills the id and branch); `phase: "repos"` runs after the repositories are picked. |
+| Provisioning | `on("change:created", handler)` | Runs when a change was created and its worktrees are in place — the git extension creates the worktrees here, jira assigns and moves its ticket. A failure is reported to the wizard under the extension's name and never fails the change. |
+| Title sources | `registerTitleSource(source)` | Names changes on the overview after their ticket. Asked once per workspace; a source that cannot answer contributes nothing, so stored titles stand. |
 | PR description | `registerDescriptionSection(section)` | A heading part, joined with the others into the description's first line. |
-| Completion step | `registerCompletionStep(step)` | Part of completing a change — planned up front, journaled like the core's steps, run after the merges and before the worktrees go. |
-| Routes | `route(method, path, handler)` | Endpoints under `/api/ext/<name>/…`, behind the same origin guard as everything else. |
+| Completion steps | `registerCompletionStep(step)` | Part of completing a change — planned up front, journaled like the core's steps, run after the merges and before the worktrees go. |
+| Routes | `route(method, path, handler)` | Endpoints under `/api/ext/<name>/…`, behind the same origin guard as everything else, failures mapped to status codes by the same `runRoute` the core uses. |
 
 Every hook receives a `ChangeContext` carrying the workspace the request runs as — subprocesses
 started inside it inherit that workspace's environment, so a second client's `gh` or Jira token
@@ -44,26 +59,28 @@ src/extensions/my-extension/
 
 ```ts
 // src/extensions/my-extension/index.ts
-import type { IweExtensionApi } from "../api.ts";
+import { Effect } from "effect";
+import { Shell, Cache, Workspace } from "../api.ts";
 
 export default function (api: IweExtensionApi) {
   api.registerCard({
-    name: "my-extension",
     title: "My extension",
-    async status(change) {
-      return {
-        integration: "my-extension",
-        title: "My extension",
-        state: "ok",
-        summary: "all good",
-        items: [],
-      };
-    },
+    status: (change) =>
+      Effect.gen(function* () {
+        const shell = yield* Shell;          // subprocesses, workspace env applied
+        const cache = yield* Cache;          // read-through with TTL
+        const ws    = yield* Workspace;      // whose client this request is
+        // … shell.run(["my-cli", …]) has the workspace's environment …
+      }),
   });
 
   api.registerWizardStep({ id: "my-extension", title: "My step", phase: "repos" });
 
-  api.route("GET", "/things", async (req) => Response.json({ things: [] }));
+  api.route("GET", "/things", (req) =>
+    Effect.gen(function* () {
+      // fail with BadRequestError/NotFoundError/… and the status code is right
+      return Response.json({ things: [] });
+    }));
 }
 ```
 
@@ -126,10 +143,9 @@ workspace that cares has named its extensions, the flag is history.
 
 ## Scope, honestly stated
 
-- Extensions are **built-ins**: they ship with IWE, are imported statically, and may use host
-  internals (config, cache, `sh`, the shared CLI helpers) directly. That privilege is what
-  dynamic loading will take away, so new code should register through the API and import as
-  little else as possible.
+- Extensions are **built-ins**: they ship with IWE, are imported statically, and get the host's
+  capabilities through the R channel rather than by importing internals. `api.ts` is the whole
+  promise — when out-of-tree extensions arrive, that is all they get.
 - Deployments, terminals and the CI card's composition are still core code. They are candidates
   for the same treatment, not examples of it.
 - There are no interception-style events yet (nothing can block or transform a core action).

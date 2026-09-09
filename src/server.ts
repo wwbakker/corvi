@@ -11,12 +11,12 @@ import {
   writeNotesEffect,
 } from "./changes.ts";
 import {
-  bridged,
   cardByName,
   cardsFor,
   dispatchExtensionRoute,
   provisionEffect,
   repoStatusOfEffect,
+  runCardEffect,
   statusOneEffect,
   wizardStepsFor,
 } from "./extensions/index.ts";
@@ -297,12 +297,12 @@ const server = Bun.serve({
         withChange(req.params.id, (c) =>
           Effect.succeed(
             json(
-              cardsFor(c).map((i) => ({
-                name: i.name,
-                title: i.title,
+              cardsFor(c).map(({ name, card }) => ({
+                name,
+                title: card.title,
                 // Per-repository components are fetched a repository at a time by the browser.
-                perRepo: Boolean(i.repoStatus),
-                wide: Boolean(i.wide),
+                perRepo: Boolean(card.repoStatus),
+                wide: Boolean(card.wide),
               })),
             ),
           ),
@@ -509,15 +509,15 @@ const server = Bun.serve({
       GET: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = cardByName(req.params.integration);
+            const card = cardByName(req.params.integration);
             const repo = new URL(req.url).searchParams.get("path");
-            if (!integration) {
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
             if (!repo) {
               return yield* Effect.fail(new BadRequestError({ message: "path required" }));
             }
-            return json({ items: yield* repoStatusOfEffect(integration, c, repo) });
+            return json({ items: yield* repoStatusOfEffect(card, c, repo) });
           }),
         ),
     },
@@ -527,11 +527,11 @@ const server = Bun.serve({
       GET: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = cardByName(req.params.integration);
-            if (!integration) {
+            const card = cardByName(req.params.integration);
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
-            return json(yield* statusOneEffect(integration, c));
+            return json(yield* statusOneEffect(req.params.integration, card, c));
           }),
         ),
     },
@@ -540,8 +540,8 @@ const server = Bun.serve({
       POST: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = cardByName(req.params.integration);
-            if (!integration?.run) {
+            const card = cardByName(req.params.integration);
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
             // The buttons are gone from a finished change's dashboard, but the page may have been
@@ -550,13 +550,13 @@ const server = Bun.serve({
               return yield* Effect.fail(new ConflictError({ message: `${c.id} is finished` }));
             }
             const body = (yield* bodyOrEmpty(req)) as { arg?: string };
-            yield* bridged(() => integration.run!(c, req.params.action, body.arg));
+            yield* runCardEffect(card, c, req.params.action, body.arg);
             // Per-repository components answer with the rows of the repository acted on; the
             // argument of every such action is that repository.
-            if (integration.repoStatus && body.arg) {
-              return json({ items: yield* repoStatusOfEffect(integration, c, body.arg) });
+            if (card.repoStatus && body.arg) {
+              return json({ items: yield* repoStatusOfEffect(card, c, body.arg) });
             }
-            return json(yield* statusOneEffect(integration, c));
+            return json(yield* statusOneEffect(req.params.integration, card, c));
           }),
         ),
     },

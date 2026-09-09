@@ -31,12 +31,16 @@ const store = new Map<string, Entry>();
 
 /** The cached value, refreshed when older than `ttl`. Same semantics as `swr`, in Effect: the
  * first call for a key waits for the work; every later one is instant, and pays only for a
- * background refresh. Concurrent callers share one run rather than starting several. */
-export const swrEffect = <T, E>(
+ * background refresh. Concurrent callers share one run rather than starting several.
+ *
+ * The work's requirements (R) pass through untouched: the cache stores outcomes, not
+ * contexts, and every caller still provides what the work needs — on a hit that demand is
+ * simply unexercised. */
+export const swrEffect = <T, E, R>(
   key: string,
   ttl: number,
-  work: Effect.Effect<T, E>,
-): Effect.Effect<T, E> =>
+  work: Effect.Effect<T, E, R>,
+): Effect.Effect<T, E, R> =>
   Effect.gen(function* () {
     const found = store.get(key);
 
@@ -57,7 +61,7 @@ export const swrEffect = <T, E>(
 /** The single-flight refresh: whoever asks first runs the work, everyone who arrives while it
  * runs awaits the same Deferred. A failure puts back what was there before — a CLI that fails
  * is news about the CLI, not about the work. */
-const refreshEffect = <T, E>(key: string, work: Effect.Effect<T, E>): Effect.Effect<T, E> =>
+const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
   Effect.gen(function* () {
     const found = store.get(key);
     if (found?.work) {

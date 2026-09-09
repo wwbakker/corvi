@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { listChangesEffect, writeChangeEffect } from "./changes.ts";
 import { titleSourcesFor } from "./extensions/index.ts";
-import { provideWorkspace } from "./context.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 
 /**
@@ -37,21 +37,23 @@ export const refreshTitlesEffect = (): Effect.Effect<Record<string, string>, unk
     const answered = yield* Effect.forEach(
       [...byWorkspace.values()],
       (group) =>
-        Effect.tryPromise({
-          try: async () => {
-            const workspace = workspaceOf(group[0]!);
-            const titles = new Map<string, string>();
-            for (const source of titleSourcesFor(workspace)) {
-              const claimed = group.filter((c) => source.applies(c));
-              if (claimed.length === 0) continue;
-              const found = await provideWorkspace(workspace, () =>
-                source.lookup(claimed, { workspace }));
-              for (const [id, summary] of found) titles.set(id, summary);
-            }
-            return titles;
-          },
-          catch: (e) => e,
-        }).pipe(Effect.catchAll(() => Effect.succeed(new Map<string, string>()))),
+        Effect.gen(function* () {
+          const workspace = workspaceOf(group[0]!);
+          const capabilities = capabilitiesLayer(workspace);
+          const titles = new Map<string, string>();
+          for (const source of titleSourcesFor(workspace)) {
+            const claimed = group.filter((c) => source.applies(c));
+            if (claimed.length === 0) continue;
+            // A source that fails contributes nothing: a vendor being down is not a reason to
+            // blank the names.
+            const found = yield* source.lookup(claimed).pipe(
+              Effect.provide(capabilities),
+              Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+            );
+            for (const [id, summary] of found) titles.set(id, summary);
+          }
+          return titles;
+        }),
       { concurrency: "unbounded" },
     );
     const known = new Map<string, string>(answered.flatMap((m) => [...m]));

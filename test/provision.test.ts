@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadExtension, loaded, provision } from "../src/extensions/index.ts";
+import { Effect } from "effect";
 import {
   describe,
   findWorktree,
@@ -61,14 +62,15 @@ test("provisioning reports every extension and survives a failing one", async ()
   // provisioning must still run the second's.
   const restore = loaded.splice(0, loaded.length);
   loadExtension("one", "One", (api) => {
-    api.on("change:created", async () => {
+    api.on("change:created", () => {
       calls.push("one");
-      throw new Error("one exploded");
+      return Effect.fail(new Error("one exploded"));
     });
   });
   loadExtension("two", "Two", (api) => {
-    api.on("change:created", async () => {
+    api.on("change:created", () => {
       calls.push("two");
+      return Effect.succeed(undefined);
     });
   });
 

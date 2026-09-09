@@ -13,7 +13,7 @@ import {
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";
-import type { Workspace } from "../src/config.ts";
+import { config, type Workspace } from "../src/config.ts";
 import type { Change } from "../src/types.ts";
 
 /**
@@ -116,7 +116,7 @@ test("a completion step is planned only when the change has something for it", (
   // readable from either place the key may live.
   const jira = loaded.find((e) => e.name === "jira")!;
   const contributor = jira.completionSteps[0]!;
-  const ctx = { workspace: ws() };
+  const ctx = { config, workspace: ws() };
   expect(contributor.plan({ id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" }, ctx)).toEqual({
     id: "jira",
     label: "move PROJ-1 to Done",

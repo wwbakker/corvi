@@ -4,7 +4,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, changeDir } from "../src/changes.ts";
 import {
-  git,
   setRepos,
   worktreeFor,
   currentBranch,
@@ -13,6 +12,7 @@ import {
   isDirect,
 } from "../src/integrations/git.ts";
 import { sh } from "../src/sh.ts";
+import { provision } from "../src/extensions/index.ts";
 import type { Change } from "../src/types.ts";
 
 /**
@@ -59,7 +59,7 @@ test("adding a repository creates its worktree, removing one takes it away", asy
   const a = await clonedRepo("add-a");
   const b = await clonedRepo("add-b");
   const change = await changeFor("PROJ-ADD", [a]);
-  await git.provision!(change);
+  await provision(change);
   expect(await worktreeFor(change, a)).toBe(join(changeDir(change.id), "add-a"));
 
   const added = await setRepos(change, [a, b]);
@@ -87,7 +87,7 @@ test("a new worktree gets the IDE state the repository had, pointing at itself",
   await sh(["git", "push", "--quiet", "origin", "main"], repo);
   await Bun.write(join(repo, ".idea", "workspace.xml"), `<p dir="${repo}/target" />`);
   const change = await changeFor("PROJ-IDE", [repo]);
-  await git.provision!(change);
+  await provision(change);
 
   const worktree = (await worktreeFor(change, repo))!;
   expect(await Bun.file(join(worktree, ".idea", "workspace.xml")).text()).toBe(
@@ -101,7 +101,7 @@ test("a removal that would lose commits asks first, and loses nothing until it i
   const repo = await clonedRepo("unpushed");
   const keep = await clonedRepo("unpushed-keep");
   const change = await changeFor("PROJ-UNPUSHED", [repo, keep]);
-  await git.provision!(change);
+  await provision(change);
 
   const worktree = (await worktreeFor(change, repo))!;
   await Bun.write(join(worktree, "work.txt"), "never pushed\n");
@@ -124,7 +124,7 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
   const repo = await clonedRepo("dirty");
   const keep = await clonedRepo("dirty-keep");
   const change = await changeFor("PROJ-DIRTY", [repo, keep]);
-  await git.provision!(change);
+  await provision(change);
 
   const worktree = (await worktreeFor(change, repo))!;
   await Bun.write(join(worktree, "half-done.txt"), "not finished\n");
@@ -139,7 +139,7 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
 test("switching a repository from worktree to in place moves the work, not deletes it", async () => {
   const repo = await clonedRepo("switch");
   const change = await changeFor("PROJ-SWITCH", [repo]);
-  await git.provision!(change);
+  await provision(change);
 
   const worktree = (await worktreeFor(change, repo))!;
   await Bun.write(join(worktree, "committed.txt"), "pushed work\n");
@@ -166,7 +166,7 @@ test("a change may be emptied and filled again, which is how a worktree is repla
   // you have is beyond saving, and that has a moment in the middle with nothing in it.
   const repo = await clonedRepo("last-one");
   const change = await changeFor("PROJ-LAST", [repo]);
-  await git.provision!(change);
+  await provision(change);
   const before = (await worktreeFor(change, repo))!;
 
   // Emptying is still a removal, and a removal still refuses to throw work away: the way out of
@@ -192,7 +192,7 @@ test("a change may be emptied and filled again, which is how a worktree is repla
 test("switching modes with unpushed commits asks first, and keeps them when forced", async () => {
   const repo = await clonedRepo("switch-unpushed");
   const change = await changeFor("PROJ-SWITCH-UNPUSHED", [repo]);
-  await git.provision!(change);
+  await provision(change);
 
   const worktree = (await worktreeFor(change, repo))!;
   await Bun.write(join(worktree, "unpushed.txt"), "only here\n");
@@ -213,7 +213,7 @@ test("switching modes with unpushed commits asks first, and keeps them when forc
 test("an in-place branch does not track the branch it started from", async () => {
   const repo = await clonedRepo("no-track");
   const change = await changeFor("PROJ-TRACK", [repo], [repo]);
-  await git.provision!(change);
+  await provision(change);
 
   // Tracking origin/main would make `git push` aim at main, which is the one thing this must
   // never do. A fresh branch has no upstream until it is pushed.
@@ -233,7 +233,7 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
   const { localChanges, fileDiff, parseStatus } = await import("../src/local.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
-  await git.provision!(change);
+  await provision(change);
   const wt = (await worktreeFor(change, repo))!;
 
   // Nothing yet, which is a state of its own and not an error.
@@ -289,7 +289,7 @@ test("committing takes the files you ticked, in every repository at once", async
   const a = await clonedRepo("commit-a");
   const b = await clonedRepo("commit-b");
   const change = await changeFor("PROJ-COMMIT", [a, b]);
-  await git.provision!(change);
+  await provision(change);
   const wtA = (await worktreeFor(change, a))!;
   const wtB = (await worktreeFor(change, b))!;
 
@@ -329,7 +329,7 @@ test("a repository that refuses to commit does not stop the others", async () =>
   const { commitChange } = await import("../src/commit.ts");
   const good = await clonedRepo("commit-good");
   const change = await changeFor("PROJ-PARTIAL", [good]);
-  await git.provision!(change);
+  await provision(change);
   await Bun.write(join((await worktreeFor(change, good))!, "README.md"), "edited\n");
 
   // A repository of this change without a worktree: it says so, the other one still commits.
@@ -349,7 +349,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
   const { pushChange } = await import("../src/commit.ts");
   const repo = await clonedRepo("push");
   const change = await changeFor("PROJ-PUSH", [repo]);
-  await git.provision!(change);
+  await provision(change);
   const wt = (await worktreeFor(change, repo))!;
 
   // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since

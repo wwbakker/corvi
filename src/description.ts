@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { prItemEffect } from "./integrations/github.ts";
 import { descriptionSectionsFor } from "./extensions/index.ts";
-import { provideWorkspace } from "./context.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 
 /**
@@ -31,13 +31,14 @@ export const prDescriptionEffect = (change: Change): Effect.Effect<string> =>
     // " - " — which is what a ticket key and its summary were joined with when there was only
     // ever one ticket. A section that fails is absent, not a failed request.
     const workspace = workspaceOf(change);
+    const capabilities = capabilitiesLayer(workspace);
     const parts = yield* Effect.forEach(
       descriptionSectionsFor(workspace),
       (section) =>
-        Effect.tryPromise({
-          try: () => provideWorkspace(workspace, () => section.heading(change, { workspace })),
-          catch: (e) => e,
-        }).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+        section.heading(change).pipe(
+          Effect.provide(capabilities),
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        ),
       { concurrency: "unbounded" },
     );
     const heading = parts.filter((p): p is string => Boolean(p)).join(" - ") || undefined;
