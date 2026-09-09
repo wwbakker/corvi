@@ -1,7 +1,9 @@
 import { basename } from "node:path";
+import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
-import { worktreeFor, baseFor } from "./integrations/git.ts";
-import { sh } from "./sh.ts";
+import { worktreeForEffect, baseForEffect } from "./integrations/git.ts";
+import { shEffect, type Result } from "./sh.ts";
+import { BadRequestError, CliError } from "./effect/errors.ts";
 
 export type { FileChange };
 
@@ -88,42 +90,72 @@ export const aheadIn = (stdout: string): number | undefined => {
 export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
-/** What is uncommitted in one repository of a change. Live, never cached: this is the file you
- * are editing, and a second-old answer is a wrong one. */
-export async function localChanges(change: Change, repo: string): Promise<LocalStatus> {
-  const name = basename(repo);
-  const worktree = await worktreeFor(change, repo);
-  if (!worktree) return { repo, name, files: [], unpushed: 0, tracked: false, error: "no worktree" };
-  // --branch as well: the header carries the upstream and how far ahead of it we are, which is
-  // the other half of "is this work safe anywhere but here".
-  const r = await sh(
-    ["git", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
-    worktree,
+/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
+ * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
+ * operation. Everything downstream branches on `code`, exactly as before. */
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  shEffect(cmd, cwd).pipe(
+    Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
-  if (r.code !== 0) {
-    return { repo, name, worktree, files: [], unpushed: 0, tracked: false, error: r.stderr || r.stdout };
-  }
 
-  const tracked = trackedIn(r.stdout);
-  return {
-    repo,
-    name,
-    worktree,
-    files: parseStatus(r.stdout),
-    tracked,
-    // A branch that was never pushed is not "0 ahead": everything on it since it left the base
-    // branch is unpushed, and that is what the button has to offer to push.
-    unpushed: tracked ? (aheadIn(r.stdout) ?? 0) : await sinceBase(change, repo, worktree),
-  };
-}
+// The localChanges/fileDiff facades below are kept for repos.test.ts, which must pass
+// unmodified.
+const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  worktreeForEffect(change, repo);
+
+const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  baseForEffect(change, repo);
 
 /** Commits made since the branch left its base, for a branch with no upstream to compare to. */
-async function sinceBase(change: Change, repo: string, worktree: string): Promise<number> {
-  const base = await baseFor(change, repo);
-  if (!base) return 0; // no remote at all: there is nowhere to push, so nothing is unpushed
-  const r = await sh(["git", "rev-list", "--count", `${base}..HEAD`], worktree);
-  return r.code === 0 ? Number(r.stdout.trim()) || 0 : 0;
-}
+const sinceBase = (
+  change: Change,
+  repo: string,
+  worktree: string,
+): Effect.Effect<number, unknown> =>
+  Effect.gen(function* () {
+    const base = yield* baseOf(change, repo);
+    if (!base) return 0; // no remote at all: there is nowhere to push, so nothing is unpushed
+    const r = yield* shResult(["git", "rev-list", "--count", `${base}..HEAD`], worktree);
+    return r.code === 0 ? Number(r.stdout.trim()) || 0 : 0;
+  });
+
+/** What is uncommitted in one repository of a change. Live, never cached: this is the file you
+ * are editing, and a second-old answer is a wrong one. */
+export const localChangesEffect = (
+  change: Change,
+  repo: string,
+): Effect.Effect<LocalStatus, unknown> =>
+  Effect.gen(function* () {
+    const name = basename(repo);
+    const worktree = yield* worktreeOf(change, repo);
+    if (!worktree) return { repo, name, files: [], unpushed: 0, tracked: false, error: "no worktree" };
+    // --branch as well: the header carries the upstream and how far ahead of it we are, which is
+    // the other half of "is this work safe anywhere but here".
+    const r = yield* shResult(
+      ["git", "status", "--porcelain=v2", "--branch", "-z", "--untracked-files=all"],
+      worktree,
+    );
+    if (r.code !== 0) {
+      return { repo, name, worktree, files: [], unpushed: 0, tracked: false, error: r.stderr || r.stdout };
+    }
+
+    const tracked = trackedIn(r.stdout);
+    return {
+      repo,
+      name,
+      worktree,
+      files: parseStatus(r.stdout),
+      tracked,
+      // A branch that was never pushed is not "0 ahead": everything on it since it left the base
+      // branch is unpushed, and that is what the button has to offer to push.
+      unpushed: tracked ? (aheadIn(r.stdout) ?? 0) : yield* sinceBase(change, repo, worktree),
+    };
+  });
+
+/** Promise facade over localChangesEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
+export const localChanges = (change: Change, repo: string): Promise<LocalStatus> =>
+  Effect.runPromise(localChangesEffect(change, repo));
 
 /**
  * The diff of one file, as `git diff` writes it.
@@ -131,24 +163,54 @@ async function sinceBase(change: Change, repo: string, worktree: string): Promis
  * Three cases, because git has three: staged asks the index against HEAD, unstaged asks the
  * working tree against the index, and an untracked file is compared against nothing at all —
  * `--no-index` against /dev/null, which is how git itself shows a file it does not know.
+ *
+ * Where the old code threw, the Effect fails with the typed taxonomy: no worktree is a
+ * `BadRequestError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
+ * is a `CliError`. Both carry the message the old throw had.
  */
-export async function fileDiff(
+export const fileDiffEffect = (
   change: Change,
   repo: string,
   file: string,
   staged: boolean,
-): Promise<string> {
-  const worktree = await worktreeFor(change, repo);
-  if (!worktree) throw new Error(`no worktree for ${change.branch} in ${repo}`);
+): Effect.Effect<string, BadRequestError | CliError | unknown> =>
+  Effect.gen(function* () {
+    const worktree = yield* worktreeOf(change, repo);
+    if (!worktree) {
+      // 400, as this was before the rewrite: a wrong request against this change, not a missing
+      // resource (matching the same message's BadRequestError in the integrations).
+      const message = `no worktree for ${change.branch} in ${repo}`;
+      return yield* Effect.fail(new BadRequestError({ message }));
+    }
 
-  const status = await localChanges(change, repo);
-  const found = status.files.find((f) => f.path === file);
-  const command = found?.untracked
-    ? ["git", "diff", "--no-index", "--", "/dev/null", file]
-    : ["git", "diff", ...(staged ? ["--cached"] : []), "--", file];
+    const status = yield* localChangesEffect(change, repo);
+    const found = status.files.find((f) => f.path === file);
+    const command = found?.untracked
+      ? ["git", "diff", "--no-index", "--", "/dev/null", file]
+      : ["git", "diff", ...(staged ? ["--cached"] : []), "--", file];
 
-  // `git diff` exits 1 when there is a difference with --no-index, which is the normal case.
-  const r = await sh(command, worktree);
-  if (r.code > 1) throw new Error(r.stderr || r.stdout || "git diff failed");
-  return r.stdout;
-}
+    // `git diff` exits 1 when there is a difference with --no-index, which is the normal case.
+    const r = yield* shResult(command, worktree);
+    if (r.code > 1) {
+      const message = r.stderr || r.stdout || "git diff failed";
+      return yield* Effect.fail(
+        new CliError({
+          message,
+          tool: "git",
+          command: command.join(" "),
+          stderr: message,
+          exitCode: r.code,
+        }),
+      );
+    }
+    return r.stdout;
+  });
+
+/** Promise facade over fileDiffEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
+export const fileDiff = (
+  change: Change,
+  repo: string,
+  file: string,
+  staged: boolean,
+): Promise<string> => Effect.runPromise(fileDiffEffect(change, repo, file, staged));

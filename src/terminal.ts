@@ -1,11 +1,13 @@
 import { basename } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
+import { Deferred, Duration, Effect, Exit } from "effect";
 import type { Change } from "./types.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
 import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
-import { sh, shOrThrow } from "./sh.ts";
+import { shEffect, shOrThrowEffect, type Result } from "./sh.ts";
+import { BadRequestError, CliError } from "./effect/errors.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
 /**
@@ -23,33 +25,55 @@ export const logPath = (id: string): string => `/tmp/iwe-ttyd-${id}.log`;
 
 type Running = { port: number; pid: number };
 
-/** Promises, not results: two requests arriving together (a re-render, two open tabs) must start
- * one ttyd between them. Storing the result instead let the second start kill the first. */
-const running = new Map<string, Promise<Running>>();
+/** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
+ * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
+ * failCli does). */
+const cliError = (tool: string, command: string, message: string, exitCode: number): CliError =>
+  new CliError({ tool, command, stderr: message, exitCode, message });
+
+/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
+ * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
+ * operation. Everything downstream branches on `code`, exactly as before. */
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  shEffect(cmd, cwd).pipe(
+    Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+  );
+
+/**
+ * Deferreds, not results: two requests arriving together (a re-render, two open tabs) must start
+ * one ttyd between them. The keyed Deferred is registered before the first yield of a start, so
+ * the second request joins the first's start; storing the result instead let the second start
+ * kill the first.
+ */
+const running = new Map<string, Deferred.Deferred<Running, CliError>>();
 
 /** Where the running ttyd is written down, so the next run of the server finds it again. In the
  * change directory rather than in memory: a restart, a hot reload or a crash all forget the map,
  * and killing a working terminal because we lost our notes is no way to behave. */
 const notePath = (id: string): string => join(changeDir(id), "terminal.json");
 
-async function noteOf(id: string): Promise<Running | undefined> {
-  const note = await Bun.file(notePath(id))
-    .json()
-    .catch(() => undefined);
-  return note && typeof note.pid === "number" && typeof note.port === "number" ? note : undefined;
-}
+const noteOfEffect: (id: string) => Effect.Effect<Running | undefined> = (id) =>
+  Effect.map(
+    // A missing or malformed note is no note at all: what `.catch(() => undefined)` did.
+    Effect.promise(() => Bun.file(notePath(id)).json().catch(() => undefined)),
+    (note) =>
+      note && typeof note.pid === "number" && typeof note.port === "number"
+        ? (note as Running)
+        : undefined,
+  );
 
 /** The ttyd of a previous run, if it is still there and still serving this change. */
-async function adopt(id: string): Promise<Running | undefined> {
-  const note = await noteOf(id);
-  if (!note || !alive(note.pid)) return undefined;
-  // Alive is not enough: the pid could have been reused by anything. Only a ttyd answering on
-  // the port we wrote down is the terminal we left behind.
-  return (await accepts(note.port)) ? note : undefined;
-}
+const adoptEffect = (id: string): Effect.Effect<Running | undefined> =>
+  Effect.gen(function* () {
+    const note = yield* noteOfEffect(id);
+    if (!note || !alive(note.pid)) return undefined;
+    // Alive is not enough: the pid could have been reused by anything. Only a ttyd answering on
+    // the port we wrote down is the terminal we left behind.
+    return (yield* acceptsEffect(note.port)) ? note : undefined;
+  });
 
 /** A free port, asked of the operating system rather than guessed. */
-async function freePort(): Promise<number> {
+function freePort(): number {
   const server = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
   const port = server.port;
   server.stop(true);
@@ -77,187 +101,241 @@ const alive = (pid: number): boolean => {
 export const terminalPath = (id: string): string =>
   `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=canvas" : ""}`;
 
-/** The port ttyd serves this change on, starting or adopting it as needed. */
-export async function terminalPort(change: Change): Promise<number> {
-  // Starting one would write into a directory that has moved to the archive, recreating it.
-  if (change.completedAt) throw new Error("this change is completed: its terminal is gone");
-  const existing = running.get(change.id);
-  if (!existing) {
-    // Nothing in memory: the server was restarted, or reloaded itself. The terminal probably
-    // outlived it, and reconnecting to it keeps whatever you were running.
-    const adopted = await adopt(change.id);
-    if (adopted) {
-      running.set(change.id, Promise.resolve(adopted));
-      return adopted.port;
+/** The port ttyd serves this change on, starting or adopting it as needed.
+ *
+ * Where the old code threw, the Effect fails with the typed taxonomy: a completed change is a
+ * `BadRequestError` (the state forbids it, and the old code answered 400), a missing tool or a
+ * start that never came up is a `CliError`. Both carry the message the old throw had. */
+export const terminalPortEffect = (change: Change): Effect.Effect<number, BadRequestError | CliError> =>
+  Effect.gen(function* () {
+    // Starting one would write into a directory that has moved to the archive, recreating it.
+    if (change.completedAt) {
+      const message = "this change is completed: its terminal is gone";
+      // 400, as the plain Error the old code threw mapped to — not 409: the state is not
+      // forceable, and nothing about the request is retryable against a completed change.
+      return yield* Effect.fail(new BadRequestError({ message }));
     }
-  }
-  if (existing) {
-    // A start that failed or hung must not be cached: awaiting it again would hand every later
-    // request the same broken answer, or the same wait forever.
-    const found = await existing.catch(() => undefined);
-    if (found && alive(found.pid)) return found.port;
-    running.delete(change.id);
-  }
-  // Set before the first await, so a second caller finds this start instead of beginning another.
-  // Bounded, because a request that hangs forever is the one failure the browser cannot report:
-  // it just spins. Whatever goes wrong, the next attempt starts from scratch.
-  const started = withTimeout(start(change), 20_000).catch((e: unknown) => {
-    running.delete(change.id);
-    throw e;
+    const joinOrStart = (): Effect.Effect<number, CliError> =>
+      Effect.gen(function* () {
+        const existing = running.get(change.id);
+        if (existing) {
+          // A start that failed or hung must not be cached: awaiting it again would hand every
+          // later request the same broken answer, or the same wait forever.
+          const outcome = yield* Effect.exit(Deferred.await(existing));
+          if (Exit.isSuccess(outcome) && alive(outcome.value.pid)) return outcome.value.port;
+          running.delete(change.id);
+          return yield* joinOrStart(); // start fresh
+        }
+        // Register before the first yield, so a request arriving together with this one finds
+        // this start instead of beginning another.
+        const deferred = yield* Deferred.make<Running, CliError>();
+        const claimed = running.get(change.id) ?? (running.set(change.id, deferred), deferred);
+        if (claimed !== deferred) return yield* joinOrStart(); // someone else just claimed it
+        // Nothing in memory: the server was restarted, or reloaded itself. The terminal probably
+        // outlived it, and reconnecting to it keeps whatever you were running.
+        const adopted = yield* adoptEffect(change.id);
+        if (adopted) {
+          yield* Deferred.succeed(deferred, adopted);
+          return adopted.port;
+        }
+        // The start runs on a daemon of its own, so the outcome — good or bad — is shared with
+        // everyone who joined this start via the Deferred, and a start that is merely slow keeps
+        // going and writes its note: the next attempt adopts it, exactly what the old unawaited
+        // promise did after its timeout gave up on it. A start that failed is not cached.
+        yield* Effect.forkDaemon(
+          Effect.gen(function* () {
+            const outcome = yield* Effect.exit(startEffect(change));
+            if (Exit.isFailure(outcome)) running.delete(change.id);
+            yield* Deferred.done(deferred, outcome);
+          }),
+        );
+        // Bounded, because a request that hangs forever is the one failure the browser cannot
+        // report: it just spins. The timeout abandons the wait, not the detached ttyd, which is
+        // what makes restart survival possible at all — so nothing is killed here.
+        const waited = yield* Effect.exit(
+          Effect.timeout(Deferred.await(deferred), Duration.seconds(20)),
+        );
+        if (Exit.isSuccess(waited)) return waited.value.port;
+        return yield* Effect.fail(
+          cliError("ttyd", "ttyd", "starting the terminal took longer than 20s", 124),
+        );
+      });
+    return yield* joinOrStart();
   });
-  running.set(change.id, started);
-  return (await started).port;
-}
 
-const withTimeout = <T,>(work: Promise<T>, ms: number): Promise<T> =>
-  Promise.race([
-    work,
-    Bun.sleep(ms).then<never>(() => {
-      throw new Error(`starting the terminal took longer than ${ms / 1000}s`);
-    }),
-  ]);
 
-async function start(change: Change): Promise<Running> {
-  // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
-  // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
-  // a package install is all that is wanted.
-  if (!commandAvailable("ttyd"))
-    throw new Error(
-      `ttyd is not installed — the terminal cannot start (Arch: sudo pacman -S ttyd${isMac ? "; macOS: brew install ttyd" : ""})`,
-    );
-  if (!commandAvailable("tmux"))
-    throw new Error(
-      `tmux is not installed — the terminal cannot start (Arch: sudo pacman -S tmux${isMac ? "; macOS: brew install tmux" : ""})`,
-    );
-  // Only reached when no ttyd could be adopted, so anything still running for this change is a
-  // leftover that nothing can reach: a port we no longer know, or a process that stopped
-  // answering. The tmux session behind it survives either way.
-  await sh(["pkill", "-f", `new-session -A -s ${sessionName(change.id)}`]);
+const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
+  Effect.gen(function* () {
+    // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
+    // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
+    // a package install is all that is wanted.
+    if (!commandAvailable("ttyd")) return yield* Effect.fail(missingTool("ttyd"));
+    if (!commandAvailable("tmux")) return yield* Effect.fail(missingTool("tmux"));
+    // Only reached when no ttyd could be adopted, so anything still running for this change is a
+    // leftover that nothing can reach: a port we no longer know, or a process that stopped
+    // answering. The tmux session behind it survives either way.
+    yield* shResult(["pkill", "-f", `new-session -A -s ${sessionName(change.id)}`]);
 
-  const port = await freePort();
-  const logFd = openSync(logPath(change.id), "a");
-  const child = spawn(
-    "ttyd",
-    [
-      "--writable",
-      "--interface",
-      // Loopback by interface name (lo0 on macOS, lo on Linux): this is a shell, it has no
-      // business on the network.
-      loopbackInterface,
-      "--port",
-      String(port),
-      "-t",
-      "fontSize=13",
-      "-t",
-      'theme={"background":"#0d1117","foreground":"#e6edf3"}',
-      // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
-      // browser. xterm.js can be told to hand it back while a modifier is held — on macOS that
-      // modifier is option, and only if this is switched on. Without it there is no way to
-      // select text for the system clipboard at all. The flag is meaningless elsewhere, where
-      // plain drag selection already reaches the clipboard, so it is macOS-only.
-      ...(isMac ? ["-t", "macOptionClickForcesSelection=true"] : []),
-      "tmux",
-      "new-session",
-      "-A", // attach if it exists, create if it does not
-      "-s",
-      sessionName(change.id),
-      "-c",
-      changeDir(change.id),
-      // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
-      // session with -t, so tmux sessions you started yourself keep your own settings.
-      ";",
-      "set-option",
-      "-t",
-      sessionName(change.id),
-      "mouse",
-      "on",
-      // Windows that produced output since you last looked at them are flagged, which is what
-      // the strip above the terminal draws a dot for.
-      ";",
-      "set-option",
-      "-t",
-      sessionName(change.id),
-      "monitor-activity",
-      "on",
-      // The flag is the point; the message across the status bar is not.
-      ";",
-      "set-option",
-      "-t",
-      sessionName(change.id),
-      "visual-activity",
-      "off",
-      // Modified Enter and friends only reach an application when tmux is willing to forward
-      // them, in the encoding the browser sends (CSI u). A server option: tmux keeps one set of
-      // these for every session it runs, ours included.
-      ";",
-      "set-option",
-      "-s",
-      "extended-keys",
-      "on",
-      ";",
-      "set-option",
-      "-s",
-      "extended-keys-format",
-      "csi-u",
-    ],
+    const port = freePort();
     // Detached so a server reload does not take your shells with it. Its output goes to a log
     // rather than /dev/null: when a terminal comes up blank, ttyd's own words are the fastest
     // way to find out why.
-    { detached: true, stdio: ["ignore", logFd, logFd] },
-  );
-  child.unref();
-  closeSync(logFd); // ttyd holds its own copy now
-  // A spawn that failed outright (the binary vanished between the check and now, say) must be
-  // the reported cause rather than a five-second timeout: listen for it and race it against the
-  // port. After the port opens the listener is dead weight — a reject on a settled promise is a
-  // no-op, and it keeps the event from arriving unhandled.
-  await new Promise<void>((resolve, reject) => {
-    child.once("error", reject);
-    listening(port).then(resolve, reject);
+    const child = yield* Effect.try<ChildProcess, CliError>({
+      try: () => {
+        const logFd = openSync(logPath(change.id), "a");
+        const child = spawn(
+          "ttyd",
+          [
+            "--writable",
+            "--interface",
+            // Loopback by interface name (lo0 on macOS, lo on Linux): this is a shell, it has no
+            // business on the network.
+            loopbackInterface,
+            "--port",
+            String(port),
+            "-t",
+            "fontSize=13",
+            "-t",
+            'theme={"background":"#0d1117","foreground":"#e6edf3"}',
+            // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
+            // browser. xterm.js can be told to hand it back while a modifier is held — on macOS that
+            // modifier is option, and only if this is switched on. Without it there is no way to
+            // select text for the system clipboard at all. The flag is meaningless elsewhere, where
+            // plain drag selection already reaches the clipboard, so it is macOS-only.
+            ...(isMac ? ["-t", "macOptionClickForcesSelection=true"] : []),
+            "tmux",
+            "new-session",
+            "-A", // attach if it exists, create if it does not
+            "-s",
+            sessionName(change.id),
+            "-c",
+            changeDir(change.id),
+            // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
+            // session with -t, so tmux sessions you started yourself keep your own settings.
+            ";",
+            "set-option",
+            "-t",
+            sessionName(change.id),
+            "mouse",
+            "on",
+            // Windows that produced output since you last looked at them are flagged, which is what
+            // the strip above the terminal draws a dot for.
+            ";",
+            "set-option",
+            "-t",
+            sessionName(change.id),
+            "monitor-activity",
+            "on",
+            // The flag is the point; the message across the status bar is not.
+            ";",
+            "set-option",
+            "-t",
+            sessionName(change.id),
+            "visual-activity",
+            "off",
+            // Modified Enter and friends only reach an application when tmux is willing to forward
+            // them, in the encoding the browser sends (CSI u). A server option: tmux keeps one set of
+            // these for every session it runs, ours included.
+            ";",
+            "set-option",
+            "-s",
+            "extended-keys",
+            "on",
+            ";",
+            "set-option",
+            "-s",
+            "extended-keys-format",
+            "csi-u",
+          ],
+          { detached: true, stdio: ["ignore", logFd, logFd] },
+        );
+        child.unref();
+        closeSync(logFd); // ttyd holds its own copy now
+        return child;
+      },
+      catch: (e) =>
+        cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
+    });
+    // A spawn that failed outright (the binary vanished between the check and now, say) must be
+    // the reported cause rather than a five-second timeout: listen for it and race it against the
+    // port. After the port opens the listener is dead weight — a reject on a settled promise is a
+    // no-op, and it keeps the event from arriving unhandled.
+    yield* Effect.tryPromise<void, CliError>({
+      try: () =>
+        new Promise<void>((resolve, reject) => {
+          child.once("error", reject);
+          listening(port).then(resolve, reject);
+        }),
+      catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
+    });
+    const found = { port, pid: child.pid! };
+    yield* Effect.tryPromise({
+      try: () => Bun.write(notePath(change.id), JSON.stringify(found) + "\n").then(() => undefined),
+      catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
+    });
+    return found;
   });
-  const found = { port, pid: child.pid! };
-  await Bun.write(notePath(change.id), JSON.stringify(found) + "\n");
-  return found;
-}
+
+const missingTool = (tool: string): CliError => {
+  const message = `${tool} is not installed — the terminal cannot start (Arch: sudo pacman -S ${tool}${
+    isMac ? `; macOS: brew install ${tool}` : ""
+  })`;
+  return cliError(tool, tool, message, 127);
+};
 
 /** Whether something accepts connections on this port. A plain TCP connect, not an HTTP request:
  * this only has to answer "is it open", and an HTTP client brings a connection pool and timeouts
  * of its own to a question that simple. */
-const accepts = (port: number): Promise<boolean> =>
-  Bun.connect({
-    hostname: "127.0.0.1",
-    port,
-    socket: {
-      open: (s) => {
-        s.end();
+const acceptsEffect = (port: number): Effect.Effect<boolean> =>
+  Effect.promise(() =>
+    Bun.connect({
+      hostname: "127.0.0.1",
+      port,
+      socket: {
+        open: (s) => {
+          s.end();
+        },
+        data() {},
+        error() {},
       },
-      data() {},
-      error() {},
-    },
-  }).then(
-    () => true,
-    () => false,
+    }).then(
+      () => true,
+      () => false,
+    ),
   );
 
 /** ttyd needs a moment to bind. Returning before it does hands the browser a URL that refuses
  * the connection, and an iframe does not retry: it just sits there empty. */
-async function listening(port: number): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    if (await accepts(port)) return;
-    await Bun.sleep(50);
-  }
-  throw new Error(`ttyd did not open port ${port} within 5s; see /tmp/iwe-ttyd-*.log`);
-}
+const listeningEffect = (port: number): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (yield* acceptsEffect(port)) return;
+      yield* Effect.sleep(50);
+    }
+    return yield* Effect.fail(
+      cliError("ttyd", "ttyd", `ttyd did not open port ${port} within 5s; see /tmp/iwe-ttyd-*.log`, 1),
+    );
+  });
+
+/** The old promise body, kept verbatim: the error listener must stay attached after the port
+ * opens, and a reject on a settled promise is a no-op. */
+const listening = (port: number): Promise<void> =>
+  listeningEffect(port).pipe(Effect.runPromise) as Promise<void>;
 
 /** Drop the terminal of a change: the ttyd server and the tmux session with its shells. Called
  * when a change is completed, since its directory moves into the archive underneath it. */
-export async function stopTerminal(id: string): Promise<void> {
-  const found = (await running.get(id)?.catch(() => undefined)) ?? (await noteOf(id));
-  if (found && alive(found.pid)) process.kill(found.pid);
-  running.delete(id);
-  await sh(["tmux", "kill-session", "-t", sessionName(id)]);
-}
+export const stopTerminalEffect = (id: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const inFlight = running.get(id);
+    const fromMap = inFlight ? yield* Effect.exit(Deferred.await(inFlight)) : undefined;
+    const found =
+      (fromMap && Exit.isSuccess(fromMap) ? fromMap.value : undefined) ?? (yield* noteOfEffect(id));
+    if (found && alive(found.pid)) process.kill(found.pid);
+    running.delete(id);
+    yield* shResult(["tmux", "kill-session", "-t", sessionName(id)]);
+  });
+
 
 /* Terminals are deliberately left running when the server stops: restarting IWE while you work on
  * it is constant, and losing the shells every time is not worth the tidiness. They are noted in
@@ -317,11 +395,15 @@ const parseWindow = (line: string): TerminalWindow => {
   };
 };
 
-export async function listWindows(id: string): Promise<TerminalWindow[]> {
-  const r = await sh(["tmux", "list-windows", "-t", sessionName(id), "-F", FORMAT]);
-  if (r.code !== 0) return []; // no session yet: the terminal was never opened
-  return r.stdout.split("\n").filter(Boolean).map(parseWindow);
-}
+/** The windows of one change's session. No session yet — the terminal was never opened — is an
+ * empty strip, not a failure; the `CliError` channel is only for a timed-out tmux. */
+export const listWindowsEffect = (id: string): Effect.Effect<TerminalWindow[], CliError> =>
+  Effect.gen(function* () {
+    const r = yield* shEffect(["tmux", "list-windows", "-t", sessionName(id), "-F", FORMAT]);
+    if (r.code !== 0) return []; // no session yet: the terminal was never opened
+    return r.stdout.split("\n").filter(Boolean).map(parseWindow);
+  });
+
 
 /** Which change a tmux session belongs to, or undefined for a session that is not ours. */
 export const changeOfSession = (session: string): string | undefined =>
@@ -332,39 +414,47 @@ export const changeOfSession = (session: string): string | undefined =>
  *
  * The navigation column lists the terminals of every change at once, and asking tmux per change
  * would be a process per change every few seconds. `list-windows -a` answers for every session
- * there is; the ones that are not ours are dropped by their name.
+ * there is; the ones that are not ours are dropped by their name. No tmux server running is an
+ * empty record, not a failure; the `CliError` channel is only for a timed-out tmux.
  */
-export async function allWindows(): Promise<Record<string, TerminalWindow[]>> {
-  const r = await sh(["tmux", "list-windows", "-a", "-F", `#{session_name}\t${FORMAT}`]);
-  if (r.code !== 0) return {}; // no server running: nobody has opened a terminal yet
-  const byChange: Record<string, TerminalWindow[]> = {};
-  for (const line of r.stdout.split("\n").filter(Boolean)) {
-    const tab = line.indexOf("\t");
-    const id = changeOfSession(line.slice(0, tab));
-    if (!id) continue;
-    (byChange[id] ??= []).push(parseWindow(line.slice(tab + 1)));
-  }
-  return byChange;
-}
+export const allWindowsEffect = (): Effect.Effect<Record<string, TerminalWindow[]>, CliError> =>
+  Effect.gen(function* () {
+    const r = yield* shEffect(["tmux", "list-windows", "-a", "-F", `#{session_name}\t${FORMAT}`]);
+    if (r.code !== 0) return {}; // no server running: nobody has opened a terminal yet
+    const byChange: Record<string, TerminalWindow[]> = {};
+    for (const line of r.stdout.split("\n").filter(Boolean)) {
+      const tab = line.indexOf("\t");
+      const id = changeOfSession(line.slice(0, tab));
+      if (!id) continue;
+      (byChange[id] ??= []).push(parseWindow(line.slice(tab + 1)));
+    }
+    return byChange;
+  });
+
+  Effect.runPromise(allWindowsEffect().pipe(Effect.catchTag("CliError", () => Effect.succeed({}))));
 
 /**
  * A new window beside the current one, starting where the current one is: a new tab is nearly
  * always "the same place, another thing", and `#{pane_current_path}` is what tmux's own `c`
  * binding uses. Falls back to the change directory when there is no current pane to ask.
  */
-export async function newWindow(id: string): Promise<void> {
-  const here = await sh([
-    "tmux",
-    "new-window",
-    "-t",
-    sessionName(id),
-    "-c",
-    "#{pane_current_path}",
-  ]);
-  if (here.code === 0) return;
-  await shOrThrow(["tmux", "new-window", "-t", sessionName(id), "-c", changeDir(id)]);
-}
+export const newWindowEffect = (id: string): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    const here = yield* shEffect([
+      "tmux",
+      "new-window",
+      "-t",
+      sessionName(id),
+      "-c",
+      "#{pane_current_path}",
+    ]);
+    if (here.code === 0) return;
+    yield* shOrThrowEffect(["tmux", "new-window", "-t", sessionName(id), "-c", changeDir(id)]);
+  });
 
-export async function selectWindow(id: string, index: number): Promise<void> {
-  await shOrThrow(["tmux", "select-window", "-t", `${sessionName(id)}:${index}`]);
-}
+
+export const selectWindowEffect = (id: string, index: number): Effect.Effect<void, CliError> =>
+  shOrThrowEffect(["tmux", "select-window", "-t", `${sessionName(id)}:${index}`]).pipe(
+    Effect.asVoid,
+  );
+

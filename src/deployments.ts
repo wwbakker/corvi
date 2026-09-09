@@ -1,10 +1,40 @@
+import { Effect, Schema } from "effect";
 import type { WidgetState } from "./types.ts";
-import { sh, json } from "./sh.ts";
-import { swr, invalidate } from "./cache.ts";
+import { shEffect, type Result } from "./sh.ts";
+import { swrEffect, invalidate } from "./cache.ts";
 import { config } from "./config.ts";
-import { azFor, buildUrl, versionOf, expectedDuration, type Az, type Definition } from "./integrations/azure.ts";
+import {
+  azForEffect,
+  buildUrl,
+  versionOfEffect,
+  expectedDurationEffect,
+  type Az,
+  type Definition,
+} from "./integrations/azure.ts";
 import { usesAzure, workspaceById } from "./workspaces.ts";
 import { autoDeployedApp } from "./deployConventions.ts";
+import { BadRequestError } from "./effect/errors.ts";
+
+/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
+ * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
+ * is what the Promise facade converts it to. Result-branching callers keep branching. */
+const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  Effect.catchAll(shEffect(cmd, cwd), (e) =>
+    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+
+/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
+ * printed nothing, or something this query did not expect, reads as the fallback rather than
+ * failing — the documented silent fallback (docs/effect-conventions.md). */
+const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
+  (stdout: string): Effect.Effect<B> =>
+    stdout.trim()
+      ? Effect.orElseSucceed(
+          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
+          // back to the fallback's here, which is what the old cast did.
+          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
+          () => fallback,
+        )
+      : Effect.succeed(fallback);
 
 /**
  * What is deployed where.
@@ -50,6 +80,28 @@ export type Run = {
   definition?: { id?: number; name?: string };
 };
 
+/** `az pipelines runs list -o json` output for deploy pipelines, which carry the parameters the
+ * run was given. */
+const RunsSchema = Schema.Array(
+  Schema.Struct({
+    id: Schema.Number,
+    buildNumber: Schema.String,
+    status: Schema.String,
+    result: Schema.optional(Schema.NullOr(Schema.String)),
+    // Always present from az, but the old cast tolerated its absence; the default keeps that
+    // tolerance without weakening the type.
+    sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
+    startTime: Schema.optional(Schema.NullOr(Schema.String)),
+    finishTime: Schema.optional(Schema.NullOr(Schema.String)),
+    templateParameters: Schema.optional(
+      Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+    ),
+    definition: Schema.optional(
+      Schema.Struct({ id: Schema.optional(Schema.Number), name: Schema.optional(Schema.String) }),
+    ),
+  }),
+);
+
 /** A build that produced something deployable: what it was called, and what it made. */
 export type Buildable = {
   runId: number;
@@ -72,40 +124,49 @@ export type Buildable = {
 
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
-async function allPipelines(az: Az): Promise<Definition[]> {
-  return swr(`az:${az.key}:pipelines`, 5 * 60_000, async () => {
-    const r = await sh(["az", "pipelines", "list", ...az.args, "-o", "json"]);
-    return r.code === 0 ? json<Definition[]>(r.stdout, []) : [];
-  });
-}
+const allPipelinesEffect = (az: Az): Effect.Effect<Definition[]> =>
+  swrEffect(`az:${az.key}:pipelines`, 5 * 60_000,
+    Effect.gen(function* () {
+      const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
+      return r.code === 0
+        ? yield* cliJson(
+          Schema.Array(
+            Schema.Struct({ id: Schema.Number, name: Schema.String, path: Schema.String }),
+          ),
+          [] as Definition[],
+        )(r.stdout)
+        : [];
+    }));
 
 /** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
  * triggered should appear on the next look. */
-async function runsOf(az: Az, pipelineId: number): Promise<Run[]> {
-  return swr(`az:${az.key}:deploys:${pipelineId}`, 15_000, async () => {
-    const r = await sh([
-      "az",
-      "pipelines",
-      "runs",
-      "list",
-      "--pipeline-ids",
-      String(pipelineId),
-      "--top",
-      "50",
-      ...az.args,
-      "-o",
-      "json",
-    ]);
-    return r.code === 0 ? json<Run[]>(r.stdout, []) : [];
-  });
-}
+const runsOfEffect = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
+  swrEffect(`az:${az.key}:deploys:${pipelineId}`, 15_000,
+    Effect.gen(function* () {
+      const r = yield* shSoft([
+        "az",
+        "pipelines",
+        "runs",
+        "list",
+        "--pipeline-ids",
+        String(pipelineId),
+        "--top",
+        "50",
+        ...az.args,
+        "-o",
+        "json",
+      ]);
+      return r.code === 0 ? yield* cliJson(RunsSchema, [] as Run[])(r.stdout) : [];
+    }));
 
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
+// Pure and synchronous: nothing for an Effect to wrap.
 export const serviceName = (deployPipeline: string): string => {
   const [, deploy] = config.azureDeploy.pipeline;
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
+// Pure and synchronous: nothing for an Effect to wrap.
 export const buildPipelineName = (service: string): string =>
   `${config.azureDeploy.pipeline[0]}${service}`;
 
@@ -119,6 +180,8 @@ const ago = (iso?: string | null): string => {
   return `${Math.round(hours / 24)}d ago`;
 };
 
+// Pure and synchronous: nothing for an Effect to wrap.
+
 /**
  * The version a deploy run was given.
  *
@@ -127,6 +190,7 @@ const ago = (iso?: string | null): string => {
  * that, the only other parameter there is. A deploy run takes the environment and the thing to
  * deploy; when those are the only two, which is which is not a guess.
  */
+// Pure and synchronous: nothing for an Effect to wrap.
 export function versionIn(parameters: Record<string, string> | null | undefined): string | undefined {
   const { versionParameter, environmentParameter } = config.azureDeploy;
   const params = parameters ?? {};
@@ -142,6 +206,7 @@ export function versionIn(parameters: Record<string, string> | null | undefined)
  * environment — a failed deploy is news, and hiding it behind the last success would say the
  * environment is fine when somebody is looking at a red pipeline.
  */
+// Pure and synchronous: nothing for an Effect to wrap.
 export function latestFor(runs: Run[], environment: string): Deployed {
   const { environmentParameter } = config.azureDeploy;
   const mine = runs
@@ -172,36 +237,46 @@ export function latestFor(runs: Run[], environment: string): Deployed {
 }
 
 /** Every service that has a deploy pipeline, and what each of its environments holds. */
-export async function deployments(workspaceId?: string): Promise<{ services: Service[]; error?: string }> {
-  const workspace = workspaceById(workspaceId);
-  if (!usesAzure(workspace)) return { services: [] }; // this context has no pipelines at all
-  const az = await azFor(workspace);
-  if (!az.project) return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
+export const deploymentsEffect = (
+  workspaceId?: string,
+): Effect.Effect<{ services: Service[]; error?: string }> =>
+  Effect.gen(function* () {
+    const workspace = workspaceById(workspaceId);
+    if (!usesAzure(workspace)) return { services: [] }; // this context has no pipelines at all
+    const az = yield* azForEffect(workspace);
+    if (!az.project) {
+      return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
+    }
 
-  const pipelines = await allPipelines(az);
-  if (pipelines.length === 0) return { services: [], error: "no pipelines found — is `az` logged in?" };
+    const pipelines = yield* allPipelinesEffect(az);
+    if (pipelines.length === 0) return { services: [], error: "no pipelines found — is `az` logged in?" };
 
-  const [, deployPrefix] = config.azureDeploy.pipeline;
-  const byName = new Map(pipelines.map((p) => [p.name, p]));
-  const deployPipelines = pipelines
-    .filter((p) => p.name.startsWith(deployPrefix))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    const [, deployPrefix] = config.azureDeploy.pipeline;
+    const byName = new Map(pipelines.map((p) => [p.name, p]));
+    const deployPipelines = pipelines
+      .filter((p) => p.name.startsWith(deployPrefix))
+      .sort((a, b) => a.name.localeCompare(b.name));
 
-  const services = await Promise.all(
-    deployPipelines.map(async (pipeline): Promise<Service> => {
-      const name = serviceName(pipeline.name);
-      const build = byName.get(buildPipelineName(name));
-      const runs = await runsOf(az, pipeline.id);
-      return {
-        name,
-        pipeline: { id: pipeline.id, name: pipeline.name },
-        build: build && { id: build.id, name: build.name },
-        environments: config.azureDeploy.environments.map((e) => latestFor(runs, e)),
-      };
-    }),
-  );
-  return { services };
-}
+    const services = yield* Effect.forEach(
+      deployPipelines,
+      (pipeline) =>
+        Effect.gen(function* () {
+          const name = serviceName(pipeline.name);
+          const build = byName.get(buildPipelineName(name));
+          const runs = yield* runsOfEffect(az, pipeline.id);
+          return {
+            name,
+            pipeline: { id: pipeline.id, name: pipeline.name },
+            build: build && { id: build.id, name: build.name },
+            environments: config.azureDeploy.environments.map((e) => latestFor(runs, e)),
+          } satisfies Service;
+        }),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    );
+    return { services };
+  });
+
 
 /** Recent successful builds of a service, with the version each produced.
  *
@@ -215,83 +290,94 @@ export async function deployments(workspaceId?: string): Promise<{ services: Ser
  * read from that run's own parameters instead — the same place `latestFor` reads it from — so
  * promoting one never depends on a log line existing.
  */
-export async function versionsFor(
+export const versionsForEffect = (
   service: string,
   workspaceId?: string,
   howMany = 5,
-): Promise<Buildable[]> {
-  const workspace = workspaceById(workspaceId);
-  if (!usesAzure(workspace)) return [];
-  const az = await azFor(workspace);
-  const project = az.project;
-  const pipelines = await allPipelines(az);
-  const deploy = pipelines.find((p) => p.name === deployPipelineName(service));
+): Effect.Effect<Buildable[]> =>
+  Effect.gen(function* () {
+    const workspace = workspaceById(workspaceId);
+    if (!usesAzure(workspace)) return [];
+    const az = yield* azForEffect(workspace);
+    const project = az.project;
+    const pipelines = yield* allPipelinesEffect(az);
+    const deploy = pipelines.find((p) => p.name === deployPipelineName(service));
 
-  if (autoDeployedApp(service)) {
-    if (!deploy) return [];
-    const runs = await runsOf(az, deploy.id);
-    const [accept] = config.azureDeploy.environments;
-    const stillDeploying = runs.some(
-      (r) =>
-        r.status !== "completed" &&
-        (r.templateParameters ?? {})[config.azureDeploy.environmentParameter] === accept,
-    );
-    const expectedMs = stillDeploying ? await expectedDuration(az, deploy.id) : undefined;
-    return acceptedVersions(runs, az, expectedMs, howMany);
-  }
+    if (autoDeployedApp(service)) {
+      if (!deploy) return [];
+      const runs = yield* runsOfEffect(az, deploy.id);
+      const [accept] = config.azureDeploy.environments;
+      const stillDeploying = runs.some(
+        (r) =>
+          r.status !== "completed" &&
+          (r.templateParameters ?? {})[config.azureDeploy.environmentParameter] === accept,
+      );
+      const expectedMs = stillDeploying ? yield* expectedDurationEffect(az, deploy.id) : undefined;
+      return acceptedVersions(runs, az, expectedMs, howMany);
+    }
 
-  const build = pipelines.find((p) => p.name === buildPipelineName(service));
-  if (!build || !project) return [];
+    const build = pipelines.find((p) => p.name === buildPipelineName(service));
+    if (!build || !project) return [];
 
-  const [runs, deployRuns] = await Promise.all([
-    runsOf(az, build.id),
-    deploy ? runsOf(az, deploy.id) : Promise.resolve([]),
-  ]);
+    const [runs, deployRuns] = yield* Effect.all([
+      runsOfEffect(az, build.id),
+      deploy ? runsOfEffect(az, deploy.id) : Effect.succeed([] as Run[]),
+    ]);
 
-  // In flight right now: not deployable — nothing has printed a version yet — but dropping them
-  // from the list would make a build you are waiting on look like it never started.
-  const building = runs
-    .filter((r) => r.status !== "completed")
-    .sort((a, b) => b.id - a.id);
-  const expectedMs = building.length ? await expectedDuration(az, build.id) : undefined;
-  const inProgress: Buildable[] = building.map((run) => ({
-    runId: run.id,
-    buildNumber: run.buildNumber,
-    branch: branchOf(run.sourceBranch),
-    url: buildUrl(run.id, az),
-    deployedTo: [],
-    running: true,
-    startedAt: run.startTime ?? undefined,
-    expectedMs,
-  }));
-
-  const succeeded = runs
-    .filter((r) => r.status === "completed" && r.result === "succeeded")
-    .sort((a, b) => b.id - a.id)
-    .slice(0, howMany);
-
-  const versions = await Promise.all(
-    succeeded.map(async (run) => ({ run, version: await versionOf(run, project) })),
-  );
-
-  const finished: Buildable[] = versions
-    .filter((v): v is { run: Run; version: string } => Boolean(v.version))
-    .map(({ run, version }) => ({
+    // In flight right now: not deployable — nothing has printed a version yet — but dropping them
+    // from the list would make a build you are waiting on look like it never started.
+    const building = runs
+      .filter((r) => r.status !== "completed")
+      .sort((a, b) => b.id - a.id);
+    const expectedMs = building.length ? yield* expectedDurationEffect(az, build.id) : undefined;
+    const inProgress: Buildable[] = building.map((run) => ({
       runId: run.id,
       buildNumber: run.buildNumber,
-      version,
       branch: branchOf(run.sourceBranch),
-      finishedAt: run.finishTime ?? undefined,
       url: buildUrl(run.id, az),
-      // Where it already is: deploying what is already there is usually a mistake, and saying so
-      // costs nothing.
-      deployedTo: config.azureDeploy.environments.filter(
-        (e) => latestFor(deployRuns, e).version === version,
-      ),
+      deployedTo: [],
+      running: true,
+      startedAt: run.startTime ?? undefined,
+      expectedMs,
     }));
 
-  return [...inProgress, ...finished];
-}
+    const succeeded = runs
+      .filter((r) => r.status === "completed" && r.result === "succeeded")
+      .sort((a, b) => b.id - a.id)
+      .slice(0, howMany);
+
+    const versions = yield* Effect.all(
+      succeeded.map((run) => Effect.map(versionOfEffect(run, project), (version) => ({ run, version }))),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    );
+
+    const finished: Buildable[] = versions
+      .filter((v): v is { run: Run; version: string } => Boolean(v.version))
+      .map(({ run, version }) => ({
+        runId: run.id,
+        buildNumber: run.buildNumber,
+        version,
+        branch: branchOf(run.sourceBranch),
+        finishedAt: run.finishTime ?? undefined,
+        url: buildUrl(run.id, az),
+        // Where it already is: deploying what is already there is usually a mistake, and saying so
+        // costs nothing.
+        deployedTo: config.azureDeploy.environments.filter(
+          (e) => latestFor(deployRuns, e).version === version,
+        ),
+      }));
+
+    return [...inProgress, ...finished];
+  });
+
+/** Promise facade over versionsForEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified; the server uses the effect directly. */
+export const versionsFor = (
+  service: string,
+  workspaceId?: string,
+  howMany = 5,
+): Promise<Buildable[]> => Effect.runPromise(versionsForEffect(service, workspaceId, howMany));
 
 /**
  * `*-app` version history, read from the deploy pipeline's own runs to the first environment
@@ -305,6 +391,7 @@ export async function versionsFor(
  * is computed once by the caller and handed in, so this can be tested with plain arrays and
  * without a CLI in reach.
  */
+// Pure and synchronous: nothing for an Effect to wrap.
 export function acceptedVersions(
   runs: Run[],
   az: Az,
@@ -345,12 +432,14 @@ export function acceptedVersions(
 
 /** What a build was built from, said the way you would say it: a branch by name, a pull request
  * by number. `refs/pull/169/merge` is a real answer to "which branch" and a useless one. */
+// Pure and synchronous: nothing for an Effect to wrap.
 export const branchOf = (ref: string | undefined): string => {
   const pull = /^refs\/pull\/(\d+)\//.exec(ref ?? "");
   if (pull) return `PR #${pull[1]}`;
   return (ref ?? "").replace(/^refs\/heads\//, "");
 };
 
+// Pure and synchronous: nothing for an Effect to wrap.
 export const deployPipelineName = (service: string): string =>
   `${config.azureDeploy.pipeline[1]}${service}`;
 
@@ -366,6 +455,8 @@ function versionParameterOf(runs: Run[]): string {
   return versionParameter;
 }
 
+// Pure and synchronous: nothing for an Effect to wrap.
+
 /**
  * Trigger a deploy. The one irreversible thing on this page.
  *
@@ -374,53 +465,89 @@ function versionParameterOf(runs: Run[]): string {
  * reading the acceptance logs, and the reason it is a step at all: production gets what
  * acceptance proved, not what somebody hoped.
  */
-export async function deploy(
+export const deployEffect = (
   service: string,
   version: string,
   environment: string,
   workspaceId?: string,
-): Promise<{ runId: number; url?: string }> {
-  const { environments, environmentParameter } = config.azureDeploy;
-  if (!environments.includes(environment)) {
-    throw new Error(`unknown environment: ${environment}`);
-  }
-  const workspace = workspaceById(workspaceId);
-  if (!usesAzure(workspace)) throw new Error(`${workspace.name} has no pipelines`);
-  const az = await azFor(workspace);
-  const pipelines = await allPipelines(az);
-  const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
-  if (!pipeline) throw new Error(`no deploy pipeline for ${service}`);
-
-  const runs = await runsOf(az, pipeline.id);
-  const index = environments.indexOf(environment);
-  if (index > 0) {
-    const previous = environments[index - 1]!;
-    const holds = latestFor(runs, previous);
-    if (holds.version !== version || holds.state !== "ok") {
-      throw new Error(
-        `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
+): Effect.Effect<{ runId: number; url?: string }, BadRequestError> =>
+  Effect.gen(function* () {
+    const { environments, environmentParameter } = config.azureDeploy;
+    if (!environments.includes(environment)) {
+      return yield* Effect.fail(
+        new BadRequestError({ message: `unknown environment: ${environment}` }),
       );
     }
-  }
+    const workspace = workspaceById(workspaceId);
+    if (!usesAzure(workspace)) {
+      return yield* Effect.fail(new BadRequestError({ message: `${workspace.name} has no pipelines` }));
+    }
+    const az = yield* azForEffect(workspace);
+    const pipelines = yield* allPipelinesEffect(az);
+    const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
+    if (!pipeline) {
+      return yield* Effect.fail(new BadRequestError({ message: `no deploy pipeline for ${service}` }));
+    }
 
-  const started = await sh([
-    "az",
-    "pipelines",
-    "run",
-    "--id",
-    String(pipeline.id),
-    "--parameters",
-    `${versionParameterOf(runs)}=${version}`,
-    `${environmentParameter}=${environment}`,
-    ...az.args,
-    "-o",
-    "json",
-  ]);
-  if (started.code !== 0) throw new Error(started.stderr || started.stdout || "az pipelines run failed");
+    const runs = yield* runsOfEffect(az, pipeline.id);
+    const index = environments.indexOf(environment);
+    if (index > 0) {
+      const previous = environments[index - 1]!;
+      const holds = latestFor(runs, previous);
+      if (holds.version !== version || holds.state !== "ok") {
+        return yield* Effect.fail(
+          new BadRequestError({
+            message:
+              `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
+          }),
+        );
+      }
+    }
 
-  const run = json<{ id?: number }>(started.stdout, {});
-  if (!run.id) throw new Error(`could not read the run id from: ${started.stdout.slice(0, 200)}`);
-  // The page asks Azure again on its next tick; forget what we knew a moment ago.
-  invalidate(`az:${az.key}:deploys:${pipeline.id}`);
-  return { runId: run.id, url: buildUrl(run.id, az) };
-}
+    const started = yield* shSoft([
+      "az",
+      "pipelines",
+      "run",
+      "--id",
+      String(pipeline.id),
+      "--parameters",
+      `${versionParameterOf(runs)}=${version}`,
+      `${environmentParameter}=${environment}`,
+      ...az.args,
+      "-o",
+      "json",
+    ]);
+    if (started.code !== 0) {
+      return yield* Effect.fail(
+        new BadRequestError({
+          message: started.stderr || started.stdout || "az pipelines run failed",
+        }),
+      );
+    }
+
+    const run = yield* cliJson(
+      Schema.Struct({ id: Schema.optional(Schema.Number) }),
+      {} as { id?: number },
+    )(started.stdout);
+    if (!run.id) {
+      return yield* Effect.fail(
+        new BadRequestError({
+          message: `could not read the run id from: ${started.stdout.slice(0, 200)}`,
+        }),
+      );
+    }
+    // The page asks Azure again on its next tick; forget what we knew a moment ago.
+    invalidate(`az:${az.key}:deploys:${pipeline.id}`);
+    return { runId: run.id, url: buildUrl(run.id, az) };
+  });
+
+/** Promise facade over deployEffect, in the old signature. Kept for the test suite, which must
+ * pass unmodified; the server uses the effect directly. */
+export const deploy = (
+  service: string,
+  version: string,
+  environment: string,
+  workspaceId?: string,
+): Promise<{ runId: number; url?: string }> =>
+  Effect.runPromise(deployEffect(service, version, environment, workspaceId));
+

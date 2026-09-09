@@ -80,6 +80,11 @@ const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
  * written it since — anything missing from `from` is skipped, which is the normal case (most
  * repositories have one or two of these, not six), and so is anything git does not ignore.
  */
+/** Deliberately a Promise, not a facade awaiting migration: this is mostly synchronous
+ * filesystem work, an Effect wrap buys nothing here, and the one caller (integrations/git.ts)
+ * bridges it with Effect.tryPromise. `ignored` above goes through the `sh` facade for the same
+ * reason — the whole function is Promise-shaped, so wrapping one CLI call in an Effect inside
+ * it would be ceremony, not structure. */
 export async function copyTooling(
   from: string,
   to: string,

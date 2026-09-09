@@ -17,67 +17,101 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
+import { Deferred, Effect, Exit, pipe } from "effect";
 
 type Entry = {
   /** When the value was produced. */
   at: number;
   value: unknown;
   /** A refresh in flight, shared by everyone who asks meanwhile. */
-  work?: Promise<unknown>;
+  work?: Deferred.Deferred<unknown, unknown>;
 };
 
 const store = new Map<string, Entry>();
 
+/** The cached value, refreshed when older than `ttl`. Same semantics as `swr`, in Effect: the
+ * first call for a key waits for the work; every later one is instant, and pays only for a
+ * background refresh. Concurrent callers share one run rather than starting several. */
+export const swrEffect = <T, E>(
+  key: string,
+  ttl: number,
+  work: Effect.Effect<T, E>,
+): Effect.Effect<T, E> =>
+  Effect.gen(function* () {
+    const found = store.get(key);
+
+    // Nothing to serve yet — never asked, or a first run still in flight — so this one waits.
+    // `at === 0` is that first run: the entry exists only to hold the shared Deferred.
+    if (!found || found.at === 0) return yield* refreshEffect(key, work);
+
+    if (Date.now() - found.at >= ttl) {
+      // Stale: hand over what we had and let the refresh run behind it, on a fiber of its own —
+      // a daemon, so it outlives this request. `Effect.exit` makes the fiber infallible: the
+      // refresh's failure is news about the CLI, not about the page, and never reaches the
+      // value served here.
+      yield* Effect.forkDaemon(Effect.exit(refreshEffect(key, work)));
+    }
+    return found.value as T;
+  });
+
+/** The single-flight refresh: whoever asks first runs the work, everyone who arrives while it
+ * runs awaits the same Deferred. A failure puts back what was there before — a CLI that fails
+ * is news about the CLI, not about the work. */
+const refreshEffect = <T, E>(key: string, work: Effect.Effect<T, E>): Effect.Effect<T, E> =>
+  Effect.gen(function* () {
+    const found = store.get(key);
+    if (found?.work) {
+      // One refresh per key, shared.
+      return yield* Deferred.await<T, E>(found.work as unknown as Deferred.Deferred<T, E>);
+    }
+
+    const inFlight = yield* Deferred.make<T, E>();
+    store.set(key, {
+      at: found?.at ?? 0,
+      value: found?.value,
+      work: inFlight as unknown as Deferred.Deferred<unknown, unknown>,
+    });
+    const outcome = yield* Effect.exit(work);
+    if (Exit.isSuccess(outcome)) {
+      store.set(key, { at: Date.now(), value: outcome.value });
+      // Everyone who joined mid-flight gets the same answer.
+      yield* Deferred.done(inFlight, outcome);
+      return outcome.value;
+    }
+    // Keep what we had; with nothing to fall back on, the entry is gone and the failure is the
+    // answer.
+    if (found) store.set(key, { at: found.at, value: found.value });
+    else store.delete(key);
+    // Everyone who joined mid-flight gets the same failure.
+    yield* Deferred.done(inFlight, outcome);
+    return yield* Effect.failCause(outcome.cause);
+  });
+
+/** Promise facade over swrEffect; same signature, rejects with whatever `work` rejected with,
+ * exactly as before. Kept for the test suite, which must pass unmodified; src callers use
+ * swrEffect directly. */
+export const swr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
+  Effect.runPromise(
+    swrEffect(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })),
+  );
+
 /** Milliseconds since this key was last produced; undefined when it was never asked for.
  * Meant for showing how old an answer is, which is what makes serving stale data honest. */
+// Synchronous by contract — a read of module state; there is no async work for an Effect to wrap.
 export const ageOf = (key: string): number | undefined => {
   const found = store.get(key);
   return found ? Date.now() - found.at : undefined;
 };
 
-/**
- * The cached value, refreshed when older than `ttl`.
- *
- * The first call for a key waits for the work; every later one is instant, and pays only for a
- * background refresh. Concurrent callers share one run rather than starting several.
- */
-export async function swr<T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> {
-  const found = store.get(key);
-
-  // Nothing to serve yet — never asked, or a first run still in flight — so this one waits.
-  // `at === 0` is that first run: the entry exists only to hold the shared promise.
-  if (!found || found.at === 0) return (await refresh(key, work)) as T;
-
-  if (Date.now() - found.at >= ttl) void refresh(key, work).catch(() => {});
-  return found.value as T;
-}
-
-function refresh<T>(key: string, work: () => Promise<T>): Promise<T> {
-  const found = store.get(key);
-  if (found?.work) return found.work as Promise<T>; // one refresh per key, shared
-
-  const running = work();
-  store.set(key, { at: found?.at ?? 0, value: found?.value, work: running });
-  return running
-    .then((value) => {
-      store.set(key, { at: Date.now(), value });
-      return value;
-    })
-    .catch((e) => {
-      // Keep what we had: a CLI that fails is news about the CLI, not about the work.
-      if (found) store.set(key, { at: found.at, value: found.value });
-      else store.delete(key);
-      throw e;
-    });
-}
-
 /** Forget everything under a prefix, for when an action has just made it wrong — a pull request
  * created, a branch pushed, a change completed. */
+// Synchronous by contract (callers fire-and-forget it mid-request); nothing for an Effect to wrap.
 export function invalidate(prefix: string): void {
   for (const key of store.keys()) if (key.startsWith(prefix)) store.delete(key);
 }
 
 /** Tests share a process; a cache that outlives one of them is a test that passes by accident. */
+// Synchronous by contract: beforeEach in the tests calls it without await.
 export function clearCache(): void {
   store.clear();
 }
@@ -96,12 +130,18 @@ const cacheFile = (): string =>
  * worse than a page that waits. */
 const RESTORE_MAX_AGE = 6 * 60 * 60_000;
 
-export async function loadCache(): Promise<number> {
+/** Restores what a previous run saved, minus anything too old to trust. */
+export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
   type Stored = Record<string, { at: number; value: unknown }>;
-  const stored = await Bun.file(cacheFile())
-    .json()
-    .then((v) => v as Stored)
-    .catch(() => null);
+  const stored = yield* pipe(
+    Effect.tryPromise<Stored, unknown>({
+      try: () => Bun.file(cacheFile()).json(),
+      catch: (e) => e,
+    }),
+    // A missing or unreadable cache file is a cold cache, not an error: the old code caught
+    // everything and carried on, and so does this.
+    Effect.catchAll(() => Effect.succeed(null as Stored | null)),
+  );
   if (!stored) return 0;
   let restored = 0;
   for (const [key, entry] of Object.entries(stored)) {
@@ -110,15 +150,30 @@ export async function loadCache(): Promise<number> {
     restored++;
   }
   return restored;
-}
+});
 
-export async function saveCache(): Promise<void> {
+/** Promise facade over loadCacheEffect; same signature. Kept for the test suite, which must
+ * pass unmodified; the server uses loadCacheEffect directly. */
+export const loadCache = (): Promise<number> => Effect.runPromise(loadCacheEffect);
+
+/** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
+ * JSON — both are skipped, as before. */
+export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function* () {
   const plain: Record<string, { at: number; value: unknown }> = {};
   for (const [key, entry] of store.entries()) {
-    // A refresh in flight has nothing to save yet, and Maps do not survive JSON.
     if (entry.at === 0 || entry.value instanceof Map) continue;
     plain[key] = { at: entry.at, value: entry.value };
   }
-  await mkdir(join(cacheFile(), ".."), { recursive: true });
-  await Bun.write(cacheFile(), JSON.stringify(plain));
-}
+  yield* Effect.tryPromise<void, unknown>({
+    try: () => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined),
+    catch: (e) => e,
+  });
+  yield* Effect.tryPromise<void, unknown>({
+    try: () => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined),
+    catch: (e) => e,
+  });
+});
+
+/** Promise facade over saveCacheEffect; same signature, rejects on write failure exactly as
+ * before. Kept for the test suite, which must pass unmodified; the server uses the Effect. */
+export const saveCache = (): Promise<void> => Effect.runPromise(saveCacheEffect);

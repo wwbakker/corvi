@@ -1,12 +1,19 @@
 import { basename } from "node:path";
+import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
-import { mergeReadiness, mergePr } from "./integrations/github.ts";
-import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
-import { moveIssue } from "./integrations/jira.ts";
-import { archiveChange, writeChange, readSidecar, writeSidecar } from "./changes.ts";
-import { stopTerminal } from "./terminal.ts";
+import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
+import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
+import { moveIssueEffect } from "./integrations/jira.ts";
+import {
+  archiveChangeEffect,
+  readSidecarEffect,
+  writeChangeEffect,
+  writeSidecarEffect,
+} from "./changes.ts";
+import { stopTerminalEffect } from "./terminal.ts";
 import { config } from "./config.ts";
+import { BadRequestError, type CliError } from "./effect/errors.ts";
 
 export type Completion = {
   /** Every repository is either merged already or has an approved pull request. */
@@ -18,6 +25,7 @@ export type Completion = {
 };
 
 /** Turn per-repository readiness into one verdict: a change completes as a whole or not at all. */
+// Pure and synchronous: nothing for an Effect to wrap.
 export function verdict(
   results: { repo: string; readiness: MergeReadiness; unsafe?: { text: string } }[],
 ): Completion {
@@ -32,34 +40,59 @@ export function verdict(
   return { ready: reasons.length === 0, reasons, toMerge };
 }
 
-export async function completionOf(change: Change): Promise<Completion> {
-  const results = await Promise.all(
-    change.repos.map(async (repo) => ({
+/** One repository's readiness, checked live: the two lookups per repository were sequential
+ * within the repository and parallel across repositories, and stay that way. */
+const completionOfRepo = (change: Change, repo: string) =>
+  Effect.gen(function* () {
+    return {
       repo,
-      readiness: await mergeReadiness(change, repo),
-      unsafe: await unsafeToRemove(change, repo),
-    })),
+      readiness: yield* mergeReadinessEffect(change, repo),
+      unsafe: yield* unsafeToRemoveEffect(change, repo),
+    };
+  });
+
+export const completionOfEffect = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
+  Effect.map(
+    Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
+      // The old Promise.all was unbounded, so this stays unbounded.
+      concurrency: "unbounded",
+    }),
+    verdict,
   );
-  return verdict(results);
-}
 
 const PROGRESS = "completion.json";
 
-/** How far a completion got, or nothing if the change was never completed. */
-export async function progressOf(id: string): Promise<CompletionProgress | null> {
-  const text = await readSidecar(id, PROGRESS);
-  try {
-    return text ? (JSON.parse(text) as CompletionProgress) : null;
-  } catch {
-    return null;
-  }
-}
+/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
+ * every typed error carries the sentence users saw before. */
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
-const save = (id: string, progress: CompletionProgress): Promise<void> =>
-  writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n");
+/** How far a completion got, or nothing if the change was never completed. */
+export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress | null> =>
+  Effect.gen(function* () {
+    const text = yield* readSidecarEffect(id, PROGRESS);
+    try {
+      return text ? (JSON.parse(text) as CompletionProgress) : null;
+    } catch {
+      // A half-written record reads as no record: it is our own file, and the completion that
+      // was interrupted will rewrite it from where it got to.
+      return null;
+    }
+  });
+
+/** Promise facade over progressOfEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified. */
+export const progressOf = (id: string): Promise<CompletionProgress | null> =>
+  Effect.runPromise(progressOfEffect(id));
+
+/** The completion journal: written as it happens, so a page opened later reads where a stopped
+ * completion stopped. */
+const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
+  Effect.map(writeSidecarEffect(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
+    undefined);
 
 /** The work a completion is about to do, named before it starts so the page can show what is
  * still coming rather than only what has happened. */
+// Pure and synchronous: nothing for an Effect to wrap.
 export function stepsFor(change: Change, completion: Completion): CompletionStep[] {
   return [
     ...completion.toMerge.map(({ repo, number }) => ({
@@ -84,87 +117,114 @@ export function stepsFor(change: Change, completion: Completion): CompletionStep
  * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
  * picks up what is left: merges already done are no longer outstanding.
  */
-export async function completeChange(change: Change): Promise<{ change: Change; notes: string[] }> {
-  // Written before the checking starts, which is itself slow: a page that just asked for this
-  // should see something immediately, and this is also the record that a completion is running.
-  const progress: CompletionProgress = {
-    startedAt: new Date().toISOString(),
-    steps: [{ id: "check", label: "check every pull request is ready", state: "running" }],
-  };
-  await save(change.id, progress);
+export const completeChangeEffect = (
+  change: Change,
+): Effect.Effect<{ change: Change; notes: string[] }, CliError | BadRequestError> =>
+  Effect.gen(function* () {
+    // Written before the checking starts, which is itself slow: a page that just asked for this
+    // should see something immediately, and this is also the record that a completion is running.
+    const progress: CompletionProgress = {
+      startedAt: new Date().toISOString(),
+      steps: [{ id: "check", label: "check every pull request is ready", state: "running" }],
+    };
+    yield* save(change.id, progress);
 
-  const completion = await completionOf(change);
-  const checked = progress.steps[0]!;
-  if (!completion.ready) {
-    checked.state = "failed";
-    checked.detail = completion.reasons.join("; ");
-    progress.error = `cannot complete: ${completion.reasons.join("; ")}`;
-    progress.finishedAt = new Date().toISOString();
-    await save(change.id, progress);
-    throw new Error(progress.error);
-  }
-  checked.state = "done";
-  progress.steps = [checked, ...stepsFor(change, completion)];
-  await save(change.id, progress);
-
-  const notes: string[] = [];
-
-  /** Run one step, recording it before and after. A failure stops the completion where it is. */
-  const step = async (id: string, work: () => Promise<string | undefined>): Promise<void> => {
-    const found = progress.steps.find((s) => s.id === id);
-    if (!found) return;
-    found.state = "running";
-    await save(change.id, progress);
-    try {
-      found.detail = await work();
-      found.state = "done";
-    } catch (e) {
-      found.state = "failed";
-      found.detail = e instanceof Error ? e.message : String(e);
-      progress.error = found.detail;
+    const completion = yield* completionOfEffect(change);
+    const checked = progress.steps[0]!;
+    if (!completion.ready) {
+      checked.state = "failed";
+      checked.detail = completion.reasons.join("; ");
+      progress.error = `cannot complete: ${completion.reasons.join("; ")}`;
       progress.finishedAt = new Date().toISOString();
-      await save(change.id, progress);
-      throw e;
+      yield* save(change.id, progress);
+      return yield* Effect.fail(new BadRequestError({ message: progress.error }));
     }
-    await save(change.id, progress);
-  };
+    checked.state = "done";
+    progress.steps = [checked, ...stepsFor(change, completion)];
+    yield* save(change.id, progress);
 
-  // Sequential on purpose: if a merge fails, the ones after it should not have happened either.
-  // A merge that was queued rather than done is worth saying out loud: the change is finished
-  // here, but the commit is not on main yet.
-  for (const { repo, number } of completion.toMerge) {
-    await step(`merge:${repo}`, async () => {
-      const note = await mergePr(change, repo, number);
-      if (note) notes.push(note);
-      return note;
-    });
-  }
-  if (change.jira) {
-    await step("jira", async () => {
-      await moveIssue(change.jira!, config.jiraDoneTransition);
-      return undefined;
-    });
-  }
+    const notes: string[] = [];
 
-  // The work is on the remote now, so the worktrees have nothing left to hold.
-  await step("worktrees", async () => {
-    for (const repo of change.repos) await removeWorktree(change, repo);
-    return undefined;
+    /** Run one step, recording it before and after. A failure stops the completion where it is. */
+    const step = (
+      id: string,
+      work: Effect.Effect<string | undefined, CliError | BadRequestError>,
+    ): Effect.Effect<void, CliError | BadRequestError> =>
+      Effect.gen(function* () {
+        const found = progress.steps.find((s) => s.id === id);
+        if (!found) return;
+        found.state = "running";
+        yield* save(change.id, progress);
+        const outcome = yield* Effect.either(work);
+        if (Either.isLeft(outcome)) {
+          found.state = "failed";
+          found.detail = messageOf(outcome.left);
+          progress.error = found.detail;
+          progress.finishedAt = new Date().toISOString();
+          yield* save(change.id, progress);
+          return yield* Effect.fail(outcome.left);
+        }
+        found.detail = outcome.right;
+        found.state = "done";
+        yield* save(change.id, progress);
+      });
+
+    // Sequential on purpose: if a merge fails, the ones after it should not have happened either.
+    // A merge that was queued rather than done is worth saying out loud: the change is finished
+    // here, but the commit is not on main yet.
+    for (const { repo, number } of completion.toMerge) {
+      yield* step(
+        `merge:${repo}`,
+        Effect.tap(mergePrEffect(change, repo, number), (note) =>
+          Effect.sync(() => {
+            if (note) notes.push(note);
+          }),
+        ),
+      );
+    }
+    if (change.jira) {
+      yield* step(
+        "jira",
+        Effect.map(moveIssueEffect(change.jira, config.jiraDoneTransition), () => undefined),
+      );
+    }
+
+    // The work is on the remote now, so the worktrees have nothing left to hold.
+    yield* step(
+      "worktrees",
+      Effect.map(
+        Effect.forEach(change.repos, (repo) => removeWorktreeEffect(change, repo), {
+          concurrency: 1,
+          discard: true,
+        }),
+        () => undefined,
+      ),
+    );
+    // The terminal sits in a directory that is about to move into the archive.
+    yield* step(
+      "terminal",
+      Effect.map(stopTerminalEffect(change.id), () => undefined),
+    );
+
+    const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
+    yield* step(
+      "archive",
+      Effect.map(
+      Effect.gen(function* () {
+        yield* writeChangeEffect(completed);
+        yield* archiveChangeEffect(change.id);
+      }),
+      () => undefined,
+      ),
+    );
+
+    progress.finishedAt = new Date().toISOString();
+    yield* save(change.id, progress);
+    return { change: completed, notes };
   });
-  // The terminal sits in a directory that is about to move into the archive.
-  await step("terminal", async () => {
-    await stopTerminal(change.id);
-    return undefined;
-  });
 
-  const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
-  await step("archive", async () => {
-    await writeChange(completed);
-    await archiveChange(change.id);
-    return undefined;
-  });
-
-  progress.finishedAt = new Date().toISOString();
-  await save(change.id, progress);
-  return { change: completed, notes };
-}
+/** Promise facade over completeChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
+export const completeChange = (
+  change: Change,
+): Promise<{ change: Change; notes: string[] }> => Effect.runPromise(completeChangeEffect(change));
