@@ -20,6 +20,7 @@ import {
   statusOneEffect,
   wizardStepsFor,
 } from "./extensions/index.ts";
+import { buildClientChunks, chunkRoot, clientChunkPath } from "./extensions/clientChunks.ts";
 import { absolutePath, browseEffect, remoteBranchesEffect } from "./repos.ts";
 import { listLeftoversEffect, removeLeftoverEffect } from "./leftovers.ts";
 import { summaryOfEffect } from "./summary.ts";
@@ -56,6 +57,12 @@ import { guard } from "./origin.ts";
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
 const restored = await Effect.runPromise(loadCacheEffect);
+
+// The browser halves of out-of-tree extensions, and the react vendor chunks they resolve
+// against, built once at startup: after the extensions have loaded (their import awaited
+// above), so the discovered client paths are known, and before the server listens, so the
+// first page never races the chunks.
+await buildClientChunks();
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.
@@ -602,6 +609,27 @@ const server = Bun.serve({
         ),
     },
 
+    // The browser half of an out-of-tree extension, built at startup into the state dir and
+    // imported by the page at runtime (src/web/extensions.tsx). Built-ins are in the page's
+    // own bundle instead; an unknown name has no chunk and answers 404.
+    "/extensions/:name/client.js": async (req) => {
+      const file = Bun.file(clientChunkPath(req.params.name));
+      return (await file.exists())
+        ? new Response(file, { headers: { "content-type": "text/javascript" } })
+        : new Response("no such extension client", { status: 404 });
+    },
+
+    // The react vendor chunks the page's import map points the out-of-tree clients at, built
+    // from the app's own react entrypoints — so an out-of-tree step resolves react to the
+    // same build the page runs (two reacts break hooks and context).
+    "/vendor/:file": async (req) => {
+      // basename: the parameter must not walk out of the vendor directory.
+      const file = Bun.file(join(chunkRoot, "vendor", basename(req.params.file)));
+      return (await file.exists())
+        ? new Response(file, { headers: { "content-type": "text/javascript" } })
+        : new Response("no such chunk", { status: 404 });
+    },
+
     // The manifest is bundled with the page; its icons are plain files served from here.
     "/icons/:file": async (req) => {
       // basename: the parameter must not walk out of the icons directory.
@@ -614,3 +642,20 @@ const server = Bun.serve({
 });
 
 console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
+
+// The page is built on demand, and a failed build in production comes back as an empty 200 with
+// no error anywhere — in the app's window that is a black screen, with nothing to say why. Ask
+// for the page once at startup, where the answer is visible: a server whose page cannot build
+// stops here (the window then reports it and points at this log) instead of blinding one.
+{
+  const page = await fetch(`${server.url}`).then((r) => r.text()).catch(() => "");
+  if (!page.includes("<!doctype html>") || page.includes("Build Failed")) {
+    console.error(
+      `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
+    );
+    console.error(
+      "usually dependencies: run `bun install`. For the full error: bun build src/web/index.html --outdir /tmp/iwe-check --production",
+    );
+    process.exit(1);
+  }
+}

@@ -88,6 +88,11 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(config.worktreeCopy).toEqual([".idea"]);
   expect(config.workspaces.map((w) => w.id)).toEqual(["client", "own"]);
   expect(config.workspaces[1]!.jira).toBe(false);
+  // The write migrated the legacy shapes: jira's object landed under extensionSettings.jira,
+  // and jira: false became an explicit extensions list without jira in it.
+  expect(config.workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
+  expect(config.workspaces[1]!.extensions).not.toContain("jira");
+  expect(config.workspaces[1]!.extensions).toContain("ci");
 
   expect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] })).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.

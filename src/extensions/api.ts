@@ -187,11 +187,27 @@ export type ExtensionEvents = {
  * Arrays are orders: the dashboard's card order, the wizard's step order within a phase, the
  * completion steps' run order. Across extensions, the loader's own order decides.
  */
+
+/** One per-workspace string field an extension declares: rendered by the settings page and
+ * stored under `workspace.extensionSettings[name][key]` — plain data, owned by the extension. */
+export type WorkspaceSetting = {
+  /** The key under `extensionSettings[name]` this field is stored as. */
+  key: string;
+  label: string;
+  placeholder?: string;
+  hint?: string;
+};
+
 export type Extension = {
   /** The extension's identity: the key of its entry in a change's `extensions` bag, its
    * cards' identity on the routes, the prefix of its routes. Must be unique. */
   name: string;
   title: string;
+
+  /** Per-workspace settings this extension wants: flat string fields, one per workspace, shown
+   * on the settings page for every workspace that has this extension enabled and stored where
+   * the extension itself reads them back — `workspace.extensionSettings[name][key]`. */
+  workspaceSettings?: WorkspaceSetting[];
 
   cards?: Card[];
   wizardSteps?: WizardStep[];

@@ -22,6 +22,18 @@ export const Workspace = Schema.Struct({
    * are validated against what is loaded by the settings write, not here: the file may be
    * edited by hand before the extension it names exists. */
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Per-workspace settings declared by the extensions: `extensionSettings[name][key]`. The core
+   * carries it without looking inside; what belongs there is the extension's own declaration. */
+  extensionSettings: Schema.optional(
+    Schema.mutable(
+      Schema.Record({
+        key: Schema.String,
+        value: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
+      }),
+    ),
+  ),
+  /** Legacy: Jira's per-workspace settings, kept as passthrough so migrateWorkspaceSettings can
+   * fold them into `extensionSettings.jira` (the settings page no longer writes this key). */
   jira: Schema.optional(
     Schema.Union(
       Schema.Literal(false),
@@ -97,6 +109,10 @@ export const ConfigFile = Schema.Struct({
   // tolerance via workspacesFrom, exactly where it always sat.
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Where out-of-tree extension modules live: .ts files or directories, `~` allowed. Not
+   * validated here — a path that does not exist is logged and skipped by the loader, not a
+   * reason to reject the file. */
+  extensionPaths: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   azureDeploy: Schema.optional(AzureDeploy),
 });
 
@@ -122,6 +138,7 @@ export const Resolved = Schema.Struct({
   azureProject: Schema.String,
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
+  extensionPaths: Schema.Array(Schema.String),
   azureDeploy: Schema.Struct({
     pipeline: Schema.Tuple(Schema.String, Schema.String),
     versionParameter: Schema.String,

@@ -386,10 +386,12 @@ are looking at.
   "workspaces": [
     { "id": "client", "name": "Acme",
       "reposStart": "~/Repos/acme",
-      "jira":  { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" },
+      "extensionSettings": {
+        "jira": { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" }
+      },
       "azure": { "organization": "https://dev.azure.com/org", "project": "Project" } },
 
-    { "id": "personal", "name": "Personal", "jira": false, "azure": false }
+    { "id": "personal", "name": "Personal", "azure": false }
   ]
 }
 ```
@@ -397,11 +399,14 @@ are looking at.
 `false` means "this context does not have that at all", and it is subtraction rather than
 configuration:
 
-- **No Jira**: the dashboard has no Jira card, provisioning does not try to move a ticket, and
-  no `jira` request is made for a change that was never going to have one.
 - **No Azure**: no pipelines are looked for, and `Deployments` is not offered in the column.
   The CI card stays either way — it is pull requests *as well as* pipelines, and a workspace
   without pipelines still has reviews.
+- **No Jira** is no longer a flag: Jira is an extension, and a workspace without it simply does
+  not name it in its `extensions` list (below). Its per-workspace settings — project, board,
+  config file, token variable — are declared by the jira extension itself, rendered by the
+  settings page for every workspace that has Jira enabled, and stored under
+  `extensionSettings.jira`.
 
 Anything a workspace does not say is inherited from the top-level settings, which is exactly what
 IWE did before workspaces existed.
@@ -411,12 +416,23 @@ A workspace can also name **which extensions it has** (`"extensions": ["git", "c
 them, which is what IWE was before this existed; naming some is the whole list. Extensions are
 described in [docs/extensions.md](docs/extensions.md) — the jira and github-issues extensions are
 the first two, and both can be on at once: two tickets on one change is a thing, not a conflict.
-The old `"jira": false` flag still works while a workspace names no extensions.
+The old `"jira": false` flag is deprecated: a workspace still carrying it (with no `extensions`
+list) is migrated on load — the flag becomes an explicit list naming everything but jira, and the
+legacy `jira` object is folded into `extensionSettings.jira`. The migration is automatic, for
+hand-edits and settings-page writes alike.
 
-**A second client is a second site.** `jira.configFile` points at another `jira init` — its own
-server, account and board — `jira.tokenEnv` names the variable holding that site's token, and
-`azure.organization`/`project` are passed to `az` explicitly rather than relying on its single
-configured default. Two clients can be open at once.
+Extensions do not have to live in this repository: `"extensionPaths"` in the config (or the
+`IWE_EXTENSION_PATHS` environment variable) names `.ts` modules or directories of them, loaded
+at startup beside the built-ins through the same contract, with `~/.config/iwe/extensions/`
+searched implicitly when it exists. A discovered extension's wizard step gets its interface
+from a `client.tsx` beside the module, which the server builds and serves to the page — see
+"Out-of-tree extensions" in [docs/extensions.md](docs/extensions.md).
+
+**A second client is a second site.** `extensionSettings.jira.configFile` points at another
+`jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
+variable holding that site's token, and `azure.organization`/`project` are passed to `az`
+explicitly rather than relying on its single configured default. Two clients can be open at
+once.
 
 ### A second client is also a second login
 
@@ -426,7 +442,8 @@ configured default. Two clients can be open at once.
     "GH_CONFIG_DIR": "~/.config/gh-client",
     "AZURE_CONFIG_DIR": "~/.azure-client"
   },
-  "jira": { "configFile": "~/.config/.jira/client.yml", "tokenEnv": "JIRA_TOKEN_CLIENT" } }
+  "extensionSettings":
+    { "jira": { "configFile": "~/.config/.jira/client.yml", "tokenEnv": "JIRA_TOKEN_CLIENT" } } }
 ```
 
 `env` is added to **every** CLI IWE runs for that workspace — `git`, `gh`, `az`, `tmux`, however
@@ -1282,14 +1299,15 @@ every 15s, and a slow or broken CLI delays only its own row.
 
 ## Adding an integration
 
-Write an extension (see [docs/extensions.md](docs/extensions.md)): a module under `src/extensions/`
-whose default export is a factory receiving the API. `registerCard` takes the same shape the
+Write an extension (see [docs/extensions.md](docs/extensions.md)): a module whose default export
+is a factory receiving the API. `registerCard` takes the same shape the
 integrations always had — `status(change)` for a whole widget or `repoStatus(change, repo)` to be
 fetched a repository at a time — and the UI renders whatever widgets come back; a card needs no
 frontend change. A wizard step is `registerWizardStep` plus a React component in the extension's
-`client.tsx`, and `on("change:created")` is the creation hook. Add the module to the loader in
-`src/extensions/index.ts` and, when it has a step, to the client registry in
-`src/web/extensions.tsx`.
+`client.tsx`, and `on("change:created")` is the creation hook. A built-in is added to the loader
+in `src/extensions/index.ts` and, when it has a step, to the client registry in
+`src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
+and registers nowhere.
 
 ## Tests and your real changes
 
