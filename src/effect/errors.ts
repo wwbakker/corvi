@@ -26,8 +26,12 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly needsForce?: boolean;
 }> {}
 
-/** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost. */
+/** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost.
+ * `message` is what the UI showed for this failure before the rewrite — for `shOrThrowEffect`
+ * that is `<cmd> failed: <stderr>`, for a timeout `<cmd> timed out after N seconds` — and
+ * `formatError` hands it to the response verbatim. */
 export class CliError extends Data.TaggedError("CliError")<{
+  readonly message: string;
   readonly tool: string;
   readonly command: string;
   readonly stderr: string;
@@ -51,14 +55,4 @@ export const isIweError = (e: unknown): e is IweError =>
   );
 
 /** The human-readable message for any of ours — what `e.message` gave the old fail(). */
-export const formatError = (e: IweError): string => {
-  switch (e._tag) {
-    case "CliError":
-      return [
-        `${e.tool} failed (exit ${e.exitCode})`,
-        e.stderr ? `: ${e.stderr}` : "",
-      ].join("");
-    default:
-      return e.message;
-  }
-};
+export const formatError = (e: IweError): string => e.message;

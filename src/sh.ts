@@ -31,13 +31,14 @@ const timeoutSeconds = (): number => {
   return raw === undefined ? 120 : Number(raw);
 };
 
-const failCli = (cmd: string[], stderr: string, exitCode: number): CliError => {
-  const error = new CliError({ tool: toolOf(cmd), command: cmd.join(" "), stderr, exitCode });
-  // errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
-  // carry the human-readable message the old throw had, so set it explicitly.
-  (error as { message: string }).message = stderr;
-  return error;
-};
+const failCli = (cmd: string[], stderr: string, exitCode: number, message?: string): CliError =>
+  new CliError({
+    tool: toolOf(cmd),
+    command: cmd.join(" "),
+    stderr,
+    exitCode,
+    message: message ?? stderr,
+  });
 
 /**
  * How many CLIs may run at once. A dashboard asks about six repositories in parallel and each
@@ -124,12 +125,8 @@ export const shOrThrowEffect = (cmd: string[], cwd?: string): Effect.Effect<stri
   Effect.flatMap(shEffect(cmd, cwd), (r) => {
     if (r.code === 0) return Effect.succeed(r.stdout);
     const stderr = r.stderr || r.stdout;
-    return Effect.fail(failCli(cmd, stderr, r.code)).pipe(
-      Effect.mapError((e) => {
-        (e as { message: string }).message = `${cmd.join(" ")} failed: ${stderr}`;
-        return e;
-      }),
-    );
+    // The message is what the old `throw new Error` said, verbatim.
+    return Effect.fail(failCli(cmd, stderr, r.code, `${cmd.join(" ")} failed: ${stderr}`));
   });
 
 /** Promise facade over shEffect; same signature and Result shape as before. Kept for the test
@@ -144,11 +141,3 @@ export const sh = (cmd: string[], cwd?: string): Promise<Result> =>
       Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   ));
 
-/** Parse `--json` style output, tolerating a CLI that printed nothing. */
-export function json<T>(out: string, fallback: T): T {
-  try {
-    return out ? (JSON.parse(out) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}

@@ -95,6 +95,17 @@ code threw, and returning old-shaped results).
   a comment saying which README behavior it preserves. Never a bare `as` cast — that is what
   the tolerance rules exist to prevent.
 
+## Post-review rulings (coordinator, after the audit)
+
+- **Promise facades kept for the test suite** (readChange, swr, commitChange, ...) outlive the
+  sweep deliberately: tests are Promise-shaped by contract and the rewrite was not sanctioned to
+  touch them. Their doc comments say so; they carry no TODO-MIGRATE marker because nothing in
+  `src/` is expected to migrate off them.
+- **`src/context.ts` keeps the AsyncLocalStorage shim** for the same reason — it is the seam
+  between the Effect world and the Promise-shaped test helpers, not migration debt.
+- **A malformed `change.json` is skipped by the listing** (and surfaces as a typed error when the
+  change is asked for by id). The old code failed the whole listing; the skip is deliberate.
+
 ## Verification (every task, before reporting done)
 
 ```sh

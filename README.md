@@ -72,7 +72,8 @@ project.
 `reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
 Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
 `IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`,
-`IWE_CACHE` (where the cache is stored), `IWE_PARALLEL` (how many CLIs may run at once) and
+`IWE_CACHE` (where the cache is stored), `IWE_PARALLEL` (how many CLIs may run at once),
+`IWE_CLI_TIMEOUT` (seconds a CLI may run before it is killed; 120 by default, 0 disables) and
 `IWE_WORKTREE_COPY` (see below; empty disables it).
 
 ### The settings page
@@ -1206,7 +1207,8 @@ edit `bun --watch` cannot take — and without it every page waits for the CLIs 
 Entries older than six hours are not restored: a page painted from yesterday's builds is worse
 than a page that waits.
 
-Subprocesses are bounded at eight at once (`IWE_PARALLEL`). A dashboard of six repositories asks
+Subprocesses are bounded at eight at once (`IWE_PARALLEL`), and a CLI that has not finished
+within two minutes (`IWE_CLI_TIMEOUT`) is killed and reported as a failed command. A dashboard of six repositories asks
 about thirty things in parallel, and `az` is a few hundred milliseconds of CPU each; queueing
 them costs nothing in wall time and keeps the machine usable while it happens.
 

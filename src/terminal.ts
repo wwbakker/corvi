@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { changeDir } from "./changes.ts";
 import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { shEffect, shOrThrowEffect, type Result } from "./sh.ts";
-import { CliError, ConflictError } from "./effect/errors.ts";
+import { BadRequestError, CliError } from "./effect/errors.ts";
 import type { AgentState } from "./terminalTypes.ts";
 
 /**
@@ -28,11 +28,8 @@ type Running = { port: number; pid: number };
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
  * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
  * failCli does). */
-const cliError = (tool: string, command: string, message: string, exitCode: number): CliError => {
-  const error = new CliError({ tool, command, stderr: message, exitCode });
-  (error as { message: string }).message = message;
-  return error;
-};
+const cliError = (tool: string, command: string, message: string, exitCode: number): CliError =>
+  new CliError({ tool, command, stderr: message, exitCode, message });
 
 /** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
  * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
@@ -107,16 +104,16 @@ export const terminalPath = (id: string): string =>
 /** The port ttyd serves this change on, starting or adopting it as needed.
  *
  * Where the old code threw, the Effect fails with the typed taxonomy: a completed change is a
- * `ConflictError` (the state forbids it), a missing tool or a start that never came up is a
- * `CliError`. Both carry the message the old throw had. */
-export const terminalPortEffect = (change: Change): Effect.Effect<number, ConflictError | CliError> =>
+ * `BadRequestError` (the state forbids it, and the old code answered 400), a missing tool or a
+ * start that never came up is a `CliError`. Both carry the message the old throw had. */
+export const terminalPortEffect = (change: Change): Effect.Effect<number, BadRequestError | CliError> =>
   Effect.gen(function* () {
     // Starting one would write into a directory that has moved to the archive, recreating it.
     if (change.completedAt) {
       const message = "this change is completed: its terminal is gone";
-      const error = new ConflictError({ message });
-      (error as { message: string }).message = message;
-      return yield* Effect.fail(error);
+      // 400, as the plain Error the old code threw mapped to — not 409: the state is not
+      // forceable, and nothing about the request is retryable against a completed change.
+      return yield* Effect.fail(new BadRequestError({ message }));
     }
     const joinOrStart = (): Effect.Effect<number, CliError> =>
       Effect.gen(function* () {

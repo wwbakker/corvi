@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
 import { worktreeForEffect, baseForEffect } from "./integrations/git.ts";
 import { shEffect, type Result } from "./sh.ts";
-import { CliError, NotFoundError } from "./effect/errors.ts";
+import { BadRequestError, CliError } from "./effect/errors.ts";
 
 export type { FileChange };
 
@@ -90,14 +90,6 @@ export const aheadIn = (stdout: string): number | undefined => {
 export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
-/** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
- * failCli does). */
-const typed = <E extends { message: string }>(error: E, message: string): E => {
-  (error as { message: string }).message = message;
-  return error;
-};
-
 /** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
  * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
  * operation. Everything downstream branches on `code`, exactly as before. */
@@ -173,7 +165,7 @@ export const localChanges = (change: Change, repo: string): Promise<LocalStatus>
  * `--no-index` against /dev/null, which is how git itself shows a file it does not know.
  *
  * Where the old code threw, the Effect fails with the typed taxonomy: no worktree is a
- * `NotFoundError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
+ * `BadRequestError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
  * is a `CliError`. Both carry the message the old throw had.
  */
 export const fileDiffEffect = (
@@ -181,12 +173,14 @@ export const fileDiffEffect = (
   repo: string,
   file: string,
   staged: boolean,
-): Effect.Effect<string, NotFoundError | CliError | unknown> =>
+): Effect.Effect<string, BadRequestError | CliError | unknown> =>
   Effect.gen(function* () {
     const worktree = yield* worktreeOf(change, repo);
     if (!worktree) {
+      // 400, as this was before the rewrite: a wrong request against this change, not a missing
+      // resource (matching the same message's BadRequestError in the integrations).
       const message = `no worktree for ${change.branch} in ${repo}`;
-      return yield* Effect.fail(typed(new NotFoundError({ message }), message));
+      return yield* Effect.fail(new BadRequestError({ message }));
     }
 
     const status = yield* localChangesEffect(change, repo);
@@ -200,15 +194,13 @@ export const fileDiffEffect = (
     if (r.code > 1) {
       const message = r.stderr || r.stdout || "git diff failed";
       return yield* Effect.fail(
-        typed(
-          new CliError({
-            tool: "git",
-            command: command.join(" "),
-            stderr: message,
-            exitCode: r.code,
-          }),
+        new CliError({
           message,
-        ),
+          tool: "git",
+          command: command.join(" "),
+          stderr: message,
+          exitCode: r.code,
+        }),
       );
     }
     return r.stdout;

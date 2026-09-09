@@ -100,7 +100,7 @@ function stopWatcher(): void {
   if (!watcher) return;
   const fiber = watcher;
   watcher = undefined;
-  void Effect.runPromise(Fiber.interrupt(fiber)).catch(() => {});
+  Fiber.interruptFork(fiber);
 }
 
 function broadcast(event: EventName): void {

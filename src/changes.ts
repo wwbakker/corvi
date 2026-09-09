@@ -185,8 +185,11 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
   );
 
 /** Active changes first, then archived ones; both are listed, the archive is not a hiding place.
- * A change whose change.json cannot be read or decoded — one being written mid-list — is
- * skipped exactly like the nulls readChange used to return, so the listing never breaks. */
+ * A change whose change.json cannot be read or decoded — one being written mid-list, or one
+ * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The old
+ * code threw on a malformed file and failed the whole listing; the skip is deliberate (a
+ * coordinator ruling on the review), and the single change's error still surfaces everywhere
+ * that change is asked for by id. */
 export const listChangesEffect = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const [active, archived] = yield* Effect.all([
