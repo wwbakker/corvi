@@ -1,10 +1,23 @@
 import { basename } from "node:path";
+import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
-import { prSummary } from "./integrations/github.ts";
+import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
+import { prSummaryEffect } from "./integrations/github.ts";
 import { archiveChange, writeChange } from "./changes.ts";
 import { stopTerminal } from "./terminal.ts";
-import { sh } from "./sh.ts";
+import { shEffect, type Result } from "./sh.ts";
+import { BadRequestError, type CliError } from "./effect/errors.ts";
+
+/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
+ * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
+ * is what the Promise facade converts it to. Result-branching callers keep branching. */
+const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  Effect.catchAll(shEffect(cmd, cwd), (e) =>
+    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+
+/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
+ * every typed error carries the sentence users saw before. */
+const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
  * Abandoning a change: the opposite end of `complete.ts`.
@@ -24,52 +37,86 @@ export type Cancellation = {
   loose: string[];
 };
 
-/** Names of the repositories whose work would be lost, when that needs asking about first. */
-export type NeedsForce = { needsForce: string[] };
+/** Names of the repositories whose work would be lost, when that needs asking about first.
+ * The Effect API answers in one discriminated union where the old code returned a duck that the
+ * caller probed with `"needsForce" in result`; the Promise facade keeps the duck (the server
+ * still tests for it). */
+export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
+export type Cancelled = { _tag: "Done"; change: Change; loose: string[] };
 
+export const cancelChangeEffect = (
+  change: Change,
+  force = false,
+): Effect.Effect<Cancelled | NeedsForce, CliError | BadRequestError> =>
+  Effect.gen(function* () {
+    const unsafe = yield* Effect.forEach(
+      change.repos,
+      (repo) => Effect.map(unsafeToRemoveEffect(change, repo), (unsafe) => ({ repo, unsafe })),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    );
+
+    // Uncommitted work cannot be recovered from anywhere, so it is never thrown away on the
+    // strength of a menu item: commit it, or revert it, and then cancel.
+    const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
+    if (dirty.length) {
+      return yield* Effect.fail(
+        new BadRequestError({
+          message:
+            `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, ` +
+            `commit or revert them before cancelling`,
+        }),
+      );
+    }
+    // Commits nobody else has: the branch survives a cancellation, so these are recoverable — but
+    // only by someone who knows the branch is there, which is worth one question.
+    const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
+    if (unpushed.length && !force) {
+      return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
+    }
+
+    // Asked before the worktrees go, because that is where the pull request is looked up from.
+    const loose = yield* looseEndsEffect(change);
+
+    for (const repo of change.repos) yield* removeWorktreeEffect(change, repo);
+    // TODO-MIGRATE — src/terminal.ts is another worker's file; the server task sweeps this call site.
+    yield* Effect.tryPromise({
+      try: () => stopTerminal(change.id),
+      catch: (e) => new BadRequestError({ message: messageOf(e) }),
+    });
+
+    // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
+    // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
+    const kept = yield* keptBranchesEffect(change);
+    if (kept.length) {
+      loose.push(`the branch ${change.branch} is kept in ${kept.map((repo) => basename(repo)).join(", ")}`);
+    }
+
+    const cancelled: Change = {
+      ...change,
+      state: "Cancelled",
+      completedAt: new Date().toISOString(),
+    };
+    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
+    yield* Effect.tryPromise({
+      try: () => writeChange(cancelled),
+      catch: (e) => new BadRequestError({ message: messageOf(e) }),
+    });
+    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
+    yield* Effect.tryPromise({
+      try: () => archiveChange(change.id),
+      catch: (e) => new BadRequestError({ message: messageOf(e) }),
+    });
+    return { _tag: "Done", change: cancelled, loose };
+  });
+
+/** TODO-MIGRATE — Promise facade over cancelChangeEffect; same duck-typed JSON as before. */
 export async function cancelChange(
   change: Change,
   force = false,
-): Promise<Cancellation | NeedsForce> {
-  const unsafe = await Promise.all(
-    change.repos.map(async (repo) => ({ repo, unsafe: await unsafeToRemove(change, repo) })),
-  );
-
-  // Uncommitted work cannot be recovered from anywhere, so it is never thrown away on the
-  // strength of a menu item: commit it, or revert it, and then cancel.
-  const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
-  if (dirty.length) {
-    throw new Error(
-      `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, ` +
-        `commit or revert them before cancelling`,
-    );
-  }
-  // Commits nobody else has: the branch survives a cancellation, so these are recoverable — but
-  // only by someone who knows the branch is there, which is worth one question.
-  const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
-  if (unpushed.length && !force) return { needsForce: unpushed.map((u) => basename(u.repo)) };
-
-  // Asked before the worktrees go, because that is where the pull request is looked up from.
-  const loose = await looseEnds(change);
-
-  for (const repo of change.repos) await removeWorktree(change, repo);
-  await stopTerminal(change.id);
-
-  // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
-  // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
-  const kept = await keptBranches(change);
-  if (kept.length) {
-    loose.push(`the branch ${change.branch} is kept in ${kept.map((repo) => basename(repo)).join(", ")}`);
-  }
-
-  const cancelled: Change = {
-    ...change,
-    state: "Cancelled",
-    completedAt: new Date().toISOString(),
-  };
-  await writeChange(cancelled);
-  await archiveChange(change.id);
-  return { change: cancelled, loose };
+): Promise<Cancellation | { needsForce: string[] }> {
+  const result = await Effect.runPromise(cancelChangeEffect(change, force));
+  return result._tag === "Done" ? { change: result.change, loose: result.loose } : { needsForce: result.needsForce };
 }
 
 /**
@@ -78,22 +125,27 @@ export async function cancelChange(
  * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
  * change that comes back to you in a week as somebody else's question.
  */
-async function looseEnds(change: Change): Promise<string[]> {
-  const ends: string[] = [];
-  if (change.jira) ends.push(`${change.jira} is still open in Jira`);
+const looseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+  Effect.gen(function* () {
+    const ends: string[] = [];
+    if (change.jira) ends.push(`${change.jira} is still open in Jira`);
 
-  const prs = await Promise.all(
-    change.repos.map(async (repo) => {
-      // Best effort: a repository with no pull request, or no network, is not a loose end worth
-      // failing a cancellation over.
-      const summary = await prSummary(change, repo).catch(() => undefined);
-      return summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined;
-    }),
-  );
-  ends.push(...prs.filter((p): p is string => Boolean(p)));
+    const prs = yield* Effect.forEach(
+      change.repos,
+      (repo) =>
+        Effect.map(
+          // Best effort: a repository with no pull request, or no network, is not a loose end worth
+          // failing a cancellation over.
+          Effect.catchAll(prSummaryEffect(change, repo), () => Effect.succeed(undefined)),
+          (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
+        ),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    );
+    ends.push(...prs.filter((p): p is string => Boolean(p)));
 
-  return ends;
-}
+    return ends;
+  });
 
 /**
  * Where the change's branch still exists once the worktrees are gone.
@@ -102,15 +154,17 @@ async function looseEnds(change: Change): Promise<string[]> {
  * the behaviour you want and not the behaviour you would guess: worth reporting rather than
  * claiming either way.
  */
-async function keptBranches(change: Change): Promise<string[]> {
-  const found = await Promise.all(
-    change.repos.map(async (repo) => {
-      const exists = await sh(
-        ["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`],
-        repo,
-      );
-      return exists.code === 0 ? repo : undefined;
-    }),
+const keptBranchesEffect = (change: Change): Effect.Effect<string[]> =>
+  Effect.map(
+    Effect.forEach(
+      change.repos,
+      (repo) =>
+        Effect.map(
+          shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo),
+          (exists) => (exists.code === 0 ? repo : undefined),
+        ),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    ),
+    (found) => found.filter((r): r is string => Boolean(r)),
   );
-  return found.filter((r): r is string => Boolean(r));
-}

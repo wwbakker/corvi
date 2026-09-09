@@ -1,7 +1,8 @@
+import { Effect, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { worktreeFor } from "./git.ts";
-import { sh, json } from "../sh.ts";
-import { swr } from "../cache.ts";
+import { worktreeForEffect } from "./git.ts";
+import { shEffect, type Result } from "../sh.ts";
+import { swrEffect } from "../cache.ts";
 
 export type Check = {
   name: string;
@@ -11,6 +12,39 @@ export type Check = {
   startedAt?: string;
   completedAt?: string;
 };
+
+/** `gh pr checks --json` output, as far as this file reads it. */
+const ChecksSchema = Schema.Array(
+  Schema.Struct({
+    name: Schema.String,
+    state: Schema.String,
+    bucket: Schema.String,
+    link: Schema.optional(Schema.String),
+    startedAt: Schema.optional(Schema.String),
+    completedAt: Schema.optional(Schema.String),
+  }),
+);
+
+/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
+ * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
+ * is what the Promise facade converts it to. Result-branching callers keep branching. */
+const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  Effect.catchAll(shEffect(cmd, cwd), (e) =>
+    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+
+/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
+ * printed nothing, or something this query did not expect, reads as the fallback rather than
+ * failing — the documented silent fallback (docs/effect-conventions.md). */
+const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
+  (stdout: string): Effect.Effect<B> =>
+    stdout.trim()
+      ? Effect.orElseSucceed(
+          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
+          // back to the fallback's here, which is what the old cast did.
+          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
+          () => fallback,
+        )
+      : Effect.succeed(fallback);
 
 /** GitHub's own word for a check, which is the only vocabulary shared by Actions, Azure Pipelines
  * in any project, Cypress and whatever else a repository has bolted on. */
@@ -26,29 +60,36 @@ const checkState = (bucket: string): WidgetState =>
  * Names like `owner.pipeline (CI App @scope/one-app)` are grouped by the part before
  * the bracket, so thirty jobs of one build read as one row you can open.
  */
-export async function checkItems(change: Change, repo: string, number: number): Promise<WidgetItem[]> {
-  // Checks move while you watch, but not faster than this, and every repository of the change
-  // asks at the same moment.
-  return swr(`gh:checks:${repo}:${number}`, 15_000, async () => {
-    const worktree = (await worktreeFor(change, repo)) ?? repo;
-    // Non-zero means "something is failing or pending", which is a result, not an error.
-    const r = await sh(
-      [
-        "gh",
-        "pr",
-        "checks",
-        String(number),
-        "--json",
-        "name,state,bucket,link,startedAt,completedAt",
-      ],
-      worktree,
-    );
-    return groupChecks(json<Check[]>(r.stdout, []));
-  });
-}
+export const checkItemsEffect = (
+  change: Change,
+  repo: string,
+  number: number,
+): Effect.Effect<WidgetItem[]> =>
+  swrEffect(`gh:checks:${repo}:${number}`, 15_000,
+    Effect.gen(function* () {
+      const worktree = (yield* worktreeForEffect(change, repo)) ?? repo;
+      // Non-zero means "something is failing or pending", which is a result, not an error.
+      const r = yield* shSoft(
+        [
+          "gh",
+          "pr",
+          "checks",
+          String(number),
+          "--json",
+          "name,state,bucket,link,startedAt,completedAt",
+        ],
+        worktree,
+      );
+      return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
+    }));
+
+/** TODO-MIGRATE — Promise facade over checkItemsEffect. */
+export const checkItems = (change: Change, repo: string, number: number): Promise<WidgetItem[]> =>
+  Effect.runPromise(checkItemsEffect(change, repo, number));
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
  * row you can open. */
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export function groupChecks(checks: Check[]): WidgetItem[] {
   if (checks.length === 0) return [];
   const groups = new Map<string, Check[]>();

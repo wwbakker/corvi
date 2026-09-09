@@ -1,11 +1,24 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
+import { Effect } from "effect";
 import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
-import { sh, shOrThrow, json } from "../sh.ts";
+import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
 import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
 import { isMac, commandAvailable } from "../platform.ts";
+import { BadRequestError, type CliError } from "../effect/errors.ts";
+
+/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
+ * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
+ * is what the Promise facade converts it to. Result-branching callers keep branching. */
+const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
+  Effect.catchAll(shEffect(cmd, cwd), (e) =>
+    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+
+/** Filesystem failures are defects, not domain errors — the directories we read and write are
+ * ours, and the old code let the raw rejection escape the same way. */
+const fs = <A>(work: () => Promise<A>): Effect.Effect<A> => Effect.orDie(Effect.tryPromise(work));
 
 /**
  * One worktree, in the shape `wt list --format=json` used to hand us.
@@ -29,20 +42,21 @@ export type WtEntry = {
   is_main?: boolean;
 };
 
+// TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
+
 /** Every wt call is scoped to the change's own config, which places worktrees inside the
  * change directory. */
-const wt = async (change: Change, args: string[]): Promise<string[]> => [
-  "wt",
-  "--config",
-  await writeWtConfig(change.id),
-  ...args,
-];
+const wtEffect = (change: Change, args: string[]): Effect.Effect<string[]> =>
+  Effect.map(fs(() => writeWtConfig(change.id)), (configPath) =>
+    ["wt", "--config", configPath, ...args]);
 
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export const findWorktree = (entries: WtEntry[], branch: string): WtEntry | undefined =>
   entries.find((e) => e.branch === branch);
 
 /** Where each worktree of `repo` is, and which branch it holds. The main checkout is included,
  * which is what makes a repository used in place look like any other. */
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export function parseWorktrees(porcelain: string): { path: string; branch: string }[] {
   const found: { path: string; branch: string }[] = [];
   let path = "";
@@ -57,6 +71,7 @@ export function parseWorktrees(porcelain: string): { path: string; branch: strin
 }
 
 /** What `git status --porcelain=v2 --branch` says about a working tree. */
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]> & {
   upstream?: string;
   ahead: number;
@@ -79,43 +94,51 @@ export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]
 }
 
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
- * about it. Undefined when the change has no worktree there. */
-export async function entryFor(change: Change, repo: string): Promise<WtEntry | undefined> {
-  const worktrees = parseWorktrees(
-    (await sh(["git", "worktree", "list", "--porcelain"], repo)).stdout,
-  );
-  const found = worktrees.find((w) => w.branch === change.branch);
-  if (!found) return undefined;
+ * about it. Fails with NotFoundError-message-shaped BadRequestError where the old code threw a
+ * plain Error. Undefined when the change has no worktree there. */
+export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
+  Effect.gen(function* () {
+    const worktrees = parseWorktrees(
+      (yield* shSoft(["git", "worktree", "list", "--porcelain"], repo)).stdout,
+    );
+    const found = worktrees.find((w) => w.branch === change.branch);
+    if (!found) return undefined;
 
-  const [status, base] = await Promise.all([
-    sh(["git", "status", "--porcelain=v2", "--branch"], found.path),
-    remoteDefaultBranch(repo),
-  ]);
-  const tree = parseStatus(status.stdout);
-  // Whether main already has everything on this branch, which is how a merged change is spotted.
-  const beyond = base
-    ? Number((await sh(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout)
-    : NaN;
-  return {
-    branch: change.branch,
-    path: found.path,
-    working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
-    remote: tree.upstream
-      ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
-      : null,
-    // "diverged" for commits main does not have, which is what makes them worth warning about
-    // before a removal. Unknown (no remote to compare with) stays undefined.
-    main_state: Number.isNaN(beyond) ? undefined : beyond === 0 ? "integrated" : "diverged",
-    is_main: found.path === repo,
-  };
-}
+    const [status, base] = yield* Effect.all([
+      shSoft(["git", "status", "--porcelain=v2", "--branch"], found.path),
+      remoteDefaultBranchEffect(repo),
+    ]);
+    const tree = parseStatus(status.stdout);
+    // Whether main already has everything on this branch, which is how a merged change is spotted.
+    const beyond = base
+      ? Number(
+        (yield* shSoft(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout,
+      )
+      : NaN;
+    return {
+      branch: change.branch,
+      path: found.path,
+      working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
+      remote: tree.upstream
+        ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
+        : null,
+      // "diverged" for commits main does not have, which is what makes them worth warning about
+      // before a removal. Unknown (no remote to compare with) stays undefined.
+      main_state: Number.isNaN(beyond) ? undefined : beyond === 0 ? "integrated" : "diverged",
+      is_main: found.path === repo,
+    };
+  });
 
 /** Absolute path of the worktree for `branch` in `repo`, or undefined when it does not exist. */
-export async function worktreeFor(change: Change, repo: string): Promise<string | undefined> {
-  return (await entryFor(change, repo))?.path;
-}
+export const worktreeForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
+
+/** TODO-MIGRATE — Promise facade over worktreeForEffect. */
+export const worktreeFor = (change: Change, repo: string): Promise<string | undefined> =>
+  Effect.runPromise(worktreeForEffect(change, repo));
 
 /** Human summary of one worktree, and how alarming it is. */
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export function describe(entry: WtEntry): { detail: string; state: WidgetState } {
   const tree = entry.working_tree ?? {};
   const dirty = Boolean(tree.staged || tree.modified || tree.untracked);
@@ -132,58 +155,90 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
   };
 }
 
-async function repoItem(change: Change, repo: string): Promise<WidgetItem> {
-  if (isDirect(change, repo)) return directItem(change, repo);
-  const label = basename(repo);
-  const entry = await entryFor(change, repo);
-  if (!entry) {
-    return {
-      label,
-      detail: "no worktree",
-      state: "none",
-      actions: [{ id: "add", label: "Create worktree", arg: repo }],
-    };
-  }
-  const { detail, state } = describe(entry);
-  // Adding and removing repositories happens in the edit dialog, not per row.
-  return { label, detail: `${detail} · ${entry.path}`, state, menu: openMenu(repo) };
-}
+const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+  Effect.gen(function* () {
+    if (isDirect(change, repo)) return yield* directItemEffect(change, repo);
+    const label = basename(repo);
+    const entry = yield* entryForEffect(change, repo);
+    if (!entry) {
+      return {
+        label,
+        detail: "no worktree",
+        state: "none",
+        actions: [{ id: "add", label: "Create worktree", arg: repo }],
+      };
+    }
+    const { detail, state } = describe(entry);
+    // Adding and removing repositories happens in the edit dialog, not per row.
+    return { label, detail: `${detail} · ${entry.path}`, state, menu: openMenu(repo) };
+  });
 
-/** Remembered for the life of the process: a remote's default branch changes about as often as
- * the repository is renamed, and asking costs two processes. */
-const defaultBranches = new Map<string, Promise<string | undefined>>();
+/** One shared memoized ask per repository, the old Map of promises kept: a remote's default
+ * branch changes about as often as the repository is renamed, and asking costs two processes.
+ * A repository without a remote (or whose ask failed) is not cached, so the next caller asks
+ * again — the old delete-on-undefined and a rejection leaving no stale answer behind. */
+const defaultBranches = new Map<string, Effect.Effect<string | undefined>>();
+
+const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined, CliError> =>
+  Effect.gen(function* () {
+    if (!(yield* shSoft(["git", "remote"], repo)).stdout) return undefined;
+    const read = () =>
+      Effect.map(
+        shSoft(["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo),
+        (r) => (r.code === 0 && r.stdout ? r.stdout : undefined),
+      );
+    const known = yield* read();
+    if (known) return known;
+    // A clone made with --single-branch has no origin/HEAD until it is asked for.
+    yield* shSoft(["git", "remote", "set-head", "origin", "-a"], repo);
+    return (yield* read()) ?? "origin/main";
+  });
 
 /** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
- * remote. New branches start here rather than at a local main that may be days behind. */
-export async function remoteDefaultBranch(repo: string): Promise<string | undefined> {
-  const known = defaultBranches.get(repo);
-  if (known) return known;
-  const asking = askDefaultBranch(repo);
-  defaultBranches.set(repo, asking);
-  void asking.then((found) => found ?? defaultBranches.delete(repo)); // do not cache "no remote"
-  return asking;
-}
-
-async function askDefaultBranch(repo: string): Promise<string | undefined> {
-  if (!(await sh(["git", "remote"], repo)).stdout) return undefined;
-  const read = async (): Promise<string | undefined> => {
-    const r = await sh(
-      ["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"],
-      repo,
+ * remote. New branches start here rather than at a local main that may be days behind.
+ *
+ * Never fails: the old ask branched on Results end to end, so a timed-out `git` read as "no
+ * default branch" — and that tolerance is kept here, explicitly, instead of surfacing the
+ * timeout through every caller that used to be able to rely on an answer. */
+export const remoteDefaultBranchEffect = (
+  repo: string,
+): Effect.Effect<string | undefined> =>
+  Effect.suspend(() => {
+    const known = defaultBranches.get(repo);
+    if (known) return known;
+    const asking = Effect.runSync(
+      Effect.cached(
+        askDefaultBranchEffect(repo).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.tap((found) =>
+            Effect.sync(() => {
+              if (found === undefined) defaultBranches.delete(repo); // do not cache "no remote"
+            }),
+          ),
+        ),
+      ),
     );
-    return r.code === 0 && r.stdout ? r.stdout : undefined;
-  };
-  const known = await read();
-  if (known) return known;
-  // A clone made with --single-branch has no origin/HEAD until it is asked for.
-  await sh(["git", "remote", "set-head", "origin", "-a"], repo);
-  return (await read()) ?? "origin/main";
-}
+    defaultBranches.set(repo, asking);
+    return asking;
+  });
+
+/** TODO-MIGRATE — Promise facade over remoteDefaultBranchEffect. */
+export const remoteDefaultBranch = (repo: string): Promise<string | undefined> =>
+  Effect.runPromise(remoteDefaultBranchEffect(repo));
 
 /** The branch this repository's work starts from: what you chose, or the remote's default. */
-export async function baseFor(change: Change, repo: string): Promise<string | undefined> {
-  return change.base?.[repo] ?? (await remoteDefaultBranch(repo));
-}
+export const baseForEffect = (
+  change: Change,
+  repo: string,
+): Effect.Effect<string | undefined> =>
+  Effect.suspend(() => {
+    const chosen = change.base?.[repo];
+    return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranchEffect(repo);
+  });
+
+/** TODO-MIGRATE — Promise facade over baseForEffect. */
+export const baseFor = (change: Change, repo: string): Promise<string | undefined> =>
+  Effect.runPromise(baseForEffect(change, repo));
 
 /**
  * Somewhere to open a repository from its row. macOS applications are opened by name rather than
@@ -245,11 +300,18 @@ export const isDirect = (change: Change, repo: string): boolean =>
  * still shows everything the change touches. */
 const linkPath = (change: Change, repo: string): string => join(changeDir(change.id), basename(repo));
 
-export const currentBranch = async (repo: string): Promise<string> =>
-  (await sh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout;
+export const currentBranchEffect = (repo: string): Effect.Effect<string> =>
+  Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo), (r) => r.stdout);
 
-export const isDirty = async (repo: string): Promise<boolean> =>
-  (await sh(["git", "status", "--porcelain"], repo)).stdout !== "";
+/** TODO-MIGRATE — Promise facade over currentBranchEffect. */
+export const currentBranch = (repo: string): Promise<string> =>
+  Effect.runPromise(currentBranchEffect(repo));
+
+export const isDirtyEffect = (repo: string): Effect.Effect<boolean> =>
+  Effect.map(shSoft(["git", "status", "--porcelain"], repo), (r) => r.stdout !== "");
+
+/** TODO-MIGRATE — Promise facade over isDirtyEffect. */
+export const isDirty = (repo: string): Promise<boolean> => Effect.runPromise(isDirtyEffect(repo));
 
 /**
  * Work in the repository itself: link it from the change directory and put its checkout on the
@@ -259,83 +321,97 @@ export const isDirty = async (repo: string): Promise<boolean> =>
  * under half-finished edits is the kind of help nobody wants. The widget then says so, and the
  * action can be repeated once the tree is clean.
  */
-async function useInPlace(change: Change, repo: string): Promise<void> {
-  await symlink(repo, linkPath(change, repo)).catch(() => {}); // already linked
-  if ((await currentBranch(repo)) === change.branch) return;
-  if (await isDirty(repo)) return; // reported by the widget; the user decides what to do
-  const exists =
-    (await sh(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
-      .code === 0;
-  if (exists) {
-    await shOrThrow(["git", "switch", change.branch], repo);
-    return;
-  }
-  const base = await baseFor(change, repo);
-  if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
-  // --no-track: branching off origin/main would otherwise make origin/main the upstream, and
-  // the first `git push` would try to push your work straight onto it. The branch gets its own
-  // upstream when it is first pushed, as a worktree's does.
-  await shOrThrow(
-    ["git", "switch", "--create", change.branch, ...(base ? ["--no-track", base] : [])],
-    repo,
-  );
-}
+const useInPlaceEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    yield* fs(() => symlink(repo, linkPath(change, repo))).pipe(
+      Effect.catchAllDefect(() => Effect.void), // already linked
+    );
+    if ((yield* currentBranchEffect(repo)) === change.branch) return;
+    if (yield* isDirtyEffect(repo)) return; // reported by the widget; the user decides what to do
+    const exists =
+      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
+        .code === 0;
+    if (exists) {
+      yield* shOrThrowEffect(["git", "switch", change.branch], repo);
+      return;
+    }
+    const base = yield* baseForEffect(change, repo);
+    if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
+    // --no-track: branching off origin/main would otherwise make origin/main the upstream, and
+    // the first `git push` would try to push your work straight onto it. The branch gets its own
+    // upstream when it is first pushed, as a worktree's does.
+    yield* shOrThrowEffect(
+      ["git", "switch", "--create", change.branch, ...(base ? ["--no-track", base] : [])],
+      repo,
+    );
+  });
 
 /** Stop using a repository in place: the link goes, the checkout stays exactly as it is. */
-async function unlinkInPlace(change: Change, repo: string): Promise<void> {
-  const path = linkPath(change, repo);
-  if (await lstat(path).then(() => true, () => false)) await unlink(path);
-}
+const unlinkInPlaceEffect = (change: Change, repo: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const path = linkPath(change, repo);
+    if (yield* fs(() => lstat(path).then(() => true, () => false))) yield* fs(() => unlink(path));
+  });
 
 /** How a repository used in place stands: which branch it is on, and whether it needs a hand. */
-async function directItem(change: Change, repo: string): Promise<WidgetItem> {
-  const label = basename(repo);
-  const [branch, dirty] = await Promise.all([currentBranch(repo), isDirty(repo)]);
-  if (branch !== change.branch) {
+const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+  Effect.gen(function* () {
+    const label = basename(repo);
+    const [branch, dirty] = yield* Effect.all([
+      currentBranchEffect(repo),
+      isDirtyEffect(repo),
+    ]);
+    if (branch !== change.branch) {
+      return {
+        label,
+        detail: dirty
+          ? `in place, on ${branch} with uncommitted changes — commit or stash, then switch to ${change.branch} yourself`
+          : `in place, on ${branch}`,
+        detailTone: "warn",
+        state: "warn",
+        actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
+      };
+    }
+    // On the right branch: the main checkout is a worktree like any other as far as git is
+    // concerned, so the same reading describes it.
+    const entry = yield* entryForEffect(change, repo);
+    const described = entry
+      ? describe(entry)
+      : {
+        detail: dirty ? "uncommitted changes" : "clean",
+        state: (dirty ? "pending" : "ok") as WidgetState,
+      };
     return {
       label,
-      detail: dirty
-        ? `in place, on ${branch} with uncommitted changes — commit or stash, then switch to ${change.branch} yourself`
-        : `in place, on ${branch}`,
-      detailTone: "warn",
-      state: "warn",
-      actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
+      detail: `in place · ${described.detail} · ${repo}`,
+      state: described.state,
+      menu: openMenu(repo),
     };
-  }
-  // On the right branch: the main checkout is a worktree like any other as far as git is
-  // concerned, so the same reading describes it.
-  const entry = await entryFor(change, repo);
-  const described = entry ? describe(entry) : { detail: dirty ? "uncommitted changes" : "clean", state: dirty ? "pending" : ("ok" as WidgetState) };
-  return {
-    label,
-    detail: `in place · ${described.detail} · ${repo}`,
-    state: described.state,
-    menu: openMenu(repo),
-  };
-}
+  });
 
 /** Create the worktree for this change in `repo`; existing ones are left alone. */
-async function createWorktree(change: Change, repo: string): Promise<void> {
-  if (isDirect(change, repo)) return useInPlace(change, repo);
-  if (await worktreeFor(change, repo)) return;
-  const exists =
-    (await sh(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
-      .code === 0;
-  // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
-  if (exists) {
-    await shOrThrow(await wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
-    return await carryTooling(repo, change);
-  }
-  // Branch from the chosen base, fetched first: a local main is often behind. The base is the
-  // remote default unless this change is stacked on another one's branch.
-  const base = await baseFor(change, repo);
-  if (base) await sh(["git", "fetch", "--quiet", "origin"], repo);
-  const baseArgs = base ? ["--base", base] : [];
-  await shOrThrow(
-    await wt(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
-  );
-  await carryTooling(repo, change);
-}
+const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
+    if (yield* worktreeForEffect(change, repo)) return;
+    const exists =
+      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
+        .code === 0;
+    // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
+    if (exists) {
+      yield* shOrThrowEffect(yield* wtEffect(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
+      return yield* carryToolingEffect(repo, change);
+    }
+    // Branch from the chosen base, fetched first: a local main is often behind. The base is the
+    // remote default unless this change is stacked on another one's branch.
+    const base = yield* baseForEffect(change, repo);
+    if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
+    const baseArgs = base ? ["--base", base] : [];
+    yield* shOrThrowEffect(
+      yield* wtEffect(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
+    );
+    yield* carryToolingEffect(repo, change);
+  });
 
 /**
  * Give the new worktree the IDE and build-tool state the repository has, so opening it is
@@ -344,16 +420,18 @@ async function createWorktree(change: Change, repo: string): Promise<void> {
  * Never fatal: the worktree is the thing that was asked for, and a change that failed to
  * provision over a copy of `.idea` would be a poor trade.
  */
-async function carryTooling(repo: string, change: Change): Promise<void> {
-  if (!config.worktreeCopy.length) return;
-  const created = await worktreeFor(change, repo);
-  if (!created) return;
-  try {
-    await copyTooling(repo, created, config.worktreeCopy);
-  } catch (error) {
-    console.error(`could not copy IDE state into ${created}:`, error);
-  }
-}
+const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    if (!config.worktreeCopy.length) return;
+    const created = yield* worktreeForEffect(change, repo);
+    if (!created) return;
+    // TODO-MIGRATE — src/tooling.ts is another worker's file; the server task sweeps this call site.
+    yield* Effect.tryPromise({ try: () => copyTooling(repo, created, config.worktreeCopy), catch: (e) => e })
+      .pipe(
+        Effect.catchAll((error) =>
+          Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
+      );
+  });
 
 /** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
  * commits survive in the reflog but not anywhere anyone else can see. */
@@ -363,6 +441,7 @@ export type Unsafe = { kind: "dirty" | "unpushed"; text: string };
 const inMain = (state?: string): boolean =>
   ["is_main", "integrated", "empty", undefined].includes(state);
 
+// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
 export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   if (!entry) return undefined; // nothing to lose
   const tree = entry.working_tree ?? {};
@@ -380,24 +459,43 @@ export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   return undefined;
 }
 
-export async function unsafeToRemove(change: Change, repo: string): Promise<Unsafe | undefined> {
-  return unsafeIn(await entryFor(change, repo));
-}
+export const unsafeToRemoveEffect = (
+  change: Change,
+  repo: string,
+): Effect.Effect<Unsafe | undefined> =>
+  Effect.map(entryForEffect(change, repo), unsafeIn);
+
+/** TODO-MIGRATE — Promise facade over unsafeToRemoveEffect. */
+export const unsafeToRemove = (change: Change, repo: string): Promise<Unsafe | undefined> =>
+  Effect.runPromise(unsafeToRemoveEffect(change, repo));
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
-export async function repoStates(
+export const repoStatesEffect = (
   change: Change,
-): Promise<{ path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]> {
-  return Promise.all(
-    change.repos.map(async (path) => ({
-      path,
-      name: basename(path),
-      direct: isDirect(change, path),
-      base: await baseFor(change, path),
-      unsafe: await unsafeToRemove(change, path),
-    })),
+): Effect.Effect<
+  { path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]
+> =>
+  Effect.forEach(
+    change.repos,
+    (path) =>
+      Effect.gen(function* () {
+        return {
+          path,
+          name: basename(path),
+          direct: isDirect(change, path),
+          base: yield* baseForEffect(change, path),
+          unsafe: yield* unsafeToRemoveEffect(change, path),
+        };
+      }),
+    // The old Promise.all was unbounded, so this stays unbounded.
+    { concurrency: "unbounded" },
   );
-}
+
+/** TODO-MIGRATE — Promise facade over repoStatesEffect. */
+export const repoStates = (
+  change: Change,
+): Promise<{ path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]> =>
+  Effect.runPromise(repoStatesEffect(change));
 
 /**
  * Apply a new repository list in one go: everything added gets a worktree, everything dropped
@@ -408,7 +506,68 @@ export async function repoStates(
  * worktree when the one you have is beyond saving, and refusing the middle of that made the whole
  * thing impossible. The protections that matter — uncommitted work, unpushed commits — are per
  * repository and still apply.
+ *
+ * The Effect API answers in one discriminated union where the old code returned a `{ change }`
+ * or a `{ needsForce }` duck; the Promise facade keeps the duck (the server still tests for
+ * `"needsForce" in result`).
  */
+export type SetReposResult =
+  | { _tag: "Done"; change: Change }
+  | { _tag: "NeedsForce"; needsForce: string[] };
+
+export const setReposEffect = (
+  change: Change,
+  repos: string[],
+  force = false,
+  direct?: string[],
+  base?: Record<string, string>,
+): Effect.Effect<SetReposResult, CliError | BadRequestError> =>
+  Effect.gen(function* () {
+    const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
+    const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
+    // A repository whose mode changed is torn down and set up again: the old worktree or link is
+    // as wrong as a repository that was dropped.
+    const switched = wanted.filter((r) => isDirect(change, r) !== wantedDirect.includes(r));
+    const removed = [...change.repos.filter((r) => !wanted.includes(r)), ...switched];
+    const added = [...wanted.filter((r) => !change.repos.includes(r)), ...switched];
+
+    const unsafe = yield* Effect.forEach(
+      removed,
+      (repo) => Effect.map(unsafeToRemoveEffect(change, repo), (unsafe) => ({ repo, unsafe })),
+      // The old Promise.all was unbounded, so this stays unbounded.
+      { concurrency: "unbounded" },
+    );
+    const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
+    if (dirty.length) {
+      return yield* Effect.fail(
+        new BadRequestError({
+          message:
+            `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, revert or commit them first`,
+        }),
+      );
+    }
+    const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
+    if (unpushed.length && !force) {
+      return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
+    }
+
+    for (const repo of removed) yield* removeWorktreeEffect(change, repo);
+    const bases = Object.fromEntries(
+      Object.entries(base ?? change.base ?? {}).filter(([repo]) => wanted.includes(repo)),
+    );
+    const updated: Change = {
+      ...change,
+      repos: wanted,
+      direct: wantedDirect.length ? wantedDirect : undefined,
+      base: Object.keys(bases).length ? bases : undefined,
+    };
+    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
+    yield* fs(() => writeChange(updated));
+    for (const repo of added) yield* createWorktreeEffect(updated, repo);
+    return { _tag: "Done", change: updated };
+  });
+
+/** TODO-MIGRATE — Promise facade over setReposEffect; same duck-typed JSON as before. */
 export async function setRepos(
   change: Change,
   repos: string[],
@@ -416,39 +575,8 @@ export async function setRepos(
   direct?: string[],
   base?: Record<string, string>,
 ): Promise<{ change: Change } | { needsForce: string[] }> {
-  const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
-  const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
-  // A repository whose mode changed is torn down and set up again: the old worktree or link is
-  // as wrong as a repository that was dropped.
-  const switched = wanted.filter((r) => isDirect(change, r) !== wantedDirect.includes(r));
-  const removed = [...change.repos.filter((r) => !wanted.includes(r)), ...switched];
-  const added = [...wanted.filter((r) => !change.repos.includes(r)), ...switched];
-
-  const unsafe = await Promise.all(
-    removed.map(async (repo) => ({ repo, unsafe: await unsafeToRemove(change, repo) })),
-  );
-  const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
-  if (dirty.length) {
-    throw new Error(
-      `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, revert or commit them first`,
-    );
-  }
-  const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
-  if (unpushed.length && !force) return { needsForce: unpushed.map((u) => basename(u.repo)) };
-
-  for (const repo of removed) await removeWorktree(change, repo);
-  const bases = Object.fromEntries(
-    Object.entries(base ?? change.base ?? {}).filter(([repo]) => wanted.includes(repo)),
-  );
-  const updated: Change = {
-    ...change,
-    repos: wanted,
-    direct: wantedDirect.length ? wantedDirect : undefined,
-    base: Object.keys(bases).length ? bases : undefined,
-  };
-  await writeChange(updated);
-  for (const repo of added) await createWorktree(updated, repo);
-  return { change: updated };
+  const result = await Effect.runPromise(setReposEffect(change, repos, force, direct, base));
+  return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 }
 
 /**
@@ -456,42 +584,61 @@ export async function setRepos(
  * has not — which is what makes switching a repository to in-place work: the worktree goes, the
  * branch stays, and the repository's own checkout picks it up.
  */
-export async function removeWorktree(change: Change, repo: string): Promise<void> {
-  if (isDirect(change, repo)) return unlinkInPlace(change, repo);
-  if (!(await worktreeFor(change, repo))) return;
-  await shOrThrow(
-    await wt(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
-  );
-}
+export const removeWorktreeEffect = (
+  change: Change,
+  repo: string,
+): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    if (isDirect(change, repo)) return yield* unlinkInPlaceEffect(change, repo);
+    if (!(yield* worktreeForEffect(change, repo))) return;
+    yield* shOrThrowEffect(
+      yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
+    );
+  });
+
+/** TODO-MIGRATE — Promise facade over removeWorktreeEffect. */
+export const removeWorktree = (change: Change, repo: string): Promise<void> =>
+  Effect.runPromise(removeWorktreeEffect(change, repo));
 
 export const git: Integration = {
   name: "git",
   title: "Local changes",
 
   async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
-    return [await repoItem(change, repo)];
+    return [await Effect.runPromise(repoItemEffect(change, repo))];
   },
 
   async provision(change: Change): Promise<void> {
-    for (const repo of change.repos) await createWorktree(change, repo);
+    for (const repo of change.repos) await Effect.runPromise(createWorktreeEffect(change, repo));
   },
 
   async run(change: Change, action: string, repo?: string): Promise<void> {
-    if (!repo) throw new Error("repo required");
-    if (action === "add") return createWorktree(change, repo);
+    await Effect.runPromise(gitRunEffect(change, action, repo));
+  },
+};
+
+/** The `git` integration's action runner, in Effect. */
+const gitRunEffect = (
+  change: Change,
+  action: string,
+  repo?: string,
+): Effect.Effect<void, CliError | BadRequestError> =>
+  Effect.gen(function* () {
+    if (!repo) {
+      return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
+    }
+    if (action === "add") return yield* createWorktreeEffect(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);
     if (opener) {
-      const path = (await worktreeFor(change, repo)) ?? repo;
-      await shOrThrow(opener.command(path));
+      const path = (yield* worktreeForEffect(change, repo)) ?? repo;
+      yield* shOrThrowEffect(opener.command(path));
       return;
     }
 
-
     // --foreground so the widget refresh that follows sees the removal; --force because build
     // artifacts are untracked files and this button was clicked deliberately.
-    if (action === "remove") return removeWorktree(change, repo);
-    throw new Error(`unknown git action: ${action}`);
-  },
-};
+    if (action === "remove") return yield* removeWorktreeEffect(change, repo);
+    return yield* Effect.fail(new BadRequestError({ message: `unknown git action: ${action}` }));
+  });
