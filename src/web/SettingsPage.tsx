@@ -180,16 +180,59 @@ function EnvEditor({
   );
 }
 
+/** The extensions a workspace runs, one switch each. Unlisted means all of them, which is what
+ * IWE was before this existed — so the switches describe the truth, and a workspace that names
+ * none has them all. */
+function ExtensionToggles({
+  known,
+  selected,
+  onChange,
+}: {
+  known: { name: string; title: string }[];
+  selected: string[] | undefined;
+  onChange: (extensions: string[] | undefined) => void;
+}) {
+  const enabled = (name: string): boolean => (selected ? selected.includes(name) : true);
+  const toggle = (name: string, on: boolean): void => {
+    const next = known
+      .map((e) => e.name)
+      .filter((n) => (n === name ? on : enabled(n)));
+    // Back to everything: the key goes away, so the file stays a page of decisions.
+    onChange(next.length === known.length ? undefined : next);
+  };
+
+  return (
+    <Group
+      label="Extensions"
+      hint="What this context has at all: cards, wizard steps, hooks. Unchecked is absent here, not empty — and a workspace that names none has them all."
+    >
+      {known.map(({ name, title }) => (
+        <label className="switch" key={name}>
+          <input
+            type="checkbox"
+            checked={enabled(name)}
+            onChange={(e) => toggle(name, e.target.checked)}
+          />
+          <span>{title}</span>
+        </label>
+      ))}
+    </Group>
+  );
+}
+
 /** One context: which repositories it starts from, and which integrations it has at all. There
  * is always at least one workspace: removing the last configured one leaves the draft empty,
  * and the Default workspace card takes its place. That default is not in the file, so it has
  * no Remove — `onRemove` is absent exactly then. */
 function WorkspaceCard({
   workspace,
+  extensions,
   onChange,
   onRemove,
 }: {
   workspace: Workspace;
+  /** The extensions there are to enable, in the order they were loaded. */
+  extensions: { name: string; title: string }[];
   onChange: (next: Workspace) => void;
   onRemove?: () => void;
 }) {
@@ -293,6 +336,11 @@ function WorkspaceCard({
       )}
 
       <EnvEditor env={workspace.env ?? {}} onChange={(env) => set({ env })} />
+      <ExtensionToggles
+        known={extensions}
+        selected={workspace.extensions}
+        onChange={(extensions) => set({ extensions })}
+      />
     </div>
   );
 }
@@ -514,6 +562,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
           <WorkspaceCard
             key={index}
             workspace={workspace}
+            extensions={view.extensions}
             onChange={(next) =>
               set({ workspaces: (draft.workspaces ?? []).map((w, i) => (i === index ? next : w)) })
             }
@@ -525,6 +574,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
         {!(draft.workspaces ?? []).length && (
           <WorkspaceCard
             workspace={DEFAULT_WORKSPACE}
+            extensions={view.extensions}
             onChange={(next) => set({ workspaces: [next] })}
           />
         )}

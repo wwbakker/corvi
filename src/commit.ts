@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { currentBranchEffect, worktreeForEffect } from "./integrations/git.ts";
+import { currentBranchEffect, checkoutForEffect } from "./integrations/git.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
@@ -41,7 +41,7 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
 // The commitChange/pushChange facades below are kept for repos.test.ts, which must pass
 // unmodified.
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  worktreeForEffect(change, repo);
+  checkoutForEffect(change, repo);
 
 /**
  * Commit the chosen files in each repository that has any chosen.

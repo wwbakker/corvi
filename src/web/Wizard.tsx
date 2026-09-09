@@ -1,11 +1,17 @@
-import { useState } from "react";
-import { branchFor } from "../branch.ts";
-import { post, type Change, type Created, type Issue, type Selection } from "./api.ts";
-import { IssueTable } from "./IssueTable.tsx";
+import { useEffect, useState } from "react";
+import { api, post, type Change, type Created, type Selection } from "./api.ts";
 import { RepoBrowser } from "./RepoBrowser.tsx";
+import { StepHost, type StepContext, type StepInfo } from "./extensions.tsx";
 import type { Workspace } from "./workspaces.ts";
 
-/** One step per component: the change is configured component by component, then created. */
+/**
+ * The "Create change" wizard.
+ *
+ * The steps are the extensions': asked of the server for the context in hand (`/api/wizard`),
+ * rendered through StepHost, and laid out in phases — issue steps first (they prefill the id
+ * and branch), then the change details, then the repositories, then steps that want the
+ * repositories. The core owns exactly two panels and none of the opinions.
+ */
 export function Wizard({
   workspaces,
   workspace,
@@ -22,10 +28,11 @@ export function Wizard({
   onCancel: () => void;
 }) {
   const [step, setStep] = useState(0);
-  const [issue, setIssue] = useState<Issue | null>(null);
   const [id, setId] = useState("");
   const [branch, setBranch] = useState("");
   const [repos, setRepos] = useState<Selection[]>([]);
+  const [ticket, setTicket] = useState<string>();
+  const [payloads, setPayloads] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -35,17 +42,26 @@ export function Wizard({
   const [picked, setPicked] = useState<string>();
   const chosen = workspace ?? picked ?? workspaces[0]?.id;
 
-  // What the chosen context has. Without Jira the first step is not empty, it is absent — and
-  // which steps there are follows the choice, wherever it was made.
-  const hasJira = workspaces.find((w) => w.id === chosen)?.jira !== false;
+  // Which steps this context has. Asked of the server, because that is where the extensions and
+  // their enablement are known; asked again whenever the context changes, which is why a
+  // context without Jira simply has no Jira step.
+  const [steps, setSteps] = useState<StepInfo[]>();
+  useEffect(() => {
+    let alive = true;
+    setSteps(undefined);
+    api<{ steps: StepInfo[] }>(`/wizard${chosen ? `?workspace=${encodeURIComponent(chosen)}` : ""}`)
+      .then((s) => alive && setSteps(s.steps))
+      .catch((e: Error) => alive && setError(e.message));
+    return () => {
+      alive = false;
+    };
+  }, [chosen]);
 
-  // Picking an issue only prefills; the fields on the next step stay editable.
-  const select = (picked: Issue | null) => {
-    setIssue(picked);
-    if (!picked) return;
-    setId(picked.key);
-    setBranch(branchFor(picked.key, picked.summary));
-  };
+  const issueSteps = (steps ?? []).filter((s) => s.phase === "issue");
+  const repoSteps = (steps ?? []).filter((s) => s.phase === "repos");
+  const titles = [...issueSteps.map((s) => s.title), "Change", "Repositories", ...repoSteps.map((s) => s.title)];
+  const changeStep = issueSteps.length;
+  const reposStep = changeStep + 1;
 
   // Added as a worktree off the remote default; both are changed per repository afterwards.
   const addRepo = (path: string) =>
@@ -54,12 +70,6 @@ export function Wizard({
   const changeRepo = (path: string, patch: Partial<Selection>) =>
     setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
 
-  // The steps this context has. Without Jira the first one is not empty, it is absent.
-  const steps = hasJira ? (["Jira", "Change", "Repositories"] as const) : (["Change", "Repositories"] as const);
-  const jiraStep = hasJira ? 0 : -1;
-  const changeStep = hasJira ? 1 : 0;
-  const reposStep = hasJira ? 2 : 1;
-
   const create = () => {
     setBusy(true);
     setError(null);
@@ -67,15 +77,39 @@ export function Wizard({
       id,
       branch,
       workspace: chosen,
-      jira: issue?.key,
       repos: repos.map((r) => r.path),
       direct: repos.filter((r) => r.direct).map((r) => r.path),
       base: Object.fromEntries(repos.filter((r) => r.base).map((r) => [r.path, r.base!])),
+      // Each step's pick, under the extension's own name: the core stores it and never looks
+      // inside.
+      extensions: payloads,
     })
       .then((created) => onCreated(created.change, created.provision))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
   };
+
+  /** What the steps share: the draft they prefill, the repositories picked so far, the ticket
+   * the details step names, and their own slot of the change record. */
+  const ctx: StepContext = {
+    workspace: chosen,
+    draft: { id, branch },
+    setDraft: (patch) => {
+      if (patch.id !== undefined) setId(patch.id);
+      if (patch.branch !== undefined) setBranch(patch.branch);
+    },
+    repos,
+    ticket,
+    setTicket,
+    setPayload: (extension, data) =>
+      setPayloads((prev) => {
+        const next = { ...prev };
+        if (data === undefined) delete next[extension];
+        else next[extension] = data;
+        return next;
+      }),
+  };
+  const panel = (info: StepInfo) => <StepHost key={info.id} info={info} ctx={ctx} />;
 
   return (
     <div className="wizard">
@@ -84,15 +118,15 @@ export function Wizard({
       </header>
 
       <nav className="steps">
-        {steps.map((label, i) => (
-          <button
-            key={label}
-            className={`step ${i === step ? "active" : ""}`}
-            onClick={() => setStep(i)}
-          >
-            {i + 1}. {label}
-          </button>
-        ))}
+        {steps ? (
+          titles.map((label, i) => (
+            <button key={`${i}-${label}`} className={`step ${i === step ? "active" : ""}`} onClick={() => setStep(i)}>
+              {i + 1}. {label}
+            </button>
+          ))
+        ) : (
+          <span className="hint">loading…</span>
+        )}
         <span className="spacer" />
         {/* Creating is possible from any step once the required fields are set: only the change
             id is required, the branch defaults to it and repositories can be added later. */}
@@ -109,67 +143,72 @@ export function Wizard({
 
       {error && <div className="error-banner">{error}</div>}
 
-      {step === jiraStep && <IssueTable workspace={chosen} selected={issue} onSelect={select} />}
+      {steps && (
+        <>
+          {issueSteps.map((info, i) => (i === step ? panel(info) : null))}
 
-      {step === changeStep && (
-        <div className="form">
-          <label>
-            Workspace
-            <select
-              value={chosen ?? ""}
-              disabled={Boolean(workspace)}
-              onChange={(e) => setPicked(e.target.value)}
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-            <small>
-              {workspace
-                ? "the context the switcher is on — change it there"
-                : "which context this change belongs to"}
-            </small>
-          </label>
-          <label>
-            Change id
-            <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. PROJ-123" />
-            <small>Used as the directory name under the changes root.</small>
-          </label>
-          <label>
-            Branch
-            <input
-              value={branch}
-              onChange={(e) => setBranch(e.target.value)}
-              placeholder={id || "defaults to the change id"}
-            />
-          </label>
-          <label>
-            Jira issue
-            <input value={issue?.key ?? "none"} readOnly />
-          </label>
-        </div>
+          {step === changeStep && (
+            <div className="form">
+              <label>
+                Workspace
+                <select
+                  value={chosen ?? ""}
+                  disabled={Boolean(workspace)}
+                  onChange={(e) => setPicked(e.target.value)}
+                >
+                  {workspaces.map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  {workspace
+                    ? "the context the switcher is on — change it there"
+                    : "which context this change belongs to"}
+                </small>
+              </label>
+              <label>
+                Change id
+                <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. PROJ-123" />
+                <small>Used as the directory name under the changes root.</small>
+              </label>
+              <label>
+                Branch
+                <input
+                  value={branch}
+                  onChange={(e) => setBranch(e.target.value)}
+                  placeholder={id || "defaults to the change id"}
+                />
+              </label>
+              <label>
+                Ticket
+                <input value={ticket ?? "none"} readOnly />
+              </label>
+            </div>
+          )}
+
+          {step === reposStep && (
+            <div className="form wide">
+              <p className="hint">
+                Select the repositories this change touches. Each one is set up on{" "}
+                <code>{branch || id || "the branch"}</code>: as a <b>worktree</b>, a separate checkout
+                in the change directory, or <b>in place</b>, which puts the repository's own checkout
+                on that branch and links it here. The second box is the branch the work starts from —
+                the remote default, unless this change builds on another one.
+              </p>
+              <RepoBrowser
+                selected={repos}
+                onAdd={addRepo}
+                onRemove={removeRepo}
+                onChange={changeRepo}
+              />
+            </div>
+          )}
+
+          {repoSteps.map((info, i) => (changeStep + 2 + i === step ? panel(info) : null))}
+        </>
       )}
-
-      {step === reposStep && (
-        <div className="form wide">
-          <p className="hint">
-            Select the repositories this change touches. Each one is set up on{" "}
-            <code>{branch || id || "the branch"}</code>: as a <b>worktree</b>, a separate checkout
-            in the change directory, or <b>in place</b>, which puts the repository's own checkout
-            on that branch and links it here. The second box is the branch the work starts from —
-            the remote default, unless this change builds on another one.
-          </p>
-          <RepoBrowser
-            selected={repos}
-            onAdd={addRepo}
-            onRemove={removeRepo}
-            onChange={changeRepo}
-          />
-        </div>
-      )}
-
     </div>
   );
 }

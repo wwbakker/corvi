@@ -2,7 +2,8 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { provision, integrations } from "../src/integrations/index.ts";
+import { install, loaded, provision } from "../src/extensions/index.ts";
+import { Effect } from "effect";
 import {
   describe,
   findWorktree,
@@ -27,7 +28,7 @@ import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integ
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
 import { windowLabel } from "../src/web/windowLabel.ts";
-import type { Change, Integration } from "../src/types.ts";
+import type { Change } from "../src/types.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one.
@@ -55,31 +56,44 @@ const change: Change = {
   createdAt: new Date().toISOString(),
 };
 
-test("provisioning reports every component and survives a failing one", async () => {
+test("provisioning reports every extension and survives a failing one", async () => {
   const calls: string[] = [];
-  const stub = (name: string, fail?: boolean): Integration => ({
-    name,
-    title: name,
-    status: async () => ({ integration: name, title: name, state: "none", summary: "", items: [] }),
-    provision: async () => {
-      calls.push(name);
-      if (fail) throw new Error(`${name} exploded`);
+  // The registry is pruned and refilled with two stubs: the first one's hook fails, and
+  // provisioning must still run the second's.
+  const restore = loaded.splice(0, loaded.length);
+  install({
+    name: "one",
+    title: "One",
+    events: {
+      "change:created": [
+        () => {
+          calls.push("one");
+          return Effect.fail(new Error("one exploded"));
+        },
+      ],
     },
   });
-  const original = { ...integrations };
-  for (const key of Object.keys(integrations)) delete integrations[key];
-  integrations.one = stub("one", true);
-  integrations.two = stub("two");
+  install({
+    name: "two",
+    title: "Two",
+    events: {
+      "change:created": [
+        () => {
+          calls.push("two");
+          return Effect.succeed(undefined);
+        },
+      ],
+    },
+  });
 
   const results = await provision(change);
-  expect(calls).toEqual(["one", "two"]); // a failure must not stop the components after it
+  expect(calls).toEqual(["one", "two"]); // a failure must not stop the extensions after it
   expect(results).toEqual([
     { integration: "one", ok: false, error: "one exploded" },
     { integration: "two", ok: true },
   ]);
 
-  for (const key of Object.keys(integrations)) delete integrations[key];
-  Object.assign(integrations, original);
+  loaded.splice(0, loaded.length, ...restore);
 });
 
 test("worktree status is read from wt's own output", () => {

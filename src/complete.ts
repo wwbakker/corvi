@@ -4,7 +4,6 @@ import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
 import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
 import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
-import { moveIssueEffect } from "./integrations/jira.ts";
 import {
   archiveChangeEffect,
   readSidecarEffect,
@@ -13,6 +12,9 @@ import {
 } from "./changes.ts";
 import { stopTerminalEffect } from "./terminal.ts";
 import { config } from "./config.ts";
+import { completionStepsFor } from "./extensions/index.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
+import { workspaceOf } from "./workspaces.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
 
 export type Completion = {
@@ -91,23 +93,36 @@ const save = (id: string, progress: CompletionProgress): Effect.Effect<void, Bad
     undefined);
 
 /** The work a completion is about to do, named before it starts so the page can show what is
- * still coming rather than only what has happened. */
+ * still coming rather than only what has happened. The extensions' steps sit between the merges
+ * and the worktrees: a ticket is closed while the worktrees still exist to inspect, and no
+ * directory has moved yet. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function stepsFor(change: Change, completion: Completion): CompletionStep[] {
+export function stepsFor(
+  change: Change,
+  completion: Completion,
+  contributed: CompletionStep[] = plannedContributions(change),
+): CompletionStep[] {
   return [
     ...completion.toMerge.map(({ repo, number }) => ({
       id: `merge:${repo}`,
       label: `merge ${basename(repo)} #${number}`,
       state: "waiting" as const,
     })),
-    ...(change.jira
-      ? [{ id: "jira", label: `move ${change.jira} to ${config.jiraDoneTransition}`, state: "waiting" as const }]
-      : []),
+    ...contributed,
     { id: "worktrees", label: "remove the worktrees", state: "waiting" as const },
     { id: "terminal", label: "close the terminal", state: "waiting" as const },
     { id: "archive", label: "archive the change", state: "waiting" as const },
   ];
 }
+
+/** What this change's extensions plan to do, planned once and passed around: a plan that could
+ * answer differently twice would be two promises about one completion. Pure functions get
+ * plain data, so the plan reads the config and the workspace as arguments. */
+const plannedContributions = (change: Change): CompletionStep[] =>
+  completionStepsFor(workspaceOf(change))
+    .map((contributor) =>
+      contributor.plan(change, { config, workspace: workspaceOf(change) }))
+    .filter((s): s is CompletionStep => Boolean(s));
 
 /**
  * Merge every outstanding pull request and close the ticket. Refuses unless all repositories are
@@ -140,7 +155,15 @@ export const completeChangeEffect = (
       return yield* Effect.fail(new BadRequestError({ message: progress.error }));
     }
     checked.state = "done";
-    progress.steps = [checked, ...stepsFor(change, completion)];
+    // The extensions' steps, planned once: named in the journal before anything runs, and run
+    // from that plan so it cannot promise one thing and do another.
+    const workspace = workspaceOf(change);
+    const capabilities = capabilitiesLayer(workspace);
+    const contributions = completionStepsFor(workspace)
+      .map((contributor) => ({ contributor, planned: contributor.plan(change, { config, workspace }) }))
+      .filter((c): c is { contributor: typeof c.contributor; planned: CompletionStep } =>
+        Boolean(c.planned));
+    progress.steps = [checked, ...stepsFor(change, completion, contributions.map((c) => c.planned))];
     yield* save(change.id, progress);
 
     const notes: string[] = [];
@@ -182,10 +205,18 @@ export const completeChangeEffect = (
         ),
       );
     }
-    if (change.jira) {
+    // The extensions' steps: close the ticket, comment on the issue, whatever each one planned
+    // for a finished change. A failure stops the completion where it stands, like any core step.
+    for (const { contributor, planned } of contributions) {
       yield* step(
-        "jira",
-        Effect.map(moveIssueEffect(change.jira, config.jiraDoneTransition), () => undefined),
+        planned.id,
+        Effect.map(
+          Effect.catchAll(
+            contributor.run(change).pipe(Effect.provide(capabilities)),
+            (e) => new BadRequestError({ message: messageOf(e) }),
+          ),
+          (note) => (typeof note === "string" ? note : undefined),
+        ),
       );
     }
 

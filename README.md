@@ -127,7 +127,10 @@ file it wrote, and the rest is HTTP.
 
 ## Creating a change
 
-"New change" opens a wizard with one step per component:
+"New change" opens a wizard whose steps are its extensions', in phases — the issue steps first
+(they prefill the change), then the change details, then the repositories, then steps that want
+the repositories. Which steps a context has is resolved per workspace; an extension that is not
+enabled there has no step, not an empty one.
 
 1. **Jira** — a table of every issue in the open sprints plus the un-sprinted backlog, grouped
    by sprint (collapsible), sorted by assignee, then status, then key, and filterable by
@@ -135,12 +138,21 @@ file it wrote, and the rest is HTTP.
    opens a dialog for title and description; the new issue (assigned to you, type from
    `IWE_JIRA_ISSUE_TYPE`, default `Story`) is selected straight away. Skipping the step is fine:
    you can name the change yourself.
-2. **Change** — id and branch, prefilled from the picked issue as `KEY-slugified-summary`,
-   both editable.
-3. **Repositories** — at least one is required, from a directory browser rooted at `reposRoot`. Clicking a name browses into
+2. **GitHub issue** (after the repositories) — the open issues of the repositories picked on the
+   step before, from the GitHub remote each one pushes to; a repository without one says so.
+   Pick an issue or create one (`gh` does it, in the first selected repository); the picked
+   issue prefills the change, names it on the overview, shows on the dashboard as its own card
+   and is closed when the change completes. Both this step and the Jira step can be on at once:
+   two tickets on one change is a thing, not a conflict.
+3. **Change** — id and branch, prefilled from the picked issue, both editable.
+4. **Repositories** — at least one is required, from a directory browser rooted at `reposRoot`. Clicking a name browses into
    it, the button beside it adds it to the selection: a directory that is both a repository and
    a parent of repositories (`acme/services`) can be either. Selected repositories are listed on
    the right and removed with the cross. A worktree is created per selected repository.
+
+Each step's pick is stored on the change under the step's extension's name — `change.json`'s
+`extensions` bag — so completing the change knows what to close, and the core never had to know
+what a ticket was.
 
 Only issue types in `IWE_JIRA_ISSUE_TYPES` (default `Story,Bug`) are listed: epics and subtasks
 are containers, not units of work. A change may still link to any type directly.
@@ -385,15 +397,21 @@ are looking at.
 `false` means "this context does not have that at all", and it is subtraction rather than
 configuration:
 
-- **No Jira**: the dashboard has no Jira card, the wizard has two steps instead of three
-  (`1. Change · 2. Repositories`), provisioning does not try to move a ticket, and no `jira`
-  request is made for a change that was never going to have one.
+- **No Jira**: the dashboard has no Jira card, provisioning does not try to move a ticket, and
+  no `jira` request is made for a change that was never going to have one.
 - **No Azure**: no pipelines are looked for, and `Deployments` is not offered in the column.
   The CI card stays either way — it is pull requests *as well as* pipelines, and a workspace
   without pipelines still has reviews.
 
 Anything a workspace does not say is inherited from the top-level settings, which is exactly what
 IWE did before workspaces existed.
+
+A workspace can also name **which extensions it has** (`"extensions": ["git", "ci",
+"github-issues"]`): the cards, wizard steps and hooks it gets at all. Naming none means all of
+them, which is what IWE was before this existed; naming some is the whole list. Extensions are
+described in [docs/extensions.md](docs/extensions.md) — the jira and github-issues extensions are
+the first two, and both can be on at once: two tickets on one change is a thing, not a conflict.
+The old `"jira": false` flag still works while a workspace names no extensions.
 
 **A second client is a second site.** `jira.configFile` points at another `jira init` — its own
 server, account and board — `jira.tokenEnv` names the variable holding that site's token, and
@@ -1264,10 +1282,14 @@ every 15s, and a slow or broken CLI delays only its own row.
 
 ## Adding an integration
 
-Implement `Integration` from `src/types.ts`: either `status(change)` for a whole widget or
-`repoStatus(change, repo)` to be fetched a repository at a time, optionally `provision(change)`
-for the creation step and `run(change, action, arg)` for buttons and add it to the table in `src/integrations/index.ts`. The UI
-renders whatever widgets come back; no frontend change needed.
+Write an extension (see [docs/extensions.md](docs/extensions.md)): a module under `src/extensions/`
+whose default export is a factory receiving the API. `registerCard` takes the same shape the
+integrations always had — `status(change)` for a whole widget or `repoStatus(change, repo)` to be
+fetched a repository at a time — and the UI renders whatever widgets come back; a card needs no
+frontend change. A wizard step is `registerWizardStep` plus a React component in the extension's
+`client.tsx`, and `on("change:created")` is the creation hook. Add the module to the loader in
+`src/extensions/index.ts` and, when it has a step, to the client registry in
+`src/web/extensions.tsx`.
 
 ## Tests and your real changes
 

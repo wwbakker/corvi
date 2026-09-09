@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
-import { worktreeForEffect, baseForEffect } from "./integrations/git.ts";
+import { checkoutForEffect, baseForEffect } from "./integrations/git.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
 
@@ -101,7 +101,7 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
 // The localChanges/fileDiff facades below are kept for repos.test.ts, which must pass
 // unmodified.
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  worktreeForEffect(change, repo);
+  checkoutForEffect(change, repo);
 
 const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   baseForEffect(change, repo);

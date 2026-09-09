@@ -236,6 +236,9 @@ export const createChangeEffect = (input: {
   direct?: string[];
   base?: Record<string, string>;
   jira?: string;
+  /** Extensions' own data about the change, keyed by extension name — what the wizard's
+   * extension steps picked. Stored verbatim on the change; the core never looks inside. */
+  extensions?: Record<string, unknown>;
   workspace?: string;
 }): Effect.Effect<Change, BadRequestError | ConflictError | DecodeError> =>
   Effect.gen(function* () {
@@ -257,6 +260,7 @@ export const createChangeEffect = (input: {
       direct: input.direct?.filter((r) => repos.includes(r)),
       base: input.base,
       jira: input.jira?.trim() || undefined,
+      extensions: input.extensions,
       // The context it was made in. Unknown means the first workspace, which is what every change
       // made before this belongs to.
       workspace: input.workspace?.trim() || undefined,
@@ -277,5 +281,6 @@ export const createChange = (input: {
   direct?: string[];
   base?: Record<string, string>;
   jira?: string;
+  extensions?: Record<string, unknown>;
   workspace?: string;
 }): Promise<Change> => Effect.runPromise(createChangeEffect(input));

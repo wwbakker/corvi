@@ -11,14 +11,15 @@ import {
   writeNotesEffect,
 } from "./changes.ts";
 import {
-  bridged,
-  integrations,
-  integrationsFor,
+  cardByName,
+  cardsFor,
+  dispatchExtensionRoute,
   provisionEffect,
   repoStatusOfEffect,
+  runCardEffect,
   statusOneEffect,
-} from "./integrations/index.ts";
-import { boardIssuesEffect, createIssueEffect } from "./integrations/jira.ts";
+  wizardStepsFor,
+} from "./extensions/index.ts";
 import { absolutePath, browseEffect, remoteBranchesEffect } from "./repos.ts";
 import { listLeftoversEffect, removeLeftoverEffect } from "./leftovers.ts";
 import { summaryOfEffect } from "./summary.ts";
@@ -195,6 +196,22 @@ const server = Bun.serve({
       GET: () => json(watchState()),
     },
 
+    // The steps the "Create change" wizard has in the context you are in: the extensions'
+    // contributions, resolved per workspace. The page renders what it is told exists — which is
+    // why a context without an extension has no step to show for it, not an empty one.
+    "/api/wizard": {
+      GET: (req) =>
+        withWorkspaceParam(
+          req,
+          Effect.succeed(json({ steps: wizardStepsFor(workspaceById(workspaceParam(req))) })),
+        ),
+    },
+
+    // Extension routes: whatever the extensions registered, under one namespace, with the same
+    // origin guard as the rest and the workspace the request names. Unknown routes 404.
+    "/api/ext/:name/:path": async (req) =>
+      (await dispatchExtensionRoute(req)) ?? new Response("no such extension route", { status: 404 }),
+
     // Every change's terminals, in one call: the navigation column lists them all, and asking
     // per change would be a process per change every few seconds. A timed-out tmux is no news,
     // not a failed request — what the old facade swallowed, kept explicitly.
@@ -281,12 +298,12 @@ const server = Bun.serve({
         withChange(req.params.id, (c) =>
           Effect.succeed(
             json(
-              integrationsFor(c).map((i) => ({
-                name: i.name,
-                title: i.title,
+              cardsFor(c).map(({ name, card }) => ({
+                name,
+                title: card.title,
                 // Per-repository components are fetched a repository at a time by the browser.
-                perRepo: Boolean(i.repoStatus),
-                wide: Boolean(i.wide),
+                perRepo: Boolean(card.repoStatus),
+                wide: Boolean(card.wide),
               })),
             ),
           ),
@@ -493,15 +510,15 @@ const server = Bun.serve({
       GET: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = integrations[req.params.integration];
+            const card = cardByName(req.params.integration);
             const repo = new URL(req.url).searchParams.get("path");
-            if (!integration) {
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
             if (!repo) {
               return yield* Effect.fail(new BadRequestError({ message: "path required" }));
             }
-            return json({ items: yield* repoStatusOfEffect(integration, c, repo) });
+            return json({ items: yield* repoStatusOfEffect(card, c, repo) });
           }),
         ),
     },
@@ -511,11 +528,11 @@ const server = Bun.serve({
       GET: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = integrations[req.params.integration];
-            if (!integration) {
+            const card = cardByName(req.params.integration);
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
-            return json(yield* statusOneEffect(integration, c));
+            return json(yield* statusOneEffect(req.params.integration, card, c));
           }),
         ),
     },
@@ -524,8 +541,8 @@ const server = Bun.serve({
       POST: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const integration = integrations[req.params.integration];
-            if (!integration?.run) {
+            const card = cardByName(req.params.integration);
+            if (!card) {
               return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
             }
             // The buttons are gone from a finished change's dashboard, but the page may have been
@@ -534,41 +551,13 @@ const server = Bun.serve({
               return yield* Effect.fail(new ConflictError({ message: `${c.id} is finished` }));
             }
             const body = (yield* bodyOrEmpty(req)) as { arg?: string };
-            yield* bridged(() => integration.run!(c, req.params.action, body.arg));
+            yield* runCardEffect(card, c, req.params.action, body.arg);
             // Per-repository components answer with the rows of the repository acted on; the
             // argument of every such action is that repository.
-            if (integration.repoStatus && body.arg) {
-              return json({ items: yield* repoStatusOfEffect(integration, c, body.arg) });
+            if (card.repoStatus && body.arg) {
+              return json({ items: yield* repoStatusOfEffect(card, c, body.arg) });
             }
-            return json(yield* statusOneEffect(integration, c));
-          }),
-        ),
-    },
-
-    // Feeds the change wizard. Returns an error string rather than a failure status: a broken
-    // or unconfigured Jira must still leave you able to type a change id by hand.
-    "/api/jira/issues": {
-      GET: (req) =>
-        withWorkspaceParam(
-          req,
-          Effect.map(
-            boardIssuesEffect(workspaceParam(req), new URL(req.url).searchParams.has("refresh")),
-            json,
-          ),
-        ),
-      POST: (req) =>
-        runRoute(
-          Effect.gen(function* () {
-            const body = (yield* bodyOf(req)) as {
-              summary: string;
-              description?: string;
-              workspace?: string;
-            };
-            return yield* Effect.provideService(
-              Effect.map(createIssueEffect(body), (issue) => json(issue, 201)),
-              Workspace,
-              workspaceById(body.workspace),
-            );
+            return json(yield* statusOneEffect(req.params.integration, card, c));
           }),
         ),
     },

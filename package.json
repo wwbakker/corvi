@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "NODE_ENV=production bun src/server.ts",
-    "test": "IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" bun test --timeout 30000",
+    "test": "IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --timeout 30000",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "shot": "bun scripts/shot.ts",

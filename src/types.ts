@@ -60,8 +60,14 @@ export type Change = {
   /** Which context this change belongs to: a client, or your own projects. Absent on changes
    * made before workspaces existed, which belong to the first one. */
   workspace?: string;
-  /** Optional Jira issue key, e.g. PROJ-123. */
+  /** Optional Jira issue key, e.g. PROJ-123. Legacy: the jira extension's own field, from
+   * before extensions kept their data in the namespaced bag below. Still read, no longer
+   * written by the wizard. */
   jira?: string;
+  /** Each extension's own data about this change, keyed by extension name — the wizard stores
+   * what its steps picked here, and each extension reads its own entry. Anything JSON-shaped
+   * goes; the extension owns its shape, the core never looks inside. */
+  extensions?: Record<string, unknown>;
   /** What the change is called. Taken from the ticket's summary and refreshed from it, unless
    * you have written your own — kept so the overview can name a change without a CLI call per
    * row, and so an archived change still reads as English years later. */
@@ -99,30 +105,14 @@ export type WidgetItem = {
   children?: WidgetItem[];
 };
 
-/** What one integration reports about one change: the dashboard renders this as a card. */
+/** What one extension reports about one change: the dashboard renders this as a card. The
+ * `integration` field is the extension's name — the identity the browser knows the card by. */
 export type Widget = {
   integration: string;
   title: string;
   state: WidgetState;
   summary: string;
   items: WidgetItem[];
-};
-
-export type Integration = {
-  name: string;
-  title: string;
-  /** Asks for the tall column of its own on a wide window: the tree of a CI component is much
-   * taller than the rest put together. */
-  wide?: boolean;
-  /** Whole-widget status, for components that do not work per repository (Jira). */
-  status?(change: Change): Promise<Widget>;
-  /** Rows for one repository. Components that have these are fetched a repository at a time, so
-   * a change with many repositories fills in one by one instead of all at the end. */
-  repoStatus?(change: Change, repo: string): Promise<WidgetItem[]>;
-  /** Bring this component in line with a newly created change: worktrees, ticket status, ... */
-  provision?(change: Change): Promise<void>;
-  /** Perform `action` (an id handed out by `status`) on this change. */
-  run?(change: Change, action: string, arg?: string): Promise<void>;
 };
 
 /** One thing completing a change does, and how it went. Written to disk as it happens: a

@@ -18,6 +18,10 @@ export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   reposStart: Schema.optional(Schema.String),
+  /** Which extensions exist here. Absent means all of them; an empty list means none. Names
+   * are validated against what is loaded by the settings write, not here: the file may be
+   * edited by hand before the extension it names exists. */
+  extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   jira: Schema.optional(
     Schema.Union(
       Schema.Literal(false),

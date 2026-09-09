@@ -1,13 +1,17 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change, Integration, WidgetItem, WidgetState } from "../types.ts";
-import { createPrEffect, prItemEffect } from "./github.ts";
-import { checkItemsEffect } from "./checks.ts";
-import { pipelineItemsEffect } from "./azure.ts";
-import { BadRequestError, type CliError } from "../effect/errors.ts";
+import type { Change, WidgetItem, WidgetState } from "../../types.ts";
+import { createPrEffect, prItemEffect } from "../../integrations/github.ts";
+import { checkItemsEffect } from "../../integrations/checks.ts";
+import { pipelineItemsEffect } from "../../integrations/azure.ts";
+import { BadRequestError, type CliError } from "../../effect/errors.ts";
+import type { Extension } from "../api.ts";
 
-/** Pull requests and the pipelines they trigger, per repository: one question ("is this change
- * green?") answered in one card, rather than split across two vendors. */
+/**
+ * Pull requests and the pipelines they trigger, per repository: one question ("is this change
+ * green?") answered in one card, rather than split across two vendors.
+ */
+
 /** repository > pull request > pipeline > runs, as one collapsible tree per repository. */
 const repoItemEffect = (
   change: Change,
@@ -52,22 +56,7 @@ const worst = (items: WidgetItem[]): WidgetState =>
           ? "ok"
           : "none";
 
-// Pure and synchronous: nothing for an Effect to wrap.
-
-export const ci: Integration = {
-  name: "ci",
-  title: "CI",
-  wide: true,
-
-  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
-    return [(await Effect.runPromise(repoItemEffect(change, repo))).item];
-  },
-
-  async run(change: Change, action: string, repo?: string): Promise<void> {
-    await Effect.runPromise(runEffect(change, action, repo));
-  },
-};
-
+/** The CI card's action runner, in Effect. */
 const runEffect = (
   change: Change,
   action: string,
@@ -80,3 +69,17 @@ const runEffect = (
     if (!repo) return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
     yield* createPrEffect(change, repo);
   });
+
+export default {
+  name: "ci",
+  title: "CI",
+
+  cards: [
+    {
+      title: "CI",
+      wide: true,
+      repoStatus: (change, repo) => Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
+      run: (change, action, repo) => runEffect(change, action, repo),
+    },
+  ],
+} satisfies Extension;

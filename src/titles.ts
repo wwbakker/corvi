@@ -1,16 +1,9 @@
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { listChangesEffect, writeChangeEffect } from "./changes.ts";
-import { issuesByKeysEffect, siteOf, type Issue, type Site } from "./integrations/jira.ts";
-import { usesJira, workspaceOf } from "./workspaces.ts";
-
-/** How the summaries are fetched. A parameter so a test does not need a Jira. Deliberately
- * Promise-shaped: the tests hand in plain async lookups, and the tests must pass unmodified. */
-export type Lookup = (keys: string[], site?: Site) => Promise<Map<string, Issue>>;
-
-/** The default lookup, from the jira module's Effect API. */
-const defaultLookup: Lookup = (keys, site) =>
-  Effect.runPromise(issuesByKeysEffect(keys, site) as Effect.Effect<Map<string, Issue>, unknown>);
+import { titleSourcesFor } from "./extensions/index.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
+import { workspaceOf } from "./workspaces.ts";
 
 /**
  * What to call a change on the overview: its ticket's summary, which says what the work is,
@@ -18,52 +11,61 @@ const defaultLookup: Lookup = (keys, site) =>
  *
  * The summary is stored in change.json when it is first read, so the list — which must be
  * instant, it is the front page — already carries it, and an archived change keeps its name
- * even after the ticket is gone or Jira is unreachable. This refreshes those labels in one
- * query for the whole page, and is asked for separately by the browser once the list is up.
+ * even after the ticket is gone or its vendor is unreachable. This refreshes those labels, and
+ * is asked for separately by the browser once the list is up.
+ *
+ * Whose summaries to fetch is the extensions' business: each workspace's title sources are
+ * asked for the changes they claim, one question per workspace, inside that workspace's context
+ * so every subprocess carries its environment. A source that cannot answer contributes nothing
+ * — a vendor being down is not a reason to blank the names.
  */
-export const refreshTitlesEffect = (
-  lookup: Lookup = defaultLookup,
-): Effect.Effect<Record<string, string>, unknown> =>
+export const refreshTitlesEffect = (): Effect.Effect<Record<string, string>, unknown> =>
   Effect.gen(function* () {
     const changes = yield* listChangesEffect();
     // A title you wrote yourself is not a stale copy of the ticket's, so its ticket is not asked
-    // about and its name is left alone. A context without Jira has nothing to ask.
-    const asking = changes.filter(
-      (c) => c.jira && !c.titleEdited && usesJira(workspaceOf(c)),
-    );
+    // about and its name is left alone.
+    const asking = changes.filter((c) => !c.titleEdited);
 
-    // One query per site: two clients' Jiras answer "PROJ-1" differently, and both are right.
-    const bySite = new Map<string, Change[]>();
+    // One question per workspace: two clients' tickets answer the same key differently, and
+    // both are right.
+    const byWorkspace = new Map<string, Change[]>();
     for (const change of asking) {
       const key = workspaceOf(change).id;
-      (bySite.get(key) ?? bySite.set(key, []).get(key)!).push(change);
+      (byWorkspace.get(key) ?? byWorkspace.set(key, []).get(key)!).push(change);
     }
-    const found = yield* Effect.forEach(
-      [...bySite.values()],
+
+    const answered = yield* Effect.forEach(
+      [...byWorkspace.values()],
       (group) =>
-        // A Jira that does not answer leaves every stored title standing: the queries run per
-        // site, and one site being down is not a reason to blank the others. What
-        // `.catch(() => new Map())` did.
-        Effect.tryPromise({
-          try: () => lookup([...new Set(group.map((c) => c.jira!))], siteOf(group[0]!)),
-          catch: (e) => e,
-        }).pipe(
-          Effect.catchAll(() => Effect.succeed(new Map<string, Issue>())),
-        ),
+        Effect.gen(function* () {
+          const workspace = workspaceOf(group[0]!);
+          const capabilities = capabilitiesLayer(workspace);
+          const titles = new Map<string, string>();
+          for (const source of titleSourcesFor(workspace)) {
+            const claimed = group.filter((c) => source.applies(c));
+            if (claimed.length === 0) continue;
+            // A source that fails contributes nothing: a vendor being down is not a reason to
+            // blank the names.
+            const found = yield* source.lookup(claimed).pipe(
+              Effect.provide(capabilities),
+              Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+            );
+            for (const [id, summary] of found) titles.set(id, summary);
+          }
+          return titles;
+        }),
       { concurrency: "unbounded" },
     );
-    const issues = new Map<string, Issue>(found.flatMap((m) => [...m]));
+    const known = new Map<string, string>(answered.flatMap((m) => [...m]));
 
     const titles: Record<string, string> = {};
     yield* Effect.forEach(
       changes,
       (change: Change) =>
         Effect.gen(function* () {
-          // A ticket Jira did not answer for keeps whatever was stored: a renamed ticket is worth
-          // following, a broken CLI is not worth forgetting a name over.
-          const summary = change.titleEdited
-            ? change.title
-            : (change.jira && issues.get(change.jira)?.summary) || change.title;
+          // A ticket the vendor did not answer for keeps whatever was stored: a renamed ticket is
+          // worth following, a broken CLI is not worth forgetting a name over.
+          const summary = change.titleEdited ? change.title : known.get(change.id) ?? change.title;
           if (!summary) return;
           titles[change.id] = summary;
           if (summary !== change.title) yield* writeChangeEffect({ ...change, title: summary });
@@ -74,6 +76,6 @@ export const refreshTitlesEffect = (
   });
 
 /** Promise facade over refreshTitlesEffect, in the old signature. Kept for the test suite,
- * which passes its own lookups and must pass unmodified. */
-export const refreshTitles = (lookup: Lookup = defaultLookup): Promise<Record<string, string>> =>
-  Effect.runPromise(refreshTitlesEffect(lookup));
+ * which must pass unmodified. */
+export const refreshTitles = (): Promise<Record<string, string>> =>
+  Effect.runPromise(refreshTitlesEffect());

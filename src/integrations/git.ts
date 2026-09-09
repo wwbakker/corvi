@@ -1,7 +1,7 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../types.ts";
+import type { Change, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
@@ -131,15 +131,19 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
   });
 
 /** Absolute path of the worktree for `branch` in `repo`, or undefined when it does not exist. */
-export const worktreeForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+/** Where this change's checkout of `repo` lives: its worktree, or — worked on in place — the
+ * repository's own checkout, which is the path the change directory's link points at too.
+ * Undefined when the change has no checkout of this repository. */
+export const checkoutForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
 
-/** Promise facade over worktreeForEffect, in the old signature. Kept for the test suite,
+/** Promise facade over checkoutForEffect, in the old signature. Kept for the test suite,
  * which must pass unmodified. */
-export const worktreeFor = (change: Change, repo: string): Promise<string | undefined> =>
-  Effect.runPromise(worktreeForEffect(change, repo));
+export const checkoutFor = (change: Change, repo: string): Promise<string | undefined> =>
+  Effect.runPromise(checkoutForEffect(change, repo));
 
-/** Human summary of one worktree, and how alarming it is. */
+/** Human summary of one checkout — the worktree or the in-place repository — and how
+ * alarming it is. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function describe(entry: WtEntry): { detail: string; state: WidgetState } {
   const tree = entry.working_tree ?? {};
@@ -157,7 +161,7 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
   };
 }
 
-const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+export const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* directItemEffect(change, repo);
     const label = basename(repo);
@@ -381,11 +385,13 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
     };
   });
 
-/** Create the worktree for this change in `repo`; existing ones are left alone. */
-const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+/** Give this change its checkout in `repo`, by the mode the change asked for: a worktree, or
+ * the repository's own checkout switched and linked, when the repo is worked on in place.
+ * Whatever is already there is left alone. */
+export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
-    if (yield* worktreeForEffect(change, repo)) return;
+    if (yield* checkoutForEffect(change, repo)) return;
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
@@ -415,7 +421,7 @@ const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void,
 const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!config.worktreeCopy.length) return;
-    const created = yield* worktreeForEffect(change, repo);
+    const created = yield* checkoutForEffect(change, repo);
     if (!created) return;
     // copyTooling is deliberately a Promise (mostly synchronous filesystem work — see
     // tooling.ts); the bridge stays, its failure reported, never fatal.
@@ -557,7 +563,7 @@ export const setReposEffect = (
       base: Object.keys(bases).length ? bases : undefined,
     };
     yield* writeChangeEffect(updated);
-    for (const repo of added) yield* createWorktreeEffect(updated, repo);
+    for (const repo of added) yield* provisionRepoEffect(updated, repo);
     return { _tag: "Done", change: updated };
   });
 
@@ -586,31 +592,14 @@ export const removeWorktreeEffect = (
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* unlinkInPlaceEffect(change, repo);
-    if (!(yield* worktreeForEffect(change, repo))) return;
+    if (!(yield* checkoutForEffect(change, repo))) return;
     yield* shOrThrowEffect(
       yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
   });
 
-export const git: Integration = {
-  name: "git",
-  title: "Local changes",
-
-  async repoStatus(change: Change, repo: string): Promise<WidgetItem[]> {
-    return [await Effect.runPromise(repoItemEffect(change, repo))];
-  },
-
-  async provision(change: Change): Promise<void> {
-    for (const repo of change.repos) await Effect.runPromise(createWorktreeEffect(change, repo));
-  },
-
-  async run(change: Change, action: string, repo?: string): Promise<void> {
-    await Effect.runPromise(gitRunEffect(change, action, repo));
-  },
-};
-
 /** The `git` integration's action runner, in Effect. */
-const gitRunEffect = (
+export const gitRunEffect = (
   change: Change,
   action: string,
   repo?: string,
@@ -619,12 +608,12 @@ const gitRunEffect = (
     if (!repo) {
       return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
     }
-    if (action === "add") return yield* createWorktreeEffect(change, repo);
+    if (action === "add") return yield* provisionRepoEffect(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);
     if (opener) {
-      const path = (yield* worktreeForEffect(change, repo)) ?? repo;
+      const path = (yield* checkoutForEffect(change, repo)) ?? repo;
       yield* shOrThrowEffect(opener.command(path));
       return;
     }
