@@ -16,20 +16,21 @@ Environment:
 
 | Variable    | Meaning                                                                 |
 |-------------|-------------------------------------------------------------------------|
-| `IWE_PORT`  | Port the server answers on; default `43117` (matches the macOS app).     |
-| `IWE_ROOT`  | Repo root, read for the future launcher/desktop entry; not required.     |
+| `IWE_PORT`  | Pin the port the server answers on; unset, the window picks a fresh one at launch. |
+| `IWE_ROOT`  | Repo root, telling the window where the code to serve lives; not required. |
 | `IWE_WINDOW_DEBUG` | Set to log the page's console to stdout.                          |
 
-The window does **not** start, stop or supervise the server — that is the
-launcher's job (`scripts/app.ts install` on Linux, the Phase 3 task). If
-nothing is listening on the port the window says so and keeps watching; when
-the server appears it loads it. Closing the window quits the window only.
+The window starts the server it needs — on the fresh port it picked, unless
+`IWE_PORT` is pinned — and stops it again when the window closes. The
+pid-file it leaves in `~/.local/state/iwe/iwe-app-<port>.pid` is how
+`iwe-app stop` cleans up after a window that died harder than it could clean
+up after.
 
 `test-page.html` exercises the window without the server:
 
 ```sh
-python3 -m http.server 43117 --directory scripts/app/linux-window/
-python3 scripts/app/linux-window/iwe-window.py
+IWE_PORT=43117 python3 -m http.server 43117 --directory scripts/app/linux-window/
+IWE_PORT=43117 python3 scripts/app/linux-window/iwe-window.py
 ```
 
 ## What it implements

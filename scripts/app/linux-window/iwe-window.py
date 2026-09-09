@@ -5,13 +5,14 @@ The Linux counterpart of scripts/app/IWE.swift: a chromeless native window
 around the bundled HTTP server — no Electron, no Rust, no second browser.
 Engine is WebKitGTK (libwebkit2gtk-4.1) driven from Python via PyGObject,
 which costs zero compilation and zero code-gen: the bindings exist at
-runtime. Like the macOS app, it manages the server it needs: nothing
-listening on the port means it starts one (through the user's login shell,
-so `bun` and whatever the rc file exports are there), and a window that
-closes normally stops the server it started — a server that was already
-there belongs to whoever started it and is left alone. The pid-file it
-leaves in $XDG_STATE_HOME/iwe is how `iwe-app stop` cleans up after a
-window that died harder than it could clean up after.
+runtime. Like the macOS app, it manages the server it needs: it starts one
+of its own — on a fresh port, picked at launch, so what it starts is always
+its own and nothing stale on a fixed port can be attached to by mistake —
+through the user's login shell (so `bun` and whatever the rc file exports
+are there), and a window that closes normally stops the server it started.
+The pid-file it leaves in $XDG_STATE_HOME/iwe (one per port) is how
+`iwe-app stop` cleans up after a window that died harder than it could
+clean up after.
 
 Launch:
 
@@ -23,6 +24,7 @@ so a desktop entry with StartupWMClass=iwe groups and matches it.
 
 import os
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -59,23 +61,38 @@ from gi.repository import Gdk, GLib, Gio, Gtk, WebKit2
 # the macOS app (NSColor srgb 0x14/0x16/0x1a).
 BACKGROUND = "#14161a"
 DEFAULT_TITLE = "Integrated Work Environment"
-DEFAULT_PORT = "43117"
 
-PORT = os.environ.get("IWE_PORT", DEFAULT_PORT).strip() or DEFAULT_PORT
+
+def pick_free_port() -> int:
+    """Ask the kernel for a free port on the loopback: bind to 0, read, close.
+
+    A fresh port per launch is the point — the server this window starts is always one this
+    window started. Closing the probe socket leaves a moment in which another process could take
+    the port; the server binds it back within the second it takes to start, and losing that race
+    is visible (the window says the server did not start) rather than silently attaching to a
+    stranger. Pin with IWE_PORT to test against a hand-started server.
+    """
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
+
+
+PORT = os.environ.get("IWE_PORT", "").strip() or str(pick_free_port())
 URL = f"http://127.0.0.1:{PORT}/"
 # Where the code to serve lives. The launcher writes it in (IWE_ROOT); without
 # it there is nothing to start a server from, and the window only probes.
 ROOT = os.environ.get("IWE_ROOT", "").strip()
 
 # Where the server's output and the pid-file go — the same files the launcher
-# and `iwe-app stop` use, so every writer agrees on one contract.
+# and `iwe-app stop` use, so every writer agrees on one contract. One pid-file
+# per port: two windows run two servers, and `iwe-app stop` stops them all.
 def state_dir() -> str:
     return os.path.join(
         os.environ.get("XDG_STATE_HOME", ""), "iwe"
     ) if os.environ.get("XDG_STATE_HOME") else os.path.expanduser("~/.local/state/iwe")
 
 
-PID_FILE = os.path.join(state_dir(), "iwe-app.pid")
+PID_FILE = os.path.join(state_dir(), f"iwe-app-{PORT}.pid")
 LOG_FILE = os.path.join(state_dir(), "log")
 
 
@@ -178,9 +195,13 @@ class App:
     # MARK: the server
 
     def ensure_server(self):
-        """Start the server if nothing is answering — the macOS app's start()."""
+        """Start the server this window owns — the macOS app's start().
+
+        On the fresh port this window picked, nothing answers unless IWE_PORT was pinned; a
+        pinned port with a stranger on it is left alone rather than attached to.
+        """
         if self._server_answers():
-            return  # already there: someone else's, left alone
+            return  # only possible on a pinned IWE_PORT: someone else's, left alone
         if not ROOT:
             return  # nothing to serve; the probe says so and keeps watching
         os.makedirs(state_dir(), exist_ok=True)
@@ -212,9 +233,20 @@ class App:
             return False
 
     def stop_server(self):
-        """Stop the server this window started, if it is still ours."""
+        """Stop the server this window started, if it is still ours, and its pid-file.
+
+        The pid-file goes even when the server already died on its own — the window wrote it,
+        so the window removes it, rather than leaving `iwe-app stop` a file about nothing.
+        """
         pid = self.server_pid
-        if pid is None or not self._ours(pid):
+        if pid is None:
+            return
+        self.server_pid = None
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+        if not self._ours(pid):
             return
         try:
             os.kill(pid, signal.SIGTERM)
@@ -229,11 +261,6 @@ class App:
                 os.kill(pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
-        self.server_pid = None
-        try:
-            os.remove(PID_FILE)
-        except OSError:
-            pass
 
     # MARK: window events
 
@@ -371,7 +398,8 @@ class App:
             return False
         if self.probes == 300:  # ~60 s: time to say something
             # Say so once, keep a slow re-probe — the server may still come up,
-            # and then the window simply becomes the app.
+            # and then the window simply becomes the app. The port is this
+            # window's own pick, so starting one by hand on it is a way in.
             self.web.load_html(
                 show(f"The server did not start — nothing is listening on {URL}."
                      "\n\nSee the log at " + LOG_FILE + ", or start it by hand:\n"

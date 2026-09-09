@@ -56,8 +56,9 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
 
 `iwe-window.py` — run with `python3 scripts/app/linux-window/iwe-window.py`:
 
-- Reads `IWE_PORT` (default `43117`) and optional `IWE_ROOT` from the
-  environment; loads `http://127.0.0.1:PORT/`.
+- Picks a free port for the server at launch (bind to 0, read, close) and
+  reads optional `IWE_ROOT` from the environment; loads `http://127.0.0.1:PORT/`.
+  `IWE_PORT` pins the port — for testing against a hand-started server.
 - 1280×820 window, title "Integrated Work Environment", `#14161a` behind the
   page from the first frame (window CSS + `set_background_color`), dark
   titlebar hint.
@@ -71,12 +72,11 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
 - External link activations go to the default browser via `xdg-open`
   (`decide-policy`); everything else stays in the window.
 - No GTK accelerators: all keystrokes reach the page.
-- Manages the server, like the macOS app: if nothing answers on the port it starts one (through
-  the user's login shell, `IWE_ROOT` telling it where the code lives — the launcher exports
-  it), and closing the window (or `window.close()` from the page) stops the server it started.
-  A server that was already there belongs to whoever started it and is left alone; the pid-file
-  it writes is what `iwe-app stop` uses. Launchable from a shell and from a `.desktop` entry
-  alike (it is the launcher's Exec target).
+- Manages the server, like the macOS app: it starts one of its own — on the fresh port it
+  picked, through the user's login shell, `IWE_ROOT` telling it where the code lives (the
+  launcher exports it) — and closing the window (or `window.close()` from the page) stops the
+  server it started. The pid-file it writes (`iwe-app-<port>.pid`) is what `iwe-app stop` uses.
+  Launchable from a shell and from a `.desktop` entry alike (it is the launcher's Exec target).
 - `test-page.html` exercises everything without the IWE server, including a
   `?autotest` mode that reports capabilities via `document.title`.
 

@@ -7,9 +7,9 @@
  * macOS builds the Swift/WKWebView bundle (below). Linux installs a desktop
  * entry, an icon and a launcher around the WebKitGTK window in
  * scripts/app/linux-window (scripts/app/linux.ts). Either way: clicking it
- * starts the server if nothing is listening and shows the page; AppKit and
- * WebKit/GTK are in the system, so this costs a `swiftc` on macOS and nothing
- * at all on Linux. No Electron, no Rust, no second browser — the app is only
+ * starts the app's own server — on a fresh port, picked at launch, so what it
+ * starts is always its own — and shows the page; AppKit and WebKit/GTK are in
+ * the system, so this costs a `swiftc` on macOS and nothing at all on Linux. No Electron, no Rust, no second browser — the app is only
  * a window onto the same HTTP server any browser can open.
  */
 
@@ -27,15 +27,6 @@ const BINARY = "IWE";
 /** Bundles the older, abbreviated installs left behind. */
 const OLD = ["IWE"];
 const root = resolve(".");
-/**
- * The app's own port, so it never meets `bun run dev` on 4000.
- *
- * They were the same port and the app attached to whatever was listening, which meant a dev
- * server left running from last week silently became "the app" — with last week's code, and no
- * way to tell from the window. Five digits because nobody types this one: it is reached by
- * clicking the icon.
- */
-const port = process.env.IWE_PORT ?? "43117";
 const bundle = (): string => join(homedir(), "Applications", `${NAME}.app`);
 
 const plist = (): string => `<?xml version="1.0" encoding="UTF-8"?>
@@ -50,10 +41,10 @@ const plist = (): string => `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleExecutable</key><string>${BINARY}</string>
   <key>CFBundleIconFile</key><string>${BINARY}</string>
   <key>NSHighResolutionCapable</key><true/>
-  <!-- Where the code is and which port it serves on, so the binary need not be rebuilt for
-       either. Read by the app at launch. -->
+  <!-- Where the code is, so the binary need not be rebuilt for it. Read by the app at launch.
+       The port is not here any more: the app picks a fresh one at each launch, so the server
+       behind the window is always one that window started — nothing stale to attach to. -->
   <key>IWERoot</key><string>${root}</string>
-  <key>IWEPort</key><string>${port}</string>
   <!-- The server is on plain HTTP on the loopback address, which is the only thing it listens on. -->
   <key>NSAppTransportSecurity</key>
   <dict><key>NSAllowsLocalNetworking</key><true/></dict>
@@ -162,13 +153,13 @@ async function install(): Promise<void> {
   await sh(["touch", app]);
 
   console.log(`installed: ${app}`);
-  console.log(`  serves:  ${root} on port ${port} (bun run dev keeps 4000)`);
+  console.log(`  serves:  ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
   if (!drawn) console.log("  no icon: install librsvg for one (brew install librsvg)");
   if (wasRunning) {
     await sh(["open", app]);
     console.log("  restarted: it was running, so it is running again — on the new build");
   } else {
-    console.log("drag it to the Dock; it starts the server if nothing is listening");
+    console.log("drag it to the Dock; it starts its own server on a fresh port");
   }
 }
 

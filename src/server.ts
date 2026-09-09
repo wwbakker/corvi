@@ -122,7 +122,8 @@ const portForChange = (id: string): Promise<number | undefined> =>
   );
 
 const server = Bun.serve({
-  // 4000 while developing; the app installs itself on a port of its own, so the two never meet.
+  // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
+  // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env.IWE_PORT ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
