@@ -17,7 +17,7 @@ Environment:
 | Variable    | Meaning                                                                 |
 |-------------|-------------------------------------------------------------------------|
 | `IWE_PORT`  | Pin the port the server answers on; unset, the window picks a fresh one at launch. |
-| `IWE_ROOT`  | Repo root, telling the window where the code to serve lives; not required. |
+| `IWE_APP_ROOT` | Repo root, telling the window where the code to serve lives; not required. Not `IWE_ROOT`: the server reads that as its changes root. |
 | `IWE_WINDOW_DEBUG` | Set to log the page's console to stdout.                          |
 
 The window starts the server it needs — on the fresh port it picked, unless

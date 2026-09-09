@@ -109,6 +109,30 @@ async function quit(): Promise<void> {
   }
 }
 
+/**
+ * The app is only as good as its page, and the page is built on demand: a bundle that cannot
+ * resolve `react` comes back from the production server as an empty 200 — a black window, with
+ * no error anywhere. Build it here instead, where the errors print. A fresh checkout without
+ * `bun install` is the common way to get here, so that runs first; `bun build` then says
+ * exactly which import did not resolve.
+ */
+async function verify(): Promise<void> {
+  const installed = await sh(["bun", "install"]);
+  if (installed.code !== 0) {
+    console.error(installed.stderr || installed.stdout);
+    console.error("could not install dependencies — the page would not build, and the app would be a black window");
+    process.exit(1);
+  }
+  const out = "/tmp/iwe-build-check";
+  const built = await sh(["bun", "build", "src/web/index.html", "--outdir", out, "--production"]);
+  await rm(out, { recursive: true, force: true });
+  if (built.code !== 0) {
+    console.error(built.stderr || built.stdout);
+    console.error("the page does not build — the app would be a black window; fix the errors above and reinstall");
+    process.exit(1);
+  }
+}
+
 async function install(): Promise<void> {
   const app = bundle();
   const macos = join(app, "Contents", "MacOS");
@@ -183,13 +207,17 @@ const usage = () => {
 };
 
 if (isMac) {
-  if (command === "install") await install();
-  else if (command === "uninstall") await uninstall();
+  if (command === "install") {
+    await verify();
+    await install();
+  } else if (command === "uninstall") await uninstall();
   else usage();
 } else if (isLinux) {
   const linux = await import("./app/linux.ts");
-  if (command === "install") await linux.install();
-  else if (command === "uninstall") await linux.uninstall();
+  if (command === "install") {
+    await verify();
+    await linux.install();
+  } else if (command === "uninstall") await linux.uninstall();
   else usage();
 } else {
   console.error("unsupported platform: the app is built for macOS and Linux");

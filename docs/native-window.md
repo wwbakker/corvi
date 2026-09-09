@@ -57,7 +57,7 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
 `iwe-window.py` — run with `python3 scripts/app/linux-window/iwe-window.py`:
 
 - Picks a free port for the server at launch (bind to 0, read, close) and
-  reads optional `IWE_ROOT` from the environment; loads `http://127.0.0.1:PORT/`.
+  reads optional `IWE_APP_ROOT` from the environment; loads `http://127.0.0.1:PORT/`.
   `IWE_PORT` pins the port — for testing against a hand-started server.
 - 1280×820 window, title "Integrated Work Environment", `#14161a` behind the
   page from the first frame (window CSS + `set_background_color`), dark
@@ -73,8 +73,9 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
   (`decide-policy`); everything else stays in the window.
 - No GTK accelerators: all keystrokes reach the page.
 - Manages the server, like the macOS app: it starts one of its own — on the fresh port it
-  picked, through the user's login shell, `IWE_ROOT` telling it where the code lives (the
-  launcher exports it) — and closing the window (or `window.close()` from the page) stops the
+  picked, through the user's login shell, the working directory telling it where the code
+  lives (the launcher passes `IWE_APP_ROOT` to the window, which `cd`s — never `IWE_ROOT`,
+  which the server reads as its changes root) — and closing the window (or `window.close()` from the page) stops the
   server it started. The pid-file it writes (`iwe-app-<port>.pid`) is what `iwe-app stop` uses.
   Launchable from a shell and from a `.desktop` entry alike (it is the launcher's Exec target).
 - `test-page.html` exercises everything without the IWE server, including a

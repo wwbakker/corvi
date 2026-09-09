@@ -94,7 +94,13 @@ const launcher = (): string => `#!/bin/sh
 
 set -eu
 
-ROOT="\${IWE_ROOT:-${root}}"
+# IWE_APP_ROOT, not IWE_ROOT: the server reads IWE_ROOT as an override for its changes root
+# (where per-change directories live — tests set it for exactly that), and the window only
+# means "where the code to serve lives". Exporting IWE_ROOT here made the app's own server scan
+# this repository for changes: an empty overview, and a "Left behind" list offering Delete on
+# the worktree's own src/ and node_modules/. The window passes it nowhere — the server is
+# started with cd, and reads its changes root from the config file like any other run.
+ROOT="\${IWE_APP_ROOT:-${root}}"
 WINDOW="$ROOT/scripts/app/linux-window/iwe-window.py"
 STATE="\${XDG_STATE_HOME:-$HOME/.local/state}"
 LOG_DIR="$STATE/iwe"
@@ -185,7 +191,7 @@ mkdir -p "$LOG_DIR"
 # and stops it again when it closes. It is told where the code lives through
 # the environment, which a desktop entry alone would not give it.
 if python3 -c 'import gi; gi.require_version("WebKit2", "4.1")' 2>/dev/null; then
-    export IWE_ROOT="$ROOT"
+    export IWE_APP_ROOT="$ROOT"
     exec python3 "$WINDOW"
 fi
 
@@ -234,7 +240,7 @@ async function install(): Promise<void> {
 
   const drawn = await icons();
 
-  console.log(`installed: ${entryPath}`);
+  console.log(`installed: ${entryPath()}`);
   console.log(`  launcher: ${launcherPath()}`);
   console.log(`  serves:   ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
   if (!drawn) console.log("  no icon:  install librsvg for one (sudo pacman -S librsvg)");

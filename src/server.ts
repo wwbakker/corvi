@@ -614,3 +614,20 @@ const server = Bun.serve({
 });
 
 console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
+
+// The page is built on demand, and a failed build in production comes back as an empty 200 with
+// no error anywhere — in the app's window that is a black screen, with nothing to say why. Ask
+// for the page once at startup, where the answer is visible: a server whose page cannot build
+// stops here (the window then reports it and points at this log) instead of blinding one.
+{
+  const page = await fetch(`${server.url}`).then((r) => r.text()).catch(() => "");
+  if (!page.includes("<!doctype html>") || page.includes("Build Failed")) {
+    console.error(
+      `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
+    );
+    console.error(
+      "usually dependencies: run `bun install`. For the full error: bun build src/web/index.html --outdir /tmp/iwe-check --production",
+    );
+    process.exit(1);
+  }
+}

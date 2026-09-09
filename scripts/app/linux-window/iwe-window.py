@@ -79,9 +79,10 @@ def pick_free_port() -> int:
 
 PORT = os.environ.get("IWE_PORT", "").strip() or str(pick_free_port())
 URL = f"http://127.0.0.1:{PORT}/"
-# Where the code to serve lives. The launcher writes it in (IWE_ROOT); without
+# Where the code to serve lives. The launcher writes it in (IWE_APP_ROOT — not IWE_ROOT,
+# which the server reads as its changes root); without
 # it there is nothing to start a server from, and the window only probes.
-ROOT = os.environ.get("IWE_ROOT", "").strip()
+ROOT = os.environ.get("IWE_APP_ROOT", "").strip()
 
 # Where the server's output and the pid-file go — the same files the launcher
 # and `iwe-app stop` use, so every writer agrees on one contract. One pid-file
@@ -396,19 +397,31 @@ class App:
         if self._server_answers():
             self.web.load_uri(URL)
             return False
-        if self.probes == 300:  # ~60 s: time to say something
-            # Say so once, keep a slow re-probe — the server may still come up,
-            # and then the window simply becomes the app. The port is this
-            # window's own pick, so starting one by hand on it is a way in.
+        # The server this window started has died — say so now rather than probing for a minute.
+        # It exits itself when the page cannot build, so the log has the reason.
+        if self.server_pid is not None and not os.path.isdir(f"/proc/{self.server_pid}"):
             self.web.load_html(
-                show(f"The server did not start — nothing is listening on {URL}."
-                     "\n\nSee the log at " + LOG_FILE + ", or start it by hand:\n"
-                     f"    IWE_PORT={PORT} bun src/server.ts"),
+                show(f"The server started and then died — see the log at " + LOG_FILE + "."),
                 None,
             )
             GLib.timeout_add_seconds(5, self._reprobe)
             return False
+        if self.probes == 300:  # ~60 s: time to say something
+            # Say so once, keep a slow re-probe — the server may still come up,
+            # and then the window simply becomes the app. The port is this
+            # window's own pick, so starting one by hand on it is a way in.
+            self._not_started()
+            return False
         return True
+
+    def _not_started(self) -> None:
+        self.web.load_html(
+            show(f"The server did not start — nothing is listening on {URL}."
+                 "\n\nSee the log at " + LOG_FILE + ", or start it by hand:\n"
+                 f"    IWE_PORT={PORT} bun src/server.ts"),
+            None,
+        )
+        GLib.timeout_add_seconds(5, self._reprobe)
 
     def _reprobe(self) -> bool:
         if self._server_answers():
