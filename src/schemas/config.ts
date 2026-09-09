@@ -22,6 +22,18 @@ export const Workspace = Schema.Struct({
    * are validated against what is loaded by the settings write, not here: the file may be
    * edited by hand before the extension it names exists. */
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Per-workspace settings declared by the extensions: `extensionSettings[name][key]`. The core
+   * carries it without looking inside; what belongs there is the extension's own declaration. */
+  extensionSettings: Schema.optional(
+    Schema.mutable(
+      Schema.Record({
+        key: Schema.String,
+        value: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
+      }),
+    ),
+  ),
+  /** Legacy: Jira's per-workspace settings, kept as passthrough so migrateWorkspaceSettings can
+   * fold them into `extensionSettings.jira` (the settings page no longer writes this key). */
   jira: Schema.optional(
     Schema.Union(
       Schema.Literal(false),

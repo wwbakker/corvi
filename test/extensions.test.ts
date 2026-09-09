@@ -7,6 +7,7 @@ import { Effect } from "effect";
 import {
   extensionsFor,
   loaded,
+  migrateWorkspaceSettings,
   wizardStepsFor,
 } from "../src/extensions/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
@@ -89,13 +90,35 @@ test("a workspace that names its extensions gets exactly those, in registration 
   ]);
 });
 
-test("the legacy jira flag still means something while a workspace names no extensions", () => {
-  // A context without Jira has no ticket to pick: its extension is not there at all.
-  const without = extensionsFor(ws({ jira: false })).map((e) => e.name);
-  expect(without).toContain("ci");
-  expect(without).not.toContain("jira");
-  // But an explicit list outranks the old flag: naming jira enables it even here.
-  expect(extensionsFor(ws({ jira: false, extensions: ["jira"] })).map((e) => e.name)).toEqual(["jira"]);
+test("legacy jira settings migrate into the extension's own per-workspace settings", () => {
+  // jira: false with no extensions list: an explicit list materializes — everything loaded
+  // except jira — because naming some is the whole list, and the flag itself is retired.
+  const off = migrateWorkspaceSettings([ws({ jira: false })])[0]!;
+  expect(off.extensions).toEqual(loaded.map((e) => e.name).filter((n) => n !== "jira"));
+  expect(off.extensions).not.toContain("jira");
+
+  // The legacy jira object: its fields land under extensionSettings.jira, where the jira
+  // extension's declaration puts and reads them. Present fields only.
+  const configured = migrateWorkspaceSettings([
+    ws({ jira: { project: "PROJ", configFile: "~/.config/.jira/client.yml" } }),
+  ])[0]!;
+  expect(configured.extensionSettings).toEqual({
+    jira: { project: "PROJ", configFile: "~/.config/.jira/client.yml" },
+  });
+  // Already migrated: untouched, however many times it runs.
+  expect(migrateWorkspaceSettings([configured])[0]!.extensionSettings).toEqual(
+    configured.extensionSettings,
+  );
+
+  // An explicit extensions list is never touched, flag or no flag.
+  const explicit = migrateWorkspaceSettings([ws({ extensions: ["ci"], jira: false })])[0]!;
+  expect(explicit.extensions).toEqual(["ci"]);
+  expect(explicit.extensionSettings).toBeUndefined();
+
+  // And a workspace that says nothing stays as it is.
+  const silent = migrateWorkspaceSettings([ws()])[0]!;
+  expect(silent.extensions).toBeUndefined();
+  expect(silent.extensionSettings).toBeUndefined();
 });
 
 test("the wizard's steps follow the phases and the enablement", () => {

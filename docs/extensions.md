@@ -158,10 +158,19 @@ A workspace that names no `extensions` has all of them. Naming some is the whole
 no subtraction, because a list you can read is worth more than a default you have to reason
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
+The legacy `"jira": false` flag is retired: `migrateWorkspaceSettings` (src/extensions/index.ts)
+folds it into an explicit extensions list — everything loaded except jira — on load and on every
+settings write, along with the legacy `jira` object, whose fields land under
+`extensionSettings.jira`.
 
-One legacy exception: a workspace could already switch Jira off with `"jira": false`, and that
-flag still excludes the jira extension while the workspace names no extensions. Once every
-workspace that cares has named its extensions, the flag is history.
+## Per-workspace settings
+
+An extension that wants per-workspace configuration declares it, and the core renders it: flat
+string fields under `workspaceSettings`, shown on the settings page for every workspace that has
+the extension enabled, stored under the workspace's `extensionSettings[name][key]`. The core
+carries that bag without looking inside — what belongs there is the extension's own declaration,
+and the extension reads it back from the request's `Workspace` tag (the jira extension's
+`siteOfWorkspace` is the model).
 
 ## Scope, honestly stated
 

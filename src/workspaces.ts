@@ -19,12 +19,10 @@ export function workspaceById(id?: string): Workspace {
 export const workspaceOf = (change: Change): Workspace => workspaceById(change.workspace);
 
 /** Whether an integration applies here at all. Absent means yes: a workspace that says nothing
- * about Jira is one that has it, which is what IWE was before workspaces existed.
+ * about Azure DevOps is one that has it, which is what IWE was before workspaces existed.
  *
- * `usesJira` is also what the extension host consults while a workspace has not named its
- * extensions: the legacy flag keeps meaning something until Jira's settings move into its
- * extension. */
-export const usesJira = (workspace: Workspace): boolean => workspace.jira !== false;
+ * Jira has no such helper anymore: enablement is the extensions list, and the site settings are
+ * the jira extension's own (src/extensions/jira/jira.ts). */
 export const usesAzure = (workspace: Workspace): boolean => workspace.azure !== false;
 
 /** Azure DevOps for this workspace, falling back to the single setting IWE had before, and then
@@ -34,23 +32,6 @@ export function azureOf(workspace: Workspace): { organization: string; project: 
   return {
     organization: own?.organization ?? config.azureOrganization,
     project: own?.project ?? config.azureProject,
-  };
-}
-
-/** Jira for this workspace: which project, and whose config file — a second client is a second
- * site, a second account and a second token, which is `jira init` in another file. */
-export function jiraOf(workspace: Workspace): {
-  project?: string;
-  board?: string;
-  configFile?: string;
-  tokenEnv?: string;
-} {
-  const own = workspace.jira === false ? undefined : workspace.jira;
-  return {
-    project: own?.project,
-    board: own?.board,
-    configFile: own?.configFile,
-    tokenEnv: own?.tokenEnv,
   };
 }
 

@@ -4,7 +4,7 @@ import { swrEffect, invalidate } from "../../cache.ts";
 import { config } from "../../config.ts";
 import { jiraFetchEffect, jiraSetupEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
 import { accountIdEffect } from "./account.ts";
-import { jiraOf, workspaceById, workspaceOf } from "../../workspaces.ts";
+import { workspaceById, workspaceOf } from "../../workspaces.ts";
 import { BadRequestError } from "../../effect/errors.ts";
 import type { Issue, Sprint } from "./shared.ts";
 
@@ -30,10 +30,29 @@ export type Site = {
   tokenEnv?: string;
 };
 
+/**
+ * This workspace's Jira site, from the settings this extension itself declares: the fields under
+ * `workspace.extensionSettings.jira` — which the settings page renders from `workspaceSettings`
+ * and which `migrateWorkspaceSettings` fills from the legacy `jira` object. Every field
+ * optional; absent means jira-cli's own config, which is what every call did before
+ * workspaces existed. A second client names its own file, so two sites can be open at once.
+ */
+export function siteOfWorkspace(workspace: {
+  extensionSettings?: Record<string, Record<string, string>>;
+}): Site {
+  const own = workspace.extensionSettings?.jira;
+  return {
+    configFile: own?.configFile,
+    project: own?.project,
+    board: own?.board,
+    tokenEnv: own?.tokenEnv,
+  };
+}
+
 // Pure and synchronous: nothing for an Effect to wrap.
-export const siteOf = (change: { workspace?: string }): Site => jiraOf(workspaceOf(change as never));
+export const siteOf = (change: { workspace?: string }): Site => siteOfWorkspace(workspaceOf(change as never));
 // Pure and synchronous: nothing for an Effect to wrap.
-export const siteFor = (workspaceId?: string): Site => jiraOf(workspaceById(workspaceId));
+export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspaceById(workspaceId));
 
 /** Namespaces the cache: two sites answering "PROJ-1" differently is exactly the bug this
  * prevents. */

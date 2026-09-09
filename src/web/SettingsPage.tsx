@@ -5,6 +5,7 @@ import { DEFAULT_WORKSPACE } from "./workspaces.ts";
 // file handling with them.
 import type { Settings, SettingsView } from "../settings.ts";
 import type { Config, Workspace } from "../config.ts";
+import type { WorkspaceSetting } from "../extensions/api.ts";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -188,7 +189,7 @@ function ExtensionToggles({
   selected,
   onChange,
 }: {
-  known: { name: string; title: string }[];
+  known: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
   selected: string[] | undefined;
   onChange: (extensions: string[] | undefined) => void;
 }) {
@@ -220,7 +221,7 @@ function ExtensionToggles({
   );
 }
 
-/** One context: which repositories it starts from, and which integrations it has at all. There
+/** One workspace: which repositories it starts from, and which integrations it has at all. There
  * is always at least one workspace: removing the last configured one leaves the draft empty,
  * and the Default workspace card takes its place. That default is not in the file, so it has
  * no Remove — `onRemove` is absent exactly then. */
@@ -231,14 +232,21 @@ function WorkspaceCard({
   onRemove,
 }: {
   workspace: Workspace;
-  /** The extensions there are to enable, in the order they were loaded. */
-  extensions: { name: string; title: string }[];
+  /** The extensions there are to enable, in the order they were loaded, each with the
+   * per-workspace settings it declares. */
+  extensions: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
   onChange: (next: Workspace) => void;
   onRemove?: () => void;
 }) {
   const set = (patch: Partial<Workspace>): void => onChange({ ...workspace, ...patch });
-  const jira = workspace.jira === false ? undefined : (workspace.jira ?? {});
   const azure = workspace.azure === false ? undefined : (workspace.azure ?? {});
+  // The same enablement the ExtensionToggles show: absent means all of them.
+  const enabled = (name: string): boolean =>
+    workspace.extensions ? workspace.extensions.includes(name) : true;
+  const setExtensionField = (name: string, key: string, value: string): void => {
+    const all = workspace.extensionSettings ?? {};
+    set({ extensionSettings: { ...all, [name]: { ...(all[name] ?? {}), [key]: value } } });
+  };
 
   return (
     <div className="workspace-card">
@@ -270,44 +278,23 @@ function WorkspaceCard({
         onChange={(reposStart) => set({ reposStart })}
       />
 
-      {/* Not a filter but a fact: a personal project has no ticket, and being asked for one is
-          noise and a CLI call. */}
-      <label className="switch">
-        <input
-          type="checkbox"
-          checked={Boolean(jira)}
-          onChange={(e) => set({ jira: e.target.checked ? {} : false })}
-        />
-        <span>This context has Jira</span>
-      </label>
-      {jira && (
-        <div className="nested">
-          <Field
-            label="Project"
-            placeholder="from the Jira config file"
-            value={jira.project}
-            onChange={(project) => set({ jira: { ...jira, project } })}
-          />
-          <Field
-            label="Board"
-            placeholder="from the Jira config file"
-            value={jira.board}
-            onChange={(board) => set({ jira: { ...jira, board } })}
-          />
-          <Field
-            label="Jira config file"
-            hint="A second client is a second site and a second account: jira init into another file."
-            placeholder="~/.config/.jira/.config.yml"
-            value={jira.configFile}
-            onChange={(configFile) => set({ jira: { ...jira, configFile } })}
-          />
-          <Field
-            label="Token variable"
-            placeholder="JIRA_API_TOKEN"
-            value={jira.tokenEnv}
-            onChange={(tokenEnv) => set({ jira: { ...jira, tokenEnv } })}
-          />
-        </div>
+      {/* The per-workspace settings each enabled extension declares, bound to where the
+          extension itself reads them back. Created on demand; the save prunes the empties. */}
+      {extensions.map(({ name, workspaceSettings }) =>
+        enabled(name) && workspaceSettings.length ? (
+          <div className="nested" key={name}>
+            {workspaceSettings.map((field) => (
+              <Field
+                key={field.key}
+                label={field.label}
+                hint={field.hint}
+                placeholder={field.placeholder}
+                value={workspace.extensionSettings?.[name]?.[field.key]}
+                onChange={(value) => setExtensionField(name, field.key, value)}
+              />
+            ))}
+          </div>
+        ) : null,
       )}
 
       <label className="switch">
@@ -553,9 +540,9 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
 
       <h2 className="section">Workspaces</h2>
       <p className="hint">
-        A context you work in: a client, or your own projects. Not only a filter — a context
-        without Jira has no ticket to ask about, and one without Azure DevOps has no deployments
-        page and no pipelines to look for.
+        A context you work in: a client, or your own projects. Not only a filter — the extension
+        switches decide what it has at all, and one without Azure DevOps has no deployments page
+        and no pipelines to look for.
       </p>
       <div className="form">
         {(draft.workspaces ?? []).map((workspace, index) => (

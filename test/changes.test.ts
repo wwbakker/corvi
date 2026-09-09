@@ -545,13 +545,14 @@ test("a change belongs to the context it was made in, and older ones to the firs
 
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
-  const { azureOf, jiraOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
-  const { extensionsFor } = await import("../src/extensions/index.ts");
+  const { azureOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
+  const { extensionsFor, migrateWorkspaceSettings } = await import("../src/extensions/index.ts");
+  const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither.
-  (config as { workspaces: unknown }).workspaces = [
+  (config as { workspaces: unknown }).workspaces = migrateWorkspaceSettings([
     { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
     { id: "personal", name: "Personal", jira: false, azure: false },
-  ];
+  ]);
 
   const client = { id: "PROJ-1", workspace: "client" } as never;
   const personal = { id: "IWE-1", workspace: "personal" } as never;
@@ -565,9 +566,12 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "ci")).toBe(true);
   expect(usesAzure(workspaceOf(personal))).toBe(false);
 
-  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one.
+  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Jira's
+  // site comes from the extension's own per-workspace settings; a workspace with none of them
+  // uses whatever jira-cli itself has configured.
   expect(azureOf(workspaceOf(client)).organization).toBe("https://dev.azure.com/one");
-  expect(jiraOf(workspaceOf(personal))).toEqual({ project: undefined, board: undefined, configFile: undefined });
+  expect(siteFor("personal")).toEqual({});
+  expect(siteFor("client")).toEqual({});
 
   // A change from before all this belongs to the first workspace.
   expect(workspaceOf(old).id).toBe("client");

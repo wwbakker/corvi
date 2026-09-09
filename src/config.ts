@@ -19,9 +19,13 @@ export type Workspace = {
   /** Which extensions exist here, by name (see src/extensions/). Absent means all of them,
    * which is what IWE was before extensions could be chosen. */
   extensions?: string[];
-  /** `false` for a context with no Jira at all — a personal project has no ticket, and being
-   * asked about one is noise and a CLI call. Otherwise, what differs from the defaults: a
-   * second client is a second site, which is `jira init` into another config file. */
+  /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
+   * holds the field the extension's `workspaceSettings` declaration names, which is where the
+   * extension reads it back. The core only carries it. */
+  extensionSettings?: Record<string, Record<string, string>>;
+  /** Legacy: Jira's per-workspace settings lived here before the jira extension declared them.
+   * Still parsed so `migrateWorkspaceSettings` can fold it into `extensionSettings.jira`; the
+   * settings page no longer writes it. */
   jira?: false | { project?: string; board?: string; configFile?: string; tokenEnv?: string };
   /** `false` for a context with no pipelines: no CI runs are looked for and the deployments page
    * is not offered. */

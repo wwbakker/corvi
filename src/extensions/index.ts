@@ -1,7 +1,7 @@
 import { Effect, Either, Layer } from "effect";
 import { isFinished, type Change, type CompletionStep, type Widget, type WidgetItem } from "../types.ts";
 import { config, type Workspace } from "../config.ts";
-import { workspaceById, workspaceOf, usesJira } from "../workspaces.ts";
+import { workspaceById, workspaceOf } from "../workspaces.ts";
 import { runRoute } from "../effect/run.ts";
 import { capabilitiesLayer } from "./services.ts";
 import type {
@@ -14,6 +14,7 @@ import type {
   RouteHandler,
   TitleSource,
   WizardStep,
+  WorkspaceSetting,
 } from "./api.ts";
 
 /**
@@ -45,11 +46,14 @@ export type LoadedExtension = {
   changeCreated: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
   /** The routes as a lookup: `"GET /issues"` → handler, under `/api/ext/<name>/…`. */
   routeTable: Map<string, RouteHandler>;
+  /** Per-workspace settings the extension declares, for the settings page to render. */
+  workspaceSettings: WorkspaceSetting[];
 };
 
 const normalize = (ext: Extension): LoadedExtension => ({
   name: ext.name,
   title: ext.title,
+  workspaceSettings: ext.workspaceSettings ?? [],
   cards: ext.cards ?? [],
   wizardSteps: ext.wizardSteps ?? [],
   titleSources: ext.titleSources ?? [],
@@ -119,16 +123,53 @@ import githubIssuesExtension from "./github-issues/index.ts";
 await loadAll([gitExtension, ciExtension, jiraExtension, githubIssuesExtension]);
 
 /**
+ * Normalize the workspaces' extension settings against what is loaded, in place.
+ *
+ * Two legacy shapes are folded into the one key extensions read today:
+ *
+ * - a workspace still configuring Jira through its own `jira` object has those fields copied
+ *   into `extensionSettings.jira`, where the jira extension's declaration puts and reads them;
+ * - a workspace still switching Jira off with `jira: false` and naming no extensions gets an
+ *   explicit list — everything loaded except jira — because naming some is the whole list, and
+ *   a list you can read is worth more than a flag nothing reads anymore.
+ *
+ * A workspace with an explicit `extensions` list is otherwise never touched. Everything else is
+ * left exactly as it was. Run after the built-ins load (below) and after every settings write
+ * (src/settings.ts), so both hand-edits and page writes land normalized.
+ */
+export function migrateWorkspaceSettings(workspaces: Workspace[]): Workspace[] {
+  for (const workspace of workspaces) {
+    if (workspace.jira && !workspace.extensionSettings?.jira) {
+      const { project, board, configFile, tokenEnv } = workspace.jira;
+      workspace.extensionSettings = {
+        ...workspace.extensionSettings,
+        jira: {
+          ...(project !== undefined && { project }),
+          ...(board !== undefined && { board }),
+          ...(configFile !== undefined && { configFile }),
+          ...(tokenEnv !== undefined && { tokenEnv }),
+        },
+      };
+    } else if (workspace.jira === false && !workspace.extensions) {
+      workspace.extensions = loaded.map((e) => e.name).filter((name) => name !== "jira");
+    }
+  }
+  return workspaces;
+}
+
+migrateWorkspaceSettings(config.workspaces);
+
+/**
  * Which extensions exist for this workspace.
  *
  * A workspace that names none has all of them — which is what IWE was before extensions
- * existed, and what an unconfigured machine still gets. One legacy exception: a workspace
- * could already switch Jira off with its own `jira: false` flag, and that flag keeps meaning
- * something until Jira's settings move into its extension.
+ * existed, and what an unconfigured machine still gets. The legacy `jira: false` flag is gone:
+ * migrateWorkspaceSettings turns it into an explicit extensions list on load, so there is
+ * nothing left to special-case here.
  */
 export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   const names = workspace.extensions;
-  if (!names) return loaded.filter((e) => e.name !== "jira" || usesJira(workspace));
+  if (!names) return loaded;
   const wanted = new Set(names);
   return loaded.filter((e) => wanted.has(e.name));
 };

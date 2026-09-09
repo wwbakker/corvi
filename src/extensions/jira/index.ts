@@ -1,10 +1,10 @@
 import { Effect, Either } from "effect";
 import type { Change, CompletionStep, Widget, WidgetItem, WidgetState } from "../../types.ts";
-import { jiraOf } from "../../workspaces.ts";
 import { swrEffect } from "../../cache.ts";
 import { jiraFetchEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
 import {
   boardIssuesEffect,
+  siteOfWorkspace,
   createIssueEffect,
   issueByKeyEffect,
   issuesByKeysEffect,
@@ -89,6 +89,21 @@ export default {
   name: "jira",
   title: "Jira",
 
+  // The per-workspace settings this extension owns, rendered by the settings page for every
+  // workspace that has Jira enabled and stored under `extensionSettings.jira` — where
+  // siteOfWorkspace reads them back. Every field optional; absent means jira-cli's own config.
+  workspaceSettings: [
+    { key: "project", label: "Project", placeholder: "from the Jira config file" },
+    { key: "board", label: "Board", placeholder: "from the Jira config file" },
+    {
+      key: "configFile",
+      label: "Jira config file",
+      hint: "A second client is a second site and a second account: jira init into another file.",
+      placeholder: "~/.config/.jira/.config.yml",
+    },
+    { key: "tokenEnv", label: "Token variable", placeholder: "JIRA_API_TOKEN" },
+  ],
+
   cards: [
     {
       title: "Jira",
@@ -105,7 +120,7 @@ export default {
             };
           }
           // The widget is a display, so it may be a minute old; the completion step is not.
-          return yield* statusEffect(change, jiraOf(yield* Workspace), key);
+          return yield* statusEffect(change, siteOfWorkspace(yield* Workspace), key);
         }),
     },
   ],
@@ -124,7 +139,7 @@ export default {
           if (!key) return;
           const workspace = yield* Workspace;
           const settings = yield* Settings;
-          const site = jiraOf(workspace);
+          const site = siteOfWorkspace(workspace);
           const account = yield* accountIdEffect(settings.jiraAssignee, site);
           if (account) {
             yield* jiraFetchEffect(`/rest/api/3/issue/${key}/assignee`, {
@@ -148,7 +163,7 @@ export default {
       applies: (change) => Boolean(ticketOf(change)),
       lookup: (changes) =>
         Effect.gen(function* () {
-          const site = jiraOf(yield* Workspace);
+          const site = siteOfWorkspace(yield* Workspace);
           const keys = [
             ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
           ];
@@ -171,7 +186,7 @@ export default {
         Effect.gen(function* () {
           const key = ticketOf(change);
           if (!key) return undefined;
-          const issue = yield* issueByKeyEffect(key, jiraOf(yield* Workspace));
+          const issue = yield* issueByKeyEffect(key, siteOfWorkspace(yield* Workspace));
           return issue?.summary ? `${key} - ${issue.summary}` : key;
         }),
     },
@@ -190,7 +205,7 @@ export default {
         Effect.gen(function* () {
           const key = ticketOf(change);
           if (!key) return;
-          const site = jiraOf(yield* Workspace);
+          const site = siteOfWorkspace(yield* Workspace);
           yield* moveIssueEffect(key, (yield* Settings).jiraDoneTransition, site);
         }),
     },

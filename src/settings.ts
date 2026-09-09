@@ -11,10 +11,11 @@ import {
   type Config,
 } from "./config.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
-import { loaded } from "./extensions/index.ts";
+import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
+import type { WorkspaceSetting } from "./extensions/api.ts";
 
 /**
  * Reading and writing the settings file from the page.
@@ -45,8 +46,9 @@ export type SettingsView = {
   overridden: Record<string, string>;
   /** What `worktreeCopy` is when it is not set, so the page can offer it back. */
   toolingDefault: string[];
-  /** The extensions there are to enable, in the order they were loaded. */
-  extensions: { name: string; title: string }[];
+  /** The extensions there are to enable, in the order they were loaded, each with the
+   * per-workspace settings it declares — so the page needs no second request to render them. */
+  extensions: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
 };
 
 /** Only the variables that are actually set: an override nobody has made is not one. */
@@ -62,15 +64,27 @@ export const settingsViewEffect = Effect.sync(() => settingsView());
 
 /** The settings page's read: the file as written, what is in effect, what is locked. Sync by
  * contract; the Effect form is settingsViewEffect above, which the server uses. Kept for the
- * test suite, which must pass unmodified. */
-export const settingsView = (): SettingsView => ({
-  path: configPath(),
-  file: readFile(),
-  effective: config,
-  overridden: overridden(),
-  toolingDefault: TOOLING,
-  extensions: loaded.map((e) => ({ name: e.name, title: e.title })),
-});
+ * test suite, which must pass unmodified.
+ *
+ * The file is handed over migrated (migrateWorkspaceSettings), so the page edits — and writes
+ * back — the shape the extensions read today, never the legacy `jira` key the page no longer
+ * renders. */
+export const settingsView = (): SettingsView => {
+  const file = readFile();
+  if (file.workspaces) migrateWorkspaceSettings(file.workspaces);
+  return {
+    path: configPath(),
+    file,
+    effective: config,
+    overridden: overridden(),
+    toolingDefault: TOOLING,
+    extensions: loaded.map((e) => ({
+      name: e.name,
+      title: e.title,
+      workspaceSettings: e.workspaceSettings,
+    })),
+  };
+};
 
 /** Filesystem failures are defects, not domain errors — the config directory is ours. */
 const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
@@ -174,6 +188,9 @@ export const writeSettingsEffect = (
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
     yield* reloadConfigEffect;
+    // The legacy `jira` shapes fold into the extension's own settings, in memory as on disk —
+    // a page save is also a migration.
+    migrateWorkspaceSettings(config.workspaces);
     // Everything the CLIs answered was answered for the old settings: another organisation, another
     // Jira site, another set of environments. Cheaper to ask again than to reason about which.
     invalidate("");
