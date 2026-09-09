@@ -6,7 +6,6 @@ import { createChange, readChangeEffect } from "../src/changes.ts";
 import { Effect } from "effect";
 import {
   extensionsFor,
-  loadExtension,
   loaded,
   wizardStepsFor,
 } from "../src/extensions/index.ts";

@@ -375,24 +375,28 @@ test("an agent's own account of itself is read from the @agent pane option", asy
 
 test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const { loadExtension, loaded } = await import("../src/extensions/index.ts");
+  const { install, loaded } = await import("../src/extensions/index.ts");
 
   // A stub source claiming every change that has a jira key, answering from a map the test
   // controls — the same scenarios the injected lookup used to cover.
   const answers = new Map<string, string>();
   const restore = loaded.splice(0, loaded.length);
-  loadExtension("stub", "Stub", (api) => {
-    api.registerTitleSource({
-      applies: (c) => Boolean(c.jira),
-      lookup: (changes) => {
-        asked = changes.map((c) => c.jira!);
-        return Effect.succeed(
-          new Map(
-            changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
-          ),
-        );
+  install({
+    name: "stub",
+    title: "Stub",
+    titleSources: [
+      {
+        applies: (c) => Boolean(c.jira),
+        lookup: (changes) => {
+          asked = changes.map((c) => c.jira!);
+          return Effect.succeed(
+            new Map(
+              changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+            ),
+          );
+        },
       },
-    });
+    ],
   });
 
   const named = await createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" });
@@ -454,23 +458,27 @@ test("a change may be blocked, which is active but not workable", async () => {
 
 test("a name you wrote yourself is not overwritten by the ticket's", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const { loadExtension, loaded } = await import("../src/extensions/index.ts");
+  const { install, loaded } = await import("../src/extensions/index.ts");
 
   const answers = new Map<string, string>();
   let asked: string[] = [];
   const restore = loaded.splice(0, loaded.length);
-  loadExtension("stub", "Stub", (api) => {
-    api.registerTitleSource({
-      applies: (c) => Boolean(c.jira),
-      lookup: (changes) => {
-        asked = changes.map((c) => c.jira!);
-        return Effect.succeed(
-          new Map(
-            changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
-          ),
-        );
+  install({
+    name: "stub",
+    title: "Stub",
+    titleSources: [
+      {
+        applies: (c) => Boolean(c.jira),
+        lookup: (changes) => {
+          asked = changes.map((c) => c.jira!);
+          return Effect.succeed(
+            new Map(
+              changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+            ),
+          );
+        },
       },
-    });
+    ],
   });
 
   const change = await createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" });

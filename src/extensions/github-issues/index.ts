@@ -1,6 +1,6 @@
 import { Context, Effect, Option, Schema } from "effect";
 import type { Change, CompletionStep, Widget, WidgetItem, WidgetState } from "../../types.ts";
-import { Cache, Shell, Workspace, type IweExtensionApi } from "../api.ts";
+import { Cache, Shell, Workspace, type Extension } from "../api.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
 
@@ -68,23 +68,35 @@ export function repoFromRemote(url: string): { owner: string; name: string } | u
  * authenticated against still resolves its name — and a repository with no remote at all
  * fails the same way.
  */
-export const nameWithOwnerEffect = (repo: string): Effect.Effect<string | undefined, CliError, Workspace | Shell | Cache> =>
+export const nameWithOwnerEffect = (
+  repo: string,
+): Effect.Effect<string | undefined, CliError, Workspace | Shell | Cache> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
-    return yield* cache.swr(`gh:issues:nwo:${repo}`, 300_000,
-      Effect.map(shell.run(["git", "remote", "get-url", "origin"], { cwd: repo }), (r) => {
-        if (r.code !== 0) return undefined;
-        const found = repoFromRemote(r.stdout);
-        return found ? `${found.owner}/${found.name}` : undefined;
-      }));
+    return yield* cache.swr(
+      `gh:issues:nwo:${repo}`,
+      300_000,
+      Effect.map(
+        shell.run(["git", "remote", "get-url", "origin"], { cwd: repo }),
+        (r) => {
+          if (r.code !== 0) return undefined;
+          const found = repoFromRemote(r.stdout);
+          return found ? `${found.owner}/${found.name}` : undefined;
+        },
+      ),
+    );
   });
 
 /** The open issues of one repository, newest first; a repository that is not on GitHub has
  * none, and says so by having no repository name. */
 export const listIssuesEffect = (
   repo: string,
-): Effect.Effect<{ repository?: string; issues: GitHubIssue[] }, CliError, Workspace | Shell | Cache> =>
+): Effect.Effect<
+  { repository?: string; issues: GitHubIssue[] },
+  CliError,
+  Workspace | Shell | Cache
+> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
@@ -95,8 +107,10 @@ export const listIssuesEffect = (
       ISSUE_TTL,
       Effect.flatMap(
         shell.run(
-          ["gh", "issue", "list", "-R", repository, "--state", "open", "--limit", "100",
-            "--json", "number,title,state,url,assignees,labels"],
+          [
+            "gh", "issue", "list", "-R", repository, "--state", "open", "--limit", "100",
+            "--json", "number,title,state,url,assignees,labels",
+          ],
           { cwd: repo },
         ),
         (r) =>
@@ -121,8 +135,10 @@ export const viewIssueEffect = (
       ISSUE_TTL,
       Effect.flatMap(
         shell.run(
-          ["gh", "issue", "view", String(number), "-R", repository,
-            "--json", "number,title,state,url,assignees,labels"],
+          [
+            "gh", "issue", "view", String(number), "-R", repository,
+            "--json", "number,title,state,url,assignees,labels",
+          ],
           { cwd: process.cwd() },
         ),
         (r) =>
@@ -139,7 +155,11 @@ export const createIssueEffect = (
   repo: string,
   title: string,
   body: string | undefined,
-): Effect.Effect<{ repository: string; issue: GitHubIssue }, BadRequestError | CliError, Workspace | Shell | Cache> =>
+): Effect.Effect<
+  { repository: string; issue: GitHubIssue },
+  BadRequestError | CliError,
+  Workspace | Shell | Cache
+> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
@@ -180,7 +200,10 @@ const closeIssueEffect = (
   comment: string,
 ): Effect.Effect<void, BadRequestError | CliError, Workspace> =>
   Effect.flatMap(
-    shell.run(["gh", "issue", "close", String(number), "-R", repository, "-c", comment], { cwd: process.cwd() }),
+    shell.run(
+      ["gh", "issue", "close", String(number), "-R", repository, "-c", comment],
+      { cwd: process.cwd() },
+    ),
     (r) =>
       r.code !== 0
         ? Effect.fail(new BadRequestError({ message: r.stderr || "gh issue close failed" }))
@@ -192,7 +215,10 @@ const stateOf = (issue: GitHubIssue): WidgetState =>
 
 /** The card: one row, the issue and where it stands. No issue linked reads as none, not as an
  * error — a change may be made without one, and the extension is not the boss of that. */
-const statusFor = (change: Change, ref: IssueRef): Effect.Effect<Widget, unknown, Workspace | Shell | Cache> =>
+const statusFor = (
+  change: Change,
+  ref: IssueRef,
+): Effect.Effect<Widget, unknown, Workspace | Shell | Cache> =>
   Effect.gen(function* () {
     const repository = yield* nameWithOwnerEffect(ref.repo);
     const found = repository ? yield* viewIssueEffect(repository, ref.number) : undefined;
@@ -220,110 +246,131 @@ const statusFor = (change: Change, ref: IssueRef): Effect.Effect<Widget, unknown
     };
   });
 
-export default function (api: IweExtensionApi) {
-  api.registerCard({
-    title: "GitHub issues",
+export default {
+  name: KEY,
+  title: "GitHub issues",
 
-    status: (change) => {
-      const ref = refOf(change);
-      if (!ref) {
-        return Effect.succeed({
-          integration: KEY,
-          title: "GitHub issues",
-          state: "none" as const,
-          summary: "no issue linked",
-          items: [],
-        });
-      }
-      return statusFor(change, ref);
+  cards: [
+    {
+      title: "GitHub issues",
+      status: (change) => {
+        const ref = refOf(change);
+        if (!ref) {
+          return Effect.succeed({
+            integration: KEY,
+            title: "GitHub issues",
+            state: "none" as const,
+            summary: "no issue linked",
+            items: [],
+          });
+        }
+        return statusFor(change, ref);
+      },
     },
-  });
+  ],
 
   // Runs after the repositories are picked: GitHub issues belong to repositories, so this
   // step has nothing to look at until then.
-  api.registerWizardStep({ id: KEY, title: "GitHub issue", phase: "repos" });
+  wizardSteps: [{ id: KEY, title: "GitHub issue", phase: "repos" }],
 
   // The overview names a change after its issue's title.
-  api.registerTitleSource({
-    applies: (change) => Boolean(refOf(change)),
-    lookup: (changes) =>
-      Effect.gen(function* () {
-        const titles = new Map<string, string>();
-        for (const change of changes) {
-          const ref = refOf(change);
-          if (!ref) continue;
-          // A gh that cannot answer leaves the stored title standing: the failure is caught
-          // by the host, which drops this source's answer as a whole — so per-issue trouble
-          // is tolerated here, and only a source-wide failure is a failed lookup.
-          const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
-          const repository = Option.getOrUndefined(found);
-          const issue = repository
-            ? Option.getOrUndefined(yield* Effect.option(viewIssueEffect(repository, ref.number)))
-            : undefined;
-          if (issue?.title) titles.set(change.id, issue.title);
-        }
-        return titles;
-      }),
-  });
+  titleSources: [
+    {
+      applies: (change) => Boolean(refOf(change)),
+      lookup: (changes) =>
+        Effect.gen(function* () {
+          const titles = new Map<string, string>();
+          for (const change of changes) {
+            const ref = refOf(change);
+            if (!ref) continue;
+            // A gh that cannot answer leaves the stored title standing: the failure is caught
+            // by the host, which drops this source's answer as a whole — so per-issue trouble
+            // is tolerated here, and only a source-wide failure is a failed lookup.
+            const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
+            const repository = Option.getOrUndefined(found);
+            const issue = repository
+              ? Option.getOrUndefined(yield* Effect.option(viewIssueEffect(repository, ref.number)))
+              : undefined;
+            if (issue?.title) titles.set(change.id, issue.title);
+          }
+          return titles;
+        }),
+    },
+  ],
 
   // The pull-request description opens with the issue and what it is.
-  api.registerDescriptionSection({
-    heading: (change) =>
-      Effect.gen(function* () {
-        const ref = refOf(change);
-        if (!ref) return undefined;
-        const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
-        const repository = Option.getOrUndefined(found);
-        if (!repository) return undefined;
-        const issue = Option.getOrUndefined(yield* Effect.option(viewIssueEffect(repository, ref.number)));
-        return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
-      }),
-  });
+  descriptionSections: [
+    {
+      heading: (change) =>
+        Effect.gen(function* () {
+          const ref = refOf(change);
+          if (!ref) return undefined;
+          const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
+          const repository = Option.getOrUndefined(found);
+          if (!repository) return undefined;
+          const issue = Option.getOrUndefined(
+            yield* Effect.option(viewIssueEffect(repository, ref.number)),
+          );
+          return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
+        }),
+    },
+  ],
 
   // Completing a change closes the issue, after the merges and before the worktrees go.
-  api.registerCompletionStep({
-    plan: (change, _world): CompletionStep | undefined => {
-      const ref = refOf(change);
-      return ref
-        ? { id: KEY, label: `close ${ref.repo.split("/").pop()}#${ref.number}`, state: "waiting" }
-        : undefined;
-    },
-    run: (change) =>
-      Effect.gen(function* () {
-        const shell = yield* Shell;
-        const cache = yield* Cache;
+  completionSteps: [
+    {
+      plan: (change, _world): CompletionStep | undefined => {
         const ref = refOf(change);
-        if (!ref) return;
-        const repository = yield* nameWithOwnerEffect(ref.repo);
-        if (!repository) return `not a GitHub repository: ${ref.repo}`;
-        yield* closeIssueEffect(shell, repository, ref.number, `Completed in change ${change.id}`);
-        yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
-        return `closed ${refLabel(repository, ref)}`;
-      }),
-  });
+        return ref
+          ? { id: KEY, label: `close ${ref.repo.split("/").pop()}#${ref.number}`, state: "waiting" }
+          : undefined;
+      },
+      run: (change) =>
+        Effect.gen(function* () {
+          const shell = yield* Shell;
+          const cache = yield* Cache;
+          const ref = refOf(change);
+          if (!ref) return;
+          const repository = yield* nameWithOwnerEffect(ref.repo);
+          if (!repository) return `not a GitHub repository: ${ref.repo}`;
+          yield* closeIssueEffect(shell, repository, ref.number, `Completed in change ${change.id}`);
+          yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
+          return `closed ${refLabel(repository, ref)}`;
+        }),
+    },
+  ],
 
   // The two routes the wizard's step fetches: a repository's open issues, and creating one.
   // Their failures are taxonomy errors, so the host maps them to status codes itself.
-  api.route("GET", "/issues", (req) => {
-    const repo = new URL(req.url).searchParams.get("repo") ?? "";
-    return Effect.map(listIssuesEffect(repo), (listing) => Response.json(listing));
-  });
-  api.route("POST", "/issues", (req) =>
-    Effect.gen(function* () {
-      const body = yield* Effect.orElseSucceed(
-        Effect.tryPromise({
-          try: () => req.json() as Promise<{ repo?: string; title?: string; description?: string }>,
-          catch: () => undefined,
+  routes: [
+    {
+      method: "GET",
+      path: "/issues",
+      handler: (req) => {
+        const repo = new URL(req.url).searchParams.get("repo") ?? "";
+        return Effect.map(listIssuesEffect(repo), (listing) => Response.json(listing));
+      },
+    },
+    {
+      method: "POST",
+      path: "/issues",
+      handler: (req) =>
+        Effect.gen(function* () {
+          const body = yield* Effect.orElseSucceed(
+            Effect.tryPromise({
+              try: () => req.json() as Promise<{ repo?: string; title?: string; description?: string }>,
+              catch: () => undefined,
+            }),
+            () => ({}) as { repo?: string; title?: string; description?: string },
+          );
+          if (!body.repo || !body.title?.trim()) {
+            return yield* Effect.fail(
+              new BadRequestError({ message: "repository and title required" }),
+            );
+          }
+          const created = yield* createIssueEffect(body.repo, body.title.trim(), body.description);
+          return Response.json(created, { status: 201 });
         }),
-        () => ({}) as { repo?: string; title?: string; description?: string },
-      );
-      if (!body.repo || !body.title?.trim()) {
-        return yield* Effect.fail(
-          new BadRequestError({ message: "repository and title required" }),
-        );
-      }
-      const created = yield* createIssueEffect(body.repo, body.title.trim(), body.description);
-      return Response.json(created, { status: 201 });
-    }),
-  );
-}
+    },
+  ],
+} satisfies Extension;

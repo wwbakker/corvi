@@ -79,6 +79,11 @@ export class Bus extends Context.Tag("iwe/Bus")<Bus, {
  * assignable to requiring the union, so handlers declare only what they use. */
 export type Capabilities = WorkspaceTag | Shell | Cache | Settings | Bus;
 
+/** What an extension's *load* may require: everything but the request `Workspace`, which does
+ * not exist at startup. The loader provides the default workspace alongside the services, so
+ * load-time `Shell` runs with its environment. */
+export type Startup = Shell | Cache | Settings | Bus;
+
 // --- Routes get the real prize of typed errors: the host maps them to status codes --------
 
 export {
@@ -166,33 +171,41 @@ export type RouteHandler = (req: Request) => Effect.Effect<Response, RouteError,
 
 export type RequestMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
-export type IweExtensionApi = {
-  /** The extension's name, as it was loaded. Also the key of its entry in a change's
-   * `extensions` bag, its cards' identity on the routes, and the prefix of its routes. */
-  readonly name: string;
-
-  registerCard(card: Card): void;
-
-  /** A step in the "Create change" wizard. The step's UI is the extension's client
-   * component; this declares that the step exists. */
-  registerWizardStep(step: WizardStep): void;
-
-  /** Called when a change was created and its worktrees are in place — create the
-   * worktrees, assign a ticket, move it to "In Progress". The result is reported to the
-   * wizard under the extension's name; a failure is one extension's failure, never a
-   * failed change, and the extensions after it still run. */
-  on(
-    event: "change:created",
-    handler: (change: Change) => Effect.Effect<void, unknown, Capabilities>,
-  ): void;
-
-  registerTitleSource(source: TitleSource): void;
-  registerDescriptionSection(section: DescriptionSection): void;
-  registerCompletionStep(step: CompletionStepContributor): void;
-
-  /** A route under `/api/ext/<name>/…` — single-segment paths, e.g. route("GET", "/issues", …). */
-  route(method: RequestMethod, path: string, handler: RouteHandler): void;
+/** The handlers an extension can hang off the change lifecycle. Grows per event, typed, when a
+ * second consumer needs one. */
+export type ExtensionEvents = {
+  "change:created"?: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
 };
 
-/** What an extension module default-exports: a factory taking the API, pi-style. */
-export type ExtensionFactory = (api: IweExtensionApi) => void;
+/**
+ * An extension, as a value: everything it contributes, described rather than registered.
+ *
+ * Most extensions are static — a plain object literal, no Effect ceremony. One that needs to
+ * compute its contributions at startup (check a CLI exists, read a file, decide conditionally)
+ * exports a factory returning this shape from an Effect instead; the loader accepts both.
+ *
+ * Arrays are orders: the dashboard's card order, the wizard's step order within a phase, the
+ * completion steps' run order. Across extensions, the loader's own order decides.
+ */
+export type Extension = {
+  /** The extension's identity: the key of its entry in a change's `extensions` bag, its
+   * cards' identity on the routes, the prefix of its routes. Must be unique. */
+  name: string;
+  title: string;
+
+  cards?: Card[];
+  wizardSteps?: WizardStep[];
+  titleSources?: TitleSource[];
+  descriptionSections?: DescriptionSection[];
+  completionSteps?: CompletionStepContributor[];
+  events?: ExtensionEvents;
+  routes?: { method: RequestMethod; path: string; handler: RouteHandler }[];
+};
+
+/** Run once at startup, before any request, and produce the description. A failed load is an
+ * extension absent, with the error logged — a broken optional plugin does not take the
+ * dashboard down. */
+export type ExtensionFactory = () => Effect.Effect<Extension, unknown, Startup>;
+
+/** What an extension module default-exports: a static value, or a factory for one. */
+export type ExtensionModule = Extension | ExtensionFactory;

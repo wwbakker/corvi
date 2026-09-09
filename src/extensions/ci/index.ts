@@ -5,7 +5,7 @@ import { createPrEffect, prItemEffect } from "../../integrations/github.ts";
 import { checkItemsEffect } from "../../integrations/checks.ts";
 import { pipelineItemsEffect } from "../../integrations/azure.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
-import type { IweExtensionApi } from "../api.ts";
+import type { Extension } from "../api.ts";
 
 /**
  * Pull requests and the pipelines they trigger, per repository: one question ("is this change
@@ -70,14 +70,16 @@ const runEffect = (
     yield* createPrEffect(change, repo);
   });
 
-export default function (api: IweExtensionApi) {
-  api.registerCard({
-    title: "CI",
-    wide: true,
+export default {
+  name: "ci",
+  title: "CI",
 
-    repoStatus: (change, repo) =>
-      Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
-
-    run: (change, action, repo) => runEffect(change, action, repo),
-  });
-}
+  cards: [
+    {
+      title: "CI",
+      wide: true,
+      repoStatus: (change, repo) => Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
+      run: (change, action, repo) => runEffect(change, action, repo),
+    },
+  ],
+} satisfies Extension;

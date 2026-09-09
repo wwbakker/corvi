@@ -1,6 +1,6 @@
-import { Effect, Either } from "effect";
+import { Effect, Either, Layer } from "effect";
 import { isFinished, type Change, type CompletionStep, type Widget, type WidgetItem } from "../types.ts";
-import type { Workspace } from "../config.ts";
+import { config, type Workspace } from "../config.ts";
 import { workspaceById, workspaceOf, usesJira } from "../workspaces.ts";
 import { runRoute } from "../effect/run.ts";
 import { capabilitiesLayer } from "./services.ts";
@@ -9,8 +9,8 @@ import type {
   Capabilities,
   CompletionStepContributor,
   DescriptionSection,
-  ExtensionFactory,
-  IweExtensionApi,
+  Extension,
+  ExtensionModule,
   RouteHandler,
   TitleSource,
   WizardStep,
@@ -31,7 +31,8 @@ import type {
  * else here changes.
  */
 
-/** One extension, as loaded: its identity plus everything it contributed. */
+/** One extension, as loaded: its description, normalized — the arrays coalesced to empty and
+ * the lifecycle handlers pulled out of the events map, so the host's loops stay flat. */
 export type LoadedExtension = {
   name: string;
   title: string;
@@ -40,62 +41,82 @@ export type LoadedExtension = {
   titleSources: TitleSource[];
   descriptionSections: DescriptionSection[];
   completionSteps: CompletionStepContributor[];
-  /** Handlers registered with `on("change:created")`, in registration order. */
+  /** Handlers declared under `events["change:created"]`, in declaration order. */
   changeCreated: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
-  /** `"GET /issues"` → handler, under `/api/ext/<name>/…`. */
-  routes: Map<string, RouteHandler>;
+  /** The routes as a lookup: `"GET /issues"` → handler, under `/api/ext/<name>/…`. */
+  routeTable: Map<string, RouteHandler>;
 };
 
-const emptyRecord = (name: string, title: string): LoadedExtension => ({
-  name,
-  title,
-  cards: [],
-  wizardSteps: [],
-  titleSources: [],
-  descriptionSections: [],
-  completionSteps: [],
-  changeCreated: [],
-  routes: new Map(),
+const normalize = (ext: Extension): LoadedExtension => ({
+  name: ext.name,
+  title: ext.title,
+  cards: ext.cards ?? [],
+  wizardSteps: ext.wizardSteps ?? [],
+  titleSources: ext.titleSources ?? [],
+  descriptionSections: ext.descriptionSections ?? [],
+  completionSteps: ext.completionSteps ?? [],
+  changeCreated: ext.events?.["change:created"] ?? [],
+  routeTable: new Map((ext.routes ?? []).map((r) => [`${r.method} ${r.path}`, r.handler])),
 });
 
-/** Everything loaded, in registration order — which is the dashboard's card order and the
- * wizard's step order within a phase. The test suite prunes and refills this directly. */
+/** Everything loaded, in load order — which is the dashboard's card order and the wizard's
+ * step order within a phase. The test suite prunes and refills this directly. */
 export const loaded: LoadedExtension[] = [];
 
-/** The loader primitive: run one extension's factory against a fresh record and keep it. */
-export function loadExtension(name: string, title: string, factory: ExtensionFactory): LoadedExtension {
-  const record = emptyRecord(name, title);
-  const api: IweExtensionApi = {
-    get name() {
-      return record.name;
-    },
-    registerCard: (card) => record.cards.push(card),
-    registerWizardStep: (step) => record.wizardSteps.push(step),
-    registerTitleSource: (source) => record.titleSources.push(source),
-    registerDescriptionSection: (section) => record.descriptionSections.push(section),
-    registerCompletionStep: (step) => record.completionSteps.push(step),
-    on: (event, handler) => {
-      if (event === "change:created") record.changeCreated.push(handler);
-    },
-    route: (method, path, handler) => record.routes.set(`${method} ${path}`, handler),
-  };
-  factory(api);
+/** Install a static description, rejecting duplicates: a second extension under a used name
+ * is skipped with a word, and the original wins. The test suite installs stubs with this. */
+export function install(ext: Extension): LoadedExtension {
+  if (!ext.name) {
+    console.error(`an extension without a name is skipped`);
+    return normalize({ ...ext, name: "" });
+  }
+  const clash = loaded.find((e) => e.name === ext.name);
+  if (clash) {
+    console.error(`two extensions are called "${ext.name}" — the second one is skipped`);
+    return clash;
+  }
+  const record = normalize(ext);
   loaded.push(record);
   return record;
 }
 
+/** Load every module, in order: a static description installs as-is, a factory runs once with
+ * the startup capabilities. A failed factory is an extension absent, with the error logged —
+ * a broken optional plugin does not take the dashboard down.
+ *
+ * Awaited at module scope, so the server does not start listening before the extensions have
+ * loaded, and a test importing this file sees the fully-loaded registry. */
+export async function loadAll(mods: readonly ExtensionModule[]): Promise<void> {
+  for (const mod of mods) {
+    if (typeof mod !== "function") {
+      install(mod);
+      continue;
+    }
+    try {
+      const ext = await Effect.runPromise(
+        mod().pipe(
+          // The default workspace stands in for the request's: there is no request at startup,
+          // and load-time Shell runs with its environment (docs/extensions.md).
+          Effect.provide(capabilitiesLayer(workspaceById(undefined))),
+        ),
+      );
+      install(ext);
+    } catch (e) {
+      console.error(
+        `an extension failed to load and is skipped: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+}
+
 // The built-ins, in dashboard order: local changes, then CI, then the ticket cards. Each is a
-// module whose default export is a factory taking the API — the same shape a future
-// out-of-tree extension will have.
+// module whose default export describes it — a static value, or a factory for one.
 import gitExtension from "./git/index.ts";
 import ciExtension from "./ci/index.ts";
 import jiraExtension from "./jira/index.ts";
 import githubIssuesExtension from "./github-issues/index.ts";
 
-loadExtension("git", "Local changes", gitExtension);
-loadExtension("ci", "CI", ciExtension);
-loadExtension("jira", "Jira", jiraExtension);
-loadExtension("github-issues", "GitHub issues", githubIssuesExtension);
+await loadAll([gitExtension, ciExtension, jiraExtension, githubIssuesExtension]);
 
 /**
  * Which extensions exist for this workspace.
@@ -289,7 +310,7 @@ export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefi
   const match = /^\/api\/ext\/([^/]+)\/(.+)$/.exec(url.pathname);
   if (!match) return undefined;
   const ext = loaded.find((e) => e.name === match[1]);
-  const handler = ext?.routes.get(`${req.method} /${match[2]}`);
+  const handler = ext?.routeTable.get(`${req.method} /${match[2]}`);
   if (!handler) return undefined;
   const route = handler(req).pipe(
     Effect.provide(capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined))),

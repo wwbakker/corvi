@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadExtension, loaded, provision } from "../src/extensions/index.ts";
+import { install, loaded, provision } from "../src/extensions/index.ts";
 import { Effect } from "effect";
 import {
   describe,
@@ -61,17 +61,29 @@ test("provisioning reports every extension and survives a failing one", async ()
   // The registry is pruned and refilled with two stubs: the first one's hook fails, and
   // provisioning must still run the second's.
   const restore = loaded.splice(0, loaded.length);
-  loadExtension("one", "One", (api) => {
-    api.on("change:created", () => {
-      calls.push("one");
-      return Effect.fail(new Error("one exploded"));
-    });
+  install({
+    name: "one",
+    title: "One",
+    events: {
+      "change:created": [
+        () => {
+          calls.push("one");
+          return Effect.fail(new Error("one exploded"));
+        },
+      ],
+    },
   });
-  loadExtension("two", "Two", (api) => {
-    api.on("change:created", () => {
-      calls.push("two");
-      return Effect.succeed(undefined);
-    });
+  install({
+    name: "two",
+    title: "Two",
+    events: {
+      "change:created": [
+        () => {
+          calls.push("two");
+          return Effect.succeed(undefined);
+        },
+      ],
+    },
   });
 
   const results = await provision(change);

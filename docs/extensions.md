@@ -49,39 +49,61 @@ is already the right one.
 
 ## What an extension looks like
 
-Two files, one per half:
+A module whose default export **describes** the extension — a static value when everything is
+known up front (most extensions), or a factory returning it from an Effect when startup needs
+to compute (check a CLI exists, read a file, decide conditionally). A failed factory is an
+extension absent, with the error logged — a broken optional plugin does not take the dashboard
+down.
 
 ```
 src/extensions/my-extension/
-├── index.ts      # the server half: the factory, registered through the API
+├── index.ts      # the server half: the description, or a factory for it
 └── client.tsx    # the browser half, when the extension has a wizard step
 ```
 
 ```ts
 // src/extensions/my-extension/index.ts
 import { Effect } from "effect";
-import { Shell, Cache, Workspace } from "../api.ts";
+import { Shell, Cache, Workspace, type Extension } from "../api.ts";
 
-export default function (api: IweExtensionApi) {
-  api.registerCard({
-    title: "My extension",
-    status: (change) =>
-      Effect.gen(function* () {
-        const shell = yield* Shell;          // subprocesses, workspace env applied
-        const cache = yield* Cache;          // read-through with TTL
-        const ws    = yield* Workspace;      // whose client this request is
-        // … shell.run(["my-cli", …]) has the workspace's environment …
-      }),
+export default {
+  name: "my-extension",
+  title: "My extension",
+
+  cards: [
+    {
+      title: "My extension",
+      status: (change) =>
+        Effect.gen(function* () {
+          const shell = yield* Shell;          // subprocesses, workspace env applied
+          const cache = yield* Cache;          // read-through with TTL
+          const ws    = yield* Workspace;      // whose client this request is
+          // … shell.run(["my-cli", …]) has the workspace's environment …
+        }),
+    },
+  ],
+
+  wizardSteps: [{ id: "my-extension", title: "My step", phase: "repos" }],
+
+  routes: [
+    { method: "GET", path: "/things", handler: (req) =>
+        // fail with BadRequestError/NotFoundError/… and the status code is right
+        Effect.succeed(Response.json({ things: [] })) },
+  ],
+} satisfies Extension;
+```
+
+A factory is the same shape behind a function, run once at startup with the *startup*
+capabilities (everything but the request `Workspace`, which does not exist yet — load-time
+`Shell` runs with the default workspace's environment):
+
+```ts
+export default () =>
+  Effect.gen(function* () {
+    const settings = yield* Settings;
+    if (!settings.azureOrganization) return { name: "my-extension", title: "My extension" };
+    return { name: "my-extension", title: "My extension", cards: [/* … */] };
   });
-
-  api.registerWizardStep({ id: "my-extension", title: "My step", phase: "repos" });
-
-  api.route("GET", "/things", (req) =>
-    Effect.gen(function* () {
-      // fail with BadRequestError/NotFoundError/… and the status code is right
-      return Response.json({ things: [] });
-    }));
-}
 ```
 
 The client half exports `step`, a React component receiving the wizard's shared context — the
