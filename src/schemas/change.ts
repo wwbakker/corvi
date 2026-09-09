@@ -23,6 +23,11 @@ export const Change = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   /** Optional Jira issue key, e.g. PROJ-123. */
   jira: Schema.optional(Schema.String),
+  /** Extensions' own data about this change, keyed by extension name. Kept verbatim: the shape
+   * is the owning extension's business, and rewriting a change.json must not drop it. */
+  extensions: Schema.optional(
+    Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+  ),
   title: Schema.optional(Schema.String),
   titleEdited: Schema.optional(Schema.Boolean),
   state: Schema.optional(Schema.Union(...CHANGE_STATES.map((s) => Schema.Literal(s)))),

@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, post, type Board, type Issue } from "./api.ts";
+import { api, post } from "../../web/api.ts";
+import { branchFor } from "../../branch.ts";
+import type { StepComponent } from "../../web/extensions.ts";
+import type { Board, Issue } from "./shared.ts";
+
+/**
+ * The jira extension's wizard step: the board, filtered and grouped, plus creating an issue.
+ * Picking one writes this extension's payload (`extensions.jira = { key }`), prefills the
+ * change id and branch, and names the ticket the details step shows.
+ */
 
 /** Native <dialog>: modal behaviour, focus trap and Escape come from the platform. */
 function NewIssueDialog({
@@ -96,7 +105,7 @@ export function IssueTable({
   const load = (refresh = false) => {
     setLoading(true);
     api<Board>(
-      `/jira/issues?${new URLSearchParams({
+      `/ext/jira/issues?${new URLSearchParams({
         ...(workspace ? { workspace } : {}),
         ...(refresh ? { refresh: "1" } : {}),
       })}`,
@@ -133,7 +142,7 @@ export function IssueTable({
   const create = (input: { summary: string; description: string }) => {
     setCreating(true);
     setError(null);
-    post<Issue>("/jira/issues", { ...input, workspace })
+    post<Issue>("/ext/jira/issues", { ...input, workspace })
       .then((issue) => {
         setDialogOpen(false);
         onSelect(issue);
@@ -254,3 +263,17 @@ export function IssueTable({
     </div>
   );
 }
+
+/** The step, as the wizard's host renders it. */
+export const step: StepComponent = ({ ctx }) => {
+  const [selected, setSelected] = useState<Issue | null>(null);
+
+  const select = (issue: Issue | null) => {
+    setSelected(issue);
+    ctx.setPayload("jira", issue ? { key: issue.key } : undefined);
+    ctx.setTicket(issue?.key);
+    if (issue) ctx.setDraft({ id: issue.key, branch: branchFor(issue.key, issue.summary) });
+  };
+
+  return <IssueTable workspace={ctx.workspace} selected={selected} onSelect={select} />;
+};

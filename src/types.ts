@@ -60,8 +60,14 @@ export type Change = {
   /** Which context this change belongs to: a client, or your own projects. Absent on changes
    * made before workspaces existed, which belong to the first one. */
   workspace?: string;
-  /** Optional Jira issue key, e.g. PROJ-123. */
+  /** Optional Jira issue key, e.g. PROJ-123. Legacy: the jira extension's own field, from
+   * before extensions kept their data in the namespaced bag below. Still read, no longer
+   * written by the wizard. */
   jira?: string;
+  /** Each extension's own data about this change, keyed by extension name — the wizard stores
+   * what its steps picked here, and each extension reads its own entry. Anything JSON-shaped
+   * goes; the extension owns its shape, the core never looks inside. */
+  extensions?: Record<string, unknown>;
   /** What the change is called. Taken from the ticket's summary and refreshed from it, unless
    * you have written your own — kept so the overview can name a change without a CLI call per
    * row, and so an archived change still reads as English years later. */

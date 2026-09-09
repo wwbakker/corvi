@@ -1,8 +1,7 @@
 import { CHANGE_STATES, type Change, type ChangeState, type Widget, type WidgetItem } from "../types.ts";
-import type { Issue } from "../integrations/jira.ts";
 import type { Entry } from "../repos.ts";
 
-export type { Change, ChangeState, Widget, WidgetItem, Issue, Entry };
+export type { Change, ChangeState, Widget, WidgetItem, Entry };
 export { CHANGE_STATES };
 export type Listing = { root: string; path: string; entries: Entry[] };
 export type IntegrationInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
@@ -29,7 +28,6 @@ export type Leftover = {
 export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: string; number: number }[] };
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };
-export type Board = { issues: Issue[]; sprints: string[]; baseUrl?: string; error?: string };
 
 /** Errors carry the response body, so a caller can react to more than the message. */
 export type ApiError = Error & { status: number; body: unknown };

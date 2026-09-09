@@ -365,24 +365,35 @@ test("an agent's own account of itself is read from the @agent pane option", asy
   expect(agentIn("busy")).toBeUndefined();
 });
 
-test("a change is named after its ticket, and keeps that name when Jira is not there", async () => {
+test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const issue = (key: string, summary: string) => [
-    key,
-    { key, summary, type: "Story", assignee: "", status: "", sprint: "" },
-  ];
+  const { loadExtension, loaded } = await import("../src/extensions/index.ts");
+
+  // A stub source claiming every change that has a jira key, answering from a map the test
+  // controls — the same scenarios the injected lookup used to cover.
+  const answers = new Map<string, string>();
+  const restore = loaded.splice(0, loaded.length);
+  loadExtension("stub", "Stub", (api) => {
+    api.registerTitleSource({
+      applies: (c) => Boolean(c.jira),
+      lookup: async (changes) => {
+        asked = changes.map((c) => c.jira!);
+        return new Map(
+          changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+        );
+      },
+    });
+  });
 
   const named = await createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" });
   const bare = await createChange({ id: "PROJ-BARE", repos: [repo] });
 
-  // Captured rather than asserted inside: refreshTitles treats a failing lookup as "Jira is
-  // not answering", which would swallow the failure and pass the test for the wrong reason.
+  // Captured rather than asserted inside: refreshTitles treats a failing source as "the vendor
+  // is not answering", which would swallow the failure and pass the test for the wrong reason.
   let asked: string[] = [];
-  const titles = await refreshTitles(async (keys) => {
-    asked = keys;
-    return new Map(<any>[issue("PROJ-7", "Split the invoice export")]);
-  });
-  // One query for the whole page, and only for changes that have a ticket at all.
+  answers.set("PROJ-7", "Split the invoice export");
+  const titles = await refreshTitles();
+  // One question for the whole page, and only for changes that have a ticket at all.
   expect(asked).toContain("PROJ-7");
   expect(asked).not.toContain("PROJ-BARE");
   expect(titles["PROJ-NAMED"]).toBe("Split the invoice export");
@@ -393,14 +404,18 @@ test("a change is named after its ticket, and keeps that name when Jira is not t
   expect((await readChange(bare.id))?.title).toBeUndefined();
 
   // A renamed ticket is followed.
-  await refreshTitles(async () => new Map(<any>[issue("PROJ-7", "Split the export in two")]));
+  answers.set("PROJ-7", "Split the export in two");
+  await refreshTitles();
   expect((await readChange(named.id))?.title).toBe("Split the export in two");
 
-  // A Jira that answers nothing — down, unauthenticated, ticket deleted — keeps the last name
+  // A vendor that answers nothing — down, unauthenticated, ticket deleted — keeps the last name
   // rather than falling back to a branch nobody recognises.
-  const kept = await refreshTitles(async () => new Map());
+  answers.clear();
+  const kept = await refreshTitles();
   expect(kept["PROJ-NAMED"]).toBe("Split the export in two");
   expect((await readChange(named.id))?.title).toBe("Split the export in two");
+
+  loaded.splice(0, loaded.length, ...restore);
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
@@ -429,25 +444,37 @@ test("a change may be blocked, which is active but not workable", async () => {
 
 test("a name you wrote yourself is not overwritten by the ticket's", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const issue = (key: string, summary: string) => [
-    key,
-    { key, summary, type: "Story", assignee: "", status: "", sprint: "" },
-  ];
+  const { loadExtension, loaded } = await import("../src/extensions/index.ts");
+
+  const answers = new Map<string, string>();
+  let asked: string[] = [];
+  const restore = loaded.splice(0, loaded.length);
+  loadExtension("stub", "Stub", (api) => {
+    api.registerTitleSource({
+      applies: (c) => Boolean(c.jira),
+      lookup: async (changes) => {
+        asked = changes.map((c) => c.jira!);
+        return new Map(
+          changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+        );
+      },
+    });
+  });
+
   const change = await createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" });
 
   // Until you say otherwise, the ticket names the change.
-  await refreshTitles(async () => new Map(<any>[issue("PROJ-8", "As the ticket puts it")]));
+  answers.set("PROJ-8", "As the ticket puts it");
+  await refreshTitles();
   expect((await readChange(change.id))?.title).toBe("As the ticket puts it");
 
   // Renaming it here says the name is yours: the ticket is not asked about any more.
   await writeChange({ ...(await readChange(change.id))!, title: "What it is really about", titleEdited: true });
-  let asked: string[] = [];
-  await refreshTitles(async (keys) => {
-    asked = keys;
-    return new Map(<any>[issue("PROJ-8", "As the ticket puts it")]);
-  });
+  await refreshTitles();
   expect(asked).not.toContain("PROJ-8");
   expect((await readChange(change.id))?.title).toBe("What it is really about");
+
+  loaded.splice(0, loaded.length, ...restore);
 });
 
 test("the icons take the worst of what the repositories say", async () => {
@@ -496,9 +523,10 @@ test("a change belongs to the context it was made in, and older ones to the firs
   expect(inWorkspace(all, ALL, []).length).toBe(3);
 });
 
-test("a workspace decides which components a change has, and whose Jira and Azure they are", async () => {
+test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
-  const { applies, azureOf, jiraOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
+  const { azureOf, jiraOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
+  const { extensionsFor } = await import("../src/extensions/index.ts");
   // Two contexts: a client with everything, and personal projects with neither.
   (config as { workspaces: unknown }).workspaces = [
     { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
@@ -509,11 +537,12 @@ test("a workspace decides which components a change has, and whose Jira and Azur
   const personal = { id: "IWE-1", workspace: "personal" } as never;
   const old = { id: "OLD-1" } as never; // made before workspaces existed
 
-  // A personal project has no ticket, and being asked about one is noise and a CLI call.
-  expect(applies("jira", client)).toBe(true);
-  expect(applies("jira", personal)).toBe(false);
-  // The CI card is pull requests as well as pipelines, so it stays either way.
-  expect(applies("ci", personal)).toBe(true);
+  // A personal project has no ticket, and being asked about one is noise and a CLI call: the
+  // jira extension is not there at all. The CI card is pull requests as well as pipelines, so
+  // it stays either way.
+  expect(extensionsFor(workspaceOf(client)).some((e) => e.name === "jira")).toBe(true);
+  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "jira")).toBe(false);
+  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "ci")).toBe(true);
   expect(usesAzure(workspaceOf(personal))).toBe(false);
 
   // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one.

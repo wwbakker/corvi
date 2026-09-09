@@ -19,20 +19,13 @@ export function workspaceById(id?: string): Workspace {
 export const workspaceOf = (change: Change): Workspace => workspaceById(change.workspace);
 
 /** Whether an integration applies here at all. Absent means yes: a workspace that says nothing
- * about Jira is one that has it, which is what IWE was before workspaces existed. */
+ * about Jira is one that has it, which is what IWE was before workspaces existed.
+ *
+ * `usesJira` is also what the extension host consults while a workspace has not named its
+ * extensions: the legacy flag keeps meaning something until Jira's settings move into its
+ * extension. */
 export const usesJira = (workspace: Workspace): boolean => workspace.jira !== false;
 export const usesAzure = (workspace: Workspace): boolean => workspace.azure !== false;
-
-/**
- * Whether a change's dashboard should show a component at all.
- *
- * Only Jira is dropped outright: the CI card is pull requests *and* pipelines, and a workspace
- * without Azure DevOps still has reviews to look at — it simply has no pipelines to add, which
- * that card already copes with.
- */
-export function applies(integration: string, change: Change): boolean {
-  return integration === "jira" ? usesJira(workspaceOf(change)) : true;
-}
 
 /** Azure DevOps for this workspace, falling back to the single setting IWE had before, and then
  * to whatever `az devops configure` holds. */

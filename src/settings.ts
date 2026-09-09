@@ -11,6 +11,7 @@ import {
   type Config,
 } from "./config.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
+import { loaded } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
@@ -44,6 +45,8 @@ export type SettingsView = {
   overridden: Record<string, string>;
   /** What `worktreeCopy` is when it is not set, so the page can offer it back. */
   toolingDefault: string[];
+  /** The extensions there are to enable, in the order they were loaded. */
+  extensions: { name: string; title: string }[];
 };
 
 /** Only the variables that are actually set: an override nobody has made is not one. */
@@ -66,6 +69,7 @@ export const settingsView = (): SettingsView => ({
   effective: config,
   overridden: overridden(),
   toolingDefault: TOOLING,
+  extensions: loaded.map((e) => ({ name: e.name, title: e.title })),
 });
 
 /** Filesystem failures are defects, not domain errors — the config directory is ours. */
@@ -103,6 +107,17 @@ export function problems(next: Settings): string[] {
       if (!Schema.is(EnvVarName)(key)) {
         found.push(`${where}: "${key}" is not an environment variable name`);
       }
+    }
+    for (const name of workspace.extensions ?? []) {
+      if (!loaded.some((e) => e.name === name)) {
+        found.push(`${where}: there is no extension called "${name}"`);
+      }
+    }
+    const duplicates = (workspace.extensions ?? []).filter(
+      (name, i, all) => all.indexOf(name) !== i,
+    );
+    if (duplicates.length) {
+      found.push(`${where}: "${duplicates[0]}" is named twice`);
     }
   }
 

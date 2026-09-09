@@ -16,6 +16,9 @@ export type Workspace = {
   name: string;
   /** Where the repository browser opens in this context. */
   reposStart?: string;
+  /** Which extensions exist here, by name (see src/extensions/). Absent means all of them,
+   * which is what IWE was before extensions could be chosen. */
+  extensions?: string[];
   /** `false` for a context with no Jira at all — a personal project has no ticket, and being
    * asked about one is noise and a CLI call. Otherwise, what differs from the defaults: a
    * second client is a second site, which is `jira init` into another config file. */

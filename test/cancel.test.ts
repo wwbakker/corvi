@@ -165,16 +165,17 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, integrations } = await import("../src/integrations/index.ts");
+  const { repoStatusOf, cardByName } = await import("../src/extensions/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] });
 
-  const live = await repoStatusOf(integrations.git!, change, repo);
+  const git = cardByName("git")!;
+  const live = await repoStatusOf(git, change, repo);
   expect(live.flatMap((i) => i.actions ?? []).map((a) => a.label)).toContain("Create worktree");
 
   const cancelled = ((await cancelChange(change)) as { change: Change }).change;
-  const after = await repoStatusOf(integrations.git!, cancelled, repo);
+  const after = await repoStatusOf(git, cancelled, repo);
 
   // The row stays — what the change touched is worth reading afterwards — but offering to make
   // a worktree for an archived change is offering to half-revive something that is finished.

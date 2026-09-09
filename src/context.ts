@@ -20,7 +20,7 @@ import { workspaceOption } from "./effect/tags.ts";
 const context = new AsyncLocalStorage<Workspace>();
 
 // TODO-MIGRATE — compatibility shim only: the server provides the Workspace tag; the ambient
-// store survives solely so the Promise-shaped Integration seam (integrations/index.ts, and the
+// store survives solely so the Promise-shaped Integration seam (extensions/index.ts, and the
 // route that runs an integration's action) can carry the request's workspace into a detached
 // runtime. It is set by `provideWorkspace` and read nowhere but `currentWorkspaceEffect`'s
 // fallback.
