@@ -18,6 +18,11 @@ export type Workspace = {
  * why it is not one. */
 export const ALL = "*";
 
+/** What stands in when nothing is configured — the same default src/config.ts creates, by the
+ * same reasoning. Duplicated rather than imported: that file is the server's, and this one runs
+ * in the browser. */
+export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
+
 const CHOSEN = "iwe:workspace";
 
 /**

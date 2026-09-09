@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, put } from "./api.ts";
+import { DEFAULT_WORKSPACE } from "./workspaces.ts";
 // Types only: these are erased at build time, so the browser bundle gets none of the server's
 // file handling with them.
 import type { Settings, SettingsView } from "../settings.ts";
@@ -179,7 +180,10 @@ function EnvEditor({
   );
 }
 
-/** One context: which repositories it starts from, and which integrations it has at all. */
+/** One context: which repositories it starts from, and which integrations it has at all. There
+ * is always at least one workspace: removing the last configured one leaves the draft empty,
+ * and the Default workspace card takes its place. That default is not in the file, so it has
+ * no Remove — `onRemove` is absent exactly then. */
 function WorkspaceCard({
   workspace,
   onChange,
@@ -187,7 +191,7 @@ function WorkspaceCard({
 }: {
   workspace: Workspace;
   onChange: (next: Workspace) => void;
-  onRemove: () => void;
+  onRemove?: () => void;
 }) {
   const set = (patch: Partial<Workspace>): void => onChange({ ...workspace, ...patch });
   const jira = workspace.jira === false ? undefined : (workspace.jira ?? {});
@@ -203,9 +207,11 @@ function WorkspaceCard({
           onChange={(e) => set({ name: e.target.value })}
         />
         <span className="spacer" />
-        <button className="remove" onClick={onRemove}>
-          Remove
-        </button>
+        {onRemove && (
+          <button className="remove" onClick={onRemove}>
+            Remove
+          </button>
+        )}
       </div>
 
       <Field
@@ -517,10 +523,10 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
           />
         ))}
         {!(draft.workspaces ?? []).length && (
-          <p className="hint">
-            None configured, which is one unnamed context holding everything — what IWE was before
-            workspaces existed, and what it behaves like until you add a second.
-          </p>
+          <WorkspaceCard
+            workspace={DEFAULT_WORKSPACE}
+            onChange={(next) => set({ workspaces: [next] })}
+          />
         )}
         <button
           className="add"

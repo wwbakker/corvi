@@ -337,7 +337,10 @@ A workspace is a **context**: a client, or your own projects. Configured, never 
 The switcher sits at the top of the navigation column, above everything that belongs to it, and
 filters the change list, the sidebar and what a new change is made in. `All work` shows
 everything, which is a filter rather than a workspace and is set apart in the menu for that
-reason. With no workspaces configured there is no switcher and nothing changes.
+reason. It is always shown, even with a single workspace: which context you are in should be
+visible, not implied. And there is no such thing as no workspaces — a machine that has not
+configured any gets one **Default workspace**, which is what IWE was before workspaces existed
+and behaves the same.
 
 A change records the workspace it was made in (`"workspace": "client"` in `change.json`) — one
 line, no directory moves, and moving a change between contexts later is one field. A change made
