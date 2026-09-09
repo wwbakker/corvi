@@ -3,7 +3,7 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../src/changes.ts";
-import { createWorktreeEffect, worktreeFor } from "../src/integrations/git.ts";
+import { provisionRepoEffect, worktreeFor } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import { cancelChange } from "../src/cancel.ts";
 import { sh } from "../src/sh.ts";
@@ -85,8 +85,8 @@ test("a change is over when it was completed or cancelled", () => {
 test("cancelling takes back the worktree and leaves the branch", async () => {
   const repo = await clonedRepo("cancel-plain");
   const change = await createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", repos: [repo] });
-  // The same worktrees the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
   expect(await worktreeFor(change, repo)).toBeDefined();
 
   const result = await cancelChange(change);
@@ -110,8 +110,8 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
 test("what would be lost stops it, and what is recoverable asks first", async () => {
   const repo = await clonedRepo("cancel-work");
   const change = await createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", repos: [repo] });
-  // The same worktrees the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
   const worktree = (await worktreeFor(change, repo))!;
 
   // Uncommitted: nowhere else, and no question makes it recoverable.
@@ -194,8 +194,8 @@ test("what cancelling leaves alone is said out loud", async () => {
     repos: [repo],
     jira: "PROJ-LOOSE",
   });
-  // The same worktrees the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), { concurrency: 1 }));
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
 
   const result = (await cancelChange(change)) as { loose: string[] };
   // The ticket and the branch: a cancelled change that quietly leaves those behind comes back in

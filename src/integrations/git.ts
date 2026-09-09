@@ -381,8 +381,10 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
     };
   });
 
-/** Create the worktree for this change in `repo`; existing ones are left alone. */
-export const createWorktreeEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+/** Give this change its checkout in `repo`, by the mode the change asked for: a worktree, or
+ * the repository's own checkout switched and linked, when the repo is worked on in place.
+ * Whatever is already there is left alone. */
+export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
     if (yield* worktreeForEffect(change, repo)) return;
@@ -557,7 +559,7 @@ export const setReposEffect = (
       base: Object.keys(bases).length ? bases : undefined,
     };
     yield* writeChangeEffect(updated);
-    for (const repo of added) yield* createWorktreeEffect(updated, repo);
+    for (const repo of added) yield* provisionRepoEffect(updated, repo);
     return { _tag: "Done", change: updated };
   });
 
@@ -602,7 +604,7 @@ export const gitRunEffect = (
     if (!repo) {
       return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
     }
-    if (action === "add") return yield* createWorktreeEffect(change, repo);
+    if (action === "add") return yield* provisionRepoEffect(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);

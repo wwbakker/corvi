@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { createWorktreeEffect, gitRunEffect, repoItemEffect } from "../../integrations/git.ts";
+import { gitRunEffect, provisionRepoEffect, repoItemEffect } from "../../integrations/git.ts";
 import type { Extension } from "../api.ts";
 
 /**
@@ -23,11 +23,12 @@ export default {
   ],
 
   events: {
-    // A new change means a worktree per repository, sequential on purpose: the second
-    // repository is set up only once the first one is there to be seen.
+    // A new change means a checkout per repository — worktree, or in place where the change
+    // says so — sequential on purpose: the second repository is set up only once the first
+    // one is there to be seen.
     "change:created": [
       (change) =>
-        Effect.forEach(change.repos, (repo) => createWorktreeEffect(change, repo), {
+        Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), {
           concurrency: 1,
           discard: true,
         }),
