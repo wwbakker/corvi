@@ -38,7 +38,7 @@ export function resolveInRoot(relative: string): string {
 
 /** Configured starting directory as a path relative to the root, empty when it is the root or
  * lies outside it. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function startPath(): string {
   const start = config.reposStart;
   if (start === config.reposRoot || !start.startsWith(config.reposRoot + sep)) return "";
@@ -77,11 +77,6 @@ export const browseEffect = (
     };
   });
 
-/** TODO-MIGRATE — Promise facade over browseEffect. */
-export const browse = (
-  relative: string = startPath(),
-): Promise<{ root: string; path: string; entries: Entry[] }> => Effect.runPromise(browseEffect(relative));
-
 /** Branches on the remote, newest first, with the remote's default first of all: what a new
  * branch can start from.
  *
@@ -106,10 +101,5 @@ export const remoteBranchesEffect = (
     return { branches, default: fallback };
   });
 
-/** TODO-MIGRATE — Promise facade over remoteBranchesEffect. */
-export const remoteBranches = (repo: string): Promise<{ branches: string[]; default?: string }> =>
-  Effect.runPromise(remoteBranchesEffect(repo));
-
 export const absolutePath = (relative: string): string => resolveInRoot(relative);
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.

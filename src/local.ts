@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
-import { worktreeFor, baseFor } from "./integrations/git.ts";
+import { worktreeForEffect, baseForEffect } from "./integrations/git.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { CliError, NotFoundError } from "./effect/errors.ts";
 
@@ -106,14 +106,13 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// TODO-MIGRATE — integrations/git.ts is another worker's task: the Promise facade wrapped in
-// Effect.tryPromise until that lands, then swept by the server task with the rest.
-const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, unknown> =>
-  Effect.tryPromise({ try: () => worktreeFor(change, repo), catch: (e) => e });
+// The localChanges/fileDiff facades below are kept for repos.test.ts, which must pass
+// unmodified.
+const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  worktreeForEffect(change, repo);
 
-// TODO-MIGRATE — same as above: integrations facade behind Effect.tryPromise until swept.
-const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined, unknown> =>
-  Effect.tryPromise({ try: () => baseFor(change, repo), catch: (e) => e });
+const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  baseForEffect(change, repo);
 
 /** Commits made since the branch left its base, for a branch with no upstream to compare to. */
 const sinceBase = (
@@ -161,7 +160,8 @@ export const localChangesEffect = (
     };
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over localChangesEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const localChanges = (change: Change, repo: string): Promise<LocalStatus> =>
   Effect.runPromise(localChangesEffect(change, repo));
 
@@ -214,7 +214,8 @@ export const fileDiffEffect = (
     return r.stdout;
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over fileDiffEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const fileDiff = (
   change: Change,
   repo: string,

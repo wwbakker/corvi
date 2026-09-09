@@ -5,8 +5,13 @@ import type { MergeReadiness } from "./integrations/github.ts";
 import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
 import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
 import { moveIssueEffect } from "./integrations/jira.ts";
-import { archiveChange, writeChange, readSidecar, writeSidecar } from "./changes.ts";
-import { stopTerminal } from "./terminal.ts";
+import {
+  archiveChangeEffect,
+  readSidecarEffect,
+  writeChangeEffect,
+  writeSidecarEffect,
+} from "./changes.ts";
+import { stopTerminalEffect } from "./terminal.ts";
 import { config } from "./config.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
 
@@ -20,7 +25,7 @@ export type Completion = {
 };
 
 /** Turn per-repository readiness into one verdict: a change completes as a whole or not at all. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function verdict(
   results: { repo: string; readiness: MergeReadiness; unsafe?: { text: string } }[],
 ): Completion {
@@ -55,10 +60,6 @@ export const completionOfEffect = (change: Change): Effect.Effect<Completion, Cl
     verdict,
   );
 
-/** TODO-MIGRATE — Promise facade over completionOfEffect. */
-export const completionOf = (change: Change): Promise<Completion> =>
-  Effect.runPromise(completionOfEffect(change));
-
 const PROGRESS = "completion.json";
 
 /** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
@@ -68,9 +69,7 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 /** How far a completion got, or nothing if the change was never completed. */
 export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress | null> =>
   Effect.gen(function* () {
-    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-    const text = yield* Effect.tryPromise({ try: () => readSidecar(id, PROGRESS), catch: (e) => e })
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
+    const text = yield* readSidecarEffect(id, PROGRESS);
     try {
       return text ? (JSON.parse(text) as CompletionProgress) : null;
     } catch {
@@ -80,22 +79,20 @@ export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress |
     }
   });
 
-/** TODO-MIGRATE — Promise facade over progressOfEffect. */
+/** Promise facade over progressOfEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified. */
 export const progressOf = (id: string): Promise<CompletionProgress | null> =>
   Effect.runPromise(progressOfEffect(id));
 
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
-// TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
-  Effect.tryPromise({
-    try: () => writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"),
-    catch: (e) => new BadRequestError({ message: messageOf(e) }),
-  });
+  Effect.map(writeSidecarEffect(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
+    undefined);
 
 /** The work a completion is about to do, named before it starts so the page can show what is
  * still coming rather than only what has happened. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function stepsFor(change: Change, completion: Completion): CompletionStep[] {
   return [
     ...completion.toMerge.map(({ repo, number }) => ({
@@ -206,14 +203,7 @@ export const completeChangeEffect = (
     // The terminal sits in a directory that is about to move into the archive.
     yield* step(
       "terminal",
-      Effect.map(
-        // TODO-MIGRATE — src/terminal.ts is another worker's file; the server task sweeps this call site.
-        Effect.tryPromise({
-          try: () => stopTerminal(change.id),
-          catch: (e) => new BadRequestError({ message: messageOf(e) }),
-        }),
-        () => undefined,
-      ),
+      Effect.map(stopTerminalEffect(change.id), () => undefined),
     );
 
     const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
@@ -221,16 +211,8 @@ export const completeChangeEffect = (
       "archive",
       Effect.map(
       Effect.gen(function* () {
-        // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-        yield* Effect.tryPromise({
-          try: () => writeChange(completed),
-          catch: (e) => new BadRequestError({ message: messageOf(e) }),
-        });
-        // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-        yield* Effect.tryPromise({
-          try: () => archiveChange(change.id),
-          catch: (e) => new BadRequestError({ message: messageOf(e) }),
-        });
+        yield* writeChangeEffect(completed);
+        yield* archiveChangeEffect(change.id);
       }),
       () => undefined,
       ),
@@ -241,7 +223,8 @@ export const completeChangeEffect = (
     return { change: completed, notes };
   });
 
-/** TODO-MIGRATE — Promise facade over completeChangeEffect. */
+/** Promise facade over completeChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const completeChange = (
   change: Change,
 ): Promise<{ change: Change; notes: string[] }> => Effect.runPromise(completeChangeEffect(change));

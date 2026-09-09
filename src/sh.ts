@@ -132,7 +132,8 @@ export const shOrThrowEffect = (cmd: string[], cwd?: string): Effect.Effect<stri
     );
   });
 
-/** TODO-MIGRATE — Promise facade over shEffect; same signature and Result shape as before. */
+/** Promise facade over shEffect; same signature and Result shape as before. Kept for the test
+ * suite and tooling.ts (both Promise-shaped by contract); src callers use shEffect directly. */
 export const sh = (cmd: string[], cwd?: string): Promise<Result> =>
   Effect.runPromise(shEffect(cmd, cwd).pipe(
     // A timed-out CLI is a failed command, not a broken server: every caller already branches
@@ -142,13 +143,6 @@ export const sh = (cmd: string[], cwd?: string): Promise<Result> =>
     Effect.catchAll((e: CliError) =>
       Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   ));
-
-/** TODO-MIGRATE — Promise facade over shOrThrowEffect; throws exactly what it used to. */
-export async function shOrThrow(cmd: string[], cwd?: string): Promise<string> {
-  const r = await sh(cmd, cwd);
-  if (r.code !== 0) throw new Error(`${cmd.join(" ")} failed: ${r.stderr || r.stdout}`);
-  return r.stdout;
-}
 
 /** Parse `--json` style output, tolerating a CLI that printed nothing. */
 export function json<T>(out: string, fallback: T): T {

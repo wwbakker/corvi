@@ -9,7 +9,7 @@ export type Stack = { number: number; size: number; position: number };
 export const describeStack = (stack: Stack): string =>
   `${stack.position} of ${stack.size} in stack #${stack.number}`;
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** GitHub's stacked pull requests are a preview feature, so the API version has to be asked for
  * by name. */
@@ -33,7 +33,7 @@ export function stackRequest(
     : [`repos/${repo}/stacks`, "-F", `pull_requests[]=${below}`, "-F", `pull_requests[]=${number}`];
 }
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
  * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
@@ -77,7 +77,7 @@ export function outcomeOf(result: MergeResult): { waiting: boolean; note?: strin
   }
 }
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** A merge result read from a response, or nothing when the response was not one: a poll can
  * fail (the request expired, the network hiccuped) and that is not the same as "still running".
@@ -188,13 +188,6 @@ export const mergeStackedEffect = (
     return outcome.note;
   });
 
-/** TODO-MIGRATE — Promise facade over mergeStackedEffect; throws what the old throw did. */
-export const mergeStacked = (
-  worktree: string,
-  repository: string,
-  number: number,
-  method = "squash",
-): Promise<string | undefined> => Effect.runPromise(mergeStackedEffect(worktree, repository, number, method));
 
 /**
  * Tie a new pull request to the one it was branched off, as a GitHub stack: reviewers then see
@@ -236,12 +229,6 @@ export const stackOnBaseEffect = (
     if (r.code !== 0) console.warn(`could not stack #${number} onto #${below}: ${r.stderr.trim()}`);
   });
 
-/** TODO-MIGRATE — Promise facade over stackOnBaseEffect. */
-export const stackOnBase = (
-  worktree: string,
-  baseBranch: string,
-  number: number,
-): Promise<void> => Effect.runPromise(stackOnBaseEffect(worktree, baseBranch, number));
 
 /** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
  * printed nothing, or something this query did not expect, reads as the fallback rather than

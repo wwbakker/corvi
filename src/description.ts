@@ -9,7 +9,7 @@ import { prItemEffect } from "./integrations/github.ts";
  * request in every repository of this change, so a reviewer can walk the whole thing. A
  * repository without a pull request yet is named instead, so the list stays complete.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function describeChange(
   jira: string | undefined,
   summary: string | undefined,
@@ -32,7 +32,3 @@ export const prDescriptionEffect = (change: Change): Effect.Effect<string> =>
     ]);
     return describeChange(change.jira, issue?.summary, links);
   });
-
-/** TODO-MIGRATE — Promise facade over prDescriptionEffect. */
-export const prDescription = (change: Change): Promise<string> =>
-  Effect.runPromise(prDescriptionEffect(change));

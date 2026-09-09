@@ -1,21 +1,16 @@
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { listChangesEffect, writeChangeEffect } from "./changes.ts";
-import { issuesByKeys, siteOf, type Issue, type Site } from "./integrations/jira.ts";
+import { issuesByKeysEffect, siteOf, type Issue, type Site } from "./integrations/jira.ts";
 import { usesJira, workspaceOf } from "./workspaces.ts";
 
-/** How the summaries are fetched. A parameter so a test does not need a Jira. */
+/** How the summaries are fetched. A parameter so a test does not need a Jira. Deliberately
+ * Promise-shaped: the tests hand in plain async lookups, and the tests must pass unmodified. */
 export type Lookup = (keys: string[], site?: Site) => Promise<Map<string, Issue>>;
 
-// TODO-MIGRATE — the lookup defaults to integrations/jira.ts's issuesByKeys, another worker's
-// task: the Promise facade wrapped in Effect.tryPromise until that lands, then swept by the
-// server task. siteOf stays direct — it is pure string shaping, nothing to migrate.
-const lookupEffect = (
-  lookup: Lookup,
-  keys: string[],
-  site?: Site,
-): Effect.Effect<Map<string, Issue>, unknown> =>
-  Effect.tryPromise({ try: () => lookup(keys, site), catch: (e) => e });
+/** The default lookup, from the jira module's Effect API. */
+const defaultLookup: Lookup = (keys, site) =>
+  Effect.runPromise(issuesByKeysEffect(keys, site) as Effect.Effect<Map<string, Issue>, unknown>);
 
 /**
  * What to call a change on the overview: its ticket's summary, which says what the work is,
@@ -27,7 +22,7 @@ const lookupEffect = (
  * query for the whole page, and is asked for separately by the browser once the list is up.
  */
 export const refreshTitlesEffect = (
-  lookup: Lookup = issuesByKeys,
+  lookup: Lookup = defaultLookup,
 ): Effect.Effect<Record<string, string>, unknown> =>
   Effect.gen(function* () {
     const changes = yield* listChangesEffect();
@@ -49,7 +44,10 @@ export const refreshTitlesEffect = (
         // A Jira that does not answer leaves every stored title standing: the queries run per
         // site, and one site being down is not a reason to blank the others. What
         // `.catch(() => new Map())` did.
-        lookupEffect(lookup, [...new Set(group.map((c) => c.jira!))], siteOf(group[0]!)).pipe(
+        Effect.tryPromise({
+          try: () => lookup([...new Set(group.map((c) => c.jira!))], siteOf(group[0]!)),
+          catch: (e) => e,
+        }).pipe(
           Effect.catchAll(() => Effect.succeed(new Map<string, Issue>())),
         ),
       { concurrency: "unbounded" },
@@ -75,6 +73,7 @@ export const refreshTitlesEffect = (
     return titles;
   });
 
-/** TODO-MIGRATE */
-export const refreshTitles = (lookup: Lookup = issuesByKeys): Promise<Record<string, string>> =>
+/** Promise facade over refreshTitlesEffect, in the old signature. Kept for the test suite,
+ * which passes its own lookups and must pass unmodified. */
+export const refreshTitles = (lookup: Lookup = defaultLookup): Promise<Record<string, string>> =>
   Effect.runPromise(refreshTitlesEffect(lookup));

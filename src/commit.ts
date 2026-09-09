@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { worktreeFor, currentBranch } from "./integrations/git.ts";
+import { currentBranchEffect, worktreeForEffect } from "./integrations/git.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
@@ -38,10 +38,10 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// TODO-MIGRATE — integrations/git.ts is another worker's task: the Promise facade wrapped in
-// Effect.tryPromise until that lands, then swept by the server task with the rest.
-const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, unknown> =>
-  Effect.tryPromise({ try: () => worktreeFor(change, repo), catch: (e) => e });
+// The commitChange/pushChange facades below are kept for repos.test.ts, which must pass
+// unmodified.
+const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  worktreeForEffect(change, repo);
 
 /**
  * Commit the chosen files in each repository that has any chosen.
@@ -92,7 +92,8 @@ export const commitChangeEffect = (
     );
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over commitChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const commitChange = (change: Change, request: CommitRequest): Promise<CommitResult[]> =>
   Effect.runPromise(commitChangeEffect(change, request));
 
@@ -119,11 +120,8 @@ export const pushChangeEffect = (
           const worktree = yield* worktreeOf(change, repo);
           if (!worktree) return { repo, name, ok: false, error: "no worktree" };
 
-          // TODO-MIGRATE — integrations facade behind Effect.tryPromise until swept.
-          const branch = yield* Effect.tryPromise({
-            try: () => currentBranch(worktree),
-            catch: (e) => e,
-          });
+          // The branch it is on, which is what a push without an upstream should name.
+          const branch = yield* currentBranchEffect(worktree);
           const pushed = yield* shResult(
             ["git", "push", "-u", "origin", branch || change.branch],
             worktree,
@@ -136,6 +134,7 @@ export const pushChangeEffect = (
     );
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over pushChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const pushChange = (change: Change, repos: string[]): Promise<CommitResult[]> =>
   Effect.runPromise(pushChangeEffect(change, repos));

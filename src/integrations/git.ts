@@ -5,7 +5,7 @@ import type { Change, Integration, Widget, WidgetItem, WidgetState } from "../ty
 import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
-import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
+import { writeChangeEffect, writeWtConfigEffect, changeDir } from "../changes.ts";
 import { isMac, commandAvailable } from "../platform.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
 
@@ -42,21 +42,22 @@ export type WtEntry = {
   is_main?: boolean;
 };
 
-// TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
+// The `Integration` object at the bottom of this file keeps Promise methods (the test suites
+// stub the interface with plain async functions); that is the one Promise seam left here.
 
 /** Every wt call is scoped to the change's own config, which places worktrees inside the
  * change directory. */
 const wtEffect = (change: Change, args: string[]): Effect.Effect<string[]> =>
-  Effect.map(fs(() => writeWtConfig(change.id)), (configPath) =>
+  Effect.map(writeWtConfigEffect(change.id), (configPath) =>
     ["wt", "--config", configPath, ...args]);
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const findWorktree = (entries: WtEntry[], branch: string): WtEntry | undefined =>
   entries.find((e) => e.branch === branch);
 
 /** Where each worktree of `repo` is, and which branch it holds. The main checkout is included,
  * which is what makes a repository used in place look like any other. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function parseWorktrees(porcelain: string): { path: string; branch: string }[] {
   const found: { path: string; branch: string }[] = [];
   let path = "";
@@ -71,7 +72,7 @@ export function parseWorktrees(porcelain: string): { path: string; branch: strin
 }
 
 /** What `git status --porcelain=v2 --branch` says about a working tree. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]> & {
   upstream?: string;
   ahead: number;
@@ -133,12 +134,13 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
 export const worktreeForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
 
-/** TODO-MIGRATE — Promise facade over worktreeForEffect. */
+/** Promise facade over worktreeForEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const worktreeFor = (change: Change, repo: string): Promise<string | undefined> =>
   Effect.runPromise(worktreeForEffect(change, repo));
 
 /** Human summary of one worktree, and how alarming it is. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function describe(entry: WtEntry): { detail: string; state: WidgetState } {
   const tree = entry.working_tree ?? {};
   const dirty = Boolean(tree.staged || tree.modified || tree.untracked);
@@ -222,10 +224,6 @@ export const remoteDefaultBranchEffect = (
     return asking;
   });
 
-/** TODO-MIGRATE — Promise facade over remoteDefaultBranchEffect. */
-export const remoteDefaultBranch = (repo: string): Promise<string | undefined> =>
-  Effect.runPromise(remoteDefaultBranchEffect(repo));
-
 /** The branch this repository's work starts from: what you chose, or the remote's default. */
 export const baseForEffect = (
   change: Change,
@@ -235,10 +233,6 @@ export const baseForEffect = (
     const chosen = change.base?.[repo];
     return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranchEffect(repo);
   });
-
-/** TODO-MIGRATE — Promise facade over baseForEffect. */
-export const baseFor = (change: Change, repo: string): Promise<string | undefined> =>
-  Effect.runPromise(baseForEffect(change, repo));
 
 /**
  * Somewhere to open a repository from its row. macOS applications are opened by name rather than
@@ -303,15 +297,13 @@ const linkPath = (change: Change, repo: string): string => join(changeDir(change
 export const currentBranchEffect = (repo: string): Effect.Effect<string> =>
   Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo), (r) => r.stdout);
 
-/** TODO-MIGRATE — Promise facade over currentBranchEffect. */
+/** Promise facade over currentBranchEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const currentBranch = (repo: string): Promise<string> =>
   Effect.runPromise(currentBranchEffect(repo));
 
 export const isDirtyEffect = (repo: string): Effect.Effect<boolean> =>
   Effect.map(shSoft(["git", "status", "--porcelain"], repo), (r) => r.stdout !== "");
-
-/** TODO-MIGRATE — Promise facade over isDirtyEffect. */
-export const isDirty = (repo: string): Promise<boolean> => Effect.runPromise(isDirtyEffect(repo));
 
 /**
  * Work in the repository itself: link it from the change directory and put its checkout on the
@@ -425,7 +417,8 @@ const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =
     if (!config.worktreeCopy.length) return;
     const created = yield* worktreeForEffect(change, repo);
     if (!created) return;
-    // TODO-MIGRATE — src/tooling.ts is another worker's file; the server task sweeps this call site.
+    // copyTooling is deliberately a Promise (mostly synchronous filesystem work — see
+    // tooling.ts); the bridge stays, its failure reported, never fatal.
     yield* Effect.tryPromise({ try: () => copyTooling(repo, created, config.worktreeCopy), catch: (e) => e })
       .pipe(
         Effect.catchAll((error) =>
@@ -441,7 +434,7 @@ export type Unsafe = { kind: "dirty" | "unpushed"; text: string };
 const inMain = (state?: string): boolean =>
   ["is_main", "integrated", "empty", undefined].includes(state);
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   if (!entry) return undefined; // nothing to lose
   const tree = entry.working_tree ?? {};
@@ -465,7 +458,8 @@ export const unsafeToRemoveEffect = (
 ): Effect.Effect<Unsafe | undefined> =>
   Effect.map(entryForEffect(change, repo), unsafeIn);
 
-/** TODO-MIGRATE — Promise facade over unsafeToRemoveEffect. */
+/** Promise facade over unsafeToRemoveEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const unsafeToRemove = (change: Change, repo: string): Promise<Unsafe | undefined> =>
   Effect.runPromise(unsafeToRemoveEffect(change, repo));
 
@@ -491,7 +485,8 @@ export const repoStatesEffect = (
     { concurrency: "unbounded" },
   );
 
-/** TODO-MIGRATE — Promise facade over repoStatesEffect. */
+/** Promise facade over repoStatesEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const repoStates = (
   change: Change,
 ): Promise<{ path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]> =>
@@ -561,13 +556,14 @@ export const setReposEffect = (
       direct: wantedDirect.length ? wantedDirect : undefined,
       base: Object.keys(bases).length ? bases : undefined,
     };
-    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-    yield* fs(() => writeChange(updated));
+    yield* writeChangeEffect(updated);
     for (const repo of added) yield* createWorktreeEffect(updated, repo);
     return { _tag: "Done", change: updated };
   });
 
-/** TODO-MIGRATE — Promise facade over setReposEffect; same duck-typed JSON as before. */
+/** Promise facade over setReposEffect, in the duck-typed shape the old code returned. Kept for
+ * the test suite, which drives the duck (`{ needsForce }` / `{ change }`) and must pass
+ * unmodified; the server uses setReposEffect directly. */
 export async function setRepos(
   change: Change,
   repos: string[],
@@ -595,10 +591,6 @@ export const removeWorktreeEffect = (
       yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
   });
-
-/** TODO-MIGRATE — Promise facade over removeWorktreeEffect. */
-export const removeWorktree = (change: Change, repo: string): Promise<void> =>
-  Effect.runPromise(removeWorktreeEffect(change, repo));
 
 export const git: Integration = {
   name: "git",

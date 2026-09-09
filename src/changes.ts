@@ -41,7 +41,7 @@ const changeFile = (id: string): string => join(changeDir(id), "change.json");
 /** wt user-config for this change, so its worktrees land in the change directory instead of
  * next to their repositories. Passed to every wt invocation with --config.
  *
- * TODO-MIGRATE — pure sync path logic; nothing to wrap in an Effect. */
+ * Pure sync path logic; nothing to wrap in an Effect. */
 export const wtConfigPath = (id: string): string => join(changeDir(id), "wt.toml");
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
@@ -72,7 +72,8 @@ export const readChangeEffect = (id: string): Effect.Effect<Change | null, Decod
     return yield* decodeChange(text, dir);
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over readChangeEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified; the server uses readChangeEffect directly. */
 export const readChange = (id: string): Promise<Change | null> =>
   Effect.runPromise(readChangeEffect(id));
 
@@ -88,7 +89,8 @@ export const readChange = (id: string): Promise<Change | null> =>
  * (BadRequestError / ConflictError — both Errors, exactly where the old code threw plain
  * Errors), with the exact messages it always had.
  *
- * TODO-MIGRATE — sync; throws typed errors instead of plain Errors.
+ * Sync; throws typed errors instead of plain Errors — the server route converts those throws
+ * into failures at the boundary (Effect.try), exactly where the old route caught them.
  */
 export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
   if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
@@ -119,7 +121,8 @@ export const writeChangeEffect = (change: Change): Effect.Effect<void> =>
     yield* fs(() => Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over writeChangeEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified. */
 export const writeChange = (change: Change): Promise<void> =>
   Effect.runPromise(writeChangeEffect(change));
 
@@ -135,9 +138,6 @@ export const readSidecarEffect = (id: string, name: string): Effect.Effect<strin
     );
   });
 
-/** TODO-MIGRATE */
-export const readSidecar = (id: string, name: string): Promise<string> =>
-  Effect.runPromise(readSidecarEffect(id, name));
 
 export const writeSidecarEffect = (id: string, name: string, text: string): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -146,9 +146,11 @@ export const writeSidecarEffect = (id: string, name: string, text: string): Effe
     yield* fs(() => Bun.write(join(dir, name), text));
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over writeSidecarEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const writeSidecar = (id: string, name: string, text: string): Promise<void> =>
   Effect.runPromise(writeSidecarEffect(id, name, text));
+
 
 /** Free-text notes, kept beside change.json so they travel into the archive with it. */
 export const readNotesEffect = (id: string): Effect.Effect<string> =>
@@ -156,9 +158,9 @@ export const readNotesEffect = (id: string): Effect.Effect<string> =>
 export const writeNotesEffect = (id: string, text: string): Effect.Effect<void> =>
   writeSidecarEffect(id, "notes.md", text);
 
-/** TODO-MIGRATE */
+/** Promise facades over the notes effects, in the old signatures. Kept for the test suite,
+ * which must pass unmodified; the server uses the effects directly. */
 export const readNotes = (id: string): Promise<string> => Effect.runPromise(readNotesEffect(id));
-/** TODO-MIGRATE */
 export const writeNotes = (id: string, text: string): Promise<void> =>
   Effect.runPromise(writeNotesEffect(id, text));
 
@@ -171,7 +173,8 @@ export const archiveChangeEffect = (id: string): Effect.Effect<void> =>
     yield* fs(() => rename(changeDir(id), archiveDir(id)));
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over archiveChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const archiveChange = (id: string): Promise<void> =>
   Effect.runPromise(archiveChangeEffect(id));
 
@@ -207,7 +210,8 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over listChangesEffect, in the old signature. Kept for the test suite and
+ * events.ts's stream (both fine as Promises); the server uses the effect directly. */
 export const listChanges = (): Promise<Change[]> => Effect.runPromise(listChangesEffect());
 
 export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
@@ -221,9 +225,6 @@ export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
     return path;
   });
 
-/** TODO-MIGRATE */
-export const writeWtConfig = (id: string): Promise<string> =>
-  Effect.runPromise(writeWtConfigEffect(id));
 
 export const createChangeEffect = (input: {
   id: string;
@@ -264,7 +265,8 @@ export const createChangeEffect = (input: {
     return change;
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over createChangeEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified; the server uses the effect directly. */
 export const createChange = (input: {
   id: string;
   branch?: string;

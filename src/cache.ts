@@ -87,8 +87,9 @@ const refreshEffect = <T, E>(key: string, work: Effect.Effect<T, E>): Effect.Eff
     return yield* Effect.failCause(outcome.cause);
   });
 
-/** TODO-MIGRATE — Promise facade over swrEffect; same signature, rejects with whatever `work`
- * rejected with, exactly as before. */
+/** Promise facade over swrEffect; same signature, rejects with whatever `work` rejected with,
+ * exactly as before. Kept for the test suite, which must pass unmodified; src callers use
+ * swrEffect directly. */
 export const swr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
   Effect.runPromise(
     swrEffect(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })),
@@ -96,8 +97,7 @@ export const swr = <T>(key: string, ttl: number, work: () => Promise<T>): Promis
 
 /** Milliseconds since this key was last produced; undefined when it was never asked for.
  * Meant for showing how old an answer is, which is what makes serving stale data honest. */
-// TODO-MIGRATE — a synchronous read of module state; there is no async work for an Effect to
-// wrap, so it stays a plain function and its callers stay synchronous.
+// Synchronous by contract — a read of module state; there is no async work for an Effect to wrap.
 export const ageOf = (key: string): number | undefined => {
   const found = store.get(key);
   return found ? Date.now() - found.at : undefined;
@@ -105,14 +105,13 @@ export const ageOf = (key: string): number | undefined => {
 
 /** Forget everything under a prefix, for when an action has just made it wrong — a pull request
  * created, a branch pushed, a change completed. */
-// TODO-MIGRATE — synchronous by contract (callers fire-and-forget it mid-request); nothing for
-// an Effect to wrap until the server wiring task decides actions should await invalidation.
+// Synchronous by contract (callers fire-and-forget it mid-request); nothing for an Effect to wrap.
 export function invalidate(prefix: string): void {
   for (const key of store.keys()) if (key.startsWith(prefix)) store.delete(key);
 }
 
 /** Tests share a process; a cache that outlives one of them is a test that passes by accident. */
-// TODO-MIGRATE — synchronous by contract: beforeEach in the tests calls it without await.
+// Synchronous by contract: beforeEach in the tests calls it without await.
 export function clearCache(): void {
   store.clear();
 }
@@ -153,7 +152,8 @@ export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
   return restored;
 });
 
-/** TODO-MIGRATE — Promise facade over loadCacheEffect; same signature. */
+/** Promise facade over loadCacheEffect; same signature. Kept for the test suite, which must
+ * pass unmodified; the server uses loadCacheEffect directly. */
 export const loadCache = (): Promise<number> => Effect.runPromise(loadCacheEffect);
 
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
@@ -174,6 +174,6 @@ export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function
   });
 });
 
-/** TODO-MIGRATE — Promise facade over saveCacheEffect; same signature, rejects on write
- * failure exactly as before. */
+/** Promise facade over saveCacheEffect; same signature, rejects on write failure exactly as
+ * before. Kept for the test suite, which must pass unmodified; the server uses the Effect. */
 export const saveCache = (): Promise<void> => Effect.runPromise(saveCacheEffect);

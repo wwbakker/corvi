@@ -83,13 +83,10 @@ export const checkItemsEffect = (
       return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
     }));
 
-/** TODO-MIGRATE — Promise facade over checkItemsEffect. */
-export const checkItems = (change: Change, repo: string, number: number): Promise<WidgetItem[]> =>
-  Effect.runPromise(checkItemsEffect(change, repo, number));
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
  * row you can open. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function groupChecks(checks: Check[]): WidgetItem[] {
   if (checks.length === 0) return [];
   const groups = new Map<string, Check[]>();

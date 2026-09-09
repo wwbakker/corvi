@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { Change, ChangeSummary, WidgetState } from "./types.ts";
-import { activeRuns } from "./integrations/azure.ts";
-import { prSummary } from "./integrations/github.ts";
+import { activeRunsEffect } from "./integrations/azure.ts";
+import { prSummaryEffect } from "./integrations/github.ts";
 import { listWindowsEffect } from "./terminal.ts";
 import { busyWindows } from "./windows.ts";
 
@@ -19,18 +19,6 @@ export const worst = (states: WidgetState[]): WidgetState =>
           ? "ok"
           : "none";
 
-// TODO-MIGRATE — integrations (github.ts, azure.ts) are another worker's task: their Promise
-// facades wrapped in Effect.tryPromise until that lands, then swept by the server task.
-const prSummaryOf = (
-  change: Change,
-  repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, unknown> =>
-  Effect.tryPromise({ try: () => prSummary(change, repo), catch: (e) => e });
-
-// TODO-MIGRATE — same as above: integrations facade behind Effect.tryPromise until swept.
-const activeRunsOf = (change: Change, repo: string, pr?: number): Effect.Effect<number, unknown> =>
-  Effect.tryPromise({ try: () => activeRuns(change, repo, pr), catch: (e) => e });
-
 /**
  * The overview's per-change numbers, gathered per repository in parallel.
  *
@@ -46,8 +34,8 @@ export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, un
       change.repos,
       (repo) =>
         Effect.gen(function* () {
-          const { number, unresolved, checks } = yield* prSummaryOf(change, repo);
-          return { pipelines: yield* activeRunsOf(change, repo, number), unresolved, checks };
+          const { number, unresolved, checks } = yield* prSummaryEffect(change, repo);
+          return { pipelines: yield* activeRunsEffect(change, repo, number), unresolved, checks };
         }),
       { concurrency: "unbounded" },
     );
@@ -65,6 +53,3 @@ export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, un
     };
   });
 
-/** TODO-MIGRATE */
-export const summaryOf = (change: Change): Promise<ChangeSummary> =>
-  Effect.runPromise(summaryOfEffect(change));

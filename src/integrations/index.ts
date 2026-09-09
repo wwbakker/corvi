@@ -1,6 +1,9 @@
-import { Effect, Either } from "effect";
+import { Effect, Either, Option } from "effect";
 import { isFinished, type Change, type Integration, type Widget, type WidgetItem } from "../types.ts";
 import { applies } from "../workspaces.ts";
+import type { Workspace } from "../config.ts";
+import { provideWorkspace } from "../context.ts";
+import { workspaceOption } from "../effect/tags.ts";
 import { git } from "./git.ts";
 import { jira } from "./jira.ts";
 import { ci } from "./ci.ts";
@@ -16,9 +19,23 @@ export const integrations: Record<string, Integration> = {
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 
 /** The components a change's dashboard shows: the ones its workspace has at all. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const integrationsFor = (change: Change) =>
   Object.values(integrations).filter((i) => applies(i.name, change));
+
+/** Call one of the Integration object's Promise methods from Effect, carrying the request's
+ * workspace across: the Integration interface keeps Promise methods (the test suites stub them
+ * with plain async functions), so each method's own Effect runs in a detached runtime the
+ * Workspace tag cannot reach. This is the one bridge that keeps the ambient store alive. */
+export const bridged = <A>(work: (ws: Workspace | undefined) => Promise<A>): Effect.Effect<A, unknown> =>
+  Effect.flatMap(workspaceOption, (ws) =>
+    Effect.tryPromise({
+      try: () => {
+        const run = () => work(Option.getOrUndefined(ws));
+        return Option.isSome(ws) ? provideWorkspace(ws.value, run) : run();
+      },
+      catch: (e) => e,
+    }));
 
 /** Run every integration's provisioning step for a freshly created change. Failures are
  * collected rather than thrown: the change already exists, and a half-provisioned change is
@@ -31,7 +48,7 @@ export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]
       // thing this change was never going to have.
       if (!i.provision || !applies(i.name, change)) continue;
       results.push(
-        yield* Effect.tryPromise({ try: () => i.provision!(change), catch: (e) => e }).pipe(
+        yield* bridged(() => i.provision!(change)).pipe(
           Effect.map(() => ({ integration: i.name, ok: true })),
           Effect.catchAll((e) =>
             Effect.succeed({
@@ -45,10 +62,12 @@ export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]
     return results;
   });
 
-// TODO-MIGRATE — the Integration interface keeps Promise methods (the test suites stub them with
-// plain async functions); each call site above is the seam the server task sweeps.
+// The Integration interface keeps its Promise methods on purpose: the test suites stub them
+// with plain async functions, and the tests must pass unmodified. `bridged` above is the seam
+// every call site goes through.
 
-/** TODO-MIGRATE — Promise facade over provisionEffect. */
+/** Promise facade over provisionEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified. */
 export const provision = (change: Change): Promise<ProvisionResult[]> =>
   Effect.runPromise(provisionEffect(change));
 
@@ -67,7 +86,7 @@ function readOnly(items: WidgetItem[]): WidgetItem[] {
   }));
 }
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** One integration's widget; a thrown error becomes a red card rather than a failed request. */
 export const statusOneEffect = (integration: Integration, change: Change): Effect.Effect<Widget> =>
@@ -77,10 +96,7 @@ export const statusOneEffect = (integration: Integration, change: Change): Effec
         if (!integration.status) {
           return yield* Effect.fail(new Error(`${integration.name} reports per repository`));
         }
-        const widget: Widget = yield* Effect.tryPromise({
-          try: () => integration.status!(change),
-          catch: (e) => e,
-        });
+        const widget: Widget = yield* bridged(() => integration.status!(change));
         return isFinished(change) ? { ...widget, items: readOnly(widget.items) } : widget;
       }),
     );
@@ -97,10 +113,6 @@ export const statusOneEffect = (integration: Integration, change: Change): Effec
     return found.right;
   });
 
-/** TODO-MIGRATE — Promise facade over statusOneEffect. */
-export const statusOne = (integration: Integration, change: Change): Promise<Widget> =>
-  Effect.runPromise(statusOneEffect(integration, change));
-
 /** One repository's rows, for the components that report per repository. A failure becomes a
  * red row for that repository only: the others keep loading. */
 export const repoStatusOfEffect = (
@@ -114,10 +126,7 @@ export const repoStatusOfEffect = (
         if (!integration.repoStatus) {
           return yield* Effect.fail(new Error(`${integration.name} has no per-repository view`));
         }
-        const items: WidgetItem[] = yield* Effect.tryPromise({
-          try: () => integration.repoStatus!(change, repo),
-          catch: (e) => e,
-        });
+        const items: WidgetItem[] = yield* bridged(() => integration.repoStatus!(change, repo));
         return isFinished(change) ? readOnly(items) : items;
       }),
     );
@@ -134,7 +143,8 @@ export const repoStatusOfEffect = (
     return found.right;
   });
 
-/** TODO-MIGRATE — Promise facade over repoStatusOfEffect. */
+/** Promise facade over repoStatusOfEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const repoStatusOf = (
   integration: Integration,
   change: Change,

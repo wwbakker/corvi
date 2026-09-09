@@ -166,9 +166,6 @@ export const terminalPortEffect = (change: Change): Effect.Effect<number, Confli
     return yield* joinOrStart();
   });
 
-/** TODO-MIGRATE */
-export const terminalPort = (change: Change): Promise<number> =>
-  Effect.runPromise(terminalPortEffect(change));
 
 const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
   Effect.gen(function* () {
@@ -342,9 +339,6 @@ export const stopTerminalEffect = (id: string): Effect.Effect<void> =>
     yield* shResult(["tmux", "kill-session", "-t", sessionName(id)]);
   });
 
-/** TODO-MIGRATE */
-export const stopTerminal = (id: string): Promise<void> =>
-  Effect.runPromise(stopTerminalEffect(id));
 
 /* Terminals are deliberately left running when the server stops: restarting IWE while you work on
  * it is constant, and losing the shells every time is not worth the tidiness. They are noted in
@@ -413,11 +407,6 @@ export const listWindowsEffect = (id: string): Effect.Effect<TerminalWindow[], C
     return r.stdout.split("\n").filter(Boolean).map(parseWindow);
   });
 
-/** TODO-MIGRATE */
-export const listWindows = (id: string): Promise<TerminalWindow[]> =>
-  Effect.runPromise(
-    listWindowsEffect(id).pipe(Effect.catchTag("CliError", () => Effect.succeed([]))),
-  );
 
 /** Which change a tmux session belongs to, or undefined for a session that is not ours. */
 export const changeOfSession = (session: string): string | undefined =>
@@ -445,8 +434,6 @@ export const allWindowsEffect = (): Effect.Effect<Record<string, TerminalWindow[
     return byChange;
   });
 
-/** TODO-MIGRATE */
-export const allWindows = (): Promise<Record<string, TerminalWindow[]>> =>
   Effect.runPromise(allWindowsEffect().pipe(Effect.catchTag("CliError", () => Effect.succeed({}))));
 
 /**
@@ -468,15 +455,9 @@ export const newWindowEffect = (id: string): Effect.Effect<void, CliError> =>
     yield* shOrThrowEffect(["tmux", "new-window", "-t", sessionName(id), "-c", changeDir(id)]);
   });
 
-/** TODO-MIGRATE */
-export const newWindow = (id: string): Promise<void> =>
-  Effect.runPromise(newWindowEffect(id));
 
 export const selectWindowEffect = (id: string, index: number): Effect.Effect<void, CliError> =>
   shOrThrowEffect(["tmux", "select-window", "-t", `${sessionName(id)}:${index}`]).pipe(
     Effect.asVoid,
   );
 
-/** TODO-MIGRATE */
-export const selectWindow = (id: string, index: number): Promise<void> =>
-  Effect.runPromise(selectWindowEffect(id, index));

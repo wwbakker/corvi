@@ -62,7 +62,7 @@ type Pr = {
 
 /** What the pull request is waiting for. Unresolved threads do not hide the review decision:
  * "approved with comments still open" is a real and interesting state. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function readiness(
   pr: { reviewDecision?: string | null; mergeable?: string | null },
   unresolved = 0,
@@ -107,7 +107,7 @@ function checksState(pr: Pr): { state: WidgetState; text: string } {
  * The remote's default branch is never it: a branch left tracking `origin/main` is the old
  * in-place bug, not a pull request.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function headRef(branch: string, upstream?: string, remoteDefault?: string): string {
   if (!upstream || upstream === remoteDefault) return branch;
   const name = upstream.slice(upstream.indexOf("/") + 1);
@@ -172,7 +172,7 @@ const shownPrEffect = (change: Change, repo: string): Effect.Effect<FoundPr | un
   swrEffect(`gh:pr:${change.id}:${repo}`, PR_TTL, prQueryEffect(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function repoFromUrl(url: string): { owner: string; name: string } | undefined {
   const m = /github\.com\/([^/]+)\/([^/]+)\/pull\//.exec(url);
   return m ? { owner: m[1]!, name: m[2]! } : undefined;
@@ -263,7 +263,7 @@ const DetailsSchema = Schema.Struct({
  * resolves a thread, so an answered one stays unresolved for as long as they take to look, and
  * before this those never went away.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function waitingOnYou(threads: readonly Thread[], me?: string): number {
   return threads.filter((t) => {
     if (t.isResolved) return false;
@@ -349,13 +349,6 @@ export const prSummaryEffect = (
     return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
   });
 
-/** TODO-MIGRATE — Promise facade over prSummaryEffect. */
-export const prSummary = (
-  change: Change,
-  repo: string,
-): Promise<{ number?: number; unresolved: number; checks: WidgetState }> =>
-  Effect.runPromise(prSummaryEffect(change, repo));
-
 /** The pull request for this change in `repo`, plus a row describing it. */
 export const prItemEffect = (
   change: Change,
@@ -413,12 +406,6 @@ export const prItemEffect = (
     };
   });
 
-/** TODO-MIGRATE — Promise facade over prItemEffect. */
-export const prItem = (
-  change: Change,
-  repo: string,
-): Promise<{ number?: number; item: WidgetItem }> => Effect.runPromise(prItemEffect(change, repo));
-
 /** Whether this repository's pull request may be merged as part of completing the change. */
 export type MergeReadiness =
   | { ready: true; merged: true }
@@ -447,9 +434,6 @@ export const mergeReadinessEffect = (
     return { ready: true, merged: false, number: pr.number };
   });
 
-/** TODO-MIGRATE — Promise facade over mergeReadinessEffect. */
-export const mergeReadiness = (change: Change, repo: string): Promise<MergeReadiness> =>
-  Effect.runPromise(mergeReadinessEffect(change, repo));
 
 /**
  * Squash-merge the pull request: the repositories this was written for allow squash only, and
@@ -481,13 +465,6 @@ export const mergePrEffect = (
     const note = yield* mergeStackedEffect(wt, stacked, number);
     return note && `${basename(repo)} #${number}: ${note}`;
   });
-
-/** TODO-MIGRATE — Promise facade over mergePrEffect. */
-export const mergePr = (
-  change: Change,
-  repo: string,
-  number: number,
-): Promise<string | undefined> => Effect.runPromise(mergePrEffect(change, repo, number));
 
 /** The repository as `owner/name` when this pull request belongs to a stack, otherwise nothing. */
 const isStackedEffect = (
@@ -537,6 +514,3 @@ export const createPrEffect = (
     invalidate(`gh:pr:${change.id}`);
   });
 
-/** TODO-MIGRATE — Promise facade over createPrEffect. */
-export const createPr = (change: Change, repo: string): Promise<void> =>
-  Effect.runPromise(createPrEffect(change, repo));

@@ -160,13 +160,13 @@ const runsOfEffect = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
     }));
 
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const serviceName = (deployPipeline: string): string => {
   const [, deploy] = config.azureDeploy.pipeline;
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const buildPipelineName = (service: string): string =>
   `${config.azureDeploy.pipeline[0]}${service}`;
 
@@ -180,7 +180,7 @@ const ago = (iso?: string | null): string => {
   return `${Math.round(hours / 24)}d ago`;
 };
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /**
  * The version a deploy run was given.
@@ -190,7 +190,7 @@ const ago = (iso?: string | null): string => {
  * that, the only other parameter there is. A deploy run takes the environment and the thing to
  * deploy; when those are the only two, which is which is not a guess.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function versionIn(parameters: Record<string, string> | null | undefined): string | undefined {
   const { versionParameter, environmentParameter } = config.azureDeploy;
   const params = parameters ?? {};
@@ -206,7 +206,7 @@ export function versionIn(parameters: Record<string, string> | null | undefined)
  * environment — a failed deploy is news, and hiding it behind the last success would say the
  * environment is fine when somebody is looking at a red pipeline.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function latestFor(runs: Run[], environment: string): Deployed {
   const { environmentParameter } = config.azureDeploy;
   const mine = runs
@@ -277,9 +277,6 @@ export const deploymentsEffect = (
     return { services };
   });
 
-/** TODO-MIGRATE — Promise facade over deploymentsEffect. */
-export const deployments = (workspaceId?: string): Promise<{ services: Service[]; error?: string }> =>
-  Effect.runPromise(deploymentsEffect(workspaceId));
 
 /** Recent successful builds of a service, with the version each produced.
  *
@@ -374,7 +371,8 @@ export const versionsForEffect = (
     return [...inProgress, ...finished];
   });
 
-/** TODO-MIGRATE — Promise facade over versionsForEffect. */
+/** Promise facade over versionsForEffect, in the old signature. Kept for the test suite, which
+ * must pass unmodified; the server uses the effect directly. */
 export const versionsFor = (
   service: string,
   workspaceId?: string,
@@ -393,7 +391,7 @@ export const versionsFor = (
  * is computed once by the caller and handed in, so this can be tested with plain arrays and
  * without a CLI in reach.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function acceptedVersions(
   runs: Run[],
   az: Az,
@@ -434,14 +432,14 @@ export function acceptedVersions(
 
 /** What a build was built from, said the way you would say it: a branch by name, a pull request
  * by number. `refs/pull/169/merge` is a real answer to "which branch" and a useless one. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const branchOf = (ref: string | undefined): string => {
   const pull = /^refs\/pull\/(\d+)\//.exec(ref ?? "");
   if (pull) return `PR #${pull[1]}`;
   return (ref ?? "").replace(/^refs\/heads\//, "");
 };
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const deployPipelineName = (service: string): string =>
   `${config.azureDeploy.pipeline[1]}${service}`;
 
@@ -457,7 +455,7 @@ function versionParameterOf(runs: Run[]): string {
   return versionParameter;
 }
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /**
  * Trigger a deploy. The one irreversible thing on this page.
@@ -543,7 +541,8 @@ export const deployEffect = (
     return { runId: run.id, url: buildUrl(run.id, az) };
   });
 
-/** TODO-MIGRATE — Promise facade over deployEffect. */
+/** Promise facade over deployEffect, in the old signature. Kept for the test suite, which must
+ * pass unmodified; the server uses the effect directly. */
 export const deploy = (
   service: string,
   version: string,
@@ -551,3 +550,4 @@ export const deploy = (
   workspaceId?: string,
 ): Promise<{ runId: number; url?: string }> =>
   Effect.runPromise(deployEffect(service, version, environment, workspaceId));
+

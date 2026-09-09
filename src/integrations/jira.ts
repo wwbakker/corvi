@@ -6,7 +6,6 @@ import { jiraFetchEffect, jiraSetupEffect, jiraBaseUrlEffect } from "./jiraHttp.
 import { jiraOf, workspaceById, workspaceOf } from "../workspaces.ts";
 import { BadRequestError } from "../effect/errors.ts";
 
-export { jiraBaseUrl } from "./jiraHttp.ts";
 
 /** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
  * every typed error carries the sentence users saw before. */
@@ -26,9 +25,9 @@ export type Site = {
   tokenEnv?: string;
 };
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const siteOf = (change: { workspace?: string }): Site => jiraOf(workspaceOf(change as never));
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export const siteFor = (workspaceId?: string): Site => jiraOf(workspaceById(workspaceId));
 
 /** Namespaces the cache: two sites answering "PROJ-1" differently is exactly the bug this
@@ -84,7 +83,7 @@ type SearchJson = { issues?: IssueJson[]; nextPageToken?: string };
 
 /** Jira's shape, flattened to ours. The sprint is not a field of the issue in any useful sense —
  * it is which query found it — so it is passed in. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function issueFrom(json: IssueJson, sprint = ""): Issue {
   const fields = json.fields ?? {};
   return {
@@ -140,9 +139,6 @@ export const listSprintsEffect = (site: Site = {}): Effect.Effect<Sprint[], BadR
     return (json.values ?? []).map((s) => ({ id: String(s.id), name: s.name, state: s.state }));
   });
 
-/** TODO-MIGRATE — Promise facade over listSprintsEffect. */
-export const listSprints = (site: Site = {}): Promise<Sprint[]> =>
-  Effect.runPromise(listSprintsEffect(site));
 
 /** The issues of one sprint, named after it: the board view groups by sprint, and the sprint an
  * issue is in is the query that found it. */
@@ -203,12 +199,6 @@ export const boardIssuesEffect = (
     );
   });
 
-/** TODO-MIGRATE — Promise facade over boardIssuesEffect. */
-export const boardIssues = (
-  workspaceId?: string,
-  force = false,
-): Promise<{ issues: Issue[]; sprints: string[]; baseUrl?: string; error?: string }> =>
-  Effect.runPromise(boardIssuesEffect(workspaceId, force));
 
 const sprintNames = (issues: Issue[]): string[] => [
   ...new Set(issues.map((i) => i.sprint).filter(Boolean)),
@@ -279,14 +269,6 @@ export const createIssueEffect = (input: {
     return { key: created.key, summary, assignee: "", status: "", type, sprint: "" };
   });
 
-/** TODO-MIGRATE — Promise facade over createIssueEffect. */
-export const createIssue = (input: {
-  summary: string;
-  description?: string;
-  type?: string;
-  assignToMe?: boolean;
-  workspace?: string;
-}): Promise<Issue> => Effect.runPromise(createIssueEffect(input));
 
 /**
  * Move an issue to another status.
@@ -329,9 +311,6 @@ export const moveIssueEffect = (
     invalidate("jira:"); // the status we would otherwise keep showing is the one we just changed
   });
 
-/** TODO-MIGRATE — Promise facade over moveIssueEffect. */
-export const moveIssue = (key: string, status: string, site: Site = {}): Promise<void> =>
-  Effect.runPromise(moveIssueEffect(key, status, site));
 
 /** The account to assign to: whatever is configured, or the one the token belongs to. A name is
  * not enough — Jira wants an account id — so a configured assignee is looked up. */
@@ -382,9 +361,6 @@ export const issuesByKeysEffect = (
     );
   });
 
-/** TODO-MIGRATE — Promise facade over issuesByKeysEffect. */
-export const issuesByKeys = (keys: string[], site: Site = {}): Promise<Map<string, Issue>> =>
-  Effect.runPromise(issuesByKeysEffect(keys, site));
 
 /** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
 export const issueByKeyEffect = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>
@@ -400,9 +376,6 @@ export const issueByKeyEffect = (key: string, site: Site = {}): Effect.Effect<Is
     () => Effect.succeed(undefined),
   );
 
-/** TODO-MIGRATE — Promise facade over issueByKeyEffect. */
-export const issueByKey = (key: string, site: Site = {}): Promise<Issue | undefined> =>
-  Effect.runPromise(issueByKeyEffect(key, site));
 
 const stateOf = (status: string): WidgetState => {
   const s = status.toLowerCase();
@@ -411,7 +384,7 @@ const stateOf = (status: string): WidgetState => {
   return "none";
 };
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 export const jira: Integration = {
   name: "jira",

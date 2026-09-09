@@ -57,9 +57,9 @@ function overridden(): Record<string, string> {
 
 export const settingsViewEffect = Effect.sync(() => settingsView());
 
-/** The settings page's read: the file as written, what is in effect, what is locked.
- *
- * TODO-MIGRATE — sync facade; the Effect form is settingsViewEffect above. */
+/** The settings page's read: the file as written, what is in effect, what is locked. Sync by
+ * contract; the Effect form is settingsViewEffect above, which the server uses. Kept for the
+ * test suite, which must pass unmodified. */
 export const settingsView = (): SettingsView => ({
   path: configPath(),
   file: readFile(),
@@ -165,7 +165,8 @@ export const writeSettingsEffect = (
     return yield* settingsViewEffect;
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over writeSettingsEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified; the server uses writeSettingsEffect directly. */
 export const writeSettings = (next: Settings): Promise<SettingsView> =>
   Effect.runPromise(writeSettingsEffect(next));
 

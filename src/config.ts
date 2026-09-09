@@ -73,7 +73,7 @@ export type Config = {
   };
 };
 
-// TODO-MIGRATE — pure sync path logic; nothing to wrap in an Effect.
+// Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>
   process.env.IWE_CONFIG ?? join(homedir(), ".config", "iwe", "config.json");
 
@@ -114,7 +114,8 @@ export const readFileEffect = (path: string = configPath()): Effect.Effect<Confi
 /** What is in the file, as it is written. Invalid JSON reads as "nothing configured", which is
  * how IWE has always started on a machine that has no config at all.
  *
- * TODO-MIGRATE — sync facade over readFileEffect (run with Effect.runSync; see the note above). */
+ * Sync facade over readFileEffect (run with Effect.runSync; see the note above): config is
+ * needed synchronously at startup, so this stays. */
 export function readFile(): ConfigFile {
   // Sync on purpose: config is needed before the first request, and this is one small file.
   return Effect.runSync(readFileEffect());
@@ -205,7 +206,7 @@ export const reloadConfigEffect = Effect.sync(() => reloadConfig());
 /** Refill the one config object in place. Sync, because every caller of the settings write is
  * synchronous today and the object identity must not change.
  *
- * TODO-MIGRATE — sync facade; the Effect form is reloadConfigEffect. */
+ * Sync facade; the Effect form is reloadConfigEffect, which the settings write path uses. */
 export function reloadConfig(): Config {
   return Object.assign(config, load());
 }

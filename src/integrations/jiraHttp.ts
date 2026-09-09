@@ -34,7 +34,7 @@ const configPath = (file?: string): string =>
  * scalars at a known depth: `server` and `login` at the top level, `id` under `board`. A parser
  * would be a dependency and a lot of code to read four values that are already this easy to see.
  */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function parseJiraConfig(text: string): Partial<JiraSetup> {
   const top = (key: string): string | undefined =>
     new RegExp(`^${key}:\\s*(\\S+)\\s*$`, "m").exec(text)?.[1];
@@ -76,17 +76,11 @@ export const jiraSetupEffect = (file?: string): Effect.Effect<Partial<JiraSetup>
     return asking;
   });
 
-/** TODO-MIGRATE — Promise facade over jiraSetupEffect. */
-export const jiraSetup = (file?: string): Promise<Partial<JiraSetup>> =>
-  Effect.runPromise(jiraSetupEffect(file));
 
 /** Base URL of the Jira instance, for the links in the UI. */
 export const jiraBaseUrlEffect = (file?: string): Effect.Effect<string | undefined> =>
   Effect.map(jiraSetupEffect(file), (setup) => setup.server);
 
-/** TODO-MIGRATE — Promise facade over jiraBaseUrlEffect. */
-export const jiraBaseUrl = (file?: string): Promise<string | undefined> =>
-  Effect.runPromise(jiraBaseUrlEffect(file));
 
 /** What is missing, said in the words of the thing you would do about it. Fails with the message
  * the old throws carried (BadRequestError maps where the old thrown Error went — a 400 carrying
@@ -171,11 +165,6 @@ export const jiraFetchEffect = <T>(
     });
   });
 
-/** TODO-MIGRATE — Promise facade over jiraFetchEffect. */
-export const jiraFetch = <T>(
-  path: string,
-  init?: Parameters<typeof jiraFetchEffect<T>>[1],
-): Promise<T> => Effect.runPromise(jiraFetchEffect<T>(path, init));
 
 /** Jira's error shape, flattened to a line. */
 function explain(text: string): string {

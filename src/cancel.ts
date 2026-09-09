@@ -3,8 +3,8 @@ import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
 import { prSummaryEffect } from "./integrations/github.ts";
-import { archiveChange, writeChange } from "./changes.ts";
-import { stopTerminal } from "./terminal.ts";
+import { archiveChangeEffect, writeChangeEffect } from "./changes.ts";
+import { stopTerminalEffect } from "./terminal.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
 
@@ -79,11 +79,7 @@ export const cancelChangeEffect = (
     const loose = yield* looseEndsEffect(change);
 
     for (const repo of change.repos) yield* removeWorktreeEffect(change, repo);
-    // TODO-MIGRATE — src/terminal.ts is another worker's file; the server task sweeps this call site.
-    yield* Effect.tryPromise({
-      try: () => stopTerminal(change.id),
-      catch: (e) => new BadRequestError({ message: messageOf(e) }),
-    });
+    yield* stopTerminalEffect(change.id);
 
     // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
     // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
@@ -97,20 +93,14 @@ export const cancelChangeEffect = (
       state: "Cancelled",
       completedAt: new Date().toISOString(),
     };
-    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-    yield* Effect.tryPromise({
-      try: () => writeChange(cancelled),
-      catch: (e) => new BadRequestError({ message: messageOf(e) }),
-    });
-    // TODO-MIGRATE — src/changes.ts is another worker's file; the server task sweeps this call site.
-    yield* Effect.tryPromise({
-      try: () => archiveChange(change.id),
-      catch: (e) => new BadRequestError({ message: messageOf(e) }),
-    });
+    yield* writeChangeEffect(cancelled);
+    yield* archiveChangeEffect(change.id);
     return { _tag: "Done", change: cancelled, loose };
   });
 
-/** TODO-MIGRATE — Promise facade over cancelChangeEffect; same duck-typed JSON as before. */
+/** Promise facade over cancelChangeEffect, in the duck-typed shape the old code returned.
+ * Kept for the test suite, which drives the duck (`{ needsForce }` / `{ change, loose }`) and
+ * the thrown plain Errors, and must pass unmodified. */
 export async function cancelChange(
   change: Change,
   force = false,

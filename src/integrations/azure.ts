@@ -89,8 +89,6 @@ export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; proje
     });
   });
 
-// TODO-MIGRATE — callers are internal; azDefaultsEffect above is the Effect API.
-
 /**
  * Which Azure DevOps this workspace means, and how to say so on a command line.
  *
@@ -120,12 +118,9 @@ export const azForEffect = (workspace: Workspace): Effect.Effect<Az> =>
     };
   });
 
-/** TODO-MIGRATE — Promise facade over azForEffect. */
-export const azFor = (workspace: Workspace): Promise<Az> =>
-  Effect.runPromise(azForEffect(workspace));
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function runState(run: Run): WidgetState {
   if (run.status !== "completed") return "pending";
   switch (run.result) {
@@ -147,13 +142,13 @@ export const refsFor = (branch: string, pr?: number): string[] =>
     ? [`refs/pull/${pr}/merge`, `refs/heads/${branch}`]
     : [`refs/heads/${branch}`];
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** Azure DevOps pipeline folders mirror the service directories of a monorepo (`\service-x`),
  * which is how runs are attributed to a repository: `repository.name` comes back null. */
 export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /*
  * One call per distinct question, however many rows ask it: every repository of a change asks
@@ -241,12 +236,9 @@ export const activeRunsEffect = (change: Change, repo: string, pr?: number): Eff
     }).length;
   });
 
-/** TODO-MIGRATE — Promise facade over activeRunsEffect. */
-export const activeRuns = (change: Change, repo: string, pr?: number): Promise<number> =>
-  Effect.runPromise(activeRunsEffect(change, repo, pr));
 
 /** Mean duration of the last finished runs of a pipeline, across branches. */
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function averageDuration(runs: Run[]): number | undefined {
   const durations = runs
     .map((r) =>
@@ -281,9 +273,6 @@ export const expectedDurationEffect = (az: Az, definitionId: number): Effect.Eff
         : undefined;
     }));
 
-/** TODO-MIGRATE — Promise facade over expectedDurationEffect. */
-export const expectedDuration = (az: Az, definitionId: number): Promise<number | undefined> =>
-  Effect.runPromise(expectedDurationEffect(az, definitionId));
 
 /** The artifact version a build produced, as printed by the pipelines themselves. Ported from
  * a shell script that read the same lines out of build logs. */
@@ -295,7 +284,7 @@ const VERSION_PATTERNS = [
   /Built and pushed image as .*:([0-9]{8}\.\d+)\b/,
 ];
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 export function versionInLines(lines: string[]): string | undefined {
   for (const line of lines) {
     for (const pattern of VERSION_PATTERNS) {
@@ -381,9 +370,6 @@ export const versionOfEffect = (run: Run, project: string): Effect.Effect<string
     });
   });
 
-/** TODO-MIGRATE — Promise facade over versionOfEffect. */
-export const versionOf = (run: Run, project: string): Promise<string | undefined> =>
-  Effect.runPromise(versionOfEffect(run, project));
 
 const findVersionEffect = (
   project: string,
@@ -419,7 +405,7 @@ const worst = (states: WidgetState[]): WidgetState =>
           ? "ok"
           : "none";
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** Where a run can be looked at in Azure DevOps. Undefined when we do not know the
  * organisation or project, which is the same condition that makes everything else here empty. */
@@ -430,7 +416,7 @@ export function buildUrl(id: number, az?: Az): string | undefined {
     : undefined;
 }
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 /** One row per pipeline of this repository, with its runs for this ref as children. */
 export const pipelineItemsEffect = (
@@ -545,10 +531,3 @@ export const pipelineItemsEffect = (
     return { items, count };
   });
 
-/** TODO-MIGRATE — Promise facade over pipelineItemsEffect. */
-export const pipelineItems = (
-  change: Change,
-  repo: string,
-  pr?: number,
-): Promise<{ items: WidgetItem[]; count: number }> =>
-  Effect.runPromise(pipelineItemsEffect(change, repo, pr));

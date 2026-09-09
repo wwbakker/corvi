@@ -100,7 +100,8 @@ export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(functio
   return found.filter((l): l is Leftover => l !== undefined).sort((a, b) => b.kilobytes - a.kilobytes);
 });
 
-/** TODO-MIGRATE */
+/** Promise facade over listLeftoversEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const listLeftovers = (): Promise<Leftover[]> => Effect.runPromise(listLeftoversEffect);
 
 /**
@@ -149,6 +150,7 @@ export const removeLeftoverEffect = (name: string): Effect.Effect<void, BadReque
     }
   });
 
-/** TODO-MIGRATE */
+/** Promise facade over removeLeftoverEffect, in the old signature. Kept for the test suite,
+ * which must pass unmodified. */
 export const removeLeftover = (name: string): Promise<void> =>
   Effect.runPromise(removeLeftoverEffect(name));

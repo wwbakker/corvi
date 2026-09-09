@@ -52,7 +52,7 @@ const worst = (items: WidgetItem[]): WidgetState =>
           ? "ok"
           : "none";
 
-// TODO-MIGRATE — pure and synchronous: nothing for an Effect to wrap.
+// Pure and synchronous: nothing for an Effect to wrap.
 
 export const ci: Integration = {
   name: "ci",
