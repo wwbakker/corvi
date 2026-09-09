@@ -6,11 +6,18 @@
  *
  * The window is scripts/app/linux-window/iwe-window.py — a WebKitGTK window
  * onto the server (see docs/native-window.md), with `iwe` as its application
- * id, which is what StartupWMClass matches. The launcher starts the server if
- * nothing is listening, the same way the macOS app does: through the user's
- * login shell, so `bun` and whatever ~/.zshrc exports are there. Closing the
- * window leaves the server running — the same behaviour as closing the tab on
- * a dev server — and `iwe-app stop` stops the one the launcher started.
+ * id, which is what StartupWMClass matches. The window manages the server the
+ * same way the macOS app does: it starts one if nothing is listening (through
+ * the user's login shell, so `bun` and whatever ~/.zshrc exports are there)
+ * and stops it again when the window closes. A server that was already there
+ * belongs to whoever started it and is left alone; the pid-file the window
+ * writes is what `iwe-app stop` uses to clean up after a window that died
+ * harder than it could clean up after.
+ *
+ * Without the WebKitGTK bindings the launcher falls back to the browser's app
+ * mode, and there the old lifecycle applies: the launcher starts the server
+ * detached and it stays running after the tab closes, because a browser window
+ * cannot clean up after anything.
  *
  * Nothing is compiled: GTK and WebKit are in the system, Python talks to them
  * through the bindings it already has.
@@ -70,16 +77,18 @@ async function icons(): Promise<boolean> {
 /** The launcher: installed to ~/.local/bin/iwe-app, with the repository it serves written in,
  * like IWERoot and IWEPort in the macOS Info.plist — reinstall to point it somewhere else. */
 const launcher = (): string => `#!/bin/sh
-# The IWE app on Linux: starts the server if nothing is listening, then opens
-# the window (scripts/app/linux-window/iwe-window.py, a WebKitGTK window).
+# The IWE app on Linux: opens the window (scripts/app/linux-window/iwe-window.py,
+# a WebKitGTK window), which starts the server if nothing is listening and stops
+# it again when the window closes — the macOS behaviour.
 #
-#   iwe-app          start the server if needed, open the window
-#   iwe-app stop     stop the server THIS LAUNCHER started (see the pid-file);
-#                    servers you started yourself are left alone
+#   iwe-app          open the app
+#   iwe-app stop     stop the server recorded in the pid-file: the one a window
+#                    started, left behind only if that window died harder than
+#                    it could clean up after
 #
-# Closing the window leaves the server running, the way closing the tab on a
-# dev server does. The pid-file is how a later "stop it" knows which server
-# is ours to stop.
+# Without the WebKitGTK bindings this falls back to the browser's app mode, and
+# there the server is started detached and outlives the tab — a browser window
+# cannot clean up after anything.
 #
 # Installed by 'bun run app:install'; the repository is written in below.
 
@@ -113,7 +122,7 @@ ours() {
 
 stop() {
     if [ ! -f "$PID_FILE" ]; then
-        echo "not stopping: no pid-file at $PID_FILE — the launcher only stops a server it started itself"
+        echo "not stopping: no pid-file at $PID_FILE — nothing was left running"
         exit 0
     fi
     PID=$(cat "$PID_FILE" 2>/dev/null || true)
@@ -131,7 +140,7 @@ stop() {
         kill -KILL "$PID" 2>/dev/null || true
     fi
     rm -f "$PID_FILE"
-    echo "stopped: the server this launcher started (pid $PID)"
+    echo "stopped: the server the pid-file recorded (pid $PID)"
 }
 
 case "\${1:-start}" in
@@ -148,33 +157,38 @@ case "\${1:-start}" in
 esac
 
 mkdir -p "$LOG_DIR"
-if answers; then
-    echo "server already running on port $PORT — leaving it alone"
-else
-    : >> "$LOG"
-    # 'exec' so the shell becomes the server and the pid below is its pid.
-    nohup "$SHELL_BIN" -ilc "cd '$ROOT' && IWE_PORT='$PORT' NODE_ENV=production exec bun src/server.ts" >> "$LOG" 2>&1 &
-    echo $! > "$PID_FILE"
-    echo "starting the server — logs in $LOG"
-    for _ in $(seq 1 100); do
-        answers && break
-        sleep 0.1
-    done
-    if ! answers; then
-        echo "the server did not start — see $LOG"
-        exit 1
-    fi
-fi
 
-# The window is the app: closing it quits the window only.
-# Without the WebKitGTK bindings, fall back to the browser you already have.
+# The window is the app: it starts the server if nothing is listening and stops
+# it again when it closes. It is told where the code lives through the
+# environment, which a desktop entry alone would not give it.
 if python3 -c 'import gi; gi.require_version("WebKit2", "4.1")' 2>/dev/null; then
-    echo "opening the window (closing it leaves the server running; 'iwe-app stop' stops ours)"
+    export IWE_ROOT="$ROOT"
+    export IWE_PORT="$PORT"
     exec python3 "$WINDOW"
 fi
+
+# No WebKitGTK: the browser's app mode is the fallback, and a browser window
+# cannot start or stop a server — so this launcher does both, the old way.
 for browser in chromium chromium-browser google-chrome google-chrome-stable brave; do
     if command -v "$browser" >/dev/null 2>&1; then
-        echo "WebKitGTK not available — opening in $browser's app mode instead (install webkit2gtk-4.1 and python-gobject for the native window)"
+        if answers; then
+            echo "server already running on port $PORT — leaving it alone"
+        else
+            : >> "$LOG"
+            # 'exec' so the shell becomes the server and the pid below is its pid.
+            nohup "$SHELL_BIN" -ilc "cd '$ROOT' && IWE_PORT='$PORT' NODE_ENV=production exec bun src/server.ts" >> "$LOG" 2>&1 &
+            echo $! > "$PID_FILE"
+            echo "starting the server — logs in $LOG"
+            for _ in $(seq 1 100); do
+                answers && break
+                sleep 0.1
+            done
+            if ! answers; then
+                echo "the server did not start — see $LOG"
+                exit 1
+            fi
+        fi
+        echo "opening in $browser's app mode (install webkit2gtk-4.1 and python-gobject for the native window; the server keeps running after the tab closes — 'iwe-app stop' stops it)"
         exec "$browser" --app="$URL" --class=${APP_ID}
     fi
 done
@@ -209,7 +223,7 @@ async function install(): Promise<void> {
   console.log(`  launcher: ${launcherPath()}`);
   console.log(`  serves:   ${root} on port ${port} (bun run dev keeps 4000)`);
   if (!drawn) console.log("  no icon:  install librsvg for one (sudo pacman -S librsvg)");
-  console.log("  lifecycle: closing the window leaves the server running; 'iwe-app stop' stops the one the launcher started");
+  console.log("  lifecycle: the window starts the server if needed and stops it again when it closes — 'iwe-app stop' cleans up after a window that died harder");
   console.log("  the app may take a moment to appear in your launcher — the desktop database refreshes on its own");
 }
 

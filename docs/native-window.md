@@ -71,9 +71,11 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
 - External link activations go to the default browser via `xdg-open`
   (`decide-policy`); everything else stays in the window.
 - No GTK accelerators: all keystrokes reach the page.
-- Does **not** manage the server: if nothing answers on the port it says so
-  and keeps watching; closing the window (or `window.close()` from the page)
-  quits the window only. Launchable from a shell and from a `.desktop` entry
+- Manages the server, like the macOS app: if nothing answers on the port it starts one (through
+  the user's login shell, `IWE_ROOT` telling it where the code lives — the launcher exports
+  it), and closing the window (or `window.close()` from the page) stops the server it started.
+  A server that was already there belongs to whoever started it and is left alone; the pid-file
+  it writes is what `iwe-app stop` uses. Launchable from a shell and from a `.desktop` entry
   alike (it is the launcher's Exec target).
 - `test-page.html` exercises everything without the IWE server, including a
   `?autotest` mode that reports capabilities via `document.title`.
