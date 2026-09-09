@@ -146,21 +146,20 @@ export function Sidebar({
   return (
     <nav className="sidebar" style={{ width }}>
       {/* Which client's world this is. Everything below is what that context contains, so it
-          belongs above everything rather than beside it. */}
-      {workspaces.length > 1 && (
-        <ActionsMenu
-          className="workspace"
-          label={`${workspaces.find((w) => w.id === chosen)?.name ?? "All work"} ▾`}
-          actions={[
-            ...workspaces.map((w) => ({
-              label: w.name,
-              disabled: w.id === chosen,
-              onSelect: () => onChooseWorkspace(w.id),
-            })),
-            { label: "All work", separated: true, disabled: chosen === ALL, onSelect: () => onChooseWorkspace(ALL) },
-          ]}
-        />
-      )}
+          belongs above everything rather than beside it. Always shown, even with one
+          workspace: which context you are in should be visible, not implied. */}
+      <ActionsMenu
+        className="workspace"
+        label={`${workspaces.find((w) => w.id === chosen)?.name ?? "All work"} ▾`}
+        actions={[
+          ...workspaces.map((w) => ({
+            label: w.name,
+            disabled: w.id === chosen,
+            onSelect: () => onChooseWorkspace(w.id),
+          })),
+          { label: "All work", separated: true, disabled: chosen === ALL, onSelect: () => onChooseWorkspace(ALL) },
+        ]}
+      />
 
       <button
         className={current || deployments || settings ? "entry" : "entry current"}

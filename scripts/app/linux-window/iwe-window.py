@@ -5,8 +5,13 @@ The Linux counterpart of scripts/app/IWE.swift: a chromeless native window
 around the bundled HTTP server — no Electron, no Rust, no second browser.
 Engine is WebKitGTK (libwebkit2gtk-4.1) driven from Python via PyGObject,
 which costs zero compilation and zero code-gen: the bindings exist at
-runtime. It deliberately does NOT manage the server — starting, stopping
-and supervision belong to the Linux launcher (scripts/app.ts install).
+runtime. Like the macOS app, it manages the server it needs: nothing
+listening on the port means it starts one (through the user's login shell,
+so `bun` and whatever the rc file exports are there), and a window that
+closes normally stops the server it started — a server that was already
+there belongs to whoever started it and is left alone. The pid-file it
+leaves in $XDG_STATE_HOME/iwe is how `iwe-app stop` cleans up after a
+window that died harder than it could clean up after.
 
 Launch:
 
@@ -17,8 +22,10 @@ so a desktop entry with StartupWMClass=iwe groups and matches it.
 """
 
 import os
+import signal
 import subprocess
 import sys
+import time
 
 # WebKitGTK 2.4x+ uses a DMA-BUF renderer that crashes with "Error 71
 # (Protocol error)" on some Wayland setups (observed on an RTX 5080 /
@@ -56,9 +63,20 @@ DEFAULT_PORT = "43117"
 
 PORT = os.environ.get("IWE_PORT", DEFAULT_PORT).strip() or DEFAULT_PORT
 URL = f"http://127.0.0.1:{PORT}/"
-# Reserved for the future launcher (icon resolution, log paths); the window
-# itself only reads it so it is already part of the contract.
+# Where the code to serve lives. The launcher writes it in (IWE_ROOT); without
+# it there is nothing to start a server from, and the window only probes.
 ROOT = os.environ.get("IWE_ROOT", "").strip()
+
+# Where the server's output and the pid-file go — the same files the launcher
+# and `iwe-app stop` use, so every writer agrees on one contract.
+def state_dir() -> str:
+    return os.path.join(
+        os.environ.get("XDG_STATE_HOME", ""), "iwe"
+    ) if os.environ.get("XDG_STATE_HOME") else os.path.expanduser("~/.local/state/iwe")
+
+
+PID_FILE = os.path.join(state_dir(), "iwe-app.pid")
+LOG_FILE = os.path.join(state_dir(), "log")
 
 
 def show(message: str) -> str:
@@ -110,9 +128,14 @@ class App:
         self.configure_web()
         self.window.add(self.web)
 
-        # The window is the app: closing it quits, exactly like
-        # applicationShouldTerminateAfterLastWindowClosed on macOS.
-        self.window.connect("destroy", Gtk.main_quit)
+        # The server this window started, if any — the thing that gets stopped
+        # when the window goes away. A server already answering on the port
+        # belongs to whoever started it and is never touched.
+        self.server_pid: int | None = None
+
+        # The window is the app: closing it quits — and stops the server this
+        # window started, exactly like applicationWillTerminate on macOS.
+        self.window.connect("destroy", self.on_destroy)
         self.web.connect("close", self.on_page_close)
         # The page's title becomes the window title while it is open.
         self.web.connect("notify::title", self.on_title)
@@ -152,7 +175,74 @@ class App:
         # default data store): cookies, localStorage, permission decisions.
         # (Default WebContext — nothing ephemeral.)
 
+    # MARK: the server
+
+    def ensure_server(self):
+        """Start the server if nothing is answering — the macOS app's start()."""
+        if self._server_answers():
+            return  # already there: someone else's, left alone
+        if not ROOT:
+            return  # nothing to serve; the probe says so and keeps watching
+        os.makedirs(state_dir(), exist_ok=True)
+        # A login shell, because a desktop entry inherits nothing and `bun` and
+        # the tokens it needs are exported from the shell's rc file — the same
+        # reason IWE.swift runs /bin/zsh -ilc.
+        shell = os.environ.get("SHELL") or "/bin/bash"
+        with open(LOG_FILE, "a") as log:
+            process = subprocess.Popen(
+                [shell, "-ilc",
+                 f"cd '{ROOT}' && IWE_PORT='{PORT}' NODE_ENV=production exec bun src/server.ts"],
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=log,
+                start_new_session=True,
+            )
+        self.server_pid = process.pid
+        # 'exec' in the shell command makes the pid above the server's own pid,
+        # which is what makes the pid-file and `iwe-app stop` tell the truth.
+        with open(PID_FILE, "w") as f:
+            f.write(str(process.pid))
+
+    def _ours(self, pid: int) -> bool:
+        """Still there, and actually an IWE server rather than a recycled pid."""
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as f:
+                return b"src/server.ts" in f.read().replace(b"\x00", b" ")
+        except OSError:
+            return False
+
+    def stop_server(self):
+        """Stop the server this window started, if it is still ours."""
+        pid = self.server_pid
+        if pid is None or not self._ours(pid):
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        for _ in range(20):  # five seconds, then the harsh way
+            if not os.path.isdir(f"/proc/{pid}"):
+                break
+            time.sleep(0.25)
+        else:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        self.server_pid = None
+        try:
+            os.remove(PID_FILE)
+        except OSError:
+            pass
+
     # MARK: window events
+
+    def on_destroy(self, _window):
+        # Quitting the window quits the server it started. Terminals are tmux's
+        # and survive it, which is the same promise a restart of the server has
+        # always made.
+        self.stop_server()
+        Gtk.main_quit()
 
     def on_page_close(self, _web):
         # window.close() from JavaScript: closing the window quits.
@@ -253,16 +343,25 @@ class App:
 
     def run(self):
         self.window.show_all()
-        # The server is NOT started here — that is the launcher's job
-        # (scripts/app.ts install on Linux, matching the macOS split where
-        # IWE.swift is the only thing that manages a server). If nothing
-        # answers, say so instead of failing silently.
+        self.ensure_server()
+        # A signal is not a window close: without this, `kill` on the window
+        # (or a Ctrl-C in whatever terminal started it) would orphan the server
+        # it started. GLib's unix signal source is the safe way in — the
+        # callback runs on the main loop, not inside the signal itself.
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self.on_signal)
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGINT, self.on_signal)
         self.web.load_html(show(f"Starting IWE…\n\n{URL}"), None)
 
         self.probes = 0
         GLib.timeout_add(200, self._probe)
 
         Gtk.main()
+
+    def on_signal(self, *_args) -> bool:
+        """A killed window still stops the server it started."""
+        self.stop_server()
+        Gtk.main_quit()
+        return False
 
     def _probe(self) -> bool:
         """Wait for the server, then load it. Fast at first, then slow."""
@@ -271,11 +370,11 @@ class App:
             self.web.load_uri(URL)
             return False
         if self.probes == 300:  # ~60 s: time to say something
-            # Say so once, keep a slow re-probe — the launcher may still
-            # start it, and then the window simply becomes the app.
+            # Say so once, keep a slow re-probe — the server may still come up,
+            # and then the window simply becomes the app.
             self.web.load_html(
                 show(f"The server did not start — nothing is listening on {URL}."
-                     "\n\nStart it with your login shell, e.g.:\n"
+                     "\n\nSee the log at " + LOG_FILE + ", or start it by hand:\n"
                      f"    IWE_PORT={PORT} bun src/server.ts"),
                 None,
             )

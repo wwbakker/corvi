@@ -297,13 +297,18 @@ made a voice extension fail silently inside the macOS view, closed by asking the
 deliberately for our own origin. Without the WebKitGTK bindings the launcher falls back to your
 installed Chromium's `--app` mode.
 
-Lifecycle: clicking the icon (or running `iwe-app`) starts the server if nothing is listening on
-43117 — through your login shell, so `bun` and `JIRA_API_TOKEN` come from your rc file — then
-opens the window. **Closing the window leaves the server running**, the way closing the tab on a
-dev server does. `iwe-app stop` stops the server the launcher itself started: it keeps the pid in
-`~/.local/state/iwe/iwe-app.pid`, checks that pid is still an IWE server, and refuses anything
-else. Logs land in `~/.local/state/iwe/log`. `app:uninstall` removes the entry, launcher and
-icons and leaves the logs alone.
+Lifecycle: clicking the icon (or running `iwe-app`) opens the window, which then manages the
+server exactly the way the macOS app does: nothing listening on 43117 means it starts one —
+through your login shell, so `bun` and `JIRA_API_TOKEN` come from your rc file — and **closing
+the window stops the server it started**. Terminals are tmux's and survive that, which is the
+same promise a restart of the server has always made. A server that was already listening
+belongs to whoever started it and is left alone. The window records the pid of the server it
+started in `~/.local/state/iwe/iwe-app.pid`, so `iwe-app stop` can still stop a server left
+behind by a window that died harder than it could clean up after; it checks that pid is still
+an IWE server and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without the
+WebKitGTK bindings the launcher falls back to the browser's app mode, where the server is
+started detached and outlives the tab — a browser window cannot clean up after anything.
+`app:uninstall` removes the entry, launcher and icons and leaves the logs alone.
 
 ## Installing it as an app
 
@@ -337,7 +342,10 @@ A workspace is a **context**: a client, or your own projects. Configured, never 
 The switcher sits at the top of the navigation column, above everything that belongs to it, and
 filters the change list, the sidebar and what a new change is made in. `All work` shows
 everything, which is a filter rather than a workspace and is set apart in the menu for that
-reason. With no workspaces configured there is no switcher and nothing changes.
+reason. It is always shown, even with a single workspace: which context you are in should be
+visible, not implied. And there is no such thing as no workspaces — a machine that has not
+configured any gets one **Default workspace**, which is what IWE was before workspaces existed
+and behaves the same.
 
 A change records the workspace it was made in (`"workspace": "client"` in `change.json`) — one
 line, no directory moves, and moving a change between contexts later is one field. A change made

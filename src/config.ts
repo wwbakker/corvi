@@ -32,8 +32,9 @@ export type Workspace = {
 };
 
 /** What a change made before workspaces existed belongs to: the first one, which for everybody
- * who has not configured any is the only one. */
-export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "All work" };
+ * who has not configured any is the only one. There is no such thing as no workspaces: a
+ * machine that has not configured any gets this one, which behaves as IWE always did. */
+export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
 
 /** File-based config, read once at startup. Environment variables still win, so tests and
  * one-off runs need no file. */
@@ -54,8 +55,8 @@ export type Config = {
   /** Azure DevOps organisation and project; empty means "whatever az devops configure holds". */
   azureOrganization: string;
   azureProject: string;
-  /** The contexts you switch between. One unnamed one when nothing is configured, which is what
-   * IWE was before this and behaves the same. */
+  /** The contexts you switch between. Never empty: when nothing is configured, the default
+   * workspace stands in, which is what IWE was before this and behaves the same. */
   workspaces: Workspace[];
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */

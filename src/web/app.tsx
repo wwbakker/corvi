@@ -204,8 +204,8 @@ function App() {
         {view.name === "settings" && <SettingsPage onSaved={reloadWorkspaces} />}
         {view.name === "new" && (
           <Wizard
+            workspaces={workspaces}
             workspace={workspace?.id}
-            hasJira={workspace?.jira !== false}
             onCreated={(c, provision) => {
               void reload();
               setView({ name: "change", id: c.id, page: "dashboard", provision });

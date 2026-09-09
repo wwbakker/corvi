@@ -3,19 +3,21 @@ import { branchFor } from "../branch.ts";
 import { post, type Change, type Created, type Issue, type Selection } from "./api.ts";
 import { IssueTable } from "./IssueTable.tsx";
 import { RepoBrowser } from "./RepoBrowser.tsx";
+import type { Workspace } from "./workspaces.ts";
 
 /** One step per component: the change is configured component by component, then created. */
 export function Wizard({
+  workspaces,
   workspace,
-  hasJira = true,
   onCreated,
   onCancel,
 }: {
-  /** The context it is made in, recorded on the change. */
+  /** The contexts there are to choose from. */
+  workspaces: Workspace[];
+  /** The context the switcher is on. A specific one is prefilled and fixed — the switcher
+   * decides, and changing it changes this wizard with it. Undefined, which is what "All work"
+   * means, leaves the choice to the wizard. */
   workspace?: string;
-  /** Whether this context has a Jira at all: a personal project has no ticket to pick, and a
-   * step that can only say so is a step in the way. */
-  hasJira?: boolean;
   onCreated: (change: Change, provision: Created["provision"]) => void;
   onCancel: () => void;
 }) {
@@ -26,6 +28,16 @@ export function Wizard({
   const [repos, setRepos] = useState<Selection[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // The change's context. The switcher's choice wins while it names one; "All work" hands the
+  // decision to the wizard, which keeps its own — defaulting to the first context, which is
+  // what the server would assume anyway.
+  const [picked, setPicked] = useState<string>();
+  const chosen = workspace ?? picked ?? workspaces[0]?.id;
+
+  // What the chosen context has. Without Jira the first step is not empty, it is absent — and
+  // which steps there are follows the choice, wherever it was made.
+  const hasJira = workspaces.find((w) => w.id === chosen)?.jira !== false;
 
   // Picking an issue only prefills; the fields on the next step stay editable.
   const select = (picked: Issue | null) => {
@@ -54,7 +66,7 @@ export function Wizard({
     post<Created>("/changes", {
       id,
       branch,
-      workspace,
+      workspace: chosen,
       jira: issue?.key,
       repos: repos.map((r) => r.path),
       direct: repos.filter((r) => r.direct).map((r) => r.path),
@@ -97,10 +109,29 @@ export function Wizard({
 
       {error && <div className="error-banner">{error}</div>}
 
-      {step === jiraStep && <IssueTable workspace={workspace} selected={issue} onSelect={select} />}
+      {step === jiraStep && <IssueTable workspace={chosen} selected={issue} onSelect={select} />}
 
       {step === changeStep && (
         <div className="form">
+          <label>
+            Workspace
+            <select
+              value={chosen ?? ""}
+              disabled={Boolean(workspace)}
+              onChange={(e) => setPicked(e.target.value)}
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name}
+                </option>
+              ))}
+            </select>
+            <small>
+              {workspace
+                ? "the context the switcher is on — change it there"
+                : "which context this change belongs to"}
+            </small>
+          </label>
           <label>
             Change id
             <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. PROJ-123" />
