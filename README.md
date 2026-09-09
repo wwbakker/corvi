@@ -421,6 +421,13 @@ list) is migrated on load — the flag becomes an explicit list naming everythin
 legacy `jira` object is folded into `extensionSettings.jira`. The migration is automatic, for
 hand-edits and settings-page writes alike.
 
+Extensions do not have to live in this repository: `"extensionPaths"` in the config (or the
+`IWE_EXTENSION_PATHS` environment variable) names `.ts` modules or directories of them, loaded
+at startup beside the built-ins through the same contract, with `~/.config/iwe/extensions/`
+searched implicitly when it exists. A discovered extension's wizard step gets its interface
+from a `client.tsx` beside the module, which the server builds and serves to the page — see
+"Out-of-tree extensions" in [docs/extensions.md](docs/extensions.md).
+
 **A second client is a second site.** `extensionSettings.jira.configFile` points at another
 `jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
 variable holding that site's token, and `azure.organization`/`project` are passed to `az`
@@ -1292,14 +1299,15 @@ every 15s, and a slow or broken CLI delays only its own row.
 
 ## Adding an integration
 
-Write an extension (see [docs/extensions.md](docs/extensions.md)): a module under `src/extensions/`
-whose default export is a factory receiving the API. `registerCard` takes the same shape the
+Write an extension (see [docs/extensions.md](docs/extensions.md)): a module whose default export
+is a factory receiving the API. `registerCard` takes the same shape the
 integrations always had — `status(change)` for a whole widget or `repoStatus(change, repo)` to be
 fetched a repository at a time — and the UI renders whatever widgets come back; a card needs no
 frontend change. A wizard step is `registerWizardStep` plus a React component in the extension's
-`client.tsx`, and `on("change:created")` is the creation hook. Add the module to the loader in
-`src/extensions/index.ts` and, when it has a step, to the client registry in
-`src/web/extensions.tsx`.
+`client.tsx`, and `on("change:created")` is the creation hook. A built-in is added to the loader
+in `src/extensions/index.ts` and, when it has a step, to the client registry in
+`src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
+and registers nowhere.
 
 ## Tests and your real changes
 

@@ -119,8 +119,10 @@ export const step: StepComponent = ({ ctx }) => {
 };
 ```
 
-Register it in `src/web/extensions.tsx`'s client registry and in `src/extensions/index.ts`'s
-loader — two lines each, until extensions load dynamically.
+A built-in registers its halves in two places — the loader (src/extensions/index.ts) and, when
+it has a step, the page's client registry (src/web/extensions.tsx). An out-of-tree extension
+registers nowhere: it is discovered from the config and loaded through the same install path
+(below).
 
 Three rules keep the halves honest:
 
@@ -129,6 +131,44 @@ Three rules keep the halves honest:
 2. **Everything crossing the boundary is JSON.** "Callbacks" are route calls.
 3. **Refresh goes through the event stream.** The server announces what changed; components
    re-read, like every other card on the page.
+
+## Out-of-tree extensions
+
+An extension does not have to live in this repository. The config file gains a list of paths:
+
+```json
+{
+  "extensionPaths": ["~/exts/my-extension", "~/exts/other/index.ts"]
+}
+```
+
+Each path is a `.ts` module file, or a directory — a directory contributes its immediate `.ts`
+files plus any `*/index.ts`, in directory order. `~` is expanded and duplicates are ignored;
+`~/.config/iwe/extensions/` is searched in addition, when it exists, without being configured.
+The environment variable `IWE_EXTENSION_PATHS` (comma-separated) wins over the file — an empty
+value counts as unset — and the settings page edits the file's list.
+
+After the built-ins load, each discovered module is imported from disk and its default export
+runs through the same install/factory path: a static description installs as-is, a factory runs
+once with the startup capabilities. Every failure — a missing file, a module that throws on
+import, one without a default export, a failed factory — is logged and skipped: a broken
+optional extension is an extension absent, never a failed server. Nothing about the contract
+changes with the extension's address; `api.ts` is still the whole promise. Loading happens
+once, at startup, so a change to the paths needs a restart.
+
+A discovered module's **client half** is the sibling `client.tsx`, when it exists. The page
+cannot bundle it — it was written after the page was built, or changes without one — so the
+server builds it at startup (Bun.build, react and its jsx runtimes external) into the XDG state
+directory and serves it at `GET /extensions/<name>/client.js`. The wizard's step host imports
+that URL at runtime when a step's extension has no static entry in the page's registry.
+
+So that the served chunk and the page run one react — two reacts break hooks and context — the
+server also builds vendor chunks once from the app's own react entrypoints and serves them at
+`/vendor/react.js`, `/vendor/react-dom.js`, `/vendor/react-jsx-runtime.js` and
+`/vendor/react-dom-client.js`, and the page carries an import map mapping `react`,
+`react/jsx-runtime`, `react/jsx-dev-runtime`, `react-dom` and `react-dom/client` to those URLs.
+The page's own bundle resolves react at build time and never consults the map; it is the served
+chunks' bare specifiers that resolve through it.
 
 ## Data on a change
 
@@ -174,9 +214,11 @@ and the extension reads it back from the request's `Workspace` tag (the jira ext
 
 ## Scope, honestly stated
 
-- Extensions are **built-ins**: they ship with IWE, are imported statically, and get the host's
-  capabilities through the R channel rather than by importing internals. `api.ts` is the whole
-  promise — when out-of-tree extensions arrive, that is all they get.
+- Extensions ship as **built-ins** and as **out-of-tree modules** (above). The built-ins are
+  imported statically and get the host's capabilities through the R channel rather than by
+  importing internals; the out-of-tree ones are imported from disk through the same install
+  path and get the same capabilities, because they run in the same process. `api.ts` is the
+  whole promise either way — its exports are all an extension may import.
 - Deployments, terminals and the CI card's composition are still core code. They are candidates
   for the same treatment, not examples of it.
 - There are no interception-style events yet (nothing can block or transform a core action).

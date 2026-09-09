@@ -447,6 +447,18 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
         )}
       </div>
 
+      <h2 className="section">Extensions</h2>
+      <div className="form">
+        <ListEditor
+          label="Out-of-tree extension paths"
+          hint="TypeScript modules loaded beside the built-ins: a .ts file, or a directory whose immediate .ts files and */index.ts are loaded. ~/.config/iwe/extensions is searched as well, when it exists. Loading happens once, at startup — a change here needs a restart."
+          values={draft.extensionPaths ?? []}
+          placeholder="/home/me/my-extension"
+          locked={lock("extensionPaths")}
+          onChange={(extensionPaths) => set({ extensionPaths })}
+        />
+      </div>
+
       <h2 className="section">Jira</h2>
       <div className="form">
         <Field

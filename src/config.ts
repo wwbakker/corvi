@@ -68,6 +68,11 @@ export type Config = {
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */
   worktreeCopy: string[];
+  /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
+   * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/extensions/index.ts). `~` is
+   * expanded and duplicates dropped; ~/.config/iwe/extensions is searched in addition, when
+   * it exists. A change here needs a restart — extensions load once, at startup. */
+  extensionPaths: string[];
   /** How this organisation deploys. None of these names are ours, so all of them are settings:
    * a build pipeline's deploy twin is named by swapping the prefixes, and the deploy pipeline is
    * given the version and the environment as parameters. */
@@ -151,6 +156,7 @@ export const ENV_OVERRIDES: Record<string, string> = {
   azureOrganization: "IWE_AZURE_ORG",
   azureProject: "IWE_AZURE_PROJECT",
   worktreeCopy: "IWE_WORKTREE_COPY",
+  extensionPaths: "IWE_EXTENSION_PATHS",
   "azureDeploy.environments": "IWE_AZURE_ENVIRONMENTS",
 };
 
@@ -179,6 +185,7 @@ function load(): Config {
         : process.env.IWE_WORKTREE_COPY.split(",")
             .map((n) => n.trim())
             .filter(Boolean),
+    extensionPaths: extensionPathsFrom(file),
     azureOrganization: process.env.IWE_AZURE_ORG ?? file.azureOrganization ?? "",
     azureProject: process.env.IWE_AZURE_PROJECT ?? file.azureProject ?? "",
     azureDeploy: {
@@ -196,6 +203,25 @@ function load(): Config {
         ),
     },
   };
+}
+
+/** The extension paths, resolved: the environment override (comma-separated) wins over the
+ * file — an empty one counts as unset, since it names nothing — `~` is expanded, and empties
+ * and duplicates are dropped. The implicit default directory is not here — it is a convention
+ * the loader adds (src/extensions/index.ts), not a decision the file records, so the settings
+ * page shows exactly what was configured. */
+function extensionPathsFrom(file: ConfigFile): string[] {
+  const override = process.env.IWE_EXTENSION_PATHS?.trim();
+  const raw = override ? override.split(",") : (file.extensionPaths ?? []);
+  const seen = new Set<string>();
+  const paths: string[] = [];
+  for (const item of raw) {
+    const path = expandTilde(item.trim());
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+  return paths;
 }
 
 /**

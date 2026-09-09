@@ -5,11 +5,13 @@ import type { Selection } from "./api.ts";
  * The client halves of the extensions, and the host that renders them.
  *
  * An extension's interface is a React component it ships next to its server half, exported as
- * `step`. While extensions are built-ins, the registry below is plain build-time dynamic
- * imports: the bundler makes each its own chunk, loaded the first time a page renders that
- * extension's step. When out-of-tree extensions arrive this becomes a fetch of a chunk the
- * server built; the contract — one module exporting `step` — stays, which is why the server,
- * not the page, decides what exists: the wizard is told the steps, and renders what it is told.
+ * `step`. Built-ins are in the registry below — build-time dynamic imports, each made its own
+ * chunk by the bundler, loaded the first time a page renders that extension's step. An
+ * out-of-tree extension has no static entry: its client was never seen by the bundler, so
+ * StepHost falls back to importing the chunk the server built and serves at
+ * /extensions/<name>/client.js. The contract — one module exporting `step` — stays, which is
+ * why the server, not the page, decides what exists: the wizard is told the steps, and
+ * renders what it is told.
  */
 
 /** What the wizard has in hand while its steps run, shared between them. */
@@ -39,19 +41,23 @@ export const clients: Record<string, () => Promise<{ step: StepComponent }>> = {
   "github-issues": () => import("../extensions/github-issues/client.tsx"),
 };
 
-/** One extension's step, with its client module loaded the first time it is shown. A step whose
- * extension has no interface (or whose module fails to load) says so rather than vanishing. */
+/** An import the bundler cannot resolve at build time: the specifier is computed, so it
+ * stays a runtime import (verified against `bun build src/web/index.html`) and the request
+ * goes to the server, which answers with the chunk it built for that extension. A static
+ * import here would fail the whole page's build — the module does not exist at build time. */
+const runtimeImport = (specifier: string): Promise<{ step: StepComponent }> => import(specifier);
+
+/** One extension's step, with its client module loaded the first time it is shown. A step
+ * whose extension has no static entry is an out-of-tree extension: its client chunk comes
+ * from the server. A step whose module cannot be loaded at all says so rather than vanishing. */
 export function StepHost({ info, ctx }: { info: StepInfo; ctx: StepContext }) {
   const [Step, setStep] = useState<StepComponent>();
   const [error, setError] = useState<string>();
   useEffect(() => {
     let alive = true;
     const load = clients[info.extension];
-    if (!load) {
-      setError(`${info.extension} has no interface on this page`);
-      return;
-    }
-    load()
+    const loader = load ?? (() => runtimeImport(`/extensions/${info.extension}/client.js`));
+    loader()
       .then((m) => {
         if (alive) setStep(() => m.step);
       })

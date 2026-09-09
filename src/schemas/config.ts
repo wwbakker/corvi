@@ -109,6 +109,10 @@ export const ConfigFile = Schema.Struct({
   // tolerance via workspacesFrom, exactly where it always sat.
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Where out-of-tree extension modules live: .ts files or directories, `~` allowed. Not
+   * validated here — a path that does not exist is logged and skipped by the loader, not a
+   * reason to reject the file. */
+  extensionPaths: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   azureDeploy: Schema.optional(AzureDeploy),
 });
 
@@ -134,6 +138,7 @@ export const Resolved = Schema.Struct({
   azureProject: Schema.String,
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
+  extensionPaths: Schema.Array(Schema.String),
   azureDeploy: Schema.Struct({
     pipeline: Schema.Tuple(Schema.String, Schema.String),
     versionParameter: Schema.String,

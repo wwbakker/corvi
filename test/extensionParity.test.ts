@@ -15,10 +15,13 @@ import { clients } from "../src/web/extensions.tsx";
  * Both directions are pinned: a wizard step with no client entry shows "… has no
  * interface on this page" in the wizard, and a client entry for an extension
  * without steps is a chunk nothing ever loads.
+ *
+ * Out-of-tree extensions (a clientPath on the loaded record) are exempt: their client is a
+ * chunk the server built and serves, not an entry in a registry the bundler saw.
  */
 
 const wizardNames = () =>
-  loaded.filter((e) => e.wizardSteps.length > 0).map((e) => e.name);
+  loaded.filter((e) => e.wizardSteps.length > 0 && !e.clientPath).map((e) => e.name);
 
 test("every loaded extension with wizard steps has a client entry", () => {
   for (const name of wizardNames()) {
