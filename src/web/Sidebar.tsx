@@ -4,6 +4,7 @@ import { stateClass } from "./changeState.tsx";
 import { CiIcon, TerminalIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, type ChangeSummary } from "../types.ts";
 import { windowLabel, type TerminalWindow } from "./windowLabel.ts";
+import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "./workspaces.ts";
 import type { Platform } from "./newWindowKey.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
@@ -12,13 +13,14 @@ import { ActionsMenu } from "./ActionsMenu.tsx";
 export type Page = "dashboard" | "review" | "terminals";
 
 /** How wide the column is, remembered between visits: it is furniture, and moving it back every
- * morning would be its own small annoyance. */
+ * morning would be its own small annoyance. A cookie rather than localStorage: the app serves
+ * itself from a fresh port every launch, and localStorage is scoped to the port (see prefs.ts). */
 const WIDTH_KEY = "iwe:sidebar-width";
 const MIN = 160;
 const MAX = 480;
 
 const storedWidth = (): number => {
-  const stored = Number(localStorage.getItem(WIDTH_KEY));
+  const stored = Number(getPref(WIDTH_KEY));
   return stored >= MIN && stored <= MAX ? stored : 220;
 };
 
@@ -133,7 +135,7 @@ export function Sidebar({
       if (!dragging.current) return;
       dragging.current = false;
       document.body.classList.remove("resizing");
-      localStorage.setItem(WIDTH_KEY, String(width));
+      setPref(WIDTH_KEY, String(width));
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);

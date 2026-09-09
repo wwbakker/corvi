@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "./api.ts";
+import { getPref, setPref } from "./prefs.ts";
 import type { Change } from "./api.ts";
 import type { Platform } from "./newWindowKey.ts";
 
@@ -23,6 +24,8 @@ export const ALL = "*";
  * in the browser. */
 export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
 
+// A cookie rather than localStorage: the app serves itself from a fresh port every launch, and
+// localStorage is scoped to the port (see prefs.ts).
 const CHOSEN = "iwe:workspace";
 
 /**
@@ -34,7 +37,7 @@ const CHOSEN = "iwe:workspace";
  */
 export function useWorkspaces() {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [chosen, setChosen] = useState<string>(() => localStorage.getItem(CHOSEN) ?? ALL);
+  const [chosen, setChosen] = useState<string>(() => getPref(CHOSEN) ?? ALL);
   // Until this is known, no list is shown. A moment of "everything" before the filter arrives
   // would be a moment of another client's work on the screen, which is the one thing a
   // workspace exists to prevent.
@@ -59,7 +62,7 @@ export function useWorkspaces() {
   }, []);
 
   const choose = (id: string) => {
-    localStorage.setItem(CHOSEN, id);
+    setPref(CHOSEN, id);
     setChosen(id);
   };
 

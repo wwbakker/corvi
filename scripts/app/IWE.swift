@@ -8,20 +8,53 @@
 // browser can open, which is deliberate — the app is a convenience, not the product.
 
 import AppKit
+import Darwin
 import WebKit
 
-/// Where the code is and which port it serves on: written into Info.plist at install time, so the
-/// binary is not rebuilt when either changes.
+/// Where the code is: written into Info.plist at install time, so the binary is not rebuilt
+/// when it changes. (The port is not here any more — the app picks a fresh one at launch.)
 let root = Bundle.main.object(forInfoDictionaryKey: "IWERoot") as? String ?? ""
 /// What this copy is called, so a sandbox copy says so in its own title bar and menu rather than
 /// looking exactly like the app you use.
 let name = Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String
     ?? "Integrated Work Environment"
-/// Its own port, five digits, so the app never meets `bun run dev` on 4000: the app is the
-/// production build of whatever is checked out, and the dev server is for editing it.
-let port = Bundle.main.object(forInfoDictionaryKey: "IWEPort") as? String ?? "43117"
+/// A fresh port every launch, so the server behind this window is always one this window
+/// started: there is nothing stale on a fixed port to attach to by mistake, and the app can
+/// never meet `bun run dev` on 4000. Picked by binding to port 0 and reading what the kernel
+/// gave — the fixed port this replaced did exactly the opposite, attaching to whatever was
+/// already listening, stale code and all.
+let port = freePort() ?? 43117
 let url = URL(string: "http://127.0.0.1:\(port)/")!
 let logPath = ("~/Library/Logs/iwe.log" as NSString).expandingTildeInPath
+
+/// The first port the kernel hands out on the loopback: bind to 0, read, close. Closing the
+/// socket leaves a moment in which another process could take the port, but the server binds it
+/// back within the second it takes to start, and losing that race is visible — the window says
+/// the server did not start — where attaching to a stranger on a fixed port was silent.
+func freePort() -> Int? {
+    var address = sockaddr_in()
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_addr = in_addr(s_addr: INADDR_LOOPBACK.bigEndian)
+    address.sin_port = 0
+    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    guard fd >= 0 else { return nil }
+    defer { close(fd) }
+    let bound = withUnsafePointer(to: &address) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
+        }
+    }
+    guard bound == 0 else { return nil }
+    var name = sockaddr_in()
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let named = withUnsafeMutablePointer(to: &name) {
+        $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            getsockname(fd, $0, &length)
+        }
+    }
+    guard named == 0 else { return nil }
+    return Int(UInt16(bigEndian: name.sin_port))
+}
 
 /// The page's own background, so the window, the title bar and the gap before the first paint are
 /// all one colour instead of a white flash.
@@ -30,9 +63,8 @@ let background = NSColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1a / 25
 final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
     var window: NSWindow!
     var web: WKWebView!
-    /// The server, when this app started it — which on the app's own port is every time. A
-    /// server that was somehow already there belongs to whoever started it and is left alone on
-    /// quit.
+    /// The server this app started — which is every launch, the port being fresh. On quit it is
+    /// stopped; a server somebody started themselves was never this app's to touch.
     var server: Process?
 
     func applicationDidFinishLaunching(_ note: Notification) {
@@ -43,12 +75,10 @@ final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDele
         NSApp.setAccessibilityEnabled(true)
         buildMenu()
         buildWindow()
-        if answers() {
-            web.load(URLRequest(url: url))
-        } else {
-            show(message: "Starting IWE…")
-            start()
-        }
+        // No "attach to whatever is listening" branch: on a port picked this second, nothing is
+        // listening, so the server is always this app's own.
+        show(message: "Starting IWE…")
+        start()
     }
 
     // MARK: the window
@@ -98,6 +128,8 @@ final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDele
 
     // MARK: the server
 
+    /// Nothing is listening when the app opens — the port was picked this second — so this is
+    /// only ever the readiness probe for a server this app itself started.
     func answers() -> Bool {
         var request = URLRequest(url: url)
         request.timeoutInterval = 1

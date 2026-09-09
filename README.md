@@ -220,22 +220,25 @@ bun run app:uninstall    # Linux: desktop entry, icons and the iwe-app launcher
 ```
 
 A real application: an icon the app grid knows, a window whose title bar is the same colour as the
-page, and the server inside it. Clicking it **starts the server if nothing is listening**, shows
-"Starting IWE…" on the page's own background while it waits, then loads the app.
+page, and the server inside it. Clicking it **starts the app's own server — on a fresh port,
+picked at launch** — shows "Starting IWE…" on the page's own background while it waits, then loads
+the app.
 
-**The app has its own port — 43117 — and always runs the production build.** `bun run dev` keeps
-4000. They used to share a port, and the app attached to whatever was listening: a dev server left
-running from last week silently became "the app", with last week's code and no way to tell from
-the window. That is exactly how a missing `/api/settings` came to be reported as "The string did
-not match the expected pattern". Five digits because nobody types this one — it is reached by
-clicking an icon.
+**The app always runs the production build, on a fresh port.** `bun run dev` keeps 4000. They used
+to share a port, and the app attached to whatever was listening: a dev server left running from
+last week silently became "the app", with last week's code and no way to tell from the window.
+That is exactly how a missing `/api/settings` came to be reported as "The string did not match the
+expected pattern". A fixed port of its own fixed that — until a *stale* server was left listening
+on it, which the app then attached to with the same confidence. So the window now picks a free
+port at each launch and starts its own server on it: there is nothing to attach to by mistake,
+and nothing to collide with.
 
 So the two are now separate things rather than two ways to start the same thing:
 
 | | `bun run dev` | the app |
 | --- | --- | --- |
 | for | editing IWE | using IWE |
-| port | 4000 | 43117 |
+| port | 4000 | fresh each launch |
 | build | rebuilt as you edit | built once, `NODE_ENV=production` |
 | on a code change | restarts itself (`--watch`) | picks it up when you next launch it |
 | output | your terminal | macOS: `~/Library/Logs/iwe.log` · Linux: `~/.local/state/iwe/log` |
@@ -267,8 +270,9 @@ Two details that took a bug each:
 - **It runs an interactive login shell** (`zsh -ilc`). A bundle launched from the Dock inherits
   nothing, and `bun` and `JIRA_API_TOKEN` are exported from `~/.zshrc`, which a *non-interactive*
   login shell does not read. `zsh -lc` looked right and failed with `command not found: bun`.
-- **The root and port live in `Info.plist`**, not in the binary, so moving the repository or
-  changing the port is a reinstall of a plist rather than a rebuild.
+- **The root lives in `Info.plist`**, not in the binary, so moving the repository is a reinstall
+  of a plist rather than a rebuild. The port is nobody's to configure: the window picks a free
+  one at launch.
 
 `app:install` **quits a running app and puts it back on the new build**: `open` on a running
 application only focuses it, so a rebuild would otherwise leave you looking at the previous one —
@@ -285,8 +289,8 @@ The same `app:install` puts three things in your home directory: a **desktop ent
 (`~/.local/share/applications/iwe.desktop`), **icons** rendered from `assets/icon.svg` into
 `~/.local/share/icons/hicolor/<size>/apps/iwe.png` (skipped with a note if `rsvg-convert` is
 missing — the app works without one), and a **launcher**, `~/.local/bin/iwe-app`, with the
-repository and port written in: the same trade as `Info.plist`, so moving the repository is a
-reinstall, not a rebuild.
+repository written in: the same trade as `Info.plist`, so moving the repository is a reinstall,
+not a rebuild. The port appears nowhere in it — the window picks a fresh one at launch.
 
 The window is WebKitGTK driven from Python through the bindings already on the machine, in about
 three hundred lines (`scripts/app/linux-window/iwe-window.py`) — no Electron, no Rust, no second
@@ -298,14 +302,13 @@ deliberately for our own origin. Without the WebKitGTK bindings the launcher fal
 installed Chromium's `--app` mode.
 
 Lifecycle: clicking the icon (or running `iwe-app`) opens the window, which then manages the
-server exactly the way the macOS app does: nothing listening on 43117 means it starts one —
-through your login shell, so `bun` and `JIRA_API_TOKEN` come from your rc file — and **closing
-the window stops the server it started**. Terminals are tmux's and survive that, which is the
-same promise a restart of the server has always made. A server that was already listening
-belongs to whoever started it and is left alone. The window records the pid of the server it
-started in `~/.local/state/iwe/iwe-app.pid`, so `iwe-app stop` can still stop a server left
-behind by a window that died harder than it could clean up after; it checks that pid is still
-an IWE server and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without the
+server exactly the way the macOS app does: it starts one of its own — on a fresh port, picked at
+launch, through your login shell so `bun` and `JIRA_API_TOKEN` come from your rc file — and
+**closing the window stops the server it started**. Terminals are tmux's and survive that, which
+is the same promise a restart of the server has always made. The window records the pid of the
+server it started in `~/.local/state/iwe/iwe-app-<port>.pid`, so `iwe-app stop` can still stop a
+server left behind by a window that died harder than it could clean up after; it checks each pid
+is still an IWE server and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without the
 WebKitGTK bindings the launcher falls back to the browser's app mode, where the server is
 started detached and outlives the tab — a browser window cannot clean up after anything.
 `app:uninstall` removes the entry, launcher and icons and leaves the logs alone.
