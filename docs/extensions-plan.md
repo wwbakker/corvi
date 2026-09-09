@@ -1,5 +1,9 @@
 # Extensions: plan for the task-board slice
 
+> **Superseded.** This plan is fully implemented; the current description of the
+> extension system lives in [`docs/extensions.md`](extensions.md). This file is
+> kept as a record of what was planned and why.
+
 The extension model, decided in discussion: extensions are built-in TypeScript modules that
 contribute to **host surfaces** (additive; no vendor-category interfaces in the API), are
 **enabled per workspace** (absent `extensions` key = all built-ins, which is today's behaviour),
