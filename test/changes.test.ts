@@ -14,7 +14,7 @@ import {
   readNotes,
   writeNotes,
 } from "../src/changes.ts";
-import { provisionRepoEffect, gitRunEffect, repoItemEffect, worktreeFor, currentBranch } from "../src/integrations/git.ts";
+import { provisionRepoEffect, gitRunEffect, repoItemEffect, checkoutFor, currentBranch } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/types.ts";
 import { sh } from "../src/sh.ts";
@@ -59,7 +59,7 @@ test("create change, provision a worktree, report status, remove it", async () =
   // realpath on both sides: macOS temp dirs are symlinks into /private.
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  const found = await worktreeFor(change, repo);
+  const found = await checkoutFor(change, repo);
   expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
   expect(await Bun.file(join(found!, "README.md")).text()).toBe("hi\n");
 
@@ -128,7 +128,7 @@ test("a new worktree branches from the remote default, not a stale local main", 
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
 
-  const worktree = (await worktreeFor(change, clone))!;
+  const worktree = (await checkoutFor(change, clone))!;
   expect(await Bun.file(join(worktree, "f.txt")).text()).toBe("one\ntwo\n");
 });
 
@@ -206,14 +206,14 @@ test("a worktree starts from the base branch it was given, not the remote defaul
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
 
   // The file only the base branch has must be there: the new branch grew out of it.
-  const worktree = (await worktreeFor(change, clone))!;
+  const worktree = (await checkoutFor(change, clone))!;
   expect(await Bun.file(join(worktree, "first.txt")).text()).toBe("work of the change below\n");
 
   // And a change without a base still starts from the remote default, which has no such file.
   const plain = await createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] });
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(plain.repos, (repo) => provisionRepoEffect(plain, repo), { concurrency: 1 }));
-  const plainTree = (await worktreeFor(plain, clone))!;
+  const plainTree = (await checkoutFor(plain, clone))!;
   expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });
 
@@ -260,7 +260,7 @@ test("deleting a leftover with a worktree in it prunes the repository afterwards
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
-  const worktree = (await worktreeFor(change, repo))!;
+  const worktree = (await checkoutFor(change, repo))!;
   expect(worktree).toBe(await realpath(join(changeDir(change.id), "myrepo")));
 
   // A change whose record is gone while its worktree is not: an interrupted creation, or a

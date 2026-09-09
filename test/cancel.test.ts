@@ -3,7 +3,7 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../src/changes.ts";
-import { provisionRepoEffect, worktreeFor } from "../src/integrations/git.ts";
+import { provisionRepoEffect, checkoutFor } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import { cancelChange } from "../src/cancel.ts";
 import { sh } from "../src/sh.ts";
@@ -87,7 +87,7 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   const change = await createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", repos: [repo] });
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  expect(await worktreeFor(change, repo)).toBeDefined();
+  expect(await checkoutFor(change, repo)).toBeDefined();
 
   const result = await cancelChange(change);
   expect("change" in result).toBe(true);
@@ -96,7 +96,7 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect(cancelled.state).toBe("Cancelled");
   expect(cancelled.completedAt).toBeDefined();
   expect(isFinished(cancelled)).toBe(true);
-  expect(await worktreeFor(cancelled, repo)).toBeUndefined();
+  expect(await checkoutFor(cancelled, repo)).toBeUndefined();
   // Archived, and still readable: what was abandoned is worth being able to look up.
   expect(await Bun.file(join(changeDir("PROJ-CANCEL"), "change.json")).exists()).toBe(false);
   expect((await readChange("PROJ-CANCEL"))?.state).toBe("Cancelled");
@@ -112,13 +112,13 @@ test("what would be lost stops it, and what is recoverable asks first", async ()
   const change = await createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", repos: [repo] });
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  const worktree = (await worktreeFor(change, repo))!;
+  const worktree = (await checkoutFor(change, repo))!;
 
   // Uncommitted: nowhere else, and no question makes it recoverable.
   await Bun.write(join(worktree, "wip.txt"), "not committed\n");
   expect(cancelChange(change)).rejects.toThrow(/uncommitted changes/);
   expect(cancelChange(change, true)).rejects.toThrow(/uncommitted changes/);
-  expect(await worktreeFor(change, repo)).toBeDefined();
+  expect(await checkoutFor(change, repo)).toBeDefined();
 
   // Committed but never pushed: recoverable from the branch, which cancelling keeps — so this
   // is a question rather than a refusal.
@@ -126,11 +126,11 @@ test("what would be lost stops it, and what is recoverable asks first", async ()
   await commit(worktree, "work nobody else has");
   const asked = await cancelChange(change);
   expect(asked).toEqual({ needsForce: ["cancel-work"] });
-  expect(await worktreeFor(change, repo)).toBeDefined();
+  expect(await checkoutFor(change, repo)).toBeDefined();
 
   const forced = await cancelChange(change, true);
   expect("change" in forced).toBe(true);
-  expect(await worktreeFor(change, repo)).toBeUndefined();
+  expect(await checkoutFor(change, repo)).toBeUndefined();
   expect((await sh(["git", "log", "-1", "--format=%s", "PROJ-WORK-x"], repo)).stdout).toBe(
     "work nobody else has",
   );

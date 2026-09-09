@@ -131,15 +131,19 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
   });
 
 /** Absolute path of the worktree for `branch` in `repo`, or undefined when it does not exist. */
-export const worktreeForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+/** Where this change's checkout of `repo` lives: its worktree, or — worked on in place — the
+ * repository's own checkout, which is the path the change directory's link points at too.
+ * Undefined when the change has no checkout of this repository. */
+export const checkoutForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
 
-/** Promise facade over worktreeForEffect, in the old signature. Kept for the test suite,
+/** Promise facade over checkoutForEffect, in the old signature. Kept for the test suite,
  * which must pass unmodified. */
-export const worktreeFor = (change: Change, repo: string): Promise<string | undefined> =>
-  Effect.runPromise(worktreeForEffect(change, repo));
+export const checkoutFor = (change: Change, repo: string): Promise<string | undefined> =>
+  Effect.runPromise(checkoutForEffect(change, repo));
 
-/** Human summary of one worktree, and how alarming it is. */
+/** Human summary of one checkout — the worktree or the in-place repository — and how
+ * alarming it is. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function describe(entry: WtEntry): { detail: string; state: WidgetState } {
   const tree = entry.working_tree ?? {};
@@ -387,7 +391,7 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
 export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
-    if (yield* worktreeForEffect(change, repo)) return;
+    if (yield* checkoutForEffect(change, repo)) return;
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
@@ -417,7 +421,7 @@ export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect
 const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!config.worktreeCopy.length) return;
-    const created = yield* worktreeForEffect(change, repo);
+    const created = yield* checkoutForEffect(change, repo);
     if (!created) return;
     // copyTooling is deliberately a Promise (mostly synchronous filesystem work — see
     // tooling.ts); the bridge stays, its failure reported, never fatal.
@@ -588,7 +592,7 @@ export const removeWorktreeEffect = (
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* unlinkInPlaceEffect(change, repo);
-    if (!(yield* worktreeForEffect(change, repo))) return;
+    if (!(yield* checkoutForEffect(change, repo))) return;
     yield* shOrThrowEffect(
       yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
@@ -609,7 +613,7 @@ export const gitRunEffect = (
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);
     if (opener) {
-      const path = (yield* worktreeForEffect(change, repo)) ?? repo;
+      const path = (yield* checkoutForEffect(change, repo)) ?? repo;
       yield* shOrThrowEffect(opener.command(path));
       return;
     }

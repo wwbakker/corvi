@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { worktreeForEffect, baseForEffect, remoteDefaultBranchEffect } from "./git.ts";
+import { checkoutForEffect, baseForEffect, remoteDefaultBranchEffect } from "./git.ts";
 import { stackOnBaseEffect, describeStack, mergeStackedEffect, type Stack } from "./stacks.ts";
 import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
 import { swrEffect, invalidate } from "../cache.ts";
@@ -133,7 +133,7 @@ const prQueryEffect = (
   repo: string,
 ): Effect.Effect<FoundPr | undefined, BadRequestError> =>
   Effect.gen(function* () {
-    const wt = yield* worktreeForEffect(change, repo);
+    const wt = yield* checkoutForEffect(change, repo);
     if (!wt) return undefined;
     const head = yield* pushedAsEffect(wt, repo, change.branch);
     const r = yield* shSoft(
@@ -449,7 +449,7 @@ export const mergePrEffect = (
   number: number,
 ): Effect.Effect<string | undefined, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* worktreeForEffect(change, repo);
+    const wt = yield* checkoutForEffect(change, repo);
     if (!wt) {
       return yield* Effect.fail(
         new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
@@ -491,7 +491,7 @@ export const createPrEffect = (
   repo: string,
 ): Effect.Effect<void, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* worktreeForEffect(change, repo);
+    const wt = yield* checkoutForEffect(change, repo);
     if (!wt) {
       return yield* Effect.fail(
         new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),

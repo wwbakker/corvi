@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { worktreeForEffect } from "./git.ts";
+import { checkoutForEffect } from "./git.ts";
 import { shEffect, type Result } from "../sh.ts";
 import { swrEffect } from "../cache.ts";
 
@@ -67,7 +67,7 @@ export const checkItemsEffect = (
 ): Effect.Effect<WidgetItem[]> =>
   swrEffect(`gh:checks:${repo}:${number}`, 15_000,
     Effect.gen(function* () {
-      const worktree = (yield* worktreeForEffect(change, repo)) ?? repo;
+      const worktree = (yield* checkoutForEffect(change, repo)) ?? repo;
       // Non-zero means "something is failing or pending", which is a result, not an error.
       const r = yield* shSoft(
         [
