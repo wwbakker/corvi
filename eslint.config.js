@@ -11,6 +11,14 @@ import tseslint from "typescript-eslint";
  * would make this file about a hundred pre-existing warnings instead of about the one mistake it
  * exists to catch. If this grows into more than the import boundary, widen it deliberately.
  *
+ * The other rule set here is explicit return types everywhere (follow-up item 3):
+ * `explicit-module-boundary-types` for exported surfaces and `explicit-function-return-type` for
+ * inner functions, with expressions exempt so inline callbacks do not need a return annotation.
+ * Return types are part of the contract a caller reads; inference across a module boundary turns a
+ * signature change into a silent one. Its `files` are broad because the rule applies to every
+ * TypeScript source in the repo, while the import-boundary block below stays a separate, narrower
+ * object so the shared parser setup cannot accidentally weaken it.
+ *
  * `import type` is exempt (`allowTypeImports`): those are erased at compile time by
  * `verbatimModuleSyntax` and never reach the bundle, which is how `SettingsPage.tsx` reads
  * `Config`'s shape from `config.ts` without pulling in the `az`/`gh`/`jira` CLI calls that live
@@ -28,7 +36,28 @@ import tseslint from "typescript-eslint";
  */
 export default tseslint.config(
   {
-    ignores: ["node_modules/**", "assets/**", "shots/**", "scripts/**"],
+    ignores: ["node_modules/**", "assets/**", "shots/**"],
+  },
+  {
+    files: [
+      "src/**/*.{ts,tsx}",
+      "scripts/**/*.ts",
+      "test/**/*.{ts,tsx}",
+      "pi/**/*.ts",
+    ],
+    languageOptions: { parser: tseslint.parser },
+    plugins: { "@typescript-eslint": tseslint.plugin },
+    rules: {
+      "@typescript-eslint/explicit-module-boundary-types": "error",
+      "@typescript-eslint/explicit-function-return-type": [
+        "error",
+        {
+          allowExpressions: true,
+          allowTypedFunctionExpressions: true,
+          allowConciseArrowFunctionExpressionsStartingWithVoid: true,
+        },
+      ],
+    },
   },
   {
     files: ["src/web/**/*.{ts,tsx}"],

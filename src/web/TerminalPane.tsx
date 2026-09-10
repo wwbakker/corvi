@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
 
 /**
@@ -40,7 +40,7 @@ export function TerminalPane({
   /** How many windows this change's session has: none while one is starting, and none forever
    * once it is gone. */
   windows: number;
-}) {
+}): JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
@@ -69,12 +69,12 @@ export function TerminalPane({
   // keyboard usually is; the frame cannot open a window, so it forwards the key as a message.
   useEffect(() => {
     if (!visible) return;
-    const key = (e: KeyboardEvent) => {
+    const key = (e: KeyboardEvent): void => {
       if (!isNewWindowKey(e, platform)) return;
       e.preventDefault();
       onNewWindow();
     };
-    const message = (e: MessageEvent) => {
+    const message = (e: MessageEvent): void => {
       if (e.origin === location.origin && (e.data as { iwe?: string })?.iwe === "new-window")
         onNewWindow();
     };

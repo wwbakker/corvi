@@ -27,9 +27,9 @@ import { groupChecks } from "../src/extensions/ci/checks.ts";
 import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
-import { presentWindow } from "../src/terminal.ts";
+import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
-import type { Change } from "../src/types.ts";
+import type { Change, WidgetState } from "../src/types.ts";
 import { runEffect, runSetRepos } from "./helpers.ts";
 
 /**
@@ -123,7 +123,7 @@ test("pipelines are looked up by both the merge ref and the branch", () => {
     "refs/heads/PROJ-1-thing",
   ]);
 
-  const run = (status: string, result?: string) =>
+  const run = (status: string, result?: string): WidgetState =>
     runState({ id: 1, buildNumber: "1", status, result, sourceBranch: "x" });
   expect(run("inProgress")).toBe("pending");
   expect(run("notStarted")).toBe("pending");
@@ -138,7 +138,7 @@ test("pipelines are attributed to a repository by its Azure DevOps folder", () =
 });
 
 test("expected build duration averages finished runs and ignores unfinished ones", () => {
-  const run = (start?: string, finish?: string) => ({
+  const run = (start?: string, finish?: string): { id: number; buildNumber: string; status: string; sourceBranch: string; startTime: string | undefined; finishTime: string | undefined; } => ({
     id: 1,
     buildNumber: "1",
     status: finish ? "completed" : "inProgress",
@@ -292,7 +292,7 @@ test("a pipeline's dot follows its newest run, not its history", () => {
 });
 
 test("pull request checks are grouped by build, so one build is one row", () => {
-  const check = (name: string, bucket: string) => ({ name, bucket, state: bucket, link: `u/${name}` });
+  const check = (name: string, bucket: string): { name: string; bucket: string; state: string; link: string; } => ({ name, bucket, state: bucket, link: `u/${name}` });
   const items = groupChecks([
     check("owner.frontend-app", "pass"),
     check("owner.frontend-app (CI App @scope/one-app)", "fail"),
@@ -320,7 +320,7 @@ test("pull request checks are grouped by build, so one build is one row", () => 
 test("a terminal window is labelled by where it is, or what you named it", () => {
   // The server-side composition, exactly as a window crosses to the page: raw tmux facts in,
   // the presented shape out.
-  const w = (over: Partial<TmuxWindow>) =>
+  const w = (over: Partial<TmuxWindow>): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -398,7 +398,7 @@ test("a pull request says where it sits in its stack", () => {
 });
 
 test("opening a repository uses the platform's own launcher", () => {
-  const command = (id: string) => openers.find((o) => o.id === id)!.command("/w/repo");
+  const command = (id: string): string[] => openers.find((o) => o.id === id)!.command("/w/repo");
   if (isMac) {
     // No -n: the running IntelliJ gets the project and places it as you have configured.
     expect(command("open-idea")).toEqual(["open", "-a", "IntelliJ IDEA", "/w/repo"]);
@@ -507,7 +507,7 @@ test("a merge poll that fails is not mistaken for one still running", () => {
 });
 
 test("a review thread you answered last is not waiting on you", () => {
-  const thread = (isResolved: boolean, ...logins: string[]) => ({
+  const thread = (isResolved: boolean, ...logins: string[]): { isResolved: boolean; comments: { nodes: { author: { login: string; }; }[]; }; } => ({
     isResolved,
     comments: { nodes: logins.map((login) => ({ author: { login } })) },
   });
@@ -530,7 +530,7 @@ test("a review thread you answered last is not waiting on you", () => {
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
   const { summarise } = await import("../src/web/LocalPane.tsx");
-  const status = (files: unknown[], unpushed = 0) => ({
+  const status = (files: unknown[], unpushed = 0): { repo: string; name: string; files: never[]; unpushed: number; tracked: boolean; } => ({
     repo: "/r",
     name: "r",
     files: files as never[],
@@ -563,7 +563,7 @@ test("what an environment holds is the newest run that was sent to it", async ()
     version: string,
     result: string | null,
     status = "completed",
-  ) => ({
+  ): { id: number; buildNumber: string; status: string; result: string | null; sourceBranch: string; finishTime: string; startTime: string; templateParameters: { environment: string; dockerTag: string; }; } => ({
     id,
     buildNumber: `${environment} - ${version}`,
     status,

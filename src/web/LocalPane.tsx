@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, post } from "./api.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
 import type { FileChange } from "../types.ts";
@@ -35,7 +35,7 @@ const statusWord = (letter: string): string =>
 
 /** A diff, coloured the way every tool colours one. Rendered line by line rather than by a
  * library: a unified diff is already a line format, and the whole grammar is five prefixes. */
-function Diff({ text }: { text: string }) {
+function Diff({ text }: { text: string }): JSX.Element {
   if (!text.trim()) return <p className="hint">no textual difference — a binary file, or a mode change</p>;
   return (
     <pre className="diff">
@@ -73,7 +73,7 @@ function FileRow({
   staged: boolean;
   selected: boolean;
   onSelect: () => void;
-}) {
+}): JSX.Element {
   const letter = staged ? file.index : file.worktree;
   const parts = file.path.split("/");
   // Colour by what happened, not by the letter: a class name cannot be "?".
@@ -131,7 +131,7 @@ export function LocalPane({
   repos: string[];
   /** What a commit message starts as: the change, and what it is about. */
   suggestion: string;
-}) {
+}): JSX.Element {
   const [statuses, setStatuses] = useState<Record<string, LocalStatus>>({});
   const [selected, setSelected] = useState<Selection | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
@@ -143,7 +143,7 @@ export function LocalPane({
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
+    const load = (): Promise<(false | void)[]> =>
       Promise.all(
         repos.map((repo) =>
           api<LocalStatus>(`/changes/${changeId}/local?path=${encodeURIComponent(repo)}`)
@@ -186,7 +186,7 @@ export function LocalPane({
     .filter((s): s is LocalStatus => Boolean(s) && s!.unpushed > 0);
   const unpushed = behind.reduce((n, s) => n + s.unpushed, 0);
 
-  const push = () => {
+  const push = (): void => {
     setPushing(true);
     setError(null);
     setNotice(null);

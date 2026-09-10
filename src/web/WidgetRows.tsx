@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { type JSX, useState } from "react";
 import type { WidgetItem } from "./api.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { Progress } from "./Progress.tsx";
 
 /** A row's state dot, shared by a widget's heading and its rows. */
-export function Dot({ state }: { state?: string }) {
+export function Dot({ state }: { state?: string }): JSX.Element {
   return <span className={`dot ${state ?? "none"}`} />;
 }
 
@@ -20,7 +20,7 @@ export function Item({
   onAction: (actionId: string, arg?: string) => void;
   busy: boolean;
   depth?: number;
-}) {
+}): JSX.Element {
   const [open, setOpen] = useState(true);
   const children = item.children ?? [];
   return (

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import {
   api,
   patch,
@@ -76,7 +76,7 @@ export function ChangeView({
   onChanged: () => void;
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
-}) {
+}): JSX.Element {
   const [change, setChange] = useCached<Change>(`${id}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
   const [infos, setInfos] = useCached<CardInfo[]>(`${id}:integrations`);
@@ -112,7 +112,7 @@ export function ChangeView({
   useEffect(() => {
     if (change?.completedAt) return;
     const ac = new AbortController();
-    const load = () =>
+    const load = (): Promise<void> =>
       api<Completion>(`/changes/${id}/complete`, { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
@@ -124,7 +124,7 @@ export function ChangeView({
     };
   }, [id, change?.completedAt, generation]);
 
-  const card = (info: CardInfo) =>
+  const card = (info: CardInfo): JSX.Element =>
     info.perRepo ? (
       <PerRepoCard
         key={`${info.name}-${generation}`}
@@ -138,14 +138,14 @@ export function ChangeView({
     );
 
   // Re-read the change and remount the cards: its repository list just changed.
-  const reload = () => {
+  const reload = (): void => {
     api<Change>(`/changes/${id}`)
       .then(setChange)
       .catch((e: Error) => setError(e.message));
     setGeneration((g) => g + 1);
   };
 
-  const copyDescription = () =>
+  const copyDescription = (): Promise<void> =>
     api<{ text: string }>(`/changes/${id}/description`)
       .then(({ text }) => navigator.clipboard.writeText(text))
       .then(() => {
@@ -154,7 +154,7 @@ export function ChangeView({
       })
       .catch((e: Error) => setError(e.message));
 
-  const complete = () => {
+  const complete = (): void => {
     setCompleting(true);
     setError(null);
     post<{ change: Change; notes: string[] }>(`/changes/${id}/complete`, {})
@@ -172,7 +172,7 @@ export function ChangeView({
    * Abandon the change: the worktrees and the terminal go, and everything anyone else can see —
    * branches, pull requests, the ticket — is left alone and listed back to you.
    */
-  const cancel = (force = false) => {
+  const cancel = (force = false): void => {
     if (
       !force &&
       !window.confirm(

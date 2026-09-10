@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useRef, useState } from "react";
+import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished } from "../types.ts";
@@ -34,7 +34,7 @@ function Home({
   error: string | null;
   onOpen: (id: string) => void;
   onNew: () => void;
-}) {
+}): JSX.Element {
   // Two lists, because they are read for different reasons: what is going on, and what happened.
   // The active ones in work order — what you can get on with, then what is with somebody else,
   // then what is stuck — newest first within each.
@@ -138,7 +138,7 @@ const pathOf = (view: View): string =>
           ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
           : "/";
 
-function App() {
+function App(): JSX.Element {
   const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
   const { changes: everything, error, reload } = useChanges();
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
@@ -168,7 +168,7 @@ function App() {
   const terminal = useTerminal(selected, Boolean(change?.completedAt), wantsTerminal);
 
   // Navigating pushes a history entry; Back and a reload both land on the same page.
-  const setView = (next: View) => {
+  const setView = (next: View): void => {
     if (pathOf(next) !== window.location.pathname) window.history.pushState(null, "", pathOf(next));
     setViewState(next);
   };
@@ -198,7 +198,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onPop = () => setViewState(viewOf(window.location.pathname, pagesRef.current));
+    const onPop = (): void => setViewState(viewOf(window.location.pathname, pagesRef.current));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);

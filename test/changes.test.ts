@@ -18,6 +18,7 @@ import { provisionRepoEffect, gitRunEffect, repoItemEffect, checkoutForEffect, c
 import { Effect } from "effect";
 import type { Change } from "../src/types.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
+import type { PresentedWindow } from "../src/terminal.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 let tmp: string;
@@ -343,7 +344,7 @@ test("a completion records itself before it starts checking anything", async () 
 test("the overview counts windows that are running something, not windows", async () => {
   // Busy is a presented fact now: the merge in terminal.ts says which windows are work.
   const { presentWindow } = await import("../src/terminal.ts");
-  const busy = (over: Partial<TmuxWindow>) =>
+  const busy = (over: Partial<TmuxWindow>): boolean =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -378,7 +379,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../src/terminal.ts");
-  const presented = (option: string) =>
+  const presented = (option: string): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -592,7 +593,7 @@ test("a change belongs to the context it was made in, and older ones to the firs
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },
   ];
-  const change = (id: string, workspace?: string) => ({ id, workspace }) as never;
+  const change = (id: string, workspace?: string): never => ({ id, workspace }) as never;
   const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
 
   // Made before workspaces existed: it belongs to the first one, which is where all the work

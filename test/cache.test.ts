@@ -14,7 +14,7 @@ afterAll(() => rm(file, { force: true }));
 
 /** Lets a test decide when the work finishes, which is the only way to see "stale served while
  * the refresh runs" rather than guessing at timings. */
-function gate<T>(value: T) {
+function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void; } {
   let release: (v: T) => void;
   const promise = new Promise<T>((resolve) => (release = resolve));
   return { promise, release: (v: T = value) => release(v) };
@@ -22,7 +22,7 @@ function gate<T>(value: T) {
 
 test("the first caller waits, everyone after that is instant", async () => {
   let calls = 0;
-  const work = async () => `answer ${++calls}`;
+  const work = async (): Promise<string> => `answer ${++calls}`;
 
   expect(await runSwr("k", 1000, work)).toBe("answer 1");
   expect(await runSwr("k", 1000, work)).toBe("answer 1");
@@ -34,7 +34,7 @@ test("the first caller waits, everyone after that is instant", async () => {
 test("callers asking at the same moment share one run", async () => {
   let calls = 0;
   const slow = gate("shared");
-  const work = async () => {
+  const work = async (): Promise<string> => {
     calls++;
     return slow.promise;
   };

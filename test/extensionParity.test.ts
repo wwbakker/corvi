@@ -21,7 +21,7 @@ import { clients } from "../src/web/extensions.tsx";
  */
 
 /** An extension with an interface on the page: wizard steps or pages. */
-const interfaceNames = () =>
+const interfaceNames = (): string[] =>
   loaded
     .filter((e) => !e.clientPath && (e.wizardSteps.length > 0 || e.pages.length > 0))
     .map((e) => e.name);

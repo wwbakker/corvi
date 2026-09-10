@@ -173,7 +173,7 @@ const defaultBranches = new Map<string, Effect.Effect<string | undefined>>();
 const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined, CliError> =>
   Effect.gen(function* () {
     if (!(yield* shSoft(["git", "remote"], repo)).stdout) return undefined;
-    const read = () =>
+    const read = (): Effect.Effect<string | undefined> =>
       Effect.map(
         shSoft(["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo),
         (r) => (r.code === 0 && r.stdout ? r.stdout : undefined),
@@ -270,7 +270,7 @@ export const openers: Opener[] = isMac
       },
     ];
 
-const openMenu = (repo: string) =>
+const openMenu = (repo: string): { id: string; label: string; arg: string }[] =>
   openers
     .filter((o) => o.available?.() ?? true)
     .map(({ id, label }) => ({ id, label, arg: repo }));

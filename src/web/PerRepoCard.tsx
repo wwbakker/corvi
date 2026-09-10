@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useState } from "react";
 import {
   aborted,
   api,
@@ -30,8 +30,8 @@ export function PerRepoCard({
   info: CardInfo;
   repos: string[];
   onReposChanged: () => void;
-}) {
-  const key = (repo: string) => `${changeId}:${info.name}:${repo}`;
+}): JSX.Element {
+  const key = (repo: string): string => `${changeId}:${info.name}:${repo}`;
   // undefined while that repository is still loading; seeded from the cache so coming back to a
   // change shows its last known rows immediately.
   const [items, setItems] = useState<Record<string, WidgetItem[] | undefined>>(() =>
@@ -63,7 +63,7 @@ export function PerRepoCard({
     // Cancel on unmount: these requests are slow, and the browser only allows six at a time, so
     // leaving them open makes the next page wait seconds for a free connection.
     const ac = new AbortController();
-    const tick = () => repos.forEach((repo) => void loadRepo(repo, ac.signal));
+    const tick = (): void => repos.forEach((repo) => void loadRepo(repo, ac.signal));
     tick();
     const timer = setInterval(tick, 15000);
     return () => {

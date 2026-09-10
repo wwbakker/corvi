@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, del, type Leftover } from "./api.ts";
 
 const size = (kb: number): string =>
@@ -13,7 +13,7 @@ const size = (kb: number): string =>
  * behind, or one that was never finished. Shown with what is in them, and removed only when you
  * say so: `target/` from a build is rubbish, but a scratch file you wrote there is not.
  */
-export function Leftovers() {
+export function Leftovers(): JSX.Element | null {
   const [leftovers, setLeftovers] = useState<Leftover[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -25,7 +25,7 @@ export function Leftovers() {
       .catch((e: Error) => setError(e.message));
   }, []);
 
-  const remove = (leftover: Leftover) => {
+  const remove = (leftover: Leftover): void => {
     const name = leftover.name;
     const git = leftover.entries.filter((e) => e.git);
     const warning = git.length

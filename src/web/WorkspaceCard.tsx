@@ -1,5 +1,6 @@
 import type { Workspace } from "../config.ts";
 import { Field, Group, type KnownExtension } from "./SettingsFields.tsx";
+import type { JSX } from "react";
 
 /** The environment a workspace adds to every CLI it runs: how two clients stop fighting over one
  * login. Names and values, because that is what it is. */
@@ -9,7 +10,7 @@ function EnvEditor({
 }: {
   env: Record<string, string>;
   onChange: (env: Record<string, string>) => void;
-}) {
+}): JSX.Element {
   const entries = Object.entries(env);
   const write = (pairs: [string, string][]): void => onChange(Object.fromEntries(pairs));
 
@@ -57,7 +58,7 @@ function ExtensionToggles({
   known: KnownExtension[];
   selected: string[] | undefined;
   onChange: (extensions: string[] | undefined) => void;
-}) {
+}): JSX.Element {
   const enabled = (name: string): boolean => (selected ? selected.includes(name) : true);
   const toggle = (name: string, on: boolean): void => {
     const next = known
@@ -102,7 +103,7 @@ export function WorkspaceCard({
   extensions: KnownExtension[];
   onChange: (next: Workspace) => void;
   onRemove?: () => void;
-}) {
+}): JSX.Element {
   const set = (patch: Partial<Workspace>): void => onChange({ ...workspace, ...patch });
   const azure = workspace.azure === false ? undefined : (workspace.azure ?? {});
   // The same enablement the ExtensionToggles show: absent means all of them.

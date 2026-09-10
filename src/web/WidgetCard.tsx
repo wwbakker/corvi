@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useState } from "react";
 import { aborted, api, post, type CardInfo, type Widget } from "./api.ts";
 import { useCached } from "./cache.ts";
 import { Dot, Item } from "./WidgetRows.tsx";
 
 /** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
-export function WidgetCard({ changeId, info }: { changeId: string; info: CardInfo }) {
+export function WidgetCard({ changeId, info }: { changeId: string; info: CardInfo }): JSX.Element {
   const [widget, setWidget] = useCached<Widget>(`${changeId}:${info.name}`);
   const [busy, setBusy] = useState(false);
 

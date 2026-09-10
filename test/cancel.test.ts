@@ -7,6 +7,7 @@ import { provisionRepoEffect, checkoutForEffect } from "../src/integrations/git.
 import { Effect } from "effect";
 import { cancelChange } from "../src/cancel.ts";
 import { runEffect, runSh } from "./helpers.ts";
+import type { Result } from "../src/sh.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/types.ts";
 
 /**
@@ -16,7 +17,7 @@ import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/type
  */
 let tmp: string;
 
-const commit = (repo: string, message: string) =>
+const commit = (repo: string, message: string): Promise<Result> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 async function clonedRepo(name: string): Promise<string> {

@@ -1,4 +1,4 @@
-import { useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AgentIcon, TerminalIcon } from "./icons.tsx";
 import type { Platform } from "./newWindowKey.ts";
 import type { TerminalWindow } from "../terminalTypes.ts";
@@ -33,7 +33,7 @@ export function WindowTabs({
   /** Switching between the change's own pages, which are tabs rather than navigation: they are
    * two views of the same change, not two places. */
   onOpenPage: (page: "dashboard" | "review") => void;
-}) {
+}): JSX.Element {
   // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
   // — overview and "new" — take no part in either.
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -58,14 +58,14 @@ export function WindowTabs({
     };
     const startedAt = e.clientX;
     let dragging = false;
-    const move = (ev: MouseEvent) => {
+    const move = (ev: MouseEvent): void => {
       // A few pixels of travel: a click that wobbles is still a click.
       if (!dragging && Math.abs(ev.clientX - startedAt) < 4) return;
       dragging = true;
       setDragIndex(from);
       setDropIndex(under(ev.clientX, ev.clientY));
     };
-    const up = (ev: MouseEvent) => {
+    const up = (ev: MouseEvent): void => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
       setDragIndex(null);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import type { PageComponent } from "../../web/extensions.tsx";
 import { api } from "../../web/api.ts";
 import { moment } from "../../web/moment.ts";
@@ -32,7 +32,7 @@ export type Service = {
  * version and the environment it was given, and the newest run per environment is the truth
  * about that environment.
  */
-export function DeploymentsPage({ workspace }: { workspace?: string }) {
+export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Element {
   const [services, setServices] = useState<Service[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export function DeploymentsPage({ workspace }: { workspace?: string }) {
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
-    const load = () =>
+    const load = (): Promise<void> =>
       api<{ services: Service[]; error?: string }>(
         `/ext/deployments/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       )

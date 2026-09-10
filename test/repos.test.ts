@@ -12,8 +12,9 @@ import {
   isDirect,
 } from "../src/integrations/git.ts";
 import { runEffect, runSetRepos, runSh } from "./helpers.ts";
+import type { Result } from "../src/sh.ts";
 import { provisionEffect } from "../src/extensions/index.ts";
-import type { Change } from "../src/types.ts";
+import type { Change, FileChange } from "../src/types.ts";
 
 /**
  * Editing the repositories of a change moves real worktrees around, and the ways it can go wrong
@@ -22,7 +23,7 @@ import type { Change } from "../src/types.ts";
  */
 let tmp: string;
 
-const commit = (repo: string, message: string) =>
+const commit = (repo: string, message: string): Promise<Result> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 /** A bare "remote" with one commit on main, and a clone of it: the shape every change assumes. */
@@ -245,7 +246,7 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
   await runSh(["git", "add", "added.txt"], wt);
 
   const status = await localChanges(change, repo);
-  const by = (path: string) => status.files.find((f) => f.path === path)!;
+  const by = (path: string): FileChange => status.files.find((f) => f.path === path)!;
   // Alphabetical as a reader reads, not as ASCII sorts: `added.txt` before `README.md`.
   expect(status.files.map((f) => f.path)).toEqual(["added.txt", "new.txt", "README.md"]);
   expect(by("added.txt")).toMatchObject({ staged: true, unstaged: false, index: "A" });
@@ -307,7 +308,7 @@ test("committing takes the files you ticked, in every repository at once", async
   expect(results.map((r) => r.name).sort()).toEqual(["commit-a", "commit-b"]);
   expect(results[0]!.hash).toMatch(/^[0-9a-f]{7,}$/);
 
-  const subject = async (repo: string) =>
+  const subject = async (repo: string): Promise<string> =>
     (await runSh(["git", "log", "-1", "--pretty=%s"], repo)).stdout;
   expect(await subject(wtA)).toBe("PROJ-1 do the thing");
   expect(await subject(wtB)).toBe("PROJ-1 do the thing");

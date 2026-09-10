@@ -542,7 +542,7 @@ test.skipIf(!usable)("the page sends CSI u for the keys a terminal cannot encode
   await page.addScriptTag({ url: "/terminal-keys.js" });
   const frames = await page.evaluate(() => {
     new WebSocket("ws://127.0.0.1:1/never"); // the script keeps a reference to it
-    const press = (init: KeyboardEventInit) =>
+    const press = (init: KeyboardEventInit): boolean =>
       document
         .getElementById("t")!
         .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...init }));

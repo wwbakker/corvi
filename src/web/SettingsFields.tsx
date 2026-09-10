@@ -1,4 +1,5 @@
 import type { SettingsView } from "../settings.ts";
+import type { JSX } from "react";
 
 /** An extension the page knows about, with the settings it declares. */
 export type KnownExtension = SettingsView["extensions"][number];
@@ -22,7 +23,7 @@ export function Field({
   /** The environment variable overriding this, when there is one. */
   locked?: string;
   onChange: (value: string) => void;
-}) {
+}): JSX.Element {
   return (
     <label>
       <span>
@@ -51,7 +52,7 @@ export function CheckField({
   hint?: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
-}) {
+}): JSX.Element {
   return (
     <label className="check">
       <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
@@ -80,7 +81,7 @@ export function Group({
   hint?: string;
   locked?: string;
   children: React.ReactNode;
-}) {
+}): JSX.Element {
   return (
     <div className="field">
       <span className="label">
@@ -110,7 +111,7 @@ export function ListEditor({
   placeholder?: string;
   locked?: string;
   onChange: (values: string[]) => void;
-}) {
+}): JSX.Element {
   const set = (index: number, value: string): void =>
     onChange(values.map((v, i) => (i === index ? value : v)));
 

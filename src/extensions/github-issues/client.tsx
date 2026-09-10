@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { api, post } from "../../web/api.ts";
 import { branchFor } from "../../shared/branch.ts";
 import type { StepComponent } from "../../web/extensions.ts";
@@ -25,7 +25,7 @@ function NewIssueDialog({
   busy: boolean;
   onCancel: () => void;
   onCreate: (input: { title: string; description: string }) => void;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -90,7 +90,7 @@ export const step: StepComponent = ({ ctx }) => {
   const paths = ctx.repos.map((r) => r.path);
   const chosen = repo && paths.includes(repo) ? repo : paths[0];
 
-  const load = (path: string) => {
+  const load = (path: string): void => {
     setLoading(true);
     setError(null);
     api<Listing>(
@@ -107,7 +107,7 @@ export const step: StepComponent = ({ ctx }) => {
     if (chosen) load(chosen);
   }, [chosen]);
 
-  const select = (issue: GitHubIssue | null) => {
+  const select = (issue: GitHubIssue | null): void => {
     setSelected(issue);
     if (!chosen) return;
     ctx.setPayload(KEY, issue ? { repo: chosen, number: issue.number } : undefined);
@@ -120,7 +120,7 @@ export const step: StepComponent = ({ ctx }) => {
     }
   };
 
-  const create = (input: { title: string; description: string }) => {
+  const create = (input: { title: string; description: string }): void => {
     if (!chosen) return;
     setCreating(true);
     setError(null);

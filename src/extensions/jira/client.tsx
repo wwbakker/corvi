@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { api, post } from "../../web/api.ts";
 import { branchFor } from "../../shared/branch.ts";
 import type { StepComponent } from "../../web/extensions.ts";
@@ -21,7 +21,7 @@ function NewIssueDialog({
   busy: boolean;
   onCancel: () => void;
   onCreate: (input: { summary: string; description: string }) => void;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [summary, setSummary] = useState("");
   const [description, setDescription] = useState("");
@@ -91,7 +91,7 @@ export function IssueTable({
   workspace?: string;
   selected: Issue | null;
   onSelect: (issue: Issue | null) => void;
-}) {
+}): JSX.Element {
   const [board, setBoard] = useState<Board>({ issues: [], sprints: [] });
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -102,7 +102,7 @@ export function IssueTable({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = (refresh = false) => {
+  const load = (refresh = false): void => {
     setLoading(true);
     api<Board>(
       `/ext/jira/issues?${new URLSearchParams({
@@ -139,7 +139,7 @@ export function IssueTable({
       .filter((g) => g.issues.length > 0);
   }, [board, text, assignee, sprint]);
 
-  const create = (input: { summary: string; description: string }) => {
+  const create = (input: { summary: string; description: string }): void => {
     setCreating(true);
     setError(null);
     post<Issue>("/ext/jira/issues", { ...input, workspace })
@@ -268,7 +268,7 @@ export function IssueTable({
 export const step: StepComponent = ({ ctx }) => {
   const [selected, setSelected] = useState<Issue | null>(null);
 
-  const select = (issue: Issue | null) => {
+  const select = (issue: Issue | null): void => {
     setSelected(issue);
     ctx.setPayload("jira", issue ? { key: issue.key } : undefined);
     ctx.setTicket(issue?.key);

@@ -241,7 +241,13 @@ const sprintNames = (issues: Issue[]): string[] => [
 
 /** Plain text as Jira Cloud wants it: v3 takes a document, not a string. One paragraph per line
  * is the whole of what a description typed into a form needs. */
-const document = (text: string) => ({
+const document = (
+  text: string,
+): {
+  type: string;
+  version: number;
+  content: { type: string; content: { type: string; text: string }[] }[];
+} => ({
   type: "doc",
   version: 1,
   content: text.split("\n").map((line) => ({

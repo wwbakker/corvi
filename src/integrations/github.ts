@@ -3,7 +3,7 @@ import { Effect, Either, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { checkoutForEffect, baseForEffect, remoteDefaultBranchEffect } from "./git.ts";
 import { stackOnBaseEffect, describeStack, mergeStackedEffect, type Stack } from "./stacks.ts";
-import { shOrThrowEffect } from "../sh.ts";
+import { shOrThrowEffect, type Result } from "../sh.ts";
 import { swrEffect, invalidate } from "../cache.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
 import { cliJson, shSoft } from "../effect/support.ts";
@@ -50,7 +50,7 @@ export function readiness(
   const comments = unresolved
     ? `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`
     : undefined;
-  const say = (text: string, tone?: WidgetState) => ({
+  const say = (text: string, tone?: WidgetState): { text: string; tone: WidgetState | undefined } => ({
     text: [comments, text].filter(Boolean).join(" · "),
     tone: comments ? ("warn" as WidgetState) : tone,
   });
@@ -277,7 +277,7 @@ const readDetailsEffect = (
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean) =>
+    const ask = (withStack: boolean): Effect.Effect<Result> =>
       shSoft(
         [
           "gh",

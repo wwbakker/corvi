@@ -52,7 +52,7 @@ export const textOf = (message: unknown): string => {
     .join(" ");
 };
 
-export default function (pi: ExtensionAPI) {
+export default function (pi: ExtensionAPI): void {
   // The pane pi was started in, fixed for the life of the process: tmux moves panes around, but
   // the id follows the pane, and this process never moves to another one. Unset outside tmux,
   // where there is nothing to publish to.

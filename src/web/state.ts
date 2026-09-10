@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { api, post, type Change } from "./api.ts";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../terminalTypes.ts";
@@ -11,7 +11,13 @@ import type { TerminalWindow } from "../terminalTypes.ts";
  * be a request every 1.5 seconds from every open page, for a thing that changes when you press a
  * key in a terminal.
  */
-export function useWindows() {
+export function useWindows(): {
+  windows: Record<string, TerminalWindow[]>;
+  select: (id: string, index: number) => void;
+  create: (id: string) => Promise<void>;
+  move: (id: string, from: number, to: number) => void;
+  refresh: () => Promise<void>;
+} {
   const [windows, setWindows] = useState<Record<string, TerminalWindow[]>>({});
 
   const load = useCallback(
@@ -55,7 +61,11 @@ export function useWindows() {
  * soon as the page connected, a tmux session — for every change you so much as looked at, which
  * is not what opening a dashboard means. A change needs no terminal at all some days.
  */
-export function useTerminal(id: string | null, archived: boolean, wanted: boolean) {
+export function useTerminal(
+  id: string | null,
+  archived: boolean,
+  wanted: boolean,
+): { url: string | null; error: string | null; gone: boolean; pid: number | undefined } {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // A terminal on record can outlive its tmux session: the server says so when the URL is asked
@@ -86,7 +96,12 @@ export function useTerminal(id: string | null, archived: boolean, wanted: boolea
 
 /** Every change: the navigation column lists the active ones and the overview lists them all.
  * One request for both, made again when the server says the change files moved. */
-export function useChanges() {
+export function useChanges(): {
+  changes: Change[] | undefined;
+  setChanges: Dispatch<SetStateAction<Change[] | undefined>>;
+  error: string | null;
+  reload: () => Promise<void>;
+} {
   const [changes, setChanges] = useState<Change[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 

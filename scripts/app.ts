@@ -201,7 +201,7 @@ async function uninstall(): Promise<void> {
 }
 
 const command = process.argv[2];
-const usage = () => {
+const usage = (): void => {
   console.error("usage: bun scripts/app.ts install|uninstall");
   process.exit(1);
 };

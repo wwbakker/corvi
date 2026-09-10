@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 
 export const duration = (ms: number): string => {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -9,7 +9,7 @@ export const duration = (ms: number): string => {
  * between the caller's refreshes; overruns fill the bar and keep counting. Shared between the CI
  * widget's runs and the deployment dialog's in-progress builds — the same question ("how much
  * longer?") asked from two different pages. */
-export function Progress({ startedAt, expectedMs }: { startedAt: string; expectedMs?: number }) {
+export function Progress({ startedAt, expectedMs }: { startedAt: string; expectedMs?: number }): JSX.Element {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), 1000);

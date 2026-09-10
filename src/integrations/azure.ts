@@ -414,7 +414,7 @@ export const pipelineItemsEffect = (
     }
 
     const { project } = az;
-    const url = (id: number) => buildUrl(id, az);
+    const url = (id: number): string | undefined => buildUrl(id, az);
 
     // Definitions come from this repository's folder; runs that match none of them are ignored,
     // which is what keeps a monorepo's other services out of this widget.

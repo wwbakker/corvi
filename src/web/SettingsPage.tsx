@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, put } from "./api.ts";
 import { DEFAULT_WORKSPACE } from "./workspaces.ts";
 // Types only: these are erased at build time, so the browser bundle gets none of the server's
@@ -25,7 +25,7 @@ import { WorkspaceCard } from "./WorkspaceCard.tsx";
 /** The draft as the page holds it: the file's contents, edited. */
 type Draft = Settings;
 
-export function SettingsPage({ onSaved }: { onSaved: () => void }) {
+export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element {
   const [view, setView] = useState<SettingsView>();
   const [draft, setDraft] = useState<Draft>({});
   const [error, setError] = useState<string>();

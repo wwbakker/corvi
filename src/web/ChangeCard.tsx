@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, type Change } from "./api.ts";
 import type { ChangeSummary } from "../types.ts";
 import { stateClass } from "./changeState.tsx";
@@ -12,7 +12,7 @@ const plural = (n: number, one: string, many = `${one}s`): string =>
  * by the card rather than shown as a zero: an overview is read at a glance, and a row of zeroes
  * is noise.
  */
-function Fact({ state, children }: { state: string; children: React.ReactNode }) {
+function Fact({ state, children }: { state: string; children: React.ReactNode }): JSX.Element {
   return (
     // Nothing happening reads as grey: the eye should land on the cards that want attention.
     <span className={state === "none" ? "fact idle" : "fact"}>
@@ -30,12 +30,12 @@ function Fact({ state, children }: { state: string; children: React.ReactNode })
  * The numbers come from their own request per card, because they cost CLI calls: a change whose
  * Azure DevOps is slow leaves the other cards alone.
  */
-export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => void }) {
+export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => void }): JSX.Element {
   const [summary, setSummary] = useState<ChangeSummary | null>(null);
 
   useEffect(() => {
     let alive = true;
-    const load = () =>
+    const load = (): Promise<false | void> =>
       api<ChangeSummary>(`/changes/${change.id}/summary`)
         .then((s) => alive && setSummary(s))
         .catch(() => {});

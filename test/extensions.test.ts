@@ -43,7 +43,7 @@ afterAll(async () => {
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
 
 /** A window as tmux reports it, raw: the facts before anyone says what to call it. */
-const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}) => ({
+const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}): { index: number; name: string; command: string; active: boolean; activity: boolean; directory: string; named: boolean; options: Record<string, string>; id: string; } => ({
   index: 3,
   id: "@3",
   name: "zsh",
@@ -138,7 +138,7 @@ test("extension routes match :param patterns, first pattern wins", async () => {
     ],
   });
   try {
-    const call = (path: string, method = "GET") =>
+    const call = (path: string, method = "GET"): Promise<unknown> | undefined =>
       dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes/${path}`, { method }))
         ?.then((r) => r.json());
     // Registration order: the more specific pattern is declared first and wins.
@@ -168,7 +168,7 @@ test("extension route params are percent-decoded", async () => {
     ],
   });
   try {
-    const call = (path: string) =>
+    const call = (path: string): Promise<unknown> | undefined =>
       dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes-decode/${path}`))
         ?.then((r) => r.json());
     // The client encodes (encodeURIComponent) and the old core route decoded: a captured
@@ -183,7 +183,7 @@ test("extension route params are percent-decoded", async () => {
 });
 
 test("a remote URL is read in every shape GitHub answers to", () => {
-  const parse = (url: string) => repoFromRemote(url);
+  const parse = (url: string): { owner: string; name: string; } | undefined => repoFromRemote(url);
   expect(parse("https://github.com/owner/name.git")).toEqual({ owner: "owner", name: "name" });
   expect(parse("https://github.com/owner/name")).toEqual({ owner: "owner", name: "name" });
   expect(parse("git@github.com:owner/name.git")).toEqual({ owner: "owner", name: "name" });

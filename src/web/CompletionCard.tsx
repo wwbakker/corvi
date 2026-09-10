@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change } from "./api.ts";
 
 export type CompletionStep = {
@@ -38,14 +38,14 @@ export function CompletionCard({
   busy: boolean;
   /** The change is archived when the last step is done; the view above needs to know. */
   onFinished: (change: Change) => void;
-}) {
+}): JSX.Element | null {
   const [progress, setProgress] = useState<CompletionProgress | null>(null);
   const [retrying, setRetrying] = useState(false);
 
   const running = busy || retrying || (progress !== null && !progress.finishedAt);
 
   useEffect(() => {
-    const load = () =>
+    const load = (): Promise<void> =>
       api<CompletionProgress | null>(`/changes/${changeId}/complete/progress`)
         .then(setProgress)
         .catch(() => {});
@@ -55,7 +55,7 @@ export function CompletionCard({
     return () => clearInterval(timer);
   }, [changeId, running]);
 
-  const retry = () => {
+  const retry = (): void => {
     setRetrying(true);
     post<{ change: Change }>(`/changes/${changeId}/complete`, {})
       .then(({ change }) => onFinished(change))

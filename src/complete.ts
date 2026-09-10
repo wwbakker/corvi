@@ -3,7 +3,7 @@ import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
 import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
-import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
+import { removeWorktreeEffect, unsafeToRemoveEffect, type Unsafe } from "./integrations/git.ts";
 import {
   archiveChangeEffect,
   readSidecarEffect,
@@ -45,7 +45,10 @@ export function verdict(
 
 /** One repository's readiness, checked live: the two lookups per repository were sequential
  * within the repository and parallel across repositories, and stay that way. */
-const completionOfRepo = (change: Change, repo: string) =>
+const completionOfRepo = (
+  change: Change,
+  repo: string,
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError> =>
   Effect.gen(function* () {
     return {
       repo,
