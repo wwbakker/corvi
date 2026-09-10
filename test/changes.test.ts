@@ -612,13 +612,20 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
   const { azureOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
-  const { extensionsFor, migrateWorkspaceSettings } = await import("../src/extensions/index.ts");
+  const { extensionsFor, loaded } = await import("../src/extensions/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
-  // Two contexts: a client with everything, and personal projects with neither.
-  (config as { workspaces: unknown }).workspaces = migrateWorkspaceSettings([
+  // Two contexts: a client with everything, and personal projects with neither. The personal
+  // one names its extensions explicitly — enablement is the list, not a vendor flag — and keeps
+  // `azure: false` for the pipelines it has none of.
+  (config as { workspaces: unknown }).workspaces = [
     { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
-    { id: "personal", name: "Personal", jira: false, azure: false },
-  ]);
+    {
+      id: "personal",
+      name: "Personal",
+      azure: false,
+      extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "deployments"),
+    },
+  ];
 
   const client = { id: "PROJ-1", workspace: "client" } as never;
   const personal = { id: "IWE-1", workspace: "personal" } as never;

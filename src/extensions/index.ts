@@ -1,5 +1,3 @@
-import { config, type Workspace } from "../config.ts";
-import { migrateWorkspaceSettings as migrateWorkspaceSettingsWith } from "../legacySettings.ts";
 import { loadAll, loadDiscovered } from "./discover.ts";
 import { loaded } from "./registry.ts";
 
@@ -50,18 +48,6 @@ await loadAll([
   deploymentsExtension,
 ]);
 await loadDiscovered();
-
-/**
- * Normalize the workspaces' extension settings, binding the registry's own names to the
- * migration logic in src/legacySettings.ts. It lives here, where the registry and the migration
- * meet: the migration needs the loaded names to materialize the legacy vendor flags into an
- * explicit extensions list, and the registry leaf must not import the migration (its module
- * graph reaches back into the host).
- */
-export const migrateWorkspaceSettings = (workspaces: Workspace[]): Workspace[] =>
-  migrateWorkspaceSettingsWith(workspaces, loaded.map((e) => e.name));
-
-migrateWorkspaceSettings(config.workspaces);
 
 // The public surface, unchanged for every importer: whichever module a symbol moved to, it is
 // still imported from here (or from ./registry.ts, which src/terminal.ts reads directly).

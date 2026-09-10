@@ -78,8 +78,8 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
     changesRoot: join(tmp, "changes"),
     worktreeCopy: [".idea"],
     workspaces: [
-      { id: "client", name: "Client", jira: { project: "PROJ" }, azure: false },
-      { id: "own", name: "My own", jira: false },
+      { id: "client", name: "Client", azure: false, extensionSettings: { jira: { project: "PROJ" } } },
+      { id: "own", name: "My own", extensions: ["ci", "git"] },
     ],
   };
   await runEffect(writeSettingsEffect(next));
@@ -88,12 +88,10 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(config.changesRoot).toBe(join(tmp, "changes"));
   expect(config.worktreeCopy).toEqual([".idea"]);
   expect(config.workspaces.map((w) => w.id)).toEqual(["client", "own"]);
-  expect(config.workspaces[1]!.jira).toBe(false);
-  // The write migrated the legacy shapes: jira's object landed under extensionSettings.jira,
-  // and jira: false became an explicit extensions list without jira in it.
+  // The shapes the page wrote land on the object every module reads, untouched.
   expect(config.workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
-  expect(config.workspaces[1]!.extensions).not.toContain("jira");
-  expect(config.workspaces[1]!.extensions).toContain("ci");
+  expect(config.workspaces[0]!.azure).toBe(false);
+  expect(config.workspaces[1]!.extensions).toEqual(["ci", "git"]);
 
   expect(runEffect(writeSettingsEffect({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.

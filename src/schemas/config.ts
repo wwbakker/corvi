@@ -32,19 +32,6 @@ export const Workspace = Schema.Struct({
       }),
     ),
   ),
-  /** Legacy: Jira's per-workspace settings, kept as passthrough so migrateWorkspaceSettings can
-   * fold them into `extensionSettings.jira` (the settings page no longer writes this key). */
-  jira: Schema.optional(
-    Schema.Union(
-      Schema.Literal(false),
-      Schema.Struct({
-        project: Schema.optional(Schema.String),
-        board: Schema.optional(Schema.String),
-        configFile: Schema.optional(Schema.String),
-        tokenEnv: Schema.optional(Schema.String),
-      }),
-    ),
-  ),
   azure: Schema.optional(
     Schema.Union(
       Schema.Literal(false),

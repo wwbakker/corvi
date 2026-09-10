@@ -24,10 +24,6 @@ export type Workspace = {
    * holds the field the extension's `workspaceSettings` declaration names, which is where the
    * extension reads it back. The core only carries it. */
   extensionSettings?: Record<string, Record<string, string>>;
-  /** Legacy: Jira's per-workspace settings lived here before the jira extension declared them.
-   * Still parsed so `migrateWorkspaceSettings` can fold it into `extensionSettings.jira`; the
-   * settings page no longer writes it. */
-  jira?: false | { project?: string; board?: string; configFile?: string; tokenEnv?: string };
   /** `false` for a context with no pipelines: no CI runs are looked for and the deployments page
    * is not offered. */
   azure?: false | { organization?: string; project?: string };

@@ -11,7 +11,7 @@ import {
 } from "./config.ts";
 import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
-import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
+import { loaded } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
 import { fs } from "./effect/support.ts";
 import { invalidate } from "./cache.ts";
@@ -65,14 +65,9 @@ export const settingsViewEffect = Effect.sync(() => settingsView());
 
 /** The settings page's read: the file as written, what is in effect, what is locked. Sync by
  * contract; the Effect form is settingsViewEffect above, which the server uses. Kept for the
- * test suite, which must pass unmodified.
- *
- * The file is handed over migrated (migrateWorkspaceSettings), so the page edits — and writes
- * back — the shape the extensions read today, never the legacy `jira` key the page no longer
- * renders. */
+ * test suite, which must pass unmodified. */
 export const settingsView = (): SettingsView => {
   const file = readFile();
-  if (file.workspaces) migrateWorkspaceSettings(file.workspaces);
   return {
     path: configPath(),
     file,
@@ -187,9 +182,6 @@ export const writeSettingsEffect = (
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
     yield* reloadConfigEffect;
-    // The legacy `jira` shapes fold into the extension's own settings, in memory as on disk —
-    // a page save is also a migration.
-    migrateWorkspaceSettings(config.workspaces);
     // Everything the CLIs answered was answered for the old settings: another organisation, another
     // Jira site, another set of environments. Cheaper to ask again than to reason about which.
     invalidate("");

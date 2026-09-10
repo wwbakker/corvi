@@ -274,12 +274,11 @@ A workspace that names no `extensions` has all of them. Naming some is the whole
 no subtraction, because a list you can read is worth more than a default you have to reason
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
-The legacy vendor flags are retired: `migrateWorkspaceSettings` (src/extensions/index.ts) folds
-them into an explicit extensions list on load and on every settings write — `"jira": false`
-becomes everything loaded except jira, and `"azure": false` (which meant "no pipelines, no
-Deployments offered") everything loaded except deployments — along with the legacy `jira`
-object, whose fields land under `extensionSettings.jira`. Naming some is the whole list, and a
-list you can read is worth more than flags nothing reads anymore.
+The legacy vendor flags no longer participate in enablement: the `extensions` list is the whole
+story, and the settings page writes it. `"azure": false` is still read where it states a fact —
+"this context has no pipelines" — by `usesAzure`/`azureOf` (src/workspaces.ts) and the workspace
+card, but it never rewrites the list. Naming some is the whole list, and a list you can read is
+worth more than flags nothing reads anymore.
 
 ## Per-workspace settings
 

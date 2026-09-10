@@ -25,9 +25,8 @@ import type {
  * Which extensions exist for this workspace.
  *
  * A workspace that names none has all of them — which is what IWE was before extensions
- * existed, and what an unconfigured machine still gets. The legacy vendor flags (`jira: false`,
- * `azure: false`) are gone: migrateWorkspaceSettings turns them into an explicit extensions
- * list on load, so there is nothing left to special-case here.
+ * existed, and what an unconfigured machine still gets. Enablement is the extensions list
+ * alone: there are no legacy vendor flags to special-case here.
  */
 export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   const names = workspace.extensions;
