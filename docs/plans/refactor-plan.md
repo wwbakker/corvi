@@ -21,7 +21,8 @@ behaviour-preserving are flagged as decisions, not tasks.
 | 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
 | 4. Legacy settings chain | done | one `src/legacySettings.ts` resolves the bag → legacy field → env → default chain and owns the migration |
 | 6. Split extension host | done | `src/extensions/` is now registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; `presenters.ts` deleted and the events cycle is structurally gone |
-| 2, 5 | pending | next waves |
+| 5. Colocate feature implementations | done (this scope) | deployments (`src/deployments.ts` → `extensions/deployments/server.ts`) and ci (`integrations/checks.ts` → `extensions/ci/checks.ts`) colocated; `integrations/{azure,github,git}.ts`, `deploySettings.ts` and `shared/deployConventions.ts` stay shared, and git cannot be colocated while `integrations/git.ts` is shared by the core |
+| 2 | pending | next wave |
 
 One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
 depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the
@@ -127,32 +128,37 @@ Retiring one legacy field later means touching all four.
 - Long term: a config version field, after which the legacy reads can be dropped.
   Not part of this item; just make the drop possible.
 
-## 5. Colocate a feature's implementation with its extension
+## 5. Colocate a feature's implementation with its extension — **done, this scope**
 
 Do deployments first — it has the fewest legitimate shared consumers.
 
-Current homes for one feature:
+Homes before this scope:
 
 - **deployments**: `extensions/deployments/` + `src/deployments.ts` +
   `src/deploySettings.ts` + `src/deployConventions.ts` + `src/integrations/azure.ts`
 - **ci**: `extensions/ci/index.ts` + `integrations/{github,azure,checks}.ts`
 - **git**: `extensions/git/index.ts` + `integrations/git.ts`
 
-Pick one rule and write it down in `docs/guides/extensions.md`:
+Done in this scope (behaviour-preserving; same exports, same code):
 
-- `extensions/<name>/` = declaration, wiring, and the feature's own implementation;
-- `integrations/` = vendor clients genuinely shared by more than one feature
-  (`git.ts` qualifies; `azure.ts`/`github.ts` do not, if nothing else uses them);
-- top-level `src/*.ts` = core domain that is not a feature.
+- `src/deployments.ts` → `src/extensions/deployments/server.ts`, with `index.ts`,
+  `test/deployments.test.ts` and `test/provision.test.ts` updated;
+- `src/integrations/checks.ts` → `src/extensions/ci/checks.ts`, with `index.ts` and
+  `test/provision.test.ts` updated;
+- the rule in [`../guides/architecture.md`](../guides/architecture.md#where-a-features-code-lives)
+  states it is now applied for deployments and ci, and names the shared exceptions.
 
-Caveats to respect while moving deployments:
+Left shared, and why:
 
-- `workspaces.ts`'s `azureOf` still reaches into the legacy settings chain for the
-  fallback — keep that import path working (item 4 makes this clean).
-- Moving files changes import paths across tests; do it as one commit per feature
-  so a bisect lands somewhere sensible.
+- `integrations/azure.ts` — deployments + ci;
+- `integrations/github.ts` — the core's `complete`/`description` + ci;
+- `integrations/git.ts` — the core + the git extension (so **git cannot be colocated** while
+  this client is shared by the core);
+- `src/deploySettings.ts` — read by the shared `azure` client and by the core's `workspaces.ts`,
+  so moving it would invert the layering;
+- `src/shared/deployConventions.ts` — pure, needed by both halves of deployments.
 
-**Done when:** the rule is documented and deployments is the worked example.
+**Done when:** the rule is documented and deployments is the worked example. ✅
 
 ## 6. Split `extensions/index.ts`
 

@@ -22,8 +22,8 @@ import {
 } from "./helpers.ts";
 
 // What is deployed where moved under the deployments extension's namespace
-// (/api/ext/deployments/…): the implementation (src/deployments.ts) stayed where it was,
-// the routes and the page are the extension's own.
+// (/api/ext/deployments/…): the implementation (extensions/deployments/server.ts) lives with
+// the extension, the routes and the page are the extension's own.
 
 export const extensionsRoutes = guard({
   // The steps the "Create change" wizard has in the context you are in: the extensions'

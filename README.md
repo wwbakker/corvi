@@ -594,8 +594,8 @@ has and how to grant the rest.
 
 ## Jira over its own API
 
-`src/integrations/jiraHttp.ts` is the whole transport: read the config `jira init` wrote, basic
-auth with `JIRA_API_TOKEN`, and one `fetch`. `src/integrations/jira.ts` is the integration on top
+`src/extensions/jira/jiraHttp.ts` is the whole transport: read the config `jira init` wrote, basic
+auth with `JIRA_API_TOKEN`, and one `fetch`. `src/extensions/jira/jira.ts` is the integration on top
 of it — sprints from `/rest/agile/1.0/board/<id>/sprint`, issues from that board's sprints and
 from `/rest/api/3/search/jql`, transitions from `/rest/api/3/issue/<key>/transitions`.
 
@@ -1355,32 +1355,41 @@ The map, grouped by layer:
     src/config.ts             config file + env overrides
     src/repos.ts              directory browsing under reposRoot, remote branches
     src/leftovers.ts          directories in the changes root without a change
-    src/branch.ts             branch-name derivation (shared with the browser)
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
     src/platform.ts           platform detection
     src/origin.ts             refusing requests another site made
     src/types.ts              the vocabulary the server and the page share
+    src/legacySettings.ts     the one legacy-settings resolver and migration
+
+    src/effect/               the error taxonomy, runRoute, the Workspace tag, and support.ts
+                              (the shared shSoft/cliJson/messageOf/fs helpers)
+    src/routes/               the HTTP handlers, one module per domain: helpers, changes,
+                              terminals, repos, settings, extensions, events, assets
 
     src/terminal.ts           tmux sessions and the ttyd that serves them
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
-    src/deployments.ts        what is deployed where, per service and environment
-    src/deploySettings.ts     the deployments extension's server-wide settings, read back
-    src/deployConventions.ts  how a build pipeline's name maps to its deploy twin
+    src/deploySettings.ts     the deployments settings, read by the shared azure client too
 
-    src/integrations/         vendor CLI wrappers
+    src/shared/               pure code both the server and the browser import
+      branch.ts               branch-name derivation
+      deployConventions.ts    how a build pipeline's name maps to its deploy twin
+
+    src/integrations/         vendor CLI wrappers shared by more than one feature
       git.ts                  worktrees and checkouts (wt, plus plain git)
       github.ts               pull requests, review threads, merges
       azure.ts                Azure DevOps pipelines and runs
-      checks.ts               GitHub Actions checks on a pull request
       stacks.ts               stacked pull requests
 
     src/extensions/           the extension host and the built-ins
-      index.ts                the loader, the registry, the route dispatcher
+      index.ts                the public face: built-in load order and re-exports
+      registry.ts             the leaf registry (loaded, install, window presenters)
+      discover.ts selectors.ts effects.ts dispatch.ts   loading, queries, running, routing
       api.ts                  the whole contract an extension sees
       services.ts             the live layers behind Shell/Cache/Settings/Bus/Workspace
-      presenters.ts           window presenters, a leaf (it breaks a module cycle)
       clientChunks.ts         builds out-of-tree client halves for the page
-      agents/ git/ ci/ jira/ github-issues/ deployments/    the built-ins
+      agents/ git/ github-issues/ jira/    the built-ins
+      ci/                     the CI card, and checks.ts (GitHub Actions checks)
+      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx
 
     src/web/                  the React app, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view

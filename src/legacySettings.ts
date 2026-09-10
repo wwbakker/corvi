@@ -126,8 +126,8 @@ export function overriddenExtensionSettings(
  *   loaded except what the flags exclude (`jira`, `deployments`). Naming some is the whole
  *   list, and a list you can read is worth more than flags nothing reads anymore. The flags
  *   meant what they always meant — this context has no pipelines — and enablement now honours
- *   it; the deployments implementation keeps its own guard too (src/deployments.ts's
- *   `usesAzure`), belt and braces, no behaviour change.
+ *   it; the deployments implementation keeps its own guard too (extensions/deployments/
+ *   server.ts's `usesAzure`), belt and braces, no behaviour change.
  *
  * A workspace with an explicit `extensions` list is otherwise never touched. Everything else is
  * left exactly as it was. Run after the built-ins load and after every settings write

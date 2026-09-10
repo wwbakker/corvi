@@ -18,7 +18,7 @@ src/
   changes.ts complete.ts cancel.ts commit.ts local.ts summary.ts titles.ts …  core domain
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
   terminal.ts terminalProxy.ts  tmux sessions, ttyd spawn, ws bridge
-  integrations/        vendor CLI wrappers (git, github, azure, checks, stacks)
+  integrations/        vendor CLI wrappers (git, github, azure, stacks)
   extensions/          host + api.ts contract + built-ins (agents, git, ci, jira,
                        github-issues, deployments)
   web/                 React UI, bundled by Bun's HTML import, no framework
@@ -30,19 +30,27 @@ workspace — with a filtered list. See [`extensions.md`](extensions.md) for the
 
 ## Where a feature's code lives
 
-The intended rule, so a feature is not a scavenger hunt across four directories:
+The rule, applied today for `deployments` and `ci`, so a feature is not a scavenger hunt across
+four directories:
 
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
-  implementation and client half.
-- **`src/integrations/`** — vendor clients genuinely shared by more than one feature. `git.ts`
-  qualifies (the core's `complete`/`cancel`/`commit`/`local`/`repos` all use it); a vendor
-  client used by exactly one feature does not.
+  implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
+  this way.
+- **`src/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
+  (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
+  core + the git extension).
 - **top-level `src/*.ts`** — core domain that is not a feature.
 
-This rule is not yet fully applied. Deployments currently spans
-`extensions/deployments/` + `src/deployments.ts` + `src/deploySettings.ts` +
-`src/deployConventions.ts` + `src/integrations/azure.ts`; ci and git split similarly. Item 5 of
-[`../plans/refactor-plan.md`](../plans/refactor-plan.md) moves them, deployments first.
+Two shared modules stay in place rather than moving into the deployments folder:
+
+- `src/deploySettings.ts` — read by the shared `azure` client and by the core's `workspaces.ts`,
+  so moving it would invert the layering;
+- `src/shared/deployConventions.ts` — pure vocabulary both the server and the browser halves of
+  deployments need.
+
+Git cannot be colocated while `src/integrations/git.ts` is shared by the core and the git
+extension. Item 5 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md) records this
+scope.
 
 ## What stays core
 

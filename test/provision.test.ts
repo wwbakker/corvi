@@ -23,7 +23,7 @@ import {
   versionInLines,
 } from "../src/integrations/azure.ts";
 import { readiness, repoFromUrl, headRef, waitingOnYou } from "../src/integrations/github.ts";
-import { groupChecks } from "../src/integrations/checks.ts";
+import { groupChecks } from "../src/extensions/ci/checks.ts";
 import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
@@ -555,7 +555,7 @@ test("a repository's line says what is uncommitted and what is only here", async
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {
-  const { latestFor, versionIn, serviceName } = await import("../src/deployments.ts");
+  const { latestFor, versionIn, serviceName } = await import("../src/extensions/deployments/server.ts");
   const run = (
     id: number,
     environment: string,
@@ -610,7 +610,7 @@ test("what an environment holds is the newest run that was sent to it", async ()
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { deploy, branchOf } = await import("../src/deployments.ts");
+  const { deploy, branchOf } = await import("../src/extensions/deployments/server.ts");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.

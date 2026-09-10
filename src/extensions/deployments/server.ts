@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import type { WidgetState } from "./types.ts";
-import { swrEffect, invalidate } from "./cache.ts";
+import type { WidgetState } from "../../types.ts";
+import { swrEffect, invalidate } from "../../cache.ts";
 import {
   azForEffect,
   buildUrl,
@@ -8,12 +8,12 @@ import {
   expectedDurationEffect,
   type Az,
   type Definition,
-} from "./integrations/azure.ts";
-import { usesAzure, workspaceById } from "./workspaces.ts";
-import { deploySettings } from "./deploySettings.ts";
-import { autoDeployedApp } from "./shared/deployConventions.ts";
-import { BadRequestError } from "./effect/errors.ts";
-import { cliJson, shSoft } from "./effect/support.ts";
+} from "../../integrations/azure.ts";
+import { usesAzure, workspaceById } from "../../workspaces.ts";
+import { deploySettings } from "../../deploySettings.ts";
+import { autoDeployedApp } from "../../shared/deployConventions.ts";
+import { BadRequestError } from "../../effect/errors.ts";
+import { cliJson, shSoft } from "../../effect/support.ts";
 
 /**
  * What is deployed where.

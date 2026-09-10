@@ -36,7 +36,7 @@ Declaration, implementation and client half live together under `src/extensions/
 
 - **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`.
 - **Tell:** a feature whose implementation is a top-level module plus an `integrations/` file plus
-  an `extensions/` folder (deployments, today). See
+  an `extensions/` folder (deployments, until item 5 of the refactor plan). See
   [`architecture.md`](architecture.md#where-a-features-code-lives).
 
 ## 4. Failure is a value

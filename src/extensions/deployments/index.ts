@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { BadRequestError } from "../../effect/errors.ts";
-import { deploymentsEffect, versionsForEffect, deployEffect } from "../../deployments.ts";
+import { deploymentsEffect, versionsForEffect, deployEffect } from "./server.ts";
 import type { Extension } from "../api.ts";
 
 /**
@@ -9,9 +9,8 @@ import type { Extension } from "../api.ts";
  *
  * It contributes a page (the sidebar's Deployments entry, rendered by its client half) and the
  * three routes the page fetches from, under its own namespace. The implementation it wires up
- * — every `az` call, the cache, the promotion guard — lives where it always has
- * (src/deployments.ts); this module only describes it and hands it the workspace the request
- * names.
+ * — every `az` call, the cache, the promotion guard — lives beside it (./server.ts); this
+ * module only describes it and hands it the workspace the request names.
  */
 
 /** The context these pipelines belong to, said the way every route says it: a query parameter

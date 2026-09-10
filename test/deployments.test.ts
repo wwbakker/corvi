@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { acceptedVersions, versionsFor, type Run } from "../src/deployments.ts";
+import { acceptedVersions, versionsFor, type Run } from "../src/extensions/deployments/server.ts";
 import { autoDeployedApp } from "../src/shared/deployConventions.ts";
 import type { Az } from "../src/integrations/azure.ts";
 

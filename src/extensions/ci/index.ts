@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { worst, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
 import { activeRunsEffect, pipelineItemsEffect } from "../../integrations/azure.ts";
 import { createPrEffect, prItemEffect, prSummaryEffect } from "../../integrations/github.ts";
-import { checkItemsEffect } from "../../integrations/checks.ts";
+import { checkItemsEffect } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
 import type { Extension, SummaryContribution } from "../api.ts";
 

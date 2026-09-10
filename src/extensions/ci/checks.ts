@@ -1,8 +1,8 @@
 import { Effect, Schema } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { checkoutForEffect } from "./git.ts";
-import { swrEffect } from "../cache.ts";
-import { cliJson, shSoft } from "../effect/support.ts";
+import type { Change, WidgetItem, WidgetState } from "../../types.ts";
+import { checkoutForEffect } from "../../integrations/git.ts";
+import { swrEffect } from "../../cache.ts";
+import { cliJson, shSoft } from "../../effect/support.ts";
 
 export type Check = {
   name: string;
