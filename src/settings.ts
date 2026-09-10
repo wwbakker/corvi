@@ -7,9 +7,9 @@ import {
   readFile,
   reloadConfigEffect,
   expandTilde,
-  ENV_OVERRIDES,
   type Config,
 } from "./config.ts";
+import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
 import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
@@ -61,29 +61,6 @@ export type SettingsView = {
   }[];
 };
 
-/** Only the variables that are actually set: an override nobody has made is not one. */
-function overridden(): Record<string, string> {
-  const found: Record<string, string> = {};
-  for (const [field, variable] of Object.entries(ENV_OVERRIDES)) {
-    if (process.env[variable] !== undefined) found[field] = variable;
-  }
-  return found;
-}
-
-/** The same, for the fields the extensions declare: a setting whose `env` names a variable
- * that is set is shown locked, with the variable named. */
-function overriddenExtensions(): Record<string, Record<string, string>> {
-  const found: Record<string, Record<string, string>> = {};
-  for (const extension of loaded) {
-    for (const field of extension.globalSettings) {
-      if (field.env && process.env[field.env] !== undefined) {
-        (found[extension.name] ??= {})[field.key] = field.env;
-      }
-    }
-  }
-  return found;
-}
-
 export const settingsViewEffect = Effect.sync(() => settingsView());
 
 /** The settings page's read: the file as written, what is in effect, what is locked. Sync by
@@ -100,8 +77,8 @@ export const settingsView = (): SettingsView => {
     path: configPath(),
     file,
     effective: config,
-    overridden: overridden(),
-    overriddenExtensions: overriddenExtensions(),
+    overridden: overriddenSettings(),
+    overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
     extensions: loaded.map((e) => ({
       name: e.name,

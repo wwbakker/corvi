@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isFinished, type Change, type CompletionStep, type Widget, type WidgetItem } from "../types.ts";
 import { config, expandTilde, type Workspace } from "../config.ts";
+import { migrateWorkspaceSettings as migrateWorkspaceSettingsWith } from "../legacySettings.ts";
 import { workspaceById, workspaceOf } from "../workspaces.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
@@ -283,52 +284,13 @@ await loadAll([
 await loadDiscovered();
 
 /**
- * Normalize the workspaces' extension settings against what is loaded, in place.
- *
- * Two legacy shapes are folded into the one key extensions read today:
- *
- * - a workspace still configuring Jira through its own `jira` object has those fields copied
- *   into `extensionSettings.jira`, where the jira extension's declaration puts and reads them;
- * - a workspace still switching a piece of the world off with the vendor's own flag —
- *   `jira: false`, `azure: false` — and naming no extensions gets an explicit list: everything
- *   loaded except what the flags exclude (`jira`, `deployments`). Naming some is the whole
- *   list, and a list you can read is worth more than flags nothing reads anymore. The flags
- *   meant what they always meant — this context has no pipelines — and enablement now honours
- *   it; the deployments implementation keeps its own guard too (src/deployments.ts's
- *   `usesAzure`), belt and braces, no behaviour change.
- *
- * A workspace with an explicit `extensions` list is otherwise never touched. Everything else is
- * left exactly as it was. Run after the built-ins load (below) and after every settings write
- * (src/settings.ts), so both hand-edits and page writes land normalized.
+ * Normalize the workspaces' extension settings, binding the registry's own names to the
+ * migration logic in src/legacySettings.ts. It lives in the registry's file only because the
+ * loaded names are the registry's state: the migration needs them to materialize the legacy
+ * vendor flags into an explicit extensions list, and this module is what owns `loaded`.
  */
-export function migrateWorkspaceSettings(workspaces: Workspace[]): Workspace[] {
-  for (const workspace of workspaces) {
-    if (workspace.jira && !workspace.extensionSettings?.jira) {
-      const { project, board, configFile, tokenEnv } = workspace.jira;
-      workspace.extensionSettings = {
-        ...workspace.extensionSettings,
-        jira: {
-          ...(project !== undefined && { project }),
-          ...(board !== undefined && { board }),
-          ...(configFile !== undefined && { configFile }),
-          ...(tokenEnv !== undefined && { tokenEnv }),
-        },
-      };
-    }
-    // The vendor flags, folded into the list they were always standing in for. A workspace
-    // that names some is left alone: naming some is the whole list.
-    if (!workspace.extensions) {
-      const excluded = [
-        ...(workspace.jira === false ? ["jira"] : []),
-        ...(workspace.azure === false ? ["deployments"] : []),
-      ];
-      if (excluded.length > 0) {
-        workspace.extensions = loaded.map((e) => e.name).filter((name) => !excluded.includes(name));
-      }
-    }
-  }
-  return workspaces;
-}
+export const migrateWorkspaceSettings = (workspaces: Workspace[]): Workspace[] =>
+  migrateWorkspaceSettingsWith(workspaces, loaded.map((e) => e.name));
 
 migrateWorkspaceSettings(config.workspaces);
 

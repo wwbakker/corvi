@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import { ConfigFile, workspacesFrom } from "./schemas/config.ts";
+import { ENV_OVERRIDES, resolveSetting } from "./legacySettings.ts";
 import { TOOLING } from "./tooling.ts";
 
 /**
@@ -143,78 +144,114 @@ export function readFile(): ConfigFile {
   return Effect.runSync(readFileEffect());
 }
 
-const resolve = (value: string | undefined, fallback: string): string => {
-  const path = expandTilde(value ?? fallback);
+const resolvePath = (value: string): string => {
+  const path = expandTilde(value);
   if (!isAbsolute(path)) throw new Error(`config path must be absolute: ${path}`);
   return path;
 };
 
 /**
- * Which environment variable overrides which setting.
- *
- * The settings page shows these as locked rather than pretending to edit them: an environment
- * variable wins, so writing the file would change nothing and look like a bug.
+ * The file and the environment, resolved into what the rest of the code reads. The precedence
+ * chain is unchanged — environment wins over file, file over defaults, the bag over both — and
+ * it is stated once, in src/legacySettings.ts. The per-workspace tolerance (skip entries without
+ * a truthy id and name) is applied by workspacesFrom, exactly where the old inline filter sat.
  */
-export const ENV_OVERRIDES: Record<string, string> = {
-  changesRoot: "IWE_ROOT",
-  reposRoot: "IWE_REPOS_ROOT",
-  reposStart: "IWE_REPOS_START",
-  jiraAssignee: "IWE_JIRA_ASSIGNEE",
-  jiraStartTransition: "IWE_JIRA_START_TRANSITION",
-  jiraDoneTransition: "IWE_JIRA_DONE_TRANSITION",
-  azureOrganization: "IWE_AZURE_ORG",
-  azureProject: "IWE_AZURE_PROJECT",
-  worktreeCopy: "IWE_WORKTREE_COPY",
-  extensionPaths: "IWE_EXTENSION_PATHS",
-  "azureDeploy.environments": "IWE_AZURE_ENVIRONMENTS",
-};
-
-/** The file and the environment, resolved into what the rest of the code reads. The precedence
- * chain is unchanged: environment wins over file, file over defaults. The per-workspace
- * tolerance (skip entries without a truthy id and name) is applied by workspacesFrom, exactly
- * where the old inline filter sat. */
 function load(): Config {
   const file = readFile();
   const workspaces = workspacesFrom(file.workspaces);
   return {
-    changesRoot: resolve(process.env.IWE_ROOT ?? file.changesRoot, defaults.changesRoot),
-    reposRoot: resolve(process.env.IWE_REPOS_ROOT ?? file.reposRoot, defaults.reposRoot),
-    reposStart: resolve(
-      process.env.IWE_REPOS_START ?? file.reposStart,
-      process.env.IWE_REPOS_ROOT ?? file.reposRoot ?? defaults.reposRoot,
+    changesRoot: resolvePath(
+      resolveSetting({
+        env: ENV_OVERRIDES.changesRoot,
+        file: file.changesRoot,
+        fallback: defaults.changesRoot,
+      }),
     ),
-    jiraAssignee: process.env.IWE_JIRA_ASSIGNEE ?? file.jiraAssignee ?? "",
-    notificationSound: file.notificationSound ?? true,
-    jiraStartTransition:
-      process.env.IWE_JIRA_START_TRANSITION ?? file.jiraStartTransition ?? "In Progress",
-    jiraDoneTransition: process.env.IWE_JIRA_DONE_TRANSITION ?? file.jiraDoneTransition ?? "Done",
+    reposRoot: resolvePath(
+      resolveSetting({
+        env: ENV_OVERRIDES.reposRoot,
+        file: file.reposRoot,
+        fallback: defaults.reposRoot,
+      }),
+    ),
+    reposStart: resolvePath(
+      resolveSetting({
+        env: ENV_OVERRIDES.reposStart,
+        file: file.reposStart,
+        fallback: resolveSetting({
+          env: ENV_OVERRIDES.reposRoot,
+          file: file.reposRoot,
+          fallback: defaults.reposRoot,
+        }),
+      }),
+    ),
+    jiraAssignee: resolveSetting({
+      env: ENV_OVERRIDES.jiraAssignee,
+      file: file.jiraAssignee,
+      fallback: "",
+    }),
+    notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
+    jiraStartTransition: resolveSetting({
+      env: ENV_OVERRIDES.jiraStartTransition,
+      file: file.jiraStartTransition,
+      fallback: "In Progress",
+    }),
+    jiraDoneTransition: resolveSetting({
+      env: ENV_OVERRIDES.jiraDoneTransition,
+      file: file.jiraDoneTransition,
+      fallback: "Done",
+    }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and
     // a key left out here would survive a settings write that emptied the bag.
     extensionSettings: file.extensionSettings,
-    worktreeCopy:
-      process.env.IWE_WORKTREE_COPY === undefined
-        ? (file.worktreeCopy ?? TOOLING)
-        : process.env.IWE_WORKTREE_COPY.split(",")
-            .map((n) => n.trim())
-            .filter(Boolean),
+    worktreeCopy: resolveSetting({
+      env: ENV_OVERRIDES.worktreeCopy,
+      file: file.worktreeCopy,
+      fallback: TOOLING,
+      parse: (raw) =>
+        raw
+          .split(",")
+          .map((n) => n.trim())
+          .filter(Boolean),
+    }),
     extensionPaths: extensionPathsFrom(file),
-    azureOrganization: process.env.IWE_AZURE_ORG ?? file.azureOrganization ?? "",
-    azureProject: process.env.IWE_AZURE_PROJECT ?? file.azureProject ?? "",
+    azureOrganization: resolveSetting({
+      env: ENV_OVERRIDES.azureOrganization,
+      file: file.azureOrganization,
+      fallback: "",
+    }),
+    azureProject: resolveSetting({
+      env: ENV_OVERRIDES.azureProject,
+      file: file.azureProject,
+      fallback: "",
+    }),
     azureDeploy: {
-      pipeline: file.azureDeploy?.pipeline ?? ["build-", "deploy-"],
-      versionParameter: file.azureDeploy?.versionParameter ?? "dockerTag",
-      environmentParameter: file.azureDeploy?.environmentParameter ?? "environment",
-      environments: (process.env.IWE_AZURE_ENVIRONMENTS ?? "")
-        .split(",")
-        .map((e) => e.trim())
-        .filter(Boolean)
-        .concat(
-          process.env.IWE_AZURE_ENVIRONMENTS
-            ? []
-            : (file.azureDeploy?.environments ?? ["accept", "production"]),
-        ),
+      pipeline: resolveSetting<readonly [string, string]>({
+        file: file.azureDeploy?.pipeline,
+        fallback: ["build-", "deploy-"],
+      }),
+      versionParameter: resolveSetting({
+        file: file.azureDeploy?.versionParameter,
+        fallback: "dockerTag",
+      }),
+      environmentParameter: resolveSetting({
+        file: file.azureDeploy?.environmentParameter,
+        fallback: "environment",
+      }),
+      environments: resolveSetting({
+        env: ENV_OVERRIDES["azureDeploy.environments"],
+        file: file.azureDeploy?.environments,
+        fallback: ["accept", "production"],
+        parse: (raw) =>
+          raw === ""
+            ? undefined
+            : raw
+                .split(",")
+                .map((e) => e.trim())
+                .filter(Boolean),
+      }),
     },
   };
 }
@@ -225,11 +262,14 @@ function load(): Config {
  * the loader adds (src/extensions/index.ts), not a decision the file records, so the settings
  * page shows exactly what was configured. */
 function extensionPathsFrom(file: ConfigFile): string[] {
-  const override = process.env.IWE_EXTENSION_PATHS?.trim();
-  const raw = override ? override.split(",") : (file.extensionPaths ?? []);
   const seen = new Set<string>();
   const paths: string[] = [];
-  for (const item of raw) {
+  for (const item of resolveSetting<string[]>({
+    env: ENV_OVERRIDES.extensionPaths,
+    file: file.extensionPaths ?? [],
+    fallback: [],
+    parse: (raw) => (raw.trim() ? raw.split(",") : undefined),
+  })) {
     const path = expandTilde(item.trim());
     if (!path || seen.has(path)) continue;
     seen.add(path);

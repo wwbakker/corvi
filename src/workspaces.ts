@@ -1,6 +1,7 @@
 import type { Change } from "./types.ts";
 import { config, type Workspace } from "./config.ts";
 import { deploySettings } from "./deploySettings.ts";
+import { resolveSetting } from "./legacySettings.ts";
 
 /**
  * Which context a change belongs to, and what that context implies.
@@ -33,8 +34,14 @@ export function azureOf(workspace: Workspace): { organization: string; project: 
   const own = workspace.azure === false ? undefined : workspace.azure;
   const global = deploySettings();
   return {
-    organization: own?.organization ?? global.organization ?? config.azureOrganization,
-    project: own?.project ?? global.project ?? config.azureProject,
+    organization: resolveSetting({
+      bag: own?.organization,
+      fallback: global.organization ?? config.azureOrganization,
+    }),
+    project: resolveSetting({
+      bag: own?.project,
+      fallback: global.project ?? config.azureProject,
+    }),
   };
 }
 
