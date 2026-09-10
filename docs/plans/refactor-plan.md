@@ -17,7 +17,7 @@ behaviour-preserving are flagged as decisions, not tasks.
 | 1. Shared CLI helpers | done | `src/effect/support.ts`; the 8 `shSoft`, 6 `cliJson`/`ghJson`, 6 `messageOf` and 4 `fs` copies are gone, and the two `worst` re-implementations point at `types.ts` |
 | 3. `src/shared/` | done | `branch.ts` and `deployConventions.ts` moved; eslint boundary is now the structural `../shared/*` (`types.ts` stays a filename exception, documented in the config) |
 | 7. Split `server.ts` | done | `server.ts` 652 → 83 lines; `src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts` |
-| 8. Naming/root clutter | partial | the pi extension dir moved `extensions/` → `pi/`; the integration-vs-extension naming alignment is still pending |
+| 8. Naming/root clutter | done | pi extension dir moved `extensions/` → `pi/`; internal vocabulary aligned to "extension" (`cardForExtension`, `:card`, `CardInfo`), wire fields kept |
 | 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
 | 4. Legacy settings chain | done | one `src/legacySettings.ts` resolves the bag → legacy field → env → default chain and owns the migration |
 | 6. Split extension host | done | `src/extensions/` is now registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; `presenters.ts` deleted and the events cycle is structurally gone |
@@ -190,11 +190,11 @@ No behaviour, all reading cost:
   root `extensions/` directory one apart from `src/extensions/`. The directory is now
   `pi/`, and `scripts/extension.ts` and `test/agentState.test.ts` point at
   `pi/agent-state.ts`.
-- "integration" vs "extension": align internal names (`cardByName`,
-  `IntegrationInfo`, the `:integration` route param) where it does not touch the
-  wire. `Widget.integration` *is* the wire contract for out-of-tree extensions, so
-  leave it and add one line to `docs/guides/extensions.md`: "integration is the legacy
-  spelling of extension".
+- **Done:** "integration" vs "extension": the internal names are aligned — `cardByName` →
+  `cardForExtension`, the `:integration` route param → `:card` (URL shape unchanged), and the
+  client type `IntegrationInfo` → `CardInfo`. `Widget.integration` and
+  `ProvisionResult.integration` stay as the wire contract, and `docs/guides/extensions.md` notes
+  that "integration" is the legacy spelling retained there.
 
 **Done** (the "docs: split documentation by lifetime" commit): the root migration
 artifacts moved to `docs/plans/archive/`, and the README "Layout" section was rewritten

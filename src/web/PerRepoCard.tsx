@@ -3,7 +3,7 @@ import {
   aborted,
   api,
   post,
-  type IntegrationInfo,
+  type CardInfo,
   type RepoItems,
   type WidgetItem,
 } from "./api.ts";
@@ -27,7 +27,7 @@ export function PerRepoCard({
   onReposChanged,
 }: {
   changeId: string;
-  info: IntegrationInfo;
+  info: CardInfo;
   repos: string[];
   onReposChanged: () => void;
 }) {

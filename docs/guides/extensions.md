@@ -8,6 +8,9 @@ titles for the overview, a page of its own. It is the shape pi's extensions have
 default export is a factory receiving an API object, contributing to registries instead of being
 wired in by hand.
 
+"Integration" is the legacy spelling of "extension", retained only in `Widget.integration` on
+the wire (and its out-of-tree client contract); everything else says extension.
+
 Handlers are **Effects**, and that is the dependency-injection contract:
 
 - **The host provides the capabilities** — the request's `Workspace` tag, a `Shell` for

@@ -1292,7 +1292,7 @@ change, component and repository, so leaving a change and coming back paints the
 straight away while they refresh in the background. A page reload starts empty.
 
 Components that work per repository (Local changes, CI) declare `repoStatus` instead of `status`,
-and the browser fetches `GET /api/changes/:id/:integration/repo?path=…` once per repository. The
+and the browser fetches `GET /api/changes/:id/:card/repo?path=…` once per repository. The
 rows appear one at a time as each repository answers, so a change with many repositories fills in
 progressively instead of staying empty until the slowest CLI call returns. Everything refreshes
 every 15s, and a slow or broken CLI delays only its own row.

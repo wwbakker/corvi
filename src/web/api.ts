@@ -4,7 +4,7 @@ import type { Entry } from "../repos.ts";
 export type { Change, ChangeState, Widget, WidgetItem, Entry };
 export { CHANGE_STATES };
 export type Listing = { root: string; path: string; entries: Entry[] };
-export type IntegrationInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
+export type CardInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
 export type RepoItems = { items: WidgetItem[] };
 export type RepoState = {
   path: string;

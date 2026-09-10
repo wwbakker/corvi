@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { BadRequestError, ConflictError, NotFoundError } from "../effect/errors.ts";
 import {
-  cardByName,
+  cardForExtension,
   cardsFor,
   dispatchExtensionRoute,
   pagesFor,
@@ -77,14 +77,14 @@ export const extensionsRoutes = guard({
 
   // One repository's rows of one component, so a change with many repositories fills in
   // one by one rather than all at once at the end.
-  "/api/changes/:id/:integration/repo": {
+  "/api/changes/:id/:card/repo": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const card = cardByName(req.params.integration);
+          const card = cardForExtension(req.params.card);
           const repo = new URL(req.url).searchParams.get("path");
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
+            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
           }
           if (!repo) {
             return yield* Effect.fail(new BadRequestError({ message: "path required" }));
@@ -94,27 +94,27 @@ export const extensionsRoutes = guard({
       ),
   },
 
-  // One integration's widget, fetched and refreshed independently by the browser.
-  "/api/changes/:id/:integration": {
+  // One card's widget, fetched and refreshed independently by the browser.
+  "/api/changes/:id/:card": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const card = cardByName(req.params.integration);
+          const card = cardForExtension(req.params.card);
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
+            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
           }
-          return json(yield* statusOneEffect(req.params.integration, card, c));
+          return json(yield* statusOneEffect(req.params.card, card, c));
         }),
       ),
   },
 
-  "/api/changes/:id/:integration/:action": {
+  "/api/changes/:id/:card/:action": {
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const card = cardByName(req.params.integration);
+          const card = cardForExtension(req.params.card);
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown integration" }));
+            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
           }
           // The buttons are gone from a finished change's dashboard, but the page may have been
           // open since before it was finished — and this is where the truth lives.
@@ -128,7 +128,7 @@ export const extensionsRoutes = guard({
           if (card.repoStatus && body.arg) {
             return json({ items: yield* repoStatusOfEffect(card, c, body.arg) });
           }
-          return json(yield* statusOneEffect(req.params.integration, card, c));
+          return json(yield* statusOneEffect(req.params.card, card, c));
         }),
       ),
   },

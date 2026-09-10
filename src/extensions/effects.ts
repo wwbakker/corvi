@@ -113,7 +113,7 @@ export const repoStatusOfEffect = (
 export const repoStatusOf = (card: Card, change: Change, repo: string): Promise<WidgetItem[]> =>
   Effect.runPromise(repoStatusOfEffect(card, change, repo));
 
-/** Perform an action a card's rows advertised — the POST `/api/changes/:id/:integration/:action`
+/** Perform an action a card's rows advertised — the POST `/api/changes/:id/:card/:action`
  * path. A finished change refuses: the buttons are gone from its dashboard, but a page may
  * have been open since before it finished, and this is where the truth lives. */
 export const runCardEffect = (

@@ -8,7 +8,7 @@ import {
   type ChangeState,
   type Change,
   type Completion,
-  type IntegrationInfo,
+  type CardInfo,
   type ProvisionResult,
 } from "./api.ts";
 import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
@@ -79,7 +79,7 @@ export function ChangeView({
 }) {
   const [change, setChange] = useCached<Change>(`${id}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
-  const [infos, setInfos] = useCached<IntegrationInfo[]>(`${id}:integrations`);
+  const [infos, setInfos] = useCached<CardInfo[]>(`${id}:integrations`);
   const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -103,7 +103,7 @@ export function ChangeView({
     api<Change>(`/changes/${id}`)
       .then(setChange)
       .catch((e: Error) => setError(e.message));
-    api<IntegrationInfo[]>(`/changes/${id}/integrations`)
+    api<CardInfo[]>(`/changes/${id}/integrations`)
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
   }, [id]);
@@ -124,7 +124,7 @@ export function ChangeView({
     };
   }, [id, change?.completedAt, generation]);
 
-  const card = (info: IntegrationInfo) =>
+  const card = (info: CardInfo) =>
     info.perRepo ? (
       <PerRepoCard
         key={`${info.name}-${generation}`}

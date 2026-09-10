@@ -168,12 +168,12 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, cardByName } = await import("../src/extensions/index.ts");
+  const { repoStatusOf, cardForExtension } = await import("../src/extensions/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] });
 
-  const git = cardByName("git")!;
+  const git = cardForExtension("git")!;
   const live = await repoStatusOf(git, change, repo);
   expect(live.flatMap((i) => i.actions ?? []).map((a) => a.label)).toContain("Create worktree");
 

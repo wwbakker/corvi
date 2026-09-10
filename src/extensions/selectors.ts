@@ -50,7 +50,7 @@ export const cardsFor = (change: Change): { name: string; card: Card }[] =>
 /** One card by the extension's name, across every loaded extension. A change's workspace
  * governs which cards are *listed*; a card addressed directly is looked up everywhere, as it
  * always was. */
-export const cardByName = (name: string): Card | undefined =>
+export const cardForExtension = (name: string): Card | undefined =>
   loaded.find((e) => e.name === name)?.cards[0];
 
 /** The wizard steps of a workspace, in presentation order: issue steps before the change

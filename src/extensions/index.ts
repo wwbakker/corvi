@@ -79,7 +79,7 @@ export {
   loadDiscovered,
 } from "./discover.ts";
 export {
-  cardByName,
+  cardForExtension,
   cardsFor,
   completionStepsFor,
   descriptionSectionsFor,
