@@ -22,7 +22,7 @@ behaviour-preserving are flagged as decisions, not tasks.
 | 4. Legacy settings chain | done | one `src/legacySettings.ts` resolves the bag → legacy field → env → default chain and owns the migration |
 | 6. Split extension host | done | `src/extensions/` is now registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; `presenters.ts` deleted and the events cycle is structurally gone |
 | 5. Colocate feature implementations | done (this scope) | deployments (`src/deployments.ts` → `extensions/deployments/server.ts`) and ci (`integrations/checks.ts` → `extensions/ci/checks.ts`) colocated; `integrations/{azure,github,git}.ts`, `deploySettings.ts` and `shared/deployConventions.ts` stay shared, and git cannot be colocated while `integrations/git.ts` is shared by the core |
-| 2 | pending | next wave |
+| 2. Facades + ambient shim | done | the Promise facades and `src/context.ts` (AsyncLocalStorage) are gone; tests run Effects through `test/helpers.ts` and scripts through `scripts/sh.ts`. This supersedes the "facades kept for the test suite" ruling recorded in `docs/decisions/effect-migration.md` |
 
 One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
 depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the

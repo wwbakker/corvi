@@ -2,11 +2,11 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChange, changeDir } from "../src/changes.ts";
-import { provisionRepoEffect, checkoutFor } from "../src/integrations/git.ts";
+import { createChangeEffect, readChangeEffect, changeDir } from "../src/changes.ts";
+import { provisionRepoEffect, checkoutForEffect } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import { cancelChange } from "../src/cancel.ts";
-import { sh } from "../src/sh.ts";
+import { runEffect, runSh } from "./helpers.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/types.ts";
 
 /**
@@ -17,21 +17,21 @@ import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/type
 let tmp: string;
 
 const commit = (repo: string, message: string) =>
-  sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
+  runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 async function clonedRepo(name: string): Promise<string> {
   const origin = join(tmp, `${name}.git`);
   const work = join(tmp, `${name}-seed`);
-  await sh(["git", "init", "-b", "main", work]);
+  await runSh(["git", "init", "-b", "main", work]);
   await Bun.write(join(work, "README.md"), `${name}\n`);
-  await sh(["git", "add", "."], work);
+  await runSh(["git", "add", "."], work);
   await commit(work, "init");
-  await sh(["git", "clone", "--bare", "--quiet", work, origin]);
+  await runSh(["git", "clone", "--bare", "--quiet", work, origin]);
 
   const clone = join(tmp, name);
-  await sh(["git", "clone", "--quiet", origin, clone]);
-  await sh(["git", "config", "user.email", "t@t"], clone);
-  await sh(["git", "config", "user.name", "t"], clone);
+  await runSh(["git", "clone", "--quiet", origin, clone]);
+  await runSh(["git", "config", "user.email", "t@t"], clone);
+  await runSh(["git", "config", "user.name", "t"], clone);
   return clone;
 }
 
@@ -84,10 +84,10 @@ test("a change is over when it was completed or cancelled", () => {
 
 test("cancelling takes back the worktree and leaves the branch", async () => {
   const repo = await clonedRepo("cancel-plain");
-  const change = await createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", repos: [repo] });
+  const change = await runEffect(createChangeEffect({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", repos: [repo] }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  expect(await checkoutFor(change, repo)).toBeDefined();
+  expect(await runEffect(checkoutForEffect(change, repo))).toBeDefined();
 
   const result = await cancelChange(change);
   expect("change" in result).toBe(true);
@@ -96,42 +96,42 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect(cancelled.state).toBe("Cancelled");
   expect(cancelled.completedAt).toBeDefined();
   expect(isFinished(cancelled)).toBe(true);
-  expect(await checkoutFor(cancelled, repo)).toBeUndefined();
+  expect(await runEffect(checkoutForEffect(cancelled, repo))).toBeUndefined();
   // Archived, and still readable: what was abandoned is worth being able to look up.
   expect(await Bun.file(join(changeDir("PROJ-CANCEL"), "change.json")).exists()).toBe(false);
-  expect((await readChange("PROJ-CANCEL"))?.state).toBe("Cancelled");
+  expect((await runEffect(readChangeEffect("PROJ-CANCEL")))?.state).toBe("Cancelled");
 
   // Nothing was committed on it, so wt took the branch with the worktree — and the report says
   // so rather than claiming a branch is waiting for you that is not.
-  expect((await sh(["git", "branch", "--list", "PROJ-CANCEL-x"], repo)).stdout).toBe("");
+  expect((await runSh(["git", "branch", "--list", "PROJ-CANCEL-x"], repo)).stdout).toBe("");
   expect((result as { loose: string[] }).loose.some((l) => l.includes("branch"))).toBe(false);
 });
 
 test("what would be lost stops it, and what is recoverable asks first", async () => {
   const repo = await clonedRepo("cancel-work");
-  const change = await createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", repos: [repo] });
+  const change = await runEffect(createChangeEffect({ id: "PROJ-WORK", branch: "PROJ-WORK-x", repos: [repo] }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  const worktree = (await checkoutFor(change, repo))!;
+  const worktree = (await runEffect(checkoutForEffect(change, repo)))!;
 
   // Uncommitted: nowhere else, and no question makes it recoverable.
   await Bun.write(join(worktree, "wip.txt"), "not committed\n");
   expect(cancelChange(change)).rejects.toThrow(/uncommitted changes/);
   expect(cancelChange(change, true)).rejects.toThrow(/uncommitted changes/);
-  expect(await checkoutFor(change, repo)).toBeDefined();
+  expect(await runEffect(checkoutForEffect(change, repo))).toBeDefined();
 
   // Committed but never pushed: recoverable from the branch, which cancelling keeps — so this
   // is a question rather than a refusal.
-  await sh(["git", "add", "."], worktree);
+  await runSh(["git", "add", "."], worktree);
   await commit(worktree, "work nobody else has");
   const asked = await cancelChange(change);
   expect(asked).toEqual({ needsForce: ["cancel-work"] });
-  expect(await checkoutFor(change, repo)).toBeDefined();
+  expect(await runEffect(checkoutForEffect(change, repo))).toBeDefined();
 
   const forced = await cancelChange(change, true);
   expect("change" in forced).toBe(true);
-  expect(await checkoutFor(change, repo)).toBeUndefined();
-  expect((await sh(["git", "log", "-1", "--format=%s", "PROJ-WORK-x"], repo)).stdout).toBe(
+  expect(await runEffect(checkoutForEffect(change, repo))).toBeUndefined();
+  expect((await runSh(["git", "log", "-1", "--format=%s", "PROJ-WORK-x"], repo)).stdout).toBe(
     "work nobody else has",
   );
   // And that is a loose end: the commits are only on that branch now.
@@ -143,11 +143,11 @@ test("a change cannot be declared finished by hand", async () => {
   // displayed. Picking "Completed" from a list would set the word without merging anything,
   // removing a worktree or archiving the change.
   const { applyPatch } = await import("../src/changes.ts");
-  const change = await createChange({
+  const change = await runEffect(createChangeEffect({
     id: "PROJ-HAND",
     branch: "PROJ-HAND-x",
     repos: [await clonedRepo("cancel-byhand")],
-  });
+  }));
 
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Cancelled" })).toThrow(/completing or cancelling/);
@@ -168,17 +168,17 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, cardForExtension } = await import("../src/extensions/index.ts");
+  const { repoStatusOfEffect, cardForExtension } = await import("../src/extensions/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
-  const change = await createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] });
+  const change = await runEffect(createChangeEffect({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));
 
   const git = cardForExtension("git")!;
-  const live = await repoStatusOf(git, change, repo);
+  const live = await runEffect(repoStatusOfEffect(git, change, repo));
   expect(live.flatMap((i) => i.actions ?? []).map((a) => a.label)).toContain("Create worktree");
 
   const cancelled = ((await cancelChange(change)) as { change: Change }).change;
-  const after = await repoStatusOf(git, cancelled, repo);
+  const after = await runEffect(repoStatusOfEffect(git, cancelled, repo));
 
   // The row stays — what the change touched is worth reading afterwards — but offering to make
   // a worktree for an archived change is offering to half-revive something that is finished.
@@ -188,12 +188,12 @@ test("a change that is over is read, not acted on", async () => {
 
 test("what cancelling leaves alone is said out loud", async () => {
   const repo = await clonedRepo("cancel-loose");
-  const change = await createChange({
+  const change = await runEffect(createChangeEffect({
     id: "PROJ-LOOSE",
     branch: "PROJ-LOOSE-x",
     repos: [repo],
     jira: "PROJ-LOOSE",
-  });
+  }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
 

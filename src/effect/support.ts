@@ -8,7 +8,7 @@ import { shEffect, type Result } from "../sh.ts";
 
 /** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
  * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
+ * Result-branching callers branch on. */
 export const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
   Effect.catchAll(shEffect(cmd, cwd), (e) =>
     Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));

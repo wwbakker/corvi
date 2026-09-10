@@ -17,7 +17,7 @@ import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { isLinux, isMac } from "../src/platform.ts";
-import { sh } from "../src/sh.ts";
+import { sh } from "./sh.ts";
 
 /** What it is called in the Dock, in the menu bar and in its own title bar. `IWE` is what the
  * repository is called; this is an application, and applications have names. */

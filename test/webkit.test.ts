@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { webkit, type Browser } from "playwright";
-import { sh } from "../src/sh.ts";
+import { runSh } from "./helpers.ts";
 
 /**
  * Every page, in the engine the app actually uses.
@@ -39,10 +39,10 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-webkit-"));
   port = 4500 + Math.floor(Math.random() * 200);
   const repo = join(tmp, "example-api");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "example-api\n");
-  await sh(["git", "add", "."], repo);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+  await runSh(["git", "add", "."], repo);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
   server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
     env: {

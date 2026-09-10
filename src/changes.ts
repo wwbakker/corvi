@@ -17,9 +17,8 @@ export const ARCHIVE = "archive";
 export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 
-/** The Effect API beneath the Promise facades below. Where the old code threw, the Effect fails
- * with the typed taxonomy (docs/guides/effect-conventions.md) carrying the same message; the facades
- * keep old callers compiling until the server-wiring task sweeps them. */
+/** The Effect API. Where the old code threw, the Effect fails with the typed taxonomy
+ * (docs/guides/effect-conventions.md) carrying the same message. */
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 
@@ -68,11 +67,6 @@ export const readChangeEffect = (id: string): Effect.Effect<Change | null, Decod
     return yield* decodeChange(text, dir);
   });
 
-/** Promise facade over readChangeEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified; the server uses readChangeEffect directly. */
-export const readChange = (id: string): Promise<Change | null> =>
-  Effect.runPromise(readChangeEffect(id));
-
 /**
  * The two fields you may edit by hand: what a change is called, and where it stands.
  *
@@ -117,11 +111,6 @@ export const writeChangeEffect = (change: Change): Effect.Effect<void> =>
     yield* fs(() => Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
   });
 
-/** Promise facade over writeChangeEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified. */
-export const writeChange = (change: Change): Promise<void> =>
-  Effect.runPromise(writeChangeEffect(change));
-
 /** A file beside change.json — notes, completion progress — which therefore travels into the
  * archive with it. Read from wherever the change currently lives. A missing or unreadable
  * sidecar reads as empty, which is what `.catch(() => "")` did. */
@@ -142,23 +131,11 @@ export const writeSidecarEffect = (id: string, name: string, text: string): Effe
     yield* fs(() => Bun.write(join(dir, name), text));
   });
 
-/** Promise facade over writeSidecarEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const writeSidecar = (id: string, name: string, text: string): Promise<void> =>
-  Effect.runPromise(writeSidecarEffect(id, name, text));
-
-
 /** Free-text notes, kept beside change.json so they travel into the archive with it. */
 export const readNotesEffect = (id: string): Effect.Effect<string> =>
   readSidecarEffect(id, "notes.md");
 export const writeNotesEffect = (id: string, text: string): Effect.Effect<void> =>
   writeSidecarEffect(id, "notes.md", text);
-
-/** Promise facades over the notes effects, in the old signatures. Kept for the test suite,
- * which must pass unmodified; the server uses the effects directly. */
-export const readNotes = (id: string): Promise<string> => Effect.runPromise(readNotesEffect(id));
-export const writeNotes = (id: string, text: string): Promise<void> =>
-  Effect.runPromise(writeNotesEffect(id, text));
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
@@ -168,11 +145,6 @@ export const archiveChangeEffect = (id: string): Effect.Effect<void> =>
     yield* fs(() => mkdir(join(root(), ARCHIVE), { recursive: true }));
     yield* fs(() => rename(changeDir(id), archiveDir(id)));
   });
-
-/** Promise facade over archiveChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const archiveChange = (id: string): Promise<void> =>
-  Effect.runPromise(archiveChangeEffect(id));
 
 const directoriesIn = (dir: string): Effect.Effect<string[]> =>
   Effect.tryPromise(() => readdir(dir, { withFileTypes: true })).pipe(
@@ -208,10 +180,6 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     const byId = new Map(changes.flat().map((c) => [c.id, c]));
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });
-
-/** Promise facade over listChangesEffect, in the old signature. Kept for the test suite and
- * events.ts's stream (both fine as Promises); the server uses the effect directly. */
-export const listChanges = (): Promise<Change[]> => Effect.runPromise(listChangesEffect());
 
 export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
   Effect.gen(function* () {
@@ -267,16 +235,3 @@ export const createChangeEffect = (input: {
     yield* writeWtConfigEffect(id);
     return change;
   });
-
-/** Promise facade over createChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified; the server uses the effect directly. */
-export const createChange = (input: {
-  id: string;
-  branch?: string;
-  repos?: string[];
-  direct?: string[];
-  base?: Record<string, string>;
-  jira?: string;
-  extensions?: Record<string, unknown>;
-  workspace?: string;
-}): Promise<Change> => Effect.runPromise(createChangeEffect(input));

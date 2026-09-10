@@ -2,8 +2,9 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { problems, settingsView, writeSettings, type Settings } from "../src/settings.ts";
+import { problems, settingsView, writeSettingsEffect, type Settings } from "../src/settings.ts";
 import { config, reloadConfig, type Config } from "../src/config.ts";
+import { runEffect } from "./helpers.ts";
 
 /**
  * The settings page writes the file the whole program reads, so the two things worth testing are
@@ -81,7 +82,7 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
       { id: "own", name: "My own", jira: false },
     ],
   };
-  await writeSettings(next);
+  await runEffect(writeSettingsEffect(next));
 
   // The object every module imported, not a copy of it: that is what "no restart" means.
   expect(config.changesRoot).toBe(join(tmp, "changes"));
@@ -94,7 +95,7 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(config.workspaces[1]!.extensions).not.toContain("jira");
   expect(config.workspaces[1]!.extensions).toContain("ci");
 
-  expect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] })).rejects.toThrow(/no id/);
+  expect(runEffect(writeSettingsEffect({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.
   expect(reloadConfig().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
 });
@@ -104,14 +105,14 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   // stays a page of decisions rather than a dump of defaults.
   expect(reloadConfig().notificationSound).toBe(true);
 
-  await writeSettings({ notificationSound: false });
+  await runEffect(writeSettingsEffect({ notificationSound: false }));
   expect(config.notificationSound).toBe(false);
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.notificationSound).toBe(false);
 
   // Handing it back to the default is writing nothing, which is what the page sends when the
   // box is ticked again.
-  await writeSettings({ notificationSound: undefined });
+  await runEffect(writeSettingsEffect({ notificationSound: undefined }));
   expect(config.notificationSound).toBe(true);
   const cleared = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect("notificationSound" in cleared).toBe(false);
@@ -119,7 +120,7 @@ test("silencing notifications is a decision the file keeps; absent means sound",
 
 test("the file keeps what it had, and does not fill up with defaults", async () => {
   await Bun.write(file, JSON.stringify({ somethingNewer: 1, jiraAssignee: "me" }));
-  await writeSettings({ jiraDoneTransition: "Done", jiraAssignee: "" });
+  await runEffect(writeSettingsEffect({ jiraDoneTransition: "Done", jiraAssignee: "" }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of IWE that does.
@@ -160,12 +161,12 @@ test("an extension setting the environment overrides is reported as locked too",
 });
 
 test("the extensions' own settings round-trip, strings and string lists", async () => {
-  await writeSettings({
+  await runEffect(writeSettingsEffect({
     extensionSettings: {
       jira: { assignee: "me@example.com" },
       deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
     },
-  });
+  }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.extensionSettings).toEqual({
@@ -178,12 +179,12 @@ test("the extensions' own settings round-trip, strings and string lists", async 
 
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.
-  await writeSettings({
+  await runEffect(writeSettingsEffect({
     extensionSettings: {
       jira: { assignee: "" },
       deployments: { environments: ["dev", "accept"] },
     },
-  });
+  }));
   const again = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(again.extensionSettings).toEqual({
     deployments: { environments: ["dev", "accept"] },

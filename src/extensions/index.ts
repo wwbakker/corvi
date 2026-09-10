@@ -93,9 +93,7 @@ export {
   type WizardStepInfo,
 } from "./selectors.ts";
 export {
-  provision,
   provisionEffect,
-  repoStatusOf,
   repoStatusOfEffect,
   runCardEffect,
   statusOneEffect,

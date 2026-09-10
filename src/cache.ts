@@ -91,14 +91,6 @@ const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effe
     return yield* Effect.failCause(outcome.cause);
   });
 
-/** Promise facade over swrEffect; same signature, rejects with whatever `work` rejected with,
- * exactly as before. Kept for the test suite, which must pass unmodified; src callers use
- * swrEffect directly. */
-export const swr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
-  Effect.runPromise(
-    swrEffect(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })),
-  );
-
 /** Milliseconds since this key was last produced; undefined when it was never asked for.
  * Meant for showing how old an answer is, which is what makes serving stale data honest. */
 // Synchronous by contract — a read of module state; there is no async work for an Effect to wrap.
@@ -156,10 +148,6 @@ export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
   return restored;
 });
 
-/** Promise facade over loadCacheEffect; same signature. Kept for the test suite, which must
- * pass unmodified; the server uses loadCacheEffect directly. */
-export const loadCache = (): Promise<number> => Effect.runPromise(loadCacheEffect);
-
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
  * JSON — both are skipped, as before. */
 export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function* () {
@@ -177,7 +165,3 @@ export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function
     catch: (e) => e,
   });
 });
-
-/** Promise facade over saveCacheEffect; same signature, rejects on write failure exactly as
- * before. Kept for the test suite, which must pass unmodified; the server uses the Effect. */
-export const saveCache = (): Promise<void> => Effect.runPromise(saveCacheEffect);

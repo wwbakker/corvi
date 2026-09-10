@@ -100,10 +100,6 @@ export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(functio
   return found.filter((l): l is Leftover => l !== undefined).sort((a, b) => b.kilobytes - a.kilobytes);
 });
 
-/** Promise facade over listLeftoversEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const listLeftovers = (): Promise<Leftover[]> => Effect.runPromise(listLeftoversEffect);
-
 /**
  * Delete one leftover directory. Refuses anything that is still a change, and anything outside
  * the changes root: this removes a directory tree, so it checks what it is pointed at. Where the
@@ -149,8 +145,3 @@ export const removeLeftoverEffect = (name: string): Effect.Effect<void, BadReque
       yield* shResult(["git", "worktree", "prune"], repository);
     }
   });
-
-/** Promise facade over removeLeftoverEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const removeLeftover = (name: string): Promise<void> =>
-  Effect.runPromise(removeLeftoverEffect(name));

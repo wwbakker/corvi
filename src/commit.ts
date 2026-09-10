@@ -38,8 +38,8 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// The commitChange/pushChange facades below are kept for repos.test.ts, which must pass
-// unmodified.
+// The commitChange/pushChange facades that used to sit here were test-only; the tests run the
+// effects below through a helper that provides the Workspace tag (test/helpers.ts).
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   checkoutForEffect(change, repo);
 
@@ -92,11 +92,6 @@ export const commitChangeEffect = (
     );
   });
 
-/** Promise facade over commitChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const commitChange = (change: Change, request: CommitRequest): Promise<CommitResult[]> =>
-  Effect.runPromise(commitChangeEffect(change, request));
-
 /**
  * Push what is committed, in every repository that has something the remote has not.
  *
@@ -133,8 +128,3 @@ export const pushChangeEffect = (
       { concurrency: "unbounded" },
     );
   });
-
-/** Promise facade over pushChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const pushChange = (change: Change, repos: string[]): Promise<CommitResult[]> =>
-  Effect.runPromise(pushChangeEffect(change, repos));

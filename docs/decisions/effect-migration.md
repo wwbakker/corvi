@@ -41,6 +41,13 @@ server-wiring task swept them. This is the one part of the decision later work r
 facades outlived the sweep, and a follow-up may retire them and the ambient shim they keep
 alive. See item 2 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md).
 
+**Superseded (item 2 of the refactor plan): the facades and the shim are gone.** Every facade
+below (`readChange`, `swr`, `commitChange`, `provision`, `sh`, ...) proved to be test-only, so
+the tests now run the Effect API through `test/helpers.ts`'s `runEffect`/`runEffectWith`/`runSh`,
+which provides the `Workspace` tag, and `src/context.ts` was deleted. `shEffect` computes the
+subprocess environment straight from the tag (`Effect.serviceOption(Workspace)` → `envOf`). The
+ruling below is kept as written; it no longer holds.
+
 ## Post-review rulings (coordinator, after the audit)
 
 - **Promise facades kept for the test suite** (readChange, swr, commitChange, ...) outlive the
@@ -51,3 +58,7 @@ alive. See item 2 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md).
   between the Effect world and the Promise-shaped test helpers, not migration debt.
 - **A malformed `change.json` is skipped by the listing** (and surfaces as a typed error when the
   change is asked for by id). The old code failed the whole listing; the skip is deliberate.
+- **Superseded (item 2):** the facades and the ALS shim were retired once the tests were ported
+  to the Effect API through `test/helpers.ts`. The rulings above record the migration as it was;
+  the standing contract is [`../guides/effect-conventions.md`](../guides/effect-conventions.md),
+  and the retired facades live only in this history.

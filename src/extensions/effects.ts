@@ -45,11 +45,6 @@ export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]
     return results;
   });
 
-/** Promise facade over provisionEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified; the server uses the effect directly. */
-export const provision = (change: Change): Promise<ProvisionResult[]> =>
-  Effect.runPromise(provisionEffect(change));
-
 /** One card's widget; a failed effect is a red card carrying the error's message, never a
  * failed request. A finished change's rows lose their actions — reading, not acting. The
  * name is the extension's own, which the browser knows the card by; the host has it wherever
@@ -107,11 +102,6 @@ export const repoStatusOfEffect = (
     const items = found.right;
     return isFinished(change) ? readOnly(items) : items;
   });
-
-/** Promise facade over repoStatusOfEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified; the server uses the effect directly. */
-export const repoStatusOf = (card: Card, change: Change, repo: string): Promise<WidgetItem[]> =>
-  Effect.runPromise(repoStatusOfEffect(card, change, repo));
 
 /** Perform an action a card's rows advertised — the POST `/api/changes/:id/:card/:action`
  * path. A finished change refuses: the buttons are gone from its dashboard, but a page may

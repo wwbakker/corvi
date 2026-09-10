@@ -1,10 +1,9 @@
 import { Effect, Layer } from "effect";
 import { Bus, Cache, Shell, Settings, Workspace, type Capabilities } from "./api.ts";
-import { shEffectWithEnv } from "../sh.ts";
+import { envOf, shEffectWithEnv } from "../sh.ts";
 import { invalidate, swrEffect } from "../cache.ts";
 import { config } from "../config.ts";
 import { announce } from "../events.ts";
-import { envOf } from "../context.ts";
 import type { Workspace as WorkspaceShape } from "../config.ts";
 
 /**
@@ -16,7 +15,7 @@ import type { Workspace as WorkspaceShape } from "../config.ts";
 
 /** `run` requires `Workspace` in its own R — the environment comes from the tag, read at
  * run time, so one Shell instance serves every request and `~` expansion stays where the
- * rest of the env handling lives (src/context.ts). */
+ * rest of the env handling lives (src/sh.ts). */
 export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({

@@ -196,11 +196,6 @@ export const writeSettingsEffect = (
     return yield* settingsViewEffect;
   });
 
-/** Promise facade over writeSettingsEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified; the server uses writeSettingsEffect directly. */
-export const writeSettings = (next: Settings): Promise<SettingsView> =>
-  Effect.runPromise(writeSettingsEffect(next));
-
 /** A workspace as the page adds one: everything off by default is wrong — a new context is
  * usually another client, with both. */
 export const blankWorkspace = (id: string): Config["workspaces"][number] => ({ id, name: "" });

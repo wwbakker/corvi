@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Change, Widget, WidgetItem, WidgetState } from "../types.ts";
 import { shOrThrowEffect } from "../sh.ts";
 import { config } from "../config.ts";
-import { copyTooling } from "../tooling.ts";
+import { copyToolingEffect } from "../tooling.ts";
 import { writeChangeEffect, writeWtConfigEffect, changeDir } from "../changes.ts";
 import { isMac, commandAvailable } from "../platform.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
@@ -32,8 +32,8 @@ export type WtEntry = {
   is_main?: boolean;
 };
 
-// The `Integration` object at the bottom of this file keeps Promise methods (the test suites
-// stub the interface with plain async functions); that is the one Promise seam left here.
+// Pure worktree parsing and status reading live here; the test suites reach the Effect API
+// through the helper in test/helpers.ts, which provides the Workspace tag.
 
 /** Every wt call is scoped to the change's own config, which places worktrees inside the
  * change directory. */
@@ -126,11 +126,6 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
  * Undefined when the change has no checkout of this repository. */
 export const checkoutForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
-
-/** Promise facade over checkoutForEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const checkoutFor = (change: Change, repo: string): Promise<string | undefined> =>
-  Effect.runPromise(checkoutForEffect(change, repo));
 
 /** Human summary of one checkout — the worktree or the in-place repository — and how
  * alarming it is. */
@@ -291,11 +286,6 @@ const linkPath = (change: Change, repo: string): string => join(changeDir(change
 export const currentBranchEffect = (repo: string): Effect.Effect<string> =>
   Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo), (r) => r.stdout);
 
-/** Promise facade over currentBranchEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const currentBranch = (repo: string): Promise<string> =>
-  Effect.runPromise(currentBranchEffect(repo));
-
 export const isDirtyEffect = (repo: string): Effect.Effect<boolean> =>
   Effect.map(shSoft(["git", "status", "--porcelain"], repo), (r) => r.stdout !== "");
 
@@ -413,13 +403,12 @@ const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =
     if (!config.worktreeCopy.length) return;
     const created = yield* checkoutForEffect(change, repo);
     if (!created) return;
-    // copyTooling is deliberately a Promise (mostly synchronous filesystem work — see
-    // tooling.ts); the bridge stays, its failure reported, never fatal.
-    yield* Effect.tryPromise({ try: () => copyTooling(repo, created, config.worktreeCopy), catch: (e) => e })
-      .pipe(
-        Effect.catchAll((error) =>
-          Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
-      );
+    // The copy runs as an Effect too, so its `git check-ignore` carries the workspace env
+    // (src/tooling.ts); its failure is reported and never fatal.
+    yield* copyToolingEffect(repo, created, config.worktreeCopy).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
+    );
   });
 
 /** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
@@ -454,11 +443,6 @@ export const unsafeToRemoveEffect = (
 ): Effect.Effect<Unsafe | undefined> =>
   Effect.map(entryForEffect(change, repo), unsafeIn);
 
-/** Promise facade over unsafeToRemoveEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const unsafeToRemove = (change: Change, repo: string): Promise<Unsafe | undefined> =>
-  Effect.runPromise(unsafeToRemoveEffect(change, repo));
-
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
 export const repoStatesEffect = (
   change: Change,
@@ -481,13 +465,6 @@ export const repoStatesEffect = (
     { concurrency: "unbounded" },
   );
 
-/** Promise facade over repoStatesEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const repoStates = (
-  change: Change,
-): Promise<{ path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]> =>
-  Effect.runPromise(repoStatesEffect(change));
-
 /**
  * Apply a new repository list in one go: everything added gets a worktree, everything dropped
  * loses one. Refuses the whole edit if any removal would destroy uncommitted work.
@@ -499,8 +476,7 @@ export const repoStates = (
  * repository and still apply.
  *
  * The Effect API answers in one discriminated union where the old code returned a `{ change }`
- * or a `{ needsForce }` duck; the Promise facade keeps the duck (the server still tests for
- * `"needsForce" in result`).
+ * or a `{ needsForce }` duck.
  */
 export type SetReposResult =
   | { _tag: "Done"; change: Change }
@@ -556,20 +532,6 @@ export const setReposEffect = (
     for (const repo of added) yield* provisionRepoEffect(updated, repo);
     return { _tag: "Done", change: updated };
   });
-
-/** Promise facade over setReposEffect, in the duck-typed shape the old code returned. Kept for
- * the test suite, which drives the duck (`{ needsForce }` / `{ change }`) and must pass
- * unmodified; the server uses setReposEffect directly. */
-export async function setRepos(
-  change: Change,
-  repos: string[],
-  force = false,
-  direct?: string[],
-  base?: Record<string, string>,
-): Promise<{ change: Change } | { needsForce: string[] }> {
-  const result = await Effect.runPromise(setReposEffect(change, repos, force, direct, base));
-  return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
-}
 
 /**
  * Drop the worktree. wt deletes the branch with it when it has been merged, and keeps it when it

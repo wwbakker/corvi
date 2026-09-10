@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sh } from "../src/sh.ts";
+import { runSh } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -96,7 +96,7 @@ test("a page hears about a change it did not make", async () => {
   expect(seen[0]).toBe("open");
 
   const repo = join(tmp, "example-api");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   // Made through the API, as another window would: the route says so at once, and the watcher
   // would have found it within a tick anyway. Settling first, so anything the watcher's own
   // first look announces is not mistaken for the change this test makes.

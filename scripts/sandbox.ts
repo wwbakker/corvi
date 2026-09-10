@@ -14,7 +14,7 @@
  */
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { sh } from "../src/sh.ts";
+import { sh } from "./sh.ts";
 
 const NAME = "IWE Sandbox";
 const ID = "dev.iwe.app.sandbox";

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { sh } from "../src/sh.ts";
+import { runSh } from "./helpers.ts";
 
 /**
  * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only
@@ -32,7 +32,7 @@ async function tmux(...args: string[]): Promise<string> {
   return out.trim();
 }
 
-const have = async (tool: string): Promise<boolean> => (await sh(["which", tool])).code === 0;
+const have = async (tool: string): Promise<boolean> => (await runSh(["which", tool])).code === 0;
 const usable = (await have("ttyd")) && (await have("tmux"));
 
 let tmp: string;
@@ -60,7 +60,7 @@ beforeAll(async () => {
   });
   // The repository is only needed because a change must have one; the terminal ignores it.
   const repo = join(tmp, "repo");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   for (let i = 0; i < 40; i++) {
     if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) break;
     await Bun.sleep(100);
@@ -76,7 +76,7 @@ afterAll(async () => {
   if (!usable) return;
   await browser?.close();
   server?.kill();
-  await sh(["pkill", "-f", `new-session -A -s ${session}`]);
+  await runSh(["pkill", "-f", `new-session -A -s ${session}`]);
   await tmux("kill-server"); // ours alone: TMUX_TMPDIR points at the temporary directory
   await rm(tmp, { recursive: true, force: true });
 });

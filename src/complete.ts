@@ -78,11 +78,6 @@ export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress |
     }
   });
 
-/** Promise facade over progressOfEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified. */
-export const progressOf = (id: string): Promise<CompletionProgress | null> =>
-  Effect.runPromise(progressOfEffect(id));
-
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
@@ -250,9 +245,3 @@ export const completeChangeEffect = (
     yield* save(change.id, progress);
     return { change: completed, notes };
   });
-
-/** Promise facade over completeChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const completeChange = (
-  change: Change,
-): Promise<{ change: Change; notes: string[] }> => Effect.runPromise(completeChangeEffect(change));

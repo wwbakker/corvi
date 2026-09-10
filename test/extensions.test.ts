@@ -2,7 +2,8 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChangeEffect } from "../src/changes.ts";
+import { createChangeEffect, readChangeEffect } from "../src/changes.ts";
+import { runEffect } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   dispatchExtensionRoute,
@@ -366,7 +367,7 @@ test("a completion step is planned only when the change has something for it", (
 });
 
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {
-  const created = await createChange({
+  const created = await runEffect(createChangeEffect({
     id: "PROJ-BAG",
     repos: ["/tmp/whatever-repo"],
     workspace: "test",
@@ -374,7 +375,7 @@ test("the wizard's payload lands on the change record, verbatim and per extensio
       jira: { key: "PROJ-5" },
       "github-issues": { repo: "/repos/thing", number: 12 },
     },
-  });
+  }));
   const read = await Effect.runPromise(readChangeEffect("PROJ-BAG"));
   // The core stores what the extensions picked and never looks inside: both survive as written.
   expect(read?.extensions).toEqual({

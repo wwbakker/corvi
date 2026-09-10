@@ -2,12 +2,12 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provision } from "../src/extensions/index.ts";
+import { install, loaded, provisionEffect } from "../src/extensions/index.ts";
 import { Effect } from "effect";
 import {
   describe,
   findWorktree,
-  setRepos,
+  setReposEffect,
   unsafeIn,
   openers,
   parseWorktrees,
@@ -30,6 +30,7 @@ import { describeChange } from "../src/description.ts";
 import { presentWindow } from "../src/terminal.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { Change } from "../src/types.ts";
+import { runEffect, runSetRepos } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one.
@@ -87,7 +88,7 @@ test("provisioning reports every extension and survives a failing one", async ()
     },
   });
 
-  const results = await provision(change);
+  const results = await runEffect(provisionEffect(change));
   expect(calls).toEqual(["one", "two"]); // a failure must not stop the extensions after it
   expect(results).toEqual([
     { integration: "one", ok: false, error: "one exploded" },
@@ -249,11 +250,11 @@ test("what a worktree removal would destroy", () => {
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
   // double click rather than two repositories.
-  const emptied = await setRepos({ ...change, repos: [] }, ["  ", ""]);
+  const emptied = await runSetRepos({ ...change, repos: [] }, ["  ", ""]);
   expect((emptied as { change: Change }).change.repos).toEqual([]);
 
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
-  const once = await setRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
+  const once = await runSetRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
   expect((once as { change: Change }).change.repos).toEqual(["/r/a"]);
 });
 

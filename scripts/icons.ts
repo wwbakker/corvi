@@ -5,7 +5,7 @@
  * The SVG is the source of truth; the PNGs are generated and checked in so a fresh clone can
  * serve them without librsvg installed. Requires `rsvg-convert` (brew install librsvg). */
 import { mkdir } from "node:fs/promises";
-import { sh } from "../src/sh.ts";
+import { sh } from "./sh.ts";
 
 const out = "src/web/icons";
 await mkdir(out, { recursive: true });

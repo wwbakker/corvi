@@ -74,8 +74,3 @@ export const refreshTitlesEffect = (): Effect.Effect<Record<string, string>, unk
     );
     return titles;
   });
-
-/** Promise facade over refreshTitlesEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const refreshTitles = (): Promise<Record<string, string>> =>
-  Effect.runPromise(refreshTitlesEffect());
