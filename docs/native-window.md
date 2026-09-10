@@ -79,7 +79,16 @@ A prototype exists and runs on this machine: `scripts/app/linux-window/`.
   server it started. The pid-file it writes (`iwe-app-<port>.pid`) is what `iwe-app stop` uses.
   Launchable from a shell and from a `.desktop` entry alike (it is the launcher's Exec target).
 - `test-page.html` exercises everything without the IWE server, including a
-  `?autotest` mode that reports capabilities via `document.title`.
+  `?autotest` mode that reports capabilities via `document.title` (`bridge=object` is the
+  notification bridge), `?notify` / `?notify2` which post notifications through the bridge
+  (the second while the first toast is up, exercising replace-not-stack), and a
+  `window.iwe.openWindow` stub so a toast click can be followed end to end.
+- Notifications are the page's, shown by the host — the macOS app's protocol on the same
+  `window.webkit.messageHandlers.iwe` bridge, displayed through libnotify with a `default`
+  action that presents the window and calls back into the page. Verified live (see
+  `scripts/app/linux-window/README.md`); the capability deltas that matter: libnotify's
+  action label must be non-empty, and `WebKitJavascriptResult.get_js_value()` needs
+  webkit2gtk ≥ 2.40.
 
 Verified on this machine (Arch, Wayland/Hyprland, RTX 5080):
 

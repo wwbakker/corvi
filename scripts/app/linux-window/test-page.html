@@ -1,7 +1,9 @@
 <!doctype html>
 <!-- A trivial page for exercising the window without the IWE server:
      serve this directory (python3 -m http.server 43117) and launch
-     iwe-window.py. Checks the capabilities the macOS WKWebView app needed. -->
+     iwe-window.py. Checks the capabilities the macOS WKWebView app needed,
+     plus the notification bridge (the macOS app's protocol: the same
+     window.webkit.messageHandlers.iwe shape, answered by libnotify). -->
 <html>
 <head>
 <meta charset="utf-8">
@@ -30,6 +32,44 @@
     s.getTracks().forEach(t => t.stop()); }).catch(e =>
     document.getElementById('title').textContent = 'microphone failed: ' + e)">
     getUserMedia({audio:true})</button>
+  <button onclick="notifyViaBridge()">notify via bridge</button>
+  <script>
+    // The host's click-through contract (notify.tsx declares the same on the
+    // real page): a notification click is answered by the page here. Reported
+    // through document.title, which hyprctl clients shows and the autotest
+    // reads.
+    window.iwe = {
+      openWindow: (change, windowId) => {
+        openCount += 1;
+        document.title = 'IWE opened ' + change + ' ' + windowId + ' x' + openCount;
+      },
+    };
+    let openCount = 0;
+
+    // The payload notify.tsx sends, answered by the window's libnotify host.
+    // The id is stable across calls on purpose: a second press replaces the
+    // first banner instead of stacking a second one.
+    let notifyCount = 0;
+    function notifyViaBridge() {
+      const bridge = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.iwe;
+      if (!bridge) {
+        document.title = 'notify: no bridge';
+        return;
+      }
+      notifyCount += 1;
+      bridge.postMessage({
+        kind: 'notify',
+        id: 'PROJ-1681-@7',
+        title: 'Build PROJ-1681',
+        subtitle: 'PROJ-1681',
+        body: notifyCount === 1 ? 'waiting for you' : 'still waiting',
+        sound: true,
+        change: 'PROJ-1681',
+        window: '@7',
+      });
+      document.title = 'notify: posted ' + notifyCount;
+    }
+  </script>
   <script>
     // WebSocket over the same origin (what the terminal iframes use):
     // this page reports whether the constructor at least connects/handshakes.
@@ -46,6 +86,27 @@
       const report = () => { document.title = 'AUTO ' + Object.entries(results)
         .map(([k, v]) => k + '=' + v).join(' '); };
       const attempt = (name, fn) => { try { fn(); } catch (e) { results[name] = 'throw:' + e.message.slice(0, 60); } report(); };
+      attempt('bridge', () => { results.bridge = typeof window.webkit?.messageHandlers?.iwe; });
+      attempt('openWindow', () => { results.iweOpenWindow = typeof window.iwe?.openWindow; });
+      // ?notify / ?notify2: post notification(s) through the bridge once the
+      // report has settled (the websocket probe takes 2 s), so banner and
+      // click-through can be watched without a human at the buttons. The
+      // two-post mode sends the second while the first toast is still up,
+      // which is what exercises the window's update() (replace, not stack).
+      if (location.search.includes('notify')) {
+        setTimeout(() => {
+          notifyViaBridge();
+          results.notified = 'posted';
+          report();
+        }, 4000);
+      }
+      if (location.search.includes('notify2')) {
+        setTimeout(() => {
+          notifyViaBridge();
+          results.renotified = 'posted';
+          report();
+        }, 5500);
+      }
       attempt('mediaDevices', () => { results.mediaDevices = typeof navigator.mediaDevices; });
       attempt('clipboard', () => { results.clipboardApi = typeof navigator.clipboard; });
       attempt('webgl', () => {
@@ -73,7 +134,13 @@
           .then(() => { results.clipboardRead = 'ok'; report(); })
           .catch(e => { results.clipboardRead = 'fail:' + e.name; report(); });
       });
-      setTimeout(() => window.confirm('dialog test: confirm() reached the window'), 5000);
+      // The dialog test opens a modal script dialog, which suspends the
+      // page's JS — it would swallow a notification click that lands after it
+      // (evaluate_javascript queues behind confirm()), so keep it out of the
+      // notify runs.
+      if (!location.search.includes('notify')) {
+        setTimeout(() => window.confirm('dialog test: confirm() reached the window'), 5000);
+      }
     }
   </script>
 </body>
