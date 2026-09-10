@@ -46,7 +46,7 @@ is only needed when `scripts/app/IWE.swift` itself changes.
 Start at [`docs/README.md`](docs/README.md), which explains the split:
 
 - `docs/guides/` — durable: the architecture, the extension contract, the server-code
-  conventions. Read these before making a change.
+  conventions, and the winning style. Read these before making a change.
 - `docs/decisions/` — immutable: why a choice was made. Supersede, don't rewrite.
 - `docs/plans/` — temporary: active work only. When a plan finishes, extract what is durable into
   `guides/` or `decisions/` and delete the plan.

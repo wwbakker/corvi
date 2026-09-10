@@ -22,6 +22,7 @@ Every doc starts with a status header:
 | Document | What it covers |
 |---|---|
 | [`guides/architecture.md`](guides/architecture.md) | The layers, where a feature's code lives, the dependency rules |
+| [`guides/style.md`](guides/style.md) | The winning style on each axis, so a change does not have to pick |
 | [`guides/extensions.md`](guides/extensions.md) | The extension contract: every surface an extension can contribute to |
 | [`guides/effect-conventions.md`](guides/effect-conventions.md) | The standing contract for server-side code |
 
