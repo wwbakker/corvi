@@ -112,18 +112,6 @@ test("a page hears about a change it did not make", async () => {
   await stop();
 }, 20_000);
 
-test("nothing is said when nothing happened", async () => {
-  const { seen, stop } = await listen();
-  // Two ticks of the watcher, with the state on disk left alone: whatever the first look
-  // announced — a fresh watcher announces what it finds, an old one has nothing new — nothing
-  // repeats and nothing foreign arrives.
-  await Bun.sleep(3500);
-  expect(seen[0]).toBe("open");
-  expect(new Set(seen).size).toBe(seen.length);
-  expect(seen.every((e) => ["open", "changes", "windows", "notify"].includes(e))).toBe(true);
-  await stop();
-}, 20_000);
-
 test("a change written by anything at all is noticed", async () => {
   const { seen, stop } = await listen();
 

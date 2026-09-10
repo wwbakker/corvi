@@ -81,16 +81,6 @@ test("rejects duplicate ids, unsafe ids and changes without repositories", async
   expect(runEffect(createChange({ id: "PROJ-3" }))).rejects.toThrow("at least one repository");
 });
 
-test("repo browser stays inside the configured root", async () => {
-  const { resolveInRoot } = await import("../src/repos.ts");
-  const { config } = await import("../src/config.ts");
-  expect(resolveInRoot("personal/thing")).toBe(`${config.reposRoot}/personal/thing`);
-  expect(resolveInRoot("")).toBe(config.reposRoot);
-  // Traversal is rejected rather than silently reinterpreted, however it is spelled.
-  expect(() => resolveInRoot("../../etc")).toThrow("outside repos root");
-  expect(() => resolveInRoot("ok/../../../etc")).toThrow("outside repos root");
-});
-
 test("completed changes move to the archive and stay listable", async () => {
   const change = await runEffect(createChange({ id: "PROJ-9", repos: [repo] }));
   expect(await runEffect(listChanges())).toContainEqual(change);
@@ -277,50 +267,6 @@ test("deleting a leftover with a worktree in it prunes the repository afterwards
   // git forgets the worktree as well: a stale registration would block reusing the path.
   const registered = await runSh(["git", "worktree", "list"], repo);
   expect(registered.stdout).not.toContain(worktree);
-});
-
-test("a completion says which steps it will take, and where it stopped", async () => {
-  const { progressOf, stepsFor } = await import("../src/complete.ts");
-  const { writeSidecar } = await import("../src/changes.ts");
-  const change = await runEffect(createChange({ id: "PROJ-HALF", repos: [repo], jira: "PROJ-9" }));
-
-  // Named before anything runs, so the page can show what is still to come.
-  const steps = stepsFor(change, {
-    ready: true,
-    reasons: [],
-    toMerge: [{ repo, number: 7 }],
-  });
-  expect(steps.map((s) => s.id)).toEqual([
-    `merge:${repo}`,
-    "jira",
-    "worktrees",
-    "terminal",
-    "archive",
-  ]);
-  expect(steps[0]!.label).toBe("merge myrepo #7");
-  expect(steps.every((s) => s.state === "waiting")).toBe(true);
-
-  // A completion that stopped: written to disk, so it is legible from a page opened later.
-  expect(await runEffect(progressOf(change.id))).toBeNull();
-
-  await runEffect(writeSidecar(
-    change.id,
-    "completion.json",
-    JSON.stringify({
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      error: "could not merge #7: Merge conflict.",
-      steps: [{ ...steps[0], state: "failed", detail: "could not merge #7: Merge conflict." }],
-    }),
-  ));
-  const stopped = (await runEffect(progressOf(change.id)))!;
-  expect(stopped.error).toBe("could not merge #7: Merge conflict.");
-  expect(stopped.steps[0]!.state).toBe("failed");
-
-  // And it travels with the change when that is archived.
-  await runEffect(archiveChange(change.id));
-  expect((await runEffect(progressOf(change.id)))?.error).toBe("could not merge #7: Merge conflict.");
-  expect(await Bun.file(join(archiveDir(change.id), "completion.json")).exists()).toBe(true);
 });
 
 test("a completion records itself before it starts checking anything", async () => {

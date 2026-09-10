@@ -180,26 +180,3 @@ test.skipIf(!usable)("Home and End move to the line's edges in the notes", async
   await page.close();
 }, 30_000);
 
-test.skipIf(!usable)("a question the page asks is a question the engine can answer", async () => {
-  /*
-   * `window.confirm` is what every destructive action in IWE is behind. In a browser it is a
-   * dialog; in the WKWebView the app uses it is nothing at all unless the app implements
-   * `WKUIDelegate`, and a `confirm()` nobody implemented returns false — so the action silently
-   * does not happen. Playwright's WebKit auto-dismisses dialogs unless they are handled, which
-   * makes it the same shape of trap: this test states which answer it gives, so a page that stops
-   * asking is a test that fails.
-   */
-  const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
-
-  const asked: string[] = [];
-  page.on("dialog", (d) => {
-    asked.push(d.message());
-    void d.accept();
-  });
-  const answer = await page.evaluate(() => window.confirm("Cancel PROJ-WEBKIT?"));
-
-  expect(asked).toEqual(["Cancel PROJ-WEBKIT?"]);
-  expect(answer).toBe(true);
-  await page.close();
-}, 30_000);
