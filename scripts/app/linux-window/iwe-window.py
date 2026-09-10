@@ -14,6 +14,12 @@ The pid-file it leaves in $XDG_STATE_HOME/iwe (one per port) is how
 `iwe-app stop` cleans up after a window that died harder than it could
 clean up after.
 
+Notifications are the page's, shown by the host: the `iwe`
+script-message bridge — the macOS app's protocol, the same
+window.webkit.messageHandlers shape — is shown through libnotify, and a
+click on a notification comes back into the page as
+window.iwe.openWindow(change, windowId).
+
 Launch:
 
     python3 scripts/app/linux-window/iwe-window.py
@@ -22,7 +28,9 @@ or from a .desktop entry. The window's application id / WM_CLASS is "iwe",
 so a desktop entry with StartupWMClass=iwe groups and matches it.
 """
 
+import json
 import os
+import shutil
 import signal
 import socket
 import subprocess
@@ -55,6 +63,16 @@ gi.require_version("Gdk", "3.0")
 gi.require_version("WebKit2", "4.1")
 
 from gi.repository import Gdk, GLib, Gio, Gtk, WebKit2
+
+# libnotify speaks org.freedesktop.Notifications — the one channel every
+# notification daemon serves (quickshell, dunst, mako, GNOME, KDE). Its absence
+# is not fatal: notifications degrade to the page's own toast (see the
+# notifications section).
+try:
+    gi.require_version("Notify", "0.7")
+    from gi.repository import Notify
+except (ImportError, ValueError):
+    Notify = None
 
 # The page's own background, so the window, the title bar and the gap before
 # the first paint are all one colour instead of a white flash — same value as
@@ -107,6 +125,28 @@ def show(message: str) -> str:
         f"{message}"
         "</body></html>"
     )
+
+
+# The event sound canberra resolves through the user's sound theme — the Linux
+# analogue of macOS's UNNotificationSound.default, which the host also plays
+# itself (the page only says whether there should be one).
+SOUND_EVENT = "message-new-instant"
+
+
+def sound_command() -> list[str] | None:
+    """How to play the notification sound here, or None when nothing can.
+
+    The daemons IWE is likely to meet (quickshell, dunst, mako) play no sound
+    themselves, so the setting only means anything if the host plays it — the
+    macOS host does too. canberra-gtk-play resolves SOUND_EVENT through the
+    user's sound theme; paplay on the freedesktop theme's file is the fallback.
+    """
+    if shutil.which("canberra-gtk-play"):
+        return ["canberra-gtk-play", "-i", SOUND_EVENT]
+    theme_file = f"/usr/share/sounds/freedesktop/stereo/{SOUND_EVENT}.oga"
+    if shutil.which("paplay") and os.path.isfile(theme_file):
+        return ["paplay", theme_file]
+    return None
 
 
 class App:
@@ -171,6 +211,14 @@ class App:
         # confirm() silently returning false is a bad way to behave.
         self.web.connect("script-dialog", self.on_script_dialog)
 
+        # The state the notifications section works with: one libnotify
+        # Notification per change and window, so a repeat replaces its banner
+        # instead of stacking a second one. (_notices is str → Notification;
+        # the annotation is in this comment, not the code, so the line survives
+        # libnotify being absent.)
+        self._notices = {}
+        self._notify_unavailable = False
+
     # MARK: the web view
 
     def configure_web(self):
@@ -183,6 +231,14 @@ class App:
         )
         # Same-origin iframes (the terminal is one, over WebSocket) work by
         # default; WebSocket needs no setting.
+
+        # The page's way to ask for a notification; the handler is this object
+        # (see the notifications section). WKWebView and WebKitGTK expose the
+        # same window.webkit.messageHandlers.<name> shape, so the page runs the
+        # same delivery code on both platforms.
+        content = self.web.get_user_content_manager()
+        content.register_script_message_handler("iwe")
+        content.connect("script-message-received::iwe", self.on_script_message)
 
         # Paint our colour from the very first frame, like drawsBackground=false.
         rgba = Gdk.RGBA()
@@ -303,10 +359,14 @@ class App:
 
     def on_permission_request(self, _web, request):
         if isinstance(request, WebKit2.UserMediaPermissionRequest):
-            origin = request.get_origin().to_string()
-            if origin.startswith("http://127.0.0.1:") or origin.startswith(
-                "http://localhost:"
-            ):
+            # The requesting origin is not introspectable here (the GIR exports
+            # no get_origin on UserMediaPermissionRequest and never has —
+            # request.get_origin() raised AttributeError, crashing the handler
+            # and denying every request), so judge by the view's own URI: this
+            # app only ever loads the loopback origin, and its iframes (the
+            # terminal) are same-origin.
+            uri = self.web.get_uri() or ""
+            if uri.startswith("http://127.0.0.1:") or uri.startswith("http://localhost:"):
                 request.allow()
                 return True
         request.deny()
@@ -366,6 +426,141 @@ class App:
         dlg.destroy()
         # None → JavaScript null, exactly what a browser's prompt() cancel does.
         return text if response == Gtk.ResponseType.OK else None
+
+    # MARK: notifications
+    #
+    # The page asks, the host shows — the same contract as IWE.swift: WKWebView
+    # has no notification API of its own, and the page prefers the
+    # window.webkit.messageHandlers.iwe bridge wherever it exists. Display goes
+    # through libnotify rather than GNotification: GNotification needs a
+    # GApplication of our own and is presented by the shell, which on
+    # Hyprland + quickshell means nowhere, while every daemon serves
+    # org.freedesktop.Notifications. A click comes back as the notification's
+    # `default` action (the spec's click convention — quickshell invokes it on
+    # body click): present the window, then call the page's own
+    # window.iwe.openWindow(change, windowId) — the same entry point a
+    # notification in a browser uses, so the navigation lives in one place.
+
+    def on_script_message(self, _manager, result):
+        try:
+            # get_js_value is the introspectable half of WebKitJavascriptResult
+            # (webkit2gtk >= 2.40); get_global_context/get_value are not usable
+            # from Python. A value that is not JSON simply fails to parse.
+            payload = json.loads(result.get_js_value().to_json(0))
+        except Exception:
+            return  # a notice we cannot read is no notice
+        if isinstance(payload, dict) and payload.get("kind") == "notify":
+            self._debug(f"notify from page: {payload.get('change')} {payload.get('window')}")
+            self.notify(payload)
+
+    def notify(self, body: dict) -> None:
+        if Notify is None:
+            if not self._notify_unavailable:
+                self._notify_unavailable = True
+                print(
+                    "iwe-window: libnotify's GObject bindings are missing "
+                    "(install libnotify) — notifications stay inside the page's toast",
+                    file=sys.stderr,
+                )
+            return
+        if not Notify.is_initted():
+            Notify.init(GLib.get_prgname() or "iwe")
+
+        title = body.get("title") or DEFAULT_TITLE
+        # libnotify has one body string: the change rides as its first line,
+        # where the macOS app shows it as the subtitle above the title.
+        lines = [line for line in (body.get("subtitle") or "", body.get("body") or "") if line]
+        change = body.get("change") or ""
+        window_id = body.get("window") or ""
+
+        # A stable identity per change and window — the page sends one — so a
+        # repeat replaces the banner it belongs to rather than stacking.
+        key = body.get("id") or f"{change}-{window_id}"
+        notice = self._notices.get(key)
+        if notice is None:
+            notice = Notify.Notification.new(title, "\n".join(lines), "iwe")
+            notice.set_hint("desktop-entry", GLib.Variant("s", "iwe"))
+            # The label is required non-empty (libnotify asserts on "") but is
+            # shown only by daemons that draw action buttons — quickshell and
+            # GNOME answer the body click instead.
+            notice.add_action("default", "Show", self._notice_clicked, change, window_id)
+            self._notices[key] = notice
+        else:
+            notice.update(title, "\n".join(lines), "iwe")
+
+        if body.get("sound"):
+            self._play_sound()
+        try:
+            notice.show()
+        except GLib.Error as error:
+            print(f"iwe-window: notification failed: {error}", file=sys.stderr)
+
+    def _play_sound(self) -> None:
+        command = sound_command()
+        if command is None:
+            return
+        try:
+            # Fire and forget: a slow or missing sound server must never hold
+            # the notification (or the main loop) up.
+            subprocess.Popen(
+                command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            pass
+
+    def _notice_clicked(self, _notification, _action, change, window_id):
+        # The same two steps as the macOS delegate: bring the window up, then
+        # ask the page to open what the notice was about.
+        self._debug(f"notification clicked: {change} {window_id}")
+        self.window.present()
+        if change and window_id:
+            self.open_window(change, window_id)
+
+    def _debug(self, message: str) -> None:
+        if os.environ.get("IWE_WINDOW_DEBUG"):
+            print(f"iwe-window: {message}", file=sys.stderr)
+
+    def open_window(self, change: str, window_id: str, attempt: int = 0) -> None:
+        # Ask the page to open what the notice was about, retrying while it
+        # loads: a click can arrive before the page's own window.iwe exists — a
+        # fresh launch, a reload. The attempts are a parameter rather than a
+        # counter, so the retry closure captures nothing that changes under it.
+        def quote(value: str) -> str:
+            return value.replace("\\", "\\\\").replace("'", "\\'")
+
+        script = (
+            "window.iwe ? (window.iwe.openWindow('%s', '%s'), true) : false"
+            % (quote(change), quote(window_id))
+        )
+        self.web.evaluate_javascript(
+            script,
+            -1,
+            None,
+            None,
+            None,
+            self._open_window_done,
+            change,
+            window_id,
+            attempt,
+        )
+
+    def _open_window_done(self, _web, result, change, window_id, attempt):
+        opened = False
+        try:
+            value = self.web.evaluate_javascript_finish(result)
+            opened = bool(value and value.to_boolean())
+        except GLib.Error:
+            pass  # the page navigated under us; the retry will find it
+        self._debug(f"openWindow attempt {attempt}: {'ok' if opened else 'retry'}")
+        if opened or attempt >= 9:
+            return
+        GLib.timeout_add(500, self._open_window_retry, change, window_id, attempt + 1)
+
+    def _open_window_retry(self, change, window_id, attempt):
+        self.open_window(change, window_id, attempt)
+        return False  # one-shot
 
     # MARK: run
 

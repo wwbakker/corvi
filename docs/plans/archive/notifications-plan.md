@@ -3,8 +3,8 @@
 > **Kind:** plan · **Status:** implemented
 
 > Phase 0 verified on macOS; phases 1–3 implemented (server detection, page decision, macOS
-> host). Phase 4 (Linux host) needs a Linux machine; phase 5 (non-agent processes) is
-> deliberately skipped. The decisions taken are recorded at the end.
+> host). Phase 4 (Linux host) implemented and verified on this machine; phase 5 (non-agent
+> processes) is deliberately skipped. The decisions taken are recorded at the end.
 
 ## What it does
 
@@ -53,8 +53,7 @@ Findings worth keeping in mind while building this:
 - The `iwe` message-handler name and the `window.iwe.openWindow(change, window)` contract work as
   designed; the notification delegate must be set before the app finishes launching.
 
-Still open on Phase 0: the WebKitGTK half (script-message handler + `Gio.Notification`), which
-needs a Linux machine. Nothing in it changes the macOS design.
+Still open on Phase 0: nothing — the WebKitGTK half landed as Phase 4 (below).
 
 ## 1. A presenter can ask for attention (server vocabulary)
 
@@ -168,19 +167,41 @@ fallback (`terminal-notifier`, `osascript`) is only worth keeping in mind if Lin
 macOS changes that. The parts that still need care: a stable bundle id across rebuilds, and no
 second prompt after a denial — System Settings owns that.
 
-## 5. Linux host (`scripts/app/linux-window/iwe-window.py`)
+## 5. Linux host (`scripts/app/linux-window/iwe-window.py`) — done (2026-09-10)
 
-- Register the same handler:
-  `WebKit2.UserContentManager.register_script_message_handler("iwe")` on the view's content
-  manager, connect `script-message-received::iwe`. (Check the API name against the installed
-  WebKitGTK; the older `register_script_message_handler` and the newer reply-capable variant
-  differ.)
-- On `kind === "notify"`: send a `Gio.Notification` through the `Gtk.Application`
-  (`send_notification`) or libnotify, with a default action that calls
-  `self.window.present()` and `self.web.evaluate_javascript("window.iwe && window.iwe.openWindow(...)")`.
-- Alternative, if the message handler proves awkward: handle the page's standard
-  `Notification` API through the `show-notification` signal. The bridge is preferred, because
-  then macOS and Linux run the same client code path.
+- The same handler is registered:
+  `user_content_manager.register_script_message_handler("iwe")`, connected to
+  `script-message-received::iwe` (the older, non-reply variant — the page ignores the return,
+  so a hung reply promise would buy nothing). The payload arrives as a `WebKitJavascriptResult`;
+  `get_js_value().to_json(0)` is the introspectable way to read it (webkit2gtk ≥ 2.40; the older
+  `get_global_context`/`get_value` pair is unusable from Python).
+- **libnotify, not GNotification.** GNotification needs a GApplication of our own and is
+  presented by the shell — which on Hyprland + quickshell means nowhere. Every daemon serves
+  `org.freedesktop.Notifications`, which libnotify speaks directly. The window is a plain
+  `Gtk.Window` + `Gtk.main()`, and this keeps it that way.
+- The page's stable id keys a `Notify.Notification` per change and window: a repeat calls
+  `update()` + `show()`, which **replaces** the toast in place (verified on screen: one card,
+  updated body — never two).
+- A click comes back as the notification's `default` action (the spec's click convention;
+  quickshell invokes it on body click, GNOME on body click, KDE as a labelled button):
+  `window.present()`, then `window.iwe.openWindow(change, windowId)` via
+  `evaluate_javascript`, retried every 500 ms up to ten times — the macOS
+  `open(_:attempt:)` loop, verified live including the give-up.
+- **Sound is played by the host** — `canberra-gtk-play -i message-new-instant` (the user's
+  sound theme; `paplay` on the freedesktop theme file as fallback) — because the daemons IWE is
+  likely to meet (quickshell, dunst, mako) play nothing themselves, and macOS's host plays its
+  own too. No sound hint is set, so a daemon that does play its own sound does not double up.
+- libnotify **asserts a non-empty action label**: `add_action("default", "", …)` fails an
+  assertion and the action silently never registers (click-through dead). The label is
+  `"Show"` — shown only by daemons that draw buttons.
+- libnotify missing (no `Notify` typelib) is not fatal: the window says so once on stderr and
+  notifications stay inside the page's toast.
+- Verified on this machine (Arch, Wayland/Hyprland, quickshell) by driving
+  `test-page.html?autotest&notify` through the real window and clicking the toast via the
+  shell's notification IPC: bridge present, banner shown with the app icon, replace not stack,
+  click → present + `openWindow`, retry loop, sound. Checklist entry for a new machine:
+  notify while backgrounded, click focuses and navigates, repeat replaces, sound on/off follows
+  the settings switch.
 
 ## 6. Tests
 
@@ -211,7 +232,7 @@ second prompt after a denial — System Settings owns that.
 | 1 | **Done**: `attention` on the presentation, the agents presenter sets it while `waiting`, `@agent_say` published by the extension, window-id-keyed diff in `src/events.ts`, `notify` event | a test sees the event on working→waiting |
 | 2 | **Done**: `Notifier` (suppression, delivery ladder, toast), `window.iwe.openWindow`, `notificationSound` setting | a browser notification and a toast, suppressed while looking |
 | 3 | **Done in `IWE.swift`** (compiles; needs `bun run app:install` to be in the running app): bridge, authorisation at launch, banner, click → activate + open | manual checklist on the `.app` |
-| 4 | **Pending**: Linux host — message handler, `Gio.Notification`, click | manual checklist on the Linux window |
+| 4 | **Done in `iwe-window.py`** (verified live on Hyprland + quickshell — see section 5) | manual checklist on the Linux window |
 | 5 | **Skipped by decision**: generic process attention (busy → idle) | — |
 
 Phases 1–2 ship a useful thing on their own (in-app and browser notifications); the native

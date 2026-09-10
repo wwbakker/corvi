@@ -33,6 +33,14 @@ IWE_PORT=43117 python3 -m http.server 43117 --directory scripts/app/linux-window
 IWE_PORT=43117 python3 scripts/app/linux-window/iwe-window.py
 ```
 
+It defines `window.iwe` (so click-through is testable end to end) and reports
+in `document.title` — which `hyprctl clients` shows. `?autotest` runs the
+capability checks on its own (`bridge=object` is the notification bridge);
+`?notify` posts one notification through the bridge, `?notify2` posts a second
+while the first toast is still up (exercising replace-not-stack). The dialog
+test is skipped in notify modes: a modal `confirm()` suspends the page's JS,
+and an `evaluate_javascript` from a notification click would queue behind it.
+
 ## What it implements
 
 - 1280×820 window titled "Integrated Work Environment"; `#14161a` behind the
@@ -49,6 +57,20 @@ IWE_PORT=43117 python3 scripts/app/linux-window/iwe-window.py
   user-media requests and `enable-media-stream` is on. This is the WKWebView
   lesson — the voice extension failed inside the macOS embedded view; here the
   permission is explicit, grantable and origin-checked.
+- **Notifications** are the page's, shown by the host — the same contract as
+  the macOS app. The `iwe` script-message bridge (the same
+  `window.webkit.messageHandlers` shape WKWebView exposes) is registered on the
+  view's user-content manager; a `kind: "notify"` message becomes a libnotify
+  notification (org.freedesktop.Notifications — the one channel every daemon
+  serves: quickshell, dunst, mako, GNOME, KDE). The page's stable id means a
+  repeat **replaces** its banner instead of stacking. A click comes back as the
+  notification's `default` action: the window presents itself, then the page's
+  own `window.iwe.openWindow(change, windowId)` is called, retried while the
+  page loads (the macOS `open(_:attempt:)` loop). Sound is played by the host
+  through canberra (`message-new-instant` from the user's sound theme;
+  `paplay` on the freedesktop theme's file as fallback), because the daemons
+  IWE is likely to meet play nothing themselves. libnotify missing degrades to
+  the page's own toast.
 - External link activations (`decide-policy`) go to the default browser via
   `xdg-open`; everything else (redirects, same-origin iframes, WebSocket)
   stays in the window.
@@ -57,3 +79,28 @@ IWE_PORT=43117 python3 scripts/app/linux-window/iwe-window.py
   route cmd-C/cmd-V).
 - Closing the window (or `window.close()` from the page) quits; the server is
   left to whoever started it.
+
+## Notifications, verified on this machine (Arch, Wayland/Hyprland, quickshell)
+
+Driven through `test-page.html` (window on another workspace, clicked via the
+shell's notification IPC):
+
+- The bridge exists in the page (`window.webkit.messageHandlers.iwe`), the
+  posted message reaches the window, and libnotify shows the banner with the
+  app's icon.
+- A second notice with the same id **replaces** the first toast in place
+  (updated body, one card) — `Notify.Notification.update()` + `show()`.
+- Clicking the toast invokes the `default` action → the window presents and
+  `window.iwe.openWindow('PROJ-1681', '@7')` runs in the page.
+- With `window.iwe` not yet defined, the click retries every 500 ms up to ten
+  times and then gives up, like the macOS host.
+- `sound: true` plays `message-new-instant` through canberra.
+
+Findings worth keeping: libnotify **asserts a non-empty action label** (an
+empty `""` label — the macOS analogue has no label at all — is rejected and
+silently drops the action); `WebKitJavascriptResult.get_js_value()` needs
+webkit2gtk ≥ 2.40 (older `get_global_context`/`get_value` are not
+introspectable); and PyGObject maps `evaluate_javascript` to
+`(script, length, world_name, source_uri, cancellable, callback, *user_data)`
+— a `None` in the callback slot silently turns the call fire-and-forget,
+which is how the retry loop once died without an error.
