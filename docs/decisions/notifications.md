@@ -28,7 +28,10 @@ is sent is the moment itself, not state to refetch.
   second one replaces its own rather than stacking.
 - **Non-agent processes**: out of scope for now.
 
-## Still open
+## Status
 
-The Linux host (phase 4 of the archived plan) needs a Linux machine; phases 0–3 are done and
-verified on macOS.
+All phases are done. The macOS host (`scripts/app/IWE.swift`) and the Linux host
+(`scripts/app/linux-window/iwe-window.py`, verified live on Arch/Wayland/Hyprland + quickshell on
+2026-09-10) both carry the same `window.webkit.messageHandlers.iwe` bridge. Phase 5 (generic
+process attention) remains deliberately out of scope. The implementation detail is in
+[`../plans/archive/notifications-plan.md`](../plans/archive/notifications-plan.md).
