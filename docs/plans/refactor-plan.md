@@ -20,7 +20,8 @@ behaviour-preserving are flagged as decisions, not tasks.
 | 8. Naming/root clutter | partial | the pi extension dir moved `extensions/` → `pi/`; the integration-vs-extension naming alignment is still pending |
 | 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
 | 4. Legacy settings chain | done | one `src/legacySettings.ts` resolves the bag → legacy field → env → default chain and owns the migration |
-| 2, 5, 6 | pending | next waves |
+| 6. Split extension host | done | `src/extensions/` is now registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; `presenters.ts` deleted and the events cycle is structurally gone |
+| 2, 5 | pending | next waves |
 
 One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
 depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the

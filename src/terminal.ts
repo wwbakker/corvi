@@ -10,7 +10,7 @@ import { shEffect, shOrThrowEffect, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
 import type { TerminalWindow } from "./terminalTypes.ts";
 import type { TmuxWindow, WindowPresentation } from "./extensions/api.ts";
-import { windowPresenters } from "./extensions/presenters.ts";
+import { windowPresenters } from "./extensions/registry.ts";
 
 /**
  * A terminal for a change: one tmux session, started in the change directory, served to the
