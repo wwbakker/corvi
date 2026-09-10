@@ -86,8 +86,10 @@ export default {
       path: "/services/:service/deploy",
       handler: (req, params) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as { version?: string; environment?: string };
-          if (!body.version || !body.environment) {
+          // A JSON body may be null or a primitive, not only an object: "no version or
+          // environment to read" is the caller's mistake, whichever shape it arrived in.
+          const body = (yield* bodyOf(req)) as { version?: string; environment?: string } | null;
+          if (!body?.version || !body.environment) {
             return yield* Effect.fail(
               new BadRequestError({ message: "version and environment required" }),
             );
