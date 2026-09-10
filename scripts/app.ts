@@ -24,7 +24,8 @@ import { sh } from "./sh.ts";
 const NAME = "Integrated Work Environment";
 /** The file inside the bundle, which is not shown anywhere and is easier without spaces. */
 const BINARY = "IWE";
-/** Bundles the older, abbreviated installs left behind. */
+/** Abbreviated bundle names an install may have left in ~/Applications; install and uninstall
+ * both remove them, so they cannot sit in the Dock beside this one. */
 const OLD = ["IWE"];
 const root = resolve(".");
 const bundle = (): string => join(homedir(), "Applications", `${NAME}.app`);
@@ -42,7 +43,7 @@ const plist = (): string => `<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleIconFile</key><string>${BINARY}</string>
   <key>NSHighResolutionCapable</key><true/>
   <!-- Where the code is, so the binary need not be rebuilt for it. Read by the app at launch.
-       The port is not here any more: the app picks a fresh one at each launch, so the server
+       The port is not written here: the app picks a fresh one at each launch, so the server
        behind the window is always one that window started — nothing stale to attach to. -->
   <key>IWERoot</key><string>${root}</string>
   <!-- The server is on plain HTTP on the loopback address, which is the only thing it listens on. -->
@@ -170,8 +171,8 @@ async function install(): Promise<void> {
 
   await writeFile(join(app, "Contents", "Info.plist"), plist());
   const drawn = await icon(resources);
-  // An install under the old, abbreviated name would otherwise sit in the Dock next to this one,
-  // pointing at the same repository.
+  // An abbreviated install would otherwise sit in the Dock next to this one, pointing at the
+  // same repository.
   for (const old of OLD) await rm(join(homedir(), "Applications", `${old}.app`), { recursive: true, force: true });
   // Finder caches bundles by path and date; touching it makes the new icon appear now.
   await sh(["touch", app]);

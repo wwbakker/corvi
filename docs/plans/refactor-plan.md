@@ -14,139 +14,78 @@ behaviour-preserving are flagged as decisions, not tasks.
 
 | Item | State | Notes |
 |---|---|---|
-| 1. Shared CLI helpers | done | `src/effect/support.ts`; the 8 `shSoft`, 6 `cliJson`/`ghJson`, 6 `messageOf` and 4 `fs` copies are gone, and the two `worst` re-implementations point at `types.ts` |
-| 3. `src/shared/` | done | `branch.ts` and `deployConventions.ts` moved; eslint boundary is now the structural `../shared/*` (`types.ts` stays a filename exception, documented in the config) |
-| 7. Split `server.ts` | done | `server.ts` 652 → 83 lines; `src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts` |
-| 8. Naming/root clutter | done | pi extension dir moved `extensions/` → `pi/`; internal vocabulary aligned to "extension" (`cardForExtension`, `:card`, `CardInfo`), wire fields kept |
-| 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
-| 4. Legacy settings chain | done | one `src/legacySettings.ts` resolves the bag → legacy field → env → default chain and owns the migration |
-| 6. Split extension host | done | `src/extensions/` is now registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; `presenters.ts` deleted and the events cycle is structurally gone |
-| 5. Colocate feature implementations | done (this scope) | deployments (`src/deployments.ts` → `extensions/deployments/server.ts`) and ci (`integrations/checks.ts` → `extensions/ci/checks.ts`) colocated; `integrations/{azure,github,git}.ts`, `deploySettings.ts` and `shared/deployConventions.ts` stay shared, and git cannot be colocated while `integrations/git.ts` is shared by the core |
-| 2. Facades + ambient shim | done | the Promise facades and `src/context.ts` (AsyncLocalStorage) are gone; tests run Effects through `test/helpers.ts` and scripts through `scripts/sh.ts`. This supersedes the "facades kept for the test suite" ruling recorded in `docs/decisions/effect-migration.md` |
+| 1. Shared CLI helpers | done | `src/effect/support.ts` is the one home for `shSoft`, `cliJson`/`ghJson`, `messageOf` and `fs`; the two `worst` re-implementations point at `types.ts` |
+| 3. `src/shared/` | done | `branch.ts` and `deployConventions.ts` live in `src/shared/`; the eslint boundary is the structural `../shared/*`, with `types.ts` the one filename exception (documented in the config) |
+| 7. Split `server.ts` | done | `src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts` hold the route table; `server.ts` keeps bootstrap |
+| 8. Naming/root clutter | done | the pi extension lives in `pi/`; internal vocabulary says "extension" (`cardForExtension`, `:card`, `CardInfo`), while wire fields keep `integration` |
+| 9. Web monoliths | done | `ChangeView.tsx` and `SettingsPage.tsx` are split into `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields` and `WorkspaceCard` |
+| 4. Legacy settings chain | done | `src/legacySettings.ts` is the one resolver for the bag → flat field → env → default chain, and owns the one-time migration |
+| 6. Split extension host | done | `src/extensions/` is registry (leaf), discover, selectors, effects, dispatch, with `index.ts` as the public face; the events cycle is structurally gone |
+| 5. Colocate feature implementations | done | deployments (`extensions/deployments/server.ts`) and ci (`extensions/ci/checks.ts`) sit with their extensions; `integrations/{azure,github,git}.ts`, `deploySettings.ts` and `shared/deployConventions.ts` stay shared, and git cannot be colocated while `integrations/git.ts` is shared by the core |
+| 2. Facades + ambient shim | done | the Effect APIs are the only public surface, tests run Effects through `test/helpers.ts` and scripts through `scripts/sh.ts`, and there is no ambient store. This supersedes the "facades kept for the test suite" ruling recorded in `docs/decisions/effect-migration.md` |
 
-One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
-depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the
-flip). It now waits for the server's own `/api/terminals` read instead. This was flaky before the
-refactor and is deterministic now.
+`test/terminal.test.ts`'s "a window that starts waiting is announced" waits for the server's own
+`/api/terminals` read rather than on a wall-clock race, which keeps it deterministic.
 
 ## The list
 
 | # | Item | Sources | Value | Risk | Effort |
 |---|---|---|---|---|---|
-| 1 | Extract the duplicated CLI helpers | R1 §1 | high | very low | S |
-| 2 | Retire dead Promise facades + the ALS shim | R2 §2 | high | low | M |
+| 1 | Shared CLI helpers | R1 §1 | high | very low | S |
+| 2 | Promise facades and the ambient shim | R2 §2 | high | low | M |
 | 3 | `src/shared/` for the browser/server boundary | R2 §6 | medium | low | S |
-| 4 | Centralize the legacy settings precedence chain | R2 §3 | medium | low | M |
-| 5 | Colocate a feature's implementation with its extension (deployments first) | R1 §5, R2 §1 | high | medium | M |
-| 6 | Split `extensions/index.ts` (registry / discovery / dispatch) | R1 §3, R2 §4 | medium | low | M |
-| 7 | Split `server.ts` into `src/routes/*.ts` | R1 §4, R2 §8 | medium | low | M |
-| 8 | Naming drift, root clutter, stale README layout | R1 §6, R2 §5 §7 | low | none | S |
-| 9 | Web monoliths (`ChangeView`, `SettingsPage`, `styles.css`) | R2 §8 | low | low | M |
+| 4 | Legacy settings precedence chain | R2 §3 | medium | low | M |
+| 5 | Colocate a feature's implementation with its extension | R1 §5, R2 §1 | high | medium | M |
+| 6 | Extension host (registry / discovery / dispatch) | R1 §3, R2 §4 | medium | low | M |
+| 7 | Route table (`src/routes/*.ts`) | R1 §4, R2 §8 | medium | low | M |
+| 8 | Naming, root clutter, docs | R1 §6, R2 §5 §7 | low | none | S |
+| 9 | Web components (`ChangeView`, `SettingsPage`, `styles.css`) | R2 §8 | low | low | M |
 
 Verification for every item: `bun run typecheck && bun run lint && bun test`. As of
 this writing `test/webkit.test.ts` is the one pre-existing environmental failure
 (Playwright WebKit cannot launch here); "green" means that and nothing new.
 
-## 1. Extract the duplicated CLI helpers
+## 1. Shared CLI helpers
 
-`shSoft` appears **8 times**, `cliJson`/`ghJson` **6 times**, `fs`
-(`Effect.orDie(tryPromise)`) **4 times**, `messageOf` 6 times, and the `worst`
-reducer 3 times. Roughly 150 lines of near-identical code, each copy carrying a
-comment that explains the same invariant.
+`src/effect/support.ts` holds the one definition of each helper: `shSoft` (catch a
+`CliError` timeout into exit code 124), `cliJson` (schema-decode-with-fallback),
+`messageOf` and `fs` (`Effect.orDie(tryPromise)`). `worst` callers point at
+`types.ts`'s implementation; `ci/index.ts` keeps its item-level variant because it
+reduces `WidgetItem[]` rather than `WidgetState[]`, and that distinction is a named
+function rather than a second copy. The per-file "Result-branching contract"
+comment lives only where the helper is defined.
 
-- Put `shSoft` (catch a `CliError` timeout into exit code 124) and `cliJson`
-  (schema-decode-with-fallback) in one place — `src/effect/support.ts`, or as
-  methods on the `Shell` service if item 2 lands first.
-- Fold `messageOf` and `fs` in as well; both are one-liners with five identical
-  doc comments.
-- Point `worst` callers at `types.ts`'s existing implementation; `ci/index.ts`'s
-  item-level variant can stay if it genuinely differs (it reduces `WidgetItem[]`,
-  the shared one reduces `WidgetState[]` — make that distinction a named function
-  rather than a second copy).
+## 2. Promise facades and the ambient shim
 
-**Done when:** each helper has one definition, `bun test` is unchanged, and the
-per-file "Result-branching contract" comment lives only where the helper is defined.
-
-This is first because it is mechanical, touches no behaviour, and every later item
-gets smaller once it is done.
-
-## 2. Retire the dead Promise facades and the ALS shim — **decision first**
-
-Verified dead in `src/`: `readChange`, `writeChange`, `listChanges`,
-`createChange`, `archiveChange`, `provision`, `repoStatusOf`, `loadCache`,
-`saveCache`, `readNotes`, `writeNotes`, `writeSidecar`. `shOrThrow` is dead
-everywhere. `currentEnv` is test-only. `sh` has exactly one `src/` caller
-(`src/tooling.ts`); `swr` has none (the only app-side `swr` is the `Cache` service
-method, which is unrelated).
-
-The chain that keeps `src/context.ts` alive: those facades cannot carry the
-`Workspace` tag, so the ALS fallback in `currentWorkspaceEffect` exists for them.
-`withWorkspace` is used only in `test/cache.test.ts`, and `provideWorkspace` has no
-callers at all.
-
-**This reverses a documented ruling.** `docs/guides/effect-conventions.md` says "Tests
-pass unmodified except import paths" and keeps the facades "deliberately". So decide
-first: are we willing to port the Promise-shaped tests to the Effect APIs (or a
-small helper that provides the tag)? If yes:
-
-- port the tests that call the facades;
-- delete the facades;
-- simplify `currentWorkspaceEffect` to read the tag, then delete the
-  `AsyncLocalStorage` and `context.ts`, or reduce it to the thin helper the tests
-  still need.
-
-If no, close this item and record why in `effect-conventions.md`, so it is not
-re-raised. A partial pass (delete only the facades with zero callers anywhere,
-port only `test/cache.test.ts`) is a legitimate middle path.
+The Effect APIs are the only public surface. Tests run Effects through
+`test/helpers.ts` and scripts through `scripts/sh.ts`. The workspace travels in the
+`Workspace` tag (`src/effect/tags.ts`), read at run time by `sh` and by the `Shell`
+capability's live layer (`src/extensions/services.ts`); there is no ambient store.
+This supersedes the "facades kept for the test suite" ruling recorded in
+`docs/decisions/effect-migration.md`.
 
 ## 3. `src/shared/` for the browser/server boundary
 
-`eslint.config.js` allows `src/web/**` to import `types.ts`, `branch.ts` and
-`deployConventions.ts` by exception, with type-imports allowed everywhere. Every new
-pure shared module means editing that allowlist.
+`src/shared/` holds the pure vocabulary and pure functions both sides need (no
+`node:fs`, no CLI, no `Bun.spawn`): `branch.ts` and `deployConventions.ts`, plus the
+shared types that still live in `types.ts`. The lint rule is structural —
+`src/web/**` may import `src/shared/**` — with `types.ts` the one filename
+exception, documented in `eslint.config.js`.
 
-- Create `src/shared/` for the pure vocabulary and pure functions both sides need
-  (no `node:fs`, no CLI, no `Bun.spawn`).
-- Move `branch.ts` and `deployConventions.ts` there, and move the browser-safe
-  types out of `types.ts` if the split is clean; otherwise leave `types.ts` as the
-  one type-only exception.
-- Then the lint rule becomes "`src/web/**` may import `src/shared/**`", a structural
-  rule rather than a list.
+## 4. Legacy settings precedence chain
 
-**Done when:** the allowlist is gone and the rule is a directory, not a list of
-filenames.
+`src/legacySettings.ts` is the one place that resolves the chain (extensionSettings
+bag → flat field → env var → vendor default) and owns the one-time migration, so
+retiring a field means touching one module. A config version field, after which the
+flat reads can be dropped, remains a possibility; the single resolver is what makes
+that drop possible.
 
-## 4. Centralize the legacy settings precedence chain
+## 5. Colocate a feature's implementation with its extension
 
-The chain (extensionSettings bag → legacy flat field → env var → vendor default) is
-implemented in four places: `deploySettings.ts`, `workspaces.ts`'s `azureOf`,
-`config.ts`'s `load()`, and `migrateWorkspaceSettings()` in `extensions/index.ts`.
-Retiring one legacy field later means touching all four.
-
-- Move the legacy reads and the one-time migration into a single module
-  (`settings.ts` or a new `legacySettings.ts`).
-- Long term: a config version field, after which the legacy reads can be dropped.
-  Not part of this item; just make the drop possible.
-
-## 5. Colocate a feature's implementation with its extension — **done, this scope**
-
-Do deployments first — it has the fewest legitimate shared consumers.
-
-Homes before this scope:
-
-- **deployments**: `extensions/deployments/` + `src/deployments.ts` +
-  `src/deploySettings.ts` + `src/deployConventions.ts` + `src/integrations/azure.ts`
-- **ci**: `extensions/ci/index.ts` + `integrations/{github,azure,checks}.ts`
-- **git**: `extensions/git/index.ts` + `integrations/git.ts`
-
-Done in this scope (behaviour-preserving; same exports, same code):
-
-- `src/deployments.ts` → `src/extensions/deployments/server.ts`, with `index.ts`,
-  `test/deployments.test.ts` and `test/provision.test.ts` updated;
-- `src/integrations/checks.ts` → `src/extensions/ci/checks.ts`, with `index.ts` and
-  `test/provision.test.ts` updated;
-- the rule in [`../guides/architecture.md`](../guides/architecture.md#where-a-features-code-lives)
-  states it is now applied for deployments and ci, and names the shared exceptions.
+A feature's implementation lives with its extension: `extensions/deployments/` holds
+`server.ts`, and `extensions/ci/` holds `checks.ts`. The rule is documented in
+[`../guides/architecture.md`](../guides/architecture.md#where-a-features-code-lives),
+with deployments as the worked example.
 
 Left shared, and why:
 
@@ -158,75 +97,61 @@ Left shared, and why:
   so moving it would invert the layering;
 - `src/shared/deployConventions.ts` — pure, needed by both halves of deployments.
 
-**Done when:** the rule is documented and deployments is the worked example. ✅
+## 6. Extension host
 
-## 6. Split `extensions/index.ts`
+`src/extensions/` splits into `registry.ts` (the leaf: `loaded`, `install`,
+`normalize`, the loaded-extension type), `discover.ts` (`extensionModulePaths`,
+`loadDiscovered`, `loadAll`), `selectors.ts` (the workspace queries, one generic
+helper instead of seven `flatMap`s) and `dispatch.ts` (`matchRoute`,
+`dispatchExtensionRoute`), with `index.ts` as the public face.
 
-597 lines holding the registry, discovery/loading, the built-in list, migration,
-eight near-identical workspace selectors, provisioning/status/run execution, and the
-route dispatcher.
+`registry.ts` as a leaf is also what lets `terminal.ts` import the presenters
+registry directly. The events cycle
+(`extensions/index → services → events → terminal → extensions/index`) is
+structurally gone rather than worked around.
 
-- `registry.ts` — `loaded`, `install`, `normalize`, the loaded-extension type
-  (a leaf with no built-in imports);
-- `discover.ts` — `extensionModulePaths`, `loadDiscovered`, `loadAll`;
-- `selectors.ts` — the workspace queries, with one generic helper instead of seven
-  `flatMap`s;
-- `dispatch.ts` — `matchRoute`, `dispatchExtensionRoute`.
+## 7. Route table
 
-Putting `loaded` in the leaf `registry.ts` is also what lets `terminal.ts` import
-the presenters registry directly instead of going through the `presenters.ts`
-`setPresenterSource` indirection. That indirection exists for a real cycle
-(`extensions/index → services → events → terminal → extensions/index`); with the
-registry split out, the cycle is gone rather than worked around.
+`src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts`
+compose the route table, including the request helpers (`withChange`, `bodyOf`,
+`attempt`). `server.ts` keeps bootstrap (cache restore, client-chunk build, the
+page-build check); Bun's `routes` accepts a composed object.
 
-## 7. Split `server.ts`
-
-652 lines, 38 route keys, mixing bootstrap (cache restore, client-chunk build, the
-page-build check), request helpers (`withChange`, `bodyOf`, `attempt`) and the route
-table. Compose the table from `src/routes/{changes,terminals,repos,settings,
-extensions,assets}.ts`; keep bootstrap in `server.ts`. Bun's `routes` accepts a
-composed object, so this is mechanical. Do it after item 6 so the extension routes
-already have a home.
-
-## 8. Naming drift, root clutter, stale docs
+## 8. Naming, root clutter, docs
 
 No behaviour, all reading cost:
 
-- **Done:** `agent-state.ts` was a **pi** extension, not an IWE one, sitting in a
-  root `extensions/` directory one apart from `src/extensions/`. The directory is now
-  `pi/`, and `scripts/extension.ts` and `test/agentState.test.ts` point at
-  `pi/agent-state.ts`.
-- **Done:** "integration" vs "extension": the internal names are aligned — `cardByName` →
-  `cardForExtension`, the `:integration` route param → `:card` (URL shape unchanged), and the
-  client type `IntegrationInfo` → `CardInfo`. `Widget.integration` and
-  `ProvisionResult.integration` stay as the wire contract, and `docs/guides/extensions.md` notes
-  that "integration" is the legacy spelling retained there.
+- `pi/agent-state.ts` is the pi extension; the root directory is `pi/`, not
+  `extensions/`, and `scripts/extension.ts` and `test/agentState.test.ts` point at
+  it.
+- Internal vocabulary says "extension": `cardForExtension`, the `:card` route param
+  (URL shape unchanged), the client type `CardInfo`. `Widget.integration` and
+  `ProvisionResult.integration` keep the wire spelling, and `docs/guides/extensions.md`
+  notes that.
 
-**Done** (the "docs: split documentation by lifetime" commit): the root migration
-artifacts moved to `docs/plans/archive/`, and the README "Layout" section was rewritten
-— it had drifted onto files that no longer exist — to point at [`docs/README.md`](../README.md).
-The layer narrative now lives in [`docs/guides/architecture.md`](../guides/architecture.md)
-and is kept there; the README map only lists what exists.
+The root migration artifacts live in `docs/plans/archive/`; the README "Layout"
+section points at [`docs/README.md`](../README.md), and the layer narrative lives in
+[`docs/guides/architecture.md`](../guides/architecture.md), which lists only what
+exists. The README is 84KB and has become the manual; splitting further reference
+material into `docs/` is reasonable, but as a documentation project, not structural
+cleanup.
 
-The README is 84KB and has become the manual. Splitting reference material into
-`docs/` is reasonable but is a documentation project; keep it out of the structural
-sequence unless someone wants to own it.
+## 9. Web components
 
-## 9. Web monoliths
+`ChangeView.tsx` and `SettingsPage.tsx` are split into `WidgetRows`, `WidgetCard`,
+`PerRepoCard`, `WindowTabs`, `SettingsFields` and `WorkspaceCard`. `styles.css`
+remains the one large file, and `app.tsx` inlines URL↔view parsing (`viewOf`/
+`pathOf`); a `web/router.ts` would make the shell readable. Extract further
+sub-components when the next change has to touch them — not as a standalone project.
 
-`ChangeView.tsx` (773), `SettingsPage.tsx` (626), `styles.css` (2030). Extract
-sub-components and section files when the next change has to touch them — not as a
-standalone project. `app.tsx` also inlines URL↔view parsing (`viewOf`/`pathOf`);
-a `web/router.ts` would make the shell readable, but this is cosmetic.
+## Decisions taken
 
-## Decisions needed before work starts
-
-1. **Facades and tests (item 2).** Port the Promise-shaped tests, or keep the
-   facades and record it? This is a ruling in `effect-conventions.md`, not a
-   cleanup.
-2. **Wire rename (item 8).** `Widget.integration` stays; internal names align.
-3. **Feature rule (item 5).** Confirm the three-way split before moving files, so
-   deployments is the example and not a one-off.
+1. **Facades and tests (item 2).** Tests port to the Effect APIs through
+   `test/helpers.ts`; no Promise facades remain.
+2. **Wire rename (item 8).** `Widget.integration` stays; internal names say
+   "extension".
+3. **Feature rule (item 5).** A feature's implementation lives with its extension;
+   shared vendor clients stay in `src/integrations/`.
 
 ## Explicit non-goals
 
@@ -234,11 +159,8 @@ The additive extension model, the stale-while-revalidate cache with its two hone
 rules, the "events carry news, not data" SSE design, and ttyd proxied through our
 own origin are deliberate and correct. Nothing here changes them.
 
-## Suggested sequence
+## Order taken
 
-1. Item 1 (helpers) — mechanical, unblocks the rest.
-2. Decide item 2, then do it if the answer is yes.
-3. Items 3 and 4 — small and independent.
-4. Item 5 (deployments first) — the largest navigational win.
-5. Items 6 and 7 — mechanical splits.
-6. Items 8 and 9 — reading cost and web cleanup, ongoing.
+Helpers first (mechanical, unblocking the rest), then the facade decision, then the
+small independent items, then deployments, then the mechanical splits. Items 8 and 9
+are ongoing reading-cost work.

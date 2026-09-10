@@ -4,9 +4,8 @@ import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
 /**
  * The change's terminal: a tmux session in the change directory, rendered by ttyd.
  *
- * There is nothing around it any more — which window you are in, and how to get to another, is
- * the navigation column's job. What is left here is the frame, the focus, and the new-window
- * chord.
+ * Which window you are in, and how to get to another, is the navigation column's job. This is
+ * the frame, the focus, and the new-window chord.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.

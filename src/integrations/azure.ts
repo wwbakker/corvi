@@ -32,8 +32,7 @@ const RunsSchema = Schema.Array(
     buildNumber: Schema.String,
     status: Schema.String,
     result: Schema.optional(Schema.NullOr(Schema.String)),
-    // Always present from az, but the old cast tolerated its absence; the default keeps that
-    // tolerance without weakening the type.
+    // Always present from az, but absence is tolerated with an empty default.
     sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
@@ -76,7 +75,7 @@ export const azDefaults = (): Effect.Effect<{ organization?: string; project?: s
  *
  * `az` has one configured default organisation and project, which is fine until a second client
  * turns up. A workspace that names its own gets them passed explicitly; one that does not falls
- * back to `az devops configure`, which is what every call did before workspaces existed.
+ * back to `az devops configure`.
  *
  * The key namespaces the cache: two organisations answering the same question differently is
  * exactly the bug this prevents.
@@ -136,7 +135,7 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
  * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
  * milliseconds of CPU per invocation — it is a Python program, started afresh each time. The
- * sharing and the staleness both live in src/cache.ts now.
+ * sharing and the staleness both live in src/cache.ts.
  */
 
 /** Pipelines are moved between folders about never; runs happen while you watch. Both are
@@ -181,7 +180,7 @@ const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; err
           "json",
         ])),
       ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
     );
     const failed = results.find((r) => r.code !== 0);
@@ -256,12 +255,11 @@ export const expectedDuration = (az: Az, definitionId: number): Effect.Effect<nu
     }));
 
 
-/** The artifact version a build produced, as printed by the pipelines themselves. Ported from
- * a shell script that read the same lines out of build logs. */
+/** The artifact version a build produced, as printed by the pipelines themselves. */
 const VERSION_PATTERNS = [
   /Version is: '([^']+)'/,
-  // Deliberately looser than the source script: docker prints the tag after a full image
-  // reference ("pushing manifest for registry/app:20260818.4"), which its \b anchor missed.
+  // Deliberately loose: docker prints the tag after a full image reference
+  // ("pushing manifest for registry/app:20260818.4"), which a \b anchor would miss.
   /pushing manifest for \S*?([0-9]{8}\.\d+)\b/,
   /Built and pushed image as .*:([0-9]{8}\.\d+)\b/,
 ];
@@ -367,7 +365,7 @@ const findVersionEffect = (
         ids.slice(i, i + 5).map((id) =>
           Effect.map(logLinesEffect(project, runId, id), (lines) => versionInLines(lines))
         ),
-        // The old Promise.all was unbounded, so this stays unbounded.
+        // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       );
       const found = batch.find(Boolean);
@@ -433,7 +431,7 @@ export const pipelineItems = (
     const expected = new Map(
       yield* Effect.all(
         running.map((d) => Effect.map(expectedDuration(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
-        // The old Promise.all was unbounded, so this stays unbounded.
+        // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       ),
     );
@@ -471,7 +469,7 @@ export const pipelineItems = (
                     child.detail = [child.detail, version].filter(Boolean).join(" · ");
                   }
                 }),
-              // The old Promise.all was unbounded, so this stays unbounded.
+              // Unbounded: the shared CLI semaphore caps how many of these run at once.
               { concurrency: "unbounded", discard: true },
             );
           }
@@ -488,7 +486,7 @@ export const pipelineItems = (
           };
         }),
       ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
     );
 

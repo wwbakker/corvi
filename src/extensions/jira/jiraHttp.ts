@@ -7,9 +7,8 @@ import { BadRequestError } from "../../effect/errors.ts";
  * Talking to Jira Cloud directly, over its own REST API.
  *
  * Nothing new is configured: `jira-cli`'s config file already holds the site, the account and
- * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there. The
- * CLI is gone, its per-call process with it, but the setup it asked you for is still what this
- * reads — installing IWE on a new machine is still `jira init` and an exported token.
+ * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there.
+ * Installing IWE on a new machine is `jira init` and an exported token.
  */
 export type JiraSetup = {
   /** e.g. https://example.atlassian.net */
@@ -54,9 +53,8 @@ export function parseJiraConfig(text: string): Partial<JiraSetup> {
 }
 
 /** Read once per file: it is only written by `jira init`, and it is a megabyte of custom fields.
- * The map holds one memoized Effect per path, which is the old Map of promises: concurrent
- * askers share a single read, and a missing or unreadable file is an empty setup, not an error
- * — the old `.catch(() => ({}))`. */
+ * The map holds one memoized Effect per path: concurrent askers share a single read, and a
+ * missing or unreadable file is an empty setup, not an error. */
 const setups = new Map<string, Effect.Effect<Partial<JiraSetup>>>();
 
 export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
@@ -82,9 +80,8 @@ export const jiraBaseUrl = (file?: string): Effect.Effect<string | undefined> =>
   Effect.map(jiraSetup(file), (setup) => setup.server);
 
 
-/** What is missing, said in the words of the thing you would do about it. Fails with the message
- * the old throws carried (BadRequestError maps where the old thrown Error went — a 400 carrying
- * its message). */
+/** What is missing, said in the words of the thing you would do about it. Fails with a
+ * BadRequestError whose message the route mapping turns into a 400. */
 const credentialsEffect = (
   file?: string,
   tokenEnv?: string,

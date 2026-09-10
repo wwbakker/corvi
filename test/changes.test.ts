@@ -222,7 +222,8 @@ test("a worktree starts from the base branch it was given, not the remote defaul
 test("a completed change is listed once, even when its directory is left behind", async () => {
   const change = await runEffect(createChange({ id: "PROJ-TWICE", repos: [repo] }));
   await runEffect(archiveChange(change.id));
-  // A terminal, or a build, writing into the old path recreates it after the archive moved.
+  // A terminal, or a build, writing into the change's original path recreates it after the
+  // archive moved.
   await Bun.write(join(changeDir(change.id), "terminal.json"), "{}\n");
 
   const listed = (await runEffect(listChanges())).filter((c) => c.id === "PROJ-TWICE");
@@ -329,8 +330,8 @@ test("a completion records itself before it starts checking anything", async () 
   // Nothing yet: a change that was never completed has no record at all.
   expect(await runEffect(progressOf(change.id))).toBeNull();
 
-  // The repository has no remote, so the readiness check refuses. That refusal is recorded too:
-  // it used to be a message in a dialog, which a page opened later would never see.
+  // The repository has no remote, so the readiness check refuses. That refusal is recorded too,
+  // so a page opened later still sees it.
   expect(runEffect(completeChange(change))).rejects.toThrow(/cannot complete/);
   await Bun.sleep(2000);
   const failed = (await runEffect(progressOf(change.id)))!;
@@ -394,8 +395,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   // What pi's busy-title extension sets with `tmux set -p @agent_status ...`.
   expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
   expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
-  // Unset, or set to something else by something else: no claim is made about the window —
-  // exactly as the old agentIn ignored it.
+  // Unset, or set to something else by something else: no claim is made about the window.
   expect(presented("")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
   expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
@@ -405,7 +405,7 @@ test("a change is named after its ticket, and keeps that name when its vendor is
   const { install, loaded } = await import("../src/extensions/index.ts");
 
   // A stub source claiming every change that has a jira key, answering from a map the test
-  // controls — the same scenarios the injected lookup used to cover.
+  // controls.
   const answers = new Map<string, string>();
   const restore = loaded.splice(0, loaded.length);
   install({
@@ -596,8 +596,8 @@ test("a change belongs to the context it was made in, and older ones to the firs
   const change = (id: string, workspace?: string): never => ({ id, workspace }) as never;
   const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
 
-  // Made before workspaces existed: it belongs to the first one, which is where all the work
-  // was when there was only one place for it.
+  // No workspace: it belongs to the first one, the default when there is only one place for
+  // the work.
   expect(workspaceOf(change("OLD-1"), workspaces)).toBe("client");
   expect(workspaceOf(change("IWE-1", "personal"), workspaces)).toBe("personal");
 
@@ -630,7 +630,7 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
 
   const client = { id: "PROJ-1", workspace: "client" } as never;
   const personal = { id: "IWE-1", workspace: "personal" } as never;
-  const old = { id: "OLD-1" } as never; // made before workspaces existed
+  const old = { id: "OLD-1" } as never; // no workspace: it belongs to the first one
 
   // A personal project has no ticket, and being asked about one is noise and a CLI call: the
   // jira extension is not there at all. The CI card is pull requests as well as pipelines, so
@@ -647,7 +647,7 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   expect(siteFor("personal")).toEqual({});
   expect(siteFor("client")).toEqual({});
 
-  // A change from before all this belongs to the first workspace.
+  // A change with no workspace belongs to the first workspace.
   expect(workspaceOf(old).id).toBe("client");
 
   (config as { workspaces: unknown }).workspaces = original.workspaces;

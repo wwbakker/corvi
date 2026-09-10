@@ -15,9 +15,9 @@ The comments from the second review, as a checklist.
 
 For item 3, the rule set is `@typescript-eslint/explicit-module-boundary-types` plus
 `@typescript-eslint/explicit-function-return-type` with `allowExpressions`,
-`allowTypedFunctionExpressions` and `allowConciseArrowFunctionExpressionsStartingWithVoid`; that
-is 51 violations today (src 23, test 25, scripts 1, pi 2). Variable-level annotation
-(`@typescript-eslint/typedef`) is deliberately not enabled: it fights inference and buys little.
+`allowTypedFunctionExpressions` and `allowConciseArrowFunctionExpressionsStartingWithVoid`.
+Variable-level annotation (`@typescript-eslint/typedef`) is deliberately not enabled: it fights
+inference and buys little.
 
 For item 2, the rule is: a comment states the invariant, not the history. "A timed-out CLI is
 exit code 124" stays; "the Result-branching contract of the old `sh()`" goes. Migration history

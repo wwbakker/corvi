@@ -18,10 +18,9 @@ import { cliJson, shSoft } from "../../effect/support.ts";
 /**
  * What is deployed where.
  *
- * The first part of IWE that is not about a change: you deploy a service's build to an
- * environment, and which change produced that build is a separate question — often somebody
- * else's. "What is on accept?" is asked before a release and during an incident, when there is
- * no change open to ask it from.
+ * Not about a change: you deploy a service's build to an environment, and which change produced
+ * that build is a separate question — often somebody else's. "What is on accept?" is asked
+ * before a release and during an incident, when there is no change open to ask it from.
  *
  * Nothing is stored. A deploy run carries the version and the environment it was given
  * (`templateParameters`), so the last succeeded run per environment *is* the current state, and
@@ -67,8 +66,8 @@ const RunsSchema = Schema.Array(
     buildNumber: Schema.String,
     status: Schema.String,
     result: Schema.optional(Schema.NullOr(Schema.String)),
-    // Always present from az, but the old cast tolerated its absence; the default keeps that
-    // tolerance without weakening the type.
+    // Always present from az, but tolerated as absent: the default keeps the field a plain
+    // string without weakening the type.
     sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
@@ -250,7 +249,7 @@ export const deployments = (
             environments: deploySettings().environments.map((e) => latestFor(runs, e)),
           } satisfies Service;
         }),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded on purpose: one query per deploy pipeline, all independent.
       { concurrency: "unbounded" },
     );
     return { services };
@@ -328,7 +327,7 @@ export const versionsFor = (
 
     const versions = yield* Effect.all(
       succeeded.map((run) => Effect.map(versionOf(run, project), (version) => ({ run, version }))),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded on purpose: one version lookup per successful build, all independent.
       { concurrency: "unbounded" },
     );
 
@@ -433,8 +432,7 @@ function versionParameterOf(runs: Run[]): string {
  * Trigger a deploy. The one irreversible thing on this page.
  *
  * A later environment is only deployed to when the one before it already holds that exact
- * version and its run succeeded — which is the manual step the shell script asks you to do by
- * reading the acceptance logs, and the reason it is a step at all: production gets what
+ * version and its run succeeded. That is why it is a step at all: production gets what
  * acceptance proved, not what somebody hoped.
  */
 export const deploy = (

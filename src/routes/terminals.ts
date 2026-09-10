@@ -44,7 +44,7 @@ export const terminalsRoutes = guard({
 
   // Every change's terminals, in one call: the navigation column lists them all, and asking
   // per change would be a process per change every few seconds. A timed-out tmux is no news,
-  // not a failed request — what the old facade swallowed, kept explicitly.
+  // not a failed request.
   "/api/terminals": {
     GET: () =>
       runRoute(
@@ -72,7 +72,7 @@ export const terminalsRoutes = guard({
 
   // The windows of the change's tmux session, and the two things you do to them. tmux is the
   // source of truth: this only reads and pokes it. A timed-out tmux is an empty strip, not a
-  // failed request — what the old facade swallowed, kept explicitly.
+  // failed request.
   "/api/changes/:id/terminal/windows": {
     GET: (req) =>
       withChange(req.params.id, (c) =>

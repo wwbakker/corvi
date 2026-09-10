@@ -9,8 +9,8 @@ import type { Workspace as WorkspaceShape } from "../config.ts";
 /**
  * The live layers behind the capabilities (src/extensions/api.ts) — host-side, not part of
  * the contract. One static layer per service; the request's workspace is provided alongside
- * them per request, which is what lets `Shell` read it at run time instead of the layer
- * being built per request.
+ * them per request, so one service instance serves every request and `Shell` reads the
+ * request's workspace at run time.
  */
 
 /** `run` requires `Workspace` in its own R — the environment comes from the tag, read at
@@ -30,7 +30,7 @@ export const CacheLive = Layer.succeed(Cache, {
 });
 
 // The same refilled object every module holds by reference: a settings-page save is visible
-// through the service without restart, exactly as it is through direct imports today.
+// through the service without restart.
 export const SettingsLive = Layer.succeed(Settings, config);
 
 export const BusLive = Layer.succeed(Bus, {

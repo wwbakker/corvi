@@ -195,8 +195,8 @@ export const changesRoutes = guard({
   "/api/changes/:id/complete": {
     // Whether it could be completed, for the menu item. A readiness check that cannot be made
     // — no GitHub remote, `gh` not logged in — is a reason it is not ready rather than a failed
-    // request: the page swallowed the error and disabled the item with nothing to say, which
-    // is the least useful of the three possible outcomes.
+    // request: swallowing the error would disable the item with nothing to say, the least
+    // useful of the three possible outcomes.
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.catchAll(

@@ -4,16 +4,16 @@ import { bagList, bagString, resolveSetting } from "./legacySettings.ts";
 /**
  * The deployments extension's server-wide settings, read back.
  *
- * The chain is the one every migrated setting follows, stated once in src/legacySettings.ts:
- * what the settings page wrote under `extensionSettings.deployments` — the extension's own
- * `globalSettings` declaration — wins, and when the bag is empty the legacy config field
- * answers, which carries the default and the environment resolution (IWE_AZURE_ORG,
- * IWE_AZURE_PROJECT, IWE_AZURE_ENVIRONMENTS beat the file, exactly as they always have). A bag
- * value that is not the right shape, or an empty one, is not set: empty means unset.
+ * The chain every extension setting follows, stated once in src/legacySettings.ts: what the
+ * settings page wrote under `extensionSettings.deployments` — the extension's own
+ * `globalSettings` declaration — wins, and when the bag is empty the flat config field answers,
+ * which carries the default and the environment resolution (IWE_AZURE_ORG, IWE_AZURE_PROJECT,
+ * IWE_AZURE_ENVIRONMENTS beat the file). A bag value that is not the right shape, or an empty
+ * one, is not set: empty means unset.
  *
  * The exception is `pipeline`: the list holds exactly two names — how a build pipeline is named,
- * and its deploy twin — so a bag list that is not two names reads as not set and the legacy
- * field answers whole.
+ * and its deploy twin — so a bag list that is not two names reads as not set and the flat field
+ * answers whole.
  */
 
 export type DeploySettings = {

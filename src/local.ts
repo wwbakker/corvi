@@ -58,7 +58,7 @@ export function parseStatus(stdout: string): FileChange[] {
       staged: index !== ".",
       unstaged: worktree !== ".",
       untracked: false,
-      // The old path is a field of its own, not a file of its own.
+      // The source path of a rename is a field of its own, not a file of its own.
       from: kind === "2" ? parts[++i] : undefined,
     });
   }
@@ -90,9 +90,9 @@ export const aheadIn = (stdout: string): number | undefined => {
 export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `sh` can fail with here — is a failed command (exit code 124), not a failure of the
- * operation. Everything downstream branches on `code`, exactly as before. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
   sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
@@ -157,9 +157,9 @@ export const localChanges = (
  * working tree against the index, and an untracked file is compared against nothing at all —
  * `--no-index` against /dev/null, which is how git itself shows a file it does not know.
  *
- * Where the old code threw, the Effect fails with the typed taxonomy: no worktree is a
- * `BadRequestError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
- * is a `CliError`. Both carry the message the old throw had.
+ * The Effect fails with the typed taxonomy: no worktree is a `BadRequestError`, a `git diff`
+ * that failed for real (exit > 1 — 1 is "there is a difference") is a `CliError`. Both carry a
+ * human-readable message.
  */
 export const fileDiff = (
   change: Change,
@@ -170,8 +170,8 @@ export const fileDiff = (
   Effect.gen(function* () {
     const worktree = yield* worktreeOf(change, repo);
     if (!worktree) {
-      // 400, as this was before the rewrite: a wrong request against this change, not a missing
-      // resource (matching the same message's BadRequestError in the integrations).
+      // 400: a wrong request against this change, not a missing resource (matching the same
+      // message's BadRequestError in the integrations).
       const message = `no worktree for ${change.branch} in ${repo}`;
       return yield* Effect.fail(new BadRequestError({ message }));
     }

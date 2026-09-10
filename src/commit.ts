@@ -22,24 +22,22 @@ export type CommitResult = {
 };
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
- * failCli does). */
+ * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
 const badRequest = (message: string): BadRequestError => {
   const error = new BadRequestError({ message });
   (error as { message: string }).message = message;
   return error;
 };
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `sh` can fail with here — is a failed command (exit code 124), which each repository
- * reports in its `error` field, exactly as any other non-zero exit did. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
   sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// The commitChange/pushChange facades that used to sit here were test-only; the tests run the
-// effects below through a helper that provides the Workspace tag (test/helpers.ts).
+// Tests run these effects through a helper that provides the Workspace tag (test/helpers.ts).
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
   checkoutFor(change, repo);
 

@@ -93,9 +93,8 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
   };
 
   // The page's sections, one tab each: the fixed ones, the extensions' own settings in the order
-  // they loaded, then the contexts. The tab carries the heading each section used to have, which
-  // is why they are gone from the content below. Stable ids, so a save that reloads the view
-  // leaves you where you were.
+  // they loaded, then the contexts. The tab carries the heading, so the content below omits it.
+  // Stable ids, so a save that reloads the view leaves you where you were.
   const tabs = [
     { id: "locations", label: "Locations" },
     { id: "worktrees", label: "Worktrees" },
@@ -204,7 +203,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
       {/* The server-wide settings each extension declares, rendered generically from the
           declaration: the page knows the shape of the settings and nothing about what they
           mean. Stored under extensionSettings[name][key], where the extension reads them back
-          with the legacy config fields as the fallback chain's tail. */}
+          with the top-level config fields as the fallback chain's tail. */}
       {view.extensions.map((extension: KnownExtension) =>
         extension.globalSettings.length && active === `extension:${extension.name}` ? (
           <div className="form" key={extension.name}>

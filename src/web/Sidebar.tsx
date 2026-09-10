@@ -48,10 +48,8 @@ function Icons({ summary }: { summary?: ChangeSummary }): JSX.Element {
 /**
  * The one navigation element: a single column, from the top of the window down.
  *
- * It replaces the breadcrumb, the tab strip and the terminal's own window strip, which between
- * them said where you were three times and disagreed about how. Here the whole hierarchy is
- * visible at once — the changes, the pages of the one you picked, and the terminals inside it —
- * so moving anywhere is one click from anywhere.
+ * The whole hierarchy is visible at once — the changes, the pages of the one you picked, and the
+ * terminals inside it — so moving anywhere is one click from anywhere.
  */
 export function Sidebar({
   changes,

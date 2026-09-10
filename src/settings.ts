@@ -32,7 +32,7 @@ import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
  */
 
 /** What may be written: the config file's own shape. Everything is optional — an absent value
- * means "the default", which is what an empty file has always meant. */
+ * means "the default", which is what an empty file means. */
 export type Settings = ConfigFile;
 
 export type SettingsView = {
@@ -165,7 +165,7 @@ function prune(value: unknown): unknown {
  *
  * Merged over what the file holds, not replacing it: a key IWE does not know about was put there
  * by hand, for a version of IWE that does, and losing it silently would be rude. The ENV_OVERRIDES
- * locking and the empty-field-means-unset pruning are unchanged.
+ * locking and the empty-field-means-unset pruning still apply.
  */
 export const writeSettings = (
   next: Settings,
@@ -181,8 +181,9 @@ export const writeSettings = (
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
     yield* reloadConfig;
-    // Everything the CLIs answered was answered for the old settings: another organisation, another
-    // Jira site, another set of environments. Cheaper to ask again than to reason about which.
+    // Everything the CLIs answered was answered for the settings just replaced: another
+    // organisation, another Jira site, another set of environments. Cheaper to ask again than to
+    // reason about which.
     invalidate("");
     return yield* settingsView;
   });

@@ -56,7 +56,7 @@ async function uninstall(): Promise<void> {
   }
   await unlink(path);
   console.log(`removed: ${path}`);
-  console.log("tmux keeps @agent on panes where pi is still running: tmux set -p -u @agent");
+  console.log("tmux keeps @agent_status on panes where pi is still running: tmux set -p -u @agent_status");
 }
 
 const command = process.argv[2];

@@ -126,8 +126,8 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
 }
 
 /**
- * Which context a change belongs to. Changes made before workspaces existed have none, and
- * belong to the first one — that is what everyone's existing changes are.
+ * Which context a change belongs to. A change that names none belongs to the first context,
+ * which is where a change written outside any workspace sits.
  */
 export const workspaceOf = (change: Change, workspaces: Workspace[]): string =>
   change.workspace ?? workspaces[0]?.id ?? ALL;

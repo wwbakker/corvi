@@ -12,7 +12,7 @@ import type { Config, Workspace as WorkspaceConfig } from "../config.ts";
 import { Workspace as WorkspaceTag } from "../effect/tags.ts";
 
 /**
- * The surface an extension can contribute to — Effect edition.
+ * The surface an extension can contribute to.
  *
  * An extension is a TypeScript module with a default-exported factory receiving this API — the
  * same shape pi's extensions have. It contributes to registries (cards, wizard steps, hooks)
@@ -39,8 +39,8 @@ import { Workspace as WorkspaceTag } from "../effect/tags.ts";
  *   data; no effect wrapper buys anything there, and the completion plan must be answerable
  *   before anything runs anyway.
  *
- * This file is the whole API on purpose: when out-of-tree extensions arrive, this is what
- * they get, and nothing else is a promise.
+ * This file is the whole API on purpose: out-of-tree extensions get this, and nothing else is a
+ * promise.
  */
 
 // --- Capabilities: what the host provides to every contributed effect ---------------------
@@ -143,8 +143,8 @@ export type WizardStep = {
 };
 
 /** Names the changes it can title, and answers with summaries. A failed lookup contributes
- * nothing — stored titles stand, which is the behaviour the overview has always had. Asked
- * once per workspace, with that workspace's claimed changes. */
+ * nothing — stored titles stand. Asked once per workspace, with that workspace's claimed
+ * changes. */
 export type TitleSource = {
   /** Pure: which of these changes are this source's to name. Changes whose title was
    * written by hand are filtered out before this is asked. */
@@ -244,10 +244,9 @@ export type ExtensionSetting = {
   /** A list of strings rather than one value, edited as rows. */
   list?: boolean;
   /** The environment variable that overrides this setting, shown locked when set — the page
-   * cannot fight it. The override itself still works through the legacy config field the
-   * extension reads back, and the precedence is: extension setting (page/file) wins, then the
-   * legacy field (which carries defaults + environment resolution), so an env var keeps beating
-   * the page exactly as it beats the file today. */
+   * cannot fight it. The override still works through the core config field the extension reads
+   * back, and the precedence is: extension setting (page/file) wins, then that config field
+   * (which carries defaults + environment resolution), so an env var keeps beating the page. */
   env?: string;
 };
 

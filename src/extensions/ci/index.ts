@@ -58,7 +58,7 @@ const worstItem = (items: WidgetItem[]): WidgetState =>
           ? "ok"
           : "none";
 
-/** The CI card's action runner, in Effect. */
+/** The CI card's action runner. */
 const runEffect = (
   change: Change,
   action: string,

@@ -24,9 +24,9 @@ const traceKey = (cmd: readonly string[]): string =>
 const toolOf = (cmd: readonly string[]): string => cmd[0] ?? "";
 
 /**
- * Seconds a CLI may run before it is killed. A hung `az` used to hang the server forever; now
- * the call fails with a `CliError` naming the command. This is the one sanctioned behavior
- * change of the migration. `IWE_CLI_TIMEOUT=0` disables the timeout entirely.
+ * Seconds a CLI may run before it is killed. A hung `az` fails with a `CliError` naming the
+ * command rather than hanging the server forever. `IWE_CLI_TIMEOUT=0` disables the timeout
+ * entirely.
  */
 const timeoutSeconds = (): number => {
   const raw = process.env.IWE_CLI_TIMEOUT;
@@ -47,9 +47,9 @@ const expand = (value: string): string =>
 
 /** What to add to a subprocess's environment: the workspace's own variables, `~` expanded,
  * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_CONFIG_FILE` —
- * and a shell would have done it. Empty outside a request, which is every call IWE made before
- * workspaces existed. The workspace comes from the `Workspace` tag (src/effect/tags.ts), read
- * at run time by `sh` and by the Shell capability's live layer (src/extensions/services.ts). */
+ * and a shell would have done it. Empty outside a request. The workspace comes from the
+ * `Workspace` tag (src/effect/tags.ts), read at run time by `sh` and by the Shell capability's
+ * live layer (src/extensions/services.ts). */
 export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, string> => {
   const own = workspace?.env ?? {};
   return Object.fromEntries(Object.entries(own).map(([key, value]) => [key, expand(value)]));
@@ -63,7 +63,7 @@ export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, st
  */
 const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
 
-/** The one gate every CLI call passes through, replacing the hand-rolled slot() queue. */
+/** The one gate every CLI call passes through. */
 const gate = Effect.runSync(Effect.makeSemaphore(LIMIT));
 
 const spawnEffect = (
@@ -76,7 +76,7 @@ const spawnEffect = (
     let proc;
     try {
       // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
-      // Empty outside a request, which is every call IWE made before workspaces existed.
+      // Empty outside a request.
       proc = Bun.spawn([...cmd], {
         cwd,
         env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
@@ -124,7 +124,7 @@ const spawnEffect = (
 
 /** One CLI call with the environment given explicitly, instead of read from the request
  * scope. This is what the Shell capability (src/extensions/services.ts) runs, so extension
- * code depends on the service and the Workspace tag rather than on the ambient store. */
+ * code depends on the service and the Workspace tag. */
 export const shEffectWithEnv = (
   cmd: readonly string[],
   cwd: string | undefined,
@@ -133,13 +133,11 @@ export const shEffectWithEnv = (
 
 /** One CLI call, bounded by the shared semaphore: `withPermits` releases on failure and on
  * interruption, so a killed or timed-out call cannot strand the gate. Non-zero exit codes are a
- * successful `Result` — callers branch on `code`; the `CliError` channel is only for a timeout,
- * the one failure the old code could not represent (it hung forever instead).
+ * successful `Result` — callers branch on `code`; the `CliError` channel is only for a timeout.
  *
  * The environment is read from the `Workspace` tag at run time: the request the call belongs to
- * provides it, and outside a request (`serviceOption` is none) it adds nothing — exactly what
- * the old ambient store returned as `undefined`. The tag is read, not required, so this stays
- * runnable from startup and cache code with no workspace in sight. */
+ * provides it, and outside a request (`serviceOption` is none) it adds nothing. The tag is read,
+ * not required, so this stays runnable from startup and cache code with no workspace in sight. */
 export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
   gate.withPermits(1)(
     Effect.gen(function* () {
@@ -149,12 +147,11 @@ export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, 
     }),
   );
 
-/** Run and throw on failure, for actions where the user should see what broke. The thrown
- * `CliError`'s message is exactly what the old `throw new Error` produced. */
+/** Run and throw on failure, for actions where the user should see what broke: the `CliError`
+ * carries the command's stderr. */
 export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
   Effect.flatMap(sh(cmd, cwd), (r) => {
     if (r.code === 0) return Effect.succeed(r.stdout);
     const stderr = r.stderr || r.stdout;
-    // The message is what the old `throw new Error` said, verbatim.
     return Effect.fail(failCli(cmd, stderr, r.code, `${cmd.join(" ")} failed: ${stderr}`));
   });

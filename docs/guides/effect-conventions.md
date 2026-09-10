@@ -6,7 +6,7 @@ This is the standing contract for server-side `src/` code. It exists so that cha
 one coherent whole instead of one accent each. If a change needs to break a rule here, it says
 so first and this file is changed — the code follows the file, never the other way round.
 
-The rewrite that first wrote these rules down, and the rulings it produced, are recorded in
+The rulings behind these rules are recorded in
 [`../decisions/effect-migration.md`](../decisions/effect-migration.md).
 
 ## Scope
@@ -50,24 +50,21 @@ this** — if a failure does not fit, it is a defect, or it fits one of these wi
 | `CliError`       | an external CLI failed                    | `tool`, `command`, `stderr`, exit code           |
 | `DecodeError`    | Schema validation failed                  | message, `source`: request body / file / CLI JSON|
 
-Each error carries the human-readable message the old `throw new Error(...)` had — the strings
-users saw before are the strings users see after. `errors.ts` holds data types and message
-formatting only; it knows nothing about HTTP.
+Each error carries a human-readable message, which is what a user sees. `errors.ts` holds data
+types and message formatting only; it knows nothing about HTTP.
 
 ## Services (`src/effect/tags.ts`)
 
 A `Workspace` service `Context.Tag` carries the workspace config object (the `Workspace` type
-in `src/config.ts`) through a request, replacing the ambient `AsyncLocalStorage` that preceded
-it.
+in `src/config.ts`) through a request.
 
 Code that may legitimately run outside a request scope (startup, caches) uses
-`Effect.serviceOption(Workspace)` and falls back to **exactly the old behavior**: `undefined`
-workspace, empty env override. No tag lookup may fail where the old ambient context returned
-`undefined`.
+`Effect.serviceOption(Workspace)` and falls back to an `undefined` workspace and an empty env
+override. No tag lookup may fail outside a request scope.
 
 ## Concurrency
 
-- Hand-rolled queues and counters become `Effect.makeSemaphore` / `Effect.forEach` with an
+- Hand-rolled queues and counters are `Effect.makeSemaphore` / `Effect.forEach` with an
   explicit concurrency.
 - Timeouts are `Effect.timeout` with interruption, and whatever the effect spawned must be
   **killed on interruption** — a timed-out `git` that keeps running is a leak, not a timeout.
@@ -76,10 +73,10 @@ workspace, empty env override. No tag lookup may fail where the old ambient cont
 
 - Effect Schema (`effect/Schema`) parses: `change.json`, `config.json`, request bodies, and CLI
   `--json` output. Decode failures become `DecodeError`.
-- Deliberate tolerance stays, but is **explicit**: a documented silent fallback becomes
-  `Schema.decode(...)` piped through `Effect.orElseSucceed` (or the equivalent combinator) with
-  a comment saying which README behavior it preserves. Never a bare `as` cast — that is what
-  the tolerance rules exist to prevent.
+- Deliberate tolerance is **explicit**: a documented silent fallback is `Schema.decode(...)`
+  piped through `Effect.orElseSucceed` (or the equivalent combinator) with a comment saying
+  which README behavior it preserves. Never a bare `as` cast — that is what the tolerance rules
+  exist to prevent.
 
 ## Verification (every task, before reporting done)
 

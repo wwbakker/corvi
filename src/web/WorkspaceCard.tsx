@@ -47,9 +47,8 @@ function EnvEditor({
   );
 }
 
-/** The extensions a workspace runs, one switch each. Unlisted means all of them, which is what
- * IWE was before this existed — so the switches describe the truth, and a workspace that names
- * none has them all. */
+/** The extensions a workspace runs, one switch each. Unlisted means all of them: the switches
+ * describe the truth, so a workspace that names none has every one of them. */
 function ExtensionToggles({
   known,
   selected,

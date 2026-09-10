@@ -9,10 +9,10 @@ import { runSh } from "./helpers.ts";
  * Every page, in the engine the app actually uses.
  *
  * The macOS app is a WKWebView, which is Safari's engine, and the development server is looked at
- * in Chrome. Twice now that gap has cost an afternoon: a missing route came back as HTML and
- * WebKit reported it as "The string did not match the expected pattern", and `confirm()` — which
- * a WKWebView does not implement unless the app does — silently returned false, so cancelling a
- * change quietly did nothing. Both would have been caught by loading the pages here.
+ * in Chrome. That gap is where WebKit reports what Chrome tolerates: a missing route comes back as
+ * HTML and WebKit calls it "The string did not match the expected pattern", and `confirm()` —
+ * which a WKWebView does not implement unless the app does — silently returns false, so cancelling
+ * a change quietly does nothing. Loading the pages here catches both.
  *
  * This is a smoke test, deliberately: it opens every route, fails on anything the engine
  * complains about, and checks that the page rendered rather than crashed. What each page *does*
@@ -105,8 +105,8 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
 }, 120_000);
 
 test.skipIf(!usable)("the settings page reads and writes in WebKit", async () => {
-  // The page that broke last time, and the one whose failure mode was a sentence about nothing:
-  // /api/settings answering with the app's own HTML, parsed as JSON.
+  // The page whose failure mode is a sentence about nothing: /api/settings answering with the
+  // app's own HTML, parsed as JSON.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`http://127.0.0.1:${port}/settings`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("nav.tabs");
@@ -128,7 +128,7 @@ test.skipIf(!usable)("the settings page reads and writes in WebKit", async () =>
     file: { extensionSettings?: { jira?: { doneTransition?: string } } };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/extensions/index.ts migrates the old ones on load).
+  // top-level config keys (src/extensions/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
 }, 60_000);
 

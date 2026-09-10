@@ -310,7 +310,7 @@ export function ChangeView({
           }
         >
           {/* Only the states you are in, not the ones a change ends in: picking "Completed"
-              from a list used to set the word without merging anything, removing a worktree or
+              from a list would set the word without merging anything, removing a worktree or
               archiving the change — a label that lies. Ending a change is Complete or Cancel,
               which do the work. A change that has already ended still shows its own state,
               because a select cannot display what it does not offer. */}

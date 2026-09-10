@@ -14,9 +14,8 @@
  * it could clean up after.
  *
  * Without the WebKitGTK bindings the launcher falls back to the browser's app
- * mode, and there the old lifecycle applies: the launcher starts the server
- * detached and it stays running after the tab closes, because a browser window
- * cannot clean up after anything.
+ * mode: the launcher starts the server detached and it stays running after the
+ * tab closes, because a browser window cannot clean up after anything.
  *
  * Nothing is compiled: GTK and WebKit are in the system, Python talks to them
  * through the bindings it already has.
@@ -96,9 +95,9 @@ set -eu
 
 # IWE_APP_ROOT, not IWE_ROOT: the server reads IWE_ROOT as an override for its changes root
 # (where per-change directories live — tests set it for exactly that), and the window only
-# means "where the code to serve lives". Exporting IWE_ROOT here made the app's own server scan
-# this repository for changes: an empty overview, and a "Left behind" list offering Delete on
-# the worktree's own src/ and node_modules/. The window passes it nowhere — the server is
+# means "where the code to serve lives". Exporting IWE_ROOT here would make the app's own server
+# scan this repository for changes: an empty overview, and a "Left behind" list offering Delete
+# on the worktree's own src/ and node_modules/. The window passes it nowhere — the server is
 # started with cd, and reads its changes root from the config file like any other run.
 ROOT="\${IWE_APP_ROOT:-${root}}"
 WINDOW="$ROOT/scripts/app/linux-window/iwe-window.py"
@@ -196,7 +195,7 @@ if python3 -c 'import gi; gi.require_version("WebKit2", "4.1")' 2>/dev/null; the
 fi
 
 # No WebKitGTK: the browser's app mode is the fallback, and a browser window
-# cannot start or stop a server — so this launcher does both, the old way.
+# cannot start or stop a server — so this launcher does both.
 free_port
 URL="http://127.0.0.1:$PORT/"
 : >> "$LOG"

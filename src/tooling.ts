@@ -74,7 +74,7 @@ const ignored = (worktree: string, name: string): Effect.Effect<boolean> =>
 const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
 
 /**
- * Copy `names` from `from` into `to`, rewriting the old path to the new one inside them.
+ * Copy `names` from `from` into `to`, rewriting `from` to `to` inside them.
  *
  * Returns what was copied. Anything already present in `to` is left as it is — the IDE may have
  * written it since — anything missing from `from` is skipped, which is the normal case (most

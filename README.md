@@ -66,8 +66,8 @@ is reported as "the server has no /settings — it is probably running older cod
 The Jira and deployment settings are the extensions' own — `extensionSettings[name][key]`, the
 keys each extension declares (docs/guides/extensions.md). Empty values fall back to the tools' own
 configuration: the account the Jira token belongs to (`/myself`) for the assignee, and
-`az devops configure` for the Azure DevOps organisation and project. The flat legacy fields
-these replaced (`jiraAssignee`, `azureOrganization`, …) are still read when the bag does not
+`az devops configure` for the Azure DevOps organisation and project. The flat fields
+(`jiraAssignee`, `azureOrganization`, …) are still read when the bag does not
 answer, and the `IWE_*` environment variables beat them — which is why the settings page locks
 a field while its variable is set.
 
@@ -101,8 +101,8 @@ the ways in ignore. It refuses a relative path, a duplicate or non-word workspac
 workspace, an environment name that is not one, and a `worktreeCopy` entry that is a path rather
 than a name — `../.ssh` is not something a settings page should be able to ask for.
 
-Saving also clears the cache. Everything the CLIs answered, they answered for the old settings:
-another organisation, another Jira site, another set of environments.
+Saving also clears the cache. Everything the CLIs answered, they answered under the settings
+that just changed: another organisation, another Jira site, another set of environments.
 
 The server binds to localhost and runs as you: it has no auth of its own because it delegates
 to `git`, `gh` and `az`, which already hold your credentials (`gh auth login`, `az login`), and
@@ -125,8 +125,8 @@ widget reports the problem and the change picker falls back to typing an id by h
 
 **The site, account, board and project come from `jira-cli`'s own config file**
 (`~/.config/.jira/.config.yml`, or `JIRA_CONFIG_FILE`), so `jira init` is still the setup step and
-nothing is configured twice. The CLI itself is no longer called: four values are read out of the
-file it wrote, and the rest is HTTP.
+nothing is configured twice. The CLI is not called at runtime: four values are read out of the
+config file it wrote, and the rest is HTTP.
 
 ## Creating a change
 
@@ -239,16 +239,15 @@ page, and the server inside it. Clicking it **starts the app's own server — on
 picked at launch** — shows "Starting IWE…" on the page's own background while it waits, then loads
 the app.
 
-**The app always runs the production build, on a fresh port.** `bun run dev` keeps 4000. They used
-to share a port, and the app attached to whatever was listening: a dev server left running from
-last week silently became "the app", with last week's code and no way to tell from the window.
-That is exactly how a missing `/api/settings` came to be reported as "The string did not match the
-expected pattern". A fixed port of its own fixed that — until a *stale* server was left listening
-on it, which the app then attached to with the same confidence. So the window now picks a free
-port at each launch and starts its own server on it: there is nothing to attach to by mistake,
-and nothing to collide with.
+**The app always runs the production build, on a fresh port.** `bun run dev` keeps 4000. A shared
+port would let the window attach to whatever is listening there: a dev server left running from
+last week would silently become "the app", with last week's code and no way to tell from the
+window, which is how a missing `/api/settings` surfaces as "The string did not match the
+expected pattern". A port of its own avoids that, but a *stale* server can still be sitting on a
+fixed one. So the window picks a free port at each launch and starts its own server on it: there
+is nothing to attach to by mistake, and nothing to collide with.
 
-So the two are now separate things rather than two ways to start the same thing:
+The two are separate things rather than two ways to start the same thing:
 
 | | `bun run dev` | the app |
 | --- | --- | --- |
@@ -362,13 +361,11 @@ filters the change list, the sidebar and what a new change is made in. `All work
 everything, which is a filter rather than a workspace and is set apart in the menu for that
 reason. It is always shown, even with a single workspace: which context you are in should be
 visible, not implied. And there is no such thing as no workspaces — a machine that has not
-configured any gets one **Default workspace**, which is what IWE was before workspaces existed
-and behaves the same.
+configured any gets one **Default workspace**, so the app works out of the box.
 
 A change records the workspace it was made in (`"workspace": "client"` in `change.json`) — one
-line, no directory moves, and moving a change between contexts later is one field. A change made
-before workspaces existed has none and belongs to the **first** workspace, which is where all the
-work was when there was only one place for it.
+line, no directory moves, and moving a change between contexts later is one field. A change
+recorded without a workspace belongs to the **first** workspace.
 
 Two things it does deliberately:
 
@@ -399,21 +396,21 @@ are looking at.
 }
 ```
 
-The per-workspace `azure` object — organisation and project overrides — stays: the deployments
-implementation reads it through the `Workspace` tag, as that extension's own business. Which
-extensions a workspace has is the `extensions` list (below); the old vendor flags that stood in
-for it are migrated on load.
+The per-workspace `azure` object — organisation and project overrides — is the deployments
+extension's own business, read through the `Workspace` tag. Which extensions a workspace has is
+the `extensions` list (below); a workspace still carrying the vendor flags instead is migrated
+on load.
 
 A workspace can also name **which extensions it has** (`"extensions": ["git", "ci",
 "github-issues"]`): the cards, wizard steps, pages, summary facts and hooks it gets at all.
-Naming none means all of them, which is what IWE was before this existed; naming some is the
-whole list. Extensions are described in [docs/guides/extensions.md](docs/guides/extensions.md) — the jira and
-github-issues extensions are the first two, and both can be on at once: two tickets on one
-change is a thing, not a conflict. The old vendor flags are retired: a workspace still carrying
-`"jira": false` or `"azure": false` (with no `extensions` list) is migrated on load — the flag
-becomes an explicit list naming everything but the extension it excluded (jira, deployments),
-and the legacy `jira` object is folded into `extensionSettings.jira`. The migration is
-automatic, for hand-edits and settings-page writes alike.
+Naming none means all of them; naming some is the whole list. Extensions are described in
+[docs/guides/extensions.md](docs/guides/extensions.md) — the jira and github-issues extensions each
+contribute a wizard step and a card, and both can be on at once: two tickets on one change is a
+thing, not a conflict. A workspace still carrying `"jira": false` or `"azure": false` (with no
+`extensions` list) is migrated on load — the flag becomes an explicit list naming everything but
+the extension it excluded (jira, deployments), and a `jira` object is folded into
+`extensionSettings.jira`. The migration is automatic, for hand-edits and settings-page writes
+alike.
 
 Extensions do not have to live in this repository: `"extensionPaths"` in the config (or the
 `IWE_EXTENSION_PATHS` environment variable) names `.ts` modules or directories of them, loaded
@@ -444,12 +441,11 @@ once.
 deep the call — so two GitHub accounts or two Azure tenants stop fighting over one login. `~` is
 expanded, since these are paths and a shell would have done it.
 
-It is ambient rather than a parameter (`AsyncLocalStorage`, `src/context.ts`): the alternative is
-threading an environment through forty call sites that have no other reason to know about it —
+The environment is carried through the request rather than threaded as a parameter: the
+alternative is passing it through forty call sites that have no other reason to know about it —
 `git status` does not care whose workspace it is in, it only has to run as the right one. A
 request about a change enters that change's workspace; a request that is not about a change
-enters the one the browser named; outside a request the environment is empty, which is exactly
-what every call did before workspaces existed.
+enters the one the browser named; outside a request the environment is empty.
 
 Which means **every cache key carries the context**: `az:<workspace>:runs:<ref>`,
 `jira:<site>:keys:…`. Two organisations answering the same question differently is precisely the
@@ -476,9 +472,9 @@ One column, down the left, from the top of the window:
 
     Dashboard | Review changes       tabs on the change itself
 
-It replaced a breadcrumb, a row of tabs and the terminal's own window strip, which between them
-said where you were three times and disagreed about how. Everything you can go to is here, one
-level deep: **a terminal in another change is one click**, not four.
+A breadcrumb, a row of tabs and the terminal's own window strip would say where you are three
+times and disagree about how. Everything you can go to is here, one level deep: **a terminal in
+another change is one click**, not four.
 
 There is no "Dashboard" entry, because picking a change opens it, and no "Terminals" heading,
 because the icon on each row already says what it is. What is left is one flat list of
@@ -576,7 +572,7 @@ like something else:
 - **The web area is invisible to assistive clients until the app opts in.** WKWebView keeps the
   page's accessibility tree to itself, so the window had one anonymous group where its buttons
   should be. `NSApp.setAccessibilityEnabled(true)` publishes it — which also means VoiceOver can
-  read IWE, which it could not before.
+  read IWE.
 - **A menu item that has just been clicked no longer exists**, so asking it what it was called
   throws `Invalid index` — reported as the click having failed, when it is the click having
   worked. Name it before clicking it.
@@ -599,17 +595,16 @@ auth with `JIRA_API_TOKEN`, and one `fetch`. `src/extensions/jira/jira.ts` is th
 of it — sprints from `/rest/agile/1.0/board/<id>/sprint`, issues from that board's sprints and
 from `/rest/api/3/search/jql`, transitions from `/rest/api/3/issue/<key>/transitions`.
 
-It replaced `jira-cli`, which cost a process per call and answered in CSV — a format its own
-plain mode could not even produce unambiguously, since it pads columns with the delimiter. The
-whole board went from **2.2s across four processes to 0.6s in one**, and the parser it needed is
-gone.
+Talking to the REST API directly means one process for the whole board rather than one per call,
+and JSON rather than CSV — a format `jira-cli`'s plain mode could not even produce unambiguously,
+since it pads columns with the delimiter.
 
 Two things that only the API can do, and both matter:
 
 - **Transitions are asked for, not guessed.** `jira issue move KEY Done` fails with "transition
   not found"; the API lists what is legal from where the issue is now, so a wrong status says
-  `cannot move to "Done" from here — available: To Do, In Progress`. That failure, silent, is
-  what once left a change merged with its ticket still open.
+  `cannot move to "Done" from here — available: To Do, In Progress`. A silent failure here is
+  what leaves a change merged with its ticket still open.
 - **Fields come back as fields.** No quoting rules, no column positions, and `assignee` is null
   rather than an empty column that might be a comma.
 
@@ -761,10 +756,10 @@ tmux display -p '#{@agent_status}'   # what the pane you are in says about itsel
 A symlink rather than a copy, so editing it here is editing the installed one and `/reload` in pi
 picks it up; the script refuses to touch anything at that path it did not put there.
 
-A pane option rather than the terminal title, which was the first attempt: the title is shared.
-pi rewrites it whenever the session name changes — right after a run, when it names the session
-from your first message — and the shell rewrites it between commands, so the marker kept
-vanishing seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops it when the pane
+A pane option rather than the terminal title, because the title is shared: pi rewrites it
+whenever the session name changes — right after a run, when it names the session from your first
+message — and the shell rewrites it between commands, so a marker there would keep vanishing
+seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops it when the pane
 dies, so a crashed agent leaves nothing stale behind. The option is read from each window's
 **active pane**, so an agent left in the inactive half of a split is not seen.
 
@@ -1024,7 +1019,7 @@ the settings page, or by hand — because none of these names are ours:
 }
 ```
 
-The flat `azureDeploy` field these replaced is still read when the bag does not answer — its
+The flat `azureDeploy` field is still read when the bag does not answer — its
 defaults and the `IWE_AZURE_*` environment variables included.
 
 **Deploy…** opens a dialog: which version, and where to. The versions are the service's own recent
@@ -1113,8 +1108,8 @@ chase and the other is not.
 
 The state is kept by hand rather than derived, because the tools disagree often enough (a merged
 pull request with the ticket still open, a review that happened in a call) that your own answer
-is the useful one. Completing a change sets it to `Completed`. Changes made before this existed
-read as `In Progress`.
+is the useful one. Completing a change sets it to `Completed`. A change recorded without a state
+reads as `In Progress`.
 
 ## Actions
 
@@ -1149,7 +1144,7 @@ that just asked for a completion should see something at once. A refusal ("not a
 recorded there too, rather than only in the page that asked.
 
 The card stays for completions that finished, so an archived change still shows what was done and
-when. A change that was never completed has no card. A completed change no longer starts a terminal: doing so would write into a directory
+when. A change that was never completed has no card. A completed change does not start a terminal: doing so would write into a directory
 that has just moved to the archive, and the change would then be listed twice, once under each
 name. It is listed once regardless, since a leftover directory (a build's `target/`, a shell's
 history) is not a second change.
@@ -1188,24 +1183,24 @@ event: changes     the change files moved — created, renamed, finished, reposi
 event: windows     tmux has different windows than it did
 ```
 
-The navigation column used to ask for the terminal windows every 1.5 seconds and the overview for
-the changes every 30, from every open page, against a browser limit of six connections per origin
-— the limit that forces the dashboard's widgets to be unmounted rather than hidden while a
-terminal is on screen. Now the server looks once, on one timer, for everybody.
+Polling would have every open page ask for the terminal windows every 1.5 seconds and the changes
+every 30, against a browser limit of six connections per origin — the limit that forces the
+dashboard's widgets to be unmounted rather than hidden while a terminal is on screen. Instead the
+server looks once, on one timer, for everybody.
 
 **Events carry no data.** They say that something changed; the page then asks for it through the
-same cached routes as before. That keeps this small — no second way to fetch anything, no state to
-keep in sync — and means a missed event costs one refresh rather than a screen that disagrees with
-the disk.
+same cached routes as everything else. That keeps this small — no second way to fetch anything,
+no state to keep in sync — and means a missed event costs one refresh rather than a screen that
+disagrees with the disk.
 
-Three things it has to get right, all of which it got wrong first:
+Three things it has to get right:
 
 - **The watcher stops when the last page goes.** A process quietly reading the disk and asking
   tmux twice a second for a browser that was closed this morning is a bug you never see. Clients
   are forgotten on the request's abort signal — the stream's own `cancel` is not called when a tab
-  closes, so without it nobody was ever removed.
-- **What was last seen survives a disconnect.** Clearing it made the first look after every
-  reconnect silent, which swallowed anything that changed while nobody was listening.
+  closes, so the signal is what removes them.
+- **What was last seen survives a disconnect.** Without it the first look after every reconnect
+  is silent, which swallows anything that changed while nobody was listening.
 - **A quiet stream still has to say something.** Bun closes an idle connection after ten seconds,
   and an event stream is idle by definition. The browser reconnects, so it half-works: a drop and
   a reconnect six times a minute, for ever, with `request timed out` in the log each time. There
@@ -1261,8 +1256,8 @@ them costs nothing in wall time and keeps the machine usable while it happens.
 ## The cost of a refresh
 
 The dashboard is CLI calls, and they are not all alike. `IWE_TRACE=1` counts them and adds up
-what each tool costs; measured on a six-repository change, one refresh used to be **131 processes
-and 180 seconds of CPU**, and is now **60 processes and 6 seconds**. What changed:
+what each tool costs; measured on a six-repository change, one refresh is **60 processes and 6
+seconds of CPU**. What keeps it cheap:
 
 - **Worktree state is read with git, not `wt list`.** `wt list` gathers CI, diffs and summaries in
   parallel and costs 1-13 seconds of CPU per call; `git worktree list --porcelain` plus
@@ -1270,9 +1265,9 @@ and 180 seconds of CPU**, and is now **60 processes and 6 seconds**. What change
   and removes worktrees — it owns where they live.
 - **Azure DevOps calls are shared.** `az` is a Python program, a few hundred milliseconds of CPU
   per invocation, and every repository of a change asks about the same branch at the same moment.
-  Pipeline definitions are held for five minutes, runs for five seconds, and calls in flight are
+  Pipeline definitions are held for five minutes, runs for ten seconds, and calls in flight are
   shared outright.
-- **`origin/HEAD` is asked once per repository**, not twice per repository per refresh.
+- **`origin/HEAD` is asked once per repository.**
 
 The rest is network-bound rather than CPU-bound: `gh` and `jira` are Go binaries that spend their
 time waiting.
@@ -1314,10 +1309,9 @@ and registers nowhere.
 
 `bun run test` sets `IWE_ROOT` to a directory under `$TMPDIR`, so no test run can write into the
 changes root you actually use. This is a safety net rather than the rule — test files set their
-own root — and it exists because the net was missing the day it was needed: `setRepos` used to
-refuse an empty repository list before writing anything, so `test/provision.test.ts` never touched
-the disk and never said where it would. Allowing a change to be emptied made that same test write
-a `PROJ-1` into the author's real `~/changes`.
+own root — because a test that does not would write into your real `~/changes`: `setRepos`
+accepts an empty repository list and writes before it can notice, so `test/provision.test.ts`
+would otherwise create a `PROJ-1` there.
 
 ## Testing the terminal
 
@@ -1336,9 +1330,9 @@ choice was made, and `docs/plans/` holds active work only.
 The map, grouped by layer:
 
     src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
-    src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag
+    src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag ·
+                              support.ts (the shared shSoft/cliJson/messageOf/fs helpers)
     src/schemas/              Effect Schemas for change.json and config.json
-    src/context.ts            the workspace across the Promise seam (kept for the test suite)
     src/sh.ts                 the subprocess gate, timeout and trace
     src/cache.ts              stale-while-revalidate for everything the CLIs answer
     src/events.ts             the SSE hub and the watcher behind it
@@ -1361,8 +1355,6 @@ The map, grouped by layer:
     src/types.ts              the vocabulary the server and the page share
     src/legacySettings.ts     the one legacy-settings resolver and migration
 
-    src/effect/               the error taxonomy, runRoute, the Workspace tag, and support.ts
-                              (the shared shSoft/cliJson/messageOf/fs helpers)
     src/routes/               the HTTP handlers, one module per domain: helpers, changes,
                               terminals, repos, settings, extensions, events, assets
 

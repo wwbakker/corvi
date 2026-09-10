@@ -21,7 +21,7 @@ import {
   workspaceParam,
 } from "./helpers.ts";
 
-// What is deployed where moved under the deployments extension's namespace
+// What is deployed where lives under the deployments extension's namespace
 // (/api/ext/deployments/…): the implementation (extensions/deployments/server.ts) lives with
 // the extension, the routes and the page are the extension's own.
 

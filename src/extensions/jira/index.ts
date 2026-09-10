@@ -19,14 +19,14 @@ import { ticketOf } from "./shared.ts";
 import { Settings, Workspace, type Extension } from "../api.ts";
 
 /**
- * The jira extension: the pilot migration out of the core, now as a self-describing value.
+ * The jira extension: a self-describing value.
  *
  * Everything it does is contributed, nothing assumed: a dashboard card, the wizard's issue
  * step (declared here, rendered by its client component), provisioning a new change's ticket,
  * a title source, a pull-request description section, the completion step that closes the
  * ticket, and the two routes its step fetches from. The change's ticket key is read through
- * `ticketOf` — the `extensions` bag where its step now writes, or `change.jira` where it used
- * to, which is what every change recorded before extensions existed still carries.
+ * `ticketOf` — the `extensions` bag its step writes, or the `change.jira` field an early
+ * change record still carries.
  *
  * Its effects require nothing beyond the capabilities: `Workspace` for whose Jira a change's
  * ticket belongs to, `Settings` for the assignee and the transitions.
@@ -42,7 +42,7 @@ const stateOf = (status: string): WidgetState => {
   return "none";
 };
 
-/** The widget, in Effect: a failure is a red card rather than a failed request. */
+/** The widget: a failure is a red card rather than a failed request. */
 const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
@@ -107,8 +107,8 @@ export default {
 
   // The server-wide settings this extension declares, shown on the settings page for every
   // workspace and stored under `extensionSettings.jira` — where globalOf reads them back, with
-  // the legacy config fields as the fallback chain's tail. An environment variable keeps
-  // beating the page: the field shows locked when IWE_JIRA_* is set.
+  // the core config's `jira*` fields as the fallback. An environment variable keeps beating the
+  // page: the field shows locked when IWE_JIRA_* is set.
   globalSettings: [
     { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: "IWE_JIRA_ASSIGNEE" },
     { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: "IWE_JIRA_START_TRANSITION" },

@@ -17,8 +17,7 @@ export type Workspace = {
   name: string;
   /** Where the repository browser opens in this context. */
   reposStart?: string;
-  /** Which extensions exist here, by name (see src/extensions/). Absent means all of them,
-   * which is what IWE was before extensions could be chosen. */
+  /** Which extensions exist here, by name (see src/extensions/). Absent means all of them. */
   extensions?: string[];
   /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
    * holds the field the extension's `workspaceSettings` declaration names, which is where the
@@ -35,9 +34,9 @@ export type Workspace = {
   env?: Record<string, string>;
 };
 
-/** What a change made before workspaces existed belongs to: the first one, which for everybody
- * who has not configured any is the only one. There is no such thing as no workspaces: a
- * machine that has not configured any gets this one, which behaves as IWE always did. */
+/** The workspace a change without one belongs to: the first one, which for everybody who has
+ * not configured any is the only one. There is no such thing as no workspaces: a machine that
+ * has not configured any gets this one. */
 export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
 
 /** File-based config, read once at startup. Environment variables still win, so tests and
@@ -63,7 +62,7 @@ export type Config = {
   azureOrganization: string;
   azureProject: string;
   /** The contexts you switch between. Never empty: when nothing is configured, the default
-   * workspace stands in, which is what IWE was before this and behaves the same. */
+   * workspace stands in. */
   workspaces: Workspace[];
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */
@@ -76,8 +75,8 @@ export type Config = {
   /** Settings the extensions declared, stored under their own name:
    * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
    * declaration names, which is where the extension reads it back. A value is one string or a
-   * list of them. The core carries the bag without looking inside; the legacy flat fields below
-   * stay as the fallback reads the extensions go through when the bag is empty. */
+   * list of them. The core carries the bag without looking inside; the flat settings are the
+   * fallback the extension reads go through when the bag is empty. */
   extensionSettings?: Record<string, Record<string, string | string[]>>;
   /** How this organisation deploys. None of these names are ours, so all of them are settings:
    * a build pipeline's deploy twin is named by swapping the prefixes, and the deploy pipeline is
@@ -115,8 +114,7 @@ const defaults: Pick<Config, "changesRoot" | "reposRoot"> = {
  */
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
   Schema.decodeUnknown(Schema.parseJson(ConfigFile), { onExcessProperty: "preserve" })(text).pipe(
-    // Tolerance the README documents: an invalid config file reads as "nothing configured" —
-    // what the old try/catch around JSON.parse gave every machine that has no config at all.
+    // Tolerance the README documents: an invalid config file reads as "nothing configured".
     Effect.orElseSucceed(() => ({})),
   );
 
@@ -131,10 +129,10 @@ export const readFile = (path: string = configPath()): Effect.Effect<ConfigFile>
   );
 
 /** What is in the file, as it is written. Invalid JSON reads as "nothing configured", which is
- * how IWE has always started on a machine that has no config at all.
+ * how a machine with no config at all starts.
  *
  * Sync sibling of readFile (run with Effect.runSync; see the note above): config is needed
- * synchronously at startup, so this stays. */
+ * synchronously at startup. */
 export function readFileSync(): ConfigFile {
   // Sync on purpose: config is needed before the first request, and this is one small file.
   return Effect.runSync(readFile());
@@ -148,9 +146,9 @@ const resolvePath = (value: string): string => {
 
 /**
  * The file and the environment, resolved into what the rest of the code reads. The precedence
- * chain is unchanged — environment wins over file, file over defaults, the bag over both — and
- * it is stated once, in src/legacySettings.ts. The per-workspace tolerance (skip entries without
- * a truthy id and name) is applied by workspacesFrom, exactly where the old inline filter sat.
+ * chain — environment wins over file, file over defaults, the bag over both — is stated once,
+ * in src/legacySettings.ts. The per-workspace tolerance (skip entries without a truthy id and
+ * name) is applied by workspacesFrom.
  */
 function load(): Config {
   const file = readFileSync();

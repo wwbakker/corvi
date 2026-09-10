@@ -7,9 +7,8 @@ import type { TerminalWindow } from "../terminalTypes.ts";
  * Every change's tmux windows, and the two things you do to them.
  *
  * One request for all of them, because the navigation column lists the terminals of every change
- * at once — and no poller at all: the server watches tmux and says when it changed. This used to
- * be a request every 1.5 seconds from every open page, for a thing that changes when you press a
- * key in a terminal.
+ * at once — and no poller at all: the server watches tmux and says when it changed. A poll would
+ * only add requests for a thing that changes when you press a key in a terminal.
  */
 export function useWindows(): {
   windows: Record<string, TerminalWindow[]>;
@@ -57,9 +56,9 @@ export function useWindows(): {
 /**
  * The ttyd instance of the change you are looking at.
  *
- * Asked for only when a terminal is actually opened: asking on arrival started a ttyd — and, as
- * soon as the page connected, a tmux session — for every change you so much as looked at, which
- * is not what opening a dashboard means. A change needs no terminal at all some days.
+ * Asked for only when a terminal is actually opened: asking on arrival would start a ttyd — and,
+ * as soon as the page connected, a tmux session — for every change you so much as looked at,
+ * which is not what opening a dashboard means. A change needs no terminal at all some days.
  */
 export function useTerminal(
   id: string | null,

@@ -8,8 +8,8 @@ titles for the overview, a page of its own. It is the shape pi's extensions have
 default export is a factory receiving an API object, contributing to registries instead of being
 wired in by hand.
 
-"Integration" is the legacy spelling of "extension", retained only in `Widget.integration` on
-the wire (and its out-of-tree client contract); everything else says extension.
+"Integration" is the wire spelling of "extension", used in `Widget.integration` (and its
+out-of-tree client contract); everything else says extension.
 
 Handlers are **Effects**, and that is the dependency-injection contract:
 
@@ -34,8 +34,7 @@ Two ideas run through the model:
   thing, not a conflict to arbitrate.
 - **Enabled per workspace, resolved per request.** A workspace configures which extensions exist
   there; the answer is read live from the config on every request, which is why toggling one on
-  the settings page takes effect at once. A workspace that names none has them all — which is
-  what IWE was before extensions could be chosen.
+  the settings page takes effect at once. A workspace that names none has them all.
 
 ## The surfaces
 
@@ -74,8 +73,7 @@ one `{ facts, state }` the card renders: the core contributes the terminals fact
 core), the ci extension the vendor facts — pipelines active, unresolved comments, the CI
 verdict. The core's fact leads, and the extension facts follow in load order, so the terminals
 line reads first even when pipelines are active. The navigation icon takes the worst verdict
-offered, exactly as it took the worst of
-the core's own states before. A failed contribution contributes nothing.
+offered. A failed contribution contributes nothing.
 
 ## Terminal windows
 
@@ -255,8 +253,8 @@ extension name:
 { "extensions": { "jira": { "key": "PROJ-123" }, "github-issues": { "repo": "/repos/x", "number": 12 } } }
 ```
 
-`change.jira` is legacy — where the jira extension's key was written before extensions existed —
-and is still read; every change recorded before then carries it. New fields go in the bag.
+`change.jira` holds the jira extension's key on changes recorded before the `extensions` bag
+existed, and is still read. New fields go in the bag.
 
 ## Enablement
 
@@ -274,11 +272,9 @@ A workspace that names no `extensions` has all of them. Naming some is the whole
 no subtraction, because a list you can read is worth more than a default you have to reason
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
-The legacy vendor flags no longer participate in enablement: the `extensions` list is the whole
-story, and the settings page writes it. `"azure": false` is still read where it states a fact —
-"this context has no pipelines" — by `usesAzure`/`azureOf` (src/workspaces.ts) and the workspace
-card, but it never rewrites the list. Naming some is the whole list, and a list you can read is
-worth more than flags nothing reads anymore.
+`"azure": false` is still read where it states a fact — "this context has no pipelines" — by
+`usesAzure`/`azureOf` (src/workspaces.ts) and the workspace card, but it never rewrites the
+`extensions` list.
 
 ## Per-workspace settings
 
@@ -299,12 +295,12 @@ the top level of the config file, not under any workspace.
 
 The environment override story is declared too: a setting whose declaration names an `env`
 variable is shown locked when that variable is set, with the variable named — the page cannot
-fight it. The precedence is the one every migrated setting follows: the extension's bag (what
-the page or the file wrote) wins, and when the bag holds nothing the legacy config field
-answers, which carries the default and the environment resolution — so an environment variable
-still wins unless the page wrote the field, which is why the page locks it while the variable
-is set. Empty means unset, for a string and for a list alike: an emptied list is written to
-the config as `[]`, and readers (like the deployments settings' `bagList`) treat that as unset.
+fight it. The precedence is the same for every setting: the extension's bag (what the page or
+the file wrote) wins, and when the bag holds nothing the config field answers, which carries the
+default and the environment resolution — so an environment variable still wins unless the page
+wrote the field, which is why the page locks it while the variable is set. Empty means unset, for
+a string and for a list alike: an emptied list is written to the config as `[]`, and readers
+(like the deployments settings' `bagList`) treat that as unset.
 
 ## Scope, honestly stated
 
@@ -322,6 +318,6 @@ the config as `[]`, and readers (like the deployments settings' `bagList`) treat
   `change:created` and the contributed steps are the model; more events arrive when a second
   consumer needs them.
 
-The plan that built this lives in [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md);
-the plan that moved the rest of the core behind it lives in
-[`../plans/extensions-migration-plan.md`](../plans/extensions-migration-plan.md).
+See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md) for the plan behind
+these surfaces, and [`../plans/extensions-migration-plan.md`](../plans/extensions-migration-plan.md)
+for the work moving the rest of the core behind them.

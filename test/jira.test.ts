@@ -14,8 +14,8 @@ test("branch name derived from a picked issue", () => {
 });
 
 test("an issue is read from the fields we asked Jira for", () => {
-  // Commas and quotes are nobody's problem any more: this used to be CSV, parsed by hand,
-  // because jira-cli's plain output could not be split reliably.
+  // Commas and quotes need no special handling: the issue comes from structured JSON, not from
+  // splitting a CLI's plain output by hand.
   expect(
     issueFrom(
       {

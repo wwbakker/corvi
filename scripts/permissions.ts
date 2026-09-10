@@ -13,7 +13,7 @@
  * they cover, in the order they are worth having:
  *
  *   - none:          the window list (size and position, no titles) — enough to prove a sheet
- *                    opened, which is how the confirm() bug was verified
+ *                    opened
  *   - screen:        screenshots of the app, so a layout can be looked at rather than described
  *   - accessibility: clicking buttons and reading labels, so the app can be driven end to end
  */

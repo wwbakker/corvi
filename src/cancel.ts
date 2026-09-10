@@ -38,7 +38,7 @@ export const cancelChange = (
     const unsafe = yield* Effect.forEach(
       change.repos,
       (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-repo checks are independent.
       { concurrency: "unbounded" },
     );
 
@@ -90,10 +90,8 @@ export const cancelChange = (
  * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
  * change that comes back to you in a week as somebody else's question. Whose ends there are is
  * the extensions' business: every contributor of the change's workspace is asked, in extension
- * load order — so the pull-request lines (ci) precede the ticket line (jira), where the
- * hardcoded list here used to put the ticket first. The set of sentences is what it always was.
- * A contributor that fails contributes nothing: cancelling must never fail because a vendor
- * lookup did.
+ * load order — so the pull-request lines (ci) precede the ticket line (jira). A contributor that
+ * fails contributes nothing: cancelling must never fail because a vendor lookup did.
  */
 export const looseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
@@ -104,7 +102,7 @@ export const looseEnds = (change: Change): Effect.Effect<string[]> =>
           Effect.provide(contributor.looseEnds(change), capabilitiesLayer(workspaceOf(change))),
           () => Effect.succeed([] as string[]),
         ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these contributors are independent.
       { concurrency: "unbounded" },
     ),
     (ends) => ends.flat(),
@@ -126,7 +124,7 @@ const keptBranchesEffect = (change: Change): Effect.Effect<string[]> =>
           shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo),
           (exists) => (exists.code === 0 ? repo : undefined),
         ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-repo checks are independent.
       { concurrency: "unbounded" },
     ),
     (found) => found.filter((r): r is string => Boolean(r)),

@@ -41,8 +41,8 @@ export type MergeResult = {
   details?: { message?: string; uuid?: string; sha?: string };
 };
 
-/** Any object with a status is read as a merge result — the old cast trusted the field without
- * checking which word it held, and outcomeOf's default branch handled the rest. */
+/** Any object with a status is read as a merge result; a status that is not one of the known
+ * words is handled by outcomeOf's default branch. */
 const MergeResultSchema = Schema.Struct({
   status: Schema.String,
   details: Schema.optional(
@@ -74,7 +74,7 @@ export function outcomeOf(result: MergeResult): { waiting: boolean; note?: strin
 
 /** A merge result read from a response, or nothing when the response was not one: a poll can
  * fail (the request expired, the network hiccuped) and that is not the same as "still running".
- * Schema-decoded with the old tolerance — an unparseable or status-less answer is no result. */
+ * An unparseable or status-less answer is no result. */
 export function pollResult(code: number, stdout: string): MergeResult | undefined {
   if (code !== 0) return undefined;
   try {
@@ -98,9 +98,8 @@ const mergedEffect = (worktree: string, repository: string, number: number): Eff
  * GitHub refuses and points here — because merging one pull request of a stack merges everything
  * below it too, which takes long enough that it runs in the background.
  *
- * Submit, then poll until it is no longer pending. Fails with the message the old throws carried:
- * these are user-visible sentences about a merge that did not happen (BadRequestError maps where
- * the old thrown Error went — a 400 carrying its message).
+ * Submit, then poll until it is no longer pending. The failures are user-visible sentences about
+ * a merge that did not happen, carried as a BadRequestError (a 400 with its message).
  */
 export const mergeStacked = (
   worktree: string,
@@ -126,8 +125,7 @@ export const mergeStacked = (
       worktree,
     );
     // 409 means a merge request already exists; its uuid comes back all the same, so poll that one.
-    // The old cast trusted `status` without checking which word it held; outcomeOf's default
-    // branch handles the rest, so the decode keeps that tolerance.
+    // An unknown status is handled by outcomeOf's default branch, so the decode tolerates one.
     const submitted = (yield* Effect.orElseSucceed(
       Schema.decodeUnknown(Schema.parseJson(MergeResultSchema))(submit.stdout || "{}"),
       () => ({ status: "failed" }),
@@ -159,8 +157,8 @@ export const mergeStacked = (
         worktree,
       );
       const read = pollResult(poll.code, poll.stdout);
-      // A failed poll used to be read as "still pending", which turned any hiccup into five
-      // minutes of silence and then a timeout — while the merge had usually happened.
+      // A failed poll is not "still pending": that would turn a hiccup into five minutes of
+      // silence and then a timeout, while the merge had usually happened. Ask the pull request.
       if (!read) {
         if (yield* mergedEffect(worktree, repository, number)) return undefined;
         return yield* Effect.fail(

@@ -33,12 +33,9 @@ import type { Change, WidgetState } from "../src/types.ts";
 import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 
 /**
- * A changes root of its own, because some of what is tested here writes one.
- *
- * `setRepos` used to refuse an empty list before it wrote anything, so this file never touched
- * the disk and never said where it would. Now that a change may be emptied, it does — and without
- * this it writes into whatever changes root the machine is configured with, which on the author's
- * machine was the real one.
+ * A changes root of its own, because some of what is tested here writes one. A change may be
+ * emptied, and without this the test writes into whatever changes root the machine is configured
+ * with — on the author's machine, the real one.
  */
 let tmp: string;
 
@@ -491,7 +488,7 @@ test("a pull request is looked up by the branch that was pushed", () => {
     "PROJ-1671-improve-mileage",
   );
 
-  // Tracking the default branch is the old in-place bug, not a pull request to go looking for.
+  // Tracking the default branch is not a pull request to go looking for.
   expect(headRef("PROJ-1", "origin/main", "origin/main")).toBe("PROJ-1");
 })
 

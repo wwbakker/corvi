@@ -17,8 +17,8 @@ export const ARCHIVE = "archive";
 export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 
-/** The Effect API. Where the old code threw, the Effect fails with the typed taxonomy
- * (docs/guides/effect-conventions.md) carrying the same message. */
+/** The Effect API. Failures go through the typed taxonomy
+ * (docs/guides/effect-conventions.md), each carrying a human-readable message. */
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 
@@ -41,8 +41,7 @@ export const wtConfigPath = (id: string): string => join(changeDir(id), "wt.toml
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
-// DecodeError with the ParseResult issues rendered the way the old raw parse error would have
-// been shown: one line per problem, path included.
+// DecodeError with the ParseResult issues rendered one line per problem, path included.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
   Schema.decodeUnknown(Schema.parseJson(ChangeSchema), { onExcessProperty: "preserve" })(text).pipe(
     Effect.mapError((error) => {
@@ -53,10 +52,9 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
     }),
   );
 
-/** Read one change's change.json through its Schema. `null` where the old code returned null:
- * no change.json in the change directory or the archive. A malformed or wrongly-shaped file —
- * which the old code handed back untyped or rejected with a raw parse error — is now a typed
- * DecodeError (sanctioned change; see docs/guides/effect-conventions.md). */
+/** Read one change's change.json through its Schema. `null` means no change.json in the change
+ * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError (see
+ * docs/guides/effect-conventions.md). */
 export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDirEffect(id);
@@ -76,11 +74,8 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
  * it had happened.
  *
  * Purely synchronous, so no Effect wrapper: the validation throws the typed taxonomy
- * (BadRequestError / ConflictError — both Errors, exactly where the old code threw plain
- * Errors), with the exact messages it always had.
- *
- * Sync; throws typed errors instead of plain Errors — the server route converts those throws
- * into failures at the boundary (Effect.try), exactly where the old route caught them.
+ * (BadRequestError / ConflictError). The server route converts those throws into failures at
+ * the boundary (Effect.try).
  */
 export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
   if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
@@ -154,10 +149,9 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
 
 /** Active changes first, then archived ones; both are listed, the archive is not a hiding place.
  * A change whose change.json cannot be read or decoded — one being written mid-list, or one
- * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The old
- * code threw on a malformed file and failed the whole listing; the skip is deliberate (a
- * coordinator ruling on the review), and the single change's error still surfaces everywhere
- * that change is asked for by id. */
+ * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The skip
+ * is deliberate (a coordinator ruling on the review), and the single change's error still
+ * surfaces everywhere that change is asked for by id. */
 export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const [active, archived] = yield* Effect.all([
@@ -225,8 +219,8 @@ export const createChange = (input: {
       base: input.base,
       jira: input.jira?.trim() || undefined,
       extensions: input.extensions,
-      // The context it was made in. Unknown means the first workspace, which is what every change
-      // made before this belongs to.
+      // The context it was made in. Unknown means the first workspace, where every change
+      // without one belongs.
       workspace: input.workspace?.trim() || undefined,
       state: "In Progress",
       createdAt: new Date().toISOString(),

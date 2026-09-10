@@ -30,15 +30,15 @@ export default {
   name: "deployments",
   title: "Deployments",
 
-  // The page URL is the id: /deployments, where it always was — the id is client-side view
+  // The page URL is the id: /deployments — the id is client-side view
   // state, not a server route.
   pages: [{ id: "deployments", title: "Deployments" }],
 
   // The server-wide settings this extension declares, shown on the settings page for every
   // workspace and stored under `extensionSettings.deployments` — where deploySettings reads
-  // them back (src/deploySettings.ts), with the legacy config fields as the fallback chain's
-  // tail. An environment variable keeps beating the page: the field shows locked when
-  // IWE_AZURE_* is set.
+  // them back (src/deploySettings.ts), with the core config's `azure*` fields as the fallback.
+  // An environment variable keeps beating the page: the field shows locked when IWE_AZURE_* is
+  // set.
   globalSettings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_ORG" },
     { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_PROJECT" },

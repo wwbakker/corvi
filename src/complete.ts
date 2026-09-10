@@ -43,8 +43,8 @@ export function verdict(
   return { ready: reasons.length === 0, reasons, toMerge };
 }
 
-/** One repository's readiness, checked live: the two lookups per repository were sequential
- * within the repository and parallel across repositories, and stay that way. */
+/** One repository's readiness, checked live: the two lookups per repository run sequentially,
+ * and the repositories in parallel. */
 const completionOfRepo = (
   change: Change,
   repo: string,
@@ -60,7 +60,7 @@ const completionOfRepo = (
 export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
   Effect.map(
     Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-repo lookups are independent.
       concurrency: "unbounded",
     }),
     verdict,
@@ -125,7 +125,7 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  *
  * Every step is written to disk as it starts and as it finishes, so a completion that stops half
  * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
- * picks up what is left: merges already done are no longer outstanding.
+ * picks up what is left: merges already done are skipped.
  */
 export const completeChange = (
   change: Change,

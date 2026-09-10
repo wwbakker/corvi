@@ -23,8 +23,7 @@ import {
  * included, and hands back a Promise. Nothing else in the test suite needs to know about layers.
  */
 
-/** Run an effect as the default workspace — what the retired Promise facades did, minus the
- * second public surface they were. */
+/** Run an effect as the default workspace. */
 export const runEffect = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
 
@@ -34,8 +33,8 @@ export const runEffectWith = <A, E>(
   effect: Effect.Effect<A, E, never>,
 ): Promise<A> => Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
 
-/** One CLI call, in the shape the retired `sh` facade returned: a timed-out CLI is exit code
- * 124, so tests branch on `code` exactly as the server does. */
+/** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
+ * branch on `code` exactly as the server does. */
 export const runSh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
   runEffect(
     sh(cmd, cwd).pipe(
@@ -43,12 +42,12 @@ export const runSh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
     ),
   );
 
-/** The stale-while-revalidate cache, with the Promise work the old `swr` facade took. */
+/** The stale-while-revalidate cache, around a test's Promise-shaped work. */
 export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
   runEffect(swr(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })));
 
-/** Editing a change's repositories, in the duck the old facade returned: the Effect API answers
- * in a tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
+/** Editing a change's repositories, in the duck the tests read: the Effect API answers in a
+ * tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
 ): Promise<{ change: import("../src/types.ts").Change } | { needsForce: string[] }> => {
@@ -56,9 +55,9 @@ export const runSetRepos = async (
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };
 
-/** Cancelling a change, in the duck the old Promise facade returned: the Effect API answers in a
- * tagged union (`{ _tag: "Done" }` / `{ _tag: "NeedsForce" }`), and the tests read
- * `{ change, loose }` / `{ needsForce }`. */
+/** Cancelling a change, in the duck the tests read: the Effect API answers in a tagged union
+ * (`{ _tag: "Done" }` / `{ _tag: "NeedsForce" }`), and the tests read `{ change, loose }` /
+ * `{ needsForce }`. */
 export const runCancel = async (
   ...args: Parameters<typeof cancelChange>
 ): Promise<{ change: Change; loose: string[] } | { needsForce: string[] }> => {

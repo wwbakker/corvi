@@ -29,14 +29,13 @@ type Running = { port: number; pid: number; /** When the ttyd was started: the s
  * only exists once a browser has connected, and that takes a moment. */ at?: number };
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
- * failCli does). */
+ * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
 const cliError = (tool: string, command: string, message: string, exitCode: number): CliError =>
   new CliError({ tool, command, stderr: message, exitCode, message });
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `sh` can fail with here — is a failed command (exit code 124), not a failure of the
- * operation. Everything downstream branches on `code`, exactly as before. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
   sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
@@ -106,16 +105,16 @@ export const terminalPath = (id: string): string =>
 
 /** The port ttyd serves this change on, starting or adopting it as needed.
  *
- * Where the old code threw, the Effect fails with the typed taxonomy: a completed change is a
- * `BadRequestError` (the state forbids it, and the old code answered 400), a missing tool or a
- * start that never came up is a `CliError`. Both carry the message the old throw had. */
+ * The Effect fails with the typed taxonomy: a completed change is a `BadRequestError` (the
+ * state forbids it), a missing tool or a start that never came up is a `CliError`. Both carry a
+ * human-readable message. */
 export const terminalPort = (change: Change): Effect.Effect<number, BadRequestError | CliError> =>
   Effect.gen(function* () {
     // Starting one would write into a directory that has moved to the archive, recreating it.
     if (change.completedAt) {
       const message = "this change is completed: its terminal is gone";
-      // 400, as the plain Error the old code threw mapped to — not 409: the state is not
-      // forceable, and nothing about the request is retryable against a completed change.
+      // 400, not 409: the state is not forceable, and nothing about the request is retryable
+      // against a completed change.
       return yield* Effect.fail(new BadRequestError({ message }));
     }
     const joinOrStart = (): Effect.Effect<number, CliError> =>
@@ -143,8 +142,8 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
         }
         // The start runs on a daemon of its own, so the outcome — good or bad — is shared with
         // everyone who joined this start via the Deferred, and a start that is merely slow keeps
-        // going and writes its note: the next attempt adopts it, exactly what the old unawaited
-        // promise did after its timeout gave up on it. A start that failed is not cached.
+        // going and writes its note, so the next attempt adopts it. A start that failed is not
+        // cached.
         yield* Effect.forkDaemon(
           Effect.gen(function* () {
             const outcome = yield* Effect.exit(startEffect(change));
@@ -191,7 +190,7 @@ const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
     if (!commandAvailable("ttyd")) return yield* Effect.fail(missingTool("ttyd"));
     if (!commandAvailable("tmux")) return yield* Effect.fail(missingTool("tmux"));
     // Only reached when no ttyd could be adopted, so anything still running for this change is a
-    // leftover that nothing can reach: a port we no longer know, or a process that stopped
+    // leftover that nothing can reach: a port nothing remembers, or a process that stopped
     // answering. The tmux session behind it survives either way — and must: killing the ttyd
     // detaches the session, it does not end it, and the next ttyd attaches to the same windows.
     //
@@ -353,8 +352,8 @@ const listeningEffect = (port: number): Effect.Effect<void, CliError> =>
     );
   });
 
-/** The old promise body, kept verbatim: the error listener must stay attached after the port
- * opens, and a reject on a settled promise is a no-op. */
+/** The Effect above as a promise: the spawn-error race settles on it, and a reject after it
+ * settles is a no-op. */
 const listening = (port: number): Promise<void> =>
   listeningEffect(port).pipe(Effect.runPromise) as Promise<void>;
 
@@ -377,8 +376,7 @@ export const stopTerminal = (id: string): Effect.Effect<void> =>
  * the change directory and adopted again on the next start; completing a change ends one for
  * good, and so does closing its last window. */
 
-/** Shells: a window sitting at a prompt is idle, whatever the shell is called. Moved here
- * from src/windows.ts, which retired with the busy fact into the presentation below. */
+/** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
 const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
 
 /** One tmux window as the page sees it, with the busy fact the overview counts — presentational
@@ -453,8 +451,8 @@ const merged = (raw: TmuxWindow): WindowPresentation =>
  *   a window after whatever runs in it, which says less than the directory does;
  * - the composed name appends what is running, unless it is a plain shell or already the
  *   whole label — so a prompt reads as a place, not a program;
- * - busy is "not a shell" — the heuristic the overview's terminals fact has always used, with
- *   an agent believed over its process name (pi at its prompt is `node`).
+ * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
+ *   believed over its process name (pi at its prompt is `node`).
  *
  * Pure, and exported for the tests: the page renders exactly what this says.
  */
@@ -516,8 +514,6 @@ export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, C
     }
     return byChange;
   });
-
-  Effect.runPromise(allWindows().pipe(Effect.catchTag("CliError", () => Effect.succeed({}))));
 
 /**
  * A new window beside the current one, starting where the current one is: a new tab is nearly

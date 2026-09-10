@@ -6,10 +6,10 @@ import { copyTooling, rewritePaths, TOOLING } from "../src/tooling.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**
- * Opening a worktree in IntelliJ used to mean importing the project again, because none of the
- * IDE's state is in git and so none of it is in a new worktree. It is copied now — and a copy
- * with the old paths still in it is worse than no copy at all: a build server pointed at the
- * main checkout would build the wrong code from the right-looking project.
+ * A new worktree has none of the IDE's state, because none of it is in git. IWE copies it in
+ * rather than making you import the project again — and a copy with stale paths still in it is
+ * worse than no copy at all: a build server pointed at the main checkout would build the wrong
+ * code from the right-looking project.
  */
 let tmp: string;
 let repo: string;

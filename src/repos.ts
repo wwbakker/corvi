@@ -15,8 +15,8 @@ export type Entry = {
 };
 
 /** Resolve a browser path inside the repos root, rejecting anything that escapes it.
- * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError) with
- * the exact message it always had, the way applyPatch in changes.ts does. */
+ * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError),
+ * the way applyPatch in changes.ts does. */
 export function resolveInRoot(relative: string): string {
   const full = join(config.reposRoot, normalize(relative));
   if (full !== config.reposRoot && !full.startsWith(config.reposRoot + sep)) {
@@ -56,7 +56,7 @@ export const browse = (
           );
           return { path, name: e.name, isRepo };
         }),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-entry stats are independent.
       { concurrency: "unbounded" },
     );
     return {

@@ -1,18 +1,17 @@
 import type { ExtensionSetting } from "./extensions/api.ts";
 
 /**
- * The legacy settings precedence chain, in one place.
+ * The settings precedence chain, in one place.
  *
- * Every setting an extension gained after the flat config had it follows the same chain: what
- * the settings page wrote under `extensionSettings[name][key]` (the bag) wins; when the bag is
- * empty the legacy flat field answers, and that field itself resolves as environment variable →
- * config file → vendor default. Three modules used to state part of this chain — the extension
- * reads (src/deploySettings.ts, src/workspaces.ts's `azureOf`) and the flat-field reads
- * (src/config.ts's `load()`) — so retiring one legacy field meant touching all of them. They now
- * all go through `resolveSetting`.
+ * Every setting that has both a flat config field and an extension bag entry follows the same
+ * chain: what the settings page wrote under `extensionSettings[name][key]` (the bag) wins; when
+ * the bag is empty the flat field answers, and that field itself resolves as environment
+ * variable → config file → vendor default. Every reader — the extension reads
+ * (src/deploySettings.ts, src/workspaces.ts's `azureOf`) and the flat-field reads
+ * (src/config.ts's `load()`) — goes through `resolveSetting`.
  *
  * A caller hands `resolveSetting` whichever levels it holds: `load()` holds the file and the
- * environment, while an extension read holds the already-resolved legacy value and only adds the
+ * environment, while an extension read holds the already-resolved flat value and only adds the
  * bag on top.
  */
 
@@ -57,7 +56,7 @@ export const bagList = (bag: SettingBag | undefined, key: string): string[] | un
 
 /**
  * Resolve one setting down the chain: the bag first, then the environment variable, then the
- * legacy field as the file holds it, then the vendor default. A bag value of `undefined` is not
+ * flat field as the file holds it, then the vendor default. A bag value of `undefined` is not
  * set — empty means unset.
  *
  * `parse` turns a raw environment value into the setting's shape; returning `undefined` from it

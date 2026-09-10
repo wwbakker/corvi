@@ -25,8 +25,8 @@ import type {
  * This is a leaf module. It imports types and nothing that runs, which is what lets
  * `src/terminal.ts` read the window presenters from here without importing the host: the host's
  * module graph reaches back into the terminal through the events, so the registry sits below
- * both and the cycle is gone rather than worked around (docs/guides/style.md, rule 7). It is
- * also why the presenters are aggregated here, next to the `loaded` they read.
+ * both and imports neither (docs/guides/style.md, rule 7). It is also why the presenters are
+ * aggregated here, next to the `loaded` they read.
  */
 
 /** One extension, as loaded: its description, normalized — the arrays coalesced to empty and

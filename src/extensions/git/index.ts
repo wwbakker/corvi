@@ -3,12 +3,12 @@ import { gitRun, provisionRepo, repoItem } from "../../integrations/git.ts";
 import type { Extension } from "../api.ts";
 
 /**
- * Local changes: the worktree card, and the provisioning it has always carried.
+ * Local changes: the worktree card, and the change:created provisioning.
  *
- * The implementation lives where it always has (src/integrations/git.ts), because half the
- * core — completing, cancelling, committing, browsing — shares its helpers. This extension
- * describes the card and the change:created hook; their effects require nothing beyond the
- * capabilities, so the host provides everything they need.
+ * The implementation lives in src/integrations/git.ts, because half the core — completing,
+ * cancelling, committing, browsing — shares its helpers. This extension describes the card
+ * and the change:created hook; their effects require nothing beyond the capabilities, so the
+ * host provides everything they need.
  */
 export default {
   name: "git",

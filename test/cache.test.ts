@@ -147,7 +147,7 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
     env: { GH_CONFIG_DIR: "~/.config/gh-client", IWE_TEST_MARK: "client" },
   };
 
-  // Outside a request there is nothing to add, which is every call IWE made before workspaces.
+  // Outside a request there is no workspace, so nothing is added.
   expect(envOf(undefined)).toEqual({});
   expect((await runSh(["sh", "-c", "echo ${IWE_TEST_MARK:-none}"])).stdout).toBe("none");
 

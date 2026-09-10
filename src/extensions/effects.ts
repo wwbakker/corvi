@@ -15,7 +15,7 @@ import type { Capabilities, Card } from "./api.ts";
 
 /** Run one contributed effect as the change's workspace: the capabilities layer provides the
  * Workspace tag, Shell, Cache, Settings and Bus, and the effect's requirements are satisfied
- * through the R channel — nothing here bridges across a promise seam, because there is none. */
+ * through the R channel. */
 const asWorkspace = <A, E>(
   change: Change,
   effect: Effect.Effect<A, E, Capabilities>,

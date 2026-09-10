@@ -11,7 +11,8 @@
  *
  * - **Decisions do not read this.** `completionOf`, `mergeReadiness` and the merge itself always
  *   run live: a pull request that was approved ninety seconds ago is not a merge.
- * - **A failed refresh keeps the old value.** A Jira that is down means "no news", not "no data".
+ * - **A failed refresh keeps the last good value.** A Jira that is down means "no news", not
+ *   "no data".
  */
 
 import { homedir } from "node:os";
@@ -29,9 +30,9 @@ type Entry = {
 
 const store = new Map<string, Entry>();
 
-/** The cached value, refreshed when older than `ttl`. Same semantics as `swr`, in Effect: the
- * first call for a key waits for the work; every later one is instant, and pays only for a
- * background refresh. Concurrent callers share one run rather than starting several.
+/** The cached value, refreshed when older than `ttl`: the first call for a key waits for the
+ * work; every later one is instant, and pays only for a background refresh. Concurrent callers
+ * share one run rather than starting several.
  *
  * The work's requirements (R) pass through untouched: the cache stores outcomes, not
  * contexts, and every caller still provides what the work needs — on a hit that demand is
@@ -134,8 +135,7 @@ export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
       try: () => Bun.file(cacheFile()).json(),
       catch: (e) => e,
     }),
-    // A missing or unreadable cache file is a cold cache, not an error: the old code caught
-    // everything and carried on, and so does this.
+    // A missing or unreadable cache file is a cold cache, not an error.
     Effect.catchAll(() => Effect.succeed(null as Stored | null)),
   );
   if (!stored) return 0;
@@ -149,7 +149,7 @@ export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
 });
 
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
- * JSON — both are skipped, as before. */
+ * JSON — both are skipped. */
 export const saveCache: Effect.Effect<void, unknown> = Effect.gen(function* () {
   const plain: Record<string, { at: number; value: unknown }> = {};
   for (const [key, entry] of store.entries()) {

@@ -427,8 +427,8 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
 test.skipIf(!usable)("a dead ttyd is replaced without taking the session with it", async () => {
   // A ttyd can die while its session lives: a crash, a lost note, or someone deleting the
   // process. Starting a replacement must attach to that session, not end it. The cleanup that
-  // clears a stale ttyd used to match the tmux server's own command line as well — the server,
-  // and with it every window, went away and a fresh one-window session took its place.
+  // clears a stale ttyd must not match the tmux server's own command line as well: that would
+  // take the server, and with it every window, leaving a fresh one-window session in its place.
   await tmux("set-option", "-g", "destroy-unattached", "off"); // a developer's tmux.conf must not decide this
   await tmux("new-window", "-t", session, "-d"); // more than one window, so a lost session is unmistakable
   const before = (await tmux("list-windows", "-t", session)).split("\n").length;

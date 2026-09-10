@@ -8,9 +8,9 @@ import type { Extension, TerminalPresenter } from "../api.ts";
  * `busy-title` extension sets `@agent_status` on its pane (`tmux set -p @agent_status working`).
  *
  * A pane option rather than the pane title: the title is shared with pi's own session name and
- * with the shell, which rewrite it constantly, and the marker kept being overwritten seconds
- * after it was set. Nobody else writes `@agent_status`, and tmux drops it when the pane dies, so a
- * crashed agent leaves nothing stale behind.
+ * with the shell, which rewrite it constantly, so a marker there would not survive. Nobody else
+ * writes `@agent_status`, and tmux drops it when the pane dies, so a crashed agent leaves
+ * nothing stale behind.
  *
  * The session's name is published beside it as `@agent_session_name` by the same extension (pi names
  * the session from your first message); when it is there it is the label, because "example-api -

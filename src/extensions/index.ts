@@ -6,8 +6,8 @@ import { loaded } from "./registry.ts";
  * and re-exports the pieces the rest of the server imports. The implementation is split by
  * what it is — the registry leaf (./registry.ts), discovery and loading (./discover.ts), the
  * workspace selectors (./selectors.ts), running what extensions contribute (./effects.ts), and
- * the route dispatcher (./dispatch.ts) — while everything that used to import this file keeps
- * importing this file.
+ * the route dispatcher (./dispatch.ts) — while this file stays the single entry point every
+ * importer uses.
  *
  * The host answers the core's one question — which extensions exist for this workspace — with a
  * plain filtered list. There are no singleton slots and no arbitration: contributions are
@@ -16,8 +16,8 @@ import { loaded } from "./registry.ts";
  *
  * Contributed handlers are Effects (src/extensions/api.ts). The host runs each one inside
  * `capabilitiesLayer(workspaceOf(change))` — the request's workspace plus the four services —
- * so an extension's requirements arrive through the R channel and nothing needs bridging:
- * no ambient store, no promise seam. The built-ins are joined, after them, by out-of-tree
+ * so an extension's requirements arrive through the R channel, with no ambient state and no
+ * bridging layer. The built-ins are joined, after them, by out-of-tree
  * extensions discovered from the config and imported from disk — through the same
  * install/factory path, so the contract (docs/guides/extensions.md) does not change with the
  * extension's address.
@@ -26,8 +26,8 @@ import { loaded } from "./registry.ts";
 // The built-ins, in dashboard order: the agents' furniture first (it is what names windows
 // everywhere), then local changes, then CI, then the ticket cards. Each is a module whose
 // default export describes it — a static value, or a factory for one. Deployments owns no
-// card — its page is offered beside the list, not on it — so it comes last and leaves the
-// cards order exactly as it was.
+// card — its page is offered beside the list, not on it — so it comes last and does not
+// disturb the cards' order.
 import agentsExtension from "./agents/index.ts";
 import gitExtension from "./git/index.ts";
 import ciExtension from "./ci/index.ts";
@@ -49,8 +49,8 @@ await loadAll([
 ]);
 await loadDiscovered();
 
-// The public surface, unchanged for every importer: whichever module a symbol moved to, it is
-// still imported from here (or from ./registry.ts, which src/terminal.ts reads directly).
+// The public surface: every symbol the rest of the server imports from here, whichever module
+// implements it (or from ./registry.ts, which src/terminal.ts reads directly).
 export {
   install,
   loaded,

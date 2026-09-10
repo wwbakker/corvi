@@ -13,8 +13,7 @@ export const json = (data: unknown, status = 200): Response => Response.json(dat
 export const workspaceParam = (req: Request): string | undefined =>
   new URL(req.url).searchParams.get("workspace") ?? undefined;
 
-/** The request body, or a failure (a body that will not parse is the caller's mistake, which is
- * exactly what the old per-route `await req.json()` inside the try produced). */
+/** The request body, or a failure (a body that will not parse is the caller's mistake). */
 export const bodyOf = (req: Request): Effect.Effect<unknown, unknown> =>
   Effect.tryPromise({ try: () => req.json(), catch: (e) => e });
 
@@ -23,7 +22,7 @@ export const bodyOrEmpty = (req: Request): Effect.Effect<unknown> =>
   Effect.promise(() => req.json().catch(() => ({})));
 
 /** A sync call that throws typed errors (applyPatch, resolveInRoot) lifted into the error
- * channel at the route boundary — where the old route's try/catch sat. */
+ * channel at the route boundary. */
 export const attempt = <A>(work: () => A): Effect.Effect<A, unknown> =>
   Effect.try({ try: work, catch: (e) => e });
 

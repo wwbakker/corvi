@@ -84,8 +84,8 @@ function checksState(pr: Pr): { state: WidgetState; text: string } {
  * branch that was renamed, or made around work that already existed, pushes somewhere else — and
  * a pull request belongs to the branch that was pushed, not to the one you have locally.
  *
- * The remote's default branch is never it: a branch left tracking `origin/main` is the old
- * in-place bug, not a pull request.
+ * The remote's default branch is never it: a branch left tracking `origin/main` is not a
+ * pull request.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function headRef(branch: string, upstream?: string, remoteDefault?: string): string {
@@ -104,8 +104,7 @@ const pushedAsEffect = (worktree: string, repo: string, branch: string): Effect.
   });
 
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
- * change's branch. Fails with NotFoundError-message-shaped BadRequestError where the old code
- * threw a plain Error. */
+ * change's branch. Fails with a BadRequestError carrying the CLI's message. */
 type FoundPr = { worktree: string; head: string; prs: Pr[] };
 
 const prQueryEffect = (
@@ -240,8 +239,7 @@ const DetailsSchema = Schema.Struct({
  *
  * A thread you answered last is out of your hands — you replied, or you asked a question back —
  * and counting it makes the number say "you have work" when you do not. Only the reviewer
- * resolves a thread, so an answered one stays unresolved for as long as they take to look, and
- * before this those never went away.
+ * resolves a thread, so an answered one stays unresolved for as long as they take to look.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function waitingOnYou(threads: readonly Thread[], me?: string): number {

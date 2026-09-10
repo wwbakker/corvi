@@ -109,7 +109,7 @@ function viewOf(path: string, pages: { id: string; extension: string }[] = []): 
   const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
   if (!m) {
     // A top-level path that names a page the server offered: the extension's own view. A path
-    // that is not a well-formed encoding was never a page, and is home as before.
+    // that is not a well-formed encoding was never a page, and is home.
     if (!path.slice(1).includes("/")) {
       const raw = path.slice(1);
       let id = raw;
@@ -144,7 +144,7 @@ function App(): JSX.Element {
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
   // The pages the sidebar offers in this context, from the server: which extensions exist and
   // what they contribute is not the page's to know. Undefined ("All work") is the server's
-  // default context, as every workspace-scoped request before it was.
+  // default context, which is what a request without a workspace gets.
   const { pages, reload: reloadPages } = usePages(workspace?.id);
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
@@ -157,7 +157,7 @@ function App(): JSX.Element {
   const onTerminal = view.name === "change" && view.page === "terminals";
   // The terminals belong to the changes, not to the page you are on: the column lists every
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
-  // one connection rather than a request per page per second and a half.
+  // one connection and no polling.
   const terminals = useWindows();
   // Only once a terminal is asked for: opening a dashboard is not asking for one.
   const [wantsTerminal, setWantsTerminal] = useState(false);

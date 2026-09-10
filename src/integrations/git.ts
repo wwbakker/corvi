@@ -11,12 +11,12 @@ import { BadRequestError, type CliError } from "../effect/errors.ts";
 import { fs, shSoft } from "../effect/support.ts";
 
 /**
- * One worktree, in the shape `wt list --format=json` used to hand us.
+ * One worktree, as the dashboard reads it.
  *
- * It is read with plain git now: `wt list` costs 1-13 seconds of CPU per call (it gathers far
- * more than this, in parallel), against ~25ms for the two git commands below, and the dashboard
- * asks once per repository per refresh. wt still owns where worktrees live — it creates and
- * removes them — this only reads what is there.
+ * Plain git reads it: `wt list` costs 1-13 seconds of CPU per call (it gathers far more than
+ * this, in parallel), against ~25ms for the two git commands below, and the dashboard asks once
+ * per repository per refresh. wt still owns where worktrees live — it creates and removes them —
+ * this only reads what is there.
  */
 export type WtEntry = {
   branch: string;
@@ -85,8 +85,7 @@ export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]
 }
 
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
- * about it. Fails with NotFoundError-message-shaped BadRequestError where the old code threw a
- * plain Error. Undefined when the change has no worktree there. */
+ * about it. Undefined when the change has no worktree there. */
 export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
   Effect.gen(function* () {
     const worktrees = parseWorktrees(
@@ -164,10 +163,10 @@ export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem
     return { label, detail: `${detail} · ${entry.path}`, state, menu: openMenu(repo) };
   });
 
-/** One shared memoized ask per repository, the old Map of promises kept: a remote's default
- * branch changes about as often as the repository is renamed, and asking costs two processes.
- * A repository without a remote (or whose ask failed) is not cached, so the next caller asks
- * again — the old delete-on-undefined and a rejection leaving no stale answer behind. */
+/** One shared memoized ask per repository: a remote's default branch changes about as often as
+ * the repository is renamed, and asking costs two processes. A repository without a remote (or
+ * whose ask failed) is not cached, so the next caller asks again and no stale answer is left
+ * behind. */
 const defaultBranches = new Map<string, Effect.Effect<string | undefined>>();
 
 const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined, CliError> =>
@@ -188,9 +187,8 @@ const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined,
 /** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
  * remote. New branches start here rather than at a local main that may be days behind.
  *
- * Never fails: the old ask branched on Results end to end, so a timed-out `git` read as "no
- * default branch" — and that tolerance is kept here, explicitly, instead of surfacing the
- * timeout through every caller that used to be able to rely on an answer. */
+ * Never fails: a timed-out `git` reads as "no default branch", and that tolerance is explicit
+ * here rather than surfacing the timeout through every caller. */
 export const remoteDefaultBranch = (
   repo: string,
 ): Effect.Effect<string | undefined> =>
@@ -461,7 +459,7 @@ export const repoStates = (
           unsafe: yield* unsafeToRemove(change, path),
         };
       }),
-    // The old Promise.all was unbounded, so this stays unbounded.
+    // Unbounded: the shared CLI semaphore caps how many of these run at once.
     { concurrency: "unbounded" },
   );
 
@@ -474,9 +472,6 @@ export const repoStates = (
  * worktree when the one you have is beyond saving, and refusing the middle of that made the whole
  * thing impossible. The protections that matter — uncommitted work, unpushed commits — are per
  * repository and still apply.
- *
- * The Effect API answers in one discriminated union where the old code returned a `{ change }`
- * or a `{ needsForce }` duck.
  */
 export type SetReposResult =
   | { _tag: "Done"; change: Change }
@@ -492,8 +487,8 @@ export const setRepos = (
   Effect.gen(function* () {
     const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
     const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
-    // A repository whose mode changed is torn down and set up again: the old worktree or link is
-    // as wrong as a repository that was dropped.
+    // A repository whose mode changed is torn down and set up again: the existing worktree or
+    // link is as wrong as a repository that was dropped.
     const switched = wanted.filter((r) => isDirect(change, r) !== wantedDirect.includes(r));
     const removed = [...change.repos.filter((r) => !wanted.includes(r)), ...switched];
     const added = [...wanted.filter((r) => !change.repos.includes(r)), ...switched];
@@ -501,7 +496,7 @@ export const setRepos = (
     const unsafe = yield* Effect.forEach(
       removed,
       (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
     );
     const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");

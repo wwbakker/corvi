@@ -16,8 +16,8 @@ export { ticketOf } from "./shared.ts";
 /**
  * Which Jira: whose config file, which project, which board.
  *
- * A workspace that says nothing uses jira-cli's own config, which is what every call did before
- * workspaces existed. A second client names its own file, so two sites can be open at once.
+ * A workspace that says nothing uses jira-cli's own config. A second client names its own file,
+ * so two sites can be open at once.
  */
 export type Site = {
   configFile?: string;
@@ -29,10 +29,9 @@ export type Site = {
 
 /**
  * This workspace's Jira site, from the settings this extension itself declares: the fields under
- * `workspace.extensionSettings.jira` — which the settings page renders from `workspaceSettings`
- * and which `migrateWorkspaceSettings` fills from the legacy `jira` object. Every field
- * optional; absent means jira-cli's own config, which is what every call did before
- * workspaces existed. A second client names its own file, so two sites can be open at once.
+ * `workspace.extensionSettings.jira`, which the settings page renders from `workspaceSettings`.
+ * Every field optional; absent means jira-cli's own config. A second client names its own file,
+ * so two sites can be open at once.
  */
 export function siteOfWorkspace(workspace: {
   extensionSettings?: Record<string, Record<string, string>>;
@@ -52,12 +51,11 @@ export const siteOf = (change: { workspace?: string }): Site => siteOfWorkspace(
 export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspaceById(workspaceId));
 
 /**
- * The server-wide settings this extension declares, read back with the legacy config fields as
- * the fallback chain's tail: `config.extensionSettings.jira.<key>` — what the settings page
- * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
- * which carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat
- * the file, exactly as they always have). A bag value that is not a string, or an empty one,
- * is not set: empty means unset.
+ * The server-wide settings this extension declares, read back with the core config's `jira*`
+ * fields as the fallback: `config.extensionSettings.jira.<key>` — what the settings page writes
+ * under `globalSettings` — wins, and when the bag is empty the `jira*` field answers, which
+ * carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat the
+ * file). A bag value that is not a string, or an empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function globalOf(settings: Config): {
@@ -131,8 +129,8 @@ export function issueFrom(json: IssueJson, sprint = ""): Issue {
   };
 }
 
-/** Issues of a JQL query. Paged with `nextPageToken`, which is what the enhanced search uses
- * now that `startAt` is gone; a board is small, so the page size is the limit that matters. */
+/** Issues of a JQL query. Paged with `nextPageToken`; a board is small, so the page size is the
+ * limit that matters. */
 const searchEffect = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
     const issues: Issue[] = [];
@@ -223,7 +221,7 @@ export const boardIssues = (
         const sprints = yield* listSprints(site);
         const groups = yield* Effect.all(
           [...sprints.map((sprint) => issuesInSprintEffect(sprint, site)), backlogIssuesEffect(site)],
-          // The old Promise.all was unbounded, so this stays unbounded.
+          // Unbounded on purpose: every sprint and the backlog are independent queries.
           { concurrency: "unbounded" },
         );
         const issues = workable(groups.flat());
@@ -316,8 +314,7 @@ export const createIssue = (input: {
  *
  * Jira transitions by id, not by name, and which ones exist depends on where the issue is now.
  * Asking first is what makes a wrong name a sentence you can act on — "Done is not one of: To
- * Do, In Progress" — rather than a flat refusal, which is how a half-finished change once ended
- * up with its ticket still open.
+ * Do, In Progress" — rather than a flat refusal.
  */
 export const moveIssue = (
   key: string,

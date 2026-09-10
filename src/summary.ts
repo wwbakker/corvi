@@ -7,8 +7,8 @@ import { workspaceOf } from "./workspaces.ts";
 
 export type { ChangeSummary };
 
-// The helper moved to types.ts (pure, extension code needs it without importing this module
-// through the host); re-exported for everything that knew it from here.
+// Pure, and extension code needs it without importing this module through the host, so it is
+// defined in types.ts; re-exported here for callers of this module.
 export { worst };
 
 /**

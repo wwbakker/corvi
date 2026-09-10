@@ -171,8 +171,8 @@ test("extension route params are percent-decoded", async () => {
     const call = (path: string): Promise<unknown> | undefined =>
       dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes-decode/${path}`))
         ?.then((r) => r.json());
-    // The client encodes (encodeURIComponent) and the old core route decoded: a captured
-    // segment arrives decoded, as the handlers see it elsewhere.
+    // The client encodes (encodeURIComponent), and a captured segment arrives decoded, as the
+    // handlers see it elsewhere.
     expect(await call("services/a%20b/versions")).toEqual({ service: "a b" });
     expect(await call("services/web%2Fapi/versions")).toEqual({ service: "web/api" });
     // A malformed escape falls back to the raw segment rather than throwing.
@@ -201,8 +201,8 @@ test("a change's ticket is read from the bag, and from the legacy field", () => 
   const legacy: Change = { id: "B", branch: "B", repos: [], jira: "PROJ-1", createdAt: "" };
   const neither: Change = { id: "C", branch: "C", repos: [], createdAt: "" };
 
-  // The bag is where the wizard writes now; change.jira is where it was written before
-  // extensions existed, and archived changes still carry it.
+  // Both are read: the bag is where the wizard writes, and change.jira is the field archived
+  // changes carry.
   expect(ticketOf(bag)).toBe("PROJ-2");
   expect(ticketOf(legacy)).toBe("PROJ-1");
   expect(ticketOf(neither)).toBeUndefined();

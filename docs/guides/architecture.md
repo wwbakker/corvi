@@ -30,8 +30,8 @@ workspace — with a filtered list. See [`extensions.md`](extensions.md) for the
 
 ## Where a feature's code lives
 
-The rule, applied today for `deployments` and `ci`, so a feature is not a scavenger hunt across
-four directories:
+The rule, applied in `deployments` and `ci`, so a feature is not a scavenger hunt across four
+directories:
 
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
   implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
@@ -41,7 +41,7 @@ four directories:
   core + the git extension).
 - **top-level `src/*.ts`** — core domain that is not a feature.
 
-Two shared modules stay in place rather than moving into the deployments folder:
+Two shared modules live outside the deployments folder:
 
 - `src/deploySettings.ts` — read by the shared `azure` client and by the core's `workspaces.ts`,
   so moving it would invert the layering;

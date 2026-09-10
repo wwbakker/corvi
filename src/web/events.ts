@@ -8,7 +8,7 @@ import { useEffect } from "react";
  * the dashboard's widgets are unmounted rather than hidden when a terminal is on screen.
  *
  * `changes` and `windows` carry no data. They say that something changed; what changed is fetched
- * through the same routes as before, which are cached on the server. So a missed event costs one
+ * through the usual routes, which are cached on the server. So a missed event costs one
  * refresh rather than a screen that disagrees with the disk. `notify` is the exception: it is
  * about a moment, not a state, and the moment would be gone by the time a fetch came back — so it
  * carries its own JSON.

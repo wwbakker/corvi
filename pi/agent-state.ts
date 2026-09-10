@@ -11,10 +11,10 @@
  *   tmux display -p '#{@agent_last_message}'    # this pane: why it wants you, or empty
  *   tmux list-windows -F '#{window_index} #{@agent_status}'  # every window of the session
  *
- * A pane option rather than the terminal title, which was the first attempt: the title is
- * shared. pi rewrites it whenever the session name changes — right after a run, when it names
- * the session from your first message — and the shell rewrites it between commands, so the
- * marker kept vanishing seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
+ * A pane option rather than the terminal title: the title is shared. pi rewrites it whenever
+ * the session name changes — right after a run, when it names the session from your first
+ * message — and the shell rewrites it between commands, so a title-based marker would vanish
+ * seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
  * it when the pane dies, so a crashed agent leaves nothing stale behind.
  *
  * Install it with `bun run extension:install` in the IWE repository, which symlinks this file

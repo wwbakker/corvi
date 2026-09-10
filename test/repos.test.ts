@@ -251,7 +251,7 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
   expect(status.files.map((f) => f.path)).toEqual(["added.txt", "new.txt", "README.md"]);
   expect(by("added.txt")).toMatchObject({ staged: true, unstaged: false, index: "A" });
   expect(by("README.md")).toMatchObject({ staged: false, unstaged: true, worktree: "M" });
-  // The unstaged half of an entry used to lose its first character: v1 porcelain starts such a
+  // The leading space of an entry's unstaged half survives parsing: v1 porcelain starts such a
   // line with a space, and `sh` trims what a CLI prints.
   expect(by("README.md").path).toBe("README.md");
   expect(by("new.txt")).toMatchObject({ untracked: true, staged: false });

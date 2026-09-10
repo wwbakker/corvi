@@ -18,8 +18,7 @@ import { chromium, webkit } from "playwright";
 const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";
 
 /** The engine of the app's own window, per platform: WKWebView on macOS, WebKitGTK on Linux.
- * Playwright's `webkit` is that engine family on both. Had the Linux decision gone to the
- * Chromium fallback window, this would return "chromium" there instead. */
+ * Playwright's `webkit` is that engine family on both. */
 const windowEngine = (): "webkit" | "chromium" => {
   if (isMac || isLinux) return "webkit";
   return "webkit"; // no app on other platforms; WebKit is still the interesting difference

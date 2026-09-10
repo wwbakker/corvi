@@ -24,9 +24,8 @@ import type {
 /**
  * Which extensions exist for this workspace.
  *
- * A workspace that names none has all of them — which is what IWE was before extensions
- * existed, and what an unconfigured machine still gets. Enablement is the extensions list
- * alone: there are no legacy vendor flags to special-case here.
+ * A workspace that names none has all of them, which is what an unconfigured machine gets.
+ * Enablement is the extensions list alone.
  */
 export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   const names = workspace.extensions;
@@ -47,8 +46,7 @@ export const cardsFor = (change: Change): { name: string; card: Card }[] =>
   contributed(workspaceOf(change), (e) => e.cards.map((card) => ({ name: e.name, card })));
 
 /** One card by the extension's name, across every loaded extension. A change's workspace
- * governs which cards are *listed*; a card addressed directly is looked up everywhere, as it
- * always was. */
+ * governs which cards are *listed*; a card addressed directly is looked up everywhere. */
 export const cardForExtension = (name: string): Card | undefined =>
   loaded.find((e) => e.name === name)?.cards[0];
 

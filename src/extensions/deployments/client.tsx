@@ -28,9 +28,8 @@ export type Service = {
  * produced it is a separate question. "What is on accept?" gets asked before a release and
  * during an incident, when there is no change open to ask it from.
  *
- * Read-only for now: what it says is what Azure DevOps says, since a deploy run records the
- * version and the environment it was given, and the newest run per environment is the truth
- * about that environment.
+ * The state shown is Azure DevOps's own: a deploy run records the version and the environment
+ * it was given, and the newest run per environment is the truth about that environment.
  */
 export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Element {
   const [services, setServices] = useState<Service[] | undefined>(undefined);
