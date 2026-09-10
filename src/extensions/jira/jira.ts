@@ -131,7 +131,7 @@ export function issueFrom(json: IssueJson, sprint = ""): Issue {
 
 /** Issues of a JQL query. Paged with `nextPageToken`; a board is small, so the page size is the
  * limit that matters. */
-const searchEffect = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], BadRequestError> =>
+const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
     const issues: Issue[] = [];
     let token: string | undefined;
@@ -152,7 +152,7 @@ const searchEffect = (jql: string, site: Site, limit = 100): Effect.Effect<Issue
     return issues;
   });
 
-const boardEffect = (site: Site): Effect.Effect<string, BadRequestError> =>
+const board = (site: Site): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
     const id = site.board ?? (yield* jiraSetup(site.configFile)).board;
     if (!id) {
@@ -166,7 +166,7 @@ const boardEffect = (site: Site): Effect.Effect<string, BadRequestError> =>
 export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ values?: { id: number; name: string; state: string }[] }>(
-      `/rest/agile/1.0/board/${yield* boardEffect(site)}/sprint`,
+      `/rest/agile/1.0/board/${yield* board(site)}/sprint`,
       { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { state: sprintStates() } },
     );
     return (json.values ?? []).map((s) => ({ id: String(s.id), name: s.name, state: s.state }));
@@ -175,21 +175,21 @@ export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequest
 
 /** The issues of one sprint, named after it: the board view groups by sprint, and the sprint an
  * issue is in is the query that found it. */
-const issuesInSprintEffect = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError> =>
+const issuesInSprint = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ issues?: IssueJson[] }>(
-      `/rest/agile/1.0/board/${yield* boardEffect(site)}/sprint/${sprint.id}/issue`,
+      `/rest/agile/1.0/board/${yield* board(site)}/sprint/${sprint.id}/issue`,
       { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { fields: FIELDS, maxResults: "100" } },
     );
     return (json.issues ?? []).map((i) => issueFrom(i, sprint.name));
   });
 
 /** Work that is not in a sprint yet, and not finished. */
-const backlogIssuesEffect = (site: Site): Effect.Effect<Issue[], BadRequestError> =>
+const backlogIssues = (site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
     const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
     const scope = project ? `project = ${project} AND ` : "";
-    return yield* searchEffect(`${scope}sprint is EMPTY AND statusCategory != Done ORDER BY rank`, site);
+    return yield* search(`${scope}sprint is EMPTY AND statusCategory != Done ORDER BY rank`, site);
   });
 
 /** Only what a change can be made from: epics and subtasks are containers, not units of work. */
@@ -220,7 +220,7 @@ export const boardIssues = (
       Effect.gen(function* () {
         const sprints = yield* listSprints(site);
         const groups = yield* Effect.all(
-          [...sprints.map((sprint) => issuesInSprintEffect(sprint, site)), backlogIssuesEffect(site)],
+          [...sprints.map((sprint) => issuesInSprint(sprint, site)), backlogIssues(site)],
           // Unbounded on purpose: every sprint and the backlog are independent queries.
           { concurrency: "unbounded" },
         );
@@ -366,7 +366,7 @@ export const issuesByKeys = (
       `jira:${siteKey(site)}:keys:${[...keys].sort().join(",")}`,
       ISSUE_TTL,
       Effect.catchAll(
-        searchEffect(`key in (${keys.join(",")})`, site, keys.length),
+        search(`key in (${keys.join(",")})`, site, keys.length),
         () => Effect.succeed([] as Issue[]),
       ).pipe(
         Effect.map((issues) => new Map(issues.map((i) => [i.key, i]))),

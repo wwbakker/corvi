@@ -54,7 +54,7 @@ const running = new Map<string, Deferred.Deferred<Running, CliError>>();
  * and killing a working terminal because we lost our notes is no way to behave. */
 const notePath = (id: string): string => join(changeDir(id), "terminal.json");
 
-const noteOfEffect: (id: string) => Effect.Effect<Running | undefined> = (id) =>
+const noteOf: (id: string) => Effect.Effect<Running | undefined> = (id) =>
   Effect.map(
     // A missing or malformed note is no note at all: what `.catch(() => undefined)` did.
     Effect.promise(() => Bun.file(notePath(id)).json().catch(() => undefined)),
@@ -65,13 +65,13 @@ const noteOfEffect: (id: string) => Effect.Effect<Running | undefined> = (id) =>
   );
 
 /** The ttyd of a previous run, if it is still there and still serving this change. */
-const adoptEffect = (id: string): Effect.Effect<Running | undefined> =>
+const adopt = (id: string): Effect.Effect<Running | undefined> =>
   Effect.gen(function* () {
-    const note = yield* noteOfEffect(id);
+    const note = yield* noteOf(id);
     if (!note || !alive(note.pid)) return undefined;
     // Alive is not enough: the pid could have been reused by anything. Only a ttyd answering on
     // the port we wrote down is the terminal we left behind.
-    return (yield* acceptsEffect(note.port)) ? note : undefined;
+    return (yield* accepts(note.port)) ? note : undefined;
   });
 
 /** A free port, asked of the operating system rather than guessed. */
@@ -135,7 +135,7 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
         if (claimed !== deferred) return yield* joinOrStart(); // someone else just claimed it
         // Nothing in memory: the server was restarted, or reloaded itself. The terminal probably
         // outlived it, and reconnecting to it keeps whatever you were running.
-        const adopted = yield* adoptEffect(change.id);
+        const adopted = yield* adopt(change.id);
         if (adopted) {
           yield* Deferred.succeed(deferred, adopted);
           return adopted.port;
@@ -146,7 +146,7 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
         // cached.
         yield* Effect.forkDaemon(
           Effect.gen(function* () {
-            const outcome = yield* Effect.exit(startEffect(change));
+            const outcome = yield* Effect.exit(start(change));
             if (Exit.isFailure(outcome)) running.delete(change.id);
             yield* Deferred.done(deferred, outcome);
           }),
@@ -172,7 +172,7 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
  * judged: its session is created when the browser connects, a moment after the ttyd starts. */
 export const terminalGone = (id: string): Effect.Effect<{ gone: boolean; pid?: number }> =>
   Effect.gen(function* () {
-    const note = yield* noteOfEffect(id);
+    const note = yield* noteOf(id);
     if (!note || !alive(note.pid)) return { gone: false };
     if (note.at !== undefined && Date.now() - note.at < 5000) return { gone: false };
     const r = yield* shResult(["tmux", "has-session", "-t", sessionName(id)]);
@@ -182,7 +182,7 @@ export const terminalGone = (id: string): Effect.Effect<{ gone: boolean; pid?: n
     Effect.catchAll(() => Effect.succeed({ gone: false })),
   );
 
-const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
+const start = (change: Change): Effect.Effect<Running, CliError> =>
   Effect.gen(function* () {
     // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
     // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
@@ -320,7 +320,7 @@ const missingTool = (tool: string): CliError => {
 /** Whether something accepts connections on this port. A plain TCP connect, not an HTTP request:
  * this only has to answer "is it open", and an HTTP client brings a connection pool and timeouts
  * of its own to a question that simple. */
-const acceptsEffect = (port: number): Effect.Effect<boolean> =>
+const accepts = (port: number): Effect.Effect<boolean> =>
   Effect.promise(() =>
     Bun.connect({
       hostname: "127.0.0.1",
@@ -340,11 +340,11 @@ const acceptsEffect = (port: number): Effect.Effect<boolean> =>
 
 /** ttyd needs a moment to bind. Returning before it does hands the browser a URL that refuses
  * the connection, and an iframe does not retry: it just sits there empty. */
-const listeningEffect = (port: number): Effect.Effect<void, CliError> =>
+const waitForListening = (port: number): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline) {
-      if (yield* acceptsEffect(port)) return;
+      if (yield* accepts(port)) return;
       yield* Effect.sleep(50);
     }
     return yield* Effect.fail(
@@ -355,7 +355,7 @@ const listeningEffect = (port: number): Effect.Effect<void, CliError> =>
 /** The Effect above as a promise: the spawn-error race settles on it, and a reject after it
  * settles is a no-op. */
 const listening = (port: number): Promise<void> =>
-  listeningEffect(port).pipe(Effect.runPromise) as Promise<void>;
+  waitForListening(port).pipe(Effect.runPromise) as Promise<void>;
 
 /** Drop the terminal of a change: the ttyd server and the tmux session with its shells. Called
  * when a change is completed, since its directory moves into the archive underneath it. */
@@ -364,7 +364,7 @@ export const stopTerminal = (id: string): Effect.Effect<void> =>
     const inFlight = running.get(id);
     const fromMap = inFlight ? yield* Effect.exit(Deferred.await(inFlight)) : undefined;
     const found =
-      (fromMap && Exit.isSuccess(fromMap) ? fromMap.value : undefined) ?? (yield* noteOfEffect(id));
+      (fromMap && Exit.isSuccess(fromMap) ? fromMap.value : undefined) ?? (yield* noteOf(id));
     if (found && alive(found.pid)) process.kill(found.pid);
     running.delete(id);
     yield* shResult(["tmux", "kill-session", "-t", sessionName(id)]);

@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { Bus, Cache, Shell, Settings, Workspace, type Capabilities } from "./api.ts";
-import { envOf, shEffectWithEnv } from "../sh.ts";
+import { envOf, shWithEnv } from "../sh.ts";
 import { invalidate, swr } from "../cache.ts";
 import { config } from "../config.ts";
 import { announce } from "../events.ts";
@@ -20,7 +20,7 @@ export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({
     run: (cmd, opts) =>
-      Effect.flatMap(Workspace, (workspace) => shEffectWithEnv(cmd, opts?.cwd, envOf(workspace))),
+      Effect.flatMap(Workspace, (workspace) => shWithEnv(cmd, opts?.cwd, envOf(workspace))),
   }),
 );
 

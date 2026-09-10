@@ -69,7 +69,7 @@ export const cancelChange = (
 
     // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
     // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
-    const kept = yield* keptBranchesEffect(change);
+    const kept = yield* keptBranches(change);
     if (kept.length) {
       loose.push(`the branch ${change.branch} is kept in ${kept.map((repo) => basename(repo)).join(", ")}`);
     }
@@ -115,7 +115,7 @@ export const looseEnds = (change: Change): Effect.Effect<string[]> =>
  * the behaviour you want and not the behaviour you would guess: worth reporting rather than
  * claiming either way.
  */
-const keptBranchesEffect = (change: Change): Effect.Effect<string[]> =>
+const keptBranches = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
     Effect.forEach(
       change.repos,

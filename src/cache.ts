@@ -47,14 +47,14 @@ export const swr = <T, E, R>(
 
     // Nothing to serve yet — never asked, or a first run still in flight — so this one waits.
     // `at === 0` is that first run: the entry exists only to hold the shared Deferred.
-    if (!found || found.at === 0) return yield* refreshEffect(key, work);
+    if (!found || found.at === 0) return yield* refresh(key, work);
 
     if (Date.now() - found.at >= ttl) {
       // Stale: hand over what we had and let the refresh run behind it, on a fiber of its own —
       // a daemon, so it outlives this request. `Effect.exit` makes the fiber infallible: the
       // refresh's failure is news about the CLI, not about the page, and never reaches the
       // value served here.
-      yield* Effect.forkDaemon(Effect.exit(refreshEffect(key, work)));
+      yield* Effect.forkDaemon(Effect.exit(refresh(key, work)));
     }
     return found.value as T;
   });
@@ -62,7 +62,7 @@ export const swr = <T, E, R>(
 /** The single-flight refresh: whoever asks first runs the work, everyone who arrives while it
  * runs awaits the same Deferred. A failure puts back what was there before — a CLI that fails
  * is news about the CLI, not about the work. */
-const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
+const refresh = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
   Effect.gen(function* () {
     const found = store.get(key);
     if (found?.work) {

@@ -87,7 +87,7 @@ export function pollResult(code: number, stdout: string): MergeResult | undefine
 
 /** Whether the pull request is merged, asked of the pull request itself. The merge request is a
  * report about the work; this is the work. */
-const mergedEffect = (worktree: string, repository: string, number: number): Effect.Effect<boolean> =>
+const merged = (worktree: string, repository: string, number: number): Effect.Effect<boolean> =>
   Effect.map(
     shSoft(["gh", "api", `repos/${repository}/pulls/${number}`, "-q", ".merged"], worktree),
     (r) => r.stdout.trim() === "true",
@@ -144,7 +144,7 @@ export const mergeStacked = (
     while (outcomeOf(result).waiting && uuid) {
       if (Date.now() > deadline) {
         // It may well have landed while we were failing to hear about it.
-        if (yield* mergedEffect(worktree, repository, number)) return undefined;
+        if (yield* merged(worktree, repository, number)) return undefined;
         return yield* Effect.fail(
           new BadRequestError({ message: `the merge of #${number} is still running after 5m` }),
         );
@@ -160,7 +160,7 @@ export const mergeStacked = (
       // A failed poll is not "still pending": that would turn a hiccup into five minutes of
       // silence and then a timeout, while the merge had usually happened. Ask the pull request.
       if (!read) {
-        if (yield* mergedEffect(worktree, repository, number)) return undefined;
+        if (yield* merged(worktree, repository, number)) return undefined;
         return yield* Effect.fail(
           new BadRequestError({
             message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,

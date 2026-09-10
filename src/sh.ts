@@ -66,7 +66,7 @@ const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
 /** The one gate every CLI call passes through. */
 const gate = Effect.runSync(Effect.makeSemaphore(LIMIT));
 
-const spawnEffect = (
+const spawn = (
   cmd: readonly string[],
   cwd: string | undefined,
   env: Record<string, string>,
@@ -125,11 +125,11 @@ const spawnEffect = (
 /** One CLI call with the environment given explicitly, instead of read from the request
  * scope. This is what the Shell capability (src/extensions/services.ts) runs, so extension
  * code depends on the service and the Workspace tag. */
-export const shEffectWithEnv = (
+export const shWithEnv = (
   cmd: readonly string[],
   cwd: string | undefined,
   env: Record<string, string>,
-): Effect.Effect<Result, CliError> => gate.withPermits(1)(spawnEffect(cmd, cwd, env));
+): Effect.Effect<Result, CliError> => gate.withPermits(1)(spawn(cmd, cwd, env));
 
 /** One CLI call, bounded by the shared semaphore: `withPermits` releases on failure and on
  * interruption, so a killed or timed-out call cannot strand the gate. Non-zero exit codes are a
@@ -143,7 +143,7 @@ export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, 
     Effect.gen(function* () {
       const workspace = yield* Effect.serviceOption(Workspace);
       const env = envOf(Option.isSome(workspace) ? workspace.value : undefined);
-      return yield* spawnEffect(cmd, cwd, env);
+      return yield* spawn(cmd, cwd, env);
     }),
   );
 

@@ -23,7 +23,7 @@ export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 
 /** Active directory if it exists, otherwise the archived one. */
-const existingDirEffect = (id: string): Effect.Effect<string | null> =>
+const existingDir = (id: string): Effect.Effect<string | null> =>
   Effect.gen(function* () {
     for (const dir of [changeDir(id), archiveDir(id)]) {
       if (yield* fileExists(join(dir, "change.json"))) return dir;
@@ -57,7 +57,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
  * docs/guides/effect-conventions.md). */
 export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
-    const dir = yield* existingDirEffect(id);
+    const dir = yield* existingDir(id);
     if (!dir) return null;
     const text = yield* Effect.tryPromise(() => Bun.file(join(dir, "change.json")).text()).pipe(
       Effect.orDie,
@@ -101,7 +101,7 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
 
 export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const dir = (yield* existingDirEffect(change.id)) ?? changeDir(change.id);
+    const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
   });
@@ -111,7 +111,7 @@ export const writeChange = (change: Change): Effect.Effect<void> =>
  * sidecar reads as empty, which is what `.catch(() => "")` did. */
 export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const dir = yield* existingDirEffect(id);
+    const dir = yield* existingDir(id);
     if (!dir) return "";
     return yield* fs(() => Bun.file(join(dir, name)).text()).pipe(
       Effect.catchAllDefect(() => Effect.succeed("")),
@@ -121,7 +121,7 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
 
 export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const dir = (yield* existingDirEffect(id)) ?? changeDir(id);
+    const dir = (yield* existingDir(id)) ?? changeDir(id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => Bun.write(join(dir, name), text));
   });

@@ -102,7 +102,7 @@ export type Buildable = {
 
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
-const allPipelinesEffect = (az: Az): Effect.Effect<Definition[]> =>
+const allPipelines = (az: Az): Effect.Effect<Definition[]> =>
   swr(`az:${az.key}:pipelines`, 5 * 60_000,
     Effect.gen(function* () {
       const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
@@ -118,7 +118,7 @@ const allPipelinesEffect = (az: Az): Effect.Effect<Definition[]> =>
 
 /** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
  * triggered should appear on the next look. */
-const runsOfEffect = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
+const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
   swr(`az:${az.key}:deploys:${pipelineId}`, 15_000,
     Effect.gen(function* () {
       const r = yield* shSoft([
@@ -226,7 +226,7 @@ export const deployments = (
       return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
     }
 
-    const pipelines = yield* allPipelinesEffect(az);
+    const pipelines = yield* allPipelines(az);
     if (pipelines.length === 0) return { services: [], error: "no pipelines found — is `az` logged in?" };
 
     const [, deployPrefix] = deploySettings().pipeline;
@@ -241,7 +241,7 @@ export const deployments = (
         Effect.gen(function* () {
           const name = serviceName(pipeline.name);
           const build = byName.get(buildPipelineName(name));
-          const runs = yield* runsOfEffect(az, pipeline.id);
+          const runs = yield* runsOf(az, pipeline.id);
           return {
             name,
             pipeline: { id: pipeline.id, name: pipeline.name },
@@ -278,12 +278,12 @@ export const versionsFor = (
     if (!usesAzure(workspace)) return [];
     const az = yield* azFor(workspace);
     const project = az.project;
-    const pipelines = yield* allPipelinesEffect(az);
+    const pipelines = yield* allPipelines(az);
     const deploy = pipelines.find((p) => p.name === deployPipelineName(service));
 
     if (autoDeployedApp(service)) {
       if (!deploy) return [];
-      const runs = yield* runsOfEffect(az, deploy.id);
+      const runs = yield* runsOf(az, deploy.id);
       const settings = deploySettings();
       const [accept] = settings.environments;
       const stillDeploying = runs.some(
@@ -299,8 +299,8 @@ export const versionsFor = (
     if (!build || !project) return [];
 
     const [runs, deployRuns] = yield* Effect.all([
-      runsOfEffect(az, build.id),
-      deploy ? runsOfEffect(az, deploy.id) : Effect.succeed([] as Run[]),
+      runsOf(az, build.id),
+      deploy ? runsOf(az, deploy.id) : Effect.succeed([] as Run[]),
     ]);
 
     // In flight right now: not deployable — nothing has printed a version yet — but dropping them
@@ -453,13 +453,13 @@ export const deploy = (
       return yield* Effect.fail(new BadRequestError({ message: `${workspace.name} has no pipelines` }));
     }
     const az = yield* azFor(workspace);
-    const pipelines = yield* allPipelinesEffect(az);
+    const pipelines = yield* allPipelines(az);
     const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
     if (!pipeline) {
       return yield* Effect.fail(new BadRequestError({ message: `no deploy pipeline for ${service}` }));
     }
 
-    const runs = yield* runsOfEffect(az, pipeline.id);
+    const runs = yield* runsOf(az, pipeline.id);
     const index = environments.indexOf(environment);
     if (index > 0) {
       const previous = environments[index - 1]!;

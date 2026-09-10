@@ -25,7 +25,7 @@ const repoItem = (
     // GitHub Actions, or by pipelines in another Azure project than the configured one. The pull
     // request itself knows about all of them, so fall back to what it reports.
     const pipelines =
-      count === 0 && number ? yield* fallbackChecksEffect(change, repo, number, azure) : azure;
+      count === 0 && number ? yield* fallbackChecks(change, repo, number, azure) : azure;
     const item: WidgetItem = {
       label: basename(repo),
       state: worstItem([pr, ...pipelines]),
@@ -34,7 +34,7 @@ const repoItem = (
     return { item, prs: number ? 1 : 0, runs: count };
   });
 
-const fallbackChecksEffect = (
+const fallbackChecks = (
   change: Change,
   repo: string,
   number: number,
@@ -80,7 +80,7 @@ const runEffect = (
  * down is the contributor's own failure, which the host swallows: the card loses the facts,
  * not the request.
  */
-const summaryContributionEffect = (
+const summaryContribution = (
   change: Change,
 ): Effect.Effect<SummaryContribution, unknown> =>
   Effect.gen(function* () {
@@ -128,7 +128,7 @@ const summaryContributionEffect = (
  * repository in parallel and in repository order. A repository with no pull request, or no
  * network, is not a loose end worth failing a cancellation over, so each lookup is best effort.
  */
-const prLooseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+const prLooseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
     Effect.forEach(
       change.repos,
@@ -155,9 +155,9 @@ export default {
     },
   ],
 
-  summaryContributions: [{ facts: summaryContributionEffect }],
+  summaryContributions: [{ facts: summaryContribution }],
 
   // Cancelling leaves the pull requests open — closing somebody else's pull request is a
   // decision about theirs — and says so, one line per repository that has one.
-  looseEnds: [{ looseEnds: prLooseEndsEffect }],
+  looseEnds: [{ looseEnds: prLooseEnds }],
 } satisfies Extension;

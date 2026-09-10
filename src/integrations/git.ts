@@ -37,7 +37,7 @@ export type WtEntry = {
 
 /** Every wt call is scoped to the change's own config, which places worktrees inside the
  * change directory. */
-const wtEffect = (change: Change, args: string[]): Effect.Effect<string[]> =>
+const wt = (change: Change, args: string[]): Effect.Effect<string[]> =>
   Effect.map(writeWtConfig(change.id), (configPath) =>
     ["wt", "--config", configPath, ...args]);
 
@@ -147,7 +147,7 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
 
 export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* directItemEffect(change, repo);
+    if (isDirect(change, repo)) return yield* directItem(change, repo);
     const label = basename(repo);
     const entry = yield* entryFor(change, repo);
     if (!entry) {
@@ -169,7 +169,7 @@ export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem
  * behind. */
 const defaultBranches = new Map<string, Effect.Effect<string | undefined>>();
 
-const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined, CliError> =>
+const askDefaultBranch = (repo: string): Effect.Effect<string | undefined, CliError> =>
   Effect.gen(function* () {
     if (!(yield* shSoft(["git", "remote"], repo)).stdout) return undefined;
     const read = (): Effect.Effect<string | undefined> =>
@@ -197,7 +197,7 @@ export const remoteDefaultBranch = (
     if (known) return known;
     const asking = Effect.runSync(
       Effect.cached(
-        askDefaultBranchEffect(repo).pipe(
+        askDefaultBranch(repo).pipe(
           Effect.catchAll(() => Effect.succeed(undefined)),
           Effect.tap((found) =>
             Effect.sync(() => {
@@ -295,7 +295,7 @@ export const isDirty = (repo: string): Effect.Effect<boolean> =>
  * under half-finished edits is the kind of help nobody wants. The widget then says so, and the
  * action can be repeated once the tree is clean.
  */
-const useInPlaceEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     yield* fs(() => symlink(repo, linkPath(change, repo))).pipe(
       Effect.catchAllDefect(() => Effect.void), // already linked
@@ -321,14 +321,14 @@ const useInPlaceEffect = (change: Change, repo: string): Effect.Effect<void, Cli
   });
 
 /** Stop using a repository in place: the link goes, the checkout stays exactly as it is. */
-const unlinkInPlaceEffect = (change: Change, repo: string): Effect.Effect<void> =>
+const unlinkInPlace = (change: Change, repo: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const path = linkPath(change, repo);
     if (yield* fs(() => lstat(path).then(() => true, () => false))) yield* fs(() => unlink(path));
   });
 
 /** How a repository used in place stands: which branch it is on, and whether it needs a hand. */
-const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+const directItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     const label = basename(repo);
     const [branch, dirty] = yield* Effect.all([
@@ -368,15 +368,15 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
  * Whatever is already there is left alone. */
 export const provisionRepo = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
+    if (isDirect(change, repo)) return yield* useInPlace(change, repo);
     if (yield* checkoutFor(change, repo)) return;
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
     // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
     if (exists) {
-      yield* shOrThrow(yield* wtEffect(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
-      return yield* carryToolingEffect(repo, change);
+      yield* shOrThrow(yield* wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
+      return yield* carryTooling(repo, change);
     }
     // Branch from the chosen base, fetched first: a local main is often behind. The base is the
     // remote default unless this change is stacked on another one's branch.
@@ -384,9 +384,9 @@ export const provisionRepo = (change: Change, repo: string): Effect.Effect<void,
     if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     const baseArgs = base ? ["--base", base] : [];
     yield* shOrThrow(
-      yield* wtEffect(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
+      yield* wt(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
     );
-    yield* carryToolingEffect(repo, change);
+    yield* carryTooling(repo, change);
   });
 
 /**
@@ -396,7 +396,7 @@ export const provisionRepo = (change: Change, repo: string): Effect.Effect<void,
  * Never fatal: the worktree is the thing that was asked for, and a change that failed to
  * provision over a copy of `.idea` would be a poor trade.
  */
-const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =>
+const carryTooling = (repo: string, change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!config.worktreeCopy.length) return;
     const created = yield* checkoutFor(change, repo);
@@ -538,10 +538,10 @@ export const removeWorktree = (
   repo: string,
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* unlinkInPlaceEffect(change, repo);
+    if (isDirect(change, repo)) return yield* unlinkInPlace(change, repo);
     if (!(yield* checkoutFor(change, repo))) return;
     yield* shOrThrow(
-      yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
+      yield* wt(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
   });
 

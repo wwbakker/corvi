@@ -82,7 +82,7 @@ export const jiraBaseUrl = (file?: string): Effect.Effect<string | undefined> =>
 
 /** What is missing, said in the words of the thing you would do about it. Fails with a
  * BadRequestError whose message the route mapping turns into a 400. */
-const credentialsEffect = (
+const credentials = (
   file?: string,
   tokenEnv?: string,
 ): Effect.Effect<{ server: string; auth: string }, BadRequestError> =>
@@ -122,7 +122,7 @@ export const jiraFetch = <T>(
   },
 ): Effect.Effect<T, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, auth } = yield* credentialsEffect(init?.configFile, init?.tokenEnv);
+    const { server, auth } = yield* credentials(init?.configFile, init?.tokenEnv);
     const url = new URL(path, server);
     for (const [key, value] of Object.entries(init?.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);

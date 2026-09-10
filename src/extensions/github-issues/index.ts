@@ -183,7 +183,7 @@ export const createIssue = (
   });
 
 /** Close the issue with a word about where the work landed. */
-const closeIssueEffect = (
+const closeIssue = (
   shell: Context.Tag.Service<typeof Shell>,
   repository: string,
   number: number,
@@ -323,7 +323,7 @@ export default {
           if (!ref) return;
           const repository = yield* nameWithOwner(ref.repo);
           if (!repository) return `not a GitHub repository: ${ref.repo}`;
-          yield* closeIssueEffect(shell, repository, ref.number, `Completed in change ${change.id}`);
+          yield* closeIssue(shell, repository, ref.number, `Completed in change ${change.id}`);
           yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
           return `closed ${refLabel(repository, ref)}`;
         }),

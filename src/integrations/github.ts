@@ -94,7 +94,7 @@ export function headRef(branch: string, upstream?: string, remoteDefault?: strin
   return name || branch;
 }
 
-const pushedAsEffect = (worktree: string, repo: string, branch: string): Effect.Effect<string> =>
+const pushedAs = (worktree: string, repo: string, branch: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const r = yield* shSoft(
       ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
@@ -107,14 +107,14 @@ const pushedAsEffect = (worktree: string, repo: string, branch: string): Effect.
  * change's branch. Fails with a BadRequestError carrying the CLI's message. */
 type FoundPr = { worktree: string; head: string; prs: Pr[] };
 
-const prQueryEffect = (
+const prQuery = (
   change: Change,
   repo: string,
 ): Effect.Effect<FoundPr | undefined, BadRequestError> =>
   Effect.gen(function* () {
     const wt = yield* checkoutFor(change, repo);
     if (!wt) return undefined;
-    const head = yield* pushedAsEffect(wt, repo, change.branch);
+    const head = yield* pushedAs(wt, repo, change.branch);
     const r = yield* shSoft(
       [
         "gh",
@@ -147,8 +147,8 @@ const prQueryEffect = (
  */
 const PR_TTL = 20_000;
 
-const shownPrEffect = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
-  swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQueryEffect(change, repo));
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
+  swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -260,14 +260,14 @@ export function waitingOnYou(threads: readonly Thread[], me?: string): number {
  * Stacked pull requests are a preview feature: where it is not enabled the fields do not exist
  * and the whole query fails, so that case asks again without them rather than losing the counts.
  */
-const prDetailsEffect = (
+const prDetails = (
   worktree: string,
   url: string,
   number: number,
 ): Effect.Effect<Details> =>
-  swr(`gh:details:${url}`, PR_TTL, readDetailsEffect(worktree, url, number));
+  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
 
-const readDetailsEffect = (
+const readDetails = (
   worktree: string,
   url: string,
   number: number,
@@ -316,14 +316,14 @@ export const prSummary = (
   repo: string,
 ): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }> =>
   Effect.gen(function* () {
-    const found = yield* Effect.orElseSucceed(shownPrEffect(change, repo), () => undefined);
+    const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
     const pr = found?.prs[0];
     if (!found || !pr) return { unresolved: 0, checks: "none" };
     // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
     // that was already made — so the state of the build costs nothing extra here.
     const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
     if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0, checks };
-    const details = yield* prDetailsEffect(found.worktree, pr.url, pr.number);
+    const details = yield* prDetails(found.worktree, pr.url, pr.number);
     return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
   });
 
@@ -335,7 +335,7 @@ export const prItem = (
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
-    const found = yield* Effect.either(shownPrEffect(change, repo));
+    const found = yield* Effect.either(shownPr(change, repo));
     if (Either.isLeft(found)) {
       return { item: { label, detail: found.left.message, state: "error" } };
     }
@@ -365,7 +365,7 @@ export const prItem = (
     const elsewhere = hit.head !== change.branch ? `pushed as ${hit.head}` : undefined;
     // A merged or closed pull request is not waiting for anything, so it only says so.
     const settled = ["MERGED", "CLOSED"].includes(pr.state);
-    const details = yield* prDetailsEffect(hit.worktree, pr.url, pr.number);
+    const details = yield* prDetails(hit.worktree, pr.url, pr.number);
     const unresolved = settled ? 0 : (details.unresolved ?? 0);
     const status = settled ? { text: "", tone: undefined } : readiness(pr, unresolved);
     return {
@@ -397,7 +397,7 @@ export const mergeReadiness = (
 ): Effect.Effect<MergeReadiness, BadRequestError> =>
   Effect.gen(function* () {
     const name = basename(repo);
-    const found = yield* prQueryEffect(change, repo);
+    const found = yield* prQuery(change, repo);
     if (!found) return { ready: false, reason: `${name}: no worktree` };
     const pr = found.prs[0];
     if (!pr) return { ready: false, reason: `${name}: no pull request` };
@@ -434,7 +434,7 @@ export const mergePr = (
       );
     }
 
-    const stacked = yield* isStackedEffect(wt, repo, number);
+    const stacked = yield* isStacked(wt, repo, number);
     if (!stacked) {
       yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
       return undefined;
@@ -445,7 +445,7 @@ export const mergePr = (
   });
 
 /** The repository as `owner/name` when this pull request belongs to a stack, otherwise nothing. */
-const isStackedEffect = (
+const isStacked = (
   worktree: string,
   repo: string,
   number: number,

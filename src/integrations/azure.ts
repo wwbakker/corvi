@@ -143,7 +143,7 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
-const listDefinitionsEffect = (az: Az, repo: string): Effect.Effect<Definition[]> =>
+const listDefinitions = (az: Az, repo: string): Effect.Effect<Definition[]> =>
   swr(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
     Effect.gen(function* () {
       const r = yield* shSoft([
@@ -159,7 +159,7 @@ const listDefinitionsEffect = (az: Az, repo: string): Effect.Effect<Definition[]
       return r.code === 0 ? yield* cliJson(DefinitionsSchema, [] as Definition[])(r.stdout) : [];
     }));
 
-const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: string }> =>
+const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: string }> =>
   Effect.gen(function* () {
     // One query per ref; grouping per pipeline happens here rather than in a query per pipeline.
     // The branch ref is the same for every repository of a change, so this is asked six times at
@@ -206,8 +206,8 @@ export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Ef
     if (!usesAzure(workspace)) return 0; // a context without pipelines has none running
     const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
-      listDefinitionsEffect(az, repo),
-      runsForEffect(az, refsFor(change.branch, pr)),
+      listDefinitions(az, repo),
+      runsFor(az, refsFor(change.branch, pr)),
     ]);
     if (error) return 0;
     const mine = new Set(definitions.map((d) => d.id));
@@ -276,7 +276,7 @@ export function versionInLines(lines: string[]): string | undefined {
 }
 
 /** Log ids of a run, newest step last. */
-const logIdsEffect = (project: string, pipelineId: number, runId: number): Effect.Effect<number[]> =>
+const logIds = (project: string, pipelineId: number, runId: number): Effect.Effect<number[]> =>
   Effect.gen(function* () {
     const r = yield* shSoft([
       "az",
@@ -303,7 +303,7 @@ const logIdsEffect = (project: string, pipelineId: number, runId: number): Effec
     return parsed.logs?.map((l) => l.id) ?? [];
   });
 
-const logLinesEffect = (project: string, runId: number, logId: number): Effect.Effect<string[]> =>
+const logLines = (project: string, runId: number, logId: number): Effect.Effect<string[]> =>
   Effect.gen(function* () {
     const r = yield* shSoft([
       "az",
@@ -344,14 +344,14 @@ export const versionOf = (run: Run, project: string): Effect.Effect<string | und
 
     const pipelineId = run.definition?.id;
     return Effect.gen(function* () {
-      const version = pipelineId ? yield* findVersionEffect(project, pipelineId, run.id) : undefined;
+      const version = pipelineId ? yield* findVersion(project, pipelineId, run.id) : undefined;
       versions.set(run.id, version);
       return version;
     });
   });
 
 
-const findVersionEffect = (
+const findVersion = (
   project: string,
   pipelineId: number,
   runId: number,
@@ -359,11 +359,11 @@ const findVersionEffect = (
   Effect.gen(function* () {
     // Publishing happens at the end of a build, so the last steps are searched first: in practice
     // the version turns up in the first batch. ponytail: batches of 5, widen if it ever drags.
-    const ids = (yield* logIdsEffect(project, pipelineId, runId)).sort((a, b) => b - a);
+    const ids = (yield* logIds(project, pipelineId, runId)).sort((a, b) => b - a);
     for (let i = 0; i < ids.length; i += 5) {
       const batch = yield* Effect.all(
         ids.slice(i, i + 5).map((id) =>
-          Effect.map(logLinesEffect(project, runId, id), (lines) => versionInLines(lines))
+          Effect.map(logLines(project, runId, id), (lines) => versionInLines(lines))
         ),
         // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
@@ -401,8 +401,8 @@ export const pipelineItems = (
     const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([
-      listDefinitionsEffect(az, repo),
-      runsForEffect(az, refs),
+      listDefinitions(az, repo),
+      runsFor(az, refs),
     ]);
     if (error) {
       return {

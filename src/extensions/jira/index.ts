@@ -43,7 +43,7 @@ const stateOf = (status: string): WidgetState => {
 };
 
 /** The widget: a failure is a red card rather than a failed request. */
-const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
+const status = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
       swr(
@@ -131,7 +131,7 @@ export default {
             };
           }
           // The widget is a display, so it may be a minute old; the completion step is not.
-          return yield* statusEffect(change, siteOfWorkspace(yield* Workspace), key);
+          return yield* status(change, siteOfWorkspace(yield* Workspace), key);
         }),
     },
   ],
