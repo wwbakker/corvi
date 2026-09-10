@@ -1,5 +1,7 @@
 # The native Linux window
 
+> **Kind:** decision · **Status:** accepted
+
 The macOS app (`scripts/app/IWE.swift`) is a Swift/WKWebView wrapper around the
 bundled HTTP server: system libraries, compiled at install time, no Electron,
 no Rust, no second browser. The user hit the limits of that choice — WKWebView

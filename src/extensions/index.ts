@@ -40,7 +40,7 @@ import type {
  * so an extension's requirements arrive through the R channel and nothing needs bridging:
  * no ambient store, no promise seam. The built-ins are joined, after them, by out-of-tree
  * extensions discovered from the config and imported from disk — through the same
- * install/factory path, so the contract (docs/extensions.md) does not change with the
+ * install/factory path, so the contract (docs/guides/extensions.md) does not change with the
  * extension's address.
  */
 
@@ -148,7 +148,7 @@ async function installModule(mod: ExtensionModule, clientPath?: string): Promise
     const ext = await Effect.runPromise(
       mod().pipe(
         // The default workspace stands in for the request's: there is no request at startup,
-        // and load-time Shell runs with its environment (docs/extensions.md).
+        // and load-time Shell runs with its environment (docs/guides/extensions.md).
         Effect.provide(capabilitiesLayer(workspaceById(undefined))),
       ),
     );

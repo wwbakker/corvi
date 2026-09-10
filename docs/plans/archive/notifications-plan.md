@@ -1,5 +1,7 @@
 # Notifications when a window needs you: plan
 
+> **Kind:** plan · **Status:** implemented
+
 > Phase 0 verified on macOS; phases 1–3 implemented (server detection, page decision, macOS
 > host). Phase 4 (Linux host) needs a Linux machine; phase 5 (non-agent processes) is
 > deliberately skipped. The decisions taken are recorded at the end.

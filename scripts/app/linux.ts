@@ -5,7 +5,7 @@
  *   bun run app:uninstall
  *
  * The window is scripts/app/linux-window/iwe-window.py — a WebKitGTK window
- * onto the server (see docs/native-window.md), with `iwe` as its application
+ * onto the server (see docs/decisions/linux-native-window.md), with `iwe` as its application
  * id, which is what StartupWMClass matches. The window manages the server the
  * same way the macOS app does: it starts one of its own — on a fresh port,
  * picked at launch, so what it starts is always its own — and stops it again

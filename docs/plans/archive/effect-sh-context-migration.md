@@ -1,5 +1,7 @@
 # Migration report: src/sh.ts and src/context.ts → Effect
 
+> **Kind:** plan · **Status:** implemented
+
 ## Files changed
 
 - `src/sh.ts` — rewritten on Effect (`Effect.gen`/`yield*`), Promise facades kept.

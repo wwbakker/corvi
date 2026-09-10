@@ -1,5 +1,7 @@
 # Review findings — plugin-system-3 migration slice (dd75843..8840245)
 
+> **Kind:** review · **Status:** historical
+
 Reviewer verdict up front: the slice is in good shape. `bunx tsc --noEmit`, `bun run lint` and
 `bun run test` all pass at the known baseline (exactly one failure: `test/webkit.test.ts`,
 environmental). All the promised strings survive verbatim (fact labels, the
@@ -16,7 +18,7 @@ None.
 ## Major
 
 1. **User-visible ordering changed, contradicting the plan's preservation promise.**
-   `docs/extensions-migration-plan.md` ("Behaviour preservation") promises *"Every user-visible
+   `docs/plans/extensions-migration-plan.md` ("Behaviour preservation") promises *"Every user-visible
    string, status code, ordering and fallback is preserved."* Two orderings changed:
    - **Loose ends**: the hardcoded list put the ticket first, then the pull requests; the
      contributor gatherer (`src/cancel.ts:126-137`) yields ci's PR lines before jira's ticket
@@ -56,7 +58,7 @@ None.
    refreshed from Jira…" comment appears twice (left behind when the deployments routes were
    excised). Delete one copy.
 
-5. **`docs/extensions.md:297` overclaims about list pruning.** It says *"clearing every row
+5. **`docs/guides/extensions.md:297` overclaims about list pruning.** It says *"clearing every row
    removes the key rather than writing an empty one"*, but `prune` (`src/settings.ts:184-193`)
    returns arrays untouched, so an emptied list is written to the file as `[]`. Downstream this
    is harmless (`bagList` in `src/deploySettings.ts` treats `[]` as unset), so either fix the
@@ -76,7 +78,7 @@ None.
      string that changed without the plan naming it.
    - `src/web/ChangeCard.tsx:64-66`: while the summary loads, one `…` placeholder is shown
      where three used to be.
-   Also, the wire shape in `docs/extensions.md` ("`{ index, label, detail, icon?, state?,
+   Also, the wire shape in `docs/guides/extensions.md` ("`{ index, label, detail, icon?, state?,
    active, activity }`") omits `busy`, which the server does send (PresentedWindow carries it
    for the summary's use). One sentence in the doc would square it.
 
@@ -99,7 +101,7 @@ None.
 - Fallback chains: bag → legacy field → default → env for jira (`globalOf`) and deployments
   (`deploySettings`); `change.jira` legacy read via `ticketOf`; `jira: false` / `azure: false`
   migration (explicit `extensions` list untouched); `usesAzure` belt-and-braces guard.
-- Error handling per `docs/effect-conventions.md`: contributions typed `unknown` and swallowed
+- Error handling per `docs/guides/effect-conventions.md`: contributions typed `unknown` and swallowed
   by the host; deployments routes typed through `RouteError`/`BadRequestError`.
 - Route matcher: `:param` captures exactly one segment, first-match-wins in registration
   order, unknown routes 404, method is part of the pattern (tested).

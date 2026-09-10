@@ -42,7 +42,7 @@ const flatten = (json: Schema.Schema.Type<typeof IssueSchema>): GitHubIssue => (
 const ISSUE_TTL = 60_000;
 
 /** `--json` output through a Schema, with the usual tolerance: a gh that printed nothing, or
- * something this query did not expect, reads as the fallback (docs/effect-conventions.md). */
+ * something this query did not expect, reads as the fallback (docs/guides/effect-conventions.md). */
 const ghJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
   (stdout: string): Effect.Effect<B> =>
     stdout.trim()

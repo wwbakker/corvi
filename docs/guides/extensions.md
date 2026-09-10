@@ -1,5 +1,7 @@
 # Extensions
 
+> **Kind:** guide · **Status:** active
+
 An extension is a piece of TypeScript that adds something to IWE — a dashboard card, a step in
 the "Create change" wizard, a hook that runs when a change is created, a route, a source of
 titles for the overview, a page of its own. It is the shape pi's extensions have: a module whose
@@ -318,5 +320,6 @@ the config as `[]`, and readers (like the deployments settings' `bagList`) treat
   `change:created` and the contributed steps are the model; more events arrive when a second
   consumer needs them.
 
-The plan that built this lives in `docs/extensions-plan.md`; the plan that moved the rest of the
-core behind it lives in `docs/extensions-migration-plan.md`.
+The plan that built this lives in [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md);
+the plan that moved the rest of the core behind it lives in
+[`../plans/extensions-migration-plan.md`](../plans/extensions-migration-plan.md).

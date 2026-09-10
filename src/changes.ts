@@ -17,7 +17,7 @@ export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 
 /** The Effect API beneath the Promise facades below. Where the old code threw, the Effect fails
- * with the typed taxonomy (docs/effect-conventions.md) carrying the same message; the facades
+ * with the typed taxonomy (docs/guides/effect-conventions.md) carrying the same message; the facades
  * keep old callers compiling until the server-wiring task sweeps them. */
 
 /** Filesystem failures are defects, not domain errors — the directories we read and write are
@@ -61,7 +61,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
 /** Read one change's change.json through its Schema. `null` where the old code returned null:
  * no change.json in the change directory or the archive. A malformed or wrongly-shaped file —
  * which the old code handed back untyped or rejected with a raw parse error — is now a typed
- * DecodeError (sanctioned change; see docs/effect-conventions.md). */
+ * DecodeError (sanctioned change; see docs/guides/effect-conventions.md). */
 export const readChangeEffect = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDirEffect(id);

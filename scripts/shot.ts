@@ -8,7 +8,7 @@
  *
  * WebKit by default because that is what the app is: the macOS window is a WKWebView, and the
  * Linux window chose WebKitGTK over QtWebEngine and a Chromium --app window
- * (docs/native-window.md) — WebKit either way. Chromium is a variable away for when the
+ * (docs/decisions/linux-native-window.md) — WebKit either way. Chromium is a variable away for when the
  * difference is what you are looking at, or for testing against the Chromium --app fallback
  * window; IWE_ENGINE overrides everything. */
 import { mkdir } from "node:fs/promises";

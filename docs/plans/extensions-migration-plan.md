@@ -1,8 +1,10 @@
 # Extensions: the second migration slice
 
+> **Kind:** plan · **Status:** active
+
 > **Status: in progress.** This plan covers what is still hardcoded in the core after the
-> task-board slice (docs/extensions-plan.md, implemented) and the Effect rewrite
-> (docs/effect-conventions.md, implemented), and how it moves behind the extension API
+> task-board slice (docs/plans/archive/extensions-plan.md, implemented) and the Effect rewrite
+> (docs/guides/effect-conventions.md, implemented), and how it moves behind the extension API
 > (src/extensions/api.ts).
 
 ## What is still hardcoded, and what happens to it
@@ -193,6 +195,6 @@ intent, new seam — which is the rule the task-board slice used.
    dies; `azure: false` folds into enablement.
 5. **Global settings** — the settings surface, the config bag, generic extension sections on
    the settings page; jira and deployments declare their fields with legacy fallback reads.
-6. **Docs** — docs/extensions.md and the README brought to the new reality.
+6. **Docs** — docs/guides/extensions.md and the README brought to the new reality.
 7. **Review** — a fresh reviewer walks the whole diff against the plan and the conventions;
    findings are fixed before the slice lands.

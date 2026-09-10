@@ -1,5 +1,7 @@
 # `wt` on Linux
 
+> **Kind:** decision · **Status:** accepted
+
 **Verdict: no work needed.** The `wt` IWE depends on is
 [Worktrunk](https://github.com/max-sixty/worktrunk) (crates.io: `worktrunk`, binary: `wt`) — a
 Rust CLI for git worktree management. It is a first-class cross-platform tool with an official

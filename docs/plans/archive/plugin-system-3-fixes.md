@@ -1,10 +1,12 @@
 # Review fixes — plugin-system-3 (commit 6a21f73)
 
+> **Kind:** review · **Status:** historical
+
 Per finding:
 
 1. **Major 1 (orderings)** — documented: the plan's "Behaviour preservation" paragraph now
    names the three accepted reorderings (terminals fact first, loose ends in extension load
-   order with the sentence set unchanged, whole composed label as the tooltip). `docs/extensions.md`
+   order with the sentence set unchanged, whole composed label as the tooltip). `docs/guides/extensions.md`
    mirrors one line each in the summary section and the cancelling section.
 2. **Major 2 (route params)** — `matchRoute` in `src/extensions/index.ts` now
    `decodeURIComponent`s each captured `:param` segment, guarded with try/catch falling back to
@@ -15,11 +17,11 @@ Per finding:
    reads out of the same `list-windows` call as everything else"; `agentIn()` is gone.
 4. **Minor 4** — duplicated "What each change is called, refreshed from Jira…" comment block
    deleted from `src/server.ts`; one copy kept above `/api/titles`.
-5. **Minor 5** — `docs/extensions.md` global-settings paragraph now says an emptied list is
+5. **Minor 5** — `docs/guides/extensions.md` global-settings paragraph now says an emptied list is
    written as `[]` and readers (like `bagList` in `src/deploySettings.ts`) treat that as unset.
 6. **Minor 6** — one sentence added to the plan's preservation passage: extension-declared
    settings sections show the declared placeholder rather than the computed effective value.
-7. **Minor 7** — the presented `TerminalWindow` shape in `docs/extensions.md` gains `busy?`,
+7. **Minor 7** — the presented `TerminalWindow` shape in `docs/guides/extensions.md` gains `busy?`,
    with a note that it is sent for the summary's use, not rendered by the page. The tooltip and
    ellipsis changes are covered by the plan amendment (fix 1).
 8. **Minor 8** — `usePages` in `src/web/workspaces.ts` exposes a `reload`, wired through
@@ -39,6 +41,6 @@ Notes the review missed:
 - `usePages`'s failure-swallowing `catch` already kept the last good pages (the reviewer's
   "silently dropping Deployments" was only true on the very first fetch); the fix adds the
   reload path and makes the keep-last-good behaviour explicit in the comment.
-- `docs/extensions.md`'s route-matcher section ("Handlers receive `(req, params)`") was not
+- `docs/guides/extensions.md`'s route-matcher section ("Handlers receive `(req, params)`") was not
   amended to mention decoding, since the coordinator's instruction scoped the mirror to the
   summary and cancelling surfaces; the param contract is tested instead.

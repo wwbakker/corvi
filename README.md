@@ -23,7 +23,7 @@ talked to over its own REST API, but `jira-cli` is still what configures it — 
 The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux ttyd`).
 `wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
 official Arch package, and every invocation IWE makes was verified to behave identically on Linux
-(`brew install worktrunk` on macOS; details and non-Arch installs in `docs/wt-on-linux.md`). For
+(`brew install worktrunk` on macOS; details and non-Arch installs in `docs/decisions/wt-on-linux.md`). For
 the app's own window, Linux additionally wants `webkit2gtk-4.1` and `python-gobject`
 (`sudo pacman -S --needed webkit2gtk-4.1 python-gobject` — standard on desktop installs), which
 the macOS app gets from the system it is already in.
@@ -64,7 +64,7 @@ is reported as "the server has no /settings — it is probably running older cod
 ```
 
 The Jira and deployment settings are the extensions' own — `extensionSettings[name][key]`, the
-keys each extension declares (docs/extensions.md). Empty values fall back to the tools' own
+keys each extension declares (docs/guides/extensions.md). Empty values fall back to the tools' own
 configuration: the account the Jira token belongs to (`/myself`) for the assignee, and
 `az devops configure` for the Azure DevOps organisation and project. The flat legacy fields
 these replaced (`jiraAssignee`, `azureOrganization`, …) are still read when the bag does not
@@ -407,7 +407,7 @@ for it are migrated on load.
 A workspace can also name **which extensions it has** (`"extensions": ["git", "ci",
 "github-issues"]`): the cards, wizard steps, pages, summary facts and hooks it gets at all.
 Naming none means all of them, which is what IWE was before this existed; naming some is the
-whole list. Extensions are described in [docs/extensions.md](docs/extensions.md) — the jira and
+whole list. Extensions are described in [docs/guides/extensions.md](docs/guides/extensions.md) — the jira and
 github-issues extensions are the first two, and both can be on at once: two tickets on one
 change is a thing, not a conflict. The old vendor flags are retired: a workspace still carrying
 `"jira": false` or `"azure": false` (with no `extensions` list) is migrated on load — the flag
@@ -420,7 +420,7 @@ Extensions do not have to live in this repository: `"extensionPaths"` in the con
 at startup beside the built-ins through the same contract, with `~/.config/iwe/extensions/`
 searched implicitly when it exists. A discovered extension's wizard step or page gets its
 interface from a `client.tsx` beside the module, which the server builds and serves to the
-page — see "Out-of-tree extensions" in [docs/extensions.md](docs/extensions.md).
+page — see "Out-of-tree extensions" in [docs/guides/extensions.md](docs/guides/extensions.md).
 
 **A second client is a second site.** `extensionSettings.jira.configFile` points at another
 `jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
@@ -533,7 +533,7 @@ Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1
 any console errors. Faster than describing a layout bug in prose.
 
 **WebKit by default, because that is what the app is.** The macOS window is a WKWebView — Safari's
-engine — and the Linux window is WebKitGTK, the same engine family (`docs/native-window.md`),
+engine — and the Linux window is WebKitGTK, the same engine family (`docs/decisions/linux-native-window.md`),
 while development happens in Chrome, and everything that has escaped to being reported
 lived in that gap:
 
@@ -1299,9 +1299,9 @@ every 15s, and a slow or broken CLI delays only its own row.
 
 ## Adding an integration
 
-Write an extension (see [docs/extensions.md](docs/extensions.md)): a module whose default export
+Write an extension (see [docs/guides/extensions.md](docs/guides/extensions.md)): a module whose default export
 **describes** what it contributes — `cards`, `wizardSteps`, `routes`, `pages`, and the rest of
-the surfaces in docs/extensions.md. A card takes the same shape the integrations always had —
+the surfaces in docs/guides/extensions.md. A card takes the same shape the integrations always had —
 `status(change)` for a whole widget or `repoStatus(change, repo)` to be fetched a repository at
 a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
@@ -1328,57 +1328,86 @@ itself when `ttyd` or `tmux` is missing rather than failing.
 
 ## Layout
 
-    src/changes.ts            change.json read/write, worktree paths
-    src/branch.ts             branch-name derivation (shared with the browser)
+The layers, and the rule for where a feature's code lives, are in
+[docs/guides/architecture.md](docs/guides/architecture.md). The documentation itself is indexed at
+[docs/README.md](docs/README.md): `docs/guides/` is durable, `docs/decisions/` records why a
+choice was made, and `docs/plans/` holds active work only.
+
+The map, grouped by layer:
+
+    src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
+    src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag
+    src/schemas/              Effect Schemas for change.json and config.json
+    src/context.ts            the workspace across the Promise seam (kept for the test suite)
+    src/sh.ts                 the subprocess gate, timeout and trace
+    src/cache.ts              stale-while-revalidate for everything the CLIs answer
+    src/events.ts             the SSE hub and the watcher behind it
+
+    src/changes.ts            change.json read/write, worktree paths, the archive
+    src/complete.ts           completing a change: merge, close, archive
+    src/cancel.ts             abandoning a change: worktrees back, nothing else touched
+    src/commit.ts             one commit per repository, with one message
+    src/local.ts              uncommitted work in a repository, and one file's diff
+    src/summary.ts            the numbers on an overview card, as contributed facts
+    src/titles.ts             what a change is called, from its ticket
+    src/description.ts        the pull request description an action copies
+    src/settings.ts           reading and writing the config file from the page
     src/config.ts             config file + env overrides
     src/repos.ts              directory browsing under reposRoot, remote branches
     src/leftovers.ts          directories in the changes root without a change
-    src/description.ts        the pull request description an action copies
-    src/cache.ts              stale-while-revalidate for everything the CLIs answer
-    src/summary.ts            the numbers on an overview card, as contributed facts
-    src/deploySettings.ts     the deployments extension's server-wide settings, read back
-    src/local.ts              uncommitted work in a repository, and one file's diff
-    src/commit.ts             one commit per repository, with one message
+    src/branch.ts             branch-name derivation (shared with the browser)
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
-    src/settings.ts           reading and writing the config file from the page
-    src/extensions/           the built-ins and the loader: index.ts, api.ts (the whole
-                              promise), agents/, ci/, deployments/, git/, github-issues/, jira/
+    src/platform.ts           platform detection
     src/origin.ts             refusing requests another site made
-    src/cancel.ts             abandoning a change: worktrees back, nothing else touched
-    src/titles.ts             what a change is called, from its ticket
-    src/deployments.ts        what is deployed where, per service and environment
+    src/types.ts              the vocabulary the server and the page share
+
     src/terminal.ts           tmux sessions and the ttyd that serves them
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
-    src/integrations/         git.ts (wt), jira.ts + jiraHttp.ts, azure.ts, index.ts (registry)
-                              github.ts (pull requests) + checks.ts, stacks.ts
-                              ci.ts joins pull requests, pipelines and checks into one card
-    src/server.ts             Bun.serve: /api/* plus the React app
-    src/web/app.tsx           shell + changes list
-    src/web/Wizard.tsx        per-component change wizard
-    src/web/IssueTable.tsx    filterable Jira board table
-    src/web/ChangeView.tsx    widget dashboard for one change
-    src/web/RepoBrowser.tsx   repository picker: mode and base branch per repository
-    src/web/Sidebar.tsx       the navigation column: changes, pages, terminals
-    src/web/icons.tsx         the three status glyphs, drawn in currentColor
-    src/web/state.ts          the changes list and the tmux session, owned by the app
-    src/web/workspaces.ts     which context you are in, and what belongs to it
-    src/web/TerminalPane.tsx  the terminal itself, with CheatSheet.tsx
-    src/web/NotesCard.tsx     notes.md for a change
-    src/web/CompletionCard.tsx  how far completing a change got
-    src/web/ChangeCard.tsx      one active change on the overview
-    src/web/SettingsPage.tsx  the config file, as a form
-    src/web/LocalPane.tsx       the review-changes tab: files, and a diff
-    src/web/CommitDialog.tsx    committing across the change
+    src/deployments.ts        what is deployed where, per service and environment
+    src/deploySettings.ts     the deployments extension's server-wide settings, read back
+    src/deployConventions.ts  how a build pipeline's name maps to its deploy twin
+
+    src/integrations/         vendor CLI wrappers
+      git.ts                  worktrees and checkouts (wt, plus plain git)
+      github.ts               pull requests, review threads, merges
+      azure.ts                Azure DevOps pipelines and runs
+      checks.ts               GitHub Actions checks on a pull request
+      stacks.ts               stacked pull requests
+
+    src/extensions/           the extension host and the built-ins
+      index.ts                the loader, the registry, the route dispatcher
+      api.ts                  the whole contract an extension sees
+      services.ts             the live layers behind Shell/Cache/Settings/Bus/Workspace
+      presenters.ts           window presenters, a leaf (it breaks a module cycle)
+      clientChunks.ts         builds out-of-tree client halves for the page
+      agents/ git/ ci/ jira/ github-issues/ deployments/    the built-ins
+
+    src/web/                  the React app, bundled by Bun's HTML import
+      app.tsx                 shell, changes list, URL↔view
+      state.ts                the changes and tmux windows, owned by the app
+      events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
+      Wizard.tsx              per-component change wizard
+      ChangeView.tsx          widget dashboard for one change
+      ChangeCard.tsx          one active change on the overview
+      LocalPane.tsx           the review-changes tab: files, and a diff
+      CommitDialog.tsx        committing across the change
+      RepoBrowser.tsx         repository picker: mode and base branch per repository
+      SettingsPage.tsx        the config file, as a form
+      Sidebar.tsx             the navigation column: changes, pages, terminals
+      TerminalPane.tsx        the terminal itself, with CheatSheet.tsx
+      NotesCard.tsx           notes.md for a change
+      CompletionCard.tsx      how far completing a change got
+      Leftovers.tsx           directories left in the changes root
+      extensions.tsx          the hosts for an extension's step and page
+      icons.tsx icons/        the status glyphs, and the generated app icons
+      styles.css manifest.webmanifest index.html
+      ActionsMenu.tsx changeState.tsx EditReposDialog.tsx   the rest of the furniture
+      moment.ts newWindowKey.ts prefs.ts Progress.tsx
+
     extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
     scripts/app.ts              macOS: builds ~/Applications/IWE.app; Linux: installs the app
     scripts/app/linux.ts        the Linux install: desktop entry, icons, iwe-app launcher
-    scripts/app/linux-window/   the Linux window: WebKitGTK via PyGObject (docs/native-window.md)
+    scripts/app/linux-window/   the Linux window: WebKitGTK via PyGObject
     scripts/app/IWE.swift       the macOS window: WebKit, and the server inside it
-    src/web/manifest.webmanifest  installable app metadata
-    src/web/icons/            generated from assets/*.svg by `bun run icons`
-    test/changes.test.ts      change.json, notes, in-place provisioning, base branches
-    test/repos.test.ts        editing a change's repositories against real git repositories
-    test/terminal.test.ts     the terminal tab end to end (skipped without ttyd/tmux)
-    test/cache.test.ts        the cache: sharing, staleness, failure, restarts, parallelism
-    test/provision.test.ts    the pure logic of every component
+    test/                       the suite; test/terminal.test.ts drives a real ttyd and tmux

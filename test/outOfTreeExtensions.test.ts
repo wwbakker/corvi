@@ -16,7 +16,7 @@ import type { Workspace } from "../src/config.ts";
  * config (or an environment override), imported from disk through the same install path as
  * the built-ins, and served to the page as chunks the server built (src/extensions/clientChunks.ts).
  *
- * The extension written here is deliberately the shape docs/extensions.md promises: a default
+ * The extension written here is deliberately the shape docs/guides/extensions.md promises: a default
  * export with a wizard step, plus a sibling client.tsx — nothing else, and no host imports.
  */
 

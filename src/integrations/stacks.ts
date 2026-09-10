@@ -232,7 +232,7 @@ export const stackOnBaseEffect = (
 
 /** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
  * printed nothing, or something this query did not expect, reads as the fallback rather than
- * failing — the documented silent fallback (docs/effect-conventions.md). */
+ * failing — the documented silent fallback (docs/guides/effect-conventions.md). */
 const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
   (stdout: string): Effect.Effect<B> =>
     stdout.trim()

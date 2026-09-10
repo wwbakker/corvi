@@ -1,7 +1,7 @@
 import { Data } from "effect";
 
 /**
- * The one error taxonomy for the Effect rewrite — see docs/effect-conventions.md. Every
+ * The one error taxonomy for the Effect rewrite — see docs/guides/effect-conventions.md. Every
  * rewritten module fails with one of these five; nothing grows a per-module hierarchy beside
  * them. Each carries the human-readable message the old `throw new Error(...)` had, because
  * the strings the UI showed before are the strings it shows after.

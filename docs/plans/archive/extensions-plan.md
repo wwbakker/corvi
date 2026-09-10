@@ -1,7 +1,9 @@
 # Extensions: plan for the task-board slice
 
+> **Kind:** plan · **Status:** superseded
+
 > **Superseded.** This plan is fully implemented; the current description of the
-> extension system lives in [`docs/extensions.md`](extensions.md). This file is
+> extension system lives in [`docs/guides/extensions.md`](../guides/extensions.md). This file is
 > kept as a record of what was planned and why.
 
 The extension model, decided in discussion: extensions are built-in TypeScript modules that
@@ -129,7 +131,7 @@ as IWE always did.
 
 - New tests: resolution rules (absent/explicit/unknown id), the wizard-steps endpoint, the
   github-issues extension against a stubbed `gh`, and the bag on the change record.
-- `docs/extensions.md` — the API as an extension author sees it (the surface table, the two-file
+- `docs/guides/extensions.md` — the API as an extension author sees it (the surface table, the two-file
   layout, the client registry, what crosses the boundary as JSON). README's requirements and
   configuration sections updated.
 - `bun run typecheck && bun run lint && bun test` green; README screenshots unaffected.
