@@ -157,26 +157,26 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
   // An agent that says what it is doing is taken at its word: `node` never would. This is what
   // pi's busy-title extension sets on its own pane.
-  await page.keyboard.type("tmux set -p @agent working\n");
+  await page.keyboard.type("tmux set -p @agent_status working\n");
   expect(
     await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi working)"),
   ).toBe("repo - (pi working)");
   // The name pi gives the session replaces the composed label, in the column and in the tabs
   // alike; the state is still there, in the icon's colour.
-  await page.keyboard.type("tmux set -p @agent_name 'Build PROJ-1681'\n");
+  await page.keyboard.type("tmux set -p @agent_session_name 'Build PROJ-1681'\n");
   expect(
     await until(async () => (await strip.allInnerTexts())[1]?.trim(), "Build PROJ-1681"),
   ).toBe("Build PROJ-1681");
-  await page.keyboard.type("tmux set -p -u @agent_name\n");
+  await page.keyboard.type("tmux set -p -u @agent_session_name\n");
   expect(
     await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi working)"),
   ).toBe("repo - (pi working)");
-  await page.keyboard.type("tmux set -p @agent waiting\n");
+  await page.keyboard.type("tmux set -p @agent_status waiting\n");
   expect(
     await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi waiting)"),
   ).toBe("repo - (pi waiting)");
   // Unset when the agent leaves, and the window is a shell in a directory again.
-  await page.keyboard.type("tmux set -p -u @agent\n");
+  await page.keyboard.type("tmux set -p -u @agent_status\n");
   expect(await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo")).toBe("repo");
 
   // A new window starts where the current one is, not back at the change: the second window
@@ -256,14 +256,14 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The state icon keeps the column's colours — green while its agent is working — even on the
   // tab you are looking at, where only the label goes white. This is the working pi window.
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "working");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
   const green = currentTab.locator(".state-ok");
   expect(await until(() => green.count(), 1)).toBe(1);
   expect(await green.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(63, 185, 80)");
   expect(
     await currentTab.evaluate((el) => getComputedStyle(el.querySelector(".label")!).color),
   ).toBe("rgb(255, 255, 255)");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "-u", "@agent");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "-u", "@agent_status");
 
   // The terminal fills the space: no gap under the tabs or against the column, a small margin
   // on the right — half the column's own left padding — and none below.
@@ -366,7 +366,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
 
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
   const windowId = await tmux("display-message", "-p", "-t", `${session}:${active}`, "#{window_id}");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "working");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
 
   /** The windows the server reports for this change: the presented read the watcher diffs. */
   const presented = async (): Promise<{ attention?: boolean }[]> =>
@@ -376,9 +376,9 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   ).toBe(true);
   // One full watcher tick, so its diff has recorded the non-waiting window before the flip.
   await page.waitForTimeout(1700);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_name", "Build the thing");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_say", "I fixed the layout.");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "waiting");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_session_name", "Build the thing");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_last_message", "I fixed the layout.");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "waiting");
 
   const notices = (): Promise<unknown[]> =>
     page.evaluate(() => (window as unknown as { __notices: unknown[] }).__notices);
@@ -412,13 +412,13 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
       () => document.hasFocus() || document.activeElement?.tagName === "IFRAME",
     ),
   ).toBe(true);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "working");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
   await page.waitForTimeout(2500);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "waiting");
+  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "waiting");
   await page.waitForTimeout(3500);
   expect((await notices()).length).toBe(1);
 
-  for (const option of ["@agent", "@agent_name", "@agent_say"]) {
+  for (const option of ["@agent_status", "@agent_session_name", "@agent_last_message"]) {
     await tmux("set-option", "-p", "-t", `${session}:${active}`, "-u", option);
   }
   await page.close();

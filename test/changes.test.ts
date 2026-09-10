@@ -368,13 +368,13 @@ test("the overview counts windows that are running something, not windows", asyn
   // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
   // otherwise count as work for as long as the window stayed open.
   expect([
-    busy({ command: "node", options: { "@agent": "working" } }),
-    busy({ command: "node", options: { "@agent": "waiting" } }),
+    busy({ command: "node", options: { "@agent_status": "working" } }),
+    busy({ command: "node", options: { "@agent_status": "waiting" } }),
     busy({ command: "node" }), // no marker: something is running, count it
   ]).toEqual([true, false, true]);
 });
 
-test("an agent's own account of itself is read from the @agent pane option", async () => {
+test("an agent's own account of itself is read from the @agent_status pane option", async () => {
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../src/terminal.ts");
@@ -388,9 +388,9 @@ test("an agent's own account of itself is read from the @agent pane option", asy
       activity: false,
       directory: "example-api",
       named: false,
-      options: { "@agent": option },
+      options: { "@agent_status": option },
     });
-  // What pi's busy-title extension sets with `tmux set -p @agent ...`.
+  // What pi's busy-title extension sets with `tmux set -p @agent_status ...`.
   expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
   expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
   // Unset, or set to something else by something else: no claim is made about the window —

@@ -3,18 +3,18 @@
  * the session is called, so anything outside the terminal can tell the difference — IWE's
  * window strip and its notifications, a tmux status line, another program.
  *
- * The state is a tmux pane option, `@agent`; the session's name is `@agent_name`; the first
- * sentence of the last answer is `@agent_say`:
+ * The state is a tmux pane option, `@agent_status`; the session's name is `@agent_session_name`;
+ * the first sentence of the last answer is `@agent_last_message`:
  *
- *   tmux display -p '#{@agent}'                       # this pane: working | waiting | unset
- *   tmux display -p '#{@agent_name}'                  # this pane: the session's name, or empty
- *   tmux display -p '#{@agent_say}'                   # this pane: why it wants you, or empty
- *   tmux list-windows -F '#{window_index} #{@agent}'  # every window of the session
+ *   tmux display -p '#{@agent_status}'          # this pane: working | waiting | unset
+ *   tmux display -p '#{@agent_session_name}'    # this pane: the session's name, or empty
+ *   tmux display -p '#{@agent_last_message}'    # this pane: why it wants you, or empty
+ *   tmux list-windows -F '#{window_index} #{@agent_status}'  # every window of the session
  *
  * A pane option rather than the terminal title, which was the first attempt: the title is
  * shared. pi rewrites it whenever the session name changes — right after a run, when it names
  * the session from your first message — and the shell rewrites it between commands, so the
- * marker kept vanishing seconds after it appeared. Nobody else writes `@agent`, and tmux drops
+ * marker kept vanishing seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
  * it when the pane dies, so a crashed agent leaves nothing stale behind.
  *
  * Install it with `bun run extension:install` in the IWE repository, which symlinks this file
@@ -67,16 +67,16 @@ export default function (pi: ExtensionAPI) {
     void pi.exec("tmux", args).catch(() => {});
   };
 
-  const publishState = (state: "working" | "waiting"): void => publish("@agent", state);
+  const publishState = (state: "working" | "waiting"): void => publish("@agent_status", state);
 
   /** The session's display name, once pi has one: it is what the window should be called
    * outside, instead of the repository and the fact that pi is in it. */
-  const publishName = (): void => publish("@agent_name", pi.getSessionName());
+  const publishName = (): void => publish("@agent_session_name", pi.getSessionName());
 
   /** The last answer's first sentence: what a notification says after the session's name — the
    * difference between "PROJ-1681 is waiting" and knowing why. */
   let lastSentence = "";
-  const publishSay = (): void => publish("@agent_say", lastSentence || undefined);
+  const publishSay = (): void => publish("@agent_last_message", lastSentence || undefined);
 
   pi.on("agent_start", async () => {
     publishState("working");
@@ -119,7 +119,7 @@ export default function (pi: ExtensionAPI) {
   // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
     if (!pane) return;
-    for (const option of ["@agent", "@agent_name", "@agent_say"]) {
+    for (const option of ["@agent_status", "@agent_session_name", "@agent_last_message"]) {
       void pi.exec("tmux", ["set", "-p", "-t", pane, "-u", option]).catch(() => {});
     }
   });

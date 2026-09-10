@@ -40,6 +40,7 @@ Every doc starts with a status header:
 | Document | Status |
 |---|---|
 | [`plans/refactor-plan.md`](plans/refactor-plan.md) | active — prioritized structural cleanup |
+| [`plans/followups.md`](plans/followups.md) | active — second cleanup pass (naming, comments, types, tooling) |
 | [`plans/extensions-migration-plan.md`](plans/extensions-migration-plan.md) | active — moving the rest of the core behind the extension API |
 | [`plans/review-1.md`](plans/review-1.md) | active — architecture review, input to the refactor plan |
 | [`plans/review-2.md`](plans/review-2.md) | active — architecture review, input to the refactor plan |

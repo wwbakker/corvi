@@ -341,15 +341,15 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
   // An agent is `node` to tmux, which says nothing; what it says about itself replaces that,
-  // read from the `@agent` pane option the agents extension declares.
-  const working = w({ command: "node", options: { "@agent": "working" } });
+  // read from the `@agent_status` pane option the agents extension declares.
+  const working = w({ command: "node", options: { "@agent_status": "working" } });
   expect(working.label).toBe("example-api - (pi working)");
   expect(working.icon).toBe("agent");
   expect(working.state).toBe("ok");
   expect(working.busy).toBe(true);
   // Working is not wanting: nothing to notify about until it stops.
   expect(working.attention).toBe(false);
-  const waiting = w({ command: "node", options: { "@agent": "waiting" } });
+  const waiting = w({ command: "node", options: { "@agent_status": "waiting" } });
   expect(waiting.label).toBe("example-api - (pi waiting)");
   expect(waiting.state).toBe("idle");
   expect(waiting.busy).toBe(false);
@@ -357,7 +357,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(waiting.attention).toBe(true);
   const said = w({
     command: "node",
-    options: { "@agent": "waiting", "@agent_say": "I fixed the layout." },
+    options: { "@agent_status": "waiting", "@agent_last_message": "I fixed the layout." },
   });
   expect(said.attention).toBe(true);
   expect(said.note).toBe("I fixed the layout.");
@@ -365,7 +365,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   // the icon's colour, so the label does not have to repeat it.
   const named = w({
     command: "node",
-    options: { "@agent": "working", "@agent_name": "Build orders" },
+    options: { "@agent_status": "working", "@agent_session_name": "Build orders" },
   });
   expect(named.label).toBe("Build orders");
   expect(named.icon).toBe("agent");

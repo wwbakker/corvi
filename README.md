@@ -743,11 +743,11 @@ renaming it for you at that point and so do we.
 
 A window running a **coding agent** says what the agent is doing — `example-api - (pi working)`,
 `example-api - (pi waiting)` — instead of `node`, which says nothing. The agent reports that
-itself, in the `@agent` **tmux pane option**, which the agents extension's presenter reads out
+itself, in the `@agent_status` **tmux pane option**, which the agents extension's presenter reads out
 of the same `list-windows` call as everything else. The overview believes it over the process
 waiting for you is not work in progress, though its process is very much running.
 
-`pi/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent working`,
+`pi/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent_status working`,
 `agent_settled` sets `waiting`, `session_shutdown` unsets it. Settled rather than ended, because
 after `agent_end` pi may still retry, auto-compact or pick up queued messages, none of which are
 "waiting for you".
@@ -755,7 +755,7 @@ after `agent_end` pi may still retry, auto-compact or pick up queued messages, n
 ```bash
 bun run extension:install     # symlinks it into ~/.pi/agent/extensions/
 bun run extension:uninstall
-tmux display -p '#{@agent}'   # what the pane you are in says about itself
+tmux display -p '#{@agent_status}'   # what the pane you are in says about itself
 ```
 
 A symlink rather than a copy, so editing it here is editing the installed one and `/reload` in pi
@@ -764,7 +764,7 @@ picks it up; the script refuses to touch anything at that path it did not put th
 A pane option rather than the terminal title, which was the first attempt: the title is shared.
 pi rewrites it whenever the session name changes — right after a run, when it names the session
 from your first message — and the shell rewrites it between commands, so the marker kept
-vanishing seconds after it appeared. Nobody else writes `@agent`, and tmux drops it when the pane
+vanishing seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops it when the pane
 dies, so a crashed agent leaves nothing stale behind. The option is read from each window's
 **active pane**, so an agent left in the inactive half of a split is not seen.
 

@@ -103,10 +103,10 @@ test("a window's presentation: the first presenter to answer a field wins, the c
     const agent = install({
       name: "test-presenters-agent",
       title: "Agent",
-      windowPresenters: [constant(undefined, ["@agent"])],
+      windowPresenters: [constant(undefined, ["@agent_status"])],
     });
     try {
-      expect(windowPresenters().flatMap((p) => p.paneOptions ?? [])).toContain("@agent");
+      expect(windowPresenters().flatMap((p) => p.paneOptions ?? [])).toContain("@agent_status");
     } finally {
       loaded.splice(loaded.indexOf(agent), 1);
     }
