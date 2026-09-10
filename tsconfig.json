@@ -25,6 +25,9 @@
     // Some stricter flags (disabled by default)
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noPropertyAccessFromIndexSignature": false
+    "noPropertyAccessFromIndexSignature": false,
+
+    // Effect-aware diagnostics in the editor and via `bun run effect:lint`.
+    "plugins": [{ "name": "@effect/language-service" }]
   }
 }

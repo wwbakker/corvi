@@ -10,6 +10,7 @@
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.84.3",
+    "@effect/language-service": "^0.87.2",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/react": "^19.2.18",
