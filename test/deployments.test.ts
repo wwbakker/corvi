@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { acceptedVersions, versionsFor, type Run } from "../src/deployments.ts";
-import { autoDeployedApp } from "../src/deployConventions.ts";
+import { autoDeployedApp } from "../src/shared/deployConventions.ts";
 import type { Az } from "../src/integrations/azure.ts";
 
 // `acceptedVersions` is pure and synchronous on purpose: the one thing that would otherwise need

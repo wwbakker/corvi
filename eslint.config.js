@@ -14,12 +14,17 @@ import tseslint from "typescript-eslint";
  * `import type` is exempt (`allowTypeImports`): those are erased at compile time by
  * `verbatimModuleSyntax` and never reach the bundle, which is how `SettingsPage.tsx` reads
  * `Config`'s shape from `config.ts` without pulling in the `az`/`gh`/`jira` CLI calls that live
- * beside it.
+ * beside it. `types.ts` is additionally excluded outright: it is the shared type vocabulary and
+ * also exports the pure reducers (`isFinished`, `byWorkOrder`, `CHANGE_STATES`) that the browser
+ * renders with, so it is the one filename-level exception kept (see `docs/plans/refactor-plan.md`
+ * item 3; moving its browser-safe half into `src/shared/` is the follow-up that would retire it).
  *
  * Everything else one level up from `src/web/` is backend: it shells out to CLIs, touches the
- * filesystem, or both. `branch.ts` and `deployConventions.ts` are the exceptions — pure string
- * logic with nothing backend about them, kept outside `src/web/` only because both the server
- * and the browser need the same answer (see their own doc comments).
+ * filesystem, or both. `src/shared/` is the structural exception — pure code (no `node:fs`, no CLI,
+ * no `Bun.spawn`) that both the server and the browser need, importable by value from
+ * `src/web/**`. Because these patterns are relative to `src/web/` and `*` does not cross a
+ * directory boundary, the shared tree is reachable at `../shared/*` while every sibling of
+ * `src/web/` stays restricted. Put a new shared module in `src/shared/`, not next to the server.
  */
 export default tseslint.config(
   {
@@ -37,18 +42,12 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: [
-                "../*.ts",
-                "!../types.ts",
-                "!../branch.ts",
-                "!../deployConventions.ts",
-                "../integrations/*",
-              ],
+              group: ["../*.ts", "!../types.ts", "../integrations/*"],
               message:
                 "src/web is the browser bundle: only import backend modules (CLI/fs code such as " +
                 "deployments.ts, config.ts, azure.ts, sh.ts, ...) with `import type`, which is " +
                 "erased before the bundle sees it. For a value both sides need, share it through " +
-                "a pure module next to branch.ts / deployConventions.ts instead.",
+                "a pure module under src/shared/ instead.",
               allowTypeImports: true,
             },
           ],

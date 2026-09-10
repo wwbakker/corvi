@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { branchFor } from "../src/branch.ts";
+import { branchFor } from "../src/shared/branch.ts";
 import { issueFrom } from "../src/extensions/jira/jira.ts";
 import { parseJiraConfig } from "../src/extensions/jira/jiraHttp.ts";
 

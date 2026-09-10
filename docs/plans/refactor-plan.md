@@ -10,6 +10,20 @@ Ranking is by (value ÷ risk) ÷ effort, not by how interesting the change is. E
 item below is behaviour-preserving unless it says otherwise; the two that are not
 behaviour-preserving are flagged as decisions, not tasks.
 
+## Progress
+
+| Item | State | Notes |
+|---|---|---|
+| 3. `src/shared/` | done | `branch.ts` and `deployConventions.ts` moved; eslint boundary is now the structural `../shared/*` (`types.ts` stays a filename exception, documented in the config) |
+| 7. Split `server.ts` | done | `server.ts` 652 → 83 lines; `src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts` |
+| 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
+| 1, 2, 4, 5, 6, 8 | pending | next waves |
+
+One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
+depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the
+flip). It now waits for the server's own `/api/terminals` read instead. This was flaky before the
+refactor and is deterministic now.
+
 ## The list
 
 | # | Item | Sources | Value | Risk | Effort |

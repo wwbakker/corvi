@@ -356,14 +356,26 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}`);
   await page.waitForSelector(".widget");
-  // Let the watcher start and seed. Then working first, and a tick to see it: whatever the seed
-  // caught, the edge into waiting is a real one.
-  await page.waitForTimeout(2500);
+  // Let the watcher start. The notice is an edge into "waiting", and the server only reports an
+  // edge it watched happen: a window it first sees already waiting seeds the picture and says
+  // nothing, so a page connecting does not replay every agent that is already blocked. Working
+  // first, and then waiting for the server itself to have read that non-waiting state —
+  // /api/terminals is the same presented read the watcher diffs — makes the edge real rather
+  // than timed.
+  await page.waitForTimeout(1000);
 
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
   const windowId = await tmux("display-message", "-p", "-t", `${session}:${active}`, "#{window_id}");
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "working");
-  await page.waitForTimeout(2500);
+
+  /** The windows the server reports for this change: the presented read the watcher diffs. */
+  const presented = async (): Promise<{ attention?: boolean }[]> =>
+    (await fetch(`http://127.0.0.1:${port}/api/terminals`).then((r) => r.json()))[id] ?? [];
+  expect(
+    await until(async () => (await presented()).some((w) => w.attention === false), true),
+  ).toBe(true);
+  // One full watcher tick, so its diff has recorded the non-waiting window before the flip.
+  await page.waitForTimeout(1700);
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_name", "Build the thing");
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_say", "I fixed the layout.");
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent", "waiting");

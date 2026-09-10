@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, post } from "../../web/api.ts";
-import { branchFor } from "../../branch.ts";
+import { branchFor } from "../../shared/branch.ts";
 import type { StepComponent } from "../../web/extensions.ts";
 import { KEY, type GitHubIssue } from "./shared.ts";
 

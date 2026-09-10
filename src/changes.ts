@@ -5,7 +5,7 @@ import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./type
 import { Change as ChangeSchema } from "./schemas/change.ts";
 import { BadRequestError, ConflictError, DecodeError } from "./effect/errors.ts";
 import { config } from "./config.ts";
-export { branchFor } from "./branch.ts";
+export { branchFor } from "./shared/branch.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
 export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;

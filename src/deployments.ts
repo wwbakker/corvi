@@ -12,7 +12,7 @@ import {
 } from "./integrations/azure.ts";
 import { usesAzure, workspaceById } from "./workspaces.ts";
 import { deploySettings } from "./deploySettings.ts";
-import { autoDeployedApp } from "./deployConventions.ts";
+import { autoDeployedApp } from "./shared/deployConventions.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
 /** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
