@@ -6,6 +6,7 @@ import {
   boardIssuesEffect,
   siteOfWorkspace,
   createIssueEffect,
+  globalOf,
   issueByKeyEffect,
   issuesByKeysEffect,
   issueFrom,
@@ -104,6 +105,16 @@ export default {
     { key: "tokenEnv", label: "Token variable", placeholder: "JIRA_API_TOKEN" },
   ],
 
+  // The server-wide settings this extension declares, shown on the settings page for every
+  // workspace and stored under `extensionSettings.jira` — where globalOf reads them back, with
+  // the legacy config fields as the fallback chain's tail. An environment variable keeps
+  // beating the page: the field shows locked when IWE_JIRA_* is set.
+  globalSettings: [
+    { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: "IWE_JIRA_ASSIGNEE" },
+    { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: "IWE_JIRA_START_TRANSITION" },
+    { key: "doneTransition", label: "Transition on completing one", placeholder: "Done", env: "IWE_JIRA_DONE_TRANSITION" },
+  ],
+
   cards: [
     {
       title: "Jira",
@@ -139,8 +150,9 @@ export default {
           if (!key) return;
           const workspace = yield* Workspace;
           const settings = yield* Settings;
+          const global = globalOf(settings);
           const site = siteOfWorkspace(workspace);
-          const account = yield* accountIdEffect(settings.jiraAssignee, site);
+          const account = yield* accountIdEffect(global.assignee, site);
           if (account) {
             yield* jiraFetchEffect(`/rest/api/3/issue/${key}/assignee`, {
               configFile: site.configFile,
@@ -150,8 +162,8 @@ export default {
             });
           }
           const current = (yield* issueByKeyEffect(key, site))?.status;
-          if (current?.toLowerCase() !== settings.jiraStartTransition.toLowerCase()) {
-            yield* moveIssueEffect(key, settings.jiraStartTransition, site);
+          if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
+            yield* moveIssueEffect(key, global.startTransition, site);
           }
         }),
     ],
@@ -192,13 +204,24 @@ export default {
     },
   ],
 
+  // Cancelling leaves the ticket where it is — moving a ticket other people are watching is
+  // a decision about theirs — and says so, so you can go and deal with it.
+  looseEnds: [
+    {
+      looseEnds: (change) => {
+        const key = ticketOf(change);
+        return Effect.succeed(key ? [`${key} is still open in Jira`] : []);
+      },
+    },
+  ],
+
   // Completing a change closes the ticket, after the merges and before the worktrees go.
   completionSteps: [
     {
       plan: (change, world): CompletionStep | undefined => {
         const key = ticketOf(change);
         return key
-          ? { id: "jira", label: `move ${key} to ${world.config.jiraDoneTransition}`, state: "waiting" }
+          ? { id: "jira", label: `move ${key} to ${globalOf(world.config).doneTransition}`, state: "waiting" }
           : undefined;
       },
       run: (change) =>
@@ -206,7 +229,8 @@ export default {
           const key = ticketOf(change);
           if (!key) return;
           const site = siteOfWorkspace(yield* Workspace);
-          yield* moveIssueEffect(key, (yield* Settings).jiraDoneTransition, site);
+          const { doneTransition } = globalOf(yield* Settings);
+          yield* moveIssueEffect(key, doneTransition, site);
         }),
     },
   ],

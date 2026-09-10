@@ -40,3 +40,24 @@ export function CiIcon({ title }: { title: string }) {
     </svg>
   );
 }
+
+/** Coding agents: a head with eyes and an antenna — the machine that talks back. */
+export function AgentIcon({ title }: { title: string }) {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <rect x="3" y="5.5" width="10" height="7.5" rx="2" />
+      <path d="M8 5.5V2.5" />
+      <path d="M5.75 9.25h.01M10.25 9.25h.01" />
+    </svg>
+  );
+}

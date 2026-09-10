@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { problems, settingsView, writeSettings, type Settings } from "../src/settings.ts";
-import { config, reloadConfig } from "../src/config.ts";
+import { config, reloadConfig, type Config } from "../src/config.ts";
 
 /**
  * The settings page writes the file the whole program reads, so the two things worth testing are
@@ -121,4 +121,53 @@ test("a setting the environment overrides is reported as locked", async () => {
   expect(view.path).toBe(file);
   // The default is offered back, so a page can undo a change to the list.
   expect(view.toolingDefault).toContain(".bsp");
+});
+
+test("an extension setting the environment overrides is reported as locked too", () => {
+  process.env.IWE_JIRA_ASSIGNEE = "me@example.com";
+  try {
+    const view = settingsView();
+    // The jira extension's own declaration travels to the page, and the one field whose
+    // environment variable is set is locked by name.
+    const jira = view.extensions.find((e) => e.name === "jira");
+    expect(jira?.globalSettings.map((f) => f.key)).toEqual([
+      "assignee",
+      "startTransition",
+      "doneTransition",
+    ]);
+    expect(view.overriddenExtensions.jira).toEqual({ assignee: "IWE_JIRA_ASSIGNEE" });
+  } finally {
+    delete process.env.IWE_JIRA_ASSIGNEE;
+  }
+});
+
+test("the extensions' own settings round-trip, strings and string lists", async () => {
+  await writeSettings({
+    extensionSettings: {
+      jira: { assignee: "me@example.com" },
+      deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
+    },
+  });
+
+  const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect(written.extensionSettings).toEqual({
+    jira: { assignee: "me@example.com" },
+    deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
+  });
+  // The core carries the bag without looking inside: the object every module holds by
+  // reference has it, untouched.
+  expect(config.extensionSettings).toEqual(written.extensionSettings as Config["extensionSettings"]);
+
+  // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
+  // string goes, the list stays.
+  await writeSettings({
+    extensionSettings: {
+      jira: { assignee: "" },
+      deployments: { environments: ["dev", "accept"] },
+    },
+  });
+  const again = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect(again.extensionSettings).toEqual({
+    deployments: { environments: ["dev", "accept"] },
+  });
 });

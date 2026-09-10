@@ -138,7 +138,14 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   const strip = page.locator(".sidebar .entry.window");
   expect(await until(() => strip.count(), 2)).toBe(2); // the shell, and the ctrl-b c one above
   // Windows are labelled by where they are, so a window that walks into a repository says so.
-  expect((await strip.allInnerTexts()).every((l) => l.trim() === id)).toBe(true);
+  // Until-poll rather than an instant read: a window that has just been created still shows the
+  // tmux that forked it as its command, for as long as the shell takes to exec.
+  expect(
+    await until(
+      async () => (await strip.allInnerTexts()).every((l) => l.trim() === id),
+      true,
+    ),
+  ).toBe(true);
   await page.keyboard.type(`cd ${join(tmp, "repo")}\n`);
   expect(await until(async () => (await strip.allInnerTexts()).join(" "), `${id} repo`)).toBe(
     `${id} repo`,

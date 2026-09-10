@@ -15,7 +15,7 @@ import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
-import type { WorkspaceSetting } from "./extensions/api.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
 
 /**
  * Reading and writing the settings file from the page.
@@ -44,11 +44,20 @@ export type SettingsView = {
   /** Setting to the environment variable currently overriding it. Those are shown as locked:
    * the variable wins, so writing the file would change nothing and look like a bug. */
   overridden: Record<string, string>;
+  /** The extensions' server-wide settings an environment variable is currently overriding, by
+   * extension name and setting key — the same locking as `overridden`, for the fields the
+   * extensions declare on the settings page. */
+  overriddenExtensions: Record<string, Record<string, string>>;
   /** What `worktreeCopy` is when it is not set, so the page can offer it back. */
   toolingDefault: string[];
   /** The extensions there are to enable, in the order they were loaded, each with the
    * per-workspace settings it declares — so the page needs no second request to render them. */
-  extensions: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
+  extensions: {
+    name: string;
+    title: string;
+    workspaceSettings: WorkspaceSetting[];
+    globalSettings: ExtensionSetting[];
+  }[];
 };
 
 /** Only the variables that are actually set: an override nobody has made is not one. */
@@ -56,6 +65,20 @@ function overridden(): Record<string, string> {
   const found: Record<string, string> = {};
   for (const [field, variable] of Object.entries(ENV_OVERRIDES)) {
     if (process.env[variable] !== undefined) found[field] = variable;
+  }
+  return found;
+}
+
+/** The same, for the fields the extensions declare: a setting whose `env` names a variable
+ * that is set is shown locked, with the variable named. */
+function overriddenExtensions(): Record<string, Record<string, string>> {
+  const found: Record<string, Record<string, string>> = {};
+  for (const extension of loaded) {
+    for (const field of extension.globalSettings) {
+      if (field.env && process.env[field.env] !== undefined) {
+        (found[extension.name] ??= {})[field.key] = field.env;
+      }
+    }
   }
   return found;
 }
@@ -77,11 +100,13 @@ export const settingsView = (): SettingsView => {
     file,
     effective: config,
     overridden: overridden(),
+    overriddenExtensions: overriddenExtensions(),
     toolingDefault: TOOLING,
     extensions: loaded.map((e) => ({
       name: e.name,
       title: e.title,
       workspaceSettings: e.workspaceSettings,
+      globalSettings: e.globalSettings,
     })),
   };
 };

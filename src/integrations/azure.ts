@@ -3,8 +3,9 @@ import { Effect, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
 import { shEffect, type Result } from "../sh.ts";
 import { swrEffect } from "../cache.ts";
-import { config, type Workspace } from "../config.ts";
+import type { Workspace } from "../config.ts";
 import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
+import { deploySettings } from "../deploySettings.ts";
 
 export type Run = {
   id: number;
@@ -82,8 +83,10 @@ export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; proje
       const read = (key: string): string | undefined =>
         new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
       defaults = {
-        organization: config.azureOrganization || read("organization"),
-        project: config.azureProject || read("project"),
+        // The deployments extension's own setting wins; the legacy config field (which resolves
+        // the environment variable) is the fallback, then az devops configure.
+        organization: deploySettings().organization || read("organization"),
+        project: deploySettings().project || read("project"),
       };
       return defaults;
     });

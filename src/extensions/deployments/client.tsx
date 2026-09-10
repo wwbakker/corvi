@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { api } from "./api.ts";
+import type { PageComponent } from "../../web/extensions.tsx";
+import { api } from "../../web/api.ts";
+import { moment } from "../../web/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
-import { moment } from "./moment.ts";
-import { autoDeployedApp } from "../deployConventions.ts";
+import { autoDeployedApp } from "../../deployConventions.ts";
 
 export type Deployed = {
   environment: string;
@@ -44,7 +45,7 @@ export function DeploymentsPage({ workspace }: { workspace?: string }) {
   useEffect(() => {
     const load = () =>
       api<{ services: Service[]; error?: string }>(
-        `/deployments${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        `/ext/deployments/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       )
         .then((r) => {
           setServices(r.services);
@@ -165,3 +166,6 @@ export function DeploymentsPage({ workspace }: { workspace?: string }) {
     </div>
   );
 }
+
+/** The page, as the page's PageHost renders it. */
+export const page: PageComponent = DeploymentsPage;

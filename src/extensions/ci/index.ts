@@ -1,11 +1,11 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../../types.ts";
-import { createPrEffect, prItemEffect } from "../../integrations/github.ts";
+import { worst as worstOf, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
+import { activeRunsEffect, pipelineItemsEffect } from "../../integrations/azure.ts";
+import { createPrEffect, prItemEffect, prSummaryEffect } from "../../integrations/github.ts";
 import { checkItemsEffect } from "../../integrations/checks.ts";
-import { pipelineItemsEffect } from "../../integrations/azure.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
-import type { Extension } from "../api.ts";
+import type { Extension, SummaryContribution } from "../api.ts";
 
 /**
  * Pull requests and the pipelines they trigger, per repository: one question ("is this change
@@ -70,6 +70,76 @@ const runEffect = (
     yield* createPrEffect(change, repo);
   });
 
+/**
+ * The facts the change's overview card shows beyond its terminals: how many pipelines are in
+ * flight and how many review comments wait, per repository in parallel. The pull request is
+ * asked only for its open threads and its checks — the cached queries the dashboard already
+ * makes — so the summary stays as cheap as the card it feeds. A repository's vendors being
+ * down is the contributor's own failure, which the host swallows: the card loses the facts,
+ * not the request.
+ */
+const summaryContributionEffect = (
+  change: Change,
+): Effect.Effect<SummaryContribution, unknown> =>
+  Effect.gen(function* () {
+    const perRepo = yield* Effect.forEach(
+      change.repos,
+      (repo) =>
+        Effect.gen(function* () {
+          const { number, unresolved, checks } = yield* prSummaryEffect(change, repo);
+          return { pipelines: yield* activeRunsEffect(change, repo, number), unresolved, checks };
+        }),
+      { concurrency: "unbounded" },
+    );
+    const pipelines = perRepo.reduce((n, r) => n + r.pipelines, 0);
+    const unresolved = perRepo.reduce((n, r) => n + r.unresolved, 0);
+    return {
+      facts: [
+        {
+          id: "pipelines",
+          label:
+            pipelines > 0
+              ? `${pipelines} pipeline${pipelines === 1 ? "" : "s"} active`
+              : "pipelines idle",
+          state: pipelines > 0 ? "pending" : "none",
+        },
+        // Nothing at all when every thread is resolved: an empty inbox needs no line.
+        ...(unresolved > 0
+          ? [{
+              id: "unresolved",
+              label: `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`,
+              state: "warn" as const,
+            }]
+          : []),
+      ],
+      // A pipeline in flight is a build running, whatever the pull request's checks say about
+      // the last one.
+      state: worstOf([
+        ...perRepo.map((r) => r.checks),
+        ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
+      ]),
+    };
+  });
+
+/**
+ * What cancelling would leave open per repository: the pull request, when there is one, per
+ * repository in parallel and in repository order. A repository with no pull request, or no
+ * network, is not a loose end worth failing a cancellation over, so each lookup is best effort.
+ */
+const prLooseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+  Effect.map(
+    Effect.forEach(
+      change.repos,
+      (repo) =>
+        Effect.map(
+          Effect.catchAll(prSummaryEffect(change, repo), () => Effect.succeed(undefined)),
+          (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
+        ),
+      { concurrency: "unbounded" },
+    ),
+    (prs) => prs.filter((p): p is string => Boolean(p)),
+  );
+
 export default {
   name: "ci",
   title: "CI",
@@ -82,4 +152,10 @@ export default {
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],
+
+  summaryContributions: [{ facts: summaryContributionEffect }],
+
+  // Cancelling leaves the pull requests open — closing somebody else's pull request is a
+  // decision about theirs — and says so, one line per repository that has one.
+  looseEnds: [{ looseEnds: prLooseEndsEffect }],
 } satisfies Extension;

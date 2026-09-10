@@ -55,18 +55,21 @@ is reported as "the server has no /settings — it is probably running older cod
   "changesRoot": "~/changes",
   "reposRoot": "~/Repos",
   "reposStart": "~/Repos/acme",
-  "jiraAssignee": "",
-  "jiraStartTransition": "In Progress",
-  "jiraDoneTransition": "Done",
-  "azureOrganization": "",
-  "azureProject": "",
+  "extensionSettings": {
+    "jira": { "assignee": "", "startTransition": "In Progress", "doneTransition": "Done" },
+    "deployments": { "organization": "", "project": "" }
+  },
   "worktreeCopy": [".idea", ".bsp", ".bloop", ".scala-build", ".metals", ".vscode"]
 }
 ```
 
-Empty values fall back to the tools' own configuration: the account the Jira token belongs to
-(`/myself`) for the assignee, and `az devops configure` for the Azure DevOps organisation and
-project.
+The Jira and deployment settings are the extensions' own — `extensionSettings[name][key]`, the
+keys each extension declares (docs/extensions.md). Empty values fall back to the tools' own
+configuration: the account the Jira token belongs to (`/myself`) for the assignee, and
+`az devops configure` for the Azure DevOps organisation and project. The flat legacy fields
+these replaced (`jiraAssignee`, `azureOrganization`, …) are still read when the bag does not
+answer, and the `IWE_*` environment variables beat them — which is why the settings page locks
+a field while its variable is set.
 
 `changesRoot` holds one directory per change; `reposRoot` bounds the repository browser and
 `reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
@@ -391,42 +394,33 @@ are looking at.
       },
       "azure": { "organization": "https://dev.azure.com/org", "project": "Project" } },
 
-    { "id": "personal", "name": "Personal", "azure": false }
+    { "id": "personal", "name": "Personal", "extensions": ["git", "ci"] }
   ]
 }
 ```
 
-`false` means "this context does not have that at all", and it is subtraction rather than
-configuration:
-
-- **No Azure**: no pipelines are looked for, and `Deployments` is not offered in the column.
-  The CI card stays either way — it is pull requests *as well as* pipelines, and a workspace
-  without pipelines still has reviews.
-- **No Jira** is no longer a flag: Jira is an extension, and a workspace without it simply does
-  not name it in its `extensions` list (below). Its per-workspace settings — project, board,
-  config file, token variable — are declared by the jira extension itself, rendered by the
-  settings page for every workspace that has Jira enabled, and stored under
-  `extensionSettings.jira`.
-
-Anything a workspace does not say is inherited from the top-level settings, which is exactly what
-IWE did before workspaces existed.
+The per-workspace `azure` object — organisation and project overrides — stays: the deployments
+implementation reads it through the `Workspace` tag, as that extension's own business. Which
+extensions a workspace has is the `extensions` list (below); the old vendor flags that stood in
+for it are migrated on load.
 
 A workspace can also name **which extensions it has** (`"extensions": ["git", "ci",
-"github-issues"]`): the cards, wizard steps and hooks it gets at all. Naming none means all of
-them, which is what IWE was before this existed; naming some is the whole list. Extensions are
-described in [docs/extensions.md](docs/extensions.md) — the jira and github-issues extensions are
-the first two, and both can be on at once: two tickets on one change is a thing, not a conflict.
-The old `"jira": false` flag is deprecated: a workspace still carrying it (with no `extensions`
-list) is migrated on load — the flag becomes an explicit list naming everything but jira, and the
-legacy `jira` object is folded into `extensionSettings.jira`. The migration is automatic, for
-hand-edits and settings-page writes alike.
+"github-issues"]`): the cards, wizard steps, pages, summary facts and hooks it gets at all.
+Naming none means all of them, which is what IWE was before this existed; naming some is the
+whole list. Extensions are described in [docs/extensions.md](docs/extensions.md) — the jira and
+github-issues extensions are the first two, and both can be on at once: two tickets on one
+change is a thing, not a conflict. The old vendor flags are retired: a workspace still carrying
+`"jira": false` or `"azure": false` (with no `extensions` list) is migrated on load — the flag
+becomes an explicit list naming everything but the extension it excluded (jira, deployments),
+and the legacy `jira` object is folded into `extensionSettings.jira`. The migration is
+automatic, for hand-edits and settings-page writes alike.
 
 Extensions do not have to live in this repository: `"extensionPaths"` in the config (or the
 `IWE_EXTENSION_PATHS` environment variable) names `.ts` modules or directories of them, loaded
 at startup beside the built-ins through the same contract, with `~/.config/iwe/extensions/`
-searched implicitly when it exists. A discovered extension's wizard step gets its interface
-from a `client.tsx` beside the module, which the server builds and serves to the page — see
-"Out-of-tree extensions" in [docs/extensions.md](docs/extensions.md).
+searched implicitly when it exists. A discovered extension's wizard step or page gets its
+interface from a `client.tsx` beside the module, which the server builds and serves to the
+page — see "Out-of-tree extensions" in [docs/extensions.md](docs/extensions.md).
 
 **A second client is a second site.** `extensionSettings.jira.configFile` points at another
 `jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
@@ -463,8 +457,8 @@ bug this prevents, and it would have looked like "why is my personal change show
 pipelines".
 
 The browser sends the chosen workspace where the request is not about a change
-(`/api/deployments?workspace=…`, `/api/jira/issues?workspace=…`); where it *is* about a change,
-the change says which workspace it belongs to and nothing has to be passed.
+(`/api/ext/deployments/services?workspace=…`, `/api/ext/jira/issues?workspace=…`); where it *is*
+about a change, the change says which workspace it belongs to and nothing has to be passed.
 
 ## Navigation
 
@@ -749,8 +743,8 @@ renaming it for you at that point and so do we.
 
 A window running a **coding agent** says what the agent is doing — `example-api - (pi working)`,
 `example-api - (pi waiting)` — instead of `node`, which says nothing. The agent reports that
-itself, in the `@agent` **tmux pane option**, which `agentIn()` reads out of the same
-`list-windows` call as everything else. The overview believes it over the process name: an agent
+itself, in the `@agent` **tmux pane option**, which the agents extension's presenter reads out
+of the same `list-windows` call as everything else. The overview believes it over the process
 waiting for you is not work in progress, though its process is very much running.
 
 `extensions/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent working`,
@@ -1014,18 +1008,24 @@ The version parameter is not called the same thing in every pipeline (`dockerTag
 parameter there is: a deploy run takes the environment and the thing to deploy, and when those
 are the only two, which is which is not a guess.
 
-Configured under `azureDeploy`, because none of these names are ours:
+Configured under the deployments extension's own settings — `extensionSettings.deployments` on
+the settings page, or by hand — because none of these names are ours:
 
 ```json
 {
-  "azureDeploy": {
-    "pipeline": ["build-", "deploy-"],
-    "versionParameter": "dockerTag",
-    "environmentParameter": "environment",
-    "environments": ["accept", "production"]
+  "extensionSettings": {
+    "deployments": {
+      "pipeline": ["build-", "deploy-"],
+      "versionParameter": "dockerTag",
+      "environmentParameter": "environment",
+      "environments": ["accept", "production"]
+    }
   }
 }
 ```
+
+The flat `azureDeploy` field these replaced is still read when the bag does not answer — its
+defaults and the `IWE_AZURE_*` environment variables included.
 
 **Deploy…** opens a dialog: which version, and where to. The versions are the service's own recent
 builds, newest first, each with the version it produced — scraped from the build's logs, because
@@ -1300,12 +1300,13 @@ every 15s, and a slow or broken CLI delays only its own row.
 ## Adding an integration
 
 Write an extension (see [docs/extensions.md](docs/extensions.md)): a module whose default export
-is a factory receiving the API. `registerCard` takes the same shape the
-integrations always had — `status(change)` for a whole widget or `repoStatus(change, repo)` to be
-fetched a repository at a time — and the UI renders whatever widgets come back; a card needs no
-frontend change. A wizard step is `registerWizardStep` plus a React component in the extension's
-`client.tsx`, and `on("change:created")` is the creation hook. A built-in is added to the loader
-in `src/extensions/index.ts` and, when it has a step, to the client registry in
+**describes** what it contributes — `cards`, `wizardSteps`, `routes`, `pages`, and the rest of
+the surfaces in docs/extensions.md. A card takes the same shape the integrations always had —
+`status(change)` for a whole widget or `repoStatus(change, repo)` to be fetched a repository at
+a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
+wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
+`events["change:created"]` is the creation hook. A built-in is added to the loader in
+`src/extensions/index.ts` and, when it has a step or a page, to the client registry in
 `src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
@@ -1334,12 +1335,14 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/leftovers.ts          directories in the changes root without a change
     src/description.ts        the pull request description an action copies
     src/cache.ts              stale-while-revalidate for everything the CLIs answer
-    src/summary.ts            the numbers on an overview card
-    src/windows.ts            which tmux windows count as busy (page and server share it)
+    src/summary.ts            the numbers on an overview card, as contributed facts
+    src/deploySettings.ts     the deployments extension's server-wide settings, read back
     src/local.ts              uncommitted work in a repository, and one file's diff
     src/commit.ts             one commit per repository, with one message
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
     src/settings.ts           reading and writing the config file from the page
+    src/extensions/           the built-ins and the loader: index.ts, api.ts (the whole
+                              promise), agents/, ci/, deployments/, git/, github-issues/, jira/
     src/origin.ts             refusing requests another site made
     src/cancel.ts             abandoning a change: worktrees back, nothing else touched
     src/titles.ts             what a change is called, from its ticket
@@ -1364,8 +1367,6 @@ itself when `ttyd` or `tmux` is missing rather than failing.
     src/web/CompletionCard.tsx  how far completing a change got
     src/web/ChangeCard.tsx      one active change on the overview
     src/web/SettingsPage.tsx  the config file, as a form
-    src/web/DeploymentsPage.tsx services against environments
-    src/web/DeployDialog.tsx    which version, and where to
     src/web/LocalPane.tsx       the review-changes tab: files, and a diff
     src/web/CommitDialog.tsx    committing across the change
     extensions/agent-state.ts   pi extension: publishes working/waiting to tmux

@@ -113,6 +113,22 @@ export const ConfigFile = Schema.Struct({
    * validated here — a path that does not exist is logged and skipped by the loader, not a
    * reason to reject the file. */
   extensionPaths: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
+   * one string or a list of strings per key. Not validated here — the fields are the
+   * extension's own business; the core carries the bag without looking inside. */
+  extensionSettings: Schema.optional(
+    Schema.mutable(
+      Schema.Record({
+        key: Schema.String,
+        value: Schema.mutable(
+          Schema.Record({
+            key: Schema.String,
+            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
+          }),
+        ),
+      }),
+    ),
+  ),
   azureDeploy: Schema.optional(AzureDeploy),
 });
 
@@ -139,6 +155,19 @@ export const Resolved = Schema.Struct({
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
   extensionPaths: Schema.Array(Schema.String),
+  extensionSettings: Schema.optional(
+    Schema.mutable(
+      Schema.Record({
+        key: Schema.String,
+        value: Schema.mutable(
+          Schema.Record({
+            key: Schema.String,
+            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
+          }),
+        ),
+      }),
+    ),
+  ),
   azureDeploy: Schema.Struct({
     pipeline: Schema.Tuple(Schema.String, Schema.String),
     versionParameter: Schema.String,

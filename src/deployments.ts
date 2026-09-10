@@ -2,7 +2,6 @@ import { Effect, Schema } from "effect";
 import type { WidgetState } from "./types.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { swrEffect, invalidate } from "./cache.ts";
-import { config } from "./config.ts";
 import {
   azForEffect,
   buildUrl,
@@ -12,6 +11,7 @@ import {
   type Definition,
 } from "./integrations/azure.ts";
 import { usesAzure, workspaceById } from "./workspaces.ts";
+import { deploySettings } from "./deploySettings.ts";
 import { autoDeployedApp } from "./deployConventions.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
@@ -162,13 +162,13 @@ const runsOfEffect = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const serviceName = (deployPipeline: string): string => {
-  const [, deploy] = config.azureDeploy.pipeline;
+  const [, deploy] = deploySettings().pipeline;
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
 // Pure and synchronous: nothing for an Effect to wrap.
 export const buildPipelineName = (service: string): string =>
-  `${config.azureDeploy.pipeline[0]}${service}`;
+  `${deploySettings().pipeline[0]}${service}`;
 
 const ago = (iso?: string | null): string => {
   if (!iso) return "";
@@ -192,7 +192,7 @@ const ago = (iso?: string | null): string => {
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function versionIn(parameters: Record<string, string> | null | undefined): string | undefined {
-  const { versionParameter, environmentParameter } = config.azureDeploy;
+  const { versionParameter, environmentParameter } = deploySettings();
   const params = parameters ?? {};
   if (params[versionParameter]) return params[versionParameter];
   const others = Object.entries(params).filter(([key]) => key !== environmentParameter);
@@ -208,7 +208,7 @@ export function versionIn(parameters: Record<string, string> | null | undefined)
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function latestFor(runs: Run[], environment: string): Deployed {
-  const { environmentParameter } = config.azureDeploy;
+  const { environmentParameter } = deploySettings();
   const mine = runs
     .filter((r) => (r.templateParameters ?? {})[environmentParameter] === environment)
     .sort((a, b) => b.id - a.id);
@@ -251,7 +251,7 @@ export const deploymentsEffect = (
     const pipelines = yield* allPipelinesEffect(az);
     if (pipelines.length === 0) return { services: [], error: "no pipelines found — is `az` logged in?" };
 
-    const [, deployPrefix] = config.azureDeploy.pipeline;
+    const [, deployPrefix] = deploySettings().pipeline;
     const byName = new Map(pipelines.map((p) => [p.name, p]));
     const deployPipelines = pipelines
       .filter((p) => p.name.startsWith(deployPrefix))
@@ -268,7 +268,7 @@ export const deploymentsEffect = (
             name,
             pipeline: { id: pipeline.id, name: pipeline.name },
             build: build && { id: build.id, name: build.name },
-            environments: config.azureDeploy.environments.map((e) => latestFor(runs, e)),
+            environments: deploySettings().environments.map((e) => latestFor(runs, e)),
           } satisfies Service;
         }),
       // The old Promise.all was unbounded, so this stays unbounded.
@@ -306,11 +306,12 @@ export const versionsForEffect = (
     if (autoDeployedApp(service)) {
       if (!deploy) return [];
       const runs = yield* runsOfEffect(az, deploy.id);
-      const [accept] = config.azureDeploy.environments;
+      const settings = deploySettings();
+      const [accept] = settings.environments;
       const stillDeploying = runs.some(
         (r) =>
           r.status !== "completed" &&
-          (r.templateParameters ?? {})[config.azureDeploy.environmentParameter] === accept,
+          (r.templateParameters ?? {})[settings.environmentParameter] === accept,
       );
       const expectedMs = stillDeploying ? yield* expectedDurationEffect(az, deploy.id) : undefined;
       return acceptedVersions(runs, az, expectedMs, howMany);
@@ -363,7 +364,7 @@ export const versionsForEffect = (
         url: buildUrl(run.id, az),
         // Where it already is: deploying what is already there is usually a mistake, and saying so
         // costs nothing.
-        deployedTo: config.azureDeploy.environments.filter(
+        deployedTo: deploySettings().environments.filter(
           (e) => latestFor(deployRuns, e).version === version,
         ),
       }));
@@ -398,8 +399,8 @@ export function acceptedVersions(
   expectedMs: number | undefined,
   howMany: number,
 ): Buildable[] {
-  const [accept] = config.azureDeploy.environments;
-  const { environmentParameter } = config.azureDeploy;
+  const { environments, environmentParameter } = deploySettings();
+  const [accept] = environments;
   const mine = runs
     .filter((r) => (r.templateParameters ?? {})[environmentParameter] === accept)
     .sort((a, b) => b.id - a.id);
@@ -441,11 +442,11 @@ export const branchOf = (ref: string | undefined): string => {
 
 // Pure and synchronous: nothing for an Effect to wrap.
 export const deployPipelineName = (service: string): string =>
-  `${config.azureDeploy.pipeline[1]}${service}`;
+  `${deploySettings().pipeline[1]}${service}`;
 
 /** The parameter this pipeline calls the version, learnt from what it was given last time. */
 function versionParameterOf(runs: Run[]): string {
-  const { versionParameter, environmentParameter } = config.azureDeploy;
+  const { versionParameter, environmentParameter } = deploySettings();
   for (const run of runs) {
     const params = run.templateParameters ?? {};
     if (params[versionParameter]) return versionParameter;
@@ -472,7 +473,7 @@ export const deployEffect = (
   workspaceId?: string,
 ): Effect.Effect<{ runId: number; url?: string }, BadRequestError> =>
   Effect.gen(function* () {
-    const { environments, environmentParameter } = config.azureDeploy;
+    const { environments, environmentParameter } = deploySettings();
     if (!environments.includes(environment)) {
       return yield* Effect.fail(
         new BadRequestError({ message: `unknown environment: ${environment}` }),

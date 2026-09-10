@@ -2,8 +2,10 @@ import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
 import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
-import { prSummaryEffect } from "./integrations/github.ts";
 import { archiveChangeEffect, writeChangeEffect } from "./changes.ts";
+import { looseEndContributorsFor } from "./extensions/index.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
+import { workspaceOf } from "./workspaces.ts";
 import { stopTerminalEffect } from "./terminal.ts";
 import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
@@ -26,7 +28,8 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
  * that anyone else can see. The branches stay (wt keeps an unmerged one), the pull requests stay
  * open, the ticket stays where it is. That is deliberate: cancelling is a decision about your own
  * desk, and closing somebody else's pull request or moving a ticket other people are watching is
- * a decision about theirs. What is left is listed so you can go and deal with it.
+ * a decision about theirs. What is left is listed so you can go and deal with it — the loose
+ * ends are gathered by asking the extensions (looseEndsEffect, below).
  *
  * The protections are the same ones a repository removal has, because it is the same act:
  * uncommitted work refuses outright, commits nobody else has ask first.
@@ -113,29 +116,27 @@ export async function cancelChange(
  * What cancelling deliberately leaves alone, said out loud.
  *
  * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
- * change that comes back to you in a week as somebody else's question.
+ * change that comes back to you in a week as somebody else's question. Whose ends there are is
+ * the extensions' business: every contributor of the change's workspace is asked, in extension
+ * load order — so the pull-request lines (ci) precede the ticket line (jira), where the
+ * hardcoded list here used to put the ticket first. The set of sentences is what it always was.
+ * A contributor that fails contributes nothing: cancelling must never fail because a vendor
+ * lookup did.
  */
-const looseEndsEffect = (change: Change): Effect.Effect<string[]> =>
-  Effect.gen(function* () {
-    const ends: string[] = [];
-    if (change.jira) ends.push(`${change.jira} is still open in Jira`);
-
-    const prs = yield* Effect.forEach(
-      change.repos,
-      (repo) =>
-        Effect.map(
-          // Best effort: a repository with no pull request, or no network, is not a loose end worth
-          // failing a cancellation over.
-          Effect.catchAll(prSummaryEffect(change, repo), () => Effect.succeed(undefined)),
-          (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
+export const looseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+  Effect.map(
+    Effect.forEach(
+      looseEndContributorsFor(workspaceOf(change)),
+      (contributor) =>
+        Effect.catchAll(
+          Effect.provide(contributor.looseEnds(change), capabilitiesLayer(workspaceOf(change))),
+          () => Effect.succeed([] as string[]),
         ),
       // The old Promise.all was unbounded, so this stays unbounded.
       { concurrency: "unbounded" },
-    );
-    ends.push(...prs.filter((p): p is string => Boolean(p)));
-
-    return ends;
-  });
+    ),
+    (ends) => ends.flat(),
+  );
 
 /**
  * Where the change's branch still exists once the worktrees are gone.

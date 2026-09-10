@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
 import type { WidgetState } from "../../types.ts";
 import { swrEffect, invalidate } from "../../cache.ts";
-import { config } from "../../config.ts";
+import { config, type Config } from "../../config.ts";
 import { jiraFetchEffect, jiraSetupEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
 import { accountIdEffect } from "./account.ts";
 import { workspaceById, workspaceOf } from "../../workspaces.ts";
@@ -53,6 +53,32 @@ export function siteOfWorkspace(workspace: {
 export const siteOf = (change: { workspace?: string }): Site => siteOfWorkspace(workspaceOf(change as never));
 // Pure and synchronous: nothing for an Effect to wrap.
 export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspaceById(workspaceId));
+
+/**
+ * The server-wide settings this extension declares, read back with the legacy config fields as
+ * the fallback chain's tail: `config.extensionSettings.jira.<key>` — what the settings page
+ * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
+ * which carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat
+ * the file, exactly as they always have). A bag value that is not a string, or an empty one,
+ * is not set: empty means unset.
+ */
+// Pure and synchronous: nothing for an Effect to wrap.
+export function globalOf(settings: Config): {
+  assignee: string;
+  startTransition: string;
+  doneTransition: string;
+} {
+  const bag = settings.extensionSettings?.jira;
+  const own = (key: string): string | undefined => {
+    const value = bag?.[key];
+    return typeof value === "string" && value.trim() ? value : undefined;
+  };
+  return {
+    assignee: own("assignee") ?? settings.jiraAssignee,
+    startTransition: own("startTransition") ?? settings.jiraStartTransition,
+    doneTransition: own("doneTransition") ?? settings.jiraDoneTransition,
+  };
+}
 
 /** Namespaces the cache: two sites answering "PROJ-1" differently is exactly the bug this
  * prevents. */
@@ -266,7 +292,7 @@ export const createIssueEffect = (input: {
 
     if (input.assignToMe !== false) {
       // Assigning is a field like any other, but its value is an account id, not a name.
-      const account = yield* accountIdEffect(config.jiraAssignee, site);
+      const account = yield* accountIdEffect(globalOf(config).assignee, site);
       if (account) {
         yield* jiraFetchEffect(`/rest/api/3/issue/${created.key}/assignee`, {
           configFile: site.configFile,

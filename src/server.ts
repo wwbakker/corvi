@@ -14,6 +14,7 @@ import {
   cardByName,
   cardsFor,
   dispatchExtensionRoute,
+  pagesFor,
   provisionEffect,
   repoStatusOfEffect,
   runCardEffect,
@@ -27,7 +28,6 @@ import { summaryOfEffect } from "./summary.ts";
 import { localChangesEffect, fileDiffEffect } from "./local.ts";
 import { commitChangeEffect, pushChangeEffect, type CommitRequest } from "./commit.ts";
 import { refreshTitlesEffect } from "./titles.ts";
-import { deploymentsEffect, versionsForEffect, deployEffect } from "./deployments.ts";
 import { proxyToTtyd, bridge, keysScript, type Bridge } from "./terminalProxy.ts";
 import { platformName } from "./platform.ts";
 import type { ServerWebSocket } from "bun";
@@ -214,9 +214,23 @@ const server = Bun.serve({
         ),
     },
 
+    // The pages a context's sidebar offers, the same question one surface over: what is
+    // deployed where is the deployments extension's page here, another extension's page
+    // elsewhere. A context without the extension has no entry, not an empty one.
+    "/api/pages": {
+      GET: (req) =>
+        withWorkspaceParam(
+          req,
+          Effect.succeed(json({ pages: pagesFor(workspaceById(workspaceParam(req))) })),
+        ),
+    },
+
     // Extension routes: whatever the extensions registered, under one namespace, with the same
-    // origin guard as the rest and the workspace the request names. Unknown routes 404.
-    "/api/ext/:name/:path": async (req) =>
+    // origin guard as the rest and the workspace the request names. The wildcard is the whole
+    // rest of the path — an extension's declared patterns may capture several segments
+    // (/services/:service/versions) — and the dispatcher does its own matching on the pathname.
+    // Unknown routes 404.
+    "/api/ext/:name/*": async (req) =>
       (await dispatchExtensionRoute(req)) ?? new Response("no such extension route", { status: 404 }),
 
     // Every change's terminals, in one call: the navigation column lists them all, and asking
@@ -252,45 +266,9 @@ const server = Bun.serve({
         ),
     },
 
-    // What is deployed where. Not about a change: a service's build goes to an environment, and
-    // which change produced it is a separate question.
-    // Scoped to the context you are in: a second client is a second organisation, and its
-    // pipelines are not this one's.
-    "/api/deployments": {
-      GET: (req) =>
-        withWorkspaceParam(
-          req,
-          Effect.map(deploymentsEffect(workspaceParam(req)), json),
-        ),
-    },
-
-    // The versions a service has built and could be given, newest first.
-    "/api/deployments/:service/versions": {
-      GET: (req) =>
-        withWorkspaceParam(
-          req,
-          Effect.map(versionsForEffect(req.params.service, workspaceParam(req)), json),
-        ),
-    },
-
-    // The one irreversible thing on that page: start a deploy.
-    "/api/deployments/:service/deploy": {
-      POST: (req) =>
-        withWorkspaceParam(
-          req,
-          Effect.gen(function* () {
-            const body = (yield* bodyOf(req)) as { version?: string; environment?: string };
-            if (!body.version || !body.environment) {
-              return yield* Effect.fail(
-                new BadRequestError({ message: "version and environment required" }),
-              );
-            }
-            return json(
-              yield* deployEffect(req.params.service, body.version, body.environment, workspaceParam(req)),
-            );
-          }),
-        ),
-    },
+    // What is deployed where moved under the deployments extension's namespace
+    // (/api/ext/deployments/…): the implementation (src/deployments.ts) stayed where it was,
+    // the routes and the page are the extension's own.
 
     // What each change is called, refreshed from Jira in one query for the whole page. Its own
     // route, and not part of /api/changes: the list must stay instant, this waits for a CLI.
@@ -356,8 +334,9 @@ const server = Bun.serve({
         ),
     },
 
-    // The three numbers a change's card on the overview shows. One request per card, so a
-    // change whose CLIs are slow holds up only its own card.
+    // The facts a change's card on the overview shows — terminals from the core, the rest from
+    // the extensions. One request per card, so a change whose CLIs are slow holds up only its
+    // own card.
     "/api/changes/:id/summary": {
       GET: (req) => withChange(req.params.id, (c) => Effect.map(summaryOfEffect(c), json)),
     },

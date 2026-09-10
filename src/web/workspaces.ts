@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "./api.ts";
 import { getPref, setPref } from "./prefs.ts";
 import type { Change } from "./api.ts";
@@ -10,7 +10,8 @@ export type Workspace = {
   reposStart?: string;
   /** `false` when this context has no Jira, and no ticket to pick in the wizard. */
   jira?: false | { project?: string; board?: string; configFile?: string; tokenEnv?: string };
-  /** `false` when it has no pipelines: the deployments page is not offered. */
+  /** `false` when it has no pipelines: on load this folds into the extensions list without
+   * `deployments` (src/extensions/index.ts), so the page is not offered. */
   azure?: false | { organization?: string; project?: string };
   env?: Record<string, string>;
 };
@@ -78,6 +79,42 @@ export function useWorkspaces() {
     platform,
     reload: () => void reload(),
   };
+}
+
+/** One page the sidebar offers, as the server names it: the extension it belongs to travels
+ * with it, because that is who renders it. */
+export type PageInfo = { id: string; title: string; extension: string };
+
+/** The pages a context's sidebar offers, asked of the server (`/api/pages`) — that is where
+ * the extensions and their enablement are known, so this is the same question the wizard asks
+ * of `/api/wizard`. Asked again whenever the context changes, and on demand through `reload`
+ * (a settings save toggles enablement without changing the context, which is why the settings
+ * page calls it). A fetch that fails keeps the last good pages rather than clearing them — no
+ * answer yet is the previous answer still; the next fetch or event tick recovers. */
+export function usePages(workspaceId?: string) {
+  const [pages, setPages] = useState<PageInfo[]>([]);
+  useEffect(() => {
+    // Alive guards the context-change race: only the latest fetch may answer.
+    let alive = true;
+    api<{ pages: PageInfo[] }>(
+      `/pages${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
+    )
+      .then((r) => {
+        if (alive) setPages(r.pages);
+      })
+      .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId]);
+  const reload = useCallback(() => {
+    api<{ pages: PageInfo[] }>(
+      `/pages${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
+    )
+      .then((r) => setPages(r.pages))
+      .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
+  }, [workspaceId]);
+  return { pages, reload };
 }
 
 /**

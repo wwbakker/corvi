@@ -17,6 +17,7 @@ import {
 import { provisionRepoEffect, gitRunEffect, repoItemEffect, checkoutFor, currentBranch } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/types.ts";
+import type { TmuxWindow } from "../src/extensions/api.ts";
 import { sh } from "../src/sh.ts";
 
 let tmp: string;
@@ -340,37 +341,60 @@ test("a completion records itself before it starts checking anything", async () 
 }, 20_000);
 
 test("the overview counts windows that are running something, not windows", async () => {
-  const { busyWindows } = await import("../src/windows.ts");
+  // Busy is a presented fact now: the merge in terminal.ts says which windows are work.
+  const { presentWindow } = await import("../src/terminal.ts");
+  const busy = (over: Partial<TmuxWindow>) =>
+    presentWindow({
+      index: 0,
+      name: "",
+      command: "",
+      active: true,
+      activity: false,
+      directory: "",
+      named: false,
+      options: {},
+      ...over,
+    }).busy;
   // A prompt is not work; a build, an editor and a server are.
-  expect(
-    busyWindows([
-      { command: "zsh" },
-      { command: "-zsh" },
-      { command: "nvim" },
-      { command: "gradle" },
-      { command: "" }, // no session, or tmux told us nothing
-    ]),
-  ).toBe(2);
+  expect([
+    busy({ command: "zsh" }),
+    busy({ command: "-zsh" }),
+    busy({ command: "nvim" }),
+    busy({ command: "gradle" }),
+    busy({}), // no session, or tmux told us nothing
+  ]).toEqual([false, false, true, true, false]);
 
   // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
   // otherwise count as work for as long as the window stayed open.
-  expect(
-    busyWindows([
-      { command: "node", agent: "working" },
-      { command: "node", agent: "waiting" },
-      { command: "node" }, // no marker: something is running, count it
-    ]),
-  ).toBe(2);
+  expect([
+    busy({ command: "node", options: { "@agent": "working" } }),
+    busy({ command: "node", options: { "@agent": "waiting" } }),
+    busy({ command: "node" }), // no marker: something is running, count it
+  ]).toEqual([true, false, true]);
 });
 
 test("an agent's own account of itself is read from the @agent pane option", async () => {
-  const { agentIn } = await import("../src/terminal.ts");
+  // The agents extension answers for the window; what it leaves alone falls through to the
+  // core's plain-terminal defaults.
+  const { presentWindow } = await import("../src/terminal.ts");
+  const presented = (option: string) =>
+    presentWindow({
+      index: 0,
+      name: "",
+      command: "node",
+      active: true,
+      activity: false,
+      directory: "example-api",
+      named: false,
+      options: { "@agent": option },
+    });
   // What pi's busy-title extension sets with `tmux set -p @agent ...`.
-  expect(agentIn("working")).toBe("working");
-  expect(agentIn("waiting")).toBe("waiting");
-  // Unset, or set to something else by something else: no claim is made about the window.
-  expect(agentIn("")).toBeUndefined();
-  expect(agentIn("busy")).toBeUndefined();
+  expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
+  expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
+  // Unset, or set to something else by something else: no claim is made about the window —
+  // exactly as the old agentIn ignored it.
+  expect(presented("")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
 test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
@@ -495,6 +519,46 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
   expect((await readChange(change.id))?.title).toBe("What it is really about");
 
   loaded.splice(0, loaded.length, ...restore);
+});
+
+test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
+  const { summaryOfEffect } = await import("../src/summary.ts");
+  const { install, loaded } = await import("../src/extensions/index.ts");
+
+  const restore = loaded.splice(0, loaded.length);
+  install({
+    name: "stub-summary",
+    title: "Stub",
+    summaryContributions: [
+      {
+        facts: () =>
+          Effect.succeed({
+            facts: [{ id: "tickets", label: "1 ticket open", state: "warn" }],
+            state: "warn",
+          }),
+      },
+      // A contributor whose vendor is down: it contributes nothing, never a failed request.
+      { facts: () => Effect.fail(new Error("down")) },
+    ],
+  });
+
+  try {
+    // A change with a repository but no tmux session: nothing busy, nothing contributed
+    // except the stub's say-so.
+    const change = await createChange({ id: "PROJ-SUMMARY", repos: [repo] });
+    const summary = await Effect.runPromise(summaryOfEffect(change));
+
+    // The core's own fact comes first, the contributed facts after it in load order — and the
+    // failing contributor is simply absent, not an error on the card.
+    expect(summary.facts).toEqual([
+      { id: "terminals", label: "terminals idle", state: "none" },
+      { id: "tickets", label: "1 ticket open", state: "warn" },
+    ]);
+    // The icon takes the worst of the verdicts that were offered; the failure offered none.
+    expect(summary.state).toBe("warn");
+  } finally {
+    loaded.splice(0, loaded.length, ...restore);
+  }
 });
 
 test("the icons take the worst of what the repositories say", async () => {

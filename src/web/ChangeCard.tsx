@@ -60,23 +60,16 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
       {/* How it is doing, underneath: state on the left, dates on the right. */}
       <div className="bottom">
         <p className="facts">
-          <Fact state={summary && summary.pipelines > 0 ? "pending" : "none"}>
-            {!summary
-              ? "…"
-              : summary.pipelines > 0
-                ? `${plural(summary.pipelines, "pipeline")} active`
-                : "pipelines idle"}
-          </Fact>
-          <Fact state={summary && summary.terminals > 0 ? "ok" : "none"}>
-            {!summary
-              ? "…"
-              : summary.terminals > 0
-                ? `${plural(summary.terminals, "terminal process", "terminal processes")} active`
-                : "terminals idle"}
-          </Fact>
-          {/* Nothing at all when every thread is resolved: an empty inbox needs no line. */}
-          {summary && summary.unresolved > 0 && (
-            <Fact state="warn">{plural(summary.unresolved, "unresolved comment")}</Fact>
+          {/* Until the summary arrives, one placeholder where the facts will read; the shape
+           * itself says how many lines there are, so the count is not known before. */}
+          {!summary ? (
+            <Fact state="none">…</Fact>
+          ) : (
+            summary.facts.map((fact) => (
+              <Fact key={fact.id} state={fact.state ?? "none"}>
+                {fact.label}
+              </Fact>
+            ))
           )}
         </p>
         <span className={`badge ${stateClass(change.state)}`}>{change.state ?? "In Progress"}</span>

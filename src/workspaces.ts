@@ -1,5 +1,6 @@
 import type { Change } from "./types.ts";
 import { config, type Workspace } from "./config.ts";
+import { deploySettings } from "./deploySettings.ts";
 
 /**
  * Which context a change belongs to, and what that context implies.
@@ -25,13 +26,15 @@ export const workspaceOf = (change: Change): Workspace => workspaceById(change.w
  * the jira extension's own (src/extensions/jira/jira.ts). */
 export const usesAzure = (workspace: Workspace): boolean => workspace.azure !== false;
 
-/** Azure DevOps for this workspace, falling back to the single setting IWE had before, and then
- * to whatever `az devops configure` holds. */
+/** Azure DevOps for this workspace, falling back to the single setting IWE had before — now
+ * read through the deployments extension's own chain (the settings bag, then the legacy field,
+ * src/deploySettings.ts) — and then to whatever `az devops configure` holds. */
 export function azureOf(workspace: Workspace): { organization: string; project: string } {
   const own = workspace.azure === false ? undefined : workspace.azure;
+  const global = deploySettings();
   return {
-    organization: own?.organization ?? config.azureOrganization,
-    project: own?.project ?? config.azureProject,
+    organization: own?.organization ?? global.organization ?? config.azureOrganization,
+    project: own?.project ?? global.project ?? config.azureProject,
   };
 }
 

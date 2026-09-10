@@ -8,7 +8,9 @@ import { changeDir } from "./changes.ts";
 import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { shEffect, shOrThrowEffect, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
-import type { AgentState } from "./terminalTypes.ts";
+import type { TerminalWindow } from "./terminalTypes.ts";
+import type { TmuxWindow, WindowPresentation } from "./extensions/api.ts";
+import { windowPresenters } from "./extensions/presenters.ts";
 
 /**
  * A terminal for a change: one tmux session, started in the change directory, served to the
@@ -342,47 +344,40 @@ export const stopTerminalEffect = (id: string): Effect.Effect<void> =>
  * the change directory and adopted again on the next start; completing a change ends one for
  * good, and so does closing its last window. */
 
-/** One tmux window of a change, as the strip above the terminal shows it. */
-export type TerminalWindow = {
-  index: number;
-  name: string;
-  /** What is actually running in the active pane: zsh, nvim, gradle, ... */
-  command: string;
-  active: boolean;
-  /** Output arrived since you last looked at it. */
-  activity: boolean;
-  /** Directory of the active pane: which repository the window is in, which is usually what you
-   * want to know about it. */
-  directory: string;
-  /** Whether the name is one you gave it. tmux renames a window after whatever runs in it until
-   * you name it yourself, which switches automatic renaming off. */
-  named: boolean;
-  /** What a coding agent in this window is doing, when it says so in the pane title. */
-  agent?: AgentState;
+/** Shells: a window sitting at a prompt is idle, whatever the shell is called. Moved here
+ * from src/windows.ts, which retired with the busy fact into the presentation below. */
+const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
+
+/** One tmux window as the page sees it, with the busy fact the overview counts — presentational
+ * to the page, but the server's own accounting travels with it too. */
+export type PresentedWindow = TerminalWindow & { busy: boolean };
+
+/** The pane options any presenter declared, once each, in load order — the FORMAT asks tmux
+ * for exactly these, so the raw window carries what presenters know how to read. */
+const paneOptions = (): string[] => {
+  const seen = new Set<string>();
+  for (const presenter of windowPresenters()) {
+    for (const option of presenter.paneOptions ?? []) seen.add(option);
+  }
+  return [...seen];
 };
 
-export type { AgentState };
+/** The tmux FORMAT for a set of pane options: the fixed fields, then one field per option.
+ * Built per call, because the options depend on which extensions are loaded. `list-windows`
+ * still answers in one call per session. */
+const formatFor = (options: readonly string[]): string => {
+  const fixed =
+    "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}";
+  return options.length ? `${fixed}\t${options.map((o) => `#{${o}}`).join("\t")}` : fixed;
+};
 
-/**
- * An agent's own account of itself, read from the `@agent` tmux pane option.
- *
- * A window running pi looks like any other `node` process, so nothing here can tell "thinking"
- * from "waiting for you to answer" — which is the one thing worth knowing about it. pi's
- * `busy-title` extension sets `@agent` on its pane (`tmux set -p @agent working`).
- *
- * A pane option rather than the pane title: the title is shared with pi's own session name and
- * with the shell, which rewrite it constantly, and the marker kept being overwritten seconds
- * after it was set. Nobody else writes `@agent`, and tmux drops it when the pane dies, so a
- * crashed agent leaves nothing stale behind.
- */
-export const agentIn = (option: string): AgentState | undefined =>
-  option === "working" || option === "waiting" ? option : undefined;
-
-const FORMAT =
-  "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{@agent}";
-
-const parseWindow = (line: string): TerminalWindow => {
-  const [index, name, command, active, activity, path, auto, agent] = line.split("\t");
+const parseWindow = (line: string, options: readonly string[]): TmuxWindow => {
+  const [index, name, command, active, activity, path, auto, ...extra] = line.split("\t");
+  const opts: Record<string, string> = {};
+  extra.forEach((value, i) => {
+    const option = options[i];
+    if (option) opts[option] = value ?? "";
+  });
   return {
     index: Number(index),
     name: name ?? "",
@@ -391,17 +386,68 @@ const parseWindow = (line: string): TerminalWindow => {
     activity: activity === "1",
     directory: basename(path ?? ""),
     named: auto === "0",
-    agent: agentIn(agent ?? ""),
+    options: opts,
   };
 };
 
-/** The windows of one change's session. No session yet — the terminal was never opened — is an
- * empty strip, not a failure; the `CliError` channel is only for a timed-out tmux. */
-export const listWindowsEffect = (id: string): Effect.Effect<TerminalWindow[], CliError> =>
+/** What the merge has gathered from the presenters before the core's defaults compose it:
+ * fields the presenters left undefined fall through to later presenters, then to here. */
+const merged = (raw: TmuxWindow): WindowPresentation =>
+  windowPresenters().reduce<WindowPresentation>((acc, presenter) => {
+    const answer = presenter.present(raw);
+    if (!answer) return acc; // a presenter with nothing to say contributes nothing
+    return {
+      label: acc.label ?? answer.label,
+      running: acc.running ?? answer.running,
+      detail: acc.detail ?? answer.detail,
+      icon: acc.icon ?? answer.icon,
+      state: acc.state ?? answer.state,
+      busy: acc.busy ?? answer.busy,
+    };
+  }, {});
+
+/**
+ * Present one raw window: ask the presenters what it is, and compose the core's defaults
+ * around whatever they answered.
+ *
+ * The first presenter that answers a field wins (registration order within an extension, load
+ * order across them); what nobody answered, the core says:
+ *
+ * - the base name is the name you gave the window, or where it is — tmux's own default names
+ *   a window after whatever runs in it, which says less than the directory does;
+ * - the composed name appends what is running, unless it is a plain shell or already the
+ *   whole label — so a prompt reads as a place, not a program;
+ * - busy is "not a shell" — the heuristic the overview's terminals fact has always used, with
+ *   an agent believed over its process name (pi at its prompt is `node`).
+ *
+ * Pure, and exported for the tests: the page renders exactly what this says.
+ */
+export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
+  const said = merged(raw);
+  const base = raw.named ? raw.name : raw.directory || raw.name;
+  const what = said.running ?? raw.command;
+  const label = said.label ?? (what && what !== "zsh" && what !== base ? `${base} - (${what})` : base);
+  return {
+    index: raw.index,
+    label,
+    detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
+    icon: said.icon ?? "terminal",
+    state: said.state ?? "idle",
+    active: raw.active,
+    activity: raw.activity,
+    busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
+  };
+};
+
+/** The windows of one change's session, presented. No session yet — the terminal was never
+ * opened — is an empty strip, not a failure; the `CliError` channel is only for a timed-out
+ * tmux. */
+export const listWindowsEffect = (id: string): Effect.Effect<PresentedWindow[], CliError> =>
   Effect.gen(function* () {
-    const r = yield* shEffect(["tmux", "list-windows", "-t", sessionName(id), "-F", FORMAT]);
+    const options = paneOptions();
+    const r = yield* shEffect(["tmux", "list-windows", "-t", sessionName(id), "-F", formatFor(options)]);
     if (r.code !== 0) return []; // no session yet: the terminal was never opened
-    return r.stdout.split("\n").filter(Boolean).map(parseWindow);
+    return r.stdout.split("\n").filter(Boolean).map((line) => presentWindow(parseWindow(line, options)));
   });
 
 
@@ -417,16 +463,17 @@ export const changeOfSession = (session: string): string | undefined =>
  * there is; the ones that are not ours are dropped by their name. No tmux server running is an
  * empty record, not a failure; the `CliError` channel is only for a timed-out tmux.
  */
-export const allWindowsEffect = (): Effect.Effect<Record<string, TerminalWindow[]>, CliError> =>
+export const allWindowsEffect = (): Effect.Effect<Record<string, PresentedWindow[]>, CliError> =>
   Effect.gen(function* () {
-    const r = yield* shEffect(["tmux", "list-windows", "-a", "-F", `#{session_name}\t${FORMAT}`]);
+    const options = paneOptions();
+    const r = yield* shEffect(["tmux", "list-windows", "-a", "-F", `#{session_name}\t${formatFor(options)}`]);
     if (r.code !== 0) return {}; // no server running: nobody has opened a terminal yet
-    const byChange: Record<string, TerminalWindow[]> = {};
+    const byChange: Record<string, PresentedWindow[]> = {};
     for (const line of r.stdout.split("\n").filter(Boolean)) {
       const tab = line.indexOf("\t");
       const id = changeOfSession(line.slice(0, tab));
       if (!id) continue;
-      (byChange[id] ??= []).push(parseWindow(line.slice(tab + 1)));
+      (byChange[id] ??= []).push(presentWindow(parseWindow(line.slice(tab + 1), options)));
     }
     return byChange;
   });

@@ -84,6 +84,32 @@ export type Change = {
 
 export type WidgetState = "ok" | "pending" | "warn" | "none" | "error";
 
+/** One red build decides the colour; then one still running; then green. Pure, and here
+ * rather than in summary.ts because extension code needs it (the ci extension's verdict) and
+ * must not import summary.ts through the host — that would be a module cycle. */
+export const worst = (states: WidgetState[]): WidgetState =>
+  states.includes("error")
+    ? "error"
+    : states.includes("pending")
+      ? "pending"
+      : states.includes("warn")
+        ? "warn"
+        : states.includes("ok")
+          ? "ok"
+          : "none";
+
+/** One fact on a change's overview card: a coloured dot and a phrase. Lives here rather than
+ * in the extension API because the summary surface (src/summary.ts, a later slice) speaks it
+ * too, and api.ts already shares this file's vocabulary. */
+export type SummaryFact = {
+  /** Stable key, e.g. "pipelines". */
+  id: string;
+  /** Rendered as-is: "2 pipelines active", "terminals idle". */
+  label: string;
+  /** Colours the dot; "none" is the idle grey. */
+  state?: WidgetState;
+};
+
 /** One item inside a widget, e.g. a repo, a PR, a build. */
 export type WidgetItem = {
   label: string;
@@ -151,18 +177,13 @@ export type FileChange = {
 };
 
 /** What a change's card and its entry in the navigation column say beyond the change itself:
- * the three things that change while you are not looking at it. Lives here rather than in
- * summary.ts because the page needs the type and must not pull the server's modules in. */
+ * the facts its extensions contribute, and the worst verdict among them for the navigation's
+ * icon. Lives here rather than in summary.ts because the page needs the type and must not pull
+ * the server's modules in. */
 export type ChangeSummary = {
-  /** Pipeline runs in flight across every repository of the change. */
-  pipelines: number;
-  /** tmux windows running something other than a shell: a build, an editor, a server. */
-  terminals: number;
-  /** Windows in the change's tmux session, so "idle" can be told from "no terminal". */
-  windows: number;
-  /** Open review threads across every pull request of the change. */
-  unresolved: number;
-  /** How the builds are doing, across every repository: the worst of them, since one red build
-   * is what you want to know about. */
-  ci: WidgetState;
+  /** One fact per contributed line, in the order they should read. */
+  facts: SummaryFact[];
+  /** How the builds are doing, across every repository: the worst verdict offered, since one
+   * red build is what you want to know about. "none" when nothing has a verdict. */
+  state: WidgetState;
 };

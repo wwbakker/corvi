@@ -1,55 +1,52 @@
 import { Effect } from "effect";
-import type { Change, ChangeSummary, WidgetState } from "./types.ts";
-import { activeRunsEffect } from "./integrations/azure.ts";
-import { prSummaryEffect } from "./integrations/github.ts";
+import { worst, type Change, type ChangeSummary, type SummaryFact } from "./types.ts";
 import { listWindowsEffect } from "./terminal.ts";
-import { busyWindows } from "./windows.ts";
+import { summaryContributorsFor } from "./extensions/index.ts";
+import { capabilitiesLayer } from "./extensions/services.ts";
+import { workspaceOf } from "./workspaces.ts";
 
 export type { ChangeSummary };
 
-/** One red build decides the colour; then one still running; then green. */
-export const worst = (states: WidgetState[]): WidgetState =>
-  states.includes("error")
-    ? "error"
-    : states.includes("pending")
-      ? "pending"
-      : states.includes("warn")
-        ? "warn"
-        : states.includes("ok")
-          ? "ok"
-          : "none";
+// The helper moved to types.ts (pure, extension code needs it without importing this module
+// through the host); re-exported for everything that knew it from here.
+export { worst };
 
 /**
- * The overview's per-change numbers, gathered per repository in parallel.
+ * What the overview's card says about a change: what the core knows about its terminals, plus
+ * what the extensions say.
  *
- * Deliberately cheap: it reuses the cached Azure DevOps queries the dashboard already makes and
- * asks the pull request only for its open threads, rather than building the widgets. A change
- * that answers slowly delays its own card and nothing else, because the browser asks for one
- * summary per card.
+ * Deliberately cheap: the terminals come from one tmux call, and each extension is asked once,
+ * in load order, inside the change's own workspace — so every subprocess carries its
+ * environment. A contributor that fails contributes nothing: a vendor being down is not a
+ * reason to blank the card, let alone fail the request. The icon's verdict is the worst of
+ * what was offered, and "none" when nobody offered one.
  */
 export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
   Effect.gen(function* () {
+    // The core's own fact: tmux stays core, and busy is a presented fact — the merge in
+    // terminal.ts says which windows are work.
     const windows = yield* listWindowsEffect(change.id);
-    const perRepo = yield* Effect.forEach(
-      change.repos,
-      (repo) =>
-        Effect.gen(function* () {
-          const { number, unresolved, checks } = yield* prSummaryEffect(change, repo);
-          return { pipelines: yield* activeRunsEffect(change, repo, number), unresolved, checks };
-        }),
+    const busy = windows.filter((w) => w.busy).length;
+    const terminals: SummaryFact = {
+      id: "terminals",
+      label: busy > 0 ? `${busy} terminal process${busy === 1 ? "" : "es"} active` : "terminals idle",
+      state: busy > 0 ? "ok" : "none",
+    };
+    // Every contributor in load order, each inside its workspace's context; one that fails
+    // contributes nothing, never a failed request.
+    const answered = yield* Effect.forEach(
+      summaryContributorsFor(workspaceOf(change)),
+      (contributor) =>
+        contributor.facts(change).pipe(
+          Effect.provide(capabilitiesLayer(workspaceOf(change))),
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        ),
       { concurrency: "unbounded" },
     );
+    const contributions = answered.filter((c) => c !== undefined);
     return {
-      pipelines: perRepo.reduce((n, r) => n + r.pipelines, 0),
-      unresolved: perRepo.reduce((n, r) => n + r.unresolved, 0),
-      terminals: busyWindows(windows),
-      windows: windows.length,
-      // A pipeline in flight is a build running, whatever the pull request's checks say about the
-      // last one.
-      ci: worst([
-        ...perRepo.map((r) => r.checks),
-        ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
-      ]),
+      facts: [terminals, ...contributions.flatMap((c) => c.facts)],
+      // One red build decides the colour; nothing said is its own state, not green.
+      state: worst(contributions.flatMap((c) => (c.state ? [c.state] : []))),
     };
   });
-

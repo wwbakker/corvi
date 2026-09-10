@@ -27,7 +27,8 @@ import { groupChecks } from "../src/integrations/checks.ts";
 import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
 import { verdict } from "../src/complete.ts";
 import { describeChange } from "../src/description.ts";
-import { windowLabel } from "../src/web/windowLabel.ts";
+import { presentWindow } from "../src/terminal.ts";
+import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { Change } from "../src/types.ts";
 
 /**
@@ -316,8 +317,10 @@ test("pull request checks are grouped by build, so one build is one row", () => 
 });
 
 test("a terminal window is labelled by where it is, or what you named it", () => {
-  const w = (over: Partial<Parameters<typeof windowLabel>[0]>) =>
-    windowLabel({
+  // The server-side composition, exactly as a window crosses to the page: raw tmux facts in,
+  // the presented shape out.
+  const w = (over: Partial<TmuxWindow>) =>
+    presentWindow({
       index: 0,
       name: "zsh",
       command: "zsh",
@@ -325,18 +328,29 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
       activity: false,
       directory: "example-api",
       named: false,
+      options: {},
       ...over,
     });
   // tmux's default name is the command, which says less than the directory does.
-  expect(w({})).toBe("example-api");
-  expect(w({ command: "vim" })).toBe("example-api - (vim)");
+  expect(w({}).label).toBe("example-api");
+  expect(w({ command: "vim" }).label).toBe("example-api - (vim)");
   // A window you named yourself keeps its name, wherever it wandered off to.
-  expect(w({ name: "deploy", command: "gradle", named: true })).toBe("deploy - (gradle)");
-  // An agent is `node` to tmux, which says nothing; what it says about itself replaces that.
-  expect(w({ command: "node", agent: "working" })).toBe("example-api - (pi working)");
-  expect(w({ command: "node", agent: "waiting" })).toBe("example-api - (pi waiting)");
+  expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
+  // An agent is `node` to tmux, which says nothing; what it says about itself replaces that,
+  // read from the `@agent` pane option the agents extension declares.
+  const working = w({ command: "node", options: { "@agent": "working" } });
+  expect(working.label).toBe("example-api - (pi working)");
+  expect(working.icon).toBe("agent");
+  expect(working.state).toBe("ok");
+  expect(working.busy).toBe(true);
+  const waiting = w({ command: "node", options: { "@agent": "waiting" } });
+  expect(waiting.label).toBe("example-api - (pi waiting)");
+  expect(waiting.state).toBe("idle");
+  expect(waiting.busy).toBe(false);
   // Nothing is repeated: a window named after what runs in it says it once.
-  expect(w({ name: "logs", command: "logs", directory: "x", named: true })).toBe("logs");
+  expect(w({ name: "logs", command: "logs", directory: "x", named: true }).label).toBe("logs");
+  // The detail is the long form, what the tooltip reads.
+  expect(w({}).detail).toBe("zsh (zsh) in example-api");
 })
 
 test("a stacked pull request joins the stack below it, or starts one", () => {

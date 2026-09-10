@@ -5,7 +5,7 @@ import { DEFAULT_WORKSPACE } from "./workspaces.ts";
 // file handling with them.
 import type { Settings, SettingsView } from "../settings.ts";
 import type { Config, Workspace } from "../config.ts";
-import type { WorkspaceSetting } from "../extensions/api.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "../extensions/api.ts";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -22,6 +22,9 @@ import type { WorkspaceSetting } from "../extensions/api.ts";
 
 /** The draft as the page holds it: the file's contents, edited. */
 type Draft = Settings;
+
+/** An extension the page knows about, with the settings it declares. */
+type KnownExtension = SettingsView["extensions"][number];
 
 function Field({
   label,
@@ -189,7 +192,7 @@ function ExtensionToggles({
   selected,
   onChange,
 }: {
-  known: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
+  known: KnownExtension[];
   selected: string[] | undefined;
   onChange: (extensions: string[] | undefined) => void;
 }) {
@@ -234,7 +237,7 @@ function WorkspaceCard({
   workspace: Workspace;
   /** The extensions there are to enable, in the order they were loaded, each with the
    * per-workspace settings it declares. */
-  extensions: { name: string; title: string; workspaceSettings: WorkspaceSetting[] }[];
+  extensions: KnownExtension[];
   onChange: (next: Workspace) => void;
   onRemove?: () => void;
 }) {
@@ -365,9 +368,20 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
     setDraft({ ...draft, ...patch });
     setSaved(false);
   };
-  const deploy: Partial<Config["azureDeploy"]> = draft.azureDeploy ?? {};
-  const setDeploy = (patch: Partial<Config["azureDeploy"]>): void =>
-    set({ azureDeploy: { ...effective.azureDeploy, ...deploy, ...patch } });
+  // The extensions' server-wide settings live in the bag, under the extension's own name. A
+  // value is one string or a list of them; the save prunes the empties — empty means unset.
+  const setExtensionGlobal = (name: string, key: string, value: string | string[]): void => {
+    set({
+      extensionSettings: {
+        ...draft.extensionSettings,
+        [name]: { ...(draft.extensionSettings?.[name] ?? {}), [key]: value },
+      },
+    });
+  };
+  const globalString = (value: string | string[] | undefined): string | undefined =>
+    typeof value === "string" ? value : undefined;
+  const globalList = (value: string | string[] | undefined): string[] =>
+    Array.isArray(value) ? value : [];
   const dirty = JSON.stringify(draft) !== JSON.stringify(view.file);
 
   const save = (): void => {
@@ -459,96 +473,42 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }) {
         />
       </div>
 
-      <h2 className="section">Jira</h2>
-      <div className="form">
-        <Field
-          label="Assign new issues to"
-          placeholder="whoever the token belongs to"
-          value={draft.jiraAssignee}
-          locked={lock("jiraAssignee")}
-          onChange={(jiraAssignee) => set({ jiraAssignee })}
-        />
-        <Field
-          label="Transition on starting a change"
-          value={draft.jiraStartTransition}
-          placeholder={effective.jiraStartTransition}
-          locked={lock("jiraStartTransition")}
-          onChange={(jiraStartTransition) => set({ jiraStartTransition })}
-        />
-        <Field
-          label="Transition on completing one"
-          value={draft.jiraDoneTransition}
-          placeholder={effective.jiraDoneTransition}
-          locked={lock("jiraDoneTransition")}
-          onChange={(jiraDoneTransition) => set({ jiraDoneTransition })}
-        />
-      </div>
-
-      <h2 className="section">Azure DevOps</h2>
-      <div className="form">
-        <Field
-          label="Organisation"
-          placeholder="whatever az devops configure holds"
-          value={draft.azureOrganization}
-          locked={lock("azureOrganization")}
-          onChange={(azureOrganization) => set({ azureOrganization })}
-        />
-        <Field
-          label="Project"
-          placeholder="whatever az devops configure holds"
-          value={draft.azureProject}
-          locked={lock("azureProject")}
-          onChange={(azureProject) => set({ azureProject })}
-        />
-      </div>
-
-      <h2 className="section">Deployments</h2>
-      <div className="form">
-        <Group
-          label="How a build pipeline is named, and its deploy twin"
-          hint="build-example-api deploys through deploy-example-api."
-        >
-          <div className="row">
-            <input
-              value={(deploy.pipeline ?? effective.azureDeploy.pipeline)[0]}
-              onChange={(e) =>
-                setDeploy({
-                  pipeline: [e.target.value, (deploy.pipeline ?? effective.azureDeploy.pipeline)[1]],
-                })
-              }
-            />
-            <input
-              value={(deploy.pipeline ?? effective.azureDeploy.pipeline)[1]}
-              onChange={(e) =>
-                setDeploy({
-                  pipeline: [(deploy.pipeline ?? effective.azureDeploy.pipeline)[0], e.target.value],
-                })
-              }
-            />
+      {/* The server-wide settings each extension declares, rendered generically from the
+          declaration: the page knows the shape of the settings and nothing about what they
+          mean. Stored under extensionSettings[name][key], where the extension reads them back
+          with the legacy config fields as the fallback chain's tail. */}
+      {view.extensions.map((extension: KnownExtension) =>
+        extension.globalSettings.length ? (
+          <div key={extension.name}>
+            <h2 className="section">{extension.title}</h2>
+            <div className="form">
+              {extension.globalSettings.map((field: ExtensionSetting) =>
+                field.list ? (
+                  <ListEditor
+                    key={field.key}
+                    label={field.label}
+                    hint={field.hint}
+                    placeholder={field.placeholder}
+                    values={globalList(draft.extensionSettings?.[extension.name]?.[field.key])}
+                    locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
+                    onChange={(values) => setExtensionGlobal(extension.name, field.key, values)}
+                  />
+                ) : (
+                  <Field
+                    key={field.key}
+                    label={field.label}
+                    hint={field.hint}
+                    placeholder={field.placeholder}
+                    value={globalString(draft.extensionSettings?.[extension.name]?.[field.key])}
+                    locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
+                    onChange={(value) => setExtensionGlobal(extension.name, field.key, value)}
+                  />
+                ),
+              )}
+            </div>
           </div>
-        </Group>
-        <Field
-          label="Version parameter"
-          hint="Learnt per pipeline when this name does not fit: a pipeline with one other parameter is telling you which it is."
-          value={deploy.versionParameter}
-          placeholder={effective.azureDeploy.versionParameter}
-          onChange={(versionParameter) => setDeploy({ versionParameter })}
-        />
-        <Field
-          label="Environment parameter"
-          value={deploy.environmentParameter}
-          placeholder={effective.azureDeploy.environmentParameter}
-          onChange={(environmentParameter) => setDeploy({ environmentParameter })}
-        />
-        <ListEditor
-          label="Environments"
-          hint="In the order they are deployed to, which is the order the page shows them and the order promotion follows."
-          values={deploy.environments ?? effective.azureDeploy.environments}
-          placeholder="accept"
-          locked={lock("azureDeploy.environments")}
-          onChange={(environments) => setDeploy({ environments })}
-        />
-      </div>
+        ) : null,
+      )}
 
       <h2 className="section">Workspaces</h2>
       <p className="hint">

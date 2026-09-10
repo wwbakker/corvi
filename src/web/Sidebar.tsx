@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { api, type Change } from "./api.ts";
 import { stateClass } from "./changeState.tsx";
-import { CiIcon, TerminalIcon } from "./icons.tsx";
+import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, type ChangeSummary } from "../types.ts";
-import { windowLabel, type TerminalWindow } from "./windowLabel.ts";
+import type { TerminalWindow } from "../terminalTypes.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "./workspaces.ts";
 import type { Platform } from "./newWindowKey.ts";
@@ -35,7 +35,7 @@ const CI_WORDS: Record<string, string> = {
 /** What the change's builds are doing. Its own state is the coloured bar down the left of the
  * row, and its terminals are the rows underneath, so neither needs an icon here. */
 function Icons({ summary }: { summary?: ChangeSummary }) {
-  const ci = summary?.ci ?? "none";
+  const ci = summary?.state ?? "none";
   return (
     <span className="icons">
       <span className={summary ? `state-${ci}` : "state-idle"}>
@@ -62,11 +62,11 @@ export function Sidebar({
   page,
   windows,
   onHome,
-  onDeployments,
-  deployments,
+  pages,
+  onPage,
+  extPage,
   onSettings,
   settings,
-  hasDeployments,
   onOpenChange,
   onSelectWindow,
   onNewWindow,
@@ -83,14 +83,14 @@ export function Sidebar({
   /** Every change's tmux windows, keyed by change: the terminals sit under their own change. */
   windows: Record<string, TerminalWindow[]>;
   onHome: () => void;
-  onDeployments: () => void;
-  /** Whether the deployments page is the one open: it belongs to no change. */
-  deployments: boolean;
+  /** The pages the server says this context has, under Changes: one entry per page. */
+  pages: { id: string; title: string }[];
+  onPage: (id: string) => void;
+  /** The id of the extension page that is open, when one is: it belongs to no change. */
+  extPage?: string;
   onSettings: () => void;
   /** Whether the settings page is the one open. */
   settings: boolean;
-  /** Whether this context deploys anything at all. */
-  hasDeployments: boolean;
   onOpenChange: (id: string) => void;
   onSelectWindow: (id: string, index: number) => void;
   onNewWindow: (id: string) => void;
@@ -164,7 +164,7 @@ export function Sidebar({
       />
 
       <button
-        className={current || deployments || settings ? "entry" : "entry current"}
+        className={current || extPage || settings ? "entry" : "entry current"}
         onClick={onHome}
       >
         Changes
@@ -193,8 +193,8 @@ export function Sidebar({
                 <span className="subject">{c.title ?? c.branch}</span>
               </button>
 
-              {/* The change's terminals, under the change they belong to. The icon says what
-                  they are, so nothing has to announce them. */}
+              {/* The change's terminals, under the change they belong to. The server says what
+                  each window is called and which glyph it draws; the page renders that. */}
               {mine.map((w) => (
                 <button
                   key={w.index}
@@ -203,16 +203,16 @@ export function Sidebar({
                       ? "entry sub window current"
                       : "entry sub window"
                   }
-                  title={`ctrl-b ${w.index} — ${w.name} (${w.command}) in ${w.directory}`}
+                  title={`ctrl-b ${w.index} — ${w.detail}`}
                   // Focus is what a mousedown moves, and a terminal you cannot type in after
                   // clicking is useless. Preventing the default keeps it in the terminal.
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => onSelectWindow(c.id, w.index)}
                 >
-                  <span className={w.agent === "working" ? "state-ok" : "state-idle"}>
-                    <TerminalIcon title={w.agent ? `pi ${w.agent}` : w.command} />
+                  <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
+                    {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
                   </span>
-                  <span className="label">{windowLabel(w)}</span>
+                  <span className="label">{w.label}</span>
                   {/* Not for the window you are looking at: you see its output already. */}
                   {w.activity && !(selected && page === "terminals" && w.active) && (
                     <span className="bell" title="new output" />
@@ -245,16 +245,18 @@ export function Sidebar({
         {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
       </div>
 
-      {/* Not under a change, because it is not about one: a service's build goes to an
-          environment, and which change produced it is a separate question. */}
-      {hasDeployments && (
+      {/* Not under a change, because they are not about one: the extensions' pages, offered
+          as the server lists them — a context without the extension has no entry, not an
+          empty one. Settings stays hardcoded below: it is the core's own. */}
+      {pages.map((p) => (
         <button
-          className={deployments ? "entry current" : "entry"}
-          onClick={onDeployments}
+          key={p.id}
+          className={extPage === p.id ? "entry current" : "entry"}
+          onClick={() => onPage(p.id)}
         >
-          Deployments
+          {p.title}
         </button>
-      )}
+      ))}
 
       {/* At the bottom of the column, not below the list: it is where you go once in a while,
           and it should be in the same place whether you have two changes or nine. */}

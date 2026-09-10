@@ -73,6 +73,12 @@ export type Config = {
    * expanded and duplicates dropped; ~/.config/iwe/extensions is searched in addition, when
    * it exists. A change here needs a restart — extensions load once, at startup. */
   extensionPaths: string[];
+  /** Settings the extensions declared, stored under their own name:
+   * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
+   * declaration names, which is where the extension reads it back. A value is one string or a
+   * list of them. The core carries the bag without looking inside; the legacy flat fields below
+   * stay as the fallback reads the extensions go through when the bag is empty. */
+  extensionSettings?: Record<string, Record<string, string | string[]>>;
   /** How this organisation deploys. None of these names are ours, so all of them are settings:
    * a build pipeline's deploy twin is named by swapping the prefixes, and the deploy pipeline is
    * given the version and the environment as parameters. */
@@ -179,6 +185,10 @@ function load(): Config {
       process.env.IWE_JIRA_START_TRANSITION ?? file.jiraStartTransition ?? "In Progress",
     jiraDoneTransition: process.env.IWE_JIRA_DONE_TRANSITION ?? file.jiraDoneTransition ?? "Done",
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
+    // The extensions' own settings, passed through untouched: the core does not look inside.
+    // Always a key, absent or not — the refill is Object.assign over the one config object, and
+    // a key left out here would survive a settings write that emptied the bag.
+    extensionSettings: file.extensionSettings,
     worktreeCopy:
       process.env.IWE_WORKTREE_COPY === undefined
         ? (file.worktreeCopy ?? TOOLING)

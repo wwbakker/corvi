@@ -8,6 +8,7 @@ import { config, expandTilde, type Workspace } from "../config.ts";
 import { workspaceById, workspaceOf } from "../workspaces.ts";
 import { runRoute } from "../effect/run.ts";
 import { capabilitiesLayer } from "./services.ts";
+import { setPresenterSource, windowPresenters } from "./presenters.ts";
 import type {
   Card,
   Capabilities,
@@ -15,7 +16,13 @@ import type {
   DescriptionSection,
   Extension,
   ExtensionModule,
+  ExtensionSetting,
+  LooseEndContributor,
+  Page,
+  RequestMethod,
   RouteHandler,
+  SummaryContributor,
+  TerminalPresenter,
   TitleSource,
   WizardStep,
   WorkspaceSetting,
@@ -49,10 +56,21 @@ export type LoadedExtension = {
   completionSteps: CompletionStepContributor[];
   /** Handlers declared under `events["change:created"]`, in declaration order. */
   changeCreated: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
-  /** The routes as a lookup: `"GET /issues"` → handler, under `/api/ext/<name>/…`. */
-  routeTable: Map<string, RouteHandler>;
+  /** The routes, compiled at install: each declared path split on "/", with `:name` segments
+   * capturing. Matched in registration order within the extension, load order across them. */
+  routes: CompiledRoute[];
+  /** What the extension says about changes on their overview cards, in declaration order. */
+  summaryContributions: SummaryContributor[];
+  /** What cancelling a change would leave behind, per this extension. */
+  looseEnds: LooseEndContributor[];
+  /** How this extension presents tmux windows — global, see windowPresenters below. */
+  windowPresenters: TerminalPresenter[];
+  /** Pages this extension offers the sidebar. */
+  pages: Page[];
   /** Per-workspace settings the extension declares, for the settings page to render. */
   workspaceSettings: WorkspaceSetting[];
+  /** Server-wide settings the extension declares, for the settings page to render. */
+  globalSettings: ExtensionSetting[];
   /** Host-internal, out-of-tree extensions only: the sibling client.tsx of the discovered
    * module, which the server builds into a chunk the page imports at runtime
    * (/extensions/<name>/client.js — src/extensions/clientChunks.ts). Built-ins are bundled
@@ -60,17 +78,39 @@ export type LoadedExtension = {
   clientPath?: string;
 };
 
+/** One route pattern, compiled from its declaration at install: the declared path split on
+ * "/". A segment starting with ":" captures one path segment of the request; the others must
+ * match exactly. There is no pattern syntax beyond that — routes that need more read the URL
+ * themselves. */
+export type CompiledRoute = {
+  method: RequestMethod;
+  segments: string[];
+  handler: RouteHandler;
+};
+
+const compileRoutes = (ext: Extension): CompiledRoute[] =>
+  (ext.routes ?? []).map((r) => ({
+    method: r.method,
+    segments: r.path.split("/").filter((segment) => segment !== ""),
+    handler: r.handler,
+  }));
+
 const normalize = (ext: Extension, clientPath?: string): LoadedExtension => ({
   name: ext.name,
   title: ext.title,
   workspaceSettings: ext.workspaceSettings ?? [],
+  globalSettings: ext.globalSettings ?? [],
   cards: ext.cards ?? [],
   wizardSteps: ext.wizardSteps ?? [],
   titleSources: ext.titleSources ?? [],
   descriptionSections: ext.descriptionSections ?? [],
   completionSteps: ext.completionSteps ?? [],
   changeCreated: ext.events?.["change:created"] ?? [],
-  routeTable: new Map((ext.routes ?? []).map((r) => [`${r.method} ${r.path}`, r.handler])),
+  routes: compileRoutes(ext),
+  summaryContributions: ext.summaryContributions ?? [],
+  looseEnds: ext.looseEnds ?? [],
+  windowPresenters: ext.windowPresenters ?? [],
+  pages: ext.pages ?? [],
   ...(clientPath ? { clientPath } : {}),
 });
 
@@ -129,12 +169,17 @@ export async function loadAll(mods: readonly ExtensionModule[]): Promise<void> {
   for (const mod of mods) await installModule(mod);
 }
 
-// The built-ins, in dashboard order: local changes, then CI, then the ticket cards. Each is a
-// module whose default export describes it — a static value, or a factory for one.
+// The built-ins, in dashboard order: the agents' furniture first (it is what names windows
+// everywhere), then local changes, then CI, then the ticket cards. Each is a module whose
+// default export describes it — a static value, or a factory for one. Deployments owns no
+// card — its page is offered beside the list, not on it — so it comes last and leaves the
+// cards order exactly as it was.
+import agentsExtension from "./agents/index.ts";
 import gitExtension from "./git/index.ts";
 import ciExtension from "./ci/index.ts";
 import jiraExtension from "./jira/index.ts";
 import githubIssuesExtension from "./github-issues/index.ts";
+import deploymentsExtension from "./deployments/index.ts";
 
 /** The directory searched for out-of-tree extensions without being configured: it exists on a
  * machine that keeps extensions there, and is absent everywhere else — a convention, not a
@@ -224,7 +269,14 @@ export async function loadDiscovered(paths?: readonly string[]): Promise<void> {
   }
 }
 
-await loadAll([gitExtension, ciExtension, jiraExtension, githubIssuesExtension]);
+await loadAll([
+  agentsExtension,
+  gitExtension,
+  ciExtension,
+  jiraExtension,
+  githubIssuesExtension,
+  deploymentsExtension,
+]);
 // Out-of-tree, after the built-ins: the configured paths, then the implicit default directory,
 // discovered and imported from disk through the same install path as the above.
 await loadDiscovered();
@@ -236,9 +288,13 @@ await loadDiscovered();
  *
  * - a workspace still configuring Jira through its own `jira` object has those fields copied
  *   into `extensionSettings.jira`, where the jira extension's declaration puts and reads them;
- * - a workspace still switching Jira off with `jira: false` and naming no extensions gets an
- *   explicit list — everything loaded except jira — because naming some is the whole list, and
- *   a list you can read is worth more than a flag nothing reads anymore.
+ * - a workspace still switching a piece of the world off with the vendor's own flag —
+ *   `jira: false`, `azure: false` — and naming no extensions gets an explicit list: everything
+ *   loaded except what the flags exclude (`jira`, `deployments`). Naming some is the whole
+ *   list, and a list you can read is worth more than flags nothing reads anymore. The flags
+ *   meant what they always meant — this context has no pipelines — and enablement now honours
+ *   it; the deployments implementation keeps its own guard too (src/deployments.ts's
+ *   `usesAzure`), belt and braces, no behaviour change.
  *
  * A workspace with an explicit `extensions` list is otherwise never touched. Everything else is
  * left exactly as it was. Run after the built-ins load (below) and after every settings write
@@ -257,8 +313,17 @@ export function migrateWorkspaceSettings(workspaces: Workspace[]): Workspace[] {
           ...(tokenEnv !== undefined && { tokenEnv }),
         },
       };
-    } else if (workspace.jira === false && !workspace.extensions) {
-      workspace.extensions = loaded.map((e) => e.name).filter((name) => name !== "jira");
+    }
+    // The vendor flags, folded into the list they were always standing in for. A workspace
+    // that names some is left alone: naming some is the whole list.
+    if (!workspace.extensions) {
+      const excluded = [
+        ...(workspace.jira === false ? ["jira"] : []),
+        ...(workspace.azure === false ? ["deployments"] : []),
+      ];
+      if (excluded.length > 0) {
+        workspace.extensions = loaded.map((e) => e.name).filter((name) => !excluded.includes(name));
+      }
     }
   }
   return workspaces;
@@ -270,9 +335,9 @@ migrateWorkspaceSettings(config.workspaces);
  * Which extensions exist for this workspace.
  *
  * A workspace that names none has all of them — which is what IWE was before extensions
- * existed, and what an unconfigured machine still gets. The legacy `jira: false` flag is gone:
- * migrateWorkspaceSettings turns it into an explicit extensions list on load, so there is
- * nothing left to special-case here.
+ * existed, and what an unconfigured machine still gets. The legacy vendor flags (`jira: false`,
+ * `azure: false`) are gone: migrateWorkspaceSettings turns them into an explicit extensions
+ * list on load, so there is nothing left to special-case here.
  */
 export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
   const names = workspace.extensions;
@@ -311,6 +376,32 @@ export const descriptionSectionsFor = (workspace: Workspace): DescriptionSection
 
 export const completionStepsFor = (workspace: Workspace): CompletionStepContributor[] =>
   extensionsFor(workspace).flatMap((e) => e.completionSteps);
+
+export const summaryContributorsFor = (workspace: Workspace): SummaryContributor[] =>
+  extensionsFor(workspace).flatMap((e) => e.summaryContributions);
+
+export const looseEndContributorsFor = (workspace: Workspace): LooseEndContributor[] =>
+  extensionsFor(workspace).flatMap((e) => e.looseEnds);
+
+/** The pages a workspace's sidebar offers, with the extension each belongs to — the page's
+ * identity on the routes and the URL is the extension's own. */
+export type PageInfo = Page & { extension: string };
+
+export const pagesFor = (workspace: Workspace): PageInfo[] =>
+  extensionsFor(workspace).flatMap((e) => e.pages.map((page) => ({ ...page, extension: e.name })));
+
+/** Every loaded extension's window presenters, in load order.
+ *
+ * Deliberately **global, not per-workspace**: presenters are pure functions of tmux data,
+ * they run no effects and take no capabilities, and a window's name cannot depend on whose
+ * client happens to be looking. Enablement stays for the surfaces that do things.
+ *
+ * The aggregation itself lives in ./presenters.ts, a leaf — terminal.ts reads it and must not
+ * import this module (its graph reaches back into the terminal through the events). The host
+ * installs the live view over `loaded` here, where the registry is defined. */
+export { windowPresenters };
+
+setPresenterSource(() => loaded.flatMap((e) => e.windowPresenters));
 
 /** Run one contributed effect as the change's workspace: the capabilities layer provides the
  * Workspace tag, Shell, Cache, Settings and Bus, and the effect's requirements are satisfied
@@ -449,21 +540,56 @@ function readOnly(items: WidgetItem[]): WidgetItem[] {
   }));
 }
 
+/** Whether one compiled route fits a request, and what it captured: undefined is no fit, so
+ * the caller tries the next pattern in order — the first fit wins. */
+const matchRoute = (
+  route: CompiledRoute,
+  method: string,
+  parts: readonly string[],
+): Record<string, string> | undefined => {
+  if (route.method !== method || route.segments.length !== parts.length) return undefined;
+  const params: Record<string, string> = {};
+  for (let i = 0; i < route.segments.length; i++) {
+    const pattern = route.segments[i]!;
+    const part = parts[i]!;
+    if (pattern.startsWith(":")) {
+      // The client always percent-encodes, and the core's routes decode, so a captured segment
+      // is decoded here too — falling back to the raw segment when the escape is malformed.
+      let value = part;
+      try {
+        value = decodeURIComponent(part);
+      } catch {
+        // A malformed escape was never a well-formed page or route: the raw segment stands.
+      }
+      params[pattern.slice(":".length)] = value;
+    } else if (pattern !== part) return undefined;
+  }
+  return params;
+};
+
 /** The extension routes as one dispatcher for the server's route table: `/api/ext/<name>/<path>`,
  * run as the workspace the request names, failures mapped to status codes by the same
- * `runRoute` the core's routes go through. Unknown routes answer undefined, which the server
- * turns into its 404. */
+ * `runRoute` the core's routes go through. Patterns are tried in registration order within
+ * the extension, then across extensions in load order — the first one whose shape fits wins,
+ * and its captured parameters go to the handler. Unknown routes answer undefined, which the
+ * server turns into its 404. */
 export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefined => {
   const url = new URL(req.url);
   const match = /^\/api\/ext\/([^/]+)\/(.+)$/.exec(url.pathname);
   if (!match) return undefined;
   const ext = loaded.find((e) => e.name === match[1]);
-  const handler = ext?.routeTable.get(`${req.method} /${match[2]}`);
-  if (!handler) return undefined;
-  const route = handler(req).pipe(
-    Effect.provide(capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined))),
-  );
-  return runRoute(route);
+  const parts = match[2]!.split("/");
+  for (const candidate of ext?.routes ?? []) {
+    const params = matchRoute(candidate, req.method, parts);
+    if (!params) continue;
+    const run = candidate.handler(req, params).pipe(
+      Effect.provide(
+        capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined)),
+      ),
+    );
+    return runRoute(run);
+  }
+  return undefined;
 };
 
 /** Re-exported for the contributors' convenience; the type lives in types.ts with the rest of

@@ -2,16 +2,17 @@ import { useEffect, useState, type ComponentType } from "react";
 import type { Selection } from "./api.ts";
 
 /**
- * The client halves of the extensions, and the host that renders them.
+ * The client halves of the extensions, and the hosts that render them.
  *
  * An extension's interface is a React component it ships next to its server half, exported as
- * `step`. Built-ins are in the registry below — build-time dynamic imports, each made its own
- * chunk by the bundler, loaded the first time a page renders that extension's step. An
- * out-of-tree extension has no static entry: its client was never seen by the bundler, so
- * StepHost falls back to importing the chunk the server built and serves at
- * /extensions/<name>/client.js. The contract — one module exporting `step` — stays, which is
- * why the server, not the page, decides what exists: the wizard is told the steps, and
- * renders what it is told.
+ * `step` (a wizard step) or `page` (a page the sidebar offers) — or both. Built-ins are in the
+ * registry below — build-time dynamic imports, each made its own chunk by the bundler, loaded
+ * the first time a page renders that extension's step or page. An out-of-tree extension has no
+ * static entry: its client was never seen by the bundler, so StepHost and PageHost fall back
+ * to importing the chunk the server built and serves at /extensions/<name>/client.js. The
+ * contract — one module exporting `step` and/or `page` — stays, which is why the server, not
+ * the page, decides what exists: the wizard is told the steps and the sidebar is told the
+ * pages, and both render what they are told.
  */
 
 /** What the wizard has in hand while its steps run, shared between them. */
@@ -36,16 +37,24 @@ export type StepComponent = ComponentType<{ ctx: StepContext }>;
 
 export type StepInfo = { id: string; extension: string; title: string; phase: "issue" | "repos" };
 
-export const clients: Record<string, () => Promise<{ step: StepComponent }>> = {
+/** What a page of an extension's own gets: the context you are in. */
+export type PageProps = { workspace?: string };
+
+export type PageComponent = ComponentType<PageProps>;
+
+export type ClientModule = { step?: StepComponent; page?: PageComponent };
+
+export const clients: Record<string, () => Promise<ClientModule>> = {
   jira: () => import("../extensions/jira/client.tsx"),
   "github-issues": () => import("../extensions/github-issues/client.tsx"),
+  deployments: () => import("../extensions/deployments/client.tsx"),
 };
 
 /** An import the bundler cannot resolve at build time: the specifier is computed, so it
  * stays a runtime import (verified against `bun build src/web/index.html`) and the request
  * goes to the server, which answers with the chunk it built for that extension. A static
  * import here would fail the whole page's build — the module does not exist at build time. */
-const runtimeImport = (specifier: string): Promise<{ step: StepComponent }> => import(specifier);
+const runtimeImport = (specifier: string): Promise<ClientModule> => import(specifier);
 
 /** One extension's step, with its client module loaded the first time it is shown. A step
  * whose extension has no static entry is an out-of-tree extension: its client chunk comes
@@ -71,4 +80,39 @@ export function StepHost({ info, ctx }: { info: StepInfo; ctx: StepContext }) {
   if (error) return <div className="error-banner">{error}</div>;
   if (!Step) return <p className="hint">loading…</p>;
   return <Step ctx={ctx} />;
+}
+
+/** One extension's page, the same way: the module loaded the first time the page is shown,
+ * from the registry when the extension is built in, from the server's chunk when it is not. */
+export function PageHost({
+  info,
+  workspace,
+}: {
+  info: { id: string; extension: string };
+  workspace?: string;
+}) {
+  const [Page, setPage] = useState<PageComponent>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let alive = true;
+    const load = clients[info.extension];
+    const loader = load ?? (() => runtimeImport(`/extensions/${info.extension}/client.js`));
+    loader()
+      .then((m) => {
+        if (!alive) return;
+        // The server says the extension has a page; its client half is the other half of the
+        // same claim. If they disagree, say so rather than render nothing.
+        if (!m.page) setError(`${info.extension} has no page on this side`);
+        else setPage(() => m.page);
+      })
+      .catch((e: Error) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [info.extension]);
+  if (error) return <div className="error-banner">{error}</div>;
+  if (!Page) return <p className="hint">loading…</p>;
+  return <Page workspace={workspace} />;
 }

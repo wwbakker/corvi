@@ -199,6 +199,8 @@ test("what cancelling leaves alone is said out loud", async () => {
 
   const result = (await cancelChange(change)) as { loose: string[] };
   // The ticket and the branch: a cancelled change that quietly leaves those behind comes back in
-  // a week as somebody else's question. (No pull request here: there is no GitHub remote.)
+  // a week as somebody else's question. (No pull request here: there is no GitHub remote.) The
+  // loose ends are gathered from the extensions in load order, so ci's pull-request lines would
+  // precede jira's ticket line where the core's old hardcoded list put the ticket first.
   expect(result.loose).toContain("PROJ-LOOSE is still open in Jira");
 });

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api, post } from "./api.ts";
-import { moment } from "./moment.ts";
-import { Progress } from "./Progress.tsx";
+import { api, post } from "../../web/api.ts";
+import { moment } from "../../web/moment.ts";
+import { Progress } from "../../web/Progress.tsx";
 
 export type Buildable = {
   runId: number;
@@ -67,7 +67,7 @@ export function DeployDialog({
     // Read at the moment it opens, not from the row: a row is up to half a minute old, and this
     // is the decision, not the display.
     api<Buildable[]>(
-      `/deployments/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      `/ext/deployments/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
     )
       .then((found) => {
         setVersions(found);
@@ -110,7 +110,7 @@ export function DeployDialog({
     setBusy(true);
     setError(null);
     post<{ runId: number }>(
-      `/deployments/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      `/ext/deployments/services/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       { version, environment },
     )
       .then(() => {
