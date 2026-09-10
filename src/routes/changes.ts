@@ -1,48 +1,48 @@
 import { Effect } from "effect";
 import {
   applyPatch,
-  createChangeEffect,
-  listChangesEffect,
-  readNotesEffect,
-  writeChangeEffect,
-  writeNotesEffect,
+  createChange,
+  listChanges,
+  readNotes,
+  writeChange,
+  writeNotes,
 } from "../changes.ts";
-import { cancelChangeEffect } from "../cancel.ts";
-import { commitChangeEffect, pushChangeEffect, type CommitRequest } from "../commit.ts";
-import { completeChangeEffect, completionOfEffect, progressOfEffect } from "../complete.ts";
-import { prDescriptionEffect } from "../description.ts";
+import { cancelChange } from "../cancel.ts";
+import { commitChange, pushChange, type CommitRequest } from "../commit.ts";
+import { completeChange, completionOf, progressOf } from "../complete.ts";
+import { prDescription } from "../description.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
 import { announce } from "../events.ts";
-import { provisionEffect } from "../extensions/index.ts";
-import { repoStatesEffect, setReposEffect } from "../integrations/git.ts";
-import { fileDiffEffect, localChangesEffect } from "../local.ts";
+import { provision } from "../extensions/index.ts";
+import { repoStates, setRepos } from "../integrations/git.ts";
+import { fileDiff, localChanges } from "../local.ts";
 import { guard } from "../origin.ts";
-import { summaryOfEffect } from "../summary.ts";
-import { refreshTitlesEffect } from "../titles.ts";
+import { summaryOf } from "../summary.ts";
+import { refreshTitles } from "../titles.ts";
 import { workspaceOf } from "../workspaces.ts";
 import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "./helpers.ts";
 
 export const changesRoutes = guard({
   "/api/changes": {
-    GET: () => runRoute(Effect.map(listChangesEffect(), json)),
+    GET: () => runRoute(Effect.map(listChanges(), json)),
     // Creates the change, then provisions each component (worktrees, ticket status). The
     // change is written first, so a failing component leaves something to fix, not nothing.
     POST: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as Parameters<typeof createChangeEffect>[0];
-          const change = yield* createChangeEffect(body);
-          const provision = yield* Effect.provideService(
-            provisionEffect(change),
+          const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0];
+          const change = yield* createChange(body);
+          const provisioned = yield* Effect.provideService(
+            provision(change),
             Workspace,
             workspaceOf(change),
           );
           // Your own action lands on the stream at once, not within a tick.
           yield* Effect.sync(() => announce("changes"));
-          return json({ change, provision }, 201);
+          return json({ change, provision: provisioned }, 201);
         }),
       ),
   },
@@ -50,7 +50,7 @@ export const changesRoutes = guard({
   // What each change is called, refreshed from Jira in one query for the whole page. Its own
   // route, and not part of /api/changes: the list must stay instant, this waits for a CLI.
   "/api/titles": {
-    GET: () => runRoute(Effect.map(refreshTitlesEffect(), json)),
+    GET: () => runRoute(Effect.map(refreshTitles(), json)),
   },
 
   "/api/changes/:id": {
@@ -63,7 +63,7 @@ export const changesRoutes = guard({
         Effect.gen(function* () {
           const body = (yield* bodyOf(req)) as { state?: string; title?: string };
           const updated = yield* attempt(() => applyPatch(c, body));
-          yield* writeChangeEffect(updated);
+          yield* writeChange(updated);
           yield* Effect.sync(() => announce("changes"));
           return json(updated);
         }),
@@ -72,7 +72,7 @@ export const changesRoutes = guard({
 
   // The repository list of a change, edited as a whole: the dialog sends the list it wants.
   "/api/changes/:id/repos": {
-    GET: (req) => withChange(req.params.id, (c) => Effect.map(repoStatesEffect(c), json)),
+    GET: (req) => withChange(req.params.id, (c) => Effect.map(repoStates(c), json)),
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
@@ -82,7 +82,7 @@ export const changesRoutes = guard({
             base?: Record<string, string>;
             force?: boolean;
           };
-          const result = yield* setReposEffect(c, body.repos, body.force, body.direct, body.base);
+          const result = yield* setRepos(c, body.repos, body.force, body.direct, body.base);
           // 409: nothing was changed, the browser should ask about the unpushed work first.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
@@ -95,7 +95,7 @@ export const changesRoutes = guard({
   // the extensions. One request per card, so a change whose CLIs are slow holds up only its
   // own card.
   "/api/changes/:id/summary": {
-    GET: (req) => withChange(req.params.id, (c) => Effect.map(summaryOfEffect(c), json)),
+    GET: (req) => withChange(req.params.id, (c) => Effect.map(summaryOf(c), json)),
   },
 
   // What is uncommitted in one repository, and the diff of one file of it. Live: this is the
@@ -108,7 +108,7 @@ export const changesRoutes = guard({
           if (!repo) {
             return yield* Effect.fail(new BadRequestError({ message: "path required" }));
           }
-          return json(yield* localChangesEffect(c, repo));
+          return json(yield* localChanges(c, repo));
         }),
       ),
   },
@@ -118,7 +118,7 @@ export const changesRoutes = guard({
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          return json(yield* commitChangeEffect(c, (yield* bodyOf(req)) as CommitRequest));
+          return json(yield* commitChange(c, (yield* bodyOf(req)) as CommitRequest));
         }),
       ),
   },
@@ -129,7 +129,7 @@ export const changesRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = (yield* bodyOf(req)) as { repos?: string[] };
-          return json(yield* pushChangeEffect(c, body.repos ?? c.repos));
+          return json(yield* pushChange(c, body.repos ?? c.repos));
         }),
       ),
   },
@@ -144,7 +144,7 @@ export const changesRoutes = guard({
           if (!repo || !file) {
             return yield* Effect.fail(new BadRequestError({ message: "path and file required" }));
           }
-          return json({ text: yield* fileDiffEffect(c, repo, file, params.get("staged") === "1") });
+          return json({ text: yield* fileDiff(c, repo, file, params.get("staged") === "1") });
         }),
       ),
   },
@@ -152,12 +152,12 @@ export const changesRoutes = guard({
   // Whatever you want to remember about this change; plain text in the change directory.
   "/api/changes/:id/notes": {
     GET: (req) =>
-      withChange(req.params.id, (c) => Effect.map(readNotesEffect(c.id), (text) => json({ text }))),
+      withChange(req.params.id, (c) => Effect.map(readNotes(c.id), (text) => json({ text }))),
     PUT: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = (yield* bodyOf(req)) as { text?: string };
-          yield* writeNotesEffect(c.id, body.text ?? "");
+          yield* writeNotes(c.id, body.text ?? "");
           return json({ text: body.text ?? "" });
         }),
       ),
@@ -166,14 +166,14 @@ export const changesRoutes = guard({
   // Text for a pull request, built here because the ticket summary comes from the Jira CLI.
   "/api/changes/:id/description": {
     GET: (req) =>
-      withChange(req.params.id, (c) => Effect.map(prDescriptionEffect(c), (text) => json({ text }))),
+      withChange(req.params.id, (c) => Effect.map(prDescription(c), (text) => json({ text }))),
   },
 
   // Completing a change: merge every outstanding pull request and close the ticket. GET
   // reports whether that is currently allowed, so the button can explain itself.
   // How far a completion got: written as it happens, so this answers even after a restart.
   "/api/changes/:id/complete/progress": {
-    GET: (req) => withChange(req.params.id, (c) => Effect.map(progressOfEffect(c.id), json)),
+    GET: (req) => withChange(req.params.id, (c) => Effect.map(progressOf(c.id), json)),
   },
 
   // Abandoning a change: the worktrees and the terminal go, and everything anyone else can
@@ -183,7 +183,7 @@ export const changesRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = (yield* bodyOrEmpty(req)) as { force?: boolean };
-          const result = yield* cancelChangeEffect(c, body.force === true);
+          const result = yield* cancelChange(c, body.force === true);
           // The same protocol a repository removal uses: ask once, then repeat with force.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
@@ -200,10 +200,10 @@ export const changesRoutes = guard({
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.catchAll(
-          Effect.map(completionOfEffect(c), json),
+          Effect.map(completionOf(c), json),
           (e) => Effect.succeed(json({ ready: false, reasons: [messageOf(e)], toMerge: [] })),
         ),
       ),
-    POST: (req) => withChange(req.params.id, (c) => Effect.map(completeChangeEffect(c), json)),
+    POST: (req) => withChange(req.params.id, (c) => Effect.map(completeChange(c), json)),
   },
 });

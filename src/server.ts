@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import { Effect } from "effect";
-import { loadCacheEffect, saveCacheEffect } from "./cache.ts";
+import { loadCache, saveCache } from "./cache.ts";
 import { buildClientChunks } from "./extensions/clientChunks.ts";
 import { assetsRoutes } from "./routes/assets.ts";
 import { changesRoutes } from "./routes/changes.ts";
@@ -13,7 +13,7 @@ import { bridge, type Bridge } from "./terminalProxy.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
-const restored = await Effect.runPromise(loadCacheEffect);
+const restored = await Effect.runPromise(loadCache);
 
 // The browser halves of out-of-tree extensions, and the react vendor chunks they resolve
 // against, built once at startup: after the extensions have loaded (their import awaited
@@ -23,10 +23,10 @@ await buildClientChunks();
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.
-setInterval(() => void Effect.runPromise(saveCacheEffect).catch(() => {}), 30_000).unref();
+setInterval(() => void Effect.runPromise(saveCache).catch(() => {}), 30_000).unref();
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    void Effect.runPromise(saveCacheEffect)
+    void Effect.runPromise(saveCache)
       .catch(() => {})
       .finally(() => process.exit(0));
   });

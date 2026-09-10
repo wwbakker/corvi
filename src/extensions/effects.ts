@@ -29,7 +29,7 @@ export type ProvisionResult = { integration: string; ok: boolean; error?: string
  * dashboard once you can see what went wrong. A hook that failed stops its own extension's
  * later hooks — they would build on a half-done job — but never the extensions after it.
  */
-export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]> =>
+export const provision = (change: Change): Effect.Effect<ProvisionResult[]> =>
   Effect.gen(function* () {
     const results: ProvisionResult[] = [];
     for (const ext of extensionsFor(workspaceOf(change))) {
@@ -49,7 +49,7 @@ export const provisionEffect = (change: Change): Effect.Effect<ProvisionResult[]
  * failed request. A finished change's rows lose their actions — reading, not acting. The
  * name is the extension's own, which the browser knows the card by; the host has it wherever
  * it found the card, and the contract keeps the Card name-free. */
-export const statusOneEffect = (name: string, card: Card, change: Change): Effect.Effect<Widget> =>
+export const statusOne = (name: string, card: Card, change: Change): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
       asWorkspace(
@@ -75,7 +75,7 @@ export const statusOneEffect = (name: string, card: Card, change: Change): Effec
 
 /** One repository's rows, for the cards that report per repository. A failed effect is a red
  * row for that repository only: the others keep loading. */
-export const repoStatusOfEffect = (
+export const repoStatusOf = (
   card: Card,
   change: Change,
   repo: string,
@@ -106,7 +106,7 @@ export const repoStatusOfEffect = (
 /** Perform an action a card's rows advertised — the POST `/api/changes/:id/:card/:action`
  * path. A finished change refuses: the buttons are gone from its dashboard, but a page may
  * have been open since before it finished, and this is where the truth lives. */
-export const runCardEffect = (
+export const runCard = (
   card: Card,
   change: Change,
   action: string,
@@ -120,7 +120,7 @@ export const runCardEffect = (
   );
 
 /** The widget's `integration` field is the identity the browser knows the card by — the
- * extension's name, carried by the caller (see statusOneEffect). */
+ * extension's name, carried by the caller (see statusOne). */
 
 /**
  * A change that is over is one to read, not one to act on.

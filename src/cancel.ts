@@ -1,12 +1,12 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
-import { archiveChangeEffect, writeChangeEffect } from "./changes.ts";
+import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
+import { archiveChange, writeChange } from "./changes.ts";
 import { looseEndContributorsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
-import { stopTerminalEffect } from "./terminal.ts";
+import { stopTerminal } from "./terminal.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
 import { messageOf, shSoft } from "./effect/support.ts";
 
@@ -18,32 +18,26 @@ import { messageOf, shSoft } from "./effect/support.ts";
  * open, the ticket stays where it is. That is deliberate: cancelling is a decision about your own
  * desk, and closing somebody else's pull request or moving a ticket other people are watching is
  * a decision about theirs. What is left is listed so you can go and deal with it — the loose
- * ends are gathered by asking the extensions (looseEndsEffect, below).
+ * ends are gathered by asking the extensions (looseEnds, below).
  *
  * The protections are the same ones a repository removal has, because it is the same act:
  * uncommitted work refuses outright, commits nobody else has ask first.
  */
-export type Cancellation = {
-  change: Change;
-  /** What cancelling did not take care of, in the words you would need to go and finish it. */
-  loose: string[];
-};
 
 /** Names of the repositories whose work would be lost, when that needs asking about first.
- * The Effect API answers in one discriminated union where the old code returned a duck that the
- * caller probed with `"needsForce" in result`; the Promise facade keeps the duck (the server
- * still tests for it). */
+ * The Effect API answers in one discriminated union that callers branch on by `_tag`; the
+ * `NeedsForce` arm is the one that asks before losing commits nobody else has. */
 export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
 export type Cancelled = { _tag: "Done"; change: Change; loose: string[] };
 
-export const cancelChangeEffect = (
+export const cancelChange = (
   change: Change,
   force = false,
 ): Effect.Effect<Cancelled | NeedsForce, CliError | BadRequestError> =>
   Effect.gen(function* () {
     const unsafe = yield* Effect.forEach(
       change.repos,
-      (repo) => Effect.map(unsafeToRemoveEffect(change, repo), (unsafe) => ({ repo, unsafe })),
+      (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
       // The old Promise.all was unbounded, so this stays unbounded.
       { concurrency: "unbounded" },
     );
@@ -68,10 +62,10 @@ export const cancelChangeEffect = (
     }
 
     // Asked before the worktrees go, because that is where the pull request is looked up from.
-    const loose = yield* looseEndsEffect(change);
+    const loose = yield* looseEnds(change);
 
-    for (const repo of change.repos) yield* removeWorktreeEffect(change, repo);
-    yield* stopTerminalEffect(change.id);
+    for (const repo of change.repos) yield* removeWorktree(change, repo);
+    yield* stopTerminal(change.id);
 
     // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
     // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
@@ -85,21 +79,10 @@ export const cancelChangeEffect = (
       state: "Cancelled",
       completedAt: new Date().toISOString(),
     };
-    yield* writeChangeEffect(cancelled);
-    yield* archiveChangeEffect(change.id);
+    yield* writeChange(cancelled);
+    yield* archiveChange(change.id);
     return { _tag: "Done", change: cancelled, loose };
   });
-
-/** Promise facade over cancelChangeEffect, in the duck-typed shape the old code returned.
- * Kept for the test suite, which drives the duck (`{ needsForce }` / `{ change, loose }`) and
- * the thrown plain Errors, and must pass unmodified. */
-export async function cancelChange(
-  change: Change,
-  force = false,
-): Promise<Cancellation | { needsForce: string[] }> {
-  const result = await Effect.runPromise(cancelChangeEffect(change, force));
-  return result._tag === "Done" ? { change: result.change, loose: result.loose } : { needsForce: result.needsForce };
-}
 
 /**
  * What cancelling deliberately leaves alone, said out loud.
@@ -112,7 +95,7 @@ export async function cancelChange(
  * A contributor that fails contributes nothing: cancelling must never fail because a vendor
  * lookup did.
  */
-export const looseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+export const looseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
     Effect.forEach(
       looseEndContributorsFor(workspaceOf(change)),

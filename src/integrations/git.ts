@@ -2,10 +2,10 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
 import type { Change, Widget, WidgetItem, WidgetState } from "../types.ts";
-import { shOrThrowEffect } from "../sh.ts";
+import { shOrThrow } from "../sh.ts";
 import { config } from "../config.ts";
-import { copyToolingEffect } from "../tooling.ts";
-import { writeChangeEffect, writeWtConfigEffect, changeDir } from "../changes.ts";
+import { copyTooling } from "../tooling.ts";
+import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
 import { isMac, commandAvailable } from "../platform.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
 import { fs, shSoft } from "../effect/support.ts";
@@ -38,7 +38,7 @@ export type WtEntry = {
 /** Every wt call is scoped to the change's own config, which places worktrees inside the
  * change directory. */
 const wtEffect = (change: Change, args: string[]): Effect.Effect<string[]> =>
-  Effect.map(writeWtConfigEffect(change.id), (configPath) =>
+  Effect.map(writeWtConfig(change.id), (configPath) =>
     ["wt", "--config", configPath, ...args]);
 
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -87,7 +87,7 @@ export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
  * about it. Fails with NotFoundError-message-shaped BadRequestError where the old code threw a
  * plain Error. Undefined when the change has no worktree there. */
-export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
+export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
   Effect.gen(function* () {
     const worktrees = parseWorktrees(
       (yield* shSoft(["git", "worktree", "list", "--porcelain"], repo)).stdout,
@@ -97,7 +97,7 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
 
     const [status, base] = yield* Effect.all([
       shSoft(["git", "status", "--porcelain=v2", "--branch"], found.path),
-      remoteDefaultBranchEffect(repo),
+      remoteDefaultBranch(repo),
     ]);
     const tree = parseStatus(status.stdout);
     // Whether main already has everything on this branch, which is how a merged change is spotted.
@@ -124,8 +124,8 @@ export const entryForEffect = (change: Change, repo: string): Effect.Effect<WtEn
 /** Where this change's checkout of `repo` lives: its worktree, or — worked on in place — the
  * repository's own checkout, which is the path the change directory's link points at too.
  * Undefined when the change has no checkout of this repository. */
-export const checkoutForEffect = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  Effect.map(entryForEffect(change, repo), (entry) => entry?.path);
+export const checkoutFor = (change: Change, repo: string): Effect.Effect<string | undefined> =>
+  Effect.map(entryFor(change, repo), (entry) => entry?.path);
 
 /** Human summary of one checkout — the worktree or the in-place repository — and how
  * alarming it is. */
@@ -146,11 +146,11 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
   };
 }
 
-export const repoItemEffect = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* directItemEffect(change, repo);
     const label = basename(repo);
-    const entry = yield* entryForEffect(change, repo);
+    const entry = yield* entryFor(change, repo);
     if (!entry) {
       return {
         label,
@@ -191,7 +191,7 @@ const askDefaultBranchEffect = (repo: string): Effect.Effect<string | undefined,
  * Never fails: the old ask branched on Results end to end, so a timed-out `git` read as "no
  * default branch" — and that tolerance is kept here, explicitly, instead of surfacing the
  * timeout through every caller that used to be able to rely on an answer. */
-export const remoteDefaultBranchEffect = (
+export const remoteDefaultBranch = (
   repo: string,
 ): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
@@ -214,13 +214,13 @@ export const remoteDefaultBranchEffect = (
   });
 
 /** The branch this repository's work starts from: what you chose, or the remote's default. */
-export const baseForEffect = (
+export const baseFor = (
   change: Change,
   repo: string,
 ): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const chosen = change.base?.[repo];
-    return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranchEffect(repo);
+    return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranch(repo);
   });
 
 /**
@@ -283,10 +283,10 @@ export const isDirect = (change: Change, repo: string): boolean =>
  * still shows everything the change touches. */
 const linkPath = (change: Change, repo: string): string => join(changeDir(change.id), basename(repo));
 
-export const currentBranchEffect = (repo: string): Effect.Effect<string> =>
+export const currentBranch = (repo: string): Effect.Effect<string> =>
   Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo), (r) => r.stdout);
 
-export const isDirtyEffect = (repo: string): Effect.Effect<boolean> =>
+export const isDirty = (repo: string): Effect.Effect<boolean> =>
   Effect.map(shSoft(["git", "status", "--porcelain"], repo), (r) => r.stdout !== "");
 
 /**
@@ -302,21 +302,21 @@ const useInPlaceEffect = (change: Change, repo: string): Effect.Effect<void, Cli
     yield* fs(() => symlink(repo, linkPath(change, repo))).pipe(
       Effect.catchAllDefect(() => Effect.void), // already linked
     );
-    if ((yield* currentBranchEffect(repo)) === change.branch) return;
-    if (yield* isDirtyEffect(repo)) return; // reported by the widget; the user decides what to do
+    if ((yield* currentBranch(repo)) === change.branch) return;
+    if (yield* isDirty(repo)) return; // reported by the widget; the user decides what to do
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
     if (exists) {
-      yield* shOrThrowEffect(["git", "switch", change.branch], repo);
+      yield* shOrThrow(["git", "switch", change.branch], repo);
       return;
     }
-    const base = yield* baseForEffect(change, repo);
+    const base = yield* baseFor(change, repo);
     if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     // --no-track: branching off origin/main would otherwise make origin/main the upstream, and
     // the first `git push` would try to push your work straight onto it. The branch gets its own
     // upstream when it is first pushed, as a worktree's does.
-    yield* shOrThrowEffect(
+    yield* shOrThrow(
       ["git", "switch", "--create", change.branch, ...(base ? ["--no-track", base] : [])],
       repo,
     );
@@ -334,8 +334,8 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
   Effect.gen(function* () {
     const label = basename(repo);
     const [branch, dirty] = yield* Effect.all([
-      currentBranchEffect(repo),
-      isDirtyEffect(repo),
+      currentBranch(repo),
+      isDirty(repo),
     ]);
     if (branch !== change.branch) {
       return {
@@ -350,7 +350,7 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
     }
     // On the right branch: the main checkout is a worktree like any other as far as git is
     // concerned, so the same reading describes it.
-    const entry = yield* entryForEffect(change, repo);
+    const entry = yield* entryFor(change, repo);
     const described = entry
       ? describe(entry)
       : {
@@ -368,24 +368,24 @@ const directItemEffect = (change: Change, repo: string): Effect.Effect<WidgetIte
 /** Give this change its checkout in `repo`, by the mode the change asked for: a worktree, or
  * the repository's own checkout switched and linked, when the repo is worked on in place.
  * Whatever is already there is left alone. */
-export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+export const provisionRepo = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* useInPlaceEffect(change, repo);
-    if (yield* checkoutForEffect(change, repo)) return;
+    if (yield* checkoutFor(change, repo)) return;
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
     // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
     if (exists) {
-      yield* shOrThrowEffect(yield* wtEffect(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
+      yield* shOrThrow(yield* wtEffect(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
       return yield* carryToolingEffect(repo, change);
     }
     // Branch from the chosen base, fetched first: a local main is often behind. The base is the
     // remote default unless this change is stacked on another one's branch.
-    const base = yield* baseForEffect(change, repo);
+    const base = yield* baseFor(change, repo);
     if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     const baseArgs = base ? ["--base", base] : [];
-    yield* shOrThrowEffect(
+    yield* shOrThrow(
       yield* wtEffect(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
     );
     yield* carryToolingEffect(repo, change);
@@ -401,11 +401,11 @@ export const provisionRepoEffect = (change: Change, repo: string): Effect.Effect
 const carryToolingEffect = (repo: string, change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!config.worktreeCopy.length) return;
-    const created = yield* checkoutForEffect(change, repo);
+    const created = yield* checkoutFor(change, repo);
     if (!created) return;
     // The copy runs as an Effect too, so its `git check-ignore` carries the workspace env
     // (src/tooling.ts); its failure is reported and never fatal.
-    yield* copyToolingEffect(repo, created, config.worktreeCopy).pipe(
+    yield* copyTooling(repo, created, config.worktreeCopy).pipe(
       Effect.catchAll((error) =>
         Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
     );
@@ -437,14 +437,14 @@ export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   return undefined;
 }
 
-export const unsafeToRemoveEffect = (
+export const unsafeToRemove = (
   change: Change,
   repo: string,
 ): Effect.Effect<Unsafe | undefined> =>
-  Effect.map(entryForEffect(change, repo), unsafeIn);
+  Effect.map(entryFor(change, repo), unsafeIn);
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
-export const repoStatesEffect = (
+export const repoStates = (
   change: Change,
 ): Effect.Effect<
   { path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]
@@ -457,8 +457,8 @@ export const repoStatesEffect = (
           path,
           name: basename(path),
           direct: isDirect(change, path),
-          base: yield* baseForEffect(change, path),
-          unsafe: yield* unsafeToRemoveEffect(change, path),
+          base: yield* baseFor(change, path),
+          unsafe: yield* unsafeToRemove(change, path),
         };
       }),
     // The old Promise.all was unbounded, so this stays unbounded.
@@ -482,7 +482,7 @@ export type SetReposResult =
   | { _tag: "Done"; change: Change }
   | { _tag: "NeedsForce"; needsForce: string[] };
 
-export const setReposEffect = (
+export const setRepos = (
   change: Change,
   repos: string[],
   force = false,
@@ -500,7 +500,7 @@ export const setReposEffect = (
 
     const unsafe = yield* Effect.forEach(
       removed,
-      (repo) => Effect.map(unsafeToRemoveEffect(change, repo), (unsafe) => ({ repo, unsafe })),
+      (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
       // The old Promise.all was unbounded, so this stays unbounded.
       { concurrency: "unbounded" },
     );
@@ -518,7 +518,7 @@ export const setReposEffect = (
       return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
     }
 
-    for (const repo of removed) yield* removeWorktreeEffect(change, repo);
+    for (const repo of removed) yield* removeWorktree(change, repo);
     const bases = Object.fromEntries(
       Object.entries(base ?? change.base ?? {}).filter(([repo]) => wanted.includes(repo)),
     );
@@ -528,8 +528,8 @@ export const setReposEffect = (
       direct: wantedDirect.length ? wantedDirect : undefined,
       base: Object.keys(bases).length ? bases : undefined,
     };
-    yield* writeChangeEffect(updated);
-    for (const repo of added) yield* provisionRepoEffect(updated, repo);
+    yield* writeChange(updated);
+    for (const repo of added) yield* provisionRepo(updated, repo);
     return { _tag: "Done", change: updated };
   });
 
@@ -538,20 +538,20 @@ export const setReposEffect = (
  * has not — which is what makes switching a repository to in-place work: the worktree goes, the
  * branch stays, and the repository's own checkout picks it up.
  */
-export const removeWorktreeEffect = (
+export const removeWorktree = (
   change: Change,
   repo: string,
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* unlinkInPlaceEffect(change, repo);
-    if (!(yield* checkoutForEffect(change, repo))) return;
-    yield* shOrThrowEffect(
+    if (!(yield* checkoutFor(change, repo))) return;
+    yield* shOrThrow(
       yield* wtEffect(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
   });
 
 /** The `git` integration's action runner, in Effect. */
-export const gitRunEffect = (
+export const gitRun = (
   change: Change,
   action: string,
   repo?: string,
@@ -560,18 +560,18 @@ export const gitRunEffect = (
     if (!repo) {
       return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
     }
-    if (action === "add") return yield* provisionRepoEffect(change, repo);
+    if (action === "add") return yield* provisionRepo(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);
     if (opener) {
-      const path = (yield* checkoutForEffect(change, repo)) ?? repo;
-      yield* shOrThrowEffect(opener.command(path));
+      const path = (yield* checkoutFor(change, repo)) ?? repo;
+      yield* shOrThrow(opener.command(path));
       return;
     }
 
     // --foreground so the widget refresh that follows sees the removal; --force because build
     // artifacts are untracked files and this button was clicked deliberately.
-    if (action === "remove") return yield* removeWorktreeEffect(change, repo);
+    if (action === "remove") return yield* removeWorktree(change, repo);
     return yield* Effect.fail(new BadRequestError({ message: `unknown git action: ${action}` }));
   });

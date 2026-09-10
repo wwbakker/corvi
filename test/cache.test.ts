@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect } from "effect";
-import { ageOf, invalidate, clearCache, loadCacheEffect, saveCacheEffect } from "../src/cache.ts";
+import { ageOf, invalidate, clearCache, loadCache, saveCache } from "../src/cache.ts";
 import { runEffect, runEffectWith, runSh, runSwr } from "./helpers.ts";
 
 const file = join(tmpdir(), "iwe-cache-test.json");
@@ -93,7 +93,7 @@ test("an action forgets what it just made wrong", async () => {
 test("the cache survives a restart, minus what is too old to trust", async () => {
   await runSwr("fresh", 60_000, async () => ({ runs: 2 }));
   await runSwr("ancient", 60_000, async () => "yesterday");
-  await runEffect(saveCacheEffect);
+  await runEffect(saveCache);
 
   // Age the one entry past what is worth restoring, the way a machine left overnight would.
   const stored = (await Bun.file(file).json()) as Record<string, { at: number; value: unknown }>;
@@ -101,7 +101,7 @@ test("the cache survives a restart, minus what is too old to trust", async () =>
   await Bun.write(file, JSON.stringify(stored));
 
   clearCache();
-  expect(await runEffect(loadCacheEffect)).toBe(1);
+  expect(await runEffect(loadCache)).toBe(1);
   // Restored, so the page paints from it; stale, so the first request refreshes it anyway.
   expect(await runSwr("fresh", 60_000, async () => ({ runs: 99 }))).toEqual({ runs: 2 });
   expect(ageOf("ancient")).toBeUndefined();
@@ -139,7 +139,7 @@ test("a command that cannot start is a failed command, not a crash", async () =>
 });
 
 test("every CLI a workspace runs gets that workspace's environment", async () => {
-  const { envOf, shEffect } = await import("../src/sh.ts");
+  const { envOf, sh } = await import("../src/sh.ts");
   const workspace = {
     id: "client",
     name: "Acme",
@@ -157,8 +157,8 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
     Effect.gen(function* () {
       // A tilde is a path in practice, and a shell would have expanded it.
       expect(envOf(workspace).GH_CONFIG_DIR?.startsWith("/")).toBe(true);
-      expect((yield* shEffect(["sh", "-c", "echo $IWE_TEST_MARK"])).stdout).toBe("client");
-      expect((yield* shEffect(["sh", "-c", "echo $GH_CONFIG_DIR"])).stdout).toContain("gh-client");
+      expect((yield* sh(["sh", "-c", "echo $IWE_TEST_MARK"])).stdout).toBe("client");
+      expect((yield* sh(["sh", "-c", "echo $GH_CONFIG_DIR"])).stdout).toContain("gh-client");
     }),
   );
 

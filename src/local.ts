@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
-import { checkoutForEffect, baseForEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { checkoutFor, baseFor } from "./integrations/git.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
 
 export type { FileChange };
@@ -91,20 +91,18 @@ export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
 /** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
+ * `sh` can fail with here — is a failed command (exit code 124), not a failure of the
  * operation. Everything downstream branches on `code`, exactly as before. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// The localChanges/fileDiff facades below are kept for repos.test.ts, which must pass
-// unmodified.
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  checkoutForEffect(change, repo);
+  checkoutFor(change, repo);
 
 const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  baseForEffect(change, repo);
+  baseFor(change, repo);
 
 /** Commits made since the branch left its base, for a branch with no upstream to compare to. */
 const sinceBase = (
@@ -121,7 +119,7 @@ const sinceBase = (
 
 /** What is uncommitted in one repository of a change. Live, never cached: this is the file you
  * are editing, and a second-old answer is a wrong one. */
-export const localChangesEffect = (
+export const localChanges = (
   change: Change,
   repo: string,
 ): Effect.Effect<LocalStatus, unknown> =>
@@ -152,11 +150,6 @@ export const localChangesEffect = (
     };
   });
 
-/** Promise facade over localChangesEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const localChanges = (change: Change, repo: string): Promise<LocalStatus> =>
-  Effect.runPromise(localChangesEffect(change, repo));
-
 /**
  * The diff of one file, as `git diff` writes it.
  *
@@ -168,7 +161,7 @@ export const localChanges = (change: Change, repo: string): Promise<LocalStatus>
  * `BadRequestError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
  * is a `CliError`. Both carry the message the old throw had.
  */
-export const fileDiffEffect = (
+export const fileDiff = (
   change: Change,
   repo: string,
   file: string,
@@ -183,7 +176,7 @@ export const fileDiffEffect = (
       return yield* Effect.fail(new BadRequestError({ message }));
     }
 
-    const status = yield* localChangesEffect(change, repo);
+    const status = yield* localChanges(change, repo);
     const found = status.files.find((f) => f.path === file);
     const command = found?.untracked
       ? ["git", "diff", "--no-index", "--", "/dev/null", file]
@@ -205,12 +198,3 @@ export const fileDiffEffect = (
     }
     return r.stdout;
   });
-
-/** Promise facade over fileDiffEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const fileDiff = (
-  change: Change,
-  repo: string,
-  file: string,
-  staged: boolean,
-): Promise<string> => Effect.runPromise(fileDiffEffect(change, repo, file, staged));

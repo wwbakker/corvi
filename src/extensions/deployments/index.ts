@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { BadRequestError } from "../../effect/errors.ts";
-import { deploymentsEffect, versionsForEffect, deployEffect } from "./server.ts";
+import { deployments, versionsFor, deploy } from "./server.ts";
 import type { Extension } from "../api.ts";
 
 /**
@@ -69,14 +69,14 @@ export default {
     {
       method: "GET",
       path: "/services",
-      handler: (req) => Effect.map(deploymentsEffect(workspaceParam(req)), Response.json),
+      handler: (req) => Effect.map(deployments(workspaceParam(req)), Response.json),
     },
     {
       // The versions a service has built and could be given, newest first.
       method: "GET",
       path: "/services/:service/versions",
       handler: (req, params) =>
-        Effect.map(versionsForEffect(params.service!, workspaceParam(req)), Response.json),
+        Effect.map(versionsFor(params.service!, workspaceParam(req)), Response.json),
     },
     {
       // The one irreversible thing on that page: start a deploy. The promotion guard — a later
@@ -93,7 +93,7 @@ export default {
             );
           }
           return Response.json(
-            yield* deployEffect(params.service!, body.version, body.environment, workspaceParam(req)),
+            yield* deploy(params.service!, body.version, body.environment, workspaceParam(req)),
           );
         }),
     },

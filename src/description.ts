@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { prItemEffect } from "./integrations/github.ts";
+import { prItem } from "./integrations/github.ts";
 import { descriptionSectionsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
@@ -25,7 +25,7 @@ export function describeChange(
   return `${heading}\n${links.join("\n")}\n`;
 }
 
-export const prDescriptionEffect = (change: Change): Effect.Effect<string> =>
+export const prDescription = (change: Change): Effect.Effect<string> =>
   Effect.gen(function* () {
     // The heading, one contributed part per extension that claims this change, joined with
     // " - " — which is what a ticket key and its summary were joined with when there was only
@@ -45,7 +45,7 @@ export const prDescriptionEffect = (change: Change): Effect.Effect<string> =>
 
     const links = yield* Effect.forEach(
       change.repos,
-      (repo) => Effect.map(prItemEffect(change, repo), (found) => found.item.url ?? basename(repo)),
+      (repo) => Effect.map(prItem(change, repo), (found) => found.item.url ?? basename(repo)),
       // The old Promise.all was unbounded, so this stays unbounded.
       { concurrency: "unbounded" },
     );

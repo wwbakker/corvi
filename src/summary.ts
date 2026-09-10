@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { worst, type Change, type ChangeSummary, type SummaryFact } from "./types.ts";
-import { listWindowsEffect } from "./terminal.ts";
+import { listWindows } from "./terminal.ts";
 import { summaryContributorsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
@@ -21,11 +21,11 @@ export { worst };
  * reason to blank the card, let alone fail the request. The icon's verdict is the worst of
  * what was offered, and "none" when nobody offered one.
  */
-export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
+export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
   Effect.gen(function* () {
     // The core's own fact: tmux stays core, and busy is a presented fact — the merge in
     // terminal.ts says which windows are work.
-    const windows = yield* listWindowsEffect(change.id);
+    const windows = yield* listWindows(change.id);
     const busy = windows.filter((w) => w.busy).length;
     const terminals: SummaryFact = {
       id: "terminals",

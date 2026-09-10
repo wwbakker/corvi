@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
 import { Bus, Cache, Shell, Settings, Workspace, type Capabilities } from "./api.ts";
 import { envOf, shEffectWithEnv } from "../sh.ts";
-import { invalidate, swrEffect } from "../cache.ts";
+import { invalidate, swr } from "../cache.ts";
 import { config } from "../config.ts";
 import { announce } from "../events.ts";
 import type { Workspace as WorkspaceShape } from "../config.ts";
@@ -25,7 +25,7 @@ export const ShellLive = Layer.effect(
 );
 
 export const CacheLive = Layer.succeed(Cache, {
-  swr: (key, ttlMs, work) => swrEffect(key, ttlMs, work),
+  swr: (key, ttlMs, work) => swr(key, ttlMs, work),
   invalidate: (prefix) => Effect.sync(() => invalidate(prefix)),
 });
 

@@ -79,10 +79,10 @@ export {
   type WizardStepInfo,
 } from "./selectors.ts";
 export {
-  provisionEffect,
-  repoStatusOfEffect,
-  runCardEffect,
-  statusOneEffect,
+  provision,
+  repoStatusOf,
+  runCard,
+  statusOne,
   type ProvisionResult,
 } from "./effects.ts";
 export { dispatchExtensionRoute } from "./dispatch.ts";

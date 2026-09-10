@@ -2,8 +2,8 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { problems, settingsView, writeSettingsEffect, type Settings } from "../src/settings.ts";
-import { config, reloadConfig, type Config } from "../src/config.ts";
+import { problems, settingsViewSync, writeSettings, type Settings } from "../src/settings.ts";
+import { config, reloadConfigSync, type Config } from "../src/config.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -25,7 +25,7 @@ beforeAll(async () => {
   file = join(tmp, "config.json");
   process.env.IWE_CONFIG = file;
   delete process.env.IWE_ROOT;
-  reloadConfig();
+  reloadConfigSync();
 });
 
 afterAll(async () => {
@@ -35,7 +35,7 @@ afterAll(async () => {
   if (originalRoot !== undefined) process.env.IWE_ROOT = originalRoot;
   // Other tests share this process, and a config left pointing at a deleted file is a test that
   // fails somewhere else for a reason nobody can see.
-  reloadConfig();
+  reloadConfigSync();
 });
 
 afterEach(() => {
@@ -82,7 +82,7 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
       { id: "own", name: "My own", extensions: ["ci", "git"] },
     ],
   };
-  await runEffect(writeSettingsEffect(next));
+  await runEffect(writeSettings(next));
 
   // The object every module imported, not a copy of it: that is what "no restart" means.
   expect(config.changesRoot).toBe(join(tmp, "changes"));
@@ -93,24 +93,24 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(config.workspaces[0]!.azure).toBe(false);
   expect(config.workspaces[1]!.extensions).toEqual(["ci", "git"]);
 
-  expect(runEffect(writeSettingsEffect({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
+  expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.
-  expect(reloadConfig().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
+  expect(reloadConfigSync().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
 });
 
 test("silencing notifications is a decision the file keeps; absent means sound", async () => {
   // The default is on, and only the decision to silence is written down, so an untouched file
   // stays a page of decisions rather than a dump of defaults.
-  expect(reloadConfig().notificationSound).toBe(true);
+  expect(reloadConfigSync().notificationSound).toBe(true);
 
-  await runEffect(writeSettingsEffect({ notificationSound: false }));
+  await runEffect(writeSettings({ notificationSound: false }));
   expect(config.notificationSound).toBe(false);
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.notificationSound).toBe(false);
 
   // Handing it back to the default is writing nothing, which is what the page sends when the
   // box is ticked again.
-  await runEffect(writeSettingsEffect({ notificationSound: undefined }));
+  await runEffect(writeSettings({ notificationSound: undefined }));
   expect(config.notificationSound).toBe(true);
   const cleared = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect("notificationSound" in cleared).toBe(false);
@@ -118,7 +118,7 @@ test("silencing notifications is a decision the file keeps; absent means sound",
 
 test("the file keeps what it had, and does not fill up with defaults", async () => {
   await Bun.write(file, JSON.stringify({ somethingNewer: 1, jiraAssignee: "me" }));
-  await runEffect(writeSettingsEffect({ jiraDoneTransition: "Done", jiraAssignee: "" }));
+  await runEffect(writeSettings({ jiraDoneTransition: "Done", jiraAssignee: "" }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of IWE that does.
@@ -130,9 +130,9 @@ test("the file keeps what it had, and does not fill up with defaults", async () 
 
 test("a setting the environment overrides is reported as locked", async () => {
   process.env.IWE_WORKTREE_COPY = ".idea";
-  reloadConfig();
+  reloadConfigSync();
 
-  const view = settingsView();
+  const view = settingsViewSync();
   expect(view.overridden.worktreeCopy).toBe("IWE_WORKTREE_COPY");
   expect(view.effective.worktreeCopy).toEqual([".idea"]);
   expect(view.path).toBe(file);
@@ -143,7 +143,7 @@ test("a setting the environment overrides is reported as locked", async () => {
 test("an extension setting the environment overrides is reported as locked too", () => {
   process.env.IWE_JIRA_ASSIGNEE = "me@example.com";
   try {
-    const view = settingsView();
+    const view = settingsViewSync();
     // The jira extension's own declaration travels to the page, and the one field whose
     // environment variable is set is locked by name.
     const jira = view.extensions.find((e) => e.name === "jira");
@@ -159,7 +159,7 @@ test("an extension setting the environment overrides is reported as locked too",
 });
 
 test("the extensions' own settings round-trip, strings and string lists", async () => {
-  await runEffect(writeSettingsEffect({
+  await runEffect(writeSettings({
     extensionSettings: {
       jira: { assignee: "me@example.com" },
       deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
@@ -177,7 +177,7 @@ test("the extensions' own settings round-trip, strings and string lists", async 
 
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.
-  await runEffect(writeSettingsEffect({
+  await runEffect(writeSettings({
     extensionSettings: {
       jira: { assignee: "" },
       deployments: { environments: ["dev", "accept"] },

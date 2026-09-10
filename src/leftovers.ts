@@ -2,7 +2,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { root, ARCHIVE, changeDir } from "./changes.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
 /**
@@ -34,10 +34,10 @@ const badRequest = (message: string): BadRequestError => {
 };
 
 /** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
+ * `sh` can fail with here — is a failed command (exit code 124), not a failure of the
  * operation. Everything downstream branches on `code`, exactly as before. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
@@ -67,7 +67,7 @@ const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
 const isChange = (name: string): Effect.Effect<boolean> =>
   Effect.promise(() => Bun.file(join(changeDir(name), "change.json")).exists());
 
-export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(function* () {
+export const listLeftovers: Effect.Effect<Leftover[]> = Effect.gen(function* () {
   const names = yield* Effect.promise(() => readdir(root(), { withFileTypes: true }).catch(() => []));
   const candidates = names.filter((e) => e.isDirectory() && e.name !== ARCHIVE);
   const found = yield* Effect.forEach(
@@ -105,7 +105,7 @@ export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(functio
  * the changes root: this removes a directory tree, so it checks what it is pointed at. Where the
  * old code threw, the Effect fails with a `BadRequestError` carrying the same message.
  */
-export const removeLeftoverEffect = (name: string): Effect.Effect<void, BadRequestError> =>
+export const removeLeftover = (name: string): Effect.Effect<void, BadRequestError> =>
   Effect.gen(function* () {
     const path = changeDir(name);
     if (name !== "" && join(root(), name) !== path) {

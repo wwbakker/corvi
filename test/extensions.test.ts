@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChangeEffect, readChangeEffect } from "../src/changes.ts";
+import { createChange, readChange } from "../src/changes.ts";
 import { runEffect } from "./helpers.ts";
 import { Effect } from "effect";
 import {
@@ -19,7 +19,7 @@ import type {
   WindowPresentation,
 } from "../src/extensions/api.ts";
 import { presentWindow } from "../src/terminal.ts";
-import { looseEndsEffect } from "../src/cancel.ts";
+import { looseEnds } from "../src/cancel.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";
@@ -243,7 +243,7 @@ test("cancelling asks the loose-end contributors, in load order, and a failure c
   });
   try {
     const change: Change = { id: "L", branch: "L", repos: [], createdAt: "" };
-    const ends = await Effect.runPromise(looseEndsEffect(change));
+    const ends = await Effect.runPromise(looseEnds(change));
     // Extension by extension, contributor by contributor — load order decides, the same order
     // every other per-workspace surface reads in.
     expect(ends).toEqual([
@@ -315,7 +315,7 @@ test("a completion step is planned only when the change has something for it", (
 });
 
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {
-  const created = await runEffect(createChangeEffect({
+  const created = await runEffect(createChange({
     id: "PROJ-BAG",
     repos: ["/tmp/whatever-repo"],
     workspace: "test",
@@ -324,7 +324,7 @@ test("the wizard's payload lands on the change record, verbatim and per extensio
       "github-issues": { repo: "/repos/thing", number: 12 },
     },
   }));
-  const read = await Effect.runPromise(readChangeEffect("PROJ-BAG"));
+  const read = await Effect.runPromise(readChange("PROJ-BAG"));
   // The core stores what the extensions picked and never looks inside: both survive as written.
   expect(read?.extensions).toEqual({
     jira: { key: "PROJ-5" },

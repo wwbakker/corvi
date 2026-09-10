@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { listChangesEffect, writeChangeEffect } from "./changes.ts";
+import { listChanges, writeChange } from "./changes.ts";
 import { titleSourcesFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
@@ -19,9 +19,9 @@ import { workspaceOf } from "./workspaces.ts";
  * so every subprocess carries its environment. A source that cannot answer contributes nothing
  * — a vendor being down is not a reason to blank the names.
  */
-export const refreshTitlesEffect = (): Effect.Effect<Record<string, string>, unknown> =>
+export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> =>
   Effect.gen(function* () {
-    const changes = yield* listChangesEffect();
+    const changes = yield* listChanges();
     // A title you wrote yourself is not a stale copy of the ticket's, so its ticket is not asked
     // about and its name is left alone.
     const asking = changes.filter((c) => !c.titleEdited);
@@ -68,7 +68,7 @@ export const refreshTitlesEffect = (): Effect.Effect<Record<string, string>, unk
           const summary = change.titleEdited ? change.title : known.get(change.id) ?? change.title;
           if (!summary) return;
           titles[change.id] = summary;
-          if (summary !== change.title) yield* writeChangeEffect({ ...change, title: summary });
+          if (summary !== change.title) yield* writeChange({ ...change, title: summary });
         }),
       { concurrency: "unbounded" },
     );

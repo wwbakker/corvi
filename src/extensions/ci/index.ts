@@ -1,9 +1,9 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import { worst, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
-import { activeRunsEffect, pipelineItemsEffect } from "../../integrations/azure.ts";
-import { createPrEffect, prItemEffect, prSummaryEffect } from "../../integrations/github.ts";
-import { checkItemsEffect } from "./checks.ts";
+import { activeRuns, pipelineItems } from "../../integrations/azure.ts";
+import { createPr, prItem, prSummary } from "../../integrations/github.ts";
+import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
 import type { Extension, SummaryContribution } from "../api.ts";
 
@@ -13,14 +13,14 @@ import type { Extension, SummaryContribution } from "../api.ts";
  */
 
 /** repository > pull request > pipeline > runs, as one collapsible tree per repository. */
-const repoItemEffect = (
+const repoItem = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ item: WidgetItem; prs: number; runs: number }> =>
   Effect.gen(function* () {
-    const { number, item: pr } = yield* prItemEffect(change, repo);
+    const { number, item: pr } = yield* prItem(change, repo);
     // Pipelines run on the PR merge ref once a PR exists, so the two are looked up together.
-    const { items: azure, count } = yield* pipelineItemsEffect(change, repo, number);
+    const { items: azure, count } = yield* pipelineItems(change, repo, number);
     // Nothing found in Azure DevOps does not mean nothing ran: a repository can be built by
     // GitHub Actions, or by pipelines in another Azure project than the configured one. The pull
     // request itself knows about all of them, so fall back to what it reports.
@@ -41,7 +41,7 @@ const fallbackChecksEffect = (
   azure: WidgetItem[],
 ): Effect.Effect<WidgetItem[]> =>
   Effect.gen(function* () {
-    const checks = yield* checkItemsEffect(change, repo, number);
+    const checks = yield* checkItems(change, repo, number);
     return checks.length ? checks : azure;
   });
 
@@ -69,7 +69,7 @@ const runEffect = (
       return yield* Effect.fail(new BadRequestError({ message: `unknown ci action: ${action}` }));
     }
     if (!repo) return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
-    yield* createPrEffect(change, repo);
+    yield* createPr(change, repo);
   });
 
 /**
@@ -88,8 +88,8 @@ const summaryContributionEffect = (
       change.repos,
       (repo) =>
         Effect.gen(function* () {
-          const { number, unresolved, checks } = yield* prSummaryEffect(change, repo);
-          return { pipelines: yield* activeRunsEffect(change, repo, number), unresolved, checks };
+          const { number, unresolved, checks } = yield* prSummary(change, repo);
+          return { pipelines: yield* activeRuns(change, repo, number), unresolved, checks };
         }),
       { concurrency: "unbounded" },
     );
@@ -134,7 +134,7 @@ const prLooseEndsEffect = (change: Change): Effect.Effect<string[]> =>
       change.repos,
       (repo) =>
         Effect.map(
-          Effect.catchAll(prSummaryEffect(change, repo), () => Effect.succeed(undefined)),
+          Effect.catchAll(prSummary(change, repo), () => Effect.succeed(undefined)),
           (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
         ),
       { concurrency: "unbounded" },
@@ -150,7 +150,7 @@ export default {
     {
       title: "CI",
       wide: true,
-      repoStatus: (change, repo) => Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
+      repoStatus: (change, repo) => Effect.map(repoItem(change, repo), ({ item }) => [item]),
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],

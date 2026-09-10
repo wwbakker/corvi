@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { readFileSync } from "node:fs";
+import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import { ConfigFile, workspacesFrom } from "./schemas/config.ts";
@@ -121,9 +121,9 @@ const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
   );
 
 /** The file's contents as an Effect: unreadable or undecodable means "nothing configured". */
-export const readFileEffect = (path: string = configPath()): Effect.Effect<ConfigFile> =>
+export const readFile = (path: string = configPath()): Effect.Effect<ConfigFile> =>
   Effect.gen(function* () {
-    const text = yield* Effect.try(() => readFileSync(path, "utf8"));
+    const text = yield* Effect.try(() => readFileNodeSync(path, "utf8"));
     return yield* decodeConfigFile(text);
   }).pipe(
     // Same tolerance, for a file that cannot be read at all: nothing configured.
@@ -133,11 +133,11 @@ export const readFileEffect = (path: string = configPath()): Effect.Effect<Confi
 /** What is in the file, as it is written. Invalid JSON reads as "nothing configured", which is
  * how IWE has always started on a machine that has no config at all.
  *
- * Sync facade over readFileEffect (run with Effect.runSync; see the note above): config is
- * needed synchronously at startup, so this stays. */
-export function readFile(): ConfigFile {
+ * Sync sibling of readFile (run with Effect.runSync; see the note above): config is needed
+ * synchronously at startup, so this stays. */
+export function readFileSync(): ConfigFile {
   // Sync on purpose: config is needed before the first request, and this is one small file.
-  return Effect.runSync(readFileEffect());
+  return Effect.runSync(readFile());
 }
 
 const resolvePath = (value: string): string => {
@@ -153,7 +153,7 @@ const resolvePath = (value: string): string => {
  * a truthy id and name) is applied by workspacesFrom, exactly where the old inline filter sat.
  */
 function load(): Config {
-  const file = readFile();
+  const file = readFileSync();
   const workspaces = workspacesFrom(file.workspaces);
   return {
     changesRoot: resolvePath(
@@ -285,12 +285,12 @@ export const config: Config = load();
 
 /** The same refill as an Effect, for the settings page's Effect write path. The object is
  * mutated in place (Object.assign) — modules hold it by reference. */
-export const reloadConfigEffect = Effect.sync(() => reloadConfig());
+export const reloadConfig = Effect.sync(() => reloadConfigSync());
 
 /** Refill the one config object in place. Sync, because every caller of the settings write is
  * synchronous today and the object identity must not change.
  *
- * Sync facade; the Effect form is reloadConfigEffect, which the settings write path uses. */
-export function reloadConfig(): Config {
+ * Sync sibling of reloadConfig, which the settings write path uses. */
+export function reloadConfigSync(): Config {
   return Object.assign(config, load());
 }

@@ -3,7 +3,7 @@ import { config } from "../config.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
 import { platformName } from "../platform.ts";
-import { settingsViewEffect, writeSettingsEffect, type Settings } from "../settings.ts";
+import { settingsView, writeSettings, type Settings } from "../settings.ts";
 import { bodyOf, json } from "./helpers.ts";
 
 export const settingsRoutes = guard({
@@ -18,11 +18,11 @@ export const settingsRoutes = guard({
   // The settings file, read and written from the page. Writing puts them into effect at once:
   // the config object every module holds is refilled rather than replaced.
   "/api/settings": {
-    GET: () => runRoute(Effect.map(settingsViewEffect, json)),
+    GET: () => runRoute(Effect.map(settingsView, json)),
     PUT: (req) =>
       runRoute(
         Effect.gen(function* () {
-          return json(yield* writeSettingsEffect((yield* bodyOf(req)) as Settings));
+          return json(yield* writeSettings((yield* bodyOf(req)) as Settings));
         }),
       ),
   },

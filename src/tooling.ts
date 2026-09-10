@@ -87,7 +87,7 @@ const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
  * the thing that was asked for, and a change that failed to provision over a copy of `.idea`
  * would be a poor trade.
  */
-export const copyToolingEffect = (
+export const copyTooling = (
   from: string,
   to: string,
   names: string[] = TOOLING,

@@ -36,7 +36,7 @@ const store = new Map<string, Entry>();
  * The work's requirements (R) pass through untouched: the cache stores outcomes, not
  * contexts, and every caller still provides what the work needs — on a hit that demand is
  * simply unexercised. */
-export const swrEffect = <T, E, R>(
+export const swr = <T, E, R>(
   key: string,
   ttl: number,
   work: Effect.Effect<T, E, R>,
@@ -127,7 +127,7 @@ const cacheFile = (): string =>
 const RESTORE_MAX_AGE = 6 * 60 * 60_000;
 
 /** Restores what a previous run saved, minus anything too old to trust. */
-export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
+export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
   type Stored = Record<string, { at: number; value: unknown }>;
   const stored = yield* pipe(
     Effect.tryPromise<Stored, unknown>({
@@ -150,7 +150,7 @@ export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
 
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
  * JSON — both are skipped, as before. */
-export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function* () {
+export const saveCache: Effect.Effect<void, unknown> = Effect.gen(function* () {
   const plain: Record<string, { at: number; value: unknown }> = {};
   for (const [key, entry] of store.entries()) {
     if (entry.at === 0 || entry.value instanceof Map) continue;

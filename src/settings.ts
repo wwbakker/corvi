@@ -4,8 +4,8 @@ import { Effect, Schema } from "effect";
 import {
   config,
   configPath,
-  readFile,
-  reloadConfigEffect,
+  readFileSync,
+  reloadConfig,
   expandTilde,
   type Config,
 } from "./config.ts";
@@ -61,13 +61,12 @@ export type SettingsView = {
   }[];
 };
 
-export const settingsViewEffect = Effect.sync(() => settingsView());
+export const settingsView = Effect.sync(() => settingsViewSync());
 
 /** The settings page's read: the file as written, what is in effect, what is locked. Sync by
- * contract; the Effect form is settingsViewEffect above, which the server uses. Kept for the
- * test suite, which must pass unmodified. */
-export const settingsView = (): SettingsView => {
-  const file = readFile();
+ * contract; the Effect form is settingsView above, which the server uses. */
+export const settingsViewSync = (): SettingsView => {
+  const file = readFileSync();
   return {
     path: configPath(),
     file,
@@ -168,7 +167,7 @@ function prune(value: unknown): unknown {
  * by hand, for a version of IWE that does, and losing it silently would be rude. The ENV_OVERRIDES
  * locking and the empty-field-means-unset pruning are unchanged.
  */
-export const writeSettingsEffect = (
+export const writeSettings = (
   next: Settings,
 ): Effect.Effect<SettingsView, BadRequestError> =>
   Effect.gen(function* () {
@@ -177,15 +176,15 @@ export const writeSettingsEffect = (
       yield* Effect.fail(new BadRequestError({ message: wrong.join("; ") }));
     }
 
-    const merged = prune({ ...readFile(), ...next }) as Settings;
+    const merged = prune({ ...readFileSync(), ...next }) as Settings;
     yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
-    yield* reloadConfigEffect;
+    yield* reloadConfig;
     // Everything the CLIs answered was answered for the old settings: another organisation, another
     // Jira site, another set of environments. Cheaper to ask again than to reason about which.
     invalidate("");
-    return yield* settingsViewEffect;
+    return yield* settingsView;
   });
 
 /** A workspace as the page adds one: everything off by default is wrong — a new context is

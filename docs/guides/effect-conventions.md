@@ -28,6 +28,15 @@ Server-side `src/` only. Excluded, deliberately:
   `Effect.die` to express a domain failure. Genuinely unexpected failures (a broken invariant,
   a corrupted runtime state) remain untyped defects and are allowed to die.
 
+## Naming
+
+A server function is named for what it does, never for the fact that it returns an Effect. There
+is no `Effect` suffix: `readChange`, `createChange`, `sh`, `swr`. When a synchronous sibling of
+the same operation exists, it takes the `Sync` suffix and the plain name stays with the Effect
+one — `readFile`/`readFileSync`, `reloadConfig`/`reloadConfigSync`,
+`settingsView`/`settingsViewSync` — so a name means the same thing whether or not the caller can
+wait.
+
 ## Error taxonomy (`src/effect/errors.ts`)
 
 One small sealed tagged set, shared by every module. **No per-module error hierarchies beyond

@@ -5,9 +5,9 @@ import {
   cardsFor,
   dispatchExtensionRoute,
   pagesFor,
-  repoStatusOfEffect,
-  runCardEffect,
-  statusOneEffect,
+  repoStatusOf,
+  runCard,
+  statusOne,
   wizardStepsFor,
 } from "../extensions/index.ts";
 import { guard } from "../origin.ts";
@@ -89,7 +89,7 @@ export const extensionsRoutes = guard({
           if (!repo) {
             return yield* Effect.fail(new BadRequestError({ message: "path required" }));
           }
-          return json({ items: yield* repoStatusOfEffect(card, c, repo) });
+          return json({ items: yield* repoStatusOf(card, c, repo) });
         }),
       ),
   },
@@ -103,7 +103,7 @@ export const extensionsRoutes = guard({
           if (!card) {
             return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
           }
-          return json(yield* statusOneEffect(req.params.card, card, c));
+          return json(yield* statusOne(req.params.card, card, c));
         }),
       ),
   },
@@ -122,13 +122,13 @@ export const extensionsRoutes = guard({
             return yield* Effect.fail(new ConflictError({ message: `${c.id} is finished` }));
           }
           const body = (yield* bodyOrEmpty(req)) as { arg?: string };
-          yield* runCardEffect(card, c, req.params.action, body.arg);
+          yield* runCard(card, c, req.params.action, body.arg);
           // Per-repository components answer with the rows of the repository acted on; the
           // argument of every such action is that repository.
           if (card.repoStatus && body.arg) {
-            return json({ items: yield* repoStatusOfEffect(card, c, body.arg) });
+            return json({ items: yield* repoStatusOf(card, c, body.arg) });
           }
-          return json(yield* statusOneEffect(req.params.card, card, c));
+          return json(yield* statusOne(req.params.card, card, c));
         }),
       ),
   },

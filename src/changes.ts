@@ -57,7 +57,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
  * no change.json in the change directory or the archive. A malformed or wrongly-shaped file —
  * which the old code handed back untyped or rejected with a raw parse error — is now a typed
  * DecodeError (sanctioned change; see docs/guides/effect-conventions.md). */
-export const readChangeEffect = (id: string): Effect.Effect<Change | null, DecodeError> =>
+export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDirEffect(id);
     if (!dir) return null;
@@ -104,7 +104,7 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
   };
 }
 
-export const writeChangeEffect = (change: Change): Effect.Effect<void> =>
+export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     const dir = (yield* existingDirEffect(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
@@ -114,7 +114,7 @@ export const writeChangeEffect = (change: Change): Effect.Effect<void> =>
 /** A file beside change.json — notes, completion progress — which therefore travels into the
  * archive with it. Read from wherever the change currently lives. A missing or unreadable
  * sidecar reads as empty, which is what `.catch(() => "")` did. */
-export const readSidecarEffect = (id: string, name: string): Effect.Effect<string> =>
+export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const dir = yield* existingDirEffect(id);
     if (!dir) return "";
@@ -124,7 +124,7 @@ export const readSidecarEffect = (id: string, name: string): Effect.Effect<strin
   });
 
 
-export const writeSidecarEffect = (id: string, name: string, text: string): Effect.Effect<void> =>
+export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const dir = (yield* existingDirEffect(id)) ?? changeDir(id);
     yield* fs(() => mkdir(dir, { recursive: true }));
@@ -132,14 +132,14 @@ export const writeSidecarEffect = (id: string, name: string, text: string): Effe
   });
 
 /** Free-text notes, kept beside change.json so they travel into the archive with it. */
-export const readNotesEffect = (id: string): Effect.Effect<string> =>
-  readSidecarEffect(id, "notes.md");
-export const writeNotesEffect = (id: string, text: string): Effect.Effect<void> =>
-  writeSidecarEffect(id, "notes.md", text);
+export const readNotes = (id: string): Effect.Effect<string> =>
+  readSidecar(id, "notes.md");
+export const writeNotes = (id: string, text: string): Effect.Effect<void> =>
+  writeSidecar(id, "notes.md", text);
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
-export const archiveChangeEffect = (id: string): Effect.Effect<void> =>
+export const archiveChange = (id: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!(yield* fileExists(changeFile(id)))) return; // already archived
     yield* fs(() => mkdir(join(root(), ARCHIVE), { recursive: true }));
@@ -158,7 +158,7 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
  * code threw on a malformed file and failed the whole listing; the skip is deliberate (a
  * coordinator ruling on the review), and the single change's error still surfaces everywhere
  * that change is asked for by id. */
-export const listChangesEffect = (): Effect.Effect<Change[]> =>
+export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const [active, archived] = yield* Effect.all([
       directoriesIn(root()),
@@ -171,7 +171,7 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     const changes = yield* Effect.forEach(
       entries,
       (name) =>
-        readChangeEffect(name).pipe(
+        readChange(name).pipe(
           Effect.map((c) => (c ? [c] : [])),
           Effect.catchAll(() => Effect.succeed([] as Change[])),
         ),
@@ -181,7 +181,7 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });
 
-export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
+export const writeWtConfig = (id: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const path = wtConfigPath(id);
     if (!(yield* fileExists(path))) {
@@ -193,7 +193,7 @@ export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
   });
 
 
-export const createChangeEffect = (input: {
+export const createChange = (input: {
   id: string;
   branch?: string;
   repos?: string[];
@@ -210,7 +210,7 @@ export const createChangeEffect = (input: {
     if (!id || id !== basename(id) || id.startsWith(".")) {
       yield* Effect.fail(new BadRequestError({ message: `invalid change id: ${input.id}` }));
     }
-    if (yield* readChangeEffect(id)) {
+    if (yield* readChange(id)) {
       yield* Effect.fail(new ConflictError({ message: `change already exists: ${id}` }));
     }
     const repos = (input.repos ?? []).map((r) => r.trim()).filter(Boolean);
@@ -231,7 +231,7 @@ export const createChangeEffect = (input: {
       state: "In Progress",
       createdAt: new Date().toISOString(),
     };
-    yield* writeChangeEffect(change);
-    yield* writeWtConfigEffect(id);
+    yield* writeChange(change);
+    yield* writeWtConfig(id);
     return change;
   });

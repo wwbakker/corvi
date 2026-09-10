@@ -102,7 +102,7 @@ const mergedEffect = (worktree: string, repository: string, number: number): Eff
  * these are user-visible sentences about a merge that did not happen (BadRequestError maps where
  * the old thrown Error went — a 400 carrying its message).
  */
-export const mergeStackedEffect = (
+export const mergeStacked = (
   worktree: string,
   repository: string,
   number: number,
@@ -190,7 +190,7 @@ export const mergeStackedEffect = (
  * branch, so a repository without the preview feature, or a base branch with no pull request of
  * its own, changes nothing else.
  */
-export const stackOnBaseEffect = (
+export const stackOnBase = (
   worktree: string,
   baseBranch: string,
   number: number,

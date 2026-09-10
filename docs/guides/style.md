@@ -15,7 +15,7 @@ Anything a function needs arrives through its type — `Workspace`, `Shell`, `Ca
 `Bus`. Do not read hidden global state to do the job.
 
 - **Right:** `run(cmd): Effect<Result, CliError, Workspace | Shell>`.
-- **Tell:** a module imports `shEffect`/`context.ts` and reaches for the workspace implicitly.
+- **Tell:** a module imports `sh`/`context.ts` and reaches for the workspace implicitly.
   That is `src/sh.ts`'s ambient path; the `Shell` capability is the same work with the
   dependency declared. Prefer `Shell`.
 
@@ -24,8 +24,8 @@ Anything a function needs arrives through its type — `Workspace`, `Shell`, `Ca
 Server modules expose Effect functions. A Promise wrapper is a second public surface, not a
 convenience.
 
-- **Right:** `readChangeEffect(id): Effect<Change | null, DecodeError>`.
-- **Tell:** a `readChange` next to it that only tests call. The browser boundary is HTTP, not a
+- **Right:** `readChange(id): Effect<Change | null, DecodeError>`.
+- **Tell:** a Promise `readChange` next to the Effect one that only tests call. The browser boundary is HTTP, not a
   Promise facade.
 
 ## 3. A feature owns its code

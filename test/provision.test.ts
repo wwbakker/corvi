@@ -2,12 +2,12 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provisionEffect } from "../src/extensions/index.ts";
+import { install, loaded, provision } from "../src/extensions/index.ts";
 import { Effect } from "effect";
 import {
   describe,
   findWorktree,
-  setReposEffect,
+  setRepos,
   unsafeIn,
   openers,
   parseWorktrees,
@@ -30,7 +30,7 @@ import { describeChange } from "../src/description.ts";
 import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { Change, WidgetState } from "../src/types.ts";
-import { runEffect, runSetRepos } from "./helpers.ts";
+import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one.
@@ -88,7 +88,7 @@ test("provisioning reports every extension and survives a failing one", async ()
     },
   });
 
-  const results = await runEffect(provisionEffect(change));
+  const results = await runEffect(provision(change));
   expect(calls).toEqual(["one", "two"]); // a failure must not stop the extensions after it
   expect(results).toEqual([
     { integration: "one", ok: false, error: "one exploded" },
@@ -611,14 +611,14 @@ test("what an environment holds is the newest run that was sent to it", async ()
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { deploy, branchOf } = await import("../src/extensions/deployments/server.ts");
+  const { branchOf } = await import("../src/extensions/deployments/server.ts");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.
-  expect(deploy("no-such-service", "v9", "production")).rejects.toThrow(
+  expect(runDeploy("no-such-service", "v9", "production")).rejects.toThrow(
     /no deploy pipeline|not on accept|no Azure/,
   );
-  expect(deploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
+  expect(runDeploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
 
   // What a build was built from, said the way you would say it.
   expect(branchOf("refs/heads/main")).toBe("main");

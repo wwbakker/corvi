@@ -1,20 +1,20 @@
 import { Effect, Either } from "effect";
 import type { Change, CompletionStep, Widget, WidgetItem, WidgetState } from "../../types.ts";
-import { swrEffect } from "../../cache.ts";
-import { jiraFetchEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
+import { swr } from "../../cache.ts";
+import { jiraFetch, jiraBaseUrl } from "./jiraHttp.ts";
 import {
-  boardIssuesEffect,
+  boardIssues,
   siteOfWorkspace,
-  createIssueEffect,
+  createIssue,
   globalOf,
-  issueByKeyEffect,
-  issuesByKeysEffect,
+  issueByKey,
+  issuesByKeys,
   issueFrom,
-  moveIssueEffect,
+  moveIssue,
   type IssueJson,
   type Site,
 } from "./jira.ts";
-import { accountIdEffect } from "./account.ts";
+import { accountId } from "./account.ts";
 import { ticketOf } from "./shared.ts";
 import { Settings, Workspace, type Extension } from "../api.ts";
 
@@ -46,11 +46,11 @@ const stateOf = (status: string): WidgetState => {
 const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
-      swrEffect(
+      swr(
         `jira:${site.configFile ?? site.project ?? "default"}:issue:${key}`,
         ISSUE_TTL,
         Effect.map(
-          jiraFetchEffect<IssueJson>(`/rest/api/3/issue/${key}`, {
+          jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, {
             configFile: site.configFile,
             tokenEnv: site.tokenEnv,
             query: { fields: "summary,status,assignee,issuetype" },
@@ -70,7 +70,7 @@ const statusEffect = (change: Change, site: Site, key: string): Effect.Effect<Wi
       };
     }
     const issue = found.right;
-    const base = yield* jiraBaseUrlEffect(site.configFile);
+    const base = yield* jiraBaseUrl(site.configFile);
     const item: WidgetItem = {
       label: `${issue.key} ${issue.summary}`,
       detail: [issue.status, issue.assignee].filter(Boolean).join(" · "),
@@ -152,18 +152,18 @@ export default {
           const settings = yield* Settings;
           const global = globalOf(settings);
           const site = siteOfWorkspace(workspace);
-          const account = yield* accountIdEffect(global.assignee, site);
+          const account = yield* accountId(global.assignee, site);
           if (account) {
-            yield* jiraFetchEffect(`/rest/api/3/issue/${key}/assignee`, {
+            yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
               configFile: site.configFile,
               tokenEnv: site.tokenEnv,
               method: "PUT",
               body: { accountId: account },
             });
           }
-          const current = (yield* issueByKeyEffect(key, site))?.status;
+          const current = (yield* issueByKey(key, site))?.status;
           if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
-            yield* moveIssueEffect(key, global.startTransition, site);
+            yield* moveIssue(key, global.startTransition, site);
           }
         }),
     ],
@@ -179,7 +179,7 @@ export default {
           const keys = [
             ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
           ];
-          const issues = yield* issuesByKeysEffect(keys, site);
+          const issues = yield* issuesByKeys(keys, site);
           const titles = new Map<string, string>();
           for (const change of changes) {
             const key = ticketOf(change);
@@ -198,7 +198,7 @@ export default {
         Effect.gen(function* () {
           const key = ticketOf(change);
           if (!key) return undefined;
-          const issue = yield* issueByKeyEffect(key, siteOfWorkspace(yield* Workspace));
+          const issue = yield* issueByKey(key, siteOfWorkspace(yield* Workspace));
           return issue?.summary ? `${key} - ${issue.summary}` : key;
         }),
     },
@@ -230,7 +230,7 @@ export default {
           if (!key) return;
           const site = siteOfWorkspace(yield* Workspace);
           const { doneTransition } = globalOf(yield* Settings);
-          yield* moveIssueEffect(key, doneTransition, site);
+          yield* moveIssue(key, doneTransition, site);
         }),
     },
   ],
@@ -245,7 +245,7 @@ export default {
       handler: (req) => {
         const url = new URL(req.url);
         return Effect.map(
-          boardIssuesEffect(
+          boardIssues(
             url.searchParams.get("workspace") ?? undefined,
             url.searchParams.has("refresh"),
           ),
@@ -269,7 +269,7 @@ export default {
           if (!body.summary?.trim()) {
             return Response.json({ error: "summary required" }, { status: 400 });
           }
-          const issue = yield* createIssueEffect({
+          const issue = yield* createIssue({
             summary: body.summary,
             description: body.description,
             workspace: body.workspace,

@@ -1,11 +1,11 @@
 import { Effect, Schema } from "effect";
 import type { WidgetState } from "../../types.ts";
-import { swrEffect, invalidate } from "../../cache.ts";
+import { swr, invalidate } from "../../cache.ts";
 import {
-  azForEffect,
+  azFor,
   buildUrl,
-  versionOfEffect,
-  expectedDurationEffect,
+  versionOf,
+  expectedDuration,
   type Az,
   type Definition,
 } from "../../integrations/azure.ts";
@@ -104,7 +104,7 @@ export type Buildable = {
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
 const allPipelinesEffect = (az: Az): Effect.Effect<Definition[]> =>
-  swrEffect(`az:${az.key}:pipelines`, 5 * 60_000,
+  swr(`az:${az.key}:pipelines`, 5 * 60_000,
     Effect.gen(function* () {
       const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
       return r.code === 0
@@ -120,7 +120,7 @@ const allPipelinesEffect = (az: Az): Effect.Effect<Definition[]> =>
 /** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
  * triggered should appear on the next look. */
 const runsOfEffect = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
-  swrEffect(`az:${az.key}:deploys:${pipelineId}`, 15_000,
+  swr(`az:${az.key}:deploys:${pipelineId}`, 15_000,
     Effect.gen(function* () {
       const r = yield* shSoft([
         "az",
@@ -216,13 +216,13 @@ export function latestFor(runs: Run[], environment: string): Deployed {
 }
 
 /** Every service that has a deploy pipeline, and what each of its environments holds. */
-export const deploymentsEffect = (
+export const deployments = (
   workspaceId?: string,
 ): Effect.Effect<{ services: Service[]; error?: string }> =>
   Effect.gen(function* () {
     const workspace = workspaceById(workspaceId);
     if (!usesAzure(workspace)) return { services: [] }; // this context has no pipelines at all
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     if (!az.project) {
       return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
     }
@@ -269,7 +269,7 @@ export const deploymentsEffect = (
  * read from that run's own parameters instead — the same place `latestFor` reads it from — so
  * promoting one never depends on a log line existing.
  */
-export const versionsForEffect = (
+export const versionsFor = (
   service: string,
   workspaceId?: string,
   howMany = 5,
@@ -277,7 +277,7 @@ export const versionsForEffect = (
   Effect.gen(function* () {
     const workspace = workspaceById(workspaceId);
     if (!usesAzure(workspace)) return [];
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const project = az.project;
     const pipelines = yield* allPipelinesEffect(az);
     const deploy = pipelines.find((p) => p.name === deployPipelineName(service));
@@ -292,7 +292,7 @@ export const versionsForEffect = (
           r.status !== "completed" &&
           (r.templateParameters ?? {})[settings.environmentParameter] === accept,
       );
-      const expectedMs = stillDeploying ? yield* expectedDurationEffect(az, deploy.id) : undefined;
+      const expectedMs = stillDeploying ? yield* expectedDuration(az, deploy.id) : undefined;
       return acceptedVersions(runs, az, expectedMs, howMany);
     }
 
@@ -309,7 +309,7 @@ export const versionsForEffect = (
     const building = runs
       .filter((r) => r.status !== "completed")
       .sort((a, b) => b.id - a.id);
-    const expectedMs = building.length ? yield* expectedDurationEffect(az, build.id) : undefined;
+    const expectedMs = building.length ? yield* expectedDuration(az, build.id) : undefined;
     const inProgress: Buildable[] = building.map((run) => ({
       runId: run.id,
       buildNumber: run.buildNumber,
@@ -327,7 +327,7 @@ export const versionsForEffect = (
       .slice(0, howMany);
 
     const versions = yield* Effect.all(
-      succeeded.map((run) => Effect.map(versionOfEffect(run, project), (version) => ({ run, version }))),
+      succeeded.map((run) => Effect.map(versionOf(run, project), (version) => ({ run, version }))),
       // The old Promise.all was unbounded, so this stays unbounded.
       { concurrency: "unbounded" },
     );
@@ -350,14 +350,6 @@ export const versionsForEffect = (
 
     return [...inProgress, ...finished];
   });
-
-/** Promise facade over versionsForEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified; the server uses the effect directly. */
-export const versionsFor = (
-  service: string,
-  workspaceId?: string,
-  howMany = 5,
-): Promise<Buildable[]> => Effect.runPromise(versionsForEffect(service, workspaceId, howMany));
 
 /**
  * `*-app` version history, read from the deploy pipeline's own runs to the first environment
@@ -445,7 +437,7 @@ function versionParameterOf(runs: Run[]): string {
  * reading the acceptance logs, and the reason it is a step at all: production gets what
  * acceptance proved, not what somebody hoped.
  */
-export const deployEffect = (
+export const deploy = (
   service: string,
   version: string,
   environment: string,
@@ -462,7 +454,7 @@ export const deployEffect = (
     if (!usesAzure(workspace)) {
       return yield* Effect.fail(new BadRequestError({ message: `${workspace.name} has no pipelines` }));
     }
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const pipelines = yield* allPipelinesEffect(az);
     const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
     if (!pipeline) {
@@ -520,14 +512,4 @@ export const deployEffect = (
     invalidate(`az:${az.key}:deploys:${pipeline.id}`);
     return { runId: run.id, url: buildUrl(run.id, az) };
   });
-
-/** Promise facade over deployEffect, in the old signature. Kept for the test suite, which must
- * pass unmodified; the server uses the effect directly. */
-export const deploy = (
-  service: string,
-  version: string,
-  environment: string,
-  workspaceId?: string,
-): Promise<{ runId: number; url?: string }> =>
-  Effect.runPromise(deployEffect(service, version, environment, workspaceId));
 

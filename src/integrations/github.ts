@@ -1,10 +1,10 @@
 import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { checkoutForEffect, baseForEffect, remoteDefaultBranchEffect } from "./git.ts";
-import { stackOnBaseEffect, describeStack, mergeStackedEffect, type Stack } from "./stacks.ts";
-import { shOrThrowEffect, type Result } from "../sh.ts";
-import { swrEffect, invalidate } from "../cache.ts";
+import { checkoutFor, baseFor, remoteDefaultBranch } from "./git.ts";
+import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
+import { shOrThrow, type Result } from "../sh.ts";
+import { swr, invalidate } from "../cache.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
 import { cliJson, shSoft } from "../effect/support.ts";
 
@@ -100,7 +100,7 @@ const pushedAsEffect = (worktree: string, repo: string, branch: string): Effect.
       ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
       worktree,
     );
-    return headRef(branch, r.stdout || undefined, yield* remoteDefaultBranchEffect(repo));
+    return headRef(branch, r.stdout || undefined, yield* remoteDefaultBranch(repo));
   });
 
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
@@ -113,7 +113,7 @@ const prQueryEffect = (
   repo: string,
 ): Effect.Effect<FoundPr | undefined, BadRequestError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) return undefined;
     const head = yield* pushedAsEffect(wt, repo, change.branch);
     const r = yield* shSoft(
@@ -149,7 +149,7 @@ const prQueryEffect = (
 const PR_TTL = 20_000;
 
 const shownPrEffect = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
-  swrEffect(`gh:pr:${change.id}:${repo}`, PR_TTL, prQueryEffect(change, repo));
+  swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQueryEffect(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -267,7 +267,7 @@ const prDetailsEffect = (
   url: string,
   number: number,
 ): Effect.Effect<Details> =>
-  swrEffect(`gh:details:${url}`, PR_TTL, readDetailsEffect(worktree, url, number));
+  swr(`gh:details:${url}`, PR_TTL, readDetailsEffect(worktree, url, number));
 
 const readDetailsEffect = (
   worktree: string,
@@ -313,7 +313,7 @@ const readDetailsEffect = (
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
  * none. Failures are not errors here — the overview says nothing rather than a red card.
  */
-export const prSummaryEffect = (
+export const prSummary = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }> =>
@@ -330,7 +330,7 @@ export const prSummaryEffect = (
   });
 
 /** The pull request for this change in `repo`, plus a row describing it. */
-export const prItemEffect = (
+export const prItem = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ number?: number; item: WidgetItem }> =>
@@ -393,7 +393,7 @@ export type MergeReadiness =
   | { ready: false; reason: string };
 
 /** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
-export const mergeReadinessEffect = (
+export const mergeReadiness = (
   change: Change,
   repo: string,
 ): Effect.Effect<MergeReadiness, BadRequestError> =>
@@ -423,13 +423,13 @@ export const mergeReadinessEffect = (
  * takes everything below it along and that runs in the background — so those go through the
  * asynchronous merge API instead.
  */
-export const mergePrEffect = (
+export const mergePr = (
   change: Change,
   repo: string,
   number: number,
 ): Effect.Effect<string | undefined, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) {
       return yield* Effect.fail(
         new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
@@ -438,11 +438,11 @@ export const mergePrEffect = (
 
     const stacked = yield* isStackedEffect(wt, repo, number);
     if (!stacked) {
-      yield* shOrThrowEffect(["gh", "pr", "merge", String(number), "--squash"], wt);
+      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
       return undefined;
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
-    const note = yield* mergeStackedEffect(wt, stacked, number);
+    const note = yield* mergeStacked(wt, stacked, number);
     return note && `${basename(repo)} #${number}: ${note}`;
   });
 
@@ -466,29 +466,29 @@ const isStackedEffect = (
   });
 
 /** Push the branch and open a pull request for it. */
-export const createPrEffect = (
+export const createPr = (
   change: Change,
   repo: string,
 ): Effect.Effect<void, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) {
       return yield* Effect.fail(
         new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
       );
     }
-    yield* shOrThrowEffect(["git", "push", "-u", "origin", change.branch], wt);
+    yield* shOrThrow(["git", "push", "-u", "origin", change.branch], wt);
     // A change stacked on another one's branch must open its pull request against that branch:
     // against main the diff would contain the other change's commits as well. GitHub retargets
     // the pull request to main by itself once the base branch merges.
-    const base = yield* baseForEffect(change, repo);
+    const base = yield* baseFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
-    const against = target && (yield* remoteDefaultBranchEffect(repo)) !== base ? ["--base", target] : [];
-    yield* shOrThrowEffect(["gh", "pr", "create", "--fill", ...against], wt);
+    const against = target && (yield* remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
+    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], wt);
     if (against.length) {
       const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], wt);
       const number = Number(view.stdout);
-      if (number) yield* stackOnBaseEffect(wt, target!, number);
+      if (number) yield* stackOnBase(wt, target!, number);
     }
     // The cached answer says there is no pull request, and it was right until a moment ago.
     invalidate(`gh:pr:${change.id}`);

@@ -1,17 +1,17 @@
 import { Effect } from "effect";
-import { readChangeEffect } from "../changes.ts";
+import { readChange } from "../changes.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
 import {
-  allWindowsEffect,
-  listWindowsEffect,
-  moveWindowEffect,
-  newWindowEffect,
-  selectWindowEffect,
-  terminalGoneEffect,
+  allWindows,
+  listWindows,
+  moveWindow,
+  newWindow,
+  selectWindow,
+  terminalGone,
   terminalPath,
-  terminalPortEffect,
+  terminalPort,
 } from "../terminal.ts";
 import { proxyToTtyd, type Bridge } from "../terminalProxy.ts";
 import { bodyOf, json, withChange } from "./helpers.ts";
@@ -20,8 +20,8 @@ import { bodyOf, json, withChange } from "./helpers.ts";
 const portForChange = (id: string): Promise<number | undefined> =>
   Effect.runPromise(
     Effect.gen(function* () {
-      const change = yield* readChangeEffect(id);
-      return change && !change.completedAt ? yield* terminalPortEffect(change) : undefined;
+      const change = yield* readChange(id);
+      return change && !change.completedAt ? yield* terminalPort(change) : undefined;
     }),
   );
 
@@ -49,7 +49,7 @@ export const terminalsRoutes = guard({
     GET: () =>
       runRoute(
         Effect.map(
-          Effect.catchAll(allWindowsEffect(), () => Effect.succeed({})),
+          Effect.catchAll(allWindows(), () => Effect.succeed({})),
           json,
         ),
       ),
@@ -61,10 +61,10 @@ export const terminalsRoutes = guard({
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          yield* terminalPortEffect(c); // starts or adopts it, so the frame has something to load
+          yield* terminalPort(c); // starts or adopts it, so the frame has something to load
           // And whether what it starts or adopts still has a session behind it: a ttyd whose
           // tmux server is gone is a dead frame, and the page should say so.
-          const state = yield* terminalGoneEffect(c.id);
+          const state = yield* terminalGone(c.id);
           return json({ url: terminalPath(c.id), ...state });
         }),
       ),
@@ -77,7 +77,7 @@ export const terminalsRoutes = guard({
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.map(
-          Effect.catchAll(listWindowsEffect(c.id), () => Effect.succeed([])),
+          Effect.catchAll(listWindows(c.id), () => Effect.succeed([])),
           json,
         ),
       ),
@@ -90,16 +90,16 @@ export const terminalsRoutes = guard({
             from?: number;
             to?: number;
           };
-          if (body.action === "new") yield* newWindowEffect(c.id);
-          else if (body.action === "select") yield* selectWindowEffect(c.id, body.index ?? 0);
+          if (body.action === "new") yield* newWindow(c.id);
+          else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
           else if (body.action === "move") {
-            yield* moveWindowEffect(c.id, body.from ?? 0, body.to ?? 0);
+            yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
           } else {
             return yield* Effect.fail(
               new BadRequestError({ message: `unknown window action: ${body.action}` }),
             );
           }
-          return json(yield* listWindowsEffect(c.id));
+          return json(yield* listWindows(c.id));
         }),
       ),
   },

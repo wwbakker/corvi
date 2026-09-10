@@ -2,15 +2,15 @@ import { basename } from "node:path";
 import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
-import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
-import { removeWorktreeEffect, unsafeToRemoveEffect, type Unsafe } from "./integrations/git.ts";
+import { mergeReadiness, mergePr } from "./integrations/github.ts";
+import { removeWorktree, unsafeToRemove, type Unsafe } from "./integrations/git.ts";
 import {
-  archiveChangeEffect,
-  readSidecarEffect,
-  writeChangeEffect,
-  writeSidecarEffect,
+  archiveChange,
+  readSidecar,
+  writeChange,
+  writeSidecar,
 } from "./changes.ts";
-import { stopTerminalEffect } from "./terminal.ts";
+import { stopTerminal } from "./terminal.ts";
 import { config } from "./config.ts";
 import { completionStepsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
@@ -52,12 +52,12 @@ const completionOfRepo = (
   Effect.gen(function* () {
     return {
       repo,
-      readiness: yield* mergeReadinessEffect(change, repo),
-      unsafe: yield* unsafeToRemoveEffect(change, repo),
+      readiness: yield* mergeReadiness(change, repo),
+      unsafe: yield* unsafeToRemove(change, repo),
     };
   });
 
-export const completionOfEffect = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
+export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
   Effect.map(
     Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
       // The old Promise.all was unbounded, so this stays unbounded.
@@ -69,9 +69,9 @@ export const completionOfEffect = (change: Change): Effect.Effect<Completion, Cl
 const PROGRESS = "completion.json";
 
 /** How far a completion got, or nothing if the change was never completed. */
-export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress | null> =>
+export const progressOf = (id: string): Effect.Effect<CompletionProgress | null> =>
   Effect.gen(function* () {
-    const text = yield* readSidecarEffect(id, PROGRESS);
+    const text = yield* readSidecar(id, PROGRESS);
     try {
       return text ? (JSON.parse(text) as CompletionProgress) : null;
     } catch {
@@ -84,7 +84,7 @@ export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress |
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
-  Effect.map(writeSidecarEffect(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
+  Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
     undefined);
 
 /** The work a completion is about to do, named before it starts so the page can show what is
@@ -127,7 +127,7 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
  * picks up what is left: merges already done are no longer outstanding.
  */
-export const completeChangeEffect = (
+export const completeChange = (
   change: Change,
 ): Effect.Effect<{ change: Change; notes: string[] }, CliError | BadRequestError> =>
   Effect.gen(function* () {
@@ -139,7 +139,7 @@ export const completeChangeEffect = (
     };
     yield* save(change.id, progress);
 
-    const completion = yield* completionOfEffect(change);
+    const completion = yield* completionOf(change);
     const checked = progress.steps[0]!;
     if (!completion.ready) {
       checked.state = "failed";
@@ -193,7 +193,7 @@ export const completeChangeEffect = (
     for (const { repo, number } of completion.toMerge) {
       yield* step(
         `merge:${repo}`,
-        Effect.tap(mergePrEffect(change, repo, number), (note) =>
+        Effect.tap(mergePr(change, repo, number), (note) =>
           Effect.sync(() => {
             if (note) notes.push(note);
           }),
@@ -219,7 +219,7 @@ export const completeChangeEffect = (
     yield* step(
       "worktrees",
       Effect.map(
-        Effect.forEach(change.repos, (repo) => removeWorktreeEffect(change, repo), {
+        Effect.forEach(change.repos, (repo) => removeWorktree(change, repo), {
           concurrency: 1,
           discard: true,
         }),
@@ -229,7 +229,7 @@ export const completeChangeEffect = (
     // The terminal sits in a directory that is about to move into the archive.
     yield* step(
       "terminal",
-      Effect.map(stopTerminalEffect(change.id), () => undefined),
+      Effect.map(stopTerminal(change.id), () => undefined),
     );
 
     const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
@@ -237,8 +237,8 @@ export const completeChangeEffect = (
       "archive",
       Effect.map(
       Effect.gen(function* () {
-        yield* writeChangeEffect(completed);
-        yield* archiveChangeEffect(change.id);
+        yield* writeChange(completed);
+        yield* archiveChange(change.id);
       }),
       () => undefined,
       ),

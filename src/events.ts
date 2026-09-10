@@ -1,6 +1,6 @@
 import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
-import { listChangesEffect } from "./changes.ts";
-import { allWindowsEffect } from "./terminal.ts";
+import { listChanges } from "./changes.ts";
+import { allWindows } from "./terminal.ts";
 import { config } from "./config.ts";
 
 /**
@@ -94,7 +94,7 @@ type Attention = { previous: Map<string, boolean>; seeded: boolean };
 const windowsNews = (state: Attention): Stream.Stream<News> =>
   Stream.repeatEffectWithSchedule(
     Effect.gen(function* () {
-      const read = yield* Effect.exit(allWindowsEffect());
+      const read = yield* Effect.exit(allWindows());
       if (!Exit.isSuccess(read)) return []; // no tmux yet, or a read being written as we look
       const windows = read.value;
       const news: News[] = [];
@@ -137,7 +137,7 @@ const windowsNews = (state: Attention): Stream.Stream<News> =>
  * call, so this can run while anyone is connected and stop when nobody is. */
 const watchPipeline = (state: Attention): Effect.Effect<void> =>
   Stream.merge(
-    channel("changes", Effect.map(listChangesEffect(), (c) => JSON.stringify(c))),
+    channel("changes", Effect.map(listChanges(), (c) => JSON.stringify(c))),
     windowsNews(state),
   ).pipe(Stream.runForEach((news) => Effect.sync(() => broadcast(news.event, news.data))));
 
@@ -201,7 +201,7 @@ export function announce(event: EventName): void {
  * browsers that had been closed for hours. The abort listener and the client fiber's scope
  * finalization both forget the client, so either path alone is enough.
  */
-export const eventsEffect = (req: Request): Effect.Effect<Response> =>
+export const events = (req: Request): Effect.Effect<Response> =>
   Effect.gen(function* () {
     const encoder = new TextEncoder();
     let push: ((chunk: Uint8Array) => void) | undefined;

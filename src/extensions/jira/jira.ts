@@ -1,9 +1,9 @@
 import { Effect, Either } from "effect";
 import type { WidgetState } from "../../types.ts";
-import { swrEffect, invalidate } from "../../cache.ts";
+import { swr, invalidate } from "../../cache.ts";
 import { config, type Config } from "../../config.ts";
-import { jiraFetchEffect, jiraSetupEffect, jiraBaseUrlEffect } from "./jiraHttp.ts";
-import { accountIdEffect } from "./account.ts";
+import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
+import { accountId } from "./account.ts";
 import { workspaceById, workspaceOf } from "../../workspaces.ts";
 import { BadRequestError } from "../../effect/errors.ts";
 import { messageOf } from "../../effect/support.ts";
@@ -138,7 +138,7 @@ const searchEffect = (jql: string, site: Site, limit = 100): Effect.Effect<Issue
     const issues: Issue[] = [];
     let token: string | undefined;
     do {
-      const page = yield* jiraFetchEffect<SearchJson>("/rest/api/3/search/jql", {
+      const page = yield* jiraFetch<SearchJson>("/rest/api/3/search/jql", {
         configFile: site.configFile,
         tokenEnv: site.tokenEnv,
         query: {
@@ -156,7 +156,7 @@ const searchEffect = (jql: string, site: Site, limit = 100): Effect.Effect<Issue
 
 const boardEffect = (site: Site): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
-    const id = site.board ?? (yield* jiraSetupEffect(site.configFile)).board;
+    const id = site.board ?? (yield* jiraSetup(site.configFile)).board;
     if (!id) {
       return yield* Effect.fail(
         new BadRequestError({ message: "no board configured in jira-cli's config — run `jira init`" }),
@@ -165,9 +165,9 @@ const boardEffect = (site: Site): Effect.Effect<string, BadRequestError> =>
     return id;
   });
 
-export const listSprintsEffect = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError> =>
+export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError> =>
   Effect.gen(function* () {
-    const json = yield* jiraFetchEffect<{ values?: { id: number; name: string; state: string }[] }>(
+    const json = yield* jiraFetch<{ values?: { id: number; name: string; state: string }[] }>(
       `/rest/agile/1.0/board/${yield* boardEffect(site)}/sprint`,
       { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { state: sprintStates() } },
     );
@@ -179,7 +179,7 @@ export const listSprintsEffect = (site: Site = {}): Effect.Effect<Sprint[], BadR
  * issue is in is the query that found it. */
 const issuesInSprintEffect = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
-    const json = yield* jiraFetchEffect<{ issues?: IssueJson[] }>(
+    const json = yield* jiraFetch<{ issues?: IssueJson[] }>(
       `/rest/agile/1.0/board/${yield* boardEffect(site)}/sprint/${sprint.id}/issue`,
       { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { fields: FIELDS, maxResults: "100" } },
     );
@@ -189,7 +189,7 @@ const issuesInSprintEffect = (sprint: Sprint, site: Site): Effect.Effect<Issue[]
 /** Work that is not in a sprint yet, and not finished. */
 const backlogIssuesEffect = (site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
-    const project = site.project ?? (yield* jiraSetupEffect(site.configFile)).project;
+    const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
     const scope = project ? `project = ${project} AND ` : "";
     return yield* searchEffect(`${scope}sprint is EMPTY AND statusCategory != Done ORDER BY rank`, site);
   });
@@ -204,14 +204,14 @@ const workable = (issues: Issue[]): Issue[] => {
  * Cached briefly; the wizard re-reads this on every visit and a board is not that volatile. */
 const boards = new Map<string, { at: number; issues: Issue[] }>();
 
-export const boardIssuesEffect = (
+export const boardIssues = (
   workspaceId?: string,
   force = false,
 ): Effect.Effect<{ issues: Issue[]; sprints: string[]; baseUrl?: string; error?: string }> =>
   Effect.gen(function* () {
     const site = siteFor(workspaceId);
     const key = siteKey(site);
-    const baseUrl = yield* jiraBaseUrlEffect(site.configFile);
+    const baseUrl = yield* jiraBaseUrl(site.configFile);
     const cache = boards.get(key);
     if (!force && cache && Date.now() - cache.at < 60_000) {
       return { issues: cache.issues, sprints: sprintNames(cache.issues), baseUrl };
@@ -220,7 +220,7 @@ export const boardIssuesEffect = (
     // able to type a change id by hand.
     return yield* Effect.catchAll(
       Effect.gen(function* () {
-        const sprints = yield* listSprintsEffect(site);
+        const sprints = yield* listSprints(site);
         const groups = yield* Effect.all(
           [...sprints.map((sprint) => issuesInSprintEffect(sprint, site)), backlogIssuesEffect(site)],
           // The old Promise.all was unbounded, so this stays unbounded.
@@ -257,7 +257,7 @@ const document = (
 });
 
 /** Creates an issue and returns it, so the wizard can select what it just made. */
-export const createIssueEffect = (input: {
+export const createIssue = (input: {
   summary: string;
   description?: string;
   type?: string;
@@ -271,7 +271,7 @@ export const createIssueEffect = (input: {
       return yield* Effect.fail(new BadRequestError({ message: "summary required" }));
     }
     const site = siteFor(input.workspace);
-    const project = site.project ?? (yield* jiraSetupEffect(site.configFile)).project;
+    const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
     if (!project) {
       return yield* Effect.fail(
         new BadRequestError({ message: "no project configured in jira-cli's config — run `jira init`" }),
@@ -279,7 +279,7 @@ export const createIssueEffect = (input: {
     }
     const type = input.type ?? issueType();
 
-    const created = yield* jiraFetchEffect<{ key: string }>("/rest/api/3/issue", {
+    const created = yield* jiraFetch<{ key: string }>("/rest/api/3/issue", {
       configFile: site.configFile,
       tokenEnv: site.tokenEnv,
       method: "POST",
@@ -295,9 +295,9 @@ export const createIssueEffect = (input: {
 
     if (input.assignToMe !== false) {
       // Assigning is a field like any other, but its value is an account id, not a name.
-      const account = yield* accountIdEffect(globalOf(config).assignee, site);
+      const account = yield* accountId(globalOf(config).assignee, site);
       if (account) {
-        yield* jiraFetchEffect(`/rest/api/3/issue/${created.key}/assignee`, {
+        yield* jiraFetch(`/rest/api/3/issue/${created.key}/assignee`, {
           configFile: site.configFile,
           tokenEnv: site.tokenEnv,
           method: "PUT",
@@ -319,13 +319,13 @@ export const createIssueEffect = (input: {
  * Do, In Progress" — rather than a flat refusal, which is how a half-finished change once ended
  * up with its ticket still open.
  */
-export const moveIssueEffect = (
+export const moveIssue = (
   key: string,
   status: string,
   site: Site = {},
 ): Effect.Effect<void, BadRequestError> =>
   Effect.gen(function* () {
-    const { transitions = [] } = yield* jiraFetchEffect<{
+    const { transitions = [] } = yield* jiraFetch<{
       transitions?: { id: string; name: string; to?: { name?: string } }[];
     }>(`/rest/api/3/issue/${key}/transitions`, { configFile: site.configFile });
 
@@ -342,7 +342,7 @@ export const moveIssueEffect = (
       );
     }
 
-    yield* jiraFetchEffect(`/rest/api/3/issue/${key}/transitions`, {
+    yield* jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
       configFile: site.configFile,
       tokenEnv: site.tokenEnv,
       method: "POST",
@@ -356,7 +356,7 @@ export const moveIssueEffect = (
  * Several issues in one query, for the overview: one call for a whole page of changes rather
  * than one per row. An unknown key is simply absent from the result.
  */
-export const issuesByKeysEffect = (
+export const issuesByKeys = (
   keys: string[],
   site: Site = {},
 ): Effect.Effect<Map<string, Issue>> =>
@@ -365,7 +365,7 @@ export const issuesByKeysEffect = (
     // A ticket's summary and status change a few times a day at most, and the same keys are asked
     // for by the overview on every visit. Keyed by site as well: two of them answer "PROJ-1"
     // differently, and both are right.
-    return yield* swrEffect(
+    return yield* swr(
       `jira:${siteKey(site)}:keys:${[...keys].sort().join(",")}`,
       ISSUE_TTL,
       Effect.catchAll(
@@ -379,10 +379,10 @@ export const issuesByKeysEffect = (
 
 
 /** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
-export const issueByKeyEffect = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>
+export const issueByKey = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>
   Effect.catchAll(
     Effect.map(
-      jiraFetchEffect<IssueJson>(`/rest/api/3/issue/${key}`, {
+      jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, {
         configFile: site.configFile,
         tokenEnv: site.tokenEnv,
         query: { fields: FIELDS },

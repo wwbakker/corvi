@@ -1,10 +1,18 @@
 import { Effect } from "effect";
 import type { Workspace } from "../src/config.ts";
 import { capabilitiesLayer } from "../src/extensions/services.ts";
-import { setReposEffect } from "../src/integrations/git.ts";
-import { shEffect, type Result } from "../src/sh.ts";
-import { swrEffect } from "../src/cache.ts";
+import { setRepos } from "../src/integrations/git.ts";
+import { sh, type Result } from "../src/sh.ts";
+import { swr } from "../src/cache.ts";
 import { workspaceById } from "../src/workspaces.ts";
+import type { Change } from "../src/types.ts";
+import { cancelChange } from "../src/cancel.ts";
+import { fileDiff, localChanges, type LocalStatus } from "../src/local.ts";
+import {
+  deploy,
+  versionsFor,
+  type Buildable,
+} from "../src/extensions/deployments/server.ts";
 
 /**
  * The one seam between the Promise-shaped tests and the Effect API.
@@ -30,20 +38,51 @@ export const runEffectWith = <A, E>(
  * 124, so tests branch on `code` exactly as the server does. */
 export const runSh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
   runEffect(
-    shEffect(cmd, cwd).pipe(
+    sh(cmd, cwd).pipe(
       Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     ),
   );
 
 /** The stale-while-revalidate cache, with the Promise work the old `swr` facade took. */
 export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
-  runEffect(swrEffect(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })));
+  runEffect(swr(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })));
 
 /** Editing a change's repositories, in the duck the old facade returned: the Effect API answers
  * in a tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
-  ...args: Parameters<typeof setReposEffect>
+  ...args: Parameters<typeof setRepos>
 ): Promise<{ change: import("../src/types.ts").Change } | { needsForce: string[] }> => {
-  const result = await runEffect(setReposEffect(...args));
+  const result = await runEffect(setRepos(...args));
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };
+
+/** Cancelling a change, in the duck the old Promise facade returned: the Effect API answers in a
+ * tagged union (`{ _tag: "Done" }` / `{ _tag: "NeedsForce" }`), and the tests read
+ * `{ change, loose }` / `{ needsForce }`. */
+export const runCancel = async (
+  ...args: Parameters<typeof cancelChange>
+): Promise<{ change: Change; loose: string[] } | { needsForce: string[] }> => {
+  const result = await runEffect(cancelChange(...args));
+  return result._tag === "Done"
+    ? { change: result.change, loose: result.loose }
+    : { needsForce: result.needsForce };
+};
+
+/** What is uncommitted in one repository, Promise-shaped for the tests. */
+export const runLocalChanges = (
+  ...args: Parameters<typeof localChanges>
+): Promise<LocalStatus> => runEffect(localChanges(...args));
+
+/** One file's diff, Promise-shaped for the tests. */
+export const runFileDiff = (...args: Parameters<typeof fileDiff>): Promise<string> =>
+  runEffect(fileDiff(...args));
+
+/** Recent builds of a service, Promise-shaped for the tests. */
+export const runVersionsFor = (
+  ...args: Parameters<typeof versionsFor>
+): Promise<Buildable[]> => runEffect(versionsFor(...args));
+
+/** Triggering a deploy, Promise-shaped for the tests. */
+export const runDeploy = (
+  ...args: Parameters<typeof deploy>
+): Promise<{ runId: number; url?: string }> => runEffect(deploy(...args));

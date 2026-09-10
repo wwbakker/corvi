@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../../types.ts";
-import { checkoutForEffect } from "../../integrations/git.ts";
-import { swrEffect } from "../../cache.ts";
+import { checkoutFor } from "../../integrations/git.ts";
+import { swr } from "../../cache.ts";
 import { cliJson, shSoft } from "../../effect/support.ts";
 
 export type Check = {
@@ -39,14 +39,14 @@ const checkState = (bucket: string): WidgetState =>
  * Names like `owner.pipeline (CI App @scope/one-app)` are grouped by the part before
  * the bracket, so thirty jobs of one build read as one row you can open.
  */
-export const checkItemsEffect = (
+export const checkItems = (
   change: Change,
   repo: string,
   number: number,
 ): Effect.Effect<WidgetItem[]> =>
-  swrEffect(`gh:checks:${repo}:${number}`, 15_000,
+  swr(`gh:checks:${repo}:${number}`, 15_000,
     Effect.gen(function* () {
-      const worktree = (yield* checkoutForEffect(change, repo)) ?? repo;
+      const worktree = (yield* checkoutFor(change, repo)) ?? repo;
       // Non-zero means "something is failing or pending", which is a result, not an error.
       const r = yield* shSoft(
         [

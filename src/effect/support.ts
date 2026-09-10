@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { shEffect, type Result } from "../sh.ts";
+import { sh, type Result } from "../sh.ts";
 
 /**
  * Helpers shared by every module that shells out or reports a failure. Each had a copy per file
@@ -7,10 +7,10 @@ import { shEffect, type Result } from "../sh.ts";
  */
 
 /** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
+ * CLI — the one failure sh can raise — surfaces as exit code 124 with its message, which
  * Result-branching callers branch on. */
 export const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
+  Effect.catchAll(sh(cmd, cwd), (e) =>
     Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
 
 /** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that

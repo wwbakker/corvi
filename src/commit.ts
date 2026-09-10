@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { currentBranchEffect, checkoutForEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { currentBranch, checkoutFor } from "./integrations/git.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
 /** Writing to git, for the review tab: committing across the change, and pushing what is
@@ -31,17 +31,17 @@ const badRequest = (message: string): BadRequestError => {
 };
 
 /** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), which each repository
+ * `sh` can fail with here — is a failed command (exit code 124), which each repository
  * reports in its `error` field, exactly as any other non-zero exit did. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
 // The commitChange/pushChange facades that used to sit here were test-only; the tests run the
 // effects below through a helper that provides the Workspace tag (test/helpers.ts).
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  checkoutForEffect(change, repo);
+  checkoutFor(change, repo);
 
 /**
  * Commit the chosen files in each repository that has any chosen.
@@ -58,7 +58,7 @@ const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefi
  * change committed is a normal state to be in — the ones that worked say so, the one that did
  * not says why.
  */
-export const commitChangeEffect = (
+export const commitChange = (
   change: Change,
   request: CommitRequest,
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
@@ -101,7 +101,7 @@ export const commitChangeEffect = (
  *
  * Like committing, a repository that fails does not stop the others.
  */
-export const pushChangeEffect = (
+export const pushChange = (
   change: Change,
   repos: string[],
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
@@ -116,7 +116,7 @@ export const pushChangeEffect = (
           if (!worktree) return { repo, name, ok: false, error: "no worktree" };
 
           // The branch it is on, which is what a push without an upstream should name.
-          const branch = yield* currentBranchEffect(worktree);
+          const branch = yield* currentBranch(worktree);
           const pushed = yield* shResult(
             ["git", "push", "-u", "origin", branch || change.branch],
             worktree,

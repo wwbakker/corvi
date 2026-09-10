@@ -49,7 +49,7 @@ const expand = (value: string): string =>
  * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_CONFIG_FILE` —
  * and a shell would have done it. Empty outside a request, which is every call IWE made before
  * workspaces existed. The workspace comes from the `Workspace` tag (src/effect/tags.ts), read
- * at run time by `shEffect` and by the Shell capability's live layer (src/extensions/services.ts). */
+ * at run time by `sh` and by the Shell capability's live layer (src/extensions/services.ts). */
 export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, string> => {
   const own = workspace?.env ?? {};
   return Object.fromEntries(Object.entries(own).map(([key, value]) => [key, expand(value)]));
@@ -140,7 +140,7 @@ export const shEffectWithEnv = (
  * provides it, and outside a request (`serviceOption` is none) it adds nothing — exactly what
  * the old ambient store returned as `undefined`. The tag is read, not required, so this stays
  * runnable from startup and cache code with no workspace in sight. */
-export const shEffect = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
+export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
   gate.withPermits(1)(
     Effect.gen(function* () {
       const workspace = yield* Effect.serviceOption(Workspace);
@@ -151,8 +151,8 @@ export const shEffect = (cmd: readonly string[], cwd?: string): Effect.Effect<Re
 
 /** Run and throw on failure, for actions where the user should see what broke. The thrown
  * `CliError`'s message is exactly what the old `throw new Error` produced. */
-export const shOrThrowEffect = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
-  Effect.flatMap(shEffect(cmd, cwd), (r) => {
+export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<string, CliError> =>
+  Effect.flatMap(sh(cmd, cwd), (r) => {
     if (r.code === 0) return Effect.succeed(r.stdout);
     const stderr = r.stderr || r.stdout;
     // The message is what the old `throw new Error` said, verbatim.

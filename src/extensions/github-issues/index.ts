@@ -58,7 +58,7 @@ export function repoFromRemote(url: string): { owner: string; name: string } | u
  * authenticated against still resolves its name — and a repository with no remote at all
  * fails the same way.
  */
-export const nameWithOwnerEffect = (
+export const nameWithOwner = (
   repo: string,
 ): Effect.Effect<string | undefined, CliError, Workspace | Shell | Cache> =>
   Effect.gen(function* () {
@@ -80,7 +80,7 @@ export const nameWithOwnerEffect = (
 
 /** The open issues of one repository, newest first; a repository that is not on GitHub has
  * none, and says so by having no repository name. */
-export const listIssuesEffect = (
+export const listIssues = (
   repo: string,
 ): Effect.Effect<
   { repository?: string; issues: GitHubIssue[] },
@@ -90,7 +90,7 @@ export const listIssuesEffect = (
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
-    const repository = yield* nameWithOwnerEffect(repo);
+    const repository = yield* nameWithOwner(repo);
     if (!repository) return { issues: [] };
     const issues = yield* cache.swr(
       `gh:issues:list:${repository}`,
@@ -113,7 +113,7 @@ export const listIssuesEffect = (
   });
 
 /** One issue, whatever its state: the card, the title and the description ask here. */
-export const viewIssueEffect = (
+export const viewIssue = (
   repository: string,
   number: number,
 ): Effect.Effect<GitHubIssue | undefined, CliError, Workspace | Shell | Cache> =>
@@ -141,7 +141,7 @@ export const viewIssueEffect = (
   });
 
 /** Creates an issue and returns it, so the wizard can select what it just made. */
-export const createIssueEffect = (
+export const createIssue = (
   repo: string,
   title: string,
   body: string | undefined,
@@ -153,7 +153,7 @@ export const createIssueEffect = (
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
-    const repository = yield* nameWithOwnerEffect(repo);
+    const repository = yield* nameWithOwner(repo);
     if (!repository) {
       return yield* Effect.fail(new BadRequestError({ message: `${repo} has no GitHub remote` }));
     }
@@ -172,7 +172,7 @@ export const createIssueEffect = (
     }
     yield* cache.invalidate(`gh:issues:list:${repository}`);
     const issue =
-      (yield* viewIssueEffect(repository, number)) ?? {
+      (yield* viewIssue(repository, number)) ?? {
         number,
         title,
         state: "open",
@@ -210,8 +210,8 @@ const statusFor = (
   ref: IssueRef,
 ): Effect.Effect<Widget, unknown, Workspace | Shell | Cache> =>
   Effect.gen(function* () {
-    const repository = yield* nameWithOwnerEffect(ref.repo);
-    const found = repository ? yield* viewIssueEffect(repository, ref.number) : undefined;
+    const repository = yield* nameWithOwner(ref.repo);
+    const found = repository ? yield* viewIssue(repository, ref.number) : undefined;
     if (!repository || !found) {
       return {
         integration: KEY,
@@ -276,10 +276,10 @@ export default {
             // A gh that cannot answer leaves the stored title standing: the failure is caught
             // by the host, which drops this source's answer as a whole — so per-issue trouble
             // is tolerated here, and only a source-wide failure is a failed lookup.
-            const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
+            const found = yield* Effect.option(nameWithOwner(ref.repo));
             const repository = Option.getOrUndefined(found);
             const issue = repository
-              ? Option.getOrUndefined(yield* Effect.option(viewIssueEffect(repository, ref.number)))
+              ? Option.getOrUndefined(yield* Effect.option(viewIssue(repository, ref.number)))
               : undefined;
             if (issue?.title) titles.set(change.id, issue.title);
           }
@@ -295,11 +295,11 @@ export default {
         Effect.gen(function* () {
           const ref = refOf(change);
           if (!ref) return undefined;
-          const found = yield* Effect.option(nameWithOwnerEffect(ref.repo));
+          const found = yield* Effect.option(nameWithOwner(ref.repo));
           const repository = Option.getOrUndefined(found);
           if (!repository) return undefined;
           const issue = Option.getOrUndefined(
-            yield* Effect.option(viewIssueEffect(repository, ref.number)),
+            yield* Effect.option(viewIssue(repository, ref.number)),
           );
           return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
         }),
@@ -321,7 +321,7 @@ export default {
           const cache = yield* Cache;
           const ref = refOf(change);
           if (!ref) return;
-          const repository = yield* nameWithOwnerEffect(ref.repo);
+          const repository = yield* nameWithOwner(ref.repo);
           if (!repository) return `not a GitHub repository: ${ref.repo}`;
           yield* closeIssueEffect(shell, repository, ref.number, `Completed in change ${change.id}`);
           yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
@@ -338,7 +338,7 @@ export default {
       path: "/issues",
       handler: (req) => {
         const repo = new URL(req.url).searchParams.get("repo") ?? "";
-        return Effect.map(listIssuesEffect(repo), (listing) => Response.json(listing));
+        return Effect.map(listIssues(repo), (listing) => Response.json(listing));
       },
     },
     {
@@ -358,7 +358,7 @@ export default {
               new BadRequestError({ message: "repository and title required" }),
             );
           }
-          const created = yield* createIssueEffect(body.repo, body.title.trim(), body.description);
+          const created = yield* createIssue(body.repo, body.title.trim(), body.description);
           return Response.json(created, { status: 201 });
         }),
     },

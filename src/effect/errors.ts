@@ -27,7 +27,7 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
 }> {}
 
 /** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost.
- * `message` is what the UI showed for this failure before the rewrite — for `shOrThrowEffect`
+ * `message` is what the UI showed for this failure before the rewrite — for `shOrThrow`
  * that is `<cmd> failed: <stderr>`, for a timeout `<cmd> timed out after N seconds` — and
  * `formatError` hands it to the response verbatim. */
 export class CliError extends Data.TaggedError("CliError")<{

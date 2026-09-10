@@ -44,7 +44,7 @@ alive. See item 2 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md).
 **Superseded (item 2 of the refactor plan): the facades and the shim are gone.** Every facade
 below (`readChange`, `swr`, `commitChange`, `provision`, `sh`, ...) proved to be test-only, so
 the tests now run the Effect API through `test/helpers.ts`'s `runEffect`/`runEffectWith`/`runSh`,
-which provides the `Workspace` tag, and `src/context.ts` was deleted. `shEffect` computes the
+which provides the `Workspace` tag, and `src/context.ts` was deleted. `sh` computes the
 subprocess environment straight from the tag (`Effect.serviceOption(Workspace)` → `envOf`). The
 ruling below is kept as written; it no longer holds.
 
@@ -62,3 +62,21 @@ ruling below is kept as written; it no longer holds.
   to the Effect API through `test/helpers.ts`. The rulings above record the migration as it was;
   the standing contract is [`../guides/effect-conventions.md`](../guides/effect-conventions.md),
   and the retired facades live only in this history.
+
+## Tests and Effect (decided 2026-09-10)
+
+The migration kept tests Promise-shaped to avoid changing everything at once. That sequencing
+reason is gone — the tests now call the Effect API — so the design position was reconsidered:
+
+- **Test bodies stay Promise-shaped.** `bun:test` is Promise-native (there is no bun equivalent
+  of `@effect/vitest`'s `it.effect`), and this suite is integration-heavy (real `git`, tmux/ttyd,
+  an HTTP server, Playwright). Making bodies `Effect.gen` would wrap every non-Effect async in
+  `Effect.promise`, which reads worse than `await`. They reach Effect through one seam,
+  `test/helpers.ts`.
+- **Adopt Effect's test runtime where it pays.** `TestClock` for the time-dependent logic (cache
+  staleness, the CLI timeout, progress durations, the watcher interval), which is currently
+  tested with real sleeps and is the source of the suite's flakiness; and a fake `Shell` layer
+  for CLI-shaped tests. The latter wants the core's subprocess calls to go through the `Shell`
+  service rather than the module-level `sh` function, which is the same "explicit over ambient"
+  cleanup as the guide's rule 1.
+- **No wholesale Effect-generator rewrite.** Declined deliberately, not deferred.

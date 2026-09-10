@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { readChangeEffect } from "../changes.ts";
+import { readChange } from "../changes.ts";
 import { NotFoundError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { Workspace } from "../effect/tags.ts";
@@ -34,7 +34,7 @@ export const withChange = (
   effect: (change: Change) => Effect.Effect<Response, unknown>,
 ): Promise<Response> =>
   runRoute(
-    Effect.flatMap(readChangeEffect(id), (change) => {
+    Effect.flatMap(readChange(id), (change) => {
       if (!change) return Effect.fail(new NotFoundError({ message: `no such change: ${id}` }));
       return Effect.provideService(effect(change), Workspace, workspaceOf(change));
     }),

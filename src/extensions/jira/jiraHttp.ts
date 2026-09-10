@@ -59,7 +59,7 @@ export function parseJiraConfig(text: string): Partial<JiraSetup> {
  * — the old `.catch(() => ({}))`. */
 const setups = new Map<string, Effect.Effect<Partial<JiraSetup>>>();
 
-export const jiraSetupEffect = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
+export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
   Effect.suspend(() => {
     const path = configPath(file);
     const known = setups.get(path);
@@ -78,8 +78,8 @@ export const jiraSetupEffect = (file?: string): Effect.Effect<Partial<JiraSetup>
 
 
 /** Base URL of the Jira instance, for the links in the UI. */
-export const jiraBaseUrlEffect = (file?: string): Effect.Effect<string | undefined> =>
-  Effect.map(jiraSetupEffect(file), (setup) => setup.server);
+export const jiraBaseUrl = (file?: string): Effect.Effect<string | undefined> =>
+  Effect.map(jiraSetup(file), (setup) => setup.server);
 
 
 /** What is missing, said in the words of the thing you would do about it. Fails with the message
@@ -90,7 +90,7 @@ const credentialsEffect = (
   tokenEnv?: string,
 ): Effect.Effect<{ server: string; auth: string }, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, login } = yield* jiraSetupEffect(file);
+    const { server, login } = yield* jiraSetup(file);
     // A second site is a second token: which variable holds it is the workspace's to say.
     const token = process.env[tokenEnv ?? "JIRA_API_TOKEN"];
     if (!server || !login) {
@@ -112,7 +112,7 @@ const credentialsEffect = (
  * One request. Errors carry Jira's own explanation, because "400" on its own has never helped
  * anyone: the API answers with `errorMessages` and `errors`, and both are worth repeating.
  */
-export const jiraFetchEffect = <T>(
+export const jiraFetch = <T>(
   path: string,
   init?: {
     method?: string;

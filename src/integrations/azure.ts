@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
 import { worst, type Change, type WidgetItem, type WidgetState } from "../types.ts";
-import { swrEffect } from "../cache.ts";
+import { swr } from "../cache.ts";
 import type { Workspace } from "../config.ts";
 import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
 import { deploySettings } from "../deploySettings.ts";
@@ -54,7 +54,7 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
-export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; project?: string }> =>
+export const azDefaults = (): Effect.Effect<{ organization?: string; project?: string }> =>
   Effect.suspend(() => {
     if (defaults) return Effect.succeed(defaults);
     return Effect.gen(function* () {
@@ -83,10 +83,10 @@ export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; proje
  */
 export type Az = { key: string; args: string[]; organization?: string; project?: string };
 
-export const azForEffect = (workspace: Workspace): Effect.Effect<Az> =>
+export const azFor = (workspace: Workspace): Effect.Effect<Az> =>
   Effect.gen(function* () {
     const own = azureOf(workspace);
-    const fallback = yield* azDefaultsEffect();
+    const fallback = yield* azDefaults();
     const organization = own.organization || fallback.organization;
     const project = own.project || fallback.project;
     return {
@@ -145,7 +145,7 @@ const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
 const listDefinitionsEffect = (az: Az, repo: string): Effect.Effect<Definition[]> =>
-  swrEffect(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
+  swr(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
     Effect.gen(function* () {
       const r = yield* shSoft([
         "az",
@@ -167,7 +167,7 @@ const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; err
     // once and answered once.
     const results = yield* Effect.all(
       refs.map((ref) =>
-        swrEffect(`az:${az.key}:runs:${ref}`, RUNS_TTL, shSoft([
+        swr(`az:${az.key}:runs:${ref}`, RUNS_TTL, shSoft([
           "az",
           "pipelines",
           "runs",
@@ -201,11 +201,11 @@ const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; err
  * the overview needs. Both queries behind it are the cached ones the dashboard uses, so asking
  * for it costs nothing extra while a change is open, and it skips durations, logs and versions.
  */
-export const activeRunsEffect = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
+export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
   Effect.gen(function* () {
     const workspace = workspaceOf(change);
     if (!usesAzure(workspace)) return 0; // a context without pipelines has none running
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
       listDefinitionsEffect(az, repo),
       runsForEffect(az, refsFor(change.branch, pr)),
@@ -233,8 +233,8 @@ export function averageDuration(runs: Run[]): number | undefined {
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
 }
 
-export const expectedDurationEffect = (az: Az, definitionId: number): Effect.Effect<number | undefined> =>
-  swrEffect(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL,
+export const expectedDuration = (az: Az, definitionId: number): Effect.Effect<number | undefined> =>
+  swr(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL,
     Effect.gen(function* () {
       const r = yield* shSoft([
         "az",
@@ -338,7 +338,7 @@ const logLinesEffect = (project: string, runId: number, logId: number): Effect.E
 /** A finished run's logs never change, so a version is looked up once and kept. */
 const versions = new Map<number, string | undefined>();
 
-export const versionOfEffect = (run: Run, project: string): Effect.Effect<string | undefined> =>
+export const versionOf = (run: Run, project: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     // Only successful builds produced an artifact worth naming.
     if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
@@ -390,7 +390,7 @@ export function buildUrl(id: number, az?: Az): string | undefined {
 // Pure and synchronous: nothing for an Effect to wrap.
 
 /** One row per pipeline of this repository, with its runs for this ref as children. */
-export const pipelineItemsEffect = (
+export const pipelineItems = (
   change: Change,
   repo: string,
   pr?: number,
@@ -400,7 +400,7 @@ export const pipelineItemsEffect = (
     // A context without pipelines is not an empty list of them, it is silence: the card shows the
     // pull request and nothing else, and no `az` process is started.
     if (!usesAzure(workspace)) return { items: [], count: 0 };
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([
       listDefinitionsEffect(az, repo),
@@ -432,7 +432,7 @@ export const pipelineItemsEffect = (
     );
     const expected = new Map(
       yield* Effect.all(
-        running.map((d) => Effect.map(expectedDurationEffect(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
+        running.map((d) => Effect.map(expectedDuration(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
         // The old Promise.all was unbounded, so this stays unbounded.
         { concurrency: "unbounded" },
       ),
@@ -465,7 +465,7 @@ export const pipelineItemsEffect = (
               mine.map((run, index) => ({ run, index })),
               ({ run, index }) =>
                 Effect.gen(function* () {
-                  const version = yield* versionOfEffect(run, project);
+                  const version = yield* versionOf(run, project);
                   const child = children[index]!;
                   if (version) {
                     child.detail = [child.detail, version].filter(Boolean).join(" · ");
