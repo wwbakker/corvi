@@ -9,6 +9,7 @@
 
 import AppKit
 import Darwin
+import UserNotifications
 import WebKit
 
 /// Where the code is: written into Info.plist at install time, so the binary is not rebuilt
@@ -60,7 +61,8 @@ func freePort() -> Int? {
 /// all one colour instead of a white flash.
 let background = NSColor(srgbRed: 0x14 / 255, green: 0x16 / 255, blue: 0x1a / 255, alpha: 1)
 
-final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate {
+final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDelegate,
+    WKScriptMessageHandler, UNUserNotificationCenterDelegate {
     var window: NSWindow!
     var web: WKWebView!
     /// The server this app started — which is every launch, the port being fresh. On quit it is
@@ -73,6 +75,13 @@ final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDele
         // has a single anonymous group where the buttons should be, so the app cannot be tested
         // the way it is used — and neither can it be used by VoiceOver.
         NSApp.setAccessibilityEnabled(true)
+        // Notifications are the page's, shown by the host: WKWebView has no notification API of
+        // its own, so the bridge below is the only way in. Asked for at launch, so the prompt
+        // arrives when the app is first opened rather than the first time something finishes —
+        // and asked again per notification, which costs nothing when it is already granted.
+        let notifications = UNUserNotificationCenter.current()
+        notifications.delegate = self
+        notifications.requestAuthorization(options: [.alert, .sound]) { _, _ in }
         buildMenu()
         buildWindow()
         // No "attach to whatever is listening" branch: on a port picked this second, nothing is
@@ -104,6 +113,9 @@ final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDele
         let configuration = WKWebViewConfiguration()
         // The terminal is an iframe from the same origin; nothing here needs a separate process.
         configuration.websiteDataStore = .default()
+        // The page's way to ask for a notification; the handler is this object (see the
+        // notifications section).
+        configuration.userContentController.add(self, name: "iwe")
         web = WKWebView(frame: .zero, configuration: configuration)
         web.navigationDelegate = self
         // Without this the page's confirm() silently returns false and alert() does nothing:
@@ -293,6 +305,89 @@ final class App: NSObject, NSApplicationDelegate, WKNavigationDelegate, WKUIDele
         alert.addButton(withTitle: "Cancel")
         alert.beginSheetModal(for: window) { response in
             completionHandler(response == .alertFirstButtonReturn ? field.stringValue : nil)
+        }
+    }
+
+    // MARK: notifications
+    //
+    // The page asks, the host shows. A click comes back the other way: activate the window, then
+    // call the page's own `window.iwe.openWindow(change, windowId)` — the same entry point a
+    // notification in a browser uses, so the navigation itself lives in one place.
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard let body = message.body as? [String: Any], body["kind"] as? String == "notify" else {
+            return
+        }
+        notify(body)
+    }
+
+    private func notify(_ body: [String: Any]) {
+        let content = UNMutableNotificationContent()
+        content.title = body["title"] as? String ?? name
+        if let subtitle = body["subtitle"] as? String, !subtitle.isEmpty {
+            content.subtitle = subtitle
+        }
+        content.body = body["body"] as? String ?? ""
+        if body["sound"] as? Bool ?? true {
+            content.sound = .default
+        }
+        content.userInfo = [
+            "change": body["change"] as? String ?? "",
+            "window": body["window"] as? String ?? "",
+        ]
+        // A stable identifier per change and window: a repeat replaces the banner it belongs to
+        // rather than stacking a second one for the same session.
+        let id = body["id"] as? String ?? UUID().uuidString
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: id, content: content, trigger: nil)
+        )
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        // Shown even while the app is frontmost; the page has already decided that you are not
+        // looking at the window that wants you.
+        completionHandler([.banner, .sound])
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let info = response.notification.request.content.userInfo
+        let change = info["change"] as? String ?? ""
+        let windowID = info["window"] as? String ?? ""
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+        if !change.isEmpty, !windowID.isEmpty {
+            open(change, windowID)
+        }
+        completionHandler()
+    }
+
+    /// Ask the page to open what the notice was about, retrying while it loads: a click can
+    /// arrive before the page's own `window.iwe` exists — a fresh launch, a reload. The attempts
+    /// are a parameter rather than a counter, so the closure that retries captures nothing that
+    /// changes under it.
+    private func open(_ change: String, _ windowID: String, attempt: Int = 0) {
+        let quote = { (value: String) in
+            value.replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "'", with: "\\'")
+        }
+        let script =
+            "window.iwe ? (window.iwe.openWindow('\(quote(change))', '\(quote(windowID))'), true) : false"
+        web.evaluateJavaScript(script) { [weak self] result, _ in
+            guard let self, (result as? Bool) != true, attempt < 9 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                self.open(change, windowID, attempt: attempt + 1)
+            }
         }
     }
 

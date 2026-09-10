@@ -189,6 +189,9 @@ export type TmuxWindow = {
   named: boolean;
   /** The pane options any presenter declared, by option name ("@agent" → "working"). */
   options: Record<string, string>;
+  /** tmux's own window id (`@3`): stable across reordering, unlike the index the session shows
+   * and the tabs move around. */
+  id: string;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
@@ -209,6 +212,12 @@ export type WindowPresentation = {
   state?: "ok" | "idle";
   /** Whether this counts as work happening (the overview's terminals fact). */
   busy?: boolean;
+  /** Whether this window wants the user now — what notifications are made of. The core only
+   * sees the edge into it; the presenter owns what it means and when it clears. */
+  attention?: boolean;
+  /** A line of the presenter's own words to carry beside the name: an agent can say what it
+   * just answered, instead of only that it stopped. */
+  note?: string;
 };
 
 /** Says how a tmux window is presented: which pane options to read for it, and what those

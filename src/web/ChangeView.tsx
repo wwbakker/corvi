@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import {
   aborted,
   api,
@@ -16,6 +16,8 @@ import {
   type WidgetItem,
 } from "./api.ts";
 import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
+import { AgentIcon, TerminalIcon } from "./icons.tsx";
+import type { TerminalWindow } from "../terminalTypes.ts";
 import { cached, putCached, useCached } from "./cache.ts";
 import { stateClass } from "./changeState.tsx";
 import { isFinished } from "../types.ts";
@@ -305,6 +307,10 @@ export function ChangeView({
   platform,
   provision,
   terminal,
+  windows,
+  onSelectWindow,
+  onNewWindow,
+  onMoveWindow,
   onOpenPage,
   onChanged,
 }: {
@@ -319,8 +325,21 @@ export function ChangeView({
   terminal: {
     url: string | null;
     error: string | null;
+    /** The ttyd on record has outlived its tmux session: the shells are gone. */
+    gone: boolean;
+    /** That ttyd's pid, for the message that says how to start over. */
+    pid?: number;
     create: () => void;
   };
+  /** This change's tmux windows: what the terminal page's tabs are. */
+  windows: TerminalWindow[];
+  /** Switching the session to one of its windows. */
+  onSelectWindow: (index: number) => void;
+  /** Another window beside the current one. The terminal's own chord does this from inside it;
+   * this is the tab that does. */
+  onNewWindow: () => void;
+  /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
+  onMoveWindow: (from: number, to: number) => void;
   /** Switching between the change's own pages, which are tabs rather than navigation: they are
    * two views of the same change, not two places. */
   onOpenPage: (page: "dashboard" | "review") => void;
@@ -341,6 +360,10 @@ export function ChangeView({
   // opened and only hidden afterwards.
   const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
   const [cheatSheet, setCheatSheet] = useState(false);
+  // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
+  // — overview and "new" — take no part in either.
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
   // The change's name, while you are typing a new one. null when you are not.
   const [draft, setDraft] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
@@ -482,89 +505,202 @@ export function ChangeView({
     },
   ];
 
-  return (
-    <div className="page">
-      <header>
-        {/* The one heading: where you are is in the navigation column, so this says what the
-            change is rather than how you got here. */}
-        <h2>
-          {id}
-          {change &&
-            (draft === null ? (
-              // A name that came from the ticket is a suggestion, not a fact: rename it here and
-              // it stops being refreshed from Jira. Clearing it hands it back.
-              <button
-                className="subject"
-                title="rename this change"
-                onClick={() => setDraft(change.title ?? "")}
-              >
-                {change.title ?? branchLabel(id, change.branch)}
-              </button>
-            ) : (
-              <input
-                className="subject"
-                autoFocus
-                value={draft}
-                placeholder={change.jira ? `from ${change.jira}` : "what this change is about"}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") setDraft(null);
-                  if (e.key === "Enter") e.currentTarget.blur();
-                }}
-                onBlur={() => {
-                  const next = draft.trim();
-                  setDraft(null);
-                  if (next === (change.title ?? "")) return;
-                  patch<Change>(`/changes/${id}`, { title: next })
-                    .then((updated) => {
-                      setChange(updated);
-                      onChanged();
-                    })
-                    .catch((err: Error) => setError(err.message));
-                }}
-              />
-            ))}
-        </h2>
-        <span className="spacer" />
-        {/* Only where it means something: tmux keys are no help on the dashboard. */}
-        {page === "terminals" && (
-          <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
-        )}
-        {change && (
-          <select
-            className={stateClass(change.state)}
-            value={change.state ?? "In Progress"}
-            // Your own view of where the change stands; completing it sets "Completed".
-            onChange={(e) =>
-              patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
-                .then((updated) => {
-                  setChange(updated);
-                  onChanged(); // the navigation column and the overview list states too
-                })
-                .catch((err: Error) => setError(err.message))
-            }
+  /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
+   * the terminal both show this strip — a window is one click from either — and because it is
+   * one element, the contents are the same on both: the same icon in the same colour, the same
+   * name. */
+  const startDrag = (e: ReactMouseEvent<HTMLButtonElement>, from: number): void => {
+    // The drag needs the mousedown that keeps the keyboard in the terminal after a plain click,
+    // so it is tracked by hand: mousedown, the window's mouse moves, mouseup. HTML5 drag events
+    // would not start at all once the default is prevented.
+    e.preventDefault();
+    if (e.button !== 0) return;
+    const strip = e.currentTarget.closest(".window-tabs");
+    if (!strip) return;
+    const under = (x: number, y: number): number | null => {
+      for (const tab of strip.querySelectorAll<HTMLElement>("[data-window-index]")) {
+        const box = tab.getBoundingClientRect();
+        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+          return Number(tab.dataset.windowIndex);
+        }
+      }
+      return null;
+    };
+    const startedAt = e.clientX;
+    let dragging = false;
+    const move = (ev: MouseEvent) => {
+      // A few pixels of travel: a click that wobbles is still a click.
+      if (!dragging && Math.abs(ev.clientX - startedAt) < 4) return;
+      dragging = true;
+      setDragIndex(from);
+      setDropIndex(under(ev.clientX, ev.clientY));
+    };
+    const up = (ev: MouseEvent) => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      setDragIndex(null);
+      setDropIndex(null);
+      const to = dragging ? under(ev.clientX, ev.clientY) : null;
+      if (to !== null && to !== from) onMoveWindow(from, to);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
+  const windowTabs = (
+    <nav className="window-tabs">
+      {/* The way back to what the change is doing. On the dashboard the tab is already where
+          you are; in the terminal it is the way out. */}
+      <button
+        className={page === "dashboard" ? "window-tab overview current" : "window-tab overview"}
+        title="the change's overview"
+        onClick={() => onOpenPage("dashboard")}
+      >
+        <span className="label">Overview</span>
+      </button>
+      {windows.map((w) => {
+        const classes = ["window-tab"];
+        if (w.active && page === "terminals") classes.push("current");
+        if (dragIndex === w.index) classes.push("dragging");
+        if (dropIndex === w.index && dragIndex !== null && dragIndex !== w.index) {
+          classes.push("drop-target");
+        }
+        return (
+          <button
+            key={w.index}
+            data-window-index={w.index}
+            className={classes.join(" ")}
+            title={`ctrl-b ${w.index} — ${w.detail}`}
+            // Focus is what a mousedown moves, and a terminal you cannot type in after clicking
+            // a tab is useless; the drag rides the same mousedown (see startDrag).
+            onMouseDown={(e) => startDrag(e, w.index)}
+            onClick={() => onSelectWindow(w.index)}
           >
-            {/* Only the states you are in, not the ones a change ends in: picking "Completed"
-                from a list used to set the word without merging anything, removing a worktree or
-                archiving the change — a label that lies. Ending a change is Complete or Cancel,
-                which do the work. A change that has already ended still shows its own state,
-                because a select cannot display what it does not offer. */}
-            {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s })).map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-            {isFinished(change) && <option>{change.state}</option>}
-          </select>
-        )}
-        {change && isFinished(change) ? (
-          // How it ended, not only that it did: a change that was abandoned is not one that
-          // landed, and the badge is the only place that says so on this page.
-          <span className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}>
-            {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
-          </span>
-        ) : (
-          <ActionsMenu actions={changeActions} />
-        )}
-      </header>
+            <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
+              {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
+            </span>
+            <span className="label">{w.label}</span>
+            {/* Not for the window you are looking at: you see its output already. */}
+            {w.activity && !(w.active && page === "terminals") && (
+              <span className="bell" title="new output" />
+            )}
+          </button>
+        );
+      })}
+      {/* A session that has not started yet has nothing to add a window to; opening the
+          terminal starts it, with the first window. */}
+      <button
+        className="window-tab new"
+        title={
+          platform === "mac"
+            ? "new terminal here (cmd-t, or ctrl-b c)"
+            : "new terminal here (ctrl-alt-t, or ctrl-b c)"
+        }
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onNewWindow}
+      >
+        <TerminalIcon title="new terminal" />
+        <span className="label">new</span>
+      </button>
+    </nav>
+  );
+
+  /** The terminal page's own bar: the windows, and the key reference. The change's id, name,
+   * state and actions are the dashboard's — while a shell has the keyboard they say nothing. */
+  const terminalBar = (
+    <header className="terminal-bar">
+      {windowTabs}
+      <span className="spacer" />
+      <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
+    </header>
+  );
+
+  const changeBar = (
+    <header>
+      {/* The one heading: where you are is in the navigation column, so this says what the
+          change is rather than how you got here. */}
+      <h2>
+        {id}
+        {change &&
+          (draft === null ? (
+            // A name that came from the ticket is a suggestion, not a fact: rename it here and
+            // it stops being refreshed from Jira. Clearing it hands it back.
+            <button
+              className="subject"
+              title="rename this change"
+              onClick={() => setDraft(change.title ?? "")}
+            >
+              {change.title ?? branchLabel(id, change.branch)}
+            </button>
+          ) : (
+            <input
+              className="subject"
+              autoFocus
+              value={draft}
+              placeholder={change.jira ? `from ${change.jira}` : "what this change is about"}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setDraft(null);
+                if (e.key === "Enter") e.currentTarget.blur();
+              }}
+              onBlur={() => {
+                const next = draft.trim();
+                setDraft(null);
+                if (next === (change.title ?? "")) return;
+                patch<Change>(`/changes/${id}`, { title: next })
+                  .then((updated) => {
+                    setChange(updated);
+                    onChanged();
+                  })
+                  .catch((err: Error) => setError(err.message));
+              }}
+            />
+          ))}
+      </h2>
+      <span className="spacer" />
+      {change && (
+        <select
+          className={stateClass(change.state)}
+          value={change.state ?? "In Progress"}
+          // Your own view of where the change stands; completing it sets "Completed".
+          onChange={(e) =>
+            patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
+              .then((updated) => {
+                setChange(updated);
+                onChanged(); // the navigation column and the overview list states too
+              })
+              .catch((err: Error) => setError(err.message))
+          }
+        >
+          {/* Only the states you are in, not the ones a change ends in: picking "Completed"
+              from a list used to set the word without merging anything, removing a worktree or
+              archiving the change — a label that lies. Ending a change is Complete or Cancel,
+              which do the work. A change that has already ended still shows its own state,
+              because a select cannot display what it does not offer. */}
+          {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s })).map((s) => (
+            <option key={s}>{s}</option>
+          ))}
+          {isFinished(change) && <option>{change.state}</option>}
+        </select>
+      )}
+      {change && isFinished(change) ? (
+        // How it ended, not only that it did: a change that was abandoned is not one that
+        // landed, and the badge is the only place that says so on this page.
+        <span className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}>
+          {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
+        </span>
+      ) : (
+        <ActionsMenu actions={changeActions} />
+      )}
+    </header>
+  );
+
+  return (
+    <div className={page === "terminals" ? "page terminal-page" : "page"}>
+      {/* The same strip at the very top of the dashboard too, above the change's header, so a
+          terminal window is one click from where the work is. */}
+      {page === "dashboard" && <div className="window-bar">{windowTabs}</div>}
+      {page === "terminals" ? terminalBar : changeBar}
       <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
@@ -617,7 +753,7 @@ export function ChangeView({
         />
       )}
       {terminalOpened && (
-        <div hidden={page !== "terminals"}>
+        <div className="terminal-host" hidden={page !== "terminals"}>
           <TerminalPane
             changeId={id}
             url={terminal.url}
@@ -625,6 +761,9 @@ export function ChangeView({
             visible={page === "terminals"}
             platform={platform}
             onNewWindow={terminal.create}
+            gone={terminal.gone}
+            pid={terminal.pid}
+            windows={windows.length}
           />
         </div>
       )}

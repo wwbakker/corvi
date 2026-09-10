@@ -99,6 +99,24 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(reloadConfig().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
 });
 
+test("silencing notifications is a decision the file keeps; absent means sound", async () => {
+  // The default is on, and only the decision to silence is written down, so an untouched file
+  // stays a page of decisions rather than a dump of defaults.
+  expect(reloadConfig().notificationSound).toBe(true);
+
+  await writeSettings({ notificationSound: false });
+  expect(config.notificationSound).toBe(false);
+  const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect(written.notificationSound).toBe(false);
+
+  // Handing it back to the default is writing nothing, which is what the page sends when the
+  // box is ticked again.
+  await writeSettings({ notificationSound: undefined });
+  expect(config.notificationSound).toBe(true);
+  const cleared = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect("notificationSound" in cleared).toBe(false);
+});
+
 test("the file keeps what it had, and does not fill up with defaults", async () => {
   await Bun.write(file, JSON.stringify({ somethingNewer: 1, jiraAssignee: "me" }));
   await writeSettings({ jiraDoneTransition: "Done", jiraAssignee: "" });

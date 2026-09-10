@@ -5,7 +5,8 @@
  * what the browser sends. xterm.js encodes Enter as a plain carriage return whatever modifier is
  * held — there is no legacy encoding for shift-Enter, and it implements neither of the modern
  * ones — so the shift is lost between your hand and the shell. Same-origin, a small script
- * injected into ttyd's page sends the CSI u sequence for those keys instead.
+ * injected into ttyd's page sends the CSI u sequence for those keys instead — and a small style
+ * takes away xterm's empty scrollbar, which its own stylesheet keeps for good (withPageFixes).
  */
 import type { Server, ServerWebSocket } from "bun";
 import { isNewWindowKey, type Platform } from "./web/newWindowKey.ts";
@@ -88,9 +89,18 @@ export const keysScript = (platform: Platform): string => `
 })();
 `;
 
-/** ttyd's page, with the script added. Nothing else about it is touched. */
-export const withKeysScript = (html: string): string =>
-  html.replace("</head>", `<script src="/terminal-keys.js"></script></head>`);
+/** ttyd's page, with the keys script and one style added.
+ *
+ * The style is xterm's own scrollbar. `.xterm-viewport` is `overflow-y: scroll` in xterm's
+ * stylesheet whatever the scrollback is, and on a machine that shows scrollbars always that is a
+ * pale bar down the right of the terminal — empty, since tmux owns scrolling (`mouse on`) and the
+ * terminal is started with no scrollback of its own. Hiding it is the only way to be rid of it;
+ * changing the scrollback alone leaves the bar's width reserved. */
+export const withPageFixes = (html: string): string =>
+  html.replace(
+    "</head>",
+    `<style>.xterm .xterm-viewport{overflow-y:hidden}</style><script src="/terminal-keys.js"></script></head>`,
+  );
 
 type Bridge = { upstream?: WebSocket; queue: (string | Uint8Array)[]; port: number };
 
@@ -141,7 +151,7 @@ export async function proxyToTtyd(req: Request, port: number, rest: string): Pro
   headers.delete("content-length");
   const isPage = (headers.get("content-type") ?? "").startsWith("text/html");
   if (!isPage) return new Response(upstream.body, { status: upstream.status, headers });
-  return new Response(withKeysScript(await upstream.text()), {
+  return new Response(withPageFixes(await upstream.text()), {
     status: upstream.status,
     headers,
   });

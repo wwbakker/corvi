@@ -38,8 +38,10 @@ import { prDescriptionEffect } from "./description.ts";
 import {
   allWindowsEffect,
   listWindowsEffect,
+  moveWindowEffect,
   newWindowEffect,
   selectWindowEffect,
+  terminalGoneEffect,
   terminalPath,
   terminalPortEffect,
 } from "./terminal.ts";
@@ -413,7 +415,10 @@ const server = Bun.serve({
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
             yield* terminalPortEffect(c); // starts or adopts it, so the frame has something to load
-            return json({ url: terminalPath(c.id) });
+            // And whether what it starts or adopts still has a session behind it: a ttyd whose
+            // tmux server is gone is a dead frame, and the page should say so.
+            const state = yield* terminalGoneEffect(c.id);
+            return json({ url: terminalPath(c.id), ...state });
           }),
         ),
     },
@@ -432,10 +437,17 @@ const server = Bun.serve({
       POST: (req) =>
         withChange(req.params.id, (c) =>
           Effect.gen(function* () {
-            const body = (yield* bodyOf(req)) as { action: "new" | "select"; index?: number };
+            const body = (yield* bodyOf(req)) as {
+              action: "new" | "select" | "move";
+              index?: number;
+              from?: number;
+              to?: number;
+            };
             if (body.action === "new") yield* newWindowEffect(c.id);
             else if (body.action === "select") yield* selectWindowEffect(c.id, body.index ?? 0);
-            else {
+            else if (body.action === "move") {
+              yield* moveWindowEffect(c.id, body.from ?? 0, body.to ?? 0);
+            } else {
               return yield* Effect.fail(
                 new BadRequestError({ message: `unknown window action: ${body.action}` }),
               );

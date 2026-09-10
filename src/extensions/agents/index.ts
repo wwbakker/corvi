@@ -12,6 +12,11 @@ import type { Extension, TerminalPresenter } from "../api.ts";
  * after it was set. Nobody else writes `@agent`, and tmux drops it when the pane dies, so a
  * crashed agent leaves nothing stale behind.
  *
+ * The session's name is published beside it as `@agent_name` by the same extension (pi names
+ * the session from your first message); when it is there it is the label, because "example-api -
+ * (pi working)" says less about what is in the window than the name pi gave it does. The state
+ * stays in the icon's colour.
+ *
  * The vocabulary is this extension's own business: the core never parses `@agent`, it only
  * carries the pane options presenters declare.
  */
@@ -25,17 +30,27 @@ const agentOf = (option: string | undefined): AgentState | undefined =>
  * where an agent speaks. Everything it leaves undefined — the label, the detail — the core
  * composes from the tmux facts, exactly as it does for a plain shell. */
 const presenter: TerminalPresenter = {
-  paneOptions: ["@agent"],
+  paneOptions: ["@agent", "@agent_name", "@agent_say"],
   present: (window) => {
     const agent = agentOf(window.options["@agent"]);
     if (!agent) return undefined;
+    const name = window.options["@agent_name"]?.trim();
+    const note = window.options["@agent_say"]?.trim();
     return {
+      // The session's own name, when pi has given it one; otherwise the core composes the
+      // label from the repository, exactly as it does for a plain shell.
+      label: name || undefined,
       // An agent is `node` as far as tmux is concerned, which says nothing; what it told us
       // about itself says everything.
       running: `pi ${agent}`,
       icon: "agent",
       state: agent === "working" ? "ok" : "idle",
       busy: agent === "working",
+      // Waiting for you is what a notification is for; working is not. The edge into this is
+      // the one thing the core looks at.
+      attention: agent === "waiting",
+      // What it just answered, in its own words.
+      note: note || undefined,
     };
   },
 };

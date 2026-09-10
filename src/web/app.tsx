@@ -13,6 +13,7 @@ import { Wizard } from "./Wizard.tsx";
 import { ChangeView } from "./ChangeView.tsx";
 import { PageHost } from "./extensions.tsx";
 import { SettingsPage } from "./SettingsPage.tsx";
+import { Notifier } from "./notify.tsx";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
@@ -172,6 +173,30 @@ function App() {
     setViewState(next);
   };
 
+  // A notification click comes back through the host as a plain function: activate the window,
+  // then open the change and the tmux window it was about. The window id is looked up in the
+  // live list, because the index it had when the notification was made may belong to another
+  // window by the time it is clicked.
+  const openWindow = (change: string, windowId: string): void => {
+    const index = (terminals.windows[change] ?? []).find((w) => w.id === windowId)?.index;
+    setWantsTerminal(true);
+    setView({ name: "change", id: change, page: "terminals" });
+    if (index !== undefined) terminals.select(change, index);
+  };
+  const openWindowRef = useRef(openWindow);
+  openWindowRef.current = openWindow;
+  useEffect(() => {
+    // The contract the host calls after the notification is clicked; the wrapper keeps the
+    // registered function from going stale as the view changes.
+    const api = {
+      openWindow: (change: string, windowId: string) => openWindowRef.current(change, windowId),
+    };
+    (window as unknown as { iwe?: typeof api }).iwe = api;
+    return () => {
+      delete (window as unknown as { iwe?: typeof api }).iwe;
+    };
+  }, []);
+
   useEffect(() => {
     const onPop = () => setViewState(viewOf(window.location.pathname, pagesRef.current));
     window.addEventListener("popstate", onPop);
@@ -189,6 +214,12 @@ function App() {
 
   return (
     <div className="app">
+      <Notifier
+        change={selected}
+        page={view.name === "change" ? view.page : "dashboard"}
+        windows={selected ? (terminals.windows[selected] ?? []) : []}
+        onOpen={openWindow}
+      />
       <Sidebar
         changes={changes}
         workspaces={workspaces}
@@ -225,7 +256,7 @@ function App() {
           setView({ name: "change", id, page: "terminals" });
         }}
       />
-      <main className="content">
+      <main className={onTerminal ? "content flush" : "content"}>
         {view.name === "home" && (
           <Home
             changes={changes}
@@ -266,6 +297,22 @@ function App() {
             provision={view.provision}
             onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
             terminal={{ ...terminal, create: () => void terminals.create(view.id) }}
+            windows={terminals.windows[view.id] ?? []}
+            onSelectWindow={(index) => {
+              terminals.select(view.id, index);
+              setWantsTerminal(true);
+              // On the dashboard the tab is the way in: selecting a window you cannot see would
+              // be a click that does nothing visible.
+              setView({ name: "change", id: view.id, page: "terminals" });
+            }}
+            onNewWindow={() => {
+              // A session that has not started has nothing to add a window to: opening the
+              // terminal makes its first window.
+              if ((terminals.windows[view.id] ?? []).length > 0) void terminals.create(view.id);
+              setWantsTerminal(true);
+              setView({ name: "change", id: view.id, page: "terminals" });
+            }}
+            onMoveWindow={(from, to) => terminals.move(view.id, from, to)}
             onChanged={reload}
           />
         )}

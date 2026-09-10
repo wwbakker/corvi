@@ -28,7 +28,7 @@ export function useWindows() {
   useServerEvent("windows", load);
 
   const act = useCallback(
-    (id: string, body: { action: "new" | "select"; index?: number }) =>
+    (id: string, body: { action: "new" | "select" | "move"; index?: number; from?: number; to?: number }) =>
       post<TerminalWindow[]>(`/changes/${id}/terminal/windows`, body)
         .then((next) => setWindows((all) => ({ ...all, [id]: next })))
         .catch(() => {}),
@@ -39,6 +39,11 @@ export function useWindows() {
     windows,
     select: useCallback((id: string, index: number) => void act(id, { action: "select", index }), [act]),
     create: useCallback((id: string) => act(id, { action: "new" }), [act]),
+    /** Where a dragged tab landed: the window at `from` takes `to`'s place. */
+    move: useCallback(
+      (id: string, from: number, to: number) => void act(id, { action: "move", from, to }),
+      [act],
+    ),
     refresh: load,
   };
 }
@@ -53,20 +58,30 @@ export function useWindows() {
 export function useTerminal(id: string | null, archived: boolean, wanted: boolean) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A terminal on record can outlive its tmux session: the server says so when the URL is asked
+  // for, and the page says that rather than showing a dead frame as if it were a slow one.
+  const [gone, setGone] = useState(false);
+  const [pid, setPid] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     setUrl(null);
     setError(null);
+    setGone(false);
+    setPid(undefined);
   }, [id]);
 
   useEffect(() => {
     if (!id || archived || !wanted) return;
-    api<{ url: string }>(`/changes/${id}/terminal`)
-      .then((r) => setUrl(r.url))
+    api<{ url: string; gone?: boolean; pid?: number }>(`/changes/${id}/terminal`)
+      .then((r) => {
+        setUrl(r.url);
+        setGone(r.gone ?? false);
+        setPid(r.pid);
+      })
       .catch((e: Error) => setError(e.message));
   }, [id, archived, wanted]);
 
-  return { url, error };
+  return { url, error, gone, pid };
 }
 
 /** Every change: the navigation column lists the active ones and the overview lists them all.

@@ -346,6 +346,7 @@ test("the overview counts windows that are running something, not windows", asyn
   const busy = (over: Partial<TmuxWindow>) =>
     presentWindow({
       index: 0,
+      id: "@1",
       name: "",
       command: "",
       active: true,
@@ -380,6 +381,7 @@ test("an agent's own account of itself is read from the @agent pane option", asy
   const presented = (option: string) =>
     presentWindow({
       index: 0,
+      id: "@1",
       name: "",
       command: "node",
       active: true,

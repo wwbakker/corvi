@@ -100,6 +100,8 @@ export const ConfigFile = Schema.Struct({
   reposRoot: Schema.optional(Schema.String),
   reposStart: Schema.optional(Schema.String),
   jiraAssignee: Schema.optional(Schema.String),
+  /** Whether a notification plays the system sound. Absent means yes. */
+  notificationSound: Schema.optional(Schema.Boolean),
   jiraStartTransition: Schema.optional(Schema.String),
   jiraDoneTransition: Schema.optional(Schema.String),
   azureOrganization: Schema.optional(Schema.String),
@@ -148,6 +150,7 @@ export const Resolved = Schema.Struct({
   reposRoot: Schema.String,
   reposStart: Schema.String,
   jiraAssignee: Schema.String,
+  notificationSound: Schema.Boolean,
   jiraStartTransition: Schema.String,
   jiraDoneTransition: Schema.String,
   azureOrganization: Schema.String,

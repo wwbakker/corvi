@@ -322,6 +322,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   const w = (over: Partial<TmuxWindow>) =>
     presentWindow({
       index: 0,
+      id: "@1",
       name: "zsh",
       command: "zsh",
       active: true,
@@ -333,6 +334,8 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
     });
   // tmux's default name is the command, which says less than the directory does.
   expect(w({}).label).toBe("example-api");
+  expect(w({}).attention).toBe(false);
+  expect(w({}).id).toBe("@1");
   expect(w({ command: "vim" }).label).toBe("example-api - (vim)");
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
@@ -343,10 +346,29 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(working.icon).toBe("agent");
   expect(working.state).toBe("ok");
   expect(working.busy).toBe(true);
+  // Working is not wanting: nothing to notify about until it stops.
+  expect(working.attention).toBe(false);
   const waiting = w({ command: "node", options: { "@agent": "waiting" } });
   expect(waiting.label).toBe("example-api - (pi waiting)");
   expect(waiting.state).toBe("idle");
   expect(waiting.busy).toBe(false);
+  // Waiting is what notifications are for, and the agent's own words ride along beside it.
+  expect(waiting.attention).toBe(true);
+  const said = w({
+    command: "node",
+    options: { "@agent": "waiting", "@agent_say": "I fixed the layout." },
+  });
+  expect(said.attention).toBe(true);
+  expect(said.note).toBe("I fixed the layout.");
+  // A session pi has named is called that, not "example-api - (pi working)": the state is left to
+  // the icon's colour, so the label does not have to repeat it.
+  const named = w({
+    command: "node",
+    options: { "@agent": "working", "@agent_name": "Build orders" },
+  });
+  expect(named.label).toBe("Build orders");
+  expect(named.icon).toBe("agent");
+  expect(named.state).toBe("ok");
   // Nothing is repeated: a window named after what runs in it says it once.
   expect(w({ name: "logs", command: "logs", directory: "x", named: true }).label).toBe("logs");
   // The detail is the long form, what the tooltip reads.

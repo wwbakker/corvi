@@ -21,7 +21,7 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-events-"));
   port = 4700 + Math.floor(Math.random() * 200);
   url = `http://127.0.0.1:${port}`;
-  server = Bun.spawn(["bun", "src/server.ts"], {
+  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
     env: {
       ...process.env,
       IWE_ROOT: join(tmp, "changes"),
@@ -120,7 +120,7 @@ test("nothing is said when nothing happened", async () => {
   await Bun.sleep(3500);
   expect(seen[0]).toBe("open");
   expect(new Set(seen).size).toBe(seen.length);
-  expect(seen.every((e) => ["open", "changes", "windows"].includes(e))).toBe(true);
+  expect(seen.every((e) => ["open", "changes", "windows", "notify"].includes(e))).toBe(true);
   await stop();
 }, 20_000);
 
@@ -152,7 +152,7 @@ test("a quiet stream stays open", async () => {
   // listener is still the only one. A drop and a reconnect would have said "open" twice.
   expect(seen[0]).toBe("open");
   expect(new Set(seen).size).toBe(seen.length);
-  expect(seen.every((e) => ["open", "changes", "windows"].includes(e))).toBe(true);
+  expect(seen.every((e) => ["open", "changes", "windows", "notify"].includes(e))).toBe(true);
   expect(await (await fetch(`${url}/api/events/listeners`).then((r) => r.json())).listeners).toBe(1);
   await stop();
 }, 30_000);

@@ -45,6 +45,7 @@ const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "
 /** A window as tmux reports it, raw: the facts before anyone says what to call it. */
 const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}) => ({
   index: 3,
+  id: "@3",
   name: "zsh",
   command: "node",
   active: true,

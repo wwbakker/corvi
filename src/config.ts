@@ -55,6 +55,9 @@ export type Config = {
   reposStart: string;
   /** Who a change's Jira issue is assigned to on creation. Empty means "the logged-in user". */
   jiraAssignee: string;
+  /** Whether a notification plays the system sound; the settings page's one notification
+   * decision so far. */
+  notificationSound: boolean;
   /** Transition a change's Jira issue moves to on creation. */
   jiraStartTransition: string;
   /** Transition a change's Jira issue moves to when the change is completed. */
@@ -181,6 +184,7 @@ function load(): Config {
       process.env.IWE_REPOS_ROOT ?? file.reposRoot ?? defaults.reposRoot,
     ),
     jiraAssignee: process.env.IWE_JIRA_ASSIGNEE ?? file.jiraAssignee ?? "",
+    notificationSound: file.notificationSound ?? true,
     jiraStartTransition:
       process.env.IWE_JIRA_START_TRANSITION ?? file.jiraStartTransition ?? "In Progress",
     jiraDoneTransition: process.env.IWE_JIRA_DONE_TRANSITION ?? file.jiraDoneTransition ?? "Done",

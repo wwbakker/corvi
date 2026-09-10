@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
 
 /**
@@ -18,6 +18,9 @@ export function TerminalPane({
   visible,
   platform,
   onNewWindow,
+  gone,
+  pid,
+  windows,
 }: {
   changeId: string;
   url: string | null;
@@ -29,8 +32,30 @@ export function TerminalPane({
    * same test the injected shim applies, from web/newWindowKey.ts). */
   platform: Platform;
   onNewWindow: () => void;
+  /** The ttyd on record has outlived its tmux session, as the server said when the URL was
+   * asked for. */
+  gone: boolean;
+  /** That ttyd's pid, for the message that says how to start over. */
+  pid?: number;
+  /** How many windows this change's session has: none while one is starting, and none forever
+   * once it is gone. */
+  windows: number;
 }) {
   const frame = useRef<HTMLIFrameElement>(null);
+
+  // A terminal that was fine when the tab opened can lose its session while you watch it, the way
+  // a killed tmux server does. The window list going empty and staying empty is what that looks
+  // like from here; waiting a moment tells "starting" from "lost".
+  const [lostWhileOpen, setLostWhileOpen] = useState(false);
+  useEffect(() => {
+    if (!visible || windows > 0) {
+      setLostWhileOpen(false);
+      return;
+    }
+    const timer = setTimeout(() => setLostWhileOpen(true), 5000);
+    return () => clearTimeout(timer);
+  }, [visible, windows]);
+  const lost = gone || lostWhileOpen;
 
   // Opening it should be enough to start typing. Same-origin, so the terminal's own input can
   // be focused rather than just the frame around it.
@@ -76,6 +101,19 @@ export function TerminalPane({
   if (!url) return <p className="hint">starting terminal…</p>;
   return (
     <div className="terminal">
+      {lost && (
+        <div className="terminal-gone">
+          The tmux session for this change is gone: the shells in it, and anything that was
+          running in them, are lost.
+          {pid !== undefined && (
+            <>
+              {" "}
+              The terminal server is still running as pid {pid}. Stop it — <code>kill {pid}</code>{" "}
+              — and reopen this tab to start a fresh session.
+            </>
+          )}
+        </div>
+      )}
       <iframe ref={frame} src={url} title={`terminal for ${changeId}`} />
     </div>
   );

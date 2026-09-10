@@ -25,7 +25,8 @@ export const sessionName = (id: string): string => `iwe-${id}`;
 /** Where ttyd's own logging goes; the process is detached, so this is all there is to read. */
 export const logPath = (id: string): string => `/tmp/iwe-ttyd-${id}.log`;
 
-type Running = { port: number; pid: number };
+type Running = { port: number; pid: number; /** When the ttyd was started: the session behind it
+ * only exists once a browser has connected, and that takes a moment. */ at?: number };
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
  * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
@@ -166,6 +167,22 @@ export const terminalPortEffect = (change: Change): Effect.Effect<number, BadReq
   });
 
 
+/** Whether the ttyd on record has outlived its tmux session: the shells are gone, and the page
+ * would show a dead terminal. Reported rather than acted on — starting a fresh session would
+ * throw away the message that something was lost. A note that has only just been written is not
+ * judged: its session is created when the browser connects, a moment after the ttyd starts. */
+export const terminalGoneEffect = (id: string): Effect.Effect<{ gone: boolean; pid?: number }> =>
+  Effect.gen(function* () {
+    const note = yield* noteOfEffect(id);
+    if (!note || !alive(note.pid)) return { gone: false };
+    if (note.at !== undefined && Date.now() - note.at < 5000) return { gone: false };
+    const r = yield* shResult(["tmux", "has-session", "-t", sessionName(id)]);
+    return r.code === 0 ? { gone: false } : { gone: true, pid: note.pid };
+  }).pipe(
+    // A tmux that cannot answer is not proof of anything: say nothing rather than cry wolf.
+    Effect.catchAll(() => Effect.succeed({ gone: false })),
+  );
+
 const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
   Effect.gen(function* () {
     // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
@@ -175,8 +192,13 @@ const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
     if (!commandAvailable("tmux")) return yield* Effect.fail(missingTool("tmux"));
     // Only reached when no ttyd could be adopted, so anything still running for this change is a
     // leftover that nothing can reach: a port we no longer know, or a process that stopped
-    // answering. The tmux session behind it survives either way.
-    yield* shResult(["pkill", "-f", `new-session -A -s ${sessionName(change.id)}`]);
+    // answering. The tmux session behind it survives either way — and must: killing the ttyd
+    // detaches the session, it does not end it, and the next ttyd attaches to the same windows.
+    //
+    // Anchored to `ttyd`, because the tmux server's own command line also starts with `tmux
+    // new-session -A -s <session>`: unanchored, this pattern matched the server itself and killed
+    // the session — every window and every shell in it — instead of the stale process serving it.
+    yield* shResult(["pkill", "-f", `^ttyd .*new-session -A -s ${sessionName(change.id)}`]);
 
     const port = freePort();
     // Detached so a server reload does not take your shells with it. Its output goes to a log
@@ -195,6 +217,17 @@ const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
             loopbackInterface,
             "--port",
             String(port),
+            "-t",
+            // The terminal scrolls with tmux's mouse mode, and tmux repaints in place rather than
+            // scrolling the outer terminal, so xterm's own scrollback is never what you scroll and
+            // its scrollbar is only ever an empty bar down the right edge. Zero removes it, and
+            // removes the width the fit addon otherwise reserves for it.
+            //
+            // Before fontSize, deliberately: ttyd re-fits the terminal only when a font* option is
+            // applied, and that fit asks whether scrollback is zero to decide what width it has to
+            // work with. With this after fontSize, the fit would have already run with the default
+            // scrollback and the reserved bar would be back.
+            "scrollback=0",
             "-t",
             "fontSize=13",
             "-t",
@@ -270,7 +303,7 @@ const startEffect = (change: Change): Effect.Effect<Running, CliError> =>
         }),
       catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
     });
-    const found = { port, pid: child.pid! };
+    const found = { port, pid: child.pid!, at: Date.now() };
     yield* Effect.tryPromise({
       try: () => Bun.write(notePath(change.id), JSON.stringify(found) + "\n").then(() => undefined),
       catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
@@ -367,12 +400,12 @@ const paneOptions = (): string[] => {
  * still answers in one call per session. */
 const formatFor = (options: readonly string[]): string => {
   const fixed =
-    "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}";
+    "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{window_id}";
   return options.length ? `${fixed}\t${options.map((o) => `#{${o}}`).join("\t")}` : fixed;
 };
 
 const parseWindow = (line: string, options: readonly string[]): TmuxWindow => {
-  const [index, name, command, active, activity, path, auto, ...extra] = line.split("\t");
+  const [index, name, command, active, activity, path, auto, id, ...extra] = line.split("\t");
   const opts: Record<string, string> = {};
   extra.forEach((value, i) => {
     const option = options[i];
@@ -380,6 +413,7 @@ const parseWindow = (line: string, options: readonly string[]): TmuxWindow => {
   });
   return {
     index: Number(index),
+    id: id ?? "",
     name: name ?? "",
     command: command ?? "",
     active: active === "1",
@@ -403,6 +437,8 @@ const merged = (raw: TmuxWindow): WindowPresentation =>
       icon: acc.icon ?? answer.icon,
       state: acc.state ?? answer.state,
       busy: acc.busy ?? answer.busy,
+      attention: acc.attention ?? answer.attention,
+      note: acc.note ?? answer.note,
     };
   }, {});
 
@@ -429,12 +465,15 @@ export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
   const label = said.label ?? (what && what !== "zsh" && what !== base ? `${base} - (${what})` : base);
   return {
     index: raw.index,
+    id: raw.id,
     label,
     detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
     icon: said.icon ?? "terminal",
     state: said.state ?? "idle",
     active: raw.active,
     activity: raw.activity,
+    attention: said.attention ?? false,
+    note: said.note,
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
   };
 };
@@ -504,4 +543,38 @@ export const selectWindowEffect = (id: string, index: number): Effect.Effect<voi
   shOrThrowEffect(["tmux", "select-window", "-t", `${sessionName(id)}:${index}`]).pipe(
     Effect.asVoid,
   );
+
+/**
+ * Put a window where another one is, shifting the windows in between. tmux's own move-window
+ * refuses an occupied index, so this is a walk of swaps along the session's actual indices —
+ * which may have gaps where a window was closed. The current window follows the move, wherever
+ * it is in the shuffle.
+ */
+export const moveWindowEffect = (id: string, from: number, to: number): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    if (from === to) return;
+    const listed = yield* shOrThrowEffect([
+      "tmux",
+      "list-windows",
+      "-t",
+      sessionName(id),
+      "-F",
+      "#{window_index}",
+    ]);
+    const indexes = listed.split("\n").filter(Boolean).map(Number);
+    const start = indexes.indexOf(from);
+    const end = indexes.indexOf(to);
+    if (start === -1 || end === -1) return; // a window that has gone since the drag began
+    const step = start < end ? 1 : -1;
+    for (let i = start; i !== end; i += step) {
+      yield* shOrThrowEffect([
+        "tmux",
+        "swap-window",
+        "-s",
+        `${sessionName(id)}:${indexes[i]}`,
+        "-t",
+        `${sessionName(id)}:${indexes[i + step]}`,
+      ]);
+    }
+  });
 

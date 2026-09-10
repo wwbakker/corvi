@@ -1,6 +1,7 @@
-import { Effect, Fiber, Option, Schedule, Stream } from "effect";
+import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
 import { listChangesEffect } from "./changes.ts";
 import { allWindowsEffect } from "./terminal.ts";
+import { config } from "./config.ts";
 
 /**
  * One connection that says when something changed, instead of every page asking whether it has.
@@ -17,7 +18,11 @@ import { allWindowsEffect } from "./terminal.ts";
  * wrong screen.
  */
 
-type EventName = "changes" | "windows";
+type EventName = "changes" | "windows" | "notify";
+
+/** One piece of news: the event name, and the data for the one event that carries any. `changes`
+ * and `windows` say "something moved, fetch it", which is what keeps this stream small. */
+type News = { event: EventName; data?: string };
 
 type Client = {
   send: (event: string, data: string) => void;
@@ -53,7 +58,7 @@ const last = new Map<EventName, string>();
 const channel = (
   event: EventName,
   read: Effect.Effect<string, unknown>,
-): Stream.Stream<EventName> =>
+): Stream.Stream<News> =>
   Stream.repeatEffectWithSchedule(
     Effect.gen(function* () {
       const payload = Option.fromNullable(
@@ -62,7 +67,7 @@ const channel = (
       if (Option.isNone(payload)) return Option.none();
       if (last.get(event) === payload.value) return Option.none();
       last.set(event, payload.value);
-      return Option.some(event);
+      return Option.some({ event });
     }),
     INTERVAL,
   ).pipe(
@@ -71,15 +76,70 @@ const channel = (
     // that came up within the watcher's first interval goes {} -> one window with no quiet tick
     // between, and a dedup on the event NAME would swallow it (the silence there once lost the
     // navigation column; see `startWatcher` for the first-look half of the same story).
-    Stream.filterMap((found: Option.Option<EventName>) => found),
+    Stream.filterMap((found: Option.Option<News>) => found),
   );
+
+/**
+ * The windows tick: one tmux read per interval, used for two things. The serialized read is the
+ * `windows` event, exactly as before. The attention edges are computed against the previous
+ * successful read — keyed by tmux window id, because reordering the tabs changes indices and an
+ * index-keyed diff would report a window that merely moved — and only the edge into "wants you"
+ * is news. The state lives in the watcher run, like `last`: a fresh watcher only seeds the
+ * picture, so a server that has just started (or a page that has just connected) does not
+ * announce every waiting agent it finds, and nothing that happened while nobody listened is
+ * replayed.
+ */
+type Attention = { previous: Map<string, boolean>; seeded: boolean };
+
+const windowsNews = (state: Attention): Stream.Stream<News> =>
+  Stream.repeatEffectWithSchedule(
+    Effect.gen(function* () {
+      const read = yield* Effect.exit(allWindowsEffect());
+      if (!Exit.isSuccess(read)) return []; // no tmux yet, or a read being written as we look
+      const windows = read.value;
+      const news: News[] = [];
+      const serialized = JSON.stringify(windows);
+      if (last.get("windows") !== serialized) {
+        last.set("windows", serialized);
+        news.push({ event: "windows" });
+      }
+      const seen = new Set<string>();
+      for (const [change, list] of Object.entries(windows)) {
+        for (const window of list) {
+          const key = `${change}:${window.id}`;
+          seen.add(key);
+          const was = state.previous.get(key);
+          state.previous.set(key, window.attention);
+          if (state.seeded && window.attention && was === false) {
+            news.push({
+              event: "notify",
+              data: JSON.stringify({
+                change,
+                window: window.id,
+                label: window.label,
+                ...(window.note ? { note: window.note } : {}),
+                sound: config.notificationSound,
+              }),
+            });
+          }
+        }
+      }
+      // A window that is gone forgets its state: one that comes back is new again, and may
+      // notify again.
+      for (const key of [...state.previous.keys()]) if (!seen.has(key)) state.previous.delete(key);
+      state.seeded = true;
+      return news;
+    }),
+    INTERVAL,
+  ).pipe(Stream.flatMap((news) => Stream.fromIterable(news)));
 
 /** Watch the cheap, local things: the change files, and what tmux has. Neither costs a network
  * call, so this can run while anyone is connected and stop when nobody is. */
-const watchPipeline = Stream.merge(
-  channel("changes", Effect.map(listChangesEffect(), (c) => JSON.stringify(c))),
-  channel("windows", Effect.map(allWindowsEffect(), (w) => JSON.stringify(w))),
-).pipe(Stream.runForEach((event) => Effect.sync(() => broadcast(event))));
+const watchPipeline = (state: Attention): Effect.Effect<void> =>
+  Stream.merge(
+    channel("changes", Effect.map(listChangesEffect(), (c) => JSON.stringify(c))),
+    windowsNews(state),
+  ).pipe(Stream.runForEach((news) => Effect.sync(() => broadcast(news.event, news.data))));
 
 /** The watcher's fiber, while anyone is listening. Ref-counted by the client set: started when
  * the first client registers, interrupted when the last one is forgotten. */
@@ -91,9 +151,11 @@ function startWatcher(): void {
   // empty map, so its own first look broadcasts whatever it finds — a page's own fetches can
   // predate the stream by the width of a session starting, and a swallowed first look left a
   // page sitting on stale state for ever. Always announcing costs one redundant refetch per
-  // watcher start; the silence cost a missing navigation column.
+  // watcher start; the silence cost a missing navigation column. The attention picture is
+  // seeded per watcher for the same reason — and so nothing that happened while nobody was
+  // watching is announced as if it just did.
   last.clear();
-  watcher = Effect.runFork(watchPipeline);
+  watcher = Effect.runFork(watchPipeline({ previous: new Map(), seeded: false }));
 }
 
 function stopWatcher(): void {
@@ -103,10 +165,10 @@ function stopWatcher(): void {
   Fiber.interruptFork(fiber);
 }
 
-function broadcast(event: EventName): void {
+function broadcast(event: EventName, data = ""): void {
   for (const client of clients) {
     try {
-      client.send(event, "");
+      client.send(event, data);
     } catch {
       // Writing to a stream nobody is reading: the connection is gone, whatever we were told.
       forget(client);
