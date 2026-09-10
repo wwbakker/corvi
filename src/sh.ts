@@ -1,8 +1,8 @@
 import { Duration, Effect, Option } from "effect";
 import { homedir } from "node:os";
 import { CliError } from "./effect/errors.ts";
-import { Workspace } from "./effect/tags.ts";
-import type { Workspace as WorkspaceConfig } from "./config.ts";
+import { Shell, Workspace } from "./effect/tags.ts";
+import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "./config.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
@@ -135,17 +135,29 @@ export const shWithEnv = (
  * interruption, so a killed or timed-out call cannot strand the gate. Non-zero exit codes are a
  * successful `Result` — callers branch on `code`; the `CliError` channel is only for a timeout.
  *
- * The environment is read from the `Workspace` tag at run time: the request the call belongs to
- * provides it, and outside a request (`serviceOption` is none) it adds nothing. The tag is read,
- * not required, so this stays runnable from startup and cache code with no workspace in sight. */
+ * A `Shell` service in context wins: delegation is what lets a test script every command the
+ * core runs. The live Shell layer runs `shWithEnv` (not this), so there is no recursion. The
+ * `Workspace` tag read here satisfies that Shell's own `Workspace` requirement — with the
+ * default workspace when the call has none, which carries no env, exactly as the direct path.
+ * With no Shell in context the call spawns directly, exactly as before, so startup and cache
+ * code keep working with none. The environment comes from the `Workspace` tag at run time: the
+ * request the call belongs to provides it, and outside a request (`serviceOption` is none) it
+ * adds nothing. The tag is read, not required, so this stays runnable where no workspace exists. */
 export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
-  gate.withPermits(1)(
-    Effect.gen(function* () {
-      const workspace = yield* Effect.serviceOption(Workspace);
-      const env = envOf(Option.isSome(workspace) ? workspace.value : undefined);
-      return yield* spawn(cmd, cwd, env);
-    }),
-  );
+  Effect.gen(function* () {
+    const shell = yield* Effect.serviceOption(Shell);
+    const workspace = yield* Effect.serviceOption(Workspace);
+    if (Option.isSome(shell)) {
+      return yield* shell.value.run(cmd, { cwd }).pipe(
+        Effect.provideService(
+          Workspace,
+          Option.isSome(workspace) ? workspace.value : DEFAULT_WORKSPACE,
+        ),
+      );
+    }
+    const env = envOf(Option.isSome(workspace) ? workspace.value : undefined);
+    return yield* gate.withPermits(1)(spawn(cmd, cwd, env));
+  });
 
 /** Run and throw on failure, for actions where the user should see what broke: the `CliError`
  * carries the command's stderr. */

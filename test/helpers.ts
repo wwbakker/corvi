@@ -1,8 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import type { Workspace } from "../src/config.ts";
 import { capabilitiesLayer } from "../src/extensions/services.ts";
 import { setRepos } from "../src/integrations/git.ts";
 import { sh, type Result } from "../src/sh.ts";
+import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
+import type { CliError } from "../src/effect/errors.ts";
 import { swr } from "../src/cache.ts";
 import { workspaceById } from "../src/workspaces.ts";
 import type { Change } from "../src/types.ts";
@@ -32,6 +34,66 @@ export const runEffectWith = <A, E>(
   workspace: Workspace,
   effect: Effect.Effect<A, E, never>,
 ): Promise<A> => Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
+
+/** A command a fake Shell was asked to run, in the order it was asked. */
+export type ShellCall = { cmd: readonly string[]; cwd?: string };
+
+/** A scripted Shell. `responses` maps a command line (`cmd.join(" ")`) to what it answers: a
+ * string is stdout with exit 0, and an object may set `code`, `stdout` and `stderr`. The function
+ * form is there for a command whose answer differs per call. Commands with no scripted answer
+ * exit 0 with empty output, and every call lands in `calls` — the commands asked for, which a
+ * test asserts against to prove a core read went through the seam. */
+export type FakeShell = {
+  calls: ShellCall[];
+  run: (
+    cmd: readonly string[],
+    opts?: { cwd?: string },
+  ) => Effect.Effect<Result, CliError, WorkspaceTag>;
+};
+
+/** Build a scripted Shell (see `FakeShell`). */
+export const fakeShell = (
+  responses:
+    | Record<string, string | Partial<Result>>
+    | ((cmd: readonly string[]) => string | Partial<Result> | undefined) = {},
+): FakeShell => {
+  const calls: ShellCall[] = [];
+  const answer = (cmd: readonly string[]): Result => {
+    const scripted = typeof responses === "function" ? responses(cmd) : responses[cmd.join(" ")];
+    if (scripted === undefined) return { code: 0, stdout: "", stderr: "" };
+    if (typeof scripted === "string") return { code: 0, stdout: scripted, stderr: "" };
+    return {
+      code: scripted.code ?? 0,
+      stdout: scripted.stdout ?? "",
+      stderr: scripted.stderr ?? "",
+    };
+  };
+  return {
+    calls,
+    run: (cmd, opts) => {
+      calls.push({ cmd: [...cmd], cwd: opts?.cwd });
+      return Effect.succeed(answer(cmd));
+    },
+  };
+};
+
+/** Run an effect with a fake Shell in place of the real one, as the default workspace. The
+ * workspace tag is provided alongside the Shell because the Shell service's `run` requires it,
+ * exactly as the host provides both. `sh` reads the Shell from context and delegates, so a core
+ * integration function can be driven with no subprocess. */
+export const runWithShell = <A, E>(
+  shell: FakeShell,
+  effect: Effect.Effect<A, E, never>,
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.provide(
+      effect,
+      Layer.mergeAll(
+        Layer.succeed(Shell, shell),
+        Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+      ),
+    ),
+  );
 
 /** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
  * branch on `code` exactly as the server does. */
