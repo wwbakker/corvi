@@ -18,7 +18,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { Deferred, Effect, Exit, pipe } from "effect";
+import { Clock, Deferred, Effect, Exit, pipe } from "effect";
 
 type Entry = {
   /** When the value was produced. */
@@ -49,7 +49,9 @@ export const swr = <T, E, R>(
     // `at === 0` is that first run: the entry exists only to hold the shared Deferred.
     if (!found || found.at === 0) return yield* refresh(key, work);
 
-    if (Date.now() - found.at >= ttl) {
+    // Time comes from Effect's `Clock`, not the wall clock, so a test can drive staleness
+    // without sleeping. Under the default clock this is `Date.now()`.
+    if ((yield* Clock.currentTimeMillis) - found.at >= ttl) {
       // Stale: hand over what we had and let the refresh run behind it, on a fiber of its own —
       // a daemon, so it outlives this request. `Effect.exit` makes the fiber infallible: the
       // refresh's failure is news about the CLI, not about the page, and never reaches the
@@ -78,7 +80,7 @@ const refresh = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Eff
     });
     const outcome = yield* Effect.exit(work);
     if (Exit.isSuccess(outcome)) {
-      store.set(key, { at: Date.now(), value: outcome.value });
+      store.set(key, { at: yield* Clock.currentTimeMillis, value: outcome.value });
       // Everyone who joined mid-flight gets the same answer.
       yield* Deferred.done(inFlight, outcome);
       return outcome.value;
@@ -95,6 +97,8 @@ const refresh = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Eff
 /** Milliseconds since this key was last produced; undefined when it was never asked for.
  * Meant for showing how old an answer is, which is what makes serving stale data honest. */
 // Synchronous by contract — a read of module state; there is no async work for an Effect to wrap.
+// It therefore stays on the wall clock: only the staleness *decisions* read Effect's `Clock`, so
+// a TestClock can drive them; a human reading an age wants real elapsed time.
 export const ageOf = (key: string): number | undefined => {
   const found = store.get(key);
   return found ? Date.now() - found.at : undefined;
@@ -140,8 +144,10 @@ export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
   );
   if (!stored) return 0;
   let restored = 0;
+  // The same `Clock` as the freshness check, so restore aging is controllable in tests too.
+  const now = yield* Clock.currentTimeMillis;
   for (const [key, entry] of Object.entries(stored)) {
-    if (Date.now() - entry.at > RESTORE_MAX_AGE) continue;
+    if (now - entry.at > RESTORE_MAX_AGE) continue;
     store.set(key, { at: entry.at, value: entry.value });
     restored++;
   }

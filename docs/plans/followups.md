@@ -13,6 +13,11 @@ The comments from the second review, as a checklist.
 | 5 | Add the Effect language service (`@effect/language-service`) | done — `bun run effect:lint`; its findings are a further follow-up |
 | 6 | Remove `migrateWorkspaceSettings` and the dead `workspace.jira` field | done |
 
+Two Effect-testing tools were adopted after the checklist: a fake-`Shell` seam (`sh` prefers a
+`Shell` in context, so core CLI calls are fakeable) and `TestClock` for the cache's staleness and
+restore-aging decisions, replacing real sleeps. Test bodies stay Promise-shaped; only those two
+tools are used from Effect's test runtime.
+
 For item 3, the rule set is `@typescript-eslint/explicit-module-boundary-types` plus
 `@typescript-eslint/explicit-function-return-type` with `allowExpressions`,
 `allowTypedFunctionExpressions` and `allowConciseArrowFunctionExpressionsStartingWithVoid`.

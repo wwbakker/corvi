@@ -2,9 +2,9 @@ import { test, expect, beforeEach, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Effect } from "effect";
-import { ageOf, invalidate, clearCache, loadCache, saveCache } from "../src/cache.ts";
-import { runEffect, runEffectWith, runSh, runSwr } from "./helpers.ts";
+import { Effect, TestClock } from "effect";
+import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/cache.ts";
+import { runEffectWith, runEffectWithTestClock, runSh, runSwr } from "./helpers.ts";
 
 const file = join(tmpdir(), "iwe-cache-test.json");
 process.env.IWE_CACHE = file;
@@ -22,13 +22,20 @@ function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void; } {
 
 test("the first caller waits, everyone after that is instant", async () => {
   let calls = 0;
-  const work = async (): Promise<string> => `answer ${++calls}`;
+  const work = (): Effect.Effect<string, unknown> =>
+    Effect.tryPromise({ try: async () => `answer ${++calls}`, catch: (e) => e });
 
-  expect(await runSwr("k", 1000, work)).toBe("answer 1");
-  expect(await runSwr("k", 1000, work)).toBe("answer 1");
-  expect(await runSwr("k", 1000, work)).toBe("answer 1");
-  expect(calls).toBe(1);
-  expect(ageOf("k")).toBeLessThan(1000);
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      expect(yield* swr("k", 1000, work())).toBe("answer 1");
+      expect(yield* swr("k", 1000, work())).toBe("answer 1");
+      // Almost a ttl later it is still a hit, so the work runs once.
+      yield* TestClock.adjust(999);
+      expect(yield* swr("k", 1000, work())).toBe("answer 1");
+      expect(calls).toBe(1);
+      expect(ageOf("k")).toBeLessThan(1000);
+    }),
+  );
 });
 
 test("callers asking at the same moment share one run", async () => {
@@ -48,37 +55,61 @@ test("callers asking at the same moment share one run", async () => {
 
 test("a stale answer is handed over at once, and replaced when the refresh lands", async () => {
   let calls = 0;
-  await runSwr("k", 0, async () => `answer ${++calls}`);
-
   const slow = gate("answer 2");
-  // Older than its ttl: this returns what we had rather than waiting for what is true now.
-  expect(
-    await runSwr("k", 0, async () => {
-      calls++;
-      return slow.promise;
-    }),
-  ).toBe("answer 1");
-  expect(calls).toBe(2);
 
-  slow.release();
-  await Bun.sleep(10);
-  expect(await runSwr("k", 60_000, async () => "never asked")).toBe("answer 2");
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      yield* swr("k", 1000, Effect.sync(() => `answer ${++calls}`));
+      // Walk past the ttl: this returns what we had rather than waiting for what is true now.
+      yield* TestClock.adjust(1000);
+      const stale = yield* swr(
+        "k",
+        1000,
+        Effect.tryPromise({
+          try: async () => {
+            calls++;
+            return slow.promise;
+          },
+          catch: (e) => e,
+        }),
+      );
+      expect(stale).toBe("answer 1");
+      // The refresh was forked behind us; a yield lets that daemon start, which is what bumps
+      // `calls` before it blocks on the gate.
+      yield* Effect.yieldNow();
+      expect(calls).toBe(2);
+
+      // The refresh runs behind on its own daemon. Its work is a real promise, so the TestClock
+      // cannot schedule it; `adjust(0)` yields to the scheduler until every fiber is done or
+      // suspended, which replaces the old real `Bun.sleep(10)` deterministically.
+      slow.release();
+      yield* TestClock.adjust(0);
+      expect(yield* swr("k", 60_000, Effect.succeed("never asked"))).toBe("answer 2");
+    }),
+  );
 });
 
 test("a failed refresh keeps the last good answer", async () => {
-  await runSwr("k", 0, async () => "good");
+  const failing = (message: string): Effect.Effect<string, Error> =>
+    Effect.fail(new Error(message));
 
-  // A CLI that fails is news about the CLI, not about the work: a Jira that is down means
-  // "no news", not "no data".
-  const served: string = await runSwr<string>("k", 0, () =>
-    Promise.reject(new Error("gh: not logged in")),
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      yield* swr("k", 1000, Effect.succeed("good"));
+
+      // A CLI that fails is news about the CLI, not about the work: a Jira that is down means
+      // "no news", not "no data". Past the ttl, the failure runs behind the old answer.
+      yield* TestClock.adjust(1000);
+      const served = yield* swr("k", 1000, failing("gh: not logged in"));
+      expect(served).toBe("good");
+      yield* TestClock.adjust(0);
+      expect(yield* swr("k", 60_000, Effect.succeed("never asked"))).toBe("good");
+
+      // With nothing to fall back on, the failure is the answer.
+      const boom: Error = yield* Effect.flip(swr("empty", 1000, failing("boom")));
+      expect(boom.message).toBe("boom");
+    }),
   );
-  expect(served).toBe("good");
-  await Bun.sleep(10);
-  expect(await runSwr("k", 60_000, async () => "never asked")).toBe("good");
-
-  // With nothing to fall back on, the failure is the answer.
-  expect(runSwr("empty", 0, () => Promise.reject(new Error("boom")))).rejects.toThrow("boom");
 });
 
 test("an action forgets what it just made wrong", async () => {
@@ -91,20 +122,23 @@ test("an action forgets what it just made wrong", async () => {
 });
 
 test("the cache survives a restart, minus what is too old to trust", async () => {
-  await runSwr("fresh", 60_000, async () => ({ runs: 2 }));
-  await runSwr("ancient", 60_000, async () => "yesterday");
-  await runEffect(saveCache);
+  await runEffectWithTestClock(
+    Effect.gen(function* () {
+      // Produce "ancient" first, then walk the clock past the restore window before "fresh" —
+      // the way a machine left overnight would look.
+      yield* swr("ancient", 60_000, Effect.succeed("yesterday"));
+      yield* TestClock.adjust(7 * 60 * 60_000);
+      yield* swr("fresh", 60_000, Effect.succeed({ runs: 2 }));
+      yield* saveCache;
 
-  // Age the one entry past what is worth restoring, the way a machine left overnight would.
-  const stored = (await Bun.file(file).json()) as Record<string, { at: number; value: unknown }>;
-  stored.ancient!.at = Date.now() - 7 * 60 * 60_000;
-  await Bun.write(file, JSON.stringify(stored));
-
-  clearCache();
-  expect(await runEffect(loadCache)).toBe(1);
-  // Restored, so the page paints from it; stale, so the first request refreshes it anyway.
-  expect(await runSwr("fresh", 60_000, async () => ({ runs: 99 }))).toEqual({ runs: 2 });
-  expect(ageOf("ancient")).toBeUndefined();
+      clearCache();
+      // Only the entry inside the restore window comes back.
+      expect(yield* loadCache).toBe(1);
+      // Restored, so the page paints from it; stale, so the first request refreshes it anyway.
+      expect(yield* swr("fresh", 60_000, Effect.succeed({ runs: 99 }))).toEqual({ runs: 2 });
+      expect(ageOf("ancient")).toBeUndefined();
+    }),
+  );
 });
 
 test("no more CLIs run at once than the machine can afford", async () => {

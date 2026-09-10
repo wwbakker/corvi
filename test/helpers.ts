@@ -1,4 +1,4 @@
-import { Effect, Layer } from "effect";
+import { Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/config.ts";
 import { capabilitiesLayer } from "../src/extensions/services.ts";
 import { setRepos } from "../src/integrations/git.ts";
@@ -34,6 +34,24 @@ export const runEffectWith = <A, E>(
   workspace: Workspace,
   effect: Effect.Effect<A, E, never>,
 ): Promise<A> => Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspace)));
+
+/** Run an effect under Effect's `TestClock`, where time moves only when the effect advances it
+ * with `TestClock.adjust`. The capabilities are merged in as `runEffect` does, so the same effect
+ * that runs in a request also runs here.
+ *
+ * The test clock starts at the wall clock's `now`: the cache's `ageOf` stays synchronous and on
+ * the wall clock by contract, so a freshly produced entry must still read as fresh next to it.
+ * Only relative advances matter, so the tests reason in offsets and behave the same at any date. */
+export const runEffectWithTestClock = <A, E>(
+  effect: Effect.Effect<A, E, never>,
+): Promise<A> =>
+  Effect.runPromise(
+    Effect.zipRight(TestClock.setTime(Date.now()), effect).pipe(
+      Effect.provide(
+        Layer.merge(TestContext.TestContext, capabilitiesLayer(workspaceById(undefined))),
+      ),
+    ),
+  );
 
 /** A command a fake Shell was asked to run, in the order it was asked. */
 export type ShellCall = { cmd: readonly string[]; cwd?: string };
