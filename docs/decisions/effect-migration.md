@@ -39,7 +39,7 @@ A rewritten module **also exported Promise-based wrappers** over its new Effect 
 implemented with `Effect.runPromise`, so existing callers kept compiling until the
 server-wiring task swept them. This is the one part of the decision later work revisits: the
 facades outlived the sweep, and a follow-up may retire them and the ambient shim they keep
-alive. See item 2 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md).
+alive. See item 2 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md).
 
 **Superseded (item 2 of the refactor plan): the facades and the shim are gone.** Every facade
 below (`readChange`, `swr`, `commitChange`, `provision`, `sh`, ...) proved to be test-only, so

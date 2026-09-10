@@ -49,7 +49,7 @@ Two shared modules live outside the deployments folder:
   deployments need.
 
 Git cannot be colocated while `src/integrations/git.ts` is shared by the core and the git
-extension. Item 5 of [`../plans/refactor-plan.md`](../plans/refactor-plan.md) records this
+extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
 scope.
 
 ## What stays core

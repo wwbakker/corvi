@@ -24,7 +24,7 @@ import tseslint from "typescript-eslint";
  * `Config`'s shape from `config.ts` without pulling in the `az`/`gh`/`jira` CLI calls that live
  * beside it. `types.ts` is additionally excluded outright: it is the shared type vocabulary and
  * also exports the pure reducers (`isFinished`, `byWorkOrder`, `CHANGE_STATES`) that the browser
- * renders with, so it is the one filename-level exception kept (see `docs/plans/refactor-plan.md`
+ * renders with, so it is the one filename-level exception kept (see `docs/plans/archive/refactor-plan.md`
  * item 3; moving its browser-safe half into `src/shared/` is the follow-up that would retire it).
  *
  * Everything else one level up from `src/web/` is backend: it shells out to CLIs, touches the

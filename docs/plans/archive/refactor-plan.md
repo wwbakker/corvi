@@ -1,6 +1,6 @@
 # Refactor plan
 
-> **Kind:** plan · **Status:** active
+> **Kind:** plan · **Status:** implemented
 
 A single prioritized list built from `docs/plans/review-1.md` (my review) and
 `docs/plans/review-2.md` (the other agent's). Both are kept as written; this file only
