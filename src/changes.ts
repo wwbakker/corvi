@@ -4,6 +4,7 @@ import { Effect, ParseResult, Schema } from "effect";
 import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./types.ts";
 import { Change as ChangeSchema } from "./schemas/change.ts";
 import { BadRequestError, ConflictError, DecodeError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 import { config } from "./config.ts";
 export { branchFor } from "./shared/branch.ts";
 
@@ -19,11 +20,6 @@ export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 /** The Effect API beneath the Promise facades below. Where the old code threw, the Effect fails
  * with the typed taxonomy (docs/guides/effect-conventions.md) carrying the same message; the facades
  * keep old callers compiling until the server-wiring task sweeps them. */
-
-/** Filesystem failures are defects, not domain errors — the directories we read and write are
- * ours, and the old code let the raw rejection escape the same way. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
-  Effect.orDie(Effect.tryPromise(work));
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 

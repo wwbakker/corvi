@@ -14,10 +14,12 @@ behaviour-preserving are flagged as decisions, not tasks.
 
 | Item | State | Notes |
 |---|---|---|
+| 1. Shared CLI helpers | done | `src/effect/support.ts`; the 8 `shSoft`, 6 `cliJson`/`ghJson`, 6 `messageOf` and 4 `fs` copies are gone, and the two `worst` re-implementations point at `types.ts` |
 | 3. `src/shared/` | done | `branch.ts` and `deployConventions.ts` moved; eslint boundary is now the structural `../shared/*` (`types.ts` stays a filename exception, documented in the config) |
 | 7. Split `server.ts` | done | `server.ts` 652 → 83 lines; `src/routes/{helpers,changes,terminals,repos,settings,extensions,events,assets}.ts` |
+| 8. Naming/root clutter | partial | the pi extension dir moved `extensions/` → `pi/`; the integration-vs-extension naming alignment is still pending |
 | 9. Web monoliths | done | `ChangeView.tsx` 773 → 409, `SettingsPage.tsx` 626 → 293; extracted `WidgetRows`, `WidgetCard`, `PerRepoCard`, `WindowTabs`, `SettingsFields`, `WorkspaceCard` |
-| 1, 2, 4, 5, 6, 8 | pending | next waves |
+| 2, 4, 5, 6 | pending | next waves |
 
 One test was hardened along the way: `test/terminal.test.ts`'s "a window that starts waiting is announced"
 depended on a wall-clock race (the watcher had to observe the window in a non-waiting state before the
@@ -182,8 +184,10 @@ already have a home.
 
 No behaviour, all reading cost:
 
-- `extensions/agent-state.ts` is a **pi** extension, not an IWE one — rename the
-  directory to `pi/` and update `scripts/extension.ts`.
+- **Done:** `agent-state.ts` was a **pi** extension, not an IWE one, sitting in a
+  root `extensions/` directory one apart from `src/extensions/`. The directory is now
+  `pi/`, and `scripts/extension.ts` and `test/agentState.test.ts` point at
+  `pi/agent-state.ts`.
 - "integration" vs "extension": align internal names (`cardByName`,
   `IntegrationInfo`, the `:integration` route param) where it does not touch the
   wire. `Widget.integration` *is* the wire contract for out-of-tree extensions, so

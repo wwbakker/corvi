@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { firstSentence, textOf } from "../extensions/agent-state.ts";
+import { firstSentence, textOf } from "../pi/agent-state.ts";
 
 /**
  * The pi extension's half of the notification text: what the session's name is followed by.

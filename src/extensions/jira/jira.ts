@@ -6,15 +6,12 @@ import { jiraFetchEffect, jiraSetupEffect, jiraBaseUrlEffect } from "./jiraHttp.
 import { accountIdEffect } from "./account.ts";
 import { workspaceById, workspaceOf } from "../../workspaces.ts";
 import { BadRequestError } from "../../effect/errors.ts";
+import { messageOf } from "../../effect/support.ts";
 import type { Issue, Sprint } from "./shared.ts";
 
 export type { Issue, Sprint } from "./shared.ts";
 export { ticketOf } from "./shared.ts";
 
-
-/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
- * every typed error carries the sentence users saw before. */
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /**
  * Which Jira: whose config file, which project, which board.

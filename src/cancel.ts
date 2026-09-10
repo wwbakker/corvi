@@ -7,19 +7,8 @@ import { looseEndContributorsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { stopTerminalEffect } from "./terminal.ts";
-import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
- * every typed error carries the sentence users saw before. */
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+import { messageOf, shSoft } from "./effect/support.ts";
 
 /**
  * Abandoning a change: the opposite end of `complete.ts`.

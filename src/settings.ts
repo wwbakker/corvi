@@ -13,6 +13,7 @@ import {
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
 import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
@@ -110,10 +111,6 @@ export const settingsView = (): SettingsView => {
     })),
   };
 };
-
-/** Filesystem failures are defects, not domain errors — the config directory is ours. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
-  Effect.orDie(Effect.tryPromise(work));
 
 const absolute = (value: string | undefined): boolean =>
   !value || isAbsolute(expandTilde(value));

@@ -3,19 +3,8 @@ import { join, normalize, sep } from "node:path";
 import { Effect } from "effect";
 import { config } from "./config.ts";
 import { remoteDefaultBranchEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** Filesystem failures are defects, not domain errors — the directories we read and write are
- * ours, and the old code let the raw rejection escape the same way. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> => Effect.orDie(Effect.tryPromise(work));
+import { fs, shSoft } from "./effect/support.ts";
 
 export type Entry = {
   /** Path relative to the repos root, e.g. "personal/my-project". */

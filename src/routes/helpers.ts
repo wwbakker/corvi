@@ -8,9 +8,6 @@ import { workspaceById, workspaceOf } from "../workspaces.ts";
 
 export const json = (data: unknown, status = 200): Response => Response.json(data, { status });
 
-/** A failure's message, the way `e instanceof Error ? e.message : String(e)` read it. */
-export const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 /** Which context the page is in. Sent by the browser, because that is where the choice lives —
  * two windows open on two clients is a reasonable thing to want. */
 export const workspaceParam = (req: Request): string | undefined =>

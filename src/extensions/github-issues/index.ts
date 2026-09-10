@@ -2,6 +2,7 @@ import { Context, Effect, Option, Schema } from "effect";
 import type { Change, CompletionStep, Widget, WidgetItem, WidgetState } from "../../types.ts";
 import { Cache, Shell, Workspace, type Extension } from "../api.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
+import { cliJson } from "../../effect/support.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
 
 /**
@@ -40,17 +41,6 @@ const flatten = (json: Schema.Schema.Type<typeof IssueSchema>): GitHubIssue => (
 });
 
 const ISSUE_TTL = 60_000;
-
-/** `--json` output through a Schema, with the usual tolerance: a gh that printed nothing, or
- * something this query did not expect, reads as the fallback (docs/guides/effect-conventions.md). */
-const ghJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
-  (stdout: string): Effect.Effect<B> =>
-    stdout.trim()
-      ? Effect.orElseSucceed(
-          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
-          () => fallback,
-        )
-      : Effect.succeed(fallback);
 
 /** Owner and name from a git remote URL: the https, ssh and git shapes GitHub answers to, with
  * or without the `.git` suffix. Pure, so the shapes stay testable without a repository. */
@@ -116,7 +106,7 @@ export const listIssuesEffect = (
         (r) =>
           r.code !== 0
             ? Effect.succeed([])
-            : ghJson(Schema.Array(IssueSchema), [] as Schema.Schema.Type<typeof IssueSchema>[])(r.stdout),
+            : cliJson(Schema.Array(IssueSchema), [] as Schema.Schema.Type<typeof IssueSchema>[])(r.stdout),
       ),
     );
     return { repository, issues: issues.map(flatten) };
@@ -144,7 +134,7 @@ export const viewIssueEffect = (
         (r) =>
           r.code !== 0
             ? Effect.succeed(null)
-            : ghJson(Schema.NullOr(IssueSchema), null)(r.stdout),
+            : cliJson(Schema.NullOr(IssueSchema), null)(r.stdout),
       ),
     );
     return found ? flatten(found) : undefined;

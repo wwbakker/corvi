@@ -747,7 +747,7 @@ itself, in the `@agent` **tmux pane option**, which the agents extension's prese
 of the same `list-windows` call as everything else. The overview believes it over the process
 waiting for you is not work in progress, though its process is very much running.
 
-`extensions/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent working`,
+`pi/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent working`,
 `agent_settled` sets `waiting`, `session_shutdown` unsets it. Settled rather than ended, because
 after `agent_end` pi may still retry, auto-compact or pick up queued messages, none of which are
 "waiting for you".
@@ -1404,7 +1404,7 @@ The map, grouped by layer:
       ActionsMenu.tsx changeState.tsx EditReposDialog.tsx   the rest of the furniture
       moment.ts newWindowKey.ts prefs.ts Progress.tsx
 
-    extensions/agent-state.ts   pi extension: publishes working/waiting to tmux
+    pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
     scripts/app.ts              macOS: builds ~/Applications/IWE.app; Linux: installs the app
     scripts/app/linux.ts        the Linux install: desktop entry, icons, iwe-app launcher

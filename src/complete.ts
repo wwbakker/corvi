@@ -16,6 +16,7 @@ import { completionStepsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";
+import { messageOf } from "./effect/support.ts";
 
 export type Completion = {
   /** Every repository is either merged already or has an approved pull request. */
@@ -63,10 +64,6 @@ export const completionOfEffect = (change: Change): Effect.Effect<Completion, Cl
   );
 
 const PROGRESS = "completion.json";
-
-/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
- * every typed error carries the sentence users saw before. */
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** How far a completion got, or nothing if the change was never completed. */
 export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress | null> =>

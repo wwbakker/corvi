@@ -1,11 +1,11 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { shEffect, type Result } from "../sh.ts";
+import { worst, type Change, type WidgetItem, type WidgetState } from "../types.ts";
 import { swrEffect } from "../cache.ts";
 import type { Workspace } from "../config.ts";
 import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
 import { deploySettings } from "../deploySettings.ts";
+import { cliJson, shSoft } from "../effect/support.ts";
 
 export type Run = {
   id: number;
@@ -42,27 +42,6 @@ const RunsSchema = Schema.Array(
     ),
   }),
 );
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
- * printed nothing, or something this query did not expect, reads as the fallback rather than
- * failing — the documented silent fallback (docs/guides/effect-conventions.md). */
-const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
-  (stdout: string): Effect.Effect<B> =>
-    stdout.trim()
-      ? Effect.orElseSucceed(
-          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
-          // back to the fallback's here, which is what the old cast did.
-          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
-          () => fallback,
-        )
-      : Effect.succeed(fallback);
 
 /** How many finished runs the duration estimate averages over. Branches differ, but the same
  * pipeline on the same agents is the best predictor available. */
@@ -396,17 +375,6 @@ const findVersionEffect = (
     }
     return undefined;
   });
-
-const worst = (states: WidgetState[]): WidgetState =>
-  states.includes("error")
-    ? "error"
-    : states.includes("pending")
-      ? "pending"
-      : states.includes("warn")
-        ? "warn"
-        : states.includes("ok")
-          ? "ok"
-          : "none";
 
 // Pure and synchronous: nothing for an Effect to wrap.
 

@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import { worst as worstOf, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
+import { worst, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
 import { activeRunsEffect, pipelineItemsEffect } from "../../integrations/azure.ts";
 import { createPrEffect, prItemEffect, prSummaryEffect } from "../../integrations/github.ts";
 import { checkItemsEffect } from "../../integrations/checks.ts";
@@ -28,7 +28,7 @@ const repoItemEffect = (
       count === 0 && number ? yield* fallbackChecksEffect(change, repo, number, azure) : azure;
     const item: WidgetItem = {
       label: basename(repo),
-      state: worst([pr, ...pipelines]),
+      state: worstItem([pr, ...pipelines]),
       children: [{ ...pr, children: pipelines }],
     };
     return { item, prs: number ? 1 : 0, runs: count };
@@ -45,7 +45,9 @@ const fallbackChecksEffect = (
     return checks.length ? checks : azure;
   });
 
-const worst = (items: WidgetItem[]): WidgetState =>
+/** The item-level variant of types.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
+ * card can pick a verdict from its own rows as well as from a list of states. */
+const worstItem = (items: WidgetItem[]): WidgetState =>
   items.some((i) => i.state === "error")
     ? "error"
     : items.some((i) => i.state === "pending")
@@ -114,7 +116,7 @@ const summaryContributionEffect = (
       ],
       // A pipeline in flight is a build running, whatever the pull request's checks say about
       // the last one.
-      state: worstOf([
+      state: worst([
         ...perRepo.map((r) => r.checks),
         ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
       ]),

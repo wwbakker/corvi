@@ -7,6 +7,7 @@ import { isFinished, type Change, type CompletionStep, type Widget, type WidgetI
 import { config, expandTilde, type Workspace } from "../config.ts";
 import { workspaceById, workspaceOf } from "../workspaces.ts";
 import { runRoute } from "../effect/run.ts";
+import { messageOf } from "../effect/support.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { setPresenterSource, windowPresenters } from "./presenters.ts";
 import type {
@@ -410,9 +411,6 @@ const asWorkspace = <A, E>(
   change: Change,
   effect: Effect.Effect<A, E, Capabilities>,
 ): Effect.Effect<A, E> => Effect.provide(effect, capabilitiesLayer(workspaceOf(change)));
-
-/** A failure's message, the way every surface's error handling reports it. */
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 
