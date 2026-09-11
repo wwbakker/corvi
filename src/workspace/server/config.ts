@@ -70,6 +70,11 @@ function load(): Config {
   const file = readFileSync();
   const workspaces = workspacesFrom(file.workspaces);
   return {
+    // The file's unknown keys ride along into the resolved config: every boundary that decodes a
+    // file keeps the keys it does not know about, and an extension's legacy fallback (the jira
+    // extension's `legacy.ts`) reads a field the core used to own from here. Every known field
+    // below overrides its raw counterpart.
+    ...file,
     changesRoot: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.changesRoot,
@@ -95,22 +100,7 @@ function load(): Config {
         }),
       }),
     ),
-    jiraAssignee: resolveSetting({
-      env: ENV_OVERRIDES.jiraAssignee,
-      file: file.jiraAssignee,
-      fallback: "",
-    }),
     notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
-    jiraStartTransition: resolveSetting({
-      env: ENV_OVERRIDES.jiraStartTransition,
-      file: file.jiraStartTransition,
-      fallback: "In Progress",
-    }),
-    jiraDoneTransition: resolveSetting({
-      env: ENV_OVERRIDES.jiraDoneTransition,
-      file: file.jiraDoneTransition,
-      fallback: "Done",
-    }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

@@ -5,9 +5,8 @@ import { BadRequestError, ConflictError, DecodeError } from "../../core/platform
 import { readChange, writeChange, writeWtConfig } from "./store.ts";
 
 /** The core's creation input: the plain draft the wizard collected and the `change:creating`
- * hooks transformed, plus the legacy `jira` field kept for records written before the
- * `extensions` bag existed. */
-export type CreateChangeInput = ChangeDraft & { jira?: string };
+ * hooks transformed. */
+export type CreateChangeInput = ChangeDraft;
 
 /** Create a change from an already-transformed draft. Every invariant is re-checked here — the
  * id shape, the non-empty repository list, the starting state — so a hook's patch is applied
@@ -34,7 +33,6 @@ export const createChange = (
       repos,
       direct: input.direct?.filter((r) => repos.includes(r)),
       base: input.base,
-      jira: input.jira?.trim() || undefined,
       extensions: input.extensions,
       // The context it was made in. Unknown means the first workspace, where every change
       // without one belongs.

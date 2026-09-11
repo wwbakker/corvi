@@ -324,7 +324,10 @@ extension name:
 ```
 
 `change.jira` holds the jira extension's key on changes recorded before the `extensions` bag
-existed, and is still read. New fields go in the bag.
+existed. It is no longer part of the core's `Change` type, but both `change.json` and the config
+file decode with unknown keys preserved, so the field is still there at runtime and the jira
+extension reads it through its own `src/extensions/jira/legacy.ts` — the one place that names it,
+with `extensions.jira` tried first. New fields go in the bag.
 
 An effect that needs to *wander* that bag, or keep files beside it, uses the **`ExtensionStore`**
 capability rather than touching `change.json`. The host provides it per contribution with the
@@ -388,8 +391,10 @@ string fields under `workspaceSettings`, shown on the settings page for every wo
 the extension enabled, stored under the workspace's `extensionSettings[name][key]`. The core
 carries that bag without looking inside — what belongs there is the extension's own declaration,
 and the extension reads it back from the request's `Workspace` tag (the jira extension's
-`siteOfWorkspace` is the model). The deployments extension is the other worked example: it
-declares `workspaceSettings` for organisation and project, and the shared azure client reads them
+`siteOfWorkspace` is the model; it reads `extensionSettings.jira` first and falls back to a
+legacy `workspace.jira` object through its own `legacy.ts`). The deployments extension is the
+other worked example: it declares `workspaceSettings` for organisation and project, and the
+shared azure client reads them
 back as the first step of its chain — a per-workspace override the page can write, with the
 legacy `workspace.azure` object and the global settings as the fallbacks below it.
 
@@ -404,10 +409,14 @@ the top level of the config file, not under any workspace.
 The environment override story is declared too: a setting whose declaration names an `env`
 variable is shown locked when that variable is set, with the variable named — the page cannot
 fight it. The precedence is the same for every setting: the extension's bag (what the page or
-the file wrote) wins, and when the bag holds nothing the config field answers, which carries the
-default and the environment resolution — so an environment variable still wins unless the page
-wrote the field, which is why the page locks it while the variable is set. Empty means unset, for
-a string and for a list alike: an emptied list is written to the config as `[]`, and readers
+the file wrote) wins, and when the bag holds nothing the flat config field answers, which carries
+the default and the environment resolution — so an environment variable still wins unless the
+page wrote the field, which is why the page locks it while the variable is set. A field the core
+no longer types is the extension's own read: the jira extension's `globalOf` falls back to the
+legacy `jiraAssignee`/`jiraStartTransition`/`jiraDoneTransition` fields through its own
+`legacy.ts`, keeping the config's environment resolution, and nothing in the core names them.
+Empty means unset, for a string and for a list alike: an emptied list is written to the config
+as `[]`, and readers
 (like the deployments settings' `bagList`) treat that as unset.
 
 ## Scope, honestly stated

@@ -1,17 +1,28 @@
 import { Effect, Either } from "effect";
+import type { Change } from "../../core/domain/change.ts";
 import type { WidgetState } from "../../core/domain/widget.ts";
 import { swr, invalidate } from "../../core/platform/capabilities/cache.ts";
 import { config, type Config } from "../../workspace/server/index.ts";
 import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
+import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
 import { BadRequestError } from "../../core/platform/effect/errors.ts";
 import { messageOf } from "../../core/platform/effect/support.ts";
-import type { Issue, Sprint } from "./shared.ts";
+import type { Issue, Sprint, TicketRef } from "./shared.ts";
 
 export type { Issue, Sprint } from "./shared.ts";
-export { ticketOf } from "./shared.ts";
 
+/**
+ * The change's ticket key, from wherever this extension put it.
+ *
+ * The wizard's step writes the `extensions` bag; an early change record may carry the legacy
+ * `jira` field instead, so both are read, the bag first. This is the one function that knows
+ * about either, and the legacy read goes through `legacy.ts`, the one place that names it.
+ */
+// Pure and synchronous: nothing for an Effect to wrap.
+export const ticketOf = (change: Change): string | undefined =>
+  (change.extensions?.["jira"] as TicketRef | undefined)?.key ?? legacyTicketOf(change);
 
 /**
  * Which Jira: whose config file, which project, which board.
@@ -29,19 +40,23 @@ export type Site = {
 
 /**
  * This workspace's Jira site, from the settings this extension itself declares: the fields under
- * `workspace.extensionSettings.jira`, which the settings page renders from `workspaceSettings`.
- * Every field optional; absent means jira-cli's own config. A second client names its own file,
- * so two sites can be open at once.
+ * `workspace.extensionSettings.jira`, which the settings page renders from `workspaceSettings`,
+ * and — for a workspace written before the bag — the legacy `workspace.jira` object, read
+ * through `legacy.ts`. Every field optional; absent means jira-cli's own config. A second client
+ * names its own file, so two sites can be open at once.
  */
 export function siteOfWorkspace(workspace: {
   extensionSettings?: Record<string, Record<string, string>>;
+  /** The legacy per-workspace site object, preserved on a workspace written before the bag. */
+  jira?: unknown;
 }): Site {
   const own = workspace.extensionSettings?.jira;
+  const legacy = legacySiteOfWorkspace(workspace);
   return {
-    configFile: own?.configFile,
-    project: own?.project,
-    board: own?.board,
-    tokenEnv: own?.tokenEnv,
+    configFile: own?.configFile ?? legacy.configFile,
+    project: own?.project ?? legacy.project,
+    board: own?.board ?? legacy.board,
+    tokenEnv: own?.tokenEnv ?? legacy.tokenEnv,
   };
 }
 
@@ -51,11 +66,12 @@ export const siteOf = (change: { workspace?: string }): Site => siteOfWorkspace(
 export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspaceById(workspaceId));
 
 /**
- * The server-wide settings this extension declares, read back with the core config's `jira*`
- * fields as the fallback: `config.extensionSettings.jira.<key>` — what the settings page writes
- * under `globalSettings` — wins, and when the bag is empty the `jira*` field answers, which
- * carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat the
- * file). A bag value that is not a string, or an empty one, is not set: empty means unset.
+ * The server-wide settings this extension declares, read back with the core's legacy flat
+ * `jira*` fields as the fallback: `config.extensionSettings.jira.<key>` — what the settings page
+ * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
+ * which carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat
+ * the file); `legacy.ts` is where that fallback lives. A bag value that is not a string, or an
+ * empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function globalOf(settings: Config): {
@@ -68,10 +84,11 @@ export function globalOf(settings: Config): {
     const value = bag?.[key];
     return typeof value === "string" && value.trim() ? value : undefined;
   };
+  const legacy = legacyGlobalOf(settings);
   return {
-    assignee: own("assignee") ?? settings.jiraAssignee,
-    startTransition: own("startTransition") ?? settings.jiraStartTransition,
-    doneTransition: own("doneTransition") ?? settings.jiraDoneTransition,
+    assignee: own("assignee") ?? legacy.assignee,
+    startTransition: own("startTransition") ?? legacy.startTransition,
+    doneTransition: own("doneTransition") ?? legacy.doneTransition,
   };
 }
 

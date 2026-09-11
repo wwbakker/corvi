@@ -91,11 +91,8 @@ export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
   reposRoot: Schema.optional(Schema.String),
   reposStart: Schema.optional(Schema.String),
-  jiraAssignee: Schema.optional(Schema.String),
   /** Whether a notification plays the system sound. Absent means yes. */
   notificationSound: Schema.optional(Schema.Boolean),
-  jiraStartTransition: Schema.optional(Schema.String),
-  jiraDoneTransition: Schema.optional(Schema.String),
   azureOrganization: Schema.optional(Schema.String),
   azureProject: Schema.optional(Schema.String),
   // Passed through untouched, unvalidated, garbage entries included: dropping them here would
@@ -146,10 +143,7 @@ export const Resolved = Schema.Struct({
   changesRoot: Schema.String,
   reposRoot: Schema.String,
   reposStart: Schema.String,
-  jiraAssignee: Schema.String,
   notificationSound: Schema.Boolean,
-  jiraStartTransition: Schema.String,
-  jiraDoneTransition: Schema.String,
   azureOrganization: Schema.String,
   azureProject: Schema.String,
   workspaces: Schema.Array(Workspace),

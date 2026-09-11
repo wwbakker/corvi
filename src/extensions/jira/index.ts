@@ -12,11 +12,12 @@ import {
   issuesByKeys,
   issueFrom,
   moveIssue,
+  ticketOf,
   type IssueJson,
   type Site,
 } from "./jira.ts";
 import { accountId } from "./account.ts";
-import { ticketOf } from "./shared.ts";
+import { JIRA_ENV } from "./legacy.ts";
 import { Settings, Workspace, type Extension } from "../../core/host/api.ts";
 
 /**
@@ -26,8 +27,8 @@ import { Settings, Workspace, type Extension } from "../../core/host/api.ts";
  * step (declared here, rendered by its client component), provisioning a new change's ticket,
  * a title source, a pull-request description section, the completion step that closes the
  * ticket, and the two routes its step fetches from. The change's ticket key is read through
- * `ticketOf` — the `extensions` bag its step writes, or the `change.jira` field an early
- * change record still carries.
+ * `ticketOf` — the `extensions` bag its step writes, or the legacy `jira` field an early
+ * change record still carries, read in `legacy.ts`.
  *
  * Its effects require nothing beyond the capabilities: `Workspace` for whose Jira a change's
  * ticket belongs to, `Settings` for the assignee and the transitions.
@@ -108,12 +109,12 @@ export default {
 
   // The server-wide settings this extension declares, shown on the settings page for every
   // workspace and stored under `extensionSettings.jira` — where globalOf reads them back, with
-  // the core config's `jira*` fields as the fallback. An environment variable keeps beating the
-  // page: the field shows locked when IWE_JIRA_* is set.
+  // the core's legacy flat `jira*` fields (through legacy.ts) as the fallback. An environment
+  // variable keeps beating the page: the field shows locked when IWE_JIRA_* is set.
   globalSettings: [
-    { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: "IWE_JIRA_ASSIGNEE" },
-    { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: "IWE_JIRA_START_TRANSITION" },
-    { key: "doneTransition", label: "Transition on completing one", placeholder: "Done", env: "IWE_JIRA_DONE_TRANSITION" },
+    { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: JIRA_ENV.assignee },
+    { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: JIRA_ENV.startTransition },
+    { key: "doneTransition", label: "Transition on completing one", placeholder: "Done", env: JIRA_ENV.doneTransition },
   ],
 
   cards: [

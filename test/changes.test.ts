@@ -22,6 +22,10 @@ import { runEffect, runSh, TestError } from "./helpers.ts";
 let tmp: string;
 let repo: string;
 
+/** The key the stub title source claims a change by, from the bag the wizard writes. */
+const stubKey = (c: Change): string | undefined =>
+  (c.extensions?.["stub"] as { key?: string } | undefined)?.key;
+
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-"));
   process.env.IWE_ROOT = join(tmp, "changes");
@@ -290,7 +294,7 @@ test("a change is named after its ticket, and keeps that name when its vendor is
   const { refreshTitles } = await import("../src/change/server/index.ts");
   const { install, loaded } = await import("../src/core/host/index.ts");
 
-  // A stub source claiming every change that has a jira key, answering from a map the test
+  // A stub source claiming every change that has a stub key, answering from a map the test
   // controls.
   const answers = new Map<string, string>();
   const restore = loaded.splice(0, loaded.length);
@@ -299,12 +303,14 @@ test("a change is named after its ticket, and keeps that name when its vendor is
     title: "Stub",
     titleSources: [
       {
-        applies: (c) => Boolean(c.jira),
+        applies: (c) => Boolean(stubKey(c)),
         lookup: (changes) => {
-          asked = changes.map((c) => c.jira!);
+          asked = changes.map((c) => stubKey(c)!);
           return Effect.succeed(
             new Map(
-              changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+              changes
+                .filter((c) => Boolean(stubKey(c) && answers.has(stubKey(c)!)))
+                .map((c) => [c.id, answers.get(stubKey(c)!)!]),
             ),
           );
         },
@@ -312,7 +318,9 @@ test("a change is named after its ticket, and keeps that name when its vendor is
     ],
   });
 
-  const named = await runEffect(createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" }));
+  const named = await runEffect(
+    createChange({ id: "PROJ-NAMED", repos: [repo], extensions: { stub: { key: "PROJ-7" } } }),
+  );
   const bare = await runEffect(createChange({ id: "PROJ-BARE", repos: [repo] }));
 
   // Captured rather than asserted inside: refreshTitles treats a failing source as "the vendor
@@ -381,12 +389,14 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
     title: "Stub",
     titleSources: [
       {
-        applies: (c) => Boolean(c.jira),
+        applies: (c) => Boolean(stubKey(c)),
         lookup: (changes) => {
-          asked = changes.map((c) => c.jira!);
+          asked = changes.map((c) => stubKey(c)!);
           return Effect.succeed(
             new Map(
-              changes.filter((c) => answers.has(c.jira!)).map((c) => [c.id, answers.get(c.jira!)!]),
+              changes
+                .filter((c) => Boolean(stubKey(c) && answers.has(stubKey(c)!)))
+                .map((c) => [c.id, answers.get(stubKey(c)!)!]),
             ),
           );
         },
@@ -394,7 +404,9 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
     ],
   });
 
-  const change = await runEffect(createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" }));
+  const change = await runEffect(
+    createChange({ id: "PROJ-NAME", repos: [repo], extensions: { stub: { key: "PROJ-8" } } }),
+  );
 
   // Until you say otherwise, the ticket names the change.
   answers.set("PROJ-8", "As the ticket puts it");

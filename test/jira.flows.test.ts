@@ -18,10 +18,10 @@ import {
   siteFor,
   siteOf,
   siteOfWorkspace,
+  ticketOf,
 } from "../src/extensions/jira/jira.ts";
 import { jiraBaseUrl, jiraFetch, jiraSetup, parseJiraConfig } from "../src/extensions/jira/jiraHttp.ts";
 import { accountId } from "../src/extensions/jira/account.ts";
-import { ticketOf } from "../src/extensions/jira/shared.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -119,15 +119,18 @@ const setEnv = (key: string, value: string | undefined): void => {
 };
 
 // The config object is shared by reference across the server; the tests mutate and restore it.
+// The legacy flat jira fields are no longer typed on the resolved config, but the loader carries
+// them through, so the fallback these tests exercise reads them through one cast.
+const legacyConfig = config as Config & { jiraAssignee?: string };
 const originalWorkspaces = config.workspaces;
-const originalAssignee = config.jiraAssignee;
+const originalAssignee = legacyConfig.jiraAssignee;
 const originalExtensionSettings = config.extensionSettings;
 
 beforeEach(() => clearCache());
 
 afterEach(() => {
   config.workspaces = originalWorkspaces;
-  config.jiraAssignee = originalAssignee;
+  legacyConfig.jiraAssignee = originalAssignee;
   config.extensionSettings = originalExtensionSettings;
   globalThis.fetch = originalFetch;
   for (const [key, value] of originalEnv) setEnv(key, value);
@@ -358,13 +361,33 @@ test("parseJiraConfig reads quoted values and only the keys at their known depth
 
 // --- Site and global settings resolution ------------------------------------------------------
 
-test("siteOfWorkspace carries only what the workspace declared", () => {
+test("siteOfWorkspace carries only what the workspace declared, bag first", () => {
   expect(
     siteOfWorkspace({
       extensionSettings: { jira: { configFile: "/s.yml", project: "P", board: "9", tokenEnv: "T" } },
     }),
   ).toEqual({ configFile: "/s.yml", project: "P", board: "9", tokenEnv: "T" });
   expect(siteOfWorkspace({})).toEqual({
+    configFile: undefined,
+    project: undefined,
+    board: undefined,
+    tokenEnv: undefined,
+  });
+
+  // A workspace written before the bag carries a legacy `jira` object; the bag's own fields win,
+  // and the rest still answer from the legacy site.
+  const legacy = {
+    extensionSettings: { jira: { project: "BAG" } },
+    jira: { project: "LEGACY", board: "7", configFile: "/old.yml" },
+  };
+  expect(siteOfWorkspace(legacy)).toEqual({
+    configFile: "/old.yml",
+    project: "BAG",
+    board: "7",
+    tokenEnv: undefined,
+  });
+  // `false` and a non-object are no site, not a site with everything absent.
+  expect(siteOfWorkspace({ jira: false })).toEqual({
     configFile: undefined,
     project: undefined,
     board: undefined,
@@ -422,6 +445,11 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
   // A value with text is used as written: the trim is only the emptiness test.
   const spaced = { ...flat, extensionSettings: { jira: { assignee: "  bag  " } } } as unknown as Config;
   expect(globalOf(spaced).assignee).toBe("  bag  ");
+
+  // The environment variable still beats the legacy flat field, exactly as the resolved chain
+  // did before the field left the core.
+  setEnv("IWE_JIRA_ASSIGNEE", "env@example.com");
+  expect(globalOf(flat).assignee).toBe("env@example.com");
 });
 
 test("issueFrom tolerates absent fields and trims the summary", () => {
@@ -567,7 +595,7 @@ test("boardIssues serves a recently read board from its cache without asking aga
 test("createIssue creates the issue, assigns it and returns what the wizard selects", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   config.workspaces = [jiraWorkspace("create-ws", { configFile: validConfig, project: "PROJ" })];
-  config.jiraAssignee = "";
+  legacyConfig.jiraAssignee = "";
   config.extensionSettings = undefined;
   stubFetch((url, init) => {
     const method = init?.method ?? "GET";
@@ -620,7 +648,7 @@ test("createIssue creates the issue, assigns it and returns what the wizard sele
 test("createIssue skips assignment when asked and omits an empty description", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   config.workspaces = [jiraWorkspace("create-ws", { configFile: validConfig, project: "PROJ" })];
-  config.jiraAssignee = "unused@example.com";
+  legacyConfig.jiraAssignee = "unused@example.com";
   config.extensionSettings = undefined;
   stubFetch((url, init) =>
     url.pathname === "/rest/api/3/issue" && init?.method === "POST"
@@ -643,7 +671,7 @@ test("createIssue skips assignment when asked and omits an empty description", a
 test("createIssue assigns a configured account id without looking anything up", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   config.workspaces = [jiraWorkspace("create-ws", { configFile: validConfig, project: "PROJ" })];
-  config.jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
+  legacyConfig.jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
   config.extensionSettings = undefined;
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-11" });
@@ -663,7 +691,7 @@ test("createIssue assigns a configured account id without looking anything up", 
 test("createIssue looks up a configured name and assigns the account it finds", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   config.workspaces = [jiraWorkspace("create-ws", { configFile: validConfig, project: "PROJ" })];
-  config.jiraAssignee = "ada@example.com";
+  legacyConfig.jiraAssignee = "ada@example.com";
   config.extensionSettings = undefined;
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-12" });
@@ -850,9 +878,12 @@ test("accountId passes an id through and searches for a name or email", async ()
 // --- shared vocabulary ------------------------------------------------------------------------
 
 test("ticketOf reads this extension's bag first and an early record's field second", () => {
-  expect(ticketOf(change({ extensions: { jira: { key: "PROJ-1" } }, jira: "OLD-1" }))).toBe("PROJ-1");
+  const withLegacy = (value: string): Change =>
+    ({ ...change(), jira: value }) as unknown as Change;
+
+  expect(ticketOf({ ...withLegacy("OLD-1"), extensions: { jira: { key: "PROJ-1" } } })).toBe("PROJ-1");
   // An empty bag entry does not shadow the field an early change record carries.
-  expect(ticketOf(change({ extensions: { jira: {} }, jira: "OLD-1" }))).toBe("OLD-1");
-  expect(ticketOf(change({ jira: "OLD-1" }))).toBe("OLD-1");
+  expect(ticketOf({ ...withLegacy("OLD-1"), extensions: { jira: {} } })).toBe("OLD-1");
+  expect(ticketOf(withLegacy("OLD-1"))).toBe("OLD-1");
   expect(ticketOf(change())).toBeUndefined();
 });

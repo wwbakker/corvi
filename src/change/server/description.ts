@@ -17,11 +17,11 @@ import { workspaceOf } from "../../workspace/server/index.ts";
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function describeChange(
-  jira: string | undefined,
+  ticket: string | undefined,
   summary: string | undefined,
   links: string[],
 ): string {
-  const heading = [jira, summary].filter(Boolean).join(" - ");
+  const heading = [ticket, summary].filter(Boolean).join(" - ");
   return `${heading}\n${links.join("\n")}\n`;
 }
 

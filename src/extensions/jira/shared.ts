@@ -1,5 +1,3 @@
-import type { Change } from "../../core/domain/change.ts";
-
 /**
  * The jira extension's vocabulary, shared between its two halves: the server reads and writes
  * these, the browser renders them. Types only, so the client half can import this file without
@@ -27,12 +25,3 @@ export type Board = { issues: Issue[]; sprints: string[]; baseUrl?: string; erro
 /** What the jira extension writes into a change's `extensions` bag when its wizard step picked
  * an issue. */
 export type TicketRef = { key: string };
-
-/**
- * The change's ticket key, from wherever this extension put it.
- *
- * The wizard's step writes the `extensions` bag; an early change record may carry `change.jira`
- * instead, so both are read, the bag first. This is the one function that knows about either.
- */
-export const ticketOf = (change: Change): string | undefined =>
-  (change.extensions?.["jira"] as TicketRef | undefined)?.key ?? change.jira;

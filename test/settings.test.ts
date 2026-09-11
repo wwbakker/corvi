@@ -116,16 +116,33 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   expect("notificationSound" in cleared).toBe(false);
 });
 
-test("the file keeps what it had, and does not fill up with defaults", async () => {
-  await Bun.write(file, JSON.stringify({ somethingNewer: 1, jiraAssignee: "me" }));
-  await runEffect(writeSettings({ jiraDoneTransition: "Done", jiraAssignee: "" }));
+test("the file keeps what it had, including fields the core no longer names", async () => {
+  // A legacy-only config file: the flat jira fields left the schema when the extension took them
+  // over, so a settings-page write must carry them through the preserve decode rather than drop
+  // them. This is the round-trip proof for those fields.
+  await Bun.write(
+    file,
+    JSON.stringify({
+      somethingNewer: 1,
+      jiraAssignee: "me@example.com",
+      jiraStartTransition: "Start",
+      jiraDoneTransition: "Ready for release",
+    }),
+  );
+  await runEffect(writeSettings({ notificationSound: false }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of IWE that does.
   expect(written.somethingNewer).toBe(1);
-  expect(written.jiraDoneTransition).toBe("Done");
-  // Cleared on the page means "not set", which is an absent key rather than an empty string.
-  expect("jiraAssignee" in written).toBe(false);
+  // The write changed only what it meant to; the legacy jira fields survive intact.
+  expect(written.jiraAssignee).toBe("me@example.com");
+  expect(written.jiraStartTransition).toBe("Start");
+  expect(written.jiraDoneTransition).toBe("Ready for release");
+  expect(written.notificationSound).toBe(false);
+
+  // The resolved config carries the preserved keys too, which is where the jira extension's
+  // legacy fallback reads them from.
+  expect((config as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
 });
 
 test("a setting the environment overrides is reported as locked", async () => {

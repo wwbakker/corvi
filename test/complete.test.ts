@@ -112,7 +112,7 @@ test("stepsFor: the change's own extensions plan their steps when none are passe
   config.workspaces = [{ id: "test-all", name: "test" }];
   try {
     const plan = stepsFor(
-      changeWith({ jira: "PROJ-9" }),
+      changeWith({ extensions: { jira: { key: "PROJ-9" } } }),
       { ready: true, reasons: [], toMerge: [] },
     );
     expect(plan.map((s) => s.id)).toEqual(["jira", "worktrees", "terminal", "archive"]);

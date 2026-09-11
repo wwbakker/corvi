@@ -298,7 +298,7 @@ export function ChangeView({
               className="subject"
               autoFocus
               value={draft}
-              placeholder={change.jira ? `from ${change.jira}` : "what this change is about"}
+              placeholder="what this change is about"
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setDraft(null);

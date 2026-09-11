@@ -17,7 +17,7 @@ export const trace = new Map<string, { calls: number; cpu: number; wall: number 
 
 /** How a call is grouped in the trace: the tool and its subcommand, not the arguments. */
 const traceKey = (cmd: readonly string[]): string =>
-  ["git", "gh", "az", "jira", "tmux"].includes(cmd[0] ?? "")
+  ["git", "gh", "az", "tmux"].includes(cmd[0] ?? "")
     ? cmd.slice(0, cmd[0] === "az" ? 3 : 2).join(" ")
     : (cmd[0] ?? "");
 

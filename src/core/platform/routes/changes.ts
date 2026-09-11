@@ -32,7 +32,7 @@ export const changesRoutes = guard({
         Effect.gen(function* () {
           const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0];
           // The creating hooks transform the draft; the core then re-runs every invariant in
-          // createChange before anything is written. `body` keeps the legacy `jira` field.
+          // createChange before anything is written.
           const draft = yield* applyCreatingHooks(body);
           const change = yield* createChange({ ...body, ...draft });
           const provisioned = yield* Effect.provideService(

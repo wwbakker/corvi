@@ -98,9 +98,6 @@ export type Change = {
   /** Which context this change belongs to: a client, or your own projects. Absent belongs to the
    * first workspace. */
   workspace?: string;
-  /** Optional Jira issue key, e.g. PROJ-123. Read as the jira extension's own field for changes
-   * that carry it here; the wizard writes it into the namespaced bag below. */
-  jira?: string;
   /** Each extension's own data about this change, keyed by extension name — the wizard stores
    * what its steps picked here, and each extension reads its own entry. Anything JSON-shaped
    * goes; the extension owns its shape, the core never looks inside. */

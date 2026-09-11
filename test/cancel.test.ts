@@ -194,7 +194,7 @@ test("what cancelling leaves alone is said out loud", async () => {
     id: "PROJ-LOOSE",
     branch: "PROJ-LOOSE-x",
     repos: [repo],
-    jira: "PROJ-LOOSE",
+    extensions: { jira: { key: "PROJ-LOOSE" } },
   }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));

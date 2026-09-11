@@ -52,15 +52,9 @@ export type Config = {
   /** Directory the browser opens on, inside reposRoot. Going up to reposRoot stays possible;
    * this only saves the clicks you make every single time. */
   reposStart: string;
-  /** Who a change's Jira issue is assigned to on creation. Empty means "the logged-in user". */
-  jiraAssignee: string;
   /** Whether a notification plays the system sound; the settings page's one notification
    * decision so far. */
   notificationSound: boolean;
-  /** Transition a change's Jira issue moves to on creation. */
-  jiraStartTransition: string;
-  /** Transition a change's Jira issue moves to when the change is completed. */
-  jiraDoneTransition: string;
   /** Azure DevOps organisation and project; empty means "whatever az devops configure holds". */
   azureOrganization: string;
   azureProject: string;
@@ -104,10 +98,7 @@ export type ConfigFile = {
   changesRoot?: string;
   reposRoot?: string;
   reposStart?: string;
-  jiraAssignee?: string;
   notificationSound?: boolean;
-  jiraStartTransition?: string;
-  jiraDoneTransition?: string;
   azureOrganization?: string;
   azureProject?: string;
   /** The contexts you switch between, as the file holds them. Decoded with the per-item

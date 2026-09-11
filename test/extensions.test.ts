@@ -1,8 +1,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChange } from "../src/change/server/index.ts";
+import { changeDir, createChange, readChange, writeChange } from "../src/change/server/index.ts";
 import { runEffect, TestError } from "./helpers.ts";
 import { Effect } from "effect";
 import {
@@ -24,7 +24,7 @@ import { presentWindow } from "../src/terminal/server/index.ts";
 import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
-import { ticketOf } from "../src/extensions/jira/shared.ts";
+import { ticketOf } from "../src/extensions/jira/jira.ts";
 import { config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 
@@ -200,14 +200,37 @@ test("a remote URL is read in every shape GitHub answers to", () => {
 
 test("a change's ticket is read from the bag, and from the legacy field", () => {
   const bag: Change = { id: "A", branch: "A", repos: [], extensions: { jira: { key: "PROJ-2" } }, createdAt: "" };
-  const legacy: Change = { id: "B", branch: "B", repos: [], jira: "PROJ-1", createdAt: "" };
+  const legacy = { id: "B", branch: "B", repos: [], jira: "PROJ-1", createdAt: "" } as unknown as Change;
   const neither: Change = { id: "C", branch: "C", repos: [], createdAt: "" };
 
-  // Both are read: the bag is where the wizard writes, and change.jira is the field archived
-  // changes carry.
+  // Both are read: the bag is where the wizard writes, and the legacy field is what archived
+  // changes carry; it is no longer part of the Change type, but the decoder keeps it.
   expect(ticketOf(bag)).toBe("PROJ-2");
   expect(ticketOf(legacy)).toBe("PROJ-1");
   expect(ticketOf(neither)).toBeUndefined();
+});
+
+test("a change.json with only the legacy jira field reads and keeps it across a rewrite", async () => {
+  const id = "PROJ-LEGACY-FILE";
+  const dir = changeDir(id);
+  await mkdir(dir, { recursive: true });
+  await Bun.write(
+    join(dir, "change.json"),
+    `${JSON.stringify(
+      { id, branch: id, repos: [], jira: "PROJ-1", createdAt: "2026-01-01T00:00:00.000Z" },
+      null,
+      2,
+    )}\n`,
+  );
+
+  // The decoder preserves the key the core no longer types, so the extension still finds it...
+  const read = await runEffect(readChange(id));
+  expect(ticketOf(read!)).toBe("PROJ-1");
+
+  // ...and a rewrite serializes what the preserve decode kept: the field is not lost.
+  await runEffect(writeChange(read!));
+  const again = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as Record<string, unknown>;
+  expect(again.jira).toBe("PROJ-1");
 });
 
 test("an extension's issue is named by repository and number, and read from the bag", () => {
@@ -344,7 +367,8 @@ test("a completion step is planned only when the change has something for it", (
   const jira = loaded.find((e) => e.name === "jira")!;
   const contributor = jira.completionSteps[0]!;
   const ctx = { config, workspace: ws() };
-  expect(contributor.plan({ id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" }, ctx)).toEqual({
+  const legacy = { id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" } as unknown as Change;
+  expect(contributor.plan(legacy, ctx)).toEqual({
     id: "jira",
     label: "move PROJ-1 to Done",
     state: "waiting",

@@ -21,8 +21,6 @@ export const Change = Schema.Struct({
   direct: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   /** Which workspace the change belongs to. */
   workspace: Schema.optional(Schema.String),
-  /** Optional Jira issue key, e.g. PROJ-123. */
-  jira: Schema.optional(Schema.String),
   /** Extensions' own data about this change, keyed by extension name. Kept verbatim: the shape
    * is the owning extension's business, and rewriting a change.json must not drop it. */
   extensions: Schema.optional(
