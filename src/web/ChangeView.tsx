@@ -7,6 +7,8 @@ import {
   type ApiError,
   type ChangeState,
   type Change,
+  type Cancelled,
+  type Completed,
   type Completion,
   type CardInfo,
   type ProvisionResult,
@@ -16,6 +18,7 @@ import type { TerminalWindow } from "../core/domain/terminal.ts";
 import { useCached } from "./cache.ts";
 import { stateClass } from "./changeState.tsx";
 import { isFinished } from "../core/domain/change.ts";
+import { LifecycleFailures } from "./LifecycleFailures.tsx";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";
@@ -85,6 +88,9 @@ export function ChangeView({
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // The `change:completed`/`change:cancelled` observer failures of the operation just performed.
+  // A successful observer reports nothing here, so it changes nothing visible.
+  const [after, setAfter] = useState<ProvisionResult[]>([]);
   // The terminal keeps its shells whichever page you are on, so it is mounted once it has been
   // opened and only hidden afterwards.
   const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
@@ -157,10 +163,11 @@ export function ChangeView({
   const complete = (): void => {
     setCompleting(true);
     setError(null);
-    post<{ change: Change; notes: string[] }>(`/changes/${id}/complete`, {})
-      .then(({ change: updated }) => {
+    post<Completed>(`/changes/${id}/complete`, {})
+      .then(({ change: updated, after }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
+        setAfter(after);
       })
       // Where it stopped is in the completion card, which reads it from disk; this is only for
       // a refusal before anything started, such as a pull request that is not approved.
@@ -184,11 +191,12 @@ export function ChangeView({
     }
     setCancelling(true);
     setError(null);
-    post<{ change: Change; loose: string[] }>(`/changes/${id}/cancel`, { force })
-      .then(({ change: updated, loose }) => {
+    post<Cancelled>(`/changes/${id}/cancel`, { force })
+      .then(({ change: updated, loose, after }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         onChanged();
+        setAfter(after);
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })
       .catch((e: ApiError) => {
@@ -341,13 +349,11 @@ export function ChangeView({
       <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
-      {(provision ?? [])
-        .filter((r) => !r.ok)
-        .map((r) => (
-          <div key={r.integration} className="error-banner">
-            {r.integration}: {r.error}
-          </div>
-        ))}
+      {/* Creation's observer failures, shown once where the create was started. */}
+      <LifecycleFailures results={provision} />
+      {/* A completed or cancelled change's observer failures: the operation itself succeeded, so
+          these are reported on its response rather than rendered as a failure of the change. */}
+      <LifecycleFailures results={after} />
       {/* Unmounted rather than hidden while you are in the terminal: their per-repository CLI
           calls hold every connection the browser allows per origin for seconds at a time, and
           the terminal's own polling would queue behind them. Coming back repaints from the

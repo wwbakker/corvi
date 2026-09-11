@@ -30,6 +30,14 @@ export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: s
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };
 
+/** A completed change, the notes from its own completion steps, and what the `change:completed`
+ * after-hooks reported under each extension's name (a failure there never fails the operation). */
+export type Completed = { change: Change; notes: string[]; after: ProvisionResult[] };
+
+/** A cancelled change, what cancelling deliberately left behind, and the `change:cancelled`
+ * after-hook results. */
+export type Cancelled = { change: Change; loose: string[]; after: ProvisionResult[] };
+
 /** Errors carry the response body, so a caller can react to more than the message. */
 export type ApiError = Error & { status: number; body: unknown };
 

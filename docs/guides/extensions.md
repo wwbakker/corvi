@@ -95,7 +95,10 @@ a veto leaves the change exactly as it was.
 (`change.json` written, and archived for the finished states). A failure is reported under the
 extension's name and never fails the operation, exactly as `change:created` provisioning has
 always behaved: the results are collected, and a failed hook stops the rest of its own
-extension's hooks but no other extension's.
+extension's hooks but no other extension's. The change page shows those failures as one error
+banner per extension (`<extension>: <error>`): creation's where the create was started, and a
+completion's or cancellation's on the page that performed it. A successful observer says
+nothing.
 
 Enablement is resolved per workspace at the moment of the event, like every other surface. Each
 hook runs as that workspace and with the contributing extension's name bound into its
