@@ -3,6 +3,7 @@ import type {
   ChangeAfterHook,
   ChangeBeforeHook,
   ChangeCreatingHook,
+  ChangeTab,
   CompletionStepContributor,
   DescriptionSection,
   Extension,
@@ -63,6 +64,12 @@ export type LoadedExtension = {
   windowPresenters: TerminalPresenter[];
   /** Pages this extension offers the sidebar. */
   pages: Page[];
+  /** Tabs this extension adds to a change's page, in declaration order. A tab id is the tab's
+   * identity on the route and the URL, so two extensions cannot both own one: across a
+   * workspace's extensions the first in load order keeps the id, and a later one's is skipped
+   * (`changeTabsFor` in ./selectors.ts), mirroring how a duplicate extension name is resolved
+   * by `install`. */
+  changeTabs: ChangeTab[];
   /** Per-workspace settings the extension declares, for the settings page to render. */
   workspaceSettings: WorkspaceSetting[];
   /** Server-wide settings the extension declares, for the settings page to render. */
@@ -112,6 +119,7 @@ const normalize = (ext: Extension, clientPath?: string): LoadedExtension => ({
   looseEnds: ext.looseEnds ?? [],
   windowPresenters: ext.windowPresenters ?? [],
   pages: ext.pages ?? [],
+  changeTabs: ext.changeTabs ?? [],
   ...(clientPath ? { clientPath } : {}),
 });
 

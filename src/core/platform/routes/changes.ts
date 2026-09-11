@@ -23,7 +23,7 @@ import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
 import { announce } from "../capabilities/events.ts";
-import { applyCreatingHooks, provision } from "../../host/index.ts";
+import { applyCreatingHooks, changeTabsFor, provision } from "../../host/index.ts";
 import { repoStates, setRepos } from "../../integrations/git.ts";
 import { guard } from "../origin.ts";
 import { summaryOf } from "../../../change/overview/server/index.ts";
@@ -96,6 +96,16 @@ export const changesRoutes = guard({
             ? json({ needsForce: result.needsForce }, 409)
             : json(result.change);
         }),
+      ),
+  },
+
+  // The tabs this change's page offers: the core's own plus the extensions' for its workspace.
+  // The page renders what it is told exists, exactly as the sidebar does with pages and the
+  // wizard with steps — so a workspace without an extension has no tab for it, not an empty one.
+  "/api/changes/:id/tabs": {
+    GET: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.succeed(json({ tabs: changeTabsFor(workspaceOf(c)) })),
       ),
   },
 

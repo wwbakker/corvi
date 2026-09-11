@@ -2,7 +2,7 @@ import { Context, Effect } from "effect";
 import { Shell, Workspace as WorkspaceTag } from "../../platform/effect/tags.ts";
 import type { Config } from "../../domain/config.ts";
 import type { Change } from "../../domain/change.ts";
-import type { IweError } from "../../platform/effect/errors.ts";
+import type { DecodeError, IweError } from "../../platform/effect/errors.ts";
 
 // --- Capabilities: what the host provides to every contributed effect ---------------------
 
@@ -55,9 +55,21 @@ export class ExtensionStore extends Context.Tag("iwe/ExtensionStore")<
   ExtensionStoreShape
 >() {}
 
+/** Read access to the change store: the change module's own read, and the git checkout lookup.
+ * An extension can find a change and where its worktree is without importing a module's server
+ * half. Deliberately read-only: there is no write, complete or cancel. */
+export class Changes extends Context.Tag("iwe/Changes")<Changes, {
+  /** The change with this id, or null when no change.json exists for it. */
+  read(id: string): Effect.Effect<Change | null, DecodeError>;
+  /** Where a change's checkout of `repo` is — its worktree, or the in-place repository — or
+   * undefined when the change has no checkout there. `checkoutFor` never fails, and this does
+   * not widen that. */
+  checkout(change: Change, repo: string): Effect.Effect<string | undefined>;
+}>() {}
+
 /** The union the host provides. An effect may require any subset — requiring less is
  * assignable to requiring the union, so handlers declare only what they use. */
-export type Capabilities = WorkspaceTag | Shell | Cache | Settings | Bus | ExtensionStore;
+export type Capabilities = WorkspaceTag | Shell | Cache | Settings | Bus | ExtensionStore | Changes;
 
 /** What a `change:creating` hook may require: the request's workspace and the four services,
  * but not `ExtensionStore` — the change directory does not exist while the hooks are still

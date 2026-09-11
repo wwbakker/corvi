@@ -16,8 +16,9 @@ Handlers are **Effects**, and that is the dependency-injection contract:
 
 - **The host provides the capabilities** — the request's `Workspace` tag, a `Shell` for
   subprocesses with the workspace's environment already applied, the answer `Cache`, the
-  `Settings`, the event `Bus`, and the name-bound `ExtensionStore` for the extension's own data
-  about a change. An effect requires what it uses through `yield*`; requiring anything outside
+  `Settings`, the event `Bus`, the name-bound `ExtensionStore` for the extension's own data
+  about a change, and the read-only `Changes` store (read a change, locate its git checkout).
+  An effect requires what it uses through `yield*`; requiring anything outside
   the union fails to typecheck, which is what makes "no host imports" checkable rather than a
   matter of discipline.
 - **Failures are values in the error channel.** On the capability surfaces the host handles any
@@ -51,6 +52,7 @@ Two ideas run through the model:
 | Loose ends | `looseEnds` | What cancelling the change would leave behind — the open ticket, the open pull requests — asked when the cancel is confirmed. |
 | Window presenters | `windowPresenters` | How a tmux window is named and drawn. Pure functions of tmux data, global rather than per-workspace (below). |
 | Pages | `pages` | A page of the extension's own, served at `/{id}` and offered by the sidebar (below). |
+| Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard and Review. The client half exports `tab`, a component receiving the change and its workspace (below). |
 | Per-workspace settings | `workspaceSettings` | Configuration the extension declares per context, rendered by the settings page for every workspace that has the extension enabled (below). |
 | Global settings | `globalSettings` | Server-wide settings the extension declares, rendered by the settings page in a section per extension (below). |
 | PR description | `descriptionSections` | A heading part, joined with the others into the description's first line. |
@@ -163,6 +165,26 @@ The page's content is the extension's client half exporting `page`, a component 
 workspace it is open on. Built-ins sit in the page's own registry; out-of-tree pages load from
 the served chunk, under the same contract as steps (below).
 
+## Change tabs
+
+A change's page is a row of tabs: the core's Dashboard (its widgets), the core's Review (the
+local changes), and whatever the change's workspace's extensions contribute. An extension
+declares its tabs (`{ id, title }`), and the page asks `GET /api/changes/:id/tabs` for them —
+exactly as the sidebar asks `/api/pages`, and the wizard `/api/wizard`. The tab exists for a
+change when the extension does in the change's workspace, and a disabled extension's tab is not
+offered, not an empty one.
+
+A tab id is the tab's identity on that route and in the change's URL, so two extensions cannot
+both own one: across a workspace's extensions the first in load order keeps the id, and a later
+extension's tab under the same id is skipped — the same rule that makes a duplicate extension
+name a no-op. The core's own `dashboard`, `review` and `terminals` ids are reserved: a
+contributed tab that would shadow one is dropped.
+
+The tab's content is the extension's client half exporting `tab`, a component receiving the
+change it is about (`{ change, workspace? }`) — distinct from `page`, which receives only the
+workspace. Built-ins sit in the page's registry; out-of-tree tabs load from the served chunk,
+under the same contract as steps and pages (below).
+
 ## What an extension looks like
 
 A module whose default export **describes** the extension — a static value when everything is
@@ -174,7 +196,7 @@ down.
 ```
 src/extensions/my-extension/
 ├── index.ts      # the server half: the description, or a factory for it
-└── client.tsx    # the browser half, when the extension has a wizard step or a page
+└── client.tsx    # the browser half, when the extension has a wizard step, a page or a change tab
 ```
 
 ```ts
@@ -228,7 +250,8 @@ and `setPayload(extension, data)`, which lands whatever the step picked on the c
 under the extension's own name, in the change's `extensions` bag. The core stores that bag and
 never looks inside; the extension owns its shape and reads it back through `change.extensions`.
 An extension that offers a page exports `page` from the same half instead — a component
-receiving the workspace the page is open on (below).
+receiving the workspace the page is open on (below) — and one that adds a change tab exports
+`tab`, a component receiving the change (below).
 
 ```tsx
 // src/extensions/my-extension/client.tsx

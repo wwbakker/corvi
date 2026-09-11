@@ -14,9 +14,9 @@
  *
  * - **The host provides `Capabilities`** — the Workspace tag (the request's own), a `Shell`
  *   for subprocesses with the workspace's environment, the answer `Cache`, the `Settings`,
- *   the event `Bus`, and the name-bound `ExtensionStore`. An effect may require any subset;
- *   requiring anything outside the union fails to typecheck, which is what makes "no host
- *   imports" checkable rather than a matter of discipline.
+ *   the event `Bus`, the name-bound `ExtensionStore`, and the read-only `Changes` store. An
+ *   effect may require any subset; requiring anything outside the union fails to typecheck,
+ *   which is what makes "no host imports" checkable rather than a matter of discipline.
  * - **Failures are values in the E channel.** On the capability surfaces the host handles any
  *   failure by its message (a failed card is a red card, a failed lookup contributes
  *   nothing), so those channels are `unknown` — fail with whatever typed error you like.
@@ -41,13 +41,14 @@ import type {
   TitleSource,
 } from "./api/overview.ts";
 import type { Page } from "./api/pages.ts";
+import type { ChangeTab } from "./api/tabs.ts";
 import type { RequestMethod, RouteHandler } from "./api/routes.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
 import type { TerminalPresenter } from "./api/terminal.ts";
 import type { Startup } from "./api/capabilities.ts";
 import type { WizardStep } from "./api/wizard.ts";
 
-export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore } from "./api/capabilities.ts";
+export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore, Changes } from "./api/capabilities.ts";
 export type {
   Result,
   Capabilities,
@@ -80,6 +81,7 @@ export type {
   TerminalPresenter,
 } from "./api/terminal.ts";
 export type { Page } from "./api/pages.ts";
+export type { ChangeTab } from "./api/tabs.ts";
 export type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
 export {
   BadRequestError,
@@ -127,6 +129,9 @@ export type Extension = {
   windowPresenters?: TerminalPresenter[];
   /** Pages this extension offers the sidebar. */
   pages?: Page[];
+  /** Tabs this extension adds to a change's page, beside the core's Dashboard and Review. The
+   * tab's client half exports `tab`, a component receiving the change. */
+  changeTabs?: ChangeTab[];
   /** Server-wide settings this extension declares, shown on the settings page for every
    * workspace — a server-wide thing is configured once, not per context. */
   globalSettings?: ExtensionSetting[];

@@ -28,6 +28,9 @@ import { LocalPane } from "./LocalPane.tsx";
 import { PerRepoCard } from "../overview/client/PerRepoCard.tsx";
 import { WidgetCard } from "../overview/client/WidgetCard.tsx";
 import { WindowTabs } from "../../terminal/client/WindowTabs.tsx";
+import type { Page } from "../../frontend/Sidebar.tsx";
+import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
+import { TabHost } from "../../core/host/client.tsx";
 
 /** Branch names start with the change id, which the crumb already shows: drop the repetition. */
 const branchLabel = (id: string, branch: string): string =>
@@ -47,8 +50,9 @@ export function ChangeView({
   onChanged,
 }: {
   id: string;
-  /** Which page of the change to show. */
-  page: "dashboard" | "review" | "terminals";
+  /** Which page of the change to show: the core's dashboard, review or terminals, or a tab an
+   * extension contributes. */
+  page: Page;
   /** Results of the creation step, shown once: it is the one moment something can fail
    * without you having clicked it. */
   provision?: ProvisionResult[];
@@ -73,8 +77,8 @@ export function ChangeView({
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
   /** Switching between the change's own pages, which are tabs rather than navigation: they are
-   * two views of the same change, not two places. */
-  onOpenPage: (page: "dashboard" | "review") => void;
+   * views of the same change, not separate places. */
+  onOpenPage: (page: Page) => void;
   /** The change was renamed, completed or otherwise altered: the lists elsewhere are stale. */
   onChanged: () => void;
   /** The server's platform: what the terminal's key hints and shortcut assume. */
@@ -83,6 +87,9 @@ export function ChangeView({
   const [change, setChange] = useCached<Change>(`${id}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
   const [infos, setInfos] = useCached<CardInfo[]>(`${id}:integrations`);
+  // The tabs the change's page shows, per change for the same reason: they depend on the
+  // workspace, and the server resolves that.
+  const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${id}:tabs`);
   const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -111,6 +118,9 @@ export function ChangeView({
       .catch((e: Error) => setError(e.message));
     api<CardInfo[]>(`/changes/${id}/integrations`)
       .then(setInfos)
+      .catch((e: Error) => setError(e.message));
+    api<{ tabs: ChangeTabInfo[] }>(`/changes/${id}/tabs`)
+      .then(({ tabs }) => setTabs(tabs))
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
@@ -238,9 +248,17 @@ export function ChangeView({
     },
   ];
 
+  // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
+  // — a tab that has gone, a typo — resolves to the dashboard, so the page still renders.
+  const nav = changeNav(tabs ?? []);
+  const active = resolveChangePage(page, tabs ?? []);
+  const activeId = active.kind === "tab" ? active.tab.id : active.kind;
+
   const windowTabs = (
     <WindowTabs
-      page={page}
+      // The resolved id, not the raw segment: an unknown segment renders the dashboard, and
+      // its Overview tab should read as current there too.
+      page={activeId}
       windows={windows}
       platform={platform}
       onSelectWindow={onSelectWindow}
@@ -341,11 +359,11 @@ export function ChangeView({
   );
 
   return (
-    <div className={page === "terminals" ? "page terminal-page" : "page"}>
+    <div className={active.kind === "terminals" ? "page terminal-page" : "page"}>
       {/* The same strip at the very top of the dashboard too, above the change's header, so a
           terminal window is one click from where the work is. */}
-      {page === "dashboard" && <div className="window-bar">{windowTabs}</div>}
-      {page === "terminals" ? terminalBar : changeBar}
+      {active.kind === "dashboard" && <div className="window-bar">{windowTabs}</div>}
+      {active.kind === "terminals" ? terminalBar : changeBar}
       <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
@@ -358,25 +376,23 @@ export function ChangeView({
           calls hold every connection the browser allows per origin for seconds at a time, and
           the terminal's own polling would queue behind them. Coming back repaints from the
           cache and refreshes. */}
-      {/* Two views of one change: what it is doing, and what is in it. The terminal is not one
-          of them — it is reached from the navigation column, and lives in its own page. */}
-      {page !== "terminals" && (
+      {/* The change's own views: what it is doing, what is in it, and whatever an extension
+          adds as a tab. The terminal is not one of them — it is reached from the navigation
+          column, and lives in its own page. */}
+      {active.kind !== "terminals" && (
         <nav className="tabs">
-          {([
-            ["dashboard", "Dashboard"],
-            ["review", "Review changes"],
-          ] as const).map(([name, label]) => (
+          {nav.map((tab) => (
             <button
-              key={name}
-              className={page === name ? "tab current" : "tab"}
-              onClick={() => onOpenPage(name)}
+              key={tab.id}
+              className={activeId === tab.id ? "tab current" : "tab"}
+              onClick={() => onOpenPage(tab.id)}
             >
-              {label}
+              {tab.title}
             </button>
           ))}
         </nav>
       )}
-      {page === "dashboard" && (
+      {active.kind === "dashboard" && (
         <div className="widgets">
           <div className="column">
             <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
@@ -387,7 +403,7 @@ export function ChangeView({
         </div>
       )}
       {/* Every repository in one list: a change is the unit of work, not a checkout. */}
-      {page === "review" && (
+      {active.kind === "review" && (
         <LocalPane
           changeId={id}
           repos={change?.repos ?? []}
@@ -395,13 +411,26 @@ export function ChangeView({
           suggestion={change?.title ? `${id} ${change.title}` : id}
         />
       )}
+      {/* An extension's own tab. It gets the change, which may still be loading: nothing to
+          hand it means a hint rather than a crash. */}
+      {active.kind === "tab" &&
+        (change ? (
+          <TabHost
+            key={active.tab.id}
+            info={active.tab}
+            change={change}
+            workspace={change.workspace}
+          />
+        ) : (
+          <p className="hint">loading…</p>
+        ))}
       {terminalOpened && (
-        <div className="terminal-host" hidden={page !== "terminals"}>
+        <div className="terminal-host" hidden={active.kind !== "terminals"}>
           <TerminalPane
             changeId={id}
             url={terminal.url}
             error={terminal.error}
-            visible={page === "terminals"}
+            visible={active.kind === "terminals"}
             platform={platform}
             onNewWindow={terminal.create}
             gone={terminal.gone}

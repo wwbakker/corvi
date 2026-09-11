@@ -6,6 +6,7 @@ import { createChange, readChange } from "../src/change/server/index.ts";
 import { runEffect, TestError } from "./helpers.ts";
 import { Effect } from "effect";
 import {
+  changeTabsFor,
   dispatchExtensionRoute,
   extensionsFor,
   install,
@@ -298,6 +299,43 @@ test("an extension's page is offered only in a context that has it", () => {
   // A context that dropped leftovers has no Leftovers entry, not an empty one.
   const withoutLeftovers = pagesFor(ws({ extensions: ["deployments"] }));
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
+});
+
+test("a change tab is offered only in a context that has the extension, and a duplicate id is owned by the first", () => {
+  const first = install({
+    name: "test-tab-first",
+    title: "First tab",
+    changeTabs: [{ id: "inspect", title: "Inspect" }],
+  });
+  const second = install({
+    name: "test-tab-second",
+    title: "Second tab",
+    // The same id as the first: a tab id is its identity on the URL, so the first owns it.
+    changeTabs: [
+      { id: "inspect", title: "Inspect again" },
+      { id: "timeline", title: "Timeline" },
+    ],
+  });
+  try {
+    const both = changeTabsFor(ws({ extensions: ["test-tab-first", "test-tab-second"] }));
+    expect(both).toEqual([
+      { id: "inspect", title: "Inspect", extension: "test-tab-first" },
+      { id: "timeline", title: "Timeline", extension: "test-tab-second" },
+    ]);
+
+    // A context that dropped the first extension gets the second's tab under that id.
+    const withoutFirst = changeTabsFor(ws({ extensions: ["test-tab-second"] }));
+    expect(withoutFirst).toEqual([
+      { id: "inspect", title: "Inspect again", extension: "test-tab-second" },
+      { id: "timeline", title: "Timeline", extension: "test-tab-second" },
+    ]);
+
+    // A context without either extension has no tab to show, not an empty one.
+    expect(changeTabsFor(ws({ extensions: [] }))).toEqual([]);
+  } finally {
+    loaded.splice(loaded.indexOf(first), 1);
+    loaded.splice(loaded.indexOf(second), 1);
+  }
 });
 
 test("a completion step is planned only when the change has something for it", () => {

@@ -2,6 +2,7 @@ import { Effect, Layer } from "effect";
 import {
   Bus,
   Cache,
+  Changes,
   ExtensionStore,
   Shell,
   Settings,
@@ -16,10 +17,12 @@ import { announce } from "../platform/capabilities/events.ts";
 import { BadRequestError } from "../platform/effect/errors.ts";
 import {
   listExtensionFiles,
+  readChange,
   readExtensionFile,
   setExtensionData,
   writeExtensionFile,
 } from "../../change/server/store.ts";
+import { checkoutFor } from "../integrations/git.ts";
 import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
 /**
@@ -52,6 +55,15 @@ export const SettingsLive = Layer.succeed(Settings, config);
 
 export const BusLive = Layer.succeed(Bus, {
   announce: (event) => Effect.sync(() => announce(event)),
+});
+
+/** The read-only `Changes` store: the change module's own read and the git checkout lookup,
+ * provided statically like the other services. It is a leaf delegation — nothing here needs a
+ * workspace — and `../integrations/git.ts` is imported by value rather than its barrel so the
+ * host's module graph stays acyclic. */
+export const ChangesLive = Layer.succeed(Changes, {
+  read: readChange,
+  checkout: checkoutFor,
 });
 
 /** The `ExtensionStore` layer with the extension's name bound, so an effect writes `notes.md`
@@ -88,6 +100,7 @@ export const capabilitiesLayer = (
     CacheLive,
     SettingsLive,
     BusLive,
+    ChangesLive,
     Layer.succeed(Workspace, workspace),
     extensionStoreLayer(extension),
   );

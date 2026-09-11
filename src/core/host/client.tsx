@@ -1,18 +1,19 @@
 import { type JSX, useEffect, useState, type ComponentType } from "react";
-import type { Selection } from "../../frontend/api.ts";
+import type { Change, Selection } from "../../frontend/api.ts";
 
 /**
  * The client halves of the extensions, and the hosts that render them.
  *
  * An extension's interface is a React component it ships next to its server half, exported as
- * `step` (a wizard step) or `page` (a page the sidebar offers) — or both. Built-ins are in the
- * registry below — build-time dynamic imports, each made its own chunk by the bundler, loaded
- * the first time a page renders that extension's step or page. An out-of-tree extension has no
- * static entry: its client was never seen by the bundler, so StepHost and PageHost fall back
- * to importing the chunk the server built and serves at /extensions/<name>/client.js. The
- * contract — one module exporting `step` and/or `page` — stays, which is why the server, not
- * the page, decides what exists: the wizard is told the steps and the sidebar is told the
- * pages, and both render what they are told.
+ * `step` (a wizard step), `page` (a page the sidebar offers) or `tab` (a tab on a change's
+ * page) — or any combination. Built-ins are in the registry below — build-time dynamic imports,
+ * each made its own chunk by the bundler, loaded the first time a page renders that extension's
+ * step, page or tab. An out-of-tree extension has no static entry: its client was never seen by
+ * the bundler, so StepHost, PageHost and TabHost fall back to importing the chunk the server
+ * built and serves at /extensions/<name>/client.js. The contract — one module exporting `step`
+ * and/or `page` and/or `tab` — stays, which is why the server, not the page, decides what
+ * exists: the wizard is told the steps, the sidebar the pages and the change page its tabs, and
+ * each renders what it is told.
  */
 
 /** What the wizard has in hand while its steps run, shared between them. */
@@ -42,7 +43,10 @@ export type PageProps = { workspace?: string };
 
 export type PageComponent = ComponentType<PageProps>;
 
-export type ClientModule = { step?: StepComponent; page?: PageComponent };
+/** What a change tab gets: the change it is about, and the workspace that change belongs to. */
+export type TabComponent = ComponentType<{ change: Change; workspace?: string }>;
+
+export type ClientModule = { step?: StepComponent; page?: PageComponent; tab?: TabComponent };
 
 export const clients: Record<string, () => Promise<ClientModule>> = {
   jira: () => import("../../extensions/jira/client.tsx"),
@@ -116,4 +120,40 @@ export function PageHost({
   if (error) return <div className="error-banner">{error}</div>;
   if (!Page) return <p className="hint">loading…</p>;
   return <Page workspace={workspace} />;
+}
+
+/** One extension's change tab, the same way: the module loaded the first time the tab is shown,
+ * from the registry when the extension is built in, from the server's chunk when it is not. An
+ * extension that offered a tab server-side but exports none on this side says so. */
+export function TabHost({
+  info,
+  change,
+  workspace,
+}: {
+  info: { id: string; title: string; extension: string };
+  change: Change;
+  workspace?: string;
+}): JSX.Element {
+  const [Tab, setTab] = useState<TabComponent>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let alive = true;
+    const load = clients[info.extension];
+    const loader = load ?? (() => runtimeImport(`/extensions/${info.extension}/client.js`));
+    loader()
+      .then((m) => {
+        if (!alive) return;
+        if (!m.tab) setError(`${info.extension} has no tab on this side`);
+        else setTab(() => m.tab);
+      })
+      .catch((e: Error) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [info.extension]);
+  if (error) return <div className="error-banner">{error}</div>;
+  if (!Tab) return <p className="hint">loading…</p>;
+  return <Tab change={change} workspace={workspace} />;
 }

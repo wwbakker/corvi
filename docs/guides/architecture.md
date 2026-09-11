@@ -99,7 +99,9 @@ The consequences are worth stating because they settle arguments:
   merges. "Review changes" is a good extension candidate because it is a bounded git surface, not
   a composition.
 - The **sidebar is core as a shell**; its entries (workspaces, changes, pages, windows) are
-  data the server sends.
+  data the server sends. The **change page is core as a shell** too: it composes the core's
+  Dashboard and Review with the change tabs its workspace's extensions contribute, and resolves
+  a tab id nobody offers back to the dashboard.
 - **Terminal presentation is extensible; tmux and ttyd themselves are core furniture.**
 - The **git worktree engine is core.** Extensions act on changes; they do not create them.
 

@@ -2,6 +2,7 @@ import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AgentIcon, TerminalIcon } from "../../frontend/icons.tsx";
 import type { Platform } from "../model.ts";
 import type { TerminalWindow } from "../../core/domain/terminal.ts";
+import type { Page } from "../../frontend/Sidebar.tsx";
 
 /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
  * the terminal both show this strip — a window is one click from either — and because it is
@@ -18,7 +19,7 @@ export function WindowTabs({
 }: {
   /** Which of the change's pages is on screen: the dashboard and the terminal both show the
    * strip, and the current tab differs between them. */
-  page: "dashboard" | "review" | "terminals";
+  page: Page;
   /** This change's tmux windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
   /** The server's platform: what the new-terminal tab's shortcut assumes. */
@@ -32,7 +33,7 @@ export function WindowTabs({
   onMoveWindow: (from: number, to: number) => void;
   /** Switching between the change's own pages, which are tabs rather than navigation: they are
    * two views of the same change, not two places. */
-  onOpenPage: (page: "dashboard" | "review") => void;
+  onOpenPage: (page: Page) => void;
 }): JSX.Element {
   // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
   // — overview and "new" — take no part in either.

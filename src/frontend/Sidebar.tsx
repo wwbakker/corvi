@@ -9,8 +9,10 @@ import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import type { Platform } from "../terminal/model.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 
-/** Which page of a change is open. The dashboard is what selecting a change opens. */
-export type Page = "dashboard" | "review" | "terminals";
+/** Which page of a change is open. The dashboard is what selecting a change opens; review and
+ * terminals are the core's own, and any other id is a tab an extension contributed — the id is
+ * the last segment of the change's URL. */
+export type Page = "dashboard" | "review" | "terminals" | (string & {});
 
 /** How wide the column is, remembered between visits: it is furniture, and moving it back every
  * morning would be its own small annoyance. A cookie rather than localStorage: the app serves

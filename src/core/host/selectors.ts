@@ -4,6 +4,7 @@ import { workspaceOf } from "../../workspace/server/index.ts";
 import { loaded, type LoadedExtension } from "./registry.ts";
 import type {
   Card,
+  ChangeTab,
   CompletionStepContributor,
   DescriptionSection,
   LooseEndContributor,
@@ -103,3 +104,24 @@ export type PageInfo = Page & { extension: string };
 
 export const pagesFor = (workspace: Workspace): PageInfo[] =>
   contributed(workspace, (e) => e.pages.map((page) => ({ ...page, extension: e.name })));
+
+/** A change tab across a workspace's extensions, with the extension each belongs to — the
+ * tab's identity on the routes and the change URL. */
+export type ChangeTabInfo = ChangeTab & { extension: string };
+
+/** The tabs a workspace's extensions add to a change's page, in load order. A tab id is the
+ * tab's identity on the route and the URL, so a duplicate would be two tabs at one address:
+ * the first extension to declare an id keeps it and a later one's is skipped, mirroring how a
+ * duplicate extension name is resolved (registry.install). */
+export const changeTabsFor = (workspace: Workspace): ChangeTabInfo[] => {
+  const seen = new Set<string>();
+  const tabs: ChangeTabInfo[] = [];
+  for (const tab of contributed(workspace, (e) =>
+    e.changeTabs.map((t) => ({ ...t, extension: e.name })),
+  )) {
+    if (seen.has(tab.id)) continue;
+    seen.add(tab.id);
+    tabs.push(tab);
+  }
+  return tabs;
+};

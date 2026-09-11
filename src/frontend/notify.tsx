@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useRef, useState } from "react";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../core/domain/terminal.ts";
+import type { Page } from "./Sidebar.tsx";
 
 /**
  * What a window wanting you turns into: a native notification in the app's window, the browser's
@@ -106,7 +107,7 @@ export function Notifier({
 }: {
   /** The change and page on screen now, if the page is a change at all. */
   change: string | null;
-  page: "dashboard" | "review" | "terminals";
+  page: Page;
   /** The on-screen change's windows, for telling the window being looked at from the others. */
   windows: TerminalWindow[];
   /** Where a click should take you. */

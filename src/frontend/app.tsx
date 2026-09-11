@@ -97,10 +97,12 @@ function Home({
   );
 }
 
-/** The URL is the view: /new, /changes/<id>[/terminals|/local], /<page> for an extension's
- * page, everything else is home. The pages are the server's (`/api/pages`), so a top-level
- * path resolves only once they are known — until then it is home, and the resolution is
- * redone when they arrive. */
+/** The URL is the view: /new, /changes/<id>[/<page>], /<page> for an extension's page,
+ * everything else is home. The change's page segment is kept as it is — the core's `dashboard`,
+ * `review` and `terminals`, or a tab an extension contributes — and ChangeView resolves an id
+ * nobody offers to the dashboard, so a stale URL still renders something. The pages are the
+ * server's (`/api/pages`), so a top-level path resolves only once they are known — until then
+ * it is home, and the resolution is redone when they arrive. */
 function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
   if (path === "/new") return { name: "new" };
   if (path === "/settings") return { name: "settings" };
@@ -121,7 +123,7 @@ function viewOf(path: string, pages: { id: string; extension: string }[] = []): 
     }
     return { name: "home" };
   }
-  const page = m[2] === "terminals" || m[2] === "review" ? m[2] : "dashboard";
+  const page = m[2] ?? "dashboard";
   return { name: "change", id: decodeURIComponent(m[1]!), page };
 }
 

@@ -69,6 +69,7 @@ export {
 export {
   cardForExtension,
   cardsFor,
+  changeTabsFor,
   completionStepsFor,
   descriptionSectionsFor,
   extensionsFor,
@@ -77,6 +78,7 @@ export {
   summaryContributorsFor,
   titleSourcesFor,
   wizardStepsFor,
+  type ChangeTabInfo,
   type NamedContribution,
   type PageInfo,
   type WizardStepInfo,

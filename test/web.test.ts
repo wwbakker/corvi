@@ -2,6 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import type { Change } from "../src/core/domain/change.ts";
 import { aborted, api, del, patch, post, put, type ApiError } from "../src/frontend/api.ts";
 import { stateClass } from "../src/change/client/changeState.tsx";
+import { changeNav, resolveChangePage } from "../src/change/client/changeTabs.ts";
 import { moment } from "../src/frontend/moment.ts";
 import { getPref, setPref } from "../src/frontend/prefs.ts";
 import {
@@ -81,6 +82,44 @@ test("a state becomes one class, lowercased with spaces as dashes", () => {
   // A state an extension wrote is still a safe class name: runs of whitespace collapse to one
   // dash each, not one per character.
   expect(stateClass("Some  Weird\tState")).toBe("state-some-weird-state");
+});
+
+test("a change's page id resolves to the core, an offered tab, or the dashboard", () => {
+  const tab = { id: "ci", title: "CI", extension: "ci" };
+  const tabs = [tab];
+
+  expect(resolveChangePage("dashboard", tabs)).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", tabs)).toEqual({ kind: "review" });
+  expect(resolveChangePage("terminals", tabs)).toEqual({ kind: "terminals" });
+  expect(resolveChangePage("ci", tabs)).toEqual({ kind: "tab", tab });
+
+  // An id nobody offered — a stale URL, a tab the extension stopped declaring — is the
+  // dashboard, so the page still renders something.
+  expect(resolveChangePage("gone", tabs)).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("gone", [])).toEqual({ kind: "dashboard" });
+});
+
+test("the change nav is the core's two tabs and then the extensions' in load order", () => {
+  expect(changeNav([])).toEqual([
+    { id: "dashboard", title: "Dashboard" },
+    { id: "review", title: "Review changes" },
+  ]);
+  expect(
+    changeNav([
+      { id: "ci", title: "CI", extension: "ci" },
+      { id: "jira", title: "Issues", extension: "jira" },
+    ]),
+  ).toEqual([
+    { id: "dashboard", title: "Dashboard" },
+    { id: "review", title: "Review changes" },
+    { id: "ci", title: "CI" },
+    { id: "jira", title: "Issues" },
+  ]);
+  // A contributed id that would shadow a core page is dropped: the core addressed it first.
+  expect(changeNav([{ id: "review", title: "Review again", extension: "x" }])).toEqual([
+    { id: "dashboard", title: "Dashboard" },
+    { id: "review", title: "Review changes" },
+  ]);
 });
 
 test("a timestamp reads as local date and time, zero-padded to the minute", () => {

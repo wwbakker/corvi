@@ -5,7 +5,7 @@ import { config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import type { Widget, WidgetItem } from "../src/core/domain/widget.ts";
 import type { Capabilities, Card } from "../src/core/host/api.ts";
-import { BusLive, CacheLive, SettingsLive, extensionStoreLayer } from "../src/core/host/services.ts";
+import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/core/host/services.ts";
 import { install, loaded } from "../src/core/host/registry.ts";
 import { provision, repoStatusOf, runCard, statusOne } from "../src/core/host/effects.ts";
 import ciExtension from "../src/extensions/ci/index.ts";
@@ -414,6 +414,7 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     CacheLive,
     SettingsLive,
     BusLive,
+    ChangesLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
     extensionStoreLayer("test"),
   );
