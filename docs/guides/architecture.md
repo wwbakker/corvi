@@ -43,8 +43,6 @@ src/
                        leftovers, review, notes)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
-  deploySettings.ts    the deployments settings, read by the shared azure client and the
-                       workspace module
 ```
 
 The extension host (`src/core/host/index.ts`) loads built-ins and out-of-tree modules through
@@ -65,17 +63,17 @@ directories:
   core + the git extension).
 - **`src/core/platform/`** — the substrate, not a feature: the route tables, the Effect runtime
   plumbing and the capabilities (`sh`, `cache`, `events`) every module runs on.
-- **top-level `src/*.ts`** — `server.ts`, the composition root, and `deploySettings.ts`, shared
-  by the azure client and the workspace module.
+- **top-level `src/*.ts`** — `server.ts`, the composition root.
 
-One shared module lives outside the feature folders:
+A feature's pure vocabulary and its settings live with it: `deployments/deployConventions.ts` is
+needed by both that extension's server and browser halves, and
+`deployments/deploySettings.ts` is the extension's own read of the settings it declares, so both
+sit beside them.
 
-- `src/deploySettings.ts` — read by the shared `azure` client and by the workspace module's
-  `workspaces.ts`,
-  so moving it would invert the layering.
-
-A feature's pure vocabulary lives with it: `deployments/deployConventions.ts` is needed by both
-that extension's server and browser halves, so it sits beside them.
+The vendor layer owns what is a vendor's: `src/core/integrations/azure.ts` holds the
+organisation-and-project chain (`azureOf`) and the enablement rule (`azureEnabled`) for ci and
+deployments alike, so `src/workspace/server/workspaces.ts` names no vendor — it only answers
+`extensionEnabled`, the generic enablement every surface uses.
 
 Git cannot be colocated while `src/core/integrations/git.ts` is shared by the core and the git
 extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this

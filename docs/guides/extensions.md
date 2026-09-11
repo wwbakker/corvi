@@ -378,8 +378,8 @@ no subtraction, because a list you can read is worth more than a default you hav
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
 `"azure": false` is still read where it states a fact — "this context has no pipelines" — by
-`usesAzure`/`azureOf` (src/workspace/server/workspaces.ts) and the workspace card, but it never rewrites the
-`extensions` list.
+`azureEnabled`/`azureOf` (src/core/integrations/azure.ts), the shared azure client, which also
+honours the deployments extension's enablement; it never rewrites the `extensions` list.
 
 ## Per-workspace settings
 
@@ -388,7 +388,10 @@ string fields under `workspaceSettings`, shown on the settings page for every wo
 the extension enabled, stored under the workspace's `extensionSettings[name][key]`. The core
 carries that bag without looking inside — what belongs there is the extension's own declaration,
 and the extension reads it back from the request's `Workspace` tag (the jira extension's
-`siteOfWorkspace` is the model).
+`siteOfWorkspace` is the model). The deployments extension is the other worked example: it
+declares `workspaceSettings` for organisation and project, and the shared azure client reads them
+back as the first step of its chain — a per-workspace override the page can write, with the
+legacy `workspace.azure` object and the global settings as the fallbacks below it.
 
 ## Global settings
 

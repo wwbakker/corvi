@@ -32,8 +32,7 @@ export {
   workspaces,
   workspaceById,
   workspaceOf,
-  usesAzure,
-  azureOf,
+  extensionEnabled,
   reposStartOf,
 } from "./workspaces.ts";
 

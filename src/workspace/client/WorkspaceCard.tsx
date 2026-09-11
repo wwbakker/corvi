@@ -104,7 +104,6 @@ export function WorkspaceCard({
   onRemove?: () => void;
 }): JSX.Element {
   const set = (patch: Partial<Workspace>): void => onChange({ ...workspace, ...patch });
-  const azure = workspace.azure === false ? undefined : (workspace.azure ?? {});
   // The same enablement the ExtensionToggles show: absent means all of them.
   const enabled = (name: string): boolean =>
     workspace.extensions ? workspace.extensions.includes(name) : true;
@@ -160,31 +159,6 @@ export function WorkspaceCard({
             ))}
           </div>
         ) : null,
-      )}
-
-      <label className="switch">
-        <input
-          type="checkbox"
-          checked={Boolean(azure)}
-          onChange={(e) => set({ azure: e.target.checked ? {} : false })}
-        />
-        <span>This context has Azure DevOps</span>
-      </label>
-      {azure && (
-        <div className="nested">
-          <Field
-            label="Organisation"
-            placeholder="the global setting"
-            value={azure.organization}
-            onChange={(organization) => set({ azure: { ...azure, organization } })}
-          />
-          <Field
-            label="Project"
-            placeholder="the global setting"
-            value={azure.project}
-            onChange={(project) => set({ azure: { ...azure, project } })}
-          />
-        </div>
       )}
 
       <EnvEditor env={workspace.env ?? {}} onChange={(env) => set({ env })} />

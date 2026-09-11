@@ -249,8 +249,8 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
         <>
           <p className="hint">
             A context you work in: a client, or your own projects. Not only a filter — the
-            extension switches decide what it has at all, and one without Azure DevOps has no
-            deployments page and no pipelines to look for.
+            extension switches decide what it has at all, and one without the deployments
+            extension has no deployments page and no pipelines to look for.
           </p>
           <div className="form">
             {(draft.workspaces ?? []).map((workspace, index) => (

@@ -1,4 +1,5 @@
 import { test, expect } from "bun:test";
+import deployments from "../src/extensions/deployments/index.ts";
 import { acceptedVersions, type Run } from "../src/extensions/deployments/server.ts";
 import { runVersionsFor } from "./helpers.ts";
 import { autoDeployedApp } from "../src/extensions/deployments/deployConventions.ts";
@@ -24,6 +25,20 @@ const run = (
   startTime: "2026-09-01T09:00:00Z",
   finishTime: status === "completed" ? "2026-09-01T09:10:00Z" : null,
   templateParameters: { environment, imageTag: version },
+});
+
+test("the extension declares the settings the settings page renders", () => {
+  // Organisation and project are declared twice over: as a server-wide setting and as a
+  // per-workspace override, which is the chain the shared azure client reads.
+  expect(deployments.workspaceSettings?.map((f) => f.key)).toEqual(["organization", "project"]);
+  expect(deployments.globalSettings?.map((f) => f.key)).toEqual([
+    "organization",
+    "project",
+    "pipeline",
+    "versionParameter",
+    "environmentParameter",
+    "environments",
+  ]);
 });
 
 test("*-app deploys are read from the deploy run's own parameters, newest first", () => {

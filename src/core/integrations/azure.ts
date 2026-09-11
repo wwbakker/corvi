@@ -5,8 +5,8 @@ import type { Change } from "../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../domain/widget.ts";
 import { swr } from "../platform/capabilities/cache.ts";
 import type { Workspace } from "../domain/config.ts";
-import { azureOf, usesAzure, workspaceOf } from "../../workspace/server/index.ts";
-import { deploySettings } from "../../deploySettings.ts";
+import { config, extensionEnabled, workspaceOf } from "../../workspace/server/index.ts";
+import { bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
 import { cliJson, shSoft } from "../platform/effect/support.ts";
 
 export type Run = {
@@ -55,6 +55,43 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
+/** Whether Azure DevOps is enabled for this workspace: the deployments extension is present
+ * (an absent extensions list means all of them), and the legacy `azure: false` — "this context
+ * has no pipelines" — still says no. */
+export const azureEnabled = (workspace: Workspace): boolean =>
+  extensionEnabled(workspace, "deployments") && workspace.azure !== false;
+
+/** The organisation and project every workspace falls back to: the deployments extension's
+ * global settings bag, then the legacy flat field (which resolves IWE_AZURE_ORG /
+ * IWE_AZURE_PROJECT), then whatever `az devops configure` holds (azDefaults below). */
+const globalAzure = (): { organization: string; project: string } => ({
+  organization: resolveSetting({
+    bag: bagString(config.extensionSettings?.deployments, "organization"),
+    fallback: config.azureOrganization,
+  }),
+  project: resolveSetting({
+    bag: bagString(config.extensionSettings?.deployments, "project"),
+    fallback: config.azureProject,
+  }),
+});
+
+/** Azure DevOps for this workspace, the whole precedence chain in one place: the per-workspace
+ * settings bag (`workspace.extensionSettings.deployments`, what the settings page writes), then
+ * the legacy `workspace.azure` object, then the global settings bag, then the legacy flat field,
+ * and finally whatever `az devops configure` holds — which `azFor` reaches when this answers
+ * empty. The legacy fields stay readable; nothing rewrites them. */
+export function azureOf(workspace: Workspace): { organization: string; project: string } {
+  const legacy = workspace.azure === false ? undefined : workspace.azure;
+  const own = workspace.extensionSettings?.deployments;
+  const global = globalAzure();
+  const field = (key: "organization" | "project", fallback: string): string =>
+    resolveSetting({ bag: bagString(own, key) ?? legacy?.[key], fallback });
+  return {
+    organization: field("organization", global.organization),
+    project: field("project", global.project),
+  };
+}
+
 export const azDefaults = (): Effect.Effect<{ organization?: string; project?: string }> =>
   Effect.suspend(() => {
     if (defaults) return Effect.succeed(defaults);
@@ -62,11 +99,12 @@ export const azDefaults = (): Effect.Effect<{ organization?: string; project?: s
       const r = yield* shSoft(["az", "devops", "configure", "-l"]);
       const read = (key: string): string | undefined =>
         new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
+      const global = globalAzure();
       defaults = {
-        // The deployments extension's own setting wins; the legacy config field (which resolves
-        // the environment variable) is the fallback, then az devops configure.
-        organization: deploySettings().organization || read("organization"),
-        project: deploySettings().project || read("project"),
+        // The configuration chain's end: the deployments settings (bag, then the legacy flat
+        // field, which resolves the environment variable), then what the CLI itself holds.
+        organization: global.organization || read("organization"),
+        project: global.project || read("project"),
       };
       return defaults;
     });
@@ -205,7 +243,7 @@ const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: s
 export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
   Effect.gen(function* () {
     const workspace = workspaceOf(change);
-    if (!usesAzure(workspace)) return 0; // a context without pipelines has none running
+    if (!azureEnabled(workspace)) return 0; // a context without pipelines has none running
     const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
       listDefinitions(az, repo),
@@ -399,7 +437,7 @@ export const pipelineItems = (
     const workspace = workspaceOf(change);
     // A context without pipelines is not an empty list of them, it is silence: the card shows the
     // pull request and nothing else, and no `az` process is started.
-    if (!usesAzure(workspace)) return { items: [], count: 0 };
+    if (!azureEnabled(workspace)) return { items: [], count: 0 };
     const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([

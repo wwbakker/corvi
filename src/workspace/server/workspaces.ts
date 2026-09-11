@@ -1,8 +1,6 @@
 import type { Change } from "../../core/domain/change.ts";
 import { config } from "./config.ts";
 import type { Workspace } from "../../core/domain/config.ts";
-import { deploySettings } from "../../deploySettings.ts";
-import { resolveSetting } from "../../settings/server/legacySettings.ts";
 
 /**
  * Which context a change belongs to, and what that context implies.
@@ -20,30 +18,12 @@ export function workspaceById(id?: string): Workspace {
 
 export const workspaceOf = (change: Change): Workspace => workspaceById(change.workspace);
 
-/** Whether an integration applies here at all. Absent means yes: a workspace that says nothing
- * about Azure DevOps is one that has it.
- *
- * Jira has no such helper: enablement is the extensions list, and the site settings are the jira
- * extension's own (src/extensions/jira/jira.ts). */
-export const usesAzure = (workspace: Workspace): boolean => workspace.azure !== false;
-
-/** Azure DevOps for this workspace, falling back to the global setting — read through the
- * deployments extension's own chain (the settings bag, then the flat field, src/deploySettings.ts)
- * — and then to whatever `az devops configure` holds. */
-export function azureOf(workspace: Workspace): { organization: string; project: string } {
-  const own = workspace.azure === false ? undefined : workspace.azure;
-  const global = deploySettings();
-  return {
-    organization: resolveSetting({
-      bag: own?.organization,
-      fallback: global.organization ?? config.azureOrganization,
-    }),
-    project: resolveSetting({
-      bag: own?.project,
-      fallback: global.project ?? config.azureProject,
-    }),
-  };
-}
+/** Whether an extension exists in this workspace. Absent means all of them: a workspace that
+ * names no extensions has every one. This is the one enablement rule, shared by every surface
+ * that asks; a vendor's own client adds its legacy flag on top (src/core/integrations/azure.ts's
+ * `azureEnabled`). */
+export const extensionEnabled = (workspace: Workspace, name: string): boolean =>
+  workspace.extensions ? workspace.extensions.includes(name) : true;
 
 /** Where the repository browser opens for this workspace. */
 export const reposStartOf = (workspace: Workspace): string =>

@@ -498,7 +498,8 @@ test("a change belongs to the context it was made in, and older ones to the firs
 
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
-  const { azureOf, usesAzure, workspaceOf } = await import("../src/workspace/server/index.ts");
+  const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
+  const { azureEnabled, azureOf } = await import("../src/core/integrations/azure.ts");
   const { extensionsFor, loaded } = await import("../src/core/host/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
@@ -524,7 +525,12 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   expect(extensionsFor(workspaceOf(client)).some((e) => e.name === "jira")).toBe(true);
   expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "jira")).toBe(false);
   expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "ci")).toBe(true);
-  expect(usesAzure(workspaceOf(personal))).toBe(false);
+  // Enablement is the list: naming extensions without deployments means no pipelines, whatever
+  // the legacy workspace.azure says. `extensionEnabled` is the generic rule azureEnabled builds on.
+  expect(extensionEnabled(workspaceOf(personal), "deployments")).toBe(false);
+  expect(extensionEnabled(workspaceOf(personal), "ci")).toBe(true);
+  expect(azureEnabled(workspaceOf(personal))).toBe(false);
+  expect(azureEnabled(workspaceOf(client))).toBe(true);
 
   // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Jira's
   // site comes from the extension's own per-workspace settings; a workspace with none of them
