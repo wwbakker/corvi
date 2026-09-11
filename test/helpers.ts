@@ -1,4 +1,4 @@
-import { Effect, Layer, TestClock, TestContext } from "effect";
+import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/config.ts";
 import { capabilitiesLayer } from "../src/extensions/services.ts";
 import { setRepos } from "../src/integrations/git.ts";
@@ -52,6 +52,10 @@ export const runEffectWithTestClock = <A, E>(
       ),
     ),
   );
+
+/** A typed stand-in for a failed vendor in a test: the language service forbids a global
+ * `Error` in an Effect failure channel, and the code under test only reads its message. */
+export class TestError extends Data.TaggedError("TestError")<{ readonly message: string }> {}
 
 /** A command a fake Shell was asked to run, in the order it was asked. */
 export type ShellCall = { cmd: readonly string[]; cwd?: string };
@@ -124,7 +128,16 @@ export const runSh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
 
 /** The stale-while-revalidate cache, around a test's Promise-shaped work. */
 export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
-  runEffect(swr(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })));
+  runEffect(
+    swr(
+      key,
+      ttl,
+      Effect.tryPromise<T, TestError>({
+        try: work,
+        catch: (e) => new TestError({ message: e instanceof Error ? e.message : String(e) }),
+      }),
+    ),
+  );
 
 /** Editing a change's repositories, in the duck the tests read: the Effect API answers in a
  * tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */

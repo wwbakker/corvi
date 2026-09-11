@@ -1,4 +1,4 @@
-import { Duration, Effect, Option } from "effect";
+import { Duration, Effect, Either, Option } from "effect";
 import { homedir } from "node:os";
 import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
@@ -73,22 +73,27 @@ const spawn = (
 ): Effect.Effect<Result, CliError> =>
   Effect.gen(function* () {
     const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
-    let proc;
-    try {
-      // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
-      // Empty outside a request.
-      proc = Bun.spawn([...cmd], {
-        cwd,
-        env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-    } catch (e) {
+    const spawned = yield* Effect.either(
+      Effect.try({
+        try: () =>
+          // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
+          // Empty outside a request.
+          Bun.spawn([...cmd], {
+            cwd,
+            env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
+            stdout: "pipe",
+            stderr: "pipe",
+          }),
+        catch: (e) => (e instanceof Error ? e.message : String(e)),
+      }),
+    );
+    if (Either.isLeft(spawned)) {
       // A missing tool, or a working directory that is not there any more — a repository moved
       // or deleted out from under a change. That is a failed command, not a broken server: every
       // caller already knows what to do with a non-zero code, and none of them expect a throw.
-      return { code: 127, stdout: "", stderr: e instanceof Error ? e.message : String(e) };
+      return { code: 127, stdout: "", stderr: spawned.left };
     }
+    const proc = spawned.right;
     const read = Effect.all([
       Effect.promise(() => new Response(proc.stdout).text()),
       Effect.promise(() => new Response(proc.stderr).text()),

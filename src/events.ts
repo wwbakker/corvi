@@ -160,7 +160,8 @@ function stopWatcher(): void {
   if (!watcher) return;
   const fiber = watcher;
   watcher = undefined;
-  Fiber.interruptFork(fiber);
+  // `Fiber.interruptFork` returns an Effect; running it is what actually cancels the fiber.
+  Effect.runFork(Fiber.interrupt(fiber));
 }
 
 function broadcast(event: EventName, data = ""): void {
@@ -230,15 +231,17 @@ export const events = (req: Request): Effect.Effect<Response> =>
         // that has had nothing at all is indistinguishable from one that never connected. The
         // page refetches on open; the watcher's first look covers everything that moves after.
         client.send("open", "");
-        yield* Effect.forever(
+        return yield* Effect.forever(
           Effect.gen(function* () {
             yield* Effect.sleep(HEARTBEAT);
-            try {
-              client.ping();
-            } catch {
-              forget(client);
-              yield* Effect.interrupt;
-            }
+            // Writing to a stream nobody is reading throws: the connection is gone, whatever we
+            // were told, so forget the client and end this fiber's loop.
+            yield* Effect.sync(() => client.ping()).pipe(
+              Effect.catchAllDefect(() => {
+                forget(client);
+                return Effect.interrupt;
+              }),
+            );
           }),
         );
       }),

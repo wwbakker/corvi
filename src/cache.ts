@@ -19,6 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Clock, Deferred, Effect, Exit, pipe } from "effect";
+import { fs } from "./effect/support.ts";
 
 type Entry = {
   /** When the value was produced. */
@@ -135,12 +136,9 @@ const RESTORE_MAX_AGE = 6 * 60 * 60_000;
 export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
   type Stored = Record<string, { at: number; value: unknown }>;
   const stored = yield* pipe(
-    Effect.tryPromise<Stored, unknown>({
-      try: () => Bun.file(cacheFile()).json(),
-      catch: (e) => e,
-    }),
+    fs<Stored>(() => Bun.file(cacheFile()).json()),
     // A missing or unreadable cache file is a cold cache, not an error.
-    Effect.catchAll(() => Effect.succeed(null as Stored | null)),
+    Effect.catchAllDefect(() => Effect.succeed(null as Stored | null)),
   );
   if (!stored) return 0;
   let restored = 0;
@@ -156,18 +154,12 @@ export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
 
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
  * JSON — both are skipped. */
-export const saveCache: Effect.Effect<void, unknown> = Effect.gen(function* () {
+export const saveCache: Effect.Effect<void> = Effect.gen(function* () {
   const plain: Record<string, { at: number; value: unknown }> = {};
   for (const [key, entry] of store.entries()) {
     if (entry.at === 0 || entry.value instanceof Map) continue;
     plain[key] = { at: entry.at, value: entry.value };
   }
-  yield* Effect.tryPromise<void, unknown>({
-    try: () => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined),
-    catch: (e) => e,
-  });
-  yield* Effect.tryPromise<void, unknown>({
-    try: () => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined),
-    catch: (e) => e,
-  });
+  yield* fs(() => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined));
+  yield* fs(() => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined));
 });

@@ -46,13 +46,11 @@ export const cancelChange = (
     // strength of a menu item: commit it, or revert it, and then cancel.
     const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
     if (dirty.length) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message:
-            `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, ` +
-            `commit or revert them before cancelling`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message:
+          `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, ` +
+          `commit or revert them before cancelling`,
+      });
     }
     // Commits nobody else has: the branch survives a cancellation, so these are recoverable — but
     // only by someone who knows the branch is there, which is worth one question.

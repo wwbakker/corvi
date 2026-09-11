@@ -106,7 +106,7 @@ export const changesRoutes = guard({
         Effect.gen(function* () {
           const repo = new URL(req.url).searchParams.get("path");
           if (!repo) {
-            return yield* Effect.fail(new BadRequestError({ message: "path required" }));
+            return yield* new BadRequestError({ message: "path required" });
           }
           return json(yield* localChanges(c, repo));
         }),
@@ -142,7 +142,7 @@ export const changesRoutes = guard({
           const repo = params.get("path");
           const file = params.get("file");
           if (!repo || !file) {
-            return yield* Effect.fail(new BadRequestError({ message: "path and file required" }));
+            return yield* new BadRequestError({ message: "path and file required" });
           }
           return json({ text: yield* fileDiff(c, repo, file, params.get("staged") === "1") });
         }),

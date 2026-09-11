@@ -173,7 +173,7 @@ export const writeSettings = (
   Effect.gen(function* () {
     const wrong = problems(next);
     if (wrong.length) {
-      yield* Effect.fail(new BadRequestError({ message: wrong.join("; ") }));
+      return yield* new BadRequestError({ message: wrong.join("; ") });
     }
 
     const merged = prune({ ...readFileSync(), ...next }) as Settings;

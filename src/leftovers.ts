@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { root, ARCHIVE, changeDir } from "./changes.ts";
 import { sh, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 
 /**
  * A directory in the changes root that no longer belongs to a change: what a completed change
@@ -108,13 +109,13 @@ export const removeLeftover = (name: string): Effect.Effect<void, BadRequestErro
   Effect.gen(function* () {
     const path = changeDir(name);
     if (name !== "" && join(root(), name) !== path) {
-      return yield* Effect.fail(badRequest(`not a change directory: ${name}`));
+      return yield* badRequest(`not a change directory: ${name}`);
     }
     if (name === ARCHIVE || name.includes("/") || name.startsWith(".")) {
-      return yield* Effect.fail(badRequest(`not a change directory: ${name}`));
+      return yield* badRequest(`not a change directory: ${name}`);
     }
     if (yield* isChange(name)) {
-      return yield* Effect.fail(badRequest(`${name} is an active change, not a leftover`));
+      return yield* badRequest(`${name} is an active change, not a leftover`);
     }
     // Already gone: a falsy stat means there is nothing left to remove.
     if (!(yield* Effect.promise(() => stat(path).catch(() => null)))) return;
@@ -136,10 +137,7 @@ export const removeLeftover = (name: string): Effect.Effect<void, BadRequestErro
     );
     // Filesystem failures are defects, not domain errors — the directories we remove are ours,
     // so the raw rejection escapes as a defect.
-    yield* Effect.tryPromise({
-      try: () => rm(path, { recursive: true, force: true }).then(() => undefined),
-      catch: (e) => e,
-    }).pipe(Effect.orDie);
+    yield* fs(() => rm(path, { recursive: true, force: true }).then(() => undefined));
     for (const repository of new Set(repositories.filter(Boolean) as string[])) {
       yield* shResult(["git", "worktree", "prune"], repository);
     }

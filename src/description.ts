@@ -36,7 +36,7 @@ export const prDescription = (change: Change): Effect.Effect<string> =>
       (section) =>
         section.heading(change).pipe(
           Effect.provide(capabilities),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         ),
       { concurrency: "unbounded" },
     );

@@ -84,10 +84,10 @@ export const extensionsRoutes = guard({
           const card = cardForExtension(req.params.card);
           const repo = new URL(req.url).searchParams.get("path");
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
+            return yield* new NotFoundError({ message: "unknown extension" });
           }
           if (!repo) {
-            return yield* Effect.fail(new BadRequestError({ message: "path required" }));
+            return yield* new BadRequestError({ message: "path required" });
           }
           return json({ items: yield* repoStatusOf(card, c, repo) });
         }),
@@ -101,7 +101,7 @@ export const extensionsRoutes = guard({
         Effect.gen(function* () {
           const card = cardForExtension(req.params.card);
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
+            return yield* new NotFoundError({ message: "unknown extension" });
           }
           return json(yield* statusOne(req.params.card, card, c));
         }),
@@ -114,12 +114,12 @@ export const extensionsRoutes = guard({
         Effect.gen(function* () {
           const card = cardForExtension(req.params.card);
           if (!card) {
-            return yield* Effect.fail(new NotFoundError({ message: "unknown extension" }));
+            return yield* new NotFoundError({ message: "unknown extension" });
           }
           // The buttons are gone from a finished change's dashboard, but the page may have been
           // open since before it was finished — and this is where the truth lives.
           if (isFinished(c)) {
-            return yield* Effect.fail(new ConflictError({ message: `${c.id} is finished` }));
+            return yield* new ConflictError({ message: `${c.id} is finished` });
           }
           const body = (yield* bodyOrEmpty(req)) as { arg?: string };
           yield* runCard(card, c, req.params.action, body.arg);

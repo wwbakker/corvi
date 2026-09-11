@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { readChange } from "../changes.ts";
-import { NotFoundError } from "../effect/errors.ts";
+import { BadRequestError, isIweError, NotFoundError, type IweError } from "../effect/errors.ts";
+import { messageOf } from "../effect/support.ts";
 import { runRoute } from "../effect/run.ts";
 import { Workspace } from "../effect/tags.ts";
 import type { Change } from "../types.ts";
@@ -14,17 +15,24 @@ export const workspaceParam = (req: Request): string | undefined =>
   new URL(req.url).searchParams.get("workspace") ?? undefined;
 
 /** The request body, or a failure (a body that will not parse is the caller's mistake). */
-export const bodyOf = (req: Request): Effect.Effect<unknown, unknown> =>
-  Effect.tryPromise({ try: () => req.json(), catch: (e) => e });
+export const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
+  Effect.tryPromise({
+    try: () => req.json(),
+    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
+  });
 
 /** A body that is allowed to be absent or broken, read as `{}` — what `.catch(() => ({}))` did. */
 export const bodyOrEmpty = (req: Request): Effect.Effect<unknown> =>
   Effect.promise(() => req.json().catch(() => ({})));
 
 /** A sync call that throws typed errors (applyPatch, resolveInRoot) lifted into the error
- * channel at the route boundary. */
-export const attempt = <A>(work: () => A): Effect.Effect<A, unknown> =>
-  Effect.try({ try: work, catch: (e) => e });
+ * channel at the route boundary. Anything that is not one of ours is reported like one, which is
+ * the same message-and-400 `runRoute` would give an escaped throw. */
+export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
+  Effect.try({
+    try: work,
+    catch: (e) => (isIweError(e) ? e : new BadRequestError({ message: messageOf(e) })),
+  });
 
 /** Everything this request runs — every `gh`, `az`, `git` and Jira call, however deep — runs as
  * the workspace the change belongs to. The change says which; nothing has to be passed. */

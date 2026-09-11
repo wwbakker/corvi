@@ -115,7 +115,7 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
       const message = "this change is completed: its terminal is gone";
       // 400, not 409: the state is not forceable, and nothing about the request is retryable
       // against a completed change.
-      return yield* Effect.fail(new BadRequestError({ message }));
+      return yield* new BadRequestError({ message });
     }
     const joinOrStart = (): Effect.Effect<number, CliError> =>
       Effect.gen(function* () {
@@ -158,9 +158,7 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
           Effect.timeout(Deferred.await(deferred), Duration.seconds(20)),
         );
         if (Exit.isSuccess(waited)) return waited.value.port;
-        return yield* Effect.fail(
-          cliError("ttyd", "ttyd", "starting the terminal took longer than 20s", 124),
-        );
+        return yield* cliError("ttyd", "ttyd", "starting the terminal took longer than 20s", 124);
       });
     return yield* joinOrStart();
   });
@@ -175,7 +173,7 @@ export const terminalGone = (id: string): Effect.Effect<{ gone: boolean; pid?: n
     const note = yield* noteOf(id);
     if (!note || !alive(note.pid)) return { gone: false };
     if (note.at !== undefined && Date.now() - note.at < 5000) return { gone: false };
-    const r = yield* shResult(["tmux", "has-session", "-t", sessionName(id)]);
+    const r = yield* sh(["tmux", "has-session", "-t", sessionName(id)]);
     return r.code === 0 ? { gone: false } : { gone: true, pid: note.pid };
   }).pipe(
     // A tmux that cannot answer is not proof of anything: say nothing rather than cry wolf.
@@ -187,8 +185,8 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
     // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
     // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
     // a package install is all that is wanted.
-    if (!commandAvailable("ttyd")) return yield* Effect.fail(missingTool("ttyd"));
-    if (!commandAvailable("tmux")) return yield* Effect.fail(missingTool("tmux"));
+    if (!commandAvailable("ttyd")) return yield* missingTool("ttyd");
+    if (!commandAvailable("tmux")) return yield* missingTool("tmux");
     // Only reached when no ttyd could be adopted, so anything still running for this change is a
     // leftover that nothing can reach: a port nothing remembers, or a process that stopped
     // answering. The tmux session behind it survives either way — and must: killing the ttyd
@@ -347,8 +345,11 @@ const waitForListening = (port: number): Effect.Effect<void, CliError> =>
       if (yield* accepts(port)) return;
       yield* Effect.sleep(50);
     }
-    return yield* Effect.fail(
-      cliError("ttyd", "ttyd", `ttyd did not open port ${port} within 5s; see /tmp/iwe-ttyd-*.log`, 1),
+    return yield* cliError(
+      "ttyd",
+      "ttyd",
+      `ttyd did not open port ${port} within 5s; see /tmp/iwe-ttyd-*.log`,
+      1,
     );
   });
 

@@ -202,14 +202,14 @@ export const createChange = (input: {
   Effect.gen(function* () {
     const id = input.id.trim();
     if (!id || id !== basename(id) || id.startsWith(".")) {
-      yield* Effect.fail(new BadRequestError({ message: `invalid change id: ${input.id}` }));
+      return yield* new BadRequestError({ message: `invalid change id: ${input.id}` });
     }
     if (yield* readChange(id)) {
-      yield* Effect.fail(new ConflictError({ message: `change already exists: ${id}` }));
+      return yield* new ConflictError({ message: `change already exists: ${id}` });
     }
     const repos = (input.repos ?? []).map((r) => r.trim()).filter(Boolean);
     if (repos.length === 0) {
-      yield* Effect.fail(new BadRequestError({ message: "select at least one repository" }));
+      return yield* new BadRequestError({ message: "select at least one repository" });
     }
     const change: Change = {
       id,

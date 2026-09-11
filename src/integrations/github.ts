@@ -132,9 +132,7 @@ const prQuery = (
       wt,
     );
     if (r.code !== 0) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" }),
-      );
+      return yield* new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" });
     }
     const prs = yield* cliJson(Schema.Array(PrSchema), [] as Pr[])(r.stdout);
     return { worktree: wt, head, prs };
@@ -429,9 +427,7 @@ export const mergePr = (
   Effect.gen(function* () {
     const wt = yield* checkoutFor(change, repo);
     if (!wt) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
-      );
+      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
 
     const stacked = yield* isStacked(wt, repo, number);
@@ -471,9 +467,7 @@ export const createPr = (
   Effect.gen(function* () {
     const wt = yield* checkoutFor(change, repo);
     if (!wt) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
-      );
+      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
     yield* shOrThrow(["git", "push", "-u", "origin", change.branch], wt);
     // A change stacked on another one's branch must open its pull request against that branch:

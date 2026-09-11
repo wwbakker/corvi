@@ -21,10 +21,10 @@ const workspaceParam = (req: Request): string | undefined =>
 /** The request body. A body that will not parse is the caller's mistake, said as the core's
  * routes say it: a BadRequestError, which the status-code mapping turns into a 400. */
 const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.mapError(
-    Effect.tryPromise({ try: () => req.json(), catch: (e) => e }),
-    (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  );
+  Effect.tryPromise({
+    try: () => req.json(),
+    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
+  });
 
 export default {
   name: "deployments",
@@ -90,9 +90,7 @@ export default {
           // environment to read" is the caller's mistake, whichever shape it arrived in.
           const body = (yield* bodyOf(req)) as { version?: string; environment?: string } | null;
           if (!body?.version || !body.environment) {
-            return yield* Effect.fail(
-              new BadRequestError({ message: "version and environment required" }),
-            );
+            return yield* new BadRequestError({ message: "version and environment required" });
           }
           return Response.json(
             yield* deploy(params.service!, body.version, body.environment, workspaceParam(req)),

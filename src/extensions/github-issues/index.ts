@@ -155,7 +155,7 @@ export const createIssue = (
     const cache = yield* Cache;
     const repository = yield* nameWithOwner(repo);
     if (!repository) {
-      return yield* Effect.fail(new BadRequestError({ message: `${repo} has no GitHub remote` }));
+      return yield* new BadRequestError({ message: `${repo} has no GitHub remote` });
     }
     const args = ["gh", "issue", "create", "-R", repository, "-t", title];
     if (body?.trim()) args.push("-b", body);
@@ -166,9 +166,7 @@ export const createIssue = (
     // The URL is the last thing gh prints: …/issues/<number>.
     const number = Number(/\/issues\/(\d+)\s*$/.exec(created)?.[1]);
     if (!number) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `could not read the new issue's number: ${created}` }),
-      );
+      return yield* new BadRequestError({ message: `could not read the new issue's number: ${created}` });
     }
     yield* cache.invalidate(`gh:issues:list:${repository}`);
     const issue =
@@ -354,9 +352,7 @@ export default {
             () => ({}) as { repo?: string; title?: string; description?: string },
           );
           if (!body.repo || !body.title?.trim()) {
-            return yield* Effect.fail(
-              new BadRequestError({ message: "repository and title required" }),
-            );
+            return yield* new BadRequestError({ message: "repository and title required" });
           }
           const created = yield* createIssue(body.repo, body.title.trim(), body.description);
           return Response.json(created, { status: 201 });

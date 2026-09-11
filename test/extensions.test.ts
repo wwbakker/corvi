@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange } from "../src/changes.ts";
-import { runEffect } from "./helpers.ts";
+import { runEffect, TestError } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   dispatchExtensionRoute,
@@ -237,7 +237,7 @@ test("cancelling asks the loose-end contributors, in load order, and a failure c
     title: "Second",
     looseEnds: [
       // A vendor being down is not a reason for a cancellation to fail: the gatherer swallows it.
-      { looseEnds: () => Effect.fail(new Error("vendor down")) },
+      { looseEnds: () => Effect.fail(new TestError({ message: "vendor down" })) },
       { looseEnds: () => Effect.succeed(["the second extension's end"]) },
     ],
   });

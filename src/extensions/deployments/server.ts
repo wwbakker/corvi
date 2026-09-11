@@ -444,19 +444,17 @@ export const deploy = (
   Effect.gen(function* () {
     const { environments, environmentParameter } = deploySettings();
     if (!environments.includes(environment)) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `unknown environment: ${environment}` }),
-      );
+      return yield* new BadRequestError({ message: `unknown environment: ${environment}` });
     }
     const workspace = workspaceById(workspaceId);
     if (!usesAzure(workspace)) {
-      return yield* Effect.fail(new BadRequestError({ message: `${workspace.name} has no pipelines` }));
+      return yield* new BadRequestError({ message: `${workspace.name} has no pipelines` });
     }
     const az = yield* azFor(workspace);
     const pipelines = yield* allPipelines(az);
     const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
     if (!pipeline) {
-      return yield* Effect.fail(new BadRequestError({ message: `no deploy pipeline for ${service}` }));
+      return yield* new BadRequestError({ message: `no deploy pipeline for ${service}` });
     }
 
     const runs = yield* runsOf(az, pipeline.id);
@@ -465,12 +463,10 @@ export const deploy = (
       const previous = environments[index - 1]!;
       const holds = latestFor(runs, previous);
       if (holds.version !== version || holds.state !== "ok") {
-        return yield* Effect.fail(
-          new BadRequestError({
-            message:
-              `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
-          }),
-        );
+        return yield* new BadRequestError({
+          message:
+            `${service}: ${version} is not on ${previous} (${holds.version ?? "nothing"} is, ${holds.detail}) — deploy it there first`,
+        });
       }
     }
 
@@ -488,11 +484,9 @@ export const deploy = (
       "json",
     ]);
     if (started.code !== 0) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: started.stderr || started.stdout || "az pipelines run failed",
-        }),
-      );
+      return yield* new BadRequestError({
+        message: started.stderr || started.stdout || "az pipelines run failed",
+      });
     }
 
     const run = yield* cliJson(
@@ -500,11 +494,9 @@ export const deploy = (
       {} as { id?: number },
     )(started.stdout);
     if (!run.id) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `could not read the run id from: ${started.stdout.slice(0, 200)}`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `could not read the run id from: ${started.stdout.slice(0, 200)}`,
+      });
     }
     // The page asks Azure again on its next tick; forget what we knew a moment ago.
     invalidate(`az:${az.key}:deploys:${pipeline.id}`);

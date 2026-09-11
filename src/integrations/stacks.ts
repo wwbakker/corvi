@@ -131,11 +131,9 @@ export const mergeStacked = (
       () => ({ status: "failed" }),
     )) as MergeResult;
     if (submit.code !== 0 && !submitted.details?.uuid) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `could not start the merge of #${number}: ${submit.stderr || submit.stdout}`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `could not start the merge of #${number}: ${submit.stderr || submit.stdout}`,
+      });
     }
 
     let result = submitted;
@@ -145,9 +143,7 @@ export const mergeStacked = (
       if (Date.now() > deadline) {
         // It may well have landed while we were failing to hear about it.
         if (yield* merged(worktree, repository, number)) return undefined;
-        return yield* Effect.fail(
-          new BadRequestError({ message: `the merge of #${number} is still running after 5m` }),
-        );
+        return yield* new BadRequestError({ message: `the merge of #${number} is still running after 5m` });
       }
       // An interruptible sleep: an interrupted completion stops the polling too, and the `gh`
       // child of the next poll dies with it rather than outliving the request.
@@ -161,20 +157,16 @@ export const mergeStacked = (
       // silence and then a timeout, while the merge had usually happened. Ask the pull request.
       if (!read) {
         if (yield* merged(worktree, repository, number)) return undefined;
-        return yield* Effect.fail(
-          new BadRequestError({
-            message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
-          }),
-        );
+        return yield* new BadRequestError({
+          message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
+        });
       }
       result = read;
     }
 
     const outcome = outcomeOf(result);
     if (outcome.error) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `could not merge #${number}: ${outcome.error}` }),
-      );
+      return yield* new BadRequestError({ message: `could not merge #${number}: ${outcome.error}` });
     }
     return outcome.note;
   });

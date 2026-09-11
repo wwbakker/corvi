@@ -66,9 +66,9 @@ const runEffect = (
 ): Effect.Effect<void, BadRequestError | CliError> =>
   Effect.gen(function* () {
     if (action !== "create") {
-      return yield* Effect.fail(new BadRequestError({ message: `unknown ci action: ${action}` }));
+      return yield* new BadRequestError({ message: `unknown ci action: ${action}` });
     }
-    if (!repo) return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
+    if (!repo) return yield* new BadRequestError({ message: "repo required" });
     yield* createPr(change, repo);
   });
 
@@ -134,7 +134,7 @@ const prLooseEnds = (change: Change): Effect.Effect<string[]> =>
       change.repos,
       (repo) =>
         Effect.map(
-          Effect.catchAll(prSummary(change, repo), () => Effect.succeed(undefined)),
+          Effect.orElseSucceed(prSummary(change, repo), () => undefined),
           (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
         ),
       { concurrency: "unbounded" },

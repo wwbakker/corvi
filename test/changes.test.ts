@@ -19,7 +19,7 @@ import { Effect } from "effect";
 import type { Change } from "../src/types.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { PresentedWindow } from "../src/terminal.ts";
-import { runEffect, runSh } from "./helpers.ts";
+import { runEffect, runSh, TestError } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
@@ -487,7 +487,7 @@ test("the summary gathers the core's terminals fact and the extensions' contribu
           }),
       },
       // A contributor whose vendor is down: it contributes nothing, never a failed request.
-      { facts: () => Effect.fail(new Error("down")) },
+      { facts: () => Effect.fail(new TestError({ message: "down" })) },
     ],
   });
 

@@ -25,7 +25,8 @@ export const ShellLive = Layer.effect(
 );
 
 export const CacheLive = Layer.succeed(Cache, {
-  swr: (key, ttlMs, work) => swr(key, ttlMs, work),
+  swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) =>
+    swr(key, ttlMs, work),
   invalidate: (prefix) => Effect.sync(() => invalidate(prefix)),
 });
 

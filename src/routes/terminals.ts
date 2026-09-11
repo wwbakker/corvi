@@ -95,9 +95,7 @@ export const terminalsRoutes = guard({
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
           } else {
-            return yield* Effect.fail(
-              new BadRequestError({ message: `unknown window action: ${body.action}` }),
-            );
+            return yield* new BadRequestError({ message: `unknown window action: ${body.action}` });
           }
           return json(yield* listWindows(c.id));
         }),

@@ -39,7 +39,7 @@ export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown>
       (contributor) =>
         contributor.facts(change).pipe(
           Effect.provide(capabilitiesLayer(workspaceOf(change))),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         ),
       { concurrency: "unbounded" },
     );

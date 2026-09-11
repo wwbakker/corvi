@@ -339,7 +339,7 @@ const versions = new Map<number, string | undefined>();
 export const versionOf = (run: Run, project: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     // Only successful builds produced an artifact worth naming.
-    if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
+    if (run.status !== "completed" || run.result !== "succeeded") return Effect.sync(() => undefined);
     if (versions.has(run.id)) return Effect.succeed(versions.get(run.id));
 
     const pipelineId = run.definition?.id;

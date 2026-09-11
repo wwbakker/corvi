@@ -173,7 +173,7 @@ export const fileDiff = (
       // 400: a wrong request against this change, not a missing resource (matching the same
       // message's BadRequestError in the integrations).
       const message = `no worktree for ${change.branch} in ${repo}`;
-      return yield* Effect.fail(new BadRequestError({ message }));
+      return yield* new BadRequestError({ message });
     }
 
     const status = yield* localChanges(change, repo);
@@ -186,15 +186,13 @@ export const fileDiff = (
     const r = yield* shResult(command, worktree);
     if (r.code > 1) {
       const message = r.stderr || r.stdout || "git diff failed";
-      return yield* Effect.fail(
-        new CliError({
-          message,
-          tool: "git",
-          command: command.join(" "),
-          stderr: message,
-          exitCode: r.code,
-        }),
-      );
+      return yield* new CliError({
+        message,
+        tool: "git",
+        command: command.join(" "),
+        stderr: message,
+        exitCode: r.code,
+      });
     }
     return r.stdout;
   });

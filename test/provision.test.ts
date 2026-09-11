@@ -19,7 +19,7 @@ import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts"
 import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { Change } from "../src/types.ts";
-import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
+import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
@@ -56,7 +56,7 @@ test("provisioning reports every extension and survives a failing one", async ()
       "change:created": [
         () => {
           calls.push("one");
-          return Effect.fail(new Error("one exploded"));
+          return Effect.fail(new TestError({ message: "one exploded" }));
         },
       ],
     },
@@ -68,7 +68,7 @@ test("provisioning reports every extension and survives a failing one", async ()
       "change:created": [
         () => {
           calls.push("two");
-          return Effect.succeed(undefined);
+          return Effect.void;
         },
       ],
     },

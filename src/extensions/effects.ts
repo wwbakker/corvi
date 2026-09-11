@@ -2,6 +2,7 @@ import { Effect, Either } from "effect";
 import { isFinished, type Change, type Widget, type WidgetItem } from "../types.ts";
 import { workspaceOf } from "../workspaces.ts";
 import { messageOf } from "../effect/support.ts";
+import { BadRequestError } from "../effect/errors.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { extensionsFor } from "./selectors.ts";
 import type { Capabilities, Card } from "./api.ts";
@@ -56,7 +57,7 @@ export const statusOne = (name: string, card: Card, change: Change): Effect.Effe
         change,
         card.status
           ? card.status(change)
-          : Effect.fail(new Error(`${card.title} reports per repository`)),
+          : Effect.fail(new BadRequestError({ message: `${card.title} reports per repository` })),
       ),
     );
     if (Either.isLeft(found)) {
@@ -86,7 +87,7 @@ export const repoStatusOf = (
         change,
         card.repoStatus
           ? card.repoStatus(change, repo)
-          : Effect.fail(new Error(`${card.title} has no per-repository view`)),
+          : Effect.fail(new BadRequestError({ message: `${card.title} has no per-repository view` })),
       ),
     );
     if (Either.isLeft(found)) {
@@ -116,7 +117,7 @@ export const runCard = (
     change,
     card.run
       ? card.run(change, action, arg)
-      : Effect.fail(new Error(`${card.title} has no actions`)),
+      : Effect.fail(new BadRequestError({ message: `${card.title} has no actions` })),
   );
 
 /** The widget's `integration` field is the identity the browser knows the card by — the

@@ -156,9 +156,9 @@ const board = (site: Site): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
     const id = site.board ?? (yield* jiraSetup(site.configFile)).board;
     if (!id) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: "no board configured in jira-cli's config — run `jira init`" }),
-      );
+      return yield* new BadRequestError({
+        message: "no board configured in jira-cli's config — run `jira init`",
+      });
     }
     return id;
   });
@@ -266,14 +266,14 @@ export const createIssue = (input: {
   Effect.gen(function* () {
     const summary = input.summary.trim();
     if (!summary) {
-      return yield* Effect.fail(new BadRequestError({ message: "summary required" }));
+      return yield* new BadRequestError({ message: "summary required" });
     }
     const site = siteFor(input.workspace);
     const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
     if (!project) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: "no project configured in jira-cli's config — run `jira init`" }),
-      );
+      return yield* new BadRequestError({
+        message: "no project configured in jira-cli's config — run `jira init`",
+      });
     }
     const type = input.type ?? issueType();
 
@@ -332,11 +332,9 @@ export const moveIssue = (
     );
     if (!found) {
       const names = transitions.map((t) => t.name).join(", ") || "none";
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `${key}: cannot move to "${status}" from here — available: ${names}`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `${key}: cannot move to "${status}" from here — available: ${names}`,
+      });
     }
 
     yield* jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
@@ -377,7 +375,7 @@ export const issuesByKeys = (
 
 /** One issue by key, whatever its type: used for the widget, the status check and descriptions. */
 export const issueByKey = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>
-  Effect.catchAll(
+  Effect.orElseSucceed(
     Effect.map(
       jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, {
         configFile: site.configFile,
@@ -386,6 +384,6 @@ export const issueByKey = (key: string, site: Site = {}): Effect.Effect<Issue | 
       }),
       issueFrom,
     ),
-    () => Effect.succeed(undefined),
+    () => undefined,
   );
 

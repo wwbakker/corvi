@@ -15,7 +15,7 @@ import { config } from "./config.ts";
 import { completionStepsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
-import { BadRequestError, type CliError } from "./effect/errors.ts";
+import { BadRequestError, DecodeError, type CliError } from "./effect/errors.ts";
 import { messageOf } from "./effect/support.ts";
 
 export type Completion = {
@@ -72,13 +72,13 @@ const PROGRESS = "completion.json";
 export const progressOf = (id: string): Effect.Effect<CompletionProgress | null> =>
   Effect.gen(function* () {
     const text = yield* readSidecar(id, PROGRESS);
-    try {
-      return text ? (JSON.parse(text) as CompletionProgress) : null;
-    } catch {
-      // A half-written record reads as no record: it is our own file, and the completion that
-      // was interrupted will rewrite it from where it got to.
-      return null;
-    }
+    if (!text) return null;
+    // A half-written record reads as no record: it is our own file, and the completion that
+    // was interrupted will rewrite it from where it got to.
+    return yield* Effect.try({
+      try: () => JSON.parse(text) as CompletionProgress,
+      catch: (e) => new DecodeError({ source: "file", message: messageOf(e) }),
+    }).pipe(Effect.orElseSucceed(() => null));
   });
 
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
@@ -147,7 +147,7 @@ export const completeChange = (
       progress.error = `cannot complete: ${completion.reasons.join("; ")}`;
       progress.finishedAt = new Date().toISOString();
       yield* save(change.id, progress);
-      return yield* Effect.fail(new BadRequestError({ message: progress.error }));
+      return yield* new BadRequestError({ message: progress.error });
     }
     checked.state = "done";
     // The extensions' steps, planned once: named in the journal before anything runs, and run
@@ -180,7 +180,7 @@ export const completeChange = (
           progress.error = found.detail;
           progress.finishedAt = new Date().toISOString();
           yield* save(change.id, progress);
-          return yield* Effect.fail(outcome.left);
+          return yield* outcome.left;
         }
         found.detail = outcome.right;
         found.state = "done";

@@ -12,7 +12,7 @@ import deploymentsExtension from "../src/extensions/deployments/index.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
 import { workspaceById } from "../src/workspaces.ts";
 import type { Result } from "../src/sh.ts";
-import { fakeShell, runEffect, runWithShell, type FakeShell } from "./helpers.ts";
+import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
 
 /**
  * The cards' server half: the CI tree the dashboard draws, the deployments routes its page
@@ -603,7 +603,7 @@ test("provisioning records each hook and a failure stops only its own extension'
       "change:created": [
         () => {
           calls.push("one:a");
-          return Effect.fail(new Error("a exploded"));
+          return Effect.fail(new TestError({ message: "a exploded" }));
         },
         () => {
           calls.push("one:b");
@@ -671,7 +671,7 @@ test("a card with no whole-widget status fails as a red card that says so", asyn
 
 test("a failing status is a red card carrying the message", async () => {
   const result = await runEffect(
-    statusOne("test", card({ status: () => Effect.fail(new Error("vendor down")) }), change()),
+    statusOne("test", card({ status: () => Effect.fail(new TestError({ message: "vendor down" })) }), change()),
   );
   expect(result).toMatchObject({ state: "error", summary: "vendor down" });
 });
@@ -705,7 +705,7 @@ test("repoStatusOf returns a card's rows for the repository, or a red row naming
   ]);
 
   const failed = await runEffect(
-    repoStatusOf(card({ repoStatus: () => Effect.fail(new Error("gh said no")) }), change(), repo),
+    repoStatusOf(card({ repoStatus: () => Effect.fail(new TestError({ message: "gh said no" })) }), change(), repo),
   );
   expect(failed).toEqual([{ label: "example-api", detail: "gh said no", state: "error" }]);
 });

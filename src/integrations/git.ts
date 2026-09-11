@@ -198,7 +198,7 @@ export const remoteDefaultBranch = (
     const asking = Effect.runSync(
       Effect.cached(
         askDefaultBranch(repo).pipe(
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
           Effect.tap((found) =>
             Effect.sync(() => {
               if (found === undefined) defaultBranches.delete(repo); // do not cache "no remote"
@@ -501,12 +501,10 @@ export const setRepos = (
     );
     const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
     if (dirty.length) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message:
-            `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, revert or commit them first`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message:
+          `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, revert or commit them first`,
+      });
     }
     const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
     if (unpushed.length && !force) {
@@ -553,7 +551,7 @@ export const gitRun = (
 ): Effect.Effect<void, CliError | BadRequestError> =>
   Effect.gen(function* () {
     if (!repo) {
-      return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
+      return yield* new BadRequestError({ message: "repo required" });
     }
     if (action === "add") return yield* provisionRepo(change, repo);
 
@@ -568,5 +566,5 @@ export const gitRun = (
     // --foreground so the widget refresh that follows sees the removal; --force because build
     // artifacts are untracked files and this button was clicked deliberately.
     if (action === "remove") return yield* removeWorktree(change, repo);
-    return yield* Effect.fail(new BadRequestError({ message: `unknown git action: ${action}` }));
+    return yield* new BadRequestError({ message: `unknown git action: ${action}` });
   });

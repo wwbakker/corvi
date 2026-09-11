@@ -62,10 +62,10 @@ export const commitChange = (
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
   Effect.gen(function* () {
     const message = request.message.trim();
-    if (!message) return yield* Effect.fail(badRequest("a commit needs a message"));
+    if (!message) return yield* badRequest("a commit needs a message");
 
     const chosen = Object.entries(request.files).filter(([, paths]) => paths.length > 0);
-    if (chosen.length === 0) return yield* Effect.fail(badRequest("select at least one file to commit"));
+    if (chosen.length === 0) return yield* badRequest("select at least one file to commit");
 
     return yield* Effect.forEach(
       chosen,
@@ -104,7 +104,7 @@ export const pushChange = (
   repos: string[],
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
   Effect.gen(function* () {
-    if (repos.length === 0) return yield* Effect.fail(badRequest("nothing to push"));
+    if (repos.length === 0) return yield* badRequest("nothing to push");
     return yield* Effect.forEach(
       repos,
       (repo): Effect.Effect<CommitResult, unknown> =>

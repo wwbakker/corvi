@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, TestClock } from "effect";
 import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/cache.ts";
-import { runEffectWith, runEffectWithTestClock, runSh, runSwr } from "./helpers.ts";
+import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
 const file = join(tmpdir(), "iwe-cache-test.json");
 process.env.IWE_CACHE = file;
@@ -23,7 +23,7 @@ function gate<T>(value: T): { promise: Promise<T>; release: (v?: T) => void; } {
 test("the first caller waits, everyone after that is instant", async () => {
   let calls = 0;
   const work = (): Effect.Effect<string, unknown> =>
-    Effect.tryPromise({ try: async () => `answer ${++calls}`, catch: (e) => e });
+    Effect.promise(async () => `answer ${++calls}`);
 
   await runEffectWithTestClock(
     Effect.gen(function* () {
@@ -65,12 +65,9 @@ test("a stale answer is handed over at once, and replaced when the refresh lands
       const stale = yield* swr(
         "k",
         1000,
-        Effect.tryPromise({
-          try: async () => {
-            calls++;
-            return slow.promise;
-          },
-          catch: (e) => e,
+        Effect.promise(async () => {
+          calls++;
+          return slow.promise;
         }),
       );
       expect(stale).toBe("answer 1");
@@ -90,8 +87,8 @@ test("a stale answer is handed over at once, and replaced when the refresh lands
 });
 
 test("a failed refresh keeps the last good answer", async () => {
-  const failing = (message: string): Effect.Effect<string, Error> =>
-    Effect.fail(new Error(message));
+  const failing = (message: string): Effect.Effect<string, TestError> =>
+    Effect.fail(new TestError({ message }));
 
   await runEffectWithTestClock(
     Effect.gen(function* () {

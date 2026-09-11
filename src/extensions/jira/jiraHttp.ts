@@ -64,9 +64,9 @@ export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
     if (known) return known;
     const asking = Effect.runSync(
       Effect.cached(
-        Effect.tryPromise({ try: () => Bun.file(path).text(), catch: (e) => e }).pipe(
+        Effect.orDie(Effect.tryPromise(() => Bun.file(path).text())).pipe(
           Effect.map(parseJiraConfig),
-          Effect.catchAll(() => Effect.succeed({})),
+          Effect.catchAllDefect(() => Effect.succeed({})),
         ),
       ),
     );
@@ -91,16 +91,12 @@ const credentials = (
     // A second site is a second token: which variable holds it is the workspace's to say.
     const token = process.env[tokenEnv ?? "JIRA_API_TOKEN"];
     if (!server || !login) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `no Jira site configured in ${configPath(file)} — run \`jira init\``,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `no Jira site configured in ${configPath(file)} — run \`jira init\``,
+      });
     }
     if (!token) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `${tokenEnv ?? "JIRA_API_TOKEN"} is not set in the environment` }),
-      );
+      return yield* new BadRequestError({ message: `${tokenEnv ?? "JIRA_API_TOKEN"} is not set in the environment` });
     }
     return { server, auth: `Basic ${btoa(`${login}:${token}`)}` };
   });
@@ -151,9 +147,9 @@ export const jiraFetch = <T>(
 
     const text = yield* network(() => response.text(), "jira response failed");
     if (!response.ok) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `jira ${response.status}: ${explain(text) || response.statusText}` }),
-      );
+      return yield* new BadRequestError({
+        message: `jira ${response.status}: ${explain(text) || response.statusText}`,
+      });
     }
     return yield* Effect.try({
       try: () => (text ? (JSON.parse(text) as T) : (undefined as T)),
