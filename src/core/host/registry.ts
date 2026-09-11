@@ -23,10 +23,10 @@ import type {
  * a static description installed as-is, a factory installed once it has run.
  *
  * This is a leaf module. It imports types and nothing that runs, which is what lets
- * `src/terminal.ts` read the window presenters from here without importing the host: the host's
- * module graph reaches back into the terminal through the events, so the registry sits below
- * both and imports neither (docs/guides/style.md, rule 7). It is also why the presenters are
- * aggregated here, next to the `loaded` they read.
+ * `src/terminal/server/presenter.ts` read the window presenters from here without importing the
+ * host: the host's module graph reaches back into the terminal through the events, so the
+ * registry sits below both and imports neither (docs/guides/style.md, rule 7). It is also why
+ * the presenters are aggregated here, next to the `loaded` they read.
  */
 
 /** One extension, as loaded: its description, normalized — the arrays coalesced to empty and
@@ -143,5 +143,6 @@ export function install(ext: Extension, clientPath?: string): LoadedExtension {
  * client happens to be looking. Enablement stays for the surfaces that do things.
  *
  * The aggregation lives here, over the `loaded` array above, rather than in the host — see the
- * module comment for why (src/terminal.ts must read it without importing the host). */
+ * module comment for why (src/terminal/server/presenter.ts must read it without importing the
+ * host). */
 export const windowPresenters = (): TerminalPresenter[] => loaded.flatMap((e) => e.windowPresenters);

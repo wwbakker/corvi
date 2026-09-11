@@ -1,7 +1,7 @@
 import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { AgentIcon, TerminalIcon } from "./icons.tsx";
+import { AgentIcon, TerminalIcon } from "../../web/icons.tsx";
 import type { Platform } from "./newWindowKey.ts";
-import type { TerminalWindow } from "../core/domain/terminal.ts";
+import type { TerminalWindow } from "../../core/domain/terminal.ts";
 
 /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
  * the terminal both show this strip — a window is one click from either — and because it is

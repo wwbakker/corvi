@@ -34,7 +34,7 @@ import tseslint from "typescript-eslint";
  * `../` for `src/web/**`, `../../` for `src/<module>/client/**` — and the client block adds the
  * sibling `../server/**` by which a module half imports its own server. The group restricts every
  * server tree — the top-level files, `integrations/`, the built-ins' server halves, `routes/`,
- * `effect/`, `schemas/`, all of `core/` and a module's `server/` (`change/server/**` today) —
+ * `effect/`, `schemas/`, all of `core/` and every module's `server/` directory —
  * then re-includes `core/domain/` and any module's `model.ts`. Put a new shared vocabulary module
  * in `src/core/domain/`, not next to the server.
  */
@@ -50,7 +50,7 @@ import tseslint from "typescript-eslint";
 const serverImports = (up, extra = []) => [
   `${up}*.ts`,
   ...extra,
-  `${up}change/server/**`,
+  `${up}*/server/**`,
   `${up}core/**`,
   `!${up}core/domain`,
   `!${up}core/domain/**`,

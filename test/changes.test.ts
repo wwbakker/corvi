@@ -18,7 +18,7 @@ import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../
 import { Effect } from "effect";
 import type { Change } from "../src/core/domain/change.ts";
 import type { TmuxWindow } from "../src/core/host/api.ts";
-import type { PresentedWindow } from "../src/terminal.ts";
+import type { PresentedWindow } from "../src/terminal/server/index.ts";
 import { runEffect, runSh, TestError } from "./helpers.ts";
 
 let tmp: string;
@@ -289,8 +289,9 @@ test("a completion records itself before it starts checking anything", async () 
 }, 20_000);
 
 test("the overview counts windows that are running something, not windows", async () => {
-  // Busy is a presented fact now: the merge in terminal.ts says which windows are work.
-  const { presentWindow } = await import("../src/terminal.ts");
+  // Busy is a presented fact now: the merge in terminal/server/presenter.ts says which windows
+  // are work.
+  const { presentWindow } = await import("../src/terminal/server/index.ts");
   const busy = (over: Partial<TmuxWindow>): boolean =>
     presentWindow({
       index: 0,
@@ -325,7 +326,7 @@ test("the overview counts windows that are running something, not windows", asyn
 test("an agent's own account of itself is read from the @agent_status pane option", async () => {
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
-  const { presentWindow } = await import("../src/terminal.ts");
+  const { presentWindow } = await import("../src/terminal/server/index.ts");
   const presented = (option: string): PresentedWindow =>
     presentWindow({
       index: 0,
@@ -523,7 +524,7 @@ test("the icons take the worst of what the repositories say", async () => {
 });
 
 test("every change's windows come back from one call, and other sessions are not ours", async () => {
-  const { changeOfSession } = await import("../src/terminal.ts");
+  const { changeOfSession } = await import("../src/terminal/server/index.ts");
   // The navigation column lists the terminals of every change at once; asking tmux per change
   // would be a process per change every few seconds.
   expect(changeOfSession("iwe-PROJ-1")).toBe("PROJ-1");

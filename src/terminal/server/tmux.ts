@@ -1,20 +1,25 @@
-import { basename } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
-import { Deferred, Duration, Effect, Exit } from "effect";
-import type { Change } from "./core/domain/change.ts";
 import { join } from "node:path";
-import { changeDir } from "./change/server/store.ts";
-import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
-import { sh, shOrThrow, type Result } from "./sh.ts";
-import { BadRequestError, CliError } from "./effect/errors.ts";
-import type { TerminalWindow } from "./core/domain/terminal.ts";
-import type { TmuxWindow, WindowPresentation } from "./core/host/api.ts";
-import { windowPresenters } from "./core/host/registry.ts";
+import { Deferred, Duration, Effect, Exit } from "effect";
+import { isLinux, isMac, loopbackInterface, commandAvailable } from "../../platform.ts";
+import { sh, shOrThrow, type Result } from "../../sh.ts";
+import { CliError } from "../../effect/errors.ts";
+import {
+  formatFor,
+  paneOptions,
+  parseWindow,
+  presentWindow,
+  type PresentedWindow,
+} from "./presenter.ts";
 
 /**
  * A terminal for a change: one tmux session, started in the change directory, served to the
  * browser by ttyd.
+ *
+ * The change's directory arrives as an argument: the terminal knows sessions, not changes, and
+ * the caller that read the change is the one that can compute it. That is also what keeps the
+ * terminal independent of the change module.
  *
  * tmux owns the session, not us. Windows and panes are yours to make with the usual keys, the
  * shells survive an IWE restart, and `tmux attach -t iwe-<id>` from any terminal reaches the
@@ -50,14 +55,15 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
 const running = new Map<string, Deferred.Deferred<Running, CliError>>();
 
 /** Where the running ttyd is written down, so the next run of the server finds it again. In the
- * change directory rather than in memory: a restart, a hot reload or a crash all forget the map,
- * and killing a working terminal because we lost our notes is no way to behave. */
-const notePath = (id: string): string => join(changeDir(id), "terminal.json");
+ * change directory (passed in by the caller) rather than in memory: a restart, a hot reload or
+ * a crash all forget the map, and killing a working terminal because we lost our notes is no way
+ * to behave. */
+const notePath = (id: string, dir: string): string => join(dir, "terminal.json");
 
-const noteOf: (id: string) => Effect.Effect<Running | undefined> = (id) =>
+const noteOf: (id: string, dir: string) => Effect.Effect<Running | undefined> = (id, dir) =>
   Effect.map(
     // A missing or malformed note is no note at all: what `.catch(() => undefined)` did.
-    Effect.promise(() => Bun.file(notePath(id)).json().catch(() => undefined)),
+    Effect.promise(() => Bun.file(notePath(id, dir)).json().catch(() => undefined)),
     (note) =>
       note && typeof note.pid === "number" && typeof note.port === "number"
         ? (note as Running)
@@ -65,9 +71,9 @@ const noteOf: (id: string) => Effect.Effect<Running | undefined> = (id) =>
   );
 
 /** The ttyd of a previous run, if it is still there and still serving this change. */
-const adopt = (id: string): Effect.Effect<Running | undefined> =>
+const adopt = (id: string, dir: string): Effect.Effect<Running | undefined> =>
   Effect.gen(function* () {
-    const note = yield* noteOf(id);
+    const note = yield* noteOf(id, dir);
     if (!note || !alive(note.pid)) return undefined;
     // Alive is not enough: the pid could have been reused by anything. Only a ttyd answering on
     // the port we wrote down is the terminal we left behind.
@@ -103,39 +109,35 @@ const alive = (pid: number): boolean => {
 export const terminalPath = (id: string): string =>
   `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=canvas" : ""}`;
 
-/** The port ttyd serves this change on, starting or adopting it as needed.
+/** The port ttyd serves a change's session on, starting or adopting it as needed.
  *
- * The Effect fails with the typed taxonomy: a completed change is a `BadRequestError` (the
- * state forbids it), a missing tool or a start that never came up is a `CliError`. Both carry a
- * human-readable message. */
-export const terminalPort = (change: Change): Effect.Effect<number, BadRequestError | CliError> =>
+ * The change's directory is passed in rather than resolved here: the terminal knows sessions,
+ * not changes, and the caller that read the change is the one that can compute it. Whether the
+ * change may have a terminal at all is that caller's check too — a completed change may not.
+ *
+ * The Effect fails with `CliError`: a missing tool or a start that never came up, both carrying
+ * a human-readable message. */
+export const terminalPort = (id: string, dir: string): Effect.Effect<number, CliError> =>
   Effect.gen(function* () {
-    // Starting one would write into a directory that has moved to the archive, recreating it.
-    if (change.completedAt) {
-      const message = "this change is completed: its terminal is gone";
-      // 400, not 409: the state is not forceable, and nothing about the request is retryable
-      // against a completed change.
-      return yield* new BadRequestError({ message });
-    }
     const joinOrStart = (): Effect.Effect<number, CliError> =>
       Effect.gen(function* () {
-        const existing = running.get(change.id);
+        const existing = running.get(id);
         if (existing) {
           // A start that failed or hung must not be cached: awaiting it again would hand every
           // later request the same broken answer, or the same wait forever.
           const outcome = yield* Effect.exit(Deferred.await(existing));
           if (Exit.isSuccess(outcome) && alive(outcome.value.pid)) return outcome.value.port;
-          running.delete(change.id);
+          running.delete(id);
           return yield* joinOrStart(); // start fresh
         }
         // Register before the first yield, so a request arriving together with this one finds
         // this start instead of beginning another.
         const deferred = yield* Deferred.make<Running, CliError>();
-        const claimed = running.get(change.id) ?? (running.set(change.id, deferred), deferred);
+        const claimed = running.get(id) ?? (running.set(id, deferred), deferred);
         if (claimed !== deferred) return yield* joinOrStart(); // someone else just claimed it
         // Nothing in memory: the server was restarted, or reloaded itself. The terminal probably
         // outlived it, and reconnecting to it keeps whatever you were running.
-        const adopted = yield* adopt(change.id);
+        const adopted = yield* adopt(id, dir);
         if (adopted) {
           yield* Deferred.succeed(deferred, adopted);
           return adopted.port;
@@ -146,8 +148,8 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
         // cached.
         yield* Effect.forkDaemon(
           Effect.gen(function* () {
-            const outcome = yield* Effect.exit(start(change));
-            if (Exit.isFailure(outcome)) running.delete(change.id);
+            const outcome = yield* Effect.exit(start(id, dir));
+            if (Exit.isFailure(outcome)) running.delete(id);
             yield* Deferred.done(deferred, outcome);
           }),
         );
@@ -168,9 +170,9 @@ export const terminalPort = (change: Change): Effect.Effect<number, BadRequestEr
  * would show a dead terminal. Reported rather than acted on — starting a fresh session would
  * throw away the message that something was lost. A note that has only just been written is not
  * judged: its session is created when the browser connects, a moment after the ttyd starts. */
-export const terminalGone = (id: string): Effect.Effect<{ gone: boolean; pid?: number }> =>
+export const terminalGone = (id: string, dir: string): Effect.Effect<{ gone: boolean; pid?: number }> =>
   Effect.gen(function* () {
-    const note = yield* noteOf(id);
+    const note = yield* noteOf(id, dir);
     if (!note || !alive(note.pid)) return { gone: false };
     if (note.at !== undefined && Date.now() - note.at < 5000) return { gone: false };
     const r = yield* sh(["tmux", "has-session", "-t", sessionName(id)]);
@@ -180,7 +182,7 @@ export const terminalGone = (id: string): Effect.Effect<{ gone: boolean; pid?: n
     Effect.catchAll(() => Effect.succeed({ gone: false })),
   );
 
-const start = (change: Change): Effect.Effect<Running, CliError> =>
+const start = (id: string, dir: string): Effect.Effect<Running, CliError> =>
   Effect.gen(function* () {
     // Fail on a missing tool before spawning, with the fix in the message: an ENOENT from the
     // spawn itself surfaces as a bare "Load failed" in the browser, which is no way to learn that
@@ -195,7 +197,7 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
     // Anchored to `ttyd`, because the tmux server's own command line also starts with `tmux
     // new-session -A -s <session>`: unanchored, this pattern matched the server itself and killed
     // the session — every window and every shell in it — instead of the stale process serving it.
-    yield* shResult(["pkill", "-f", `^ttyd .*new-session -A -s ${sessionName(change.id)}`]);
+    yield* shResult(["pkill", "-f", `^ttyd .*new-session -A -s ${sessionName(id)}`]);
 
     const port = freePort();
     // Detached so a server reload does not take your shells with it. Its output goes to a log
@@ -203,7 +205,7 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
     // way to find out why.
     const child = yield* Effect.try<ChildProcess, CliError>({
       try: () => {
-        const logFd = openSync(logPath(change.id), "a");
+        const logFd = openSync(logPath(id), "a");
         const child = spawn(
           "ttyd",
           [
@@ -239,15 +241,15 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
             "new-session",
             "-A", // attach if it exists, create if it does not
             "-s",
-            sessionName(change.id),
+            sessionName(id),
             "-c",
-            changeDir(change.id),
+            dir,
             // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
             // session with -t, so tmux sessions you started yourself keep your own settings.
             ";",
             "set-option",
             "-t",
-            sessionName(change.id),
+            sessionName(id),
             "mouse",
             "on",
             // Windows that produced output since you last looked at them are flagged, which is what
@@ -255,14 +257,14 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
             ";",
             "set-option",
             "-t",
-            sessionName(change.id),
+            sessionName(id),
             "monitor-activity",
             "on",
             // The flag is the point; the message across the status bar is not.
             ";",
             "set-option",
             "-t",
-            sessionName(change.id),
+            sessionName(id),
             "visual-activity",
             "off",
             // Modified Enter and friends only reach an application when tmux is willing to forward
@@ -302,7 +304,7 @@ const start = (change: Change): Effect.Effect<Running, CliError> =>
     });
     const found = { port, pid: child.pid!, at: Date.now() };
     yield* Effect.tryPromise({
-      try: () => Bun.write(notePath(change.id), JSON.stringify(found) + "\n").then(() => undefined),
+      try: () => Bun.write(notePath(id, dir), JSON.stringify(found) + "\n").then(() => undefined),
       catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
     });
     return found;
@@ -360,12 +362,12 @@ const listening = (port: number): Promise<void> =>
 
 /** Drop the terminal of a change: the ttyd server and the tmux session with its shells. Called
  * when a change is completed, since its directory moves into the archive underneath it. */
-export const stopTerminal = (id: string): Effect.Effect<void> =>
+export const stopTerminal = (id: string, dir: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const inFlight = running.get(id);
     const fromMap = inFlight ? yield* Effect.exit(Deferred.await(inFlight)) : undefined;
     const found =
-      (fromMap && Exit.isSuccess(fromMap) ? fromMap.value : undefined) ?? (yield* noteOf(id));
+      (fromMap && Exit.isSuccess(fromMap) ? fromMap.value : undefined) ?? (yield* noteOf(id, dir));
     if (found && alive(found.pid)) process.kill(found.pid);
     running.delete(id);
     yield* shResult(["tmux", "kill-session", "-t", sessionName(id)]);
@@ -376,106 +378,6 @@ export const stopTerminal = (id: string): Effect.Effect<void> =>
  * it is constant, and losing the shells every time is not worth the tidiness. They are noted in
  * the change directory and adopted again on the next start; completing a change ends one for
  * good, and so does closing its last window. */
-
-/** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
-const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
-
-/** One tmux window as the page sees it, with the busy fact the overview counts — presentational
- * to the page, but the server's own accounting travels with it too. */
-export type PresentedWindow = TerminalWindow & { busy: boolean };
-
-/** The pane options any presenter declared, once each, in load order — the FORMAT asks tmux
- * for exactly these, so the raw window carries what presenters know how to read. */
-const paneOptions = (): string[] => {
-  const seen = new Set<string>();
-  for (const presenter of windowPresenters()) {
-    for (const option of presenter.paneOptions ?? []) seen.add(option);
-  }
-  return [...seen];
-};
-
-/** The tmux FORMAT for a set of pane options: the fixed fields, then one field per option.
- * Built per call, because the options depend on which extensions are loaded. `list-windows`
- * still answers in one call per session. */
-const formatFor = (options: readonly string[]): string => {
-  const fixed =
-    "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{window_id}";
-  return options.length ? `${fixed}\t${options.map((o) => `#{${o}}`).join("\t")}` : fixed;
-};
-
-const parseWindow = (line: string, options: readonly string[]): TmuxWindow => {
-  const [index, name, command, active, activity, path, auto, id, ...extra] = line.split("\t");
-  const opts: Record<string, string> = {};
-  extra.forEach((value, i) => {
-    const option = options[i];
-    if (option) opts[option] = value ?? "";
-  });
-  return {
-    index: Number(index),
-    id: id ?? "",
-    name: name ?? "",
-    command: command ?? "",
-    active: active === "1",
-    activity: activity === "1",
-    directory: basename(path ?? ""),
-    named: auto === "0",
-    options: opts,
-  };
-};
-
-/** What the merge has gathered from the presenters before the core's defaults compose it:
- * fields the presenters left undefined fall through to later presenters, then to here. */
-const merged = (raw: TmuxWindow): WindowPresentation =>
-  windowPresenters().reduce<WindowPresentation>((acc, presenter) => {
-    const answer = presenter.present(raw);
-    if (!answer) return acc; // a presenter with nothing to say contributes nothing
-    return {
-      label: acc.label ?? answer.label,
-      running: acc.running ?? answer.running,
-      detail: acc.detail ?? answer.detail,
-      icon: acc.icon ?? answer.icon,
-      state: acc.state ?? answer.state,
-      busy: acc.busy ?? answer.busy,
-      attention: acc.attention ?? answer.attention,
-      note: acc.note ?? answer.note,
-    };
-  }, {});
-
-/**
- * Present one raw window: ask the presenters what it is, and compose the core's defaults
- * around whatever they answered.
- *
- * The first presenter that answers a field wins (registration order within an extension, load
- * order across them); what nobody answered, the core says:
- *
- * - the base name is the name you gave the window, or where it is — tmux's own default names
- *   a window after whatever runs in it, which says less than the directory does;
- * - the composed name appends what is running, unless it is a plain shell or already the
- *   whole label — so a prompt reads as a place, not a program;
- * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
- *   believed over its process name (pi at its prompt is `node`).
- *
- * Pure, and exported for the tests: the page renders exactly what this says.
- */
-export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
-  const said = merged(raw);
-  const base = raw.named ? raw.name : raw.directory || raw.name;
-  const what = said.running ?? raw.command;
-  const label = said.label ?? (what && what !== "zsh" && what !== base ? `${base} - (${what})` : base);
-  return {
-    index: raw.index,
-    id: raw.id,
-    label,
-    detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
-    icon: said.icon ?? "terminal",
-    state: said.state ?? "idle",
-    active: raw.active,
-    activity: raw.activity,
-    attention: said.attention ?? false,
-    note: said.note,
-    busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
-  };
-};
 
 /** The windows of one change's session, presented. No session yet — the terminal was never
  * opened — is an empty strip, not a failure; the `CliError` channel is only for a timed-out
@@ -521,7 +423,7 @@ export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, C
  * always "the same place, another thing", and `#{pane_current_path}` is what tmux's own `c`
  * binding uses. Falls back to the change directory when there is no current pane to ask.
  */
-export const newWindow = (id: string): Effect.Effect<void, CliError> =>
+export const newWindow = (id: string, dir: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     const here = yield* sh([
       "tmux",
@@ -532,7 +434,7 @@ export const newWindow = (id: string): Effect.Effect<void, CliError> =>
       "#{pane_current_path}",
     ]);
     if (here.code === 0) return;
-    yield* shOrThrow(["tmux", "new-window", "-t", sessionName(id), "-c", changeDir(id)]);
+    yield* shOrThrow(["tmux", "new-window", "-t", sessionName(id), "-c", dir]);
   });
 
 

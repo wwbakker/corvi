@@ -1344,6 +1344,11 @@ The map, grouped by layer:
                               description.ts, leftovers.ts, review.ts, index.ts (the public face)
       client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
                               EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
+    src/terminal/             the terminal module: sessions without change knowledge
+      server/                 tmux.ts (sessions, ttyd spawn), proxy.ts (ttyd through our
+                              origin, the key-fixing script), presenter.ts (the window merge and
+                              the core's defaults), index.ts (the public face)
+      client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx, newWindowKey.ts
     src/summary.ts            the numbers on an overview card, as contributed facts
     src/settings.ts           reading and writing the config file from the page
     src/config.ts             config file + env overrides
@@ -1362,8 +1367,6 @@ The map, grouped by layer:
     src/routes/               the HTTP handlers, one module per domain: helpers, changes,
                               terminals, repos, settings, extensions, events, assets
 
-    src/terminal.ts           tmux sessions and the ttyd that serves them
-    src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
     src/deploySettings.ts     the deployments settings, read by the shared azure client too
 
     src/integrations/         vendor CLI wrappers shared by more than one feature
@@ -1387,13 +1390,12 @@ The map, grouped by layer:
       RepoBrowser.tsx         repository picker: mode and base branch per repository
       SettingsPage.tsx        the config file, as a form
       Sidebar.tsx             the navigation column: changes, pages, terminals
-      TerminalPane.tsx        the terminal itself, with CheatSheet.tsx
       Leftovers.tsx           directories left in the changes root
       extensions.tsx          the hosts for an extension's step and page
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
       ActionsMenu.tsx         the change page's action menu
-      moment.ts newWindowKey.ts prefs.ts Progress.tsx
+      moment.ts prefs.ts Progress.tsx
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension

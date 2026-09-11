@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { readChange } from "../change/server/index.ts";
+import { changeDir, readChange } from "../change/server/index.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
@@ -12,16 +12,18 @@ import {
   terminalGone,
   terminalPath,
   terminalPort,
-} from "../terminal.ts";
-import { proxyToTtyd, type Bridge } from "../terminalProxy.ts";
+} from "../terminal/server/index.ts";
+import { proxyToTtyd, type Bridge } from "../terminal/server/proxy.ts";
 import { bodyOf, json, withChange } from "./helpers.ts";
 
-/** ttyd's page and its socket, served from here: see src/terminalProxy.ts for why. */
+/** ttyd's page and its socket, served from here: see src/terminal/server/proxy.ts for why. */
 const portForChange = (id: string): Promise<number | undefined> =>
   Effect.runPromise(
     Effect.gen(function* () {
       const change = yield* readChange(id);
-      return change && !change.completedAt ? yield* terminalPort(change) : undefined;
+      return change && !change.completedAt
+        ? yield* terminalPort(change.id, changeDir(change.id))
+        : undefined;
     }),
   );
 
@@ -61,10 +63,18 @@ export const terminalsRoutes = guard({
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          yield* terminalPort(c); // starts or adopts it, so the frame has something to load
+          // The terminal cannot start in a directory that has moved to the archive: the state
+          // forbids it, and the check lives here, where the change is read.
+          if (c.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is completed: its terminal is gone",
+            });
+          }
+          // starts or adopts it, so the frame has something to load
+          yield* terminalPort(c.id, changeDir(c.id));
           // And whether what it starts or adopts still has a session behind it: a ttyd whose
           // tmux server is gone is a dead frame, and the page should say so.
-          const state = yield* terminalGone(c.id);
+          const state = yield* terminalGone(c.id, changeDir(c.id));
           return json({ url: terminalPath(c.id), ...state });
         }),
       ),
@@ -90,7 +100,7 @@ export const terminalsRoutes = guard({
             from?: number;
             to?: number;
           };
-          if (body.action === "new") yield* newWindow(c.id);
+          if (body.action === "new") yield* newWindow(c.id, changeDir(c.id));
           else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);

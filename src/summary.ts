@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { worst } from "./core/domain/widget.ts";
 import type { Change, ChangeSummary } from "./core/domain/change.ts";
 import type { SummaryFact } from "./core/domain/widget.ts";
-import { listWindows } from "./terminal.ts";
+import { listWindows } from "./terminal/server/index.ts";
 import { summaryContributorsFor } from "./core/host/index.ts";
 import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
@@ -26,7 +26,7 @@ export { worst };
 export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
   Effect.gen(function* () {
     // The core's own fact: tmux stays core, and busy is a presented fact — the merge in
-    // terminal.ts says which windows are work.
+    // terminal/server/presenter.ts says which windows are work.
     const windows = yield* listWindows(change.id);
     const busy = windows.filter((w) => w.busy).length;
     const terminals: SummaryFact = {

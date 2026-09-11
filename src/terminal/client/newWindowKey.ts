@@ -1,15 +1,15 @@
 /**
  * The key that opens a new terminal window, shared by the page (TerminalPane) and by the script
- * injected into ttyd's page (terminalProxy), which forwards the key as a message because a frame
- * cannot open a window itself.
+ * injected into ttyd's page (terminal/server/proxy.ts), which forwards the key as a message
+ * because a frame cannot open a window itself.
  *
  * macOS opens windows with cmd. On Linux meta is Super, which the window manager and the browser
  * both have claims on, so ctrl-alt-t is the binding there — meta-t still works, it is just not
  * the one hinted at. tmux's own ctrl-b c is a shell key and untouched by any of this.
  *
  * The helper is deliberately self-contained — no imports, no closure — because it reaches the
- * shim as source: the page bundle imports it as code, and terminalProxy stringifies it into
- * /terminal-keys.js with the platform baked in.
+ * shim as source: the page bundle imports it as code, and terminal/server/proxy.ts stringifies
+ * it into /terminal-keys.js with the platform baked in.
  */
 
 /** Which desktop the server runs on, as one word. "other" gets the macOS bindings: it is an

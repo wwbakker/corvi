@@ -70,7 +70,7 @@ A helper used twice lives in one place — preferably on the service it belongs 
 
 The registry, the config object, the cache: each lives in one named module that others import.
 
-- **Right:** a leaf `registry.ts` exports `loaded`; `terminal.ts` imports it.
+- **Right:** a leaf `registry.ts` exports `loaded`; `terminal/server/presenter.ts` imports it.
 - **Tell:** a side-channel installed by the host to avoid an import cycle, rather than a leaf
   module both sides import.
 

@@ -6,11 +6,12 @@ import { mergeReadiness, mergePr } from "../../integrations/github.ts";
 import { removeWorktree, unsafeToRemove, type Unsafe } from "../../integrations/git.ts";
 import {
   archiveChange,
+  changeDir,
   readSidecar,
   writeChange,
   writeSidecar,
 } from "./store.ts";
-import { stopTerminal } from "../../terminal.ts";
+import { stopTerminal } from "../../terminal/server/index.ts";
 import { config } from "../../config.ts";
 import {
   afterChange,
@@ -255,7 +256,7 @@ export const completeChange = (
     // The terminal sits in a directory that is about to move into the archive.
     yield* step(
       "terminal",
-      Effect.map(stopTerminal(change.id), () => undefined),
+      Effect.map(stopTerminal(change.id, changeDir(change.id)), () => undefined),
     );
 
     const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };

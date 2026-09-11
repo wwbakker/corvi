@@ -16,7 +16,7 @@ import {
 import { isMac } from "../src/platform.ts";
 import { versionInLines } from "../src/integrations/azure.ts";
 import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts";
-import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
+import { presentWindow, type PresentedWindow } from "../src/terminal/server/index.ts";
 import type { TmuxWindow } from "../src/core/host/api.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";

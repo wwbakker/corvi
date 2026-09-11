@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "../../core/domain/change.ts";
 import { removeWorktree, unsafeToRemove } from "../../integrations/git.ts";
-import { archiveChange, writeChange } from "./store.ts";
+import { archiveChange, changeDir, writeChange } from "./store.ts";
 import {
   afterChange,
   beforeChange,
@@ -11,7 +11,7 @@ import {
 } from "../../core/host/index.ts";
 import { capabilitiesLayer } from "../../core/host/services.ts";
 import { workspaceOf } from "../../workspaces.ts";
-import { stopTerminal } from "../../terminal.ts";
+import { stopTerminal } from "../../terminal/server/index.ts";
 import { BadRequestError, type CliError, type IweError } from "../../effect/errors.ts";
 import { shSoft } from "../../effect/support.ts";
 
@@ -79,7 +79,7 @@ export const cancelChange = (
     const loose = yield* looseEnds(change);
 
     for (const repo of change.repos) yield* removeWorktree(change, repo);
-    yield* stopTerminal(change.id);
+    yield* stopTerminal(change.id, changeDir(change.id));
 
     // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
     // nobody has seen and removes one that has nothing on it, and only the first is a loose end.

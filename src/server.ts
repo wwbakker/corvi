@@ -9,7 +9,7 @@ import { extensionsRoutes } from "./routes/extensions.ts";
 import { reposRoutes } from "./routes/repos.ts";
 import { settingsRoutes } from "./routes/settings.ts";
 import { terminalsRoutes } from "./routes/terminals.ts";
-import { bridge, type Bridge } from "./terminalProxy.ts";
+import { bridge, type Bridge } from "./terminal/server/proxy.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.

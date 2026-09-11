@@ -20,7 +20,8 @@ src/
                        page, the dialogs, the review surface)
   summary.ts           the overview summary, still top-level until it moves into the change module
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
-  terminal.ts terminalProxy.ts  tmux sessions, ttyd spawn, ws bridge
+  terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
+                       the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
   integrations/        vendor CLI wrappers (git, github, azure, stacks)
   core/
     domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts

@@ -28,7 +28,7 @@ export function TerminalPane({
    * to us. */
   visible: boolean;
   /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
-   * same test the injected shim applies, from web/newWindowKey.ts). */
+   * same test the injected shim applies, from terminal/client/newWindowKey.ts). */
   platform: Platform;
   onNewWindow: () => void;
   /** The ttyd on record has outlived its tmux session, as the server said when the URL was

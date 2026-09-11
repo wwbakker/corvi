@@ -50,7 +50,7 @@ await loadAll([
 await loadDiscovered();
 
 // The public surface: every symbol the rest of the server imports from here, whichever module
-// implements it (or from ./registry.ts, which src/terminal.ts reads directly).
+// implements it (or from ./registry.ts, which src/terminal/server/presenter.ts reads directly).
 export {
   install,
   loaded,

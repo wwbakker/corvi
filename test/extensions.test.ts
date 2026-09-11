@@ -18,7 +18,7 @@ import type {
   TerminalPresenter,
   WindowPresentation,
 } from "../src/core/host/api.ts";
-import { presentWindow } from "../src/terminal.ts";
+import { presentWindow } from "../src/terminal/server/index.ts";
 import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
