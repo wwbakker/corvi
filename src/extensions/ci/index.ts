@@ -3,10 +3,10 @@ import { Effect } from "effect";
 import { worst } from "../../core/domain/widget.ts";
 import type { Change } from "../../core/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../core/domain/widget.ts";
-import { activeRuns, pipelineItems } from "../../integrations/azure.ts";
-import { createPr, prItem, prSummary } from "../../integrations/github.ts";
+import { activeRuns, pipelineItems } from "../../core/integrations/azure.ts";
+import { createPr, prItem, prSummary } from "../../core/integrations/github.ts";
 import { checkItems } from "./checks.ts";
-import { BadRequestError, type CliError } from "../../effect/errors.ts";
+import { BadRequestError, type CliError } from "../../core/platform/effect/errors.ts";
 import type { Extension, SummaryContribution } from "../../core/host/api.ts";
 
 /**

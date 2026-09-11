@@ -5,14 +5,13 @@
 IWE is one Bun process that serves an HTTP API and a React page, talks to the vendors' own CLIs
 (`git`, `gh`, `az`, `jira`, `tmux`, `ttyd`), and keeps its only state in one directory per
 change (`~/changes/<id>/`). Everything else is read live and cached in
-[`src/cache.ts`](../../src/cache.ts).
+[`src/core/platform/capabilities/cache.ts`](../../src/core/platform/capabilities/cache.ts).
 
 ## Layers
 
 ```
 src/
   server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
-  effect/              errors (taxonomy) · http→status mapping · runRoute · Workspace tag
   workspace/           the workspace module: server/ (config loader, file schema, workspace
                        resolution, repository browser), client/ (the switcher, WorkspaceCard,
                        RepoBrowser)
@@ -23,12 +22,14 @@ src/
                        page, the dialogs, the review surface), wizard/ (the New change wizard,
                        client/ + index.ts), overview/ (the dashboard: server/summary.ts composes
                        change, terminal and the host; client/ holds the cards)
-  sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
   terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
                        the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
-  integrations/        vendor CLI wrappers (git, github, azure, stacks)
   core/
     domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
+    platform/          the substrate everything stands on: effect/ (errors, http, run, tags),
+                       capabilities/ (sh, cache, events), origin.ts, platform.ts, tooling.ts,
+                       routes/ (the HTTP tables)
+    integrations/      vendor CLI wrappers (git, github, azure, stacks)
     host/              the extension contract and its machinery: api.ts (and api/*.ts), registry.ts,
                        discover.ts, selectors.ts, effects.ts, dispatch.ts, services.ts,
                        clientChunks.ts, client.tsx (the page's client-side registry and the
@@ -36,6 +37,8 @@ src/
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
+  deploySettings.ts    the deployments settings, read by the shared azure client and the
+                       workspace module
 ```
 
 The extension host (`src/core/host/index.ts`) loads built-ins and out-of-tree modules through
@@ -50,10 +53,13 @@ directories:
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
   implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
   this way.
-- **`src/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
+- **`src/core/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
   (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
   core + the git extension).
-- **top-level `src/*.ts`** — core domain that is not a feature.
+- **`src/core/platform/`** — the substrate, not a feature: the route tables, the Effect runtime
+  plumbing and the capabilities (`sh`, `cache`, `events`) every module runs on.
+- **top-level `src/*.ts`** — `server.ts`, the composition root, and `deploySettings.ts`, shared
+  by the azure client and the workspace module.
 
 One shared module lives outside the feature folders:
 
@@ -64,7 +70,7 @@ One shared module lives outside the feature folders:
 A feature's pure vocabulary lives with it: `deployments/deployConventions.ts` is needed by both
 that extension's server and browser halves, so it sits beside them.
 
-Git cannot be colocated while `src/integrations/git.ts` is shared by the core and the git
+Git cannot be colocated while `src/core/integrations/git.ts` is shared by the core and the git
 extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
 scope.
 
@@ -83,6 +89,8 @@ the page shell. Everything else is a surface an extension can contribute to.
   import backend modules that shell out or touch the filesystem; `eslint.config.js` enforces the
   boundary at each depth, `src/core/domain/**` is where pure vocabulary both sides need belongs,
   and `src/core/host/client.tsx` is the one browser file under `core/` a half may import by value.
+  Everything under `src/core/platform/**` and `src/core/integrations/**` is server-only, like a
+  module's `server/**` half.
 - **HTTP** is the only client/server boundary — no shared runtime state across it.
 
 ## Running it

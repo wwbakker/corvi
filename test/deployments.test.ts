@@ -2,7 +2,7 @@ import { test, expect } from "bun:test";
 import { acceptedVersions, type Run } from "../src/extensions/deployments/server.ts";
 import { runVersionsFor } from "./helpers.ts";
 import { autoDeployedApp } from "../src/extensions/deployments/deployConventions.ts";
-import type { Az } from "../src/integrations/azure.ts";
+import type { Az } from "../src/core/integrations/azure.ts";
 
 // `acceptedVersions` is pure and synchronous on purpose: the one thing that would otherwise need
 // `az` — the expected duration — is computed by the caller and handed in, so every case here

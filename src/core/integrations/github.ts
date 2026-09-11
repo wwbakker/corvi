@@ -1,13 +1,13 @@
 import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
-import type { Change } from "../core/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../core/domain/widget.ts";
+import type { Change } from "../domain/change.ts";
+import type { WidgetItem, WidgetState } from "../domain/widget.ts";
 import { checkoutFor, baseFor, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
-import { shOrThrow, type Result } from "../sh.ts";
-import { swr, invalidate } from "../cache.ts";
-import { BadRequestError, type CliError } from "../effect/errors.ts";
-import { cliJson, shSoft } from "../effect/support.ts";
+import { shOrThrow, type Result } from "../platform/capabilities/sh.ts";
+import { swr, invalidate } from "../platform/capabilities/cache.ts";
+import { BadRequestError, type CliError } from "../platform/effect/errors.ts";
+import { cliJson, shSoft } from "../platform/effect/support.ts";
 
 /** `gh pr list --json` for one head. */
 const PrSchema = Schema.Struct({

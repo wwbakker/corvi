@@ -17,17 +17,17 @@ import {
   writeChange,
   writeNotes,
   type CommitRequest,
-} from "../change/server/index.ts";
+} from "../../../change/server/index.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
-import { announce } from "../events.ts";
-import { applyCreatingHooks, provision } from "../core/host/index.ts";
-import { repoStates, setRepos } from "../integrations/git.ts";
+import { announce } from "../capabilities/events.ts";
+import { applyCreatingHooks, provision } from "../../host/index.ts";
+import { repoStates, setRepos } from "../../integrations/git.ts";
 import { guard } from "../origin.ts";
-import { summaryOf } from "../change/overview/server/index.ts";
-import { workspaceOf } from "../workspace/server/index.ts";
+import { summaryOf } from "../../../change/overview/server/index.ts";
+import { workspaceOf } from "../../../workspace/server/index.ts";
 import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "./helpers.ts";
 
 export const changesRoutes = guard({

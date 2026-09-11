@@ -1,9 +1,9 @@
 import { basename, join } from "node:path";
-import { clientChunkPath, chunkRoot } from "../core/host/clientChunks.ts";
+import { clientChunkPath, chunkRoot } from "../../host/clientChunks.ts";
 import { guard } from "../origin.ts";
 import { platformName } from "../platform.ts";
-import { keysScript } from "../terminal/server/proxy.ts";
-import index from "../frontend/index.html";
+import { keysScript } from "../../../terminal/server/proxy.ts";
+import index from "../../../frontend/index.html";
 
 export const assetsRoutes = guard({
   "/terminal-keys.js": () =>

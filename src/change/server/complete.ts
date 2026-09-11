@@ -1,9 +1,9 @@
 import { basename } from "node:path";
 import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "../../core/domain/change.ts";
-import type { MergeReadiness } from "../../integrations/github.ts";
-import { mergeReadiness, mergePr } from "../../integrations/github.ts";
-import { removeWorktree, unsafeToRemove, type Unsafe } from "../../integrations/git.ts";
+import type { MergeReadiness } from "../../core/integrations/github.ts";
+import { mergeReadiness, mergePr } from "../../core/integrations/github.ts";
+import { removeWorktree, unsafeToRemove, type Unsafe } from "../../core/integrations/git.ts";
 import {
   archiveChange,
   changeDir,
@@ -26,8 +26,8 @@ import {
   DecodeError,
   type CliError,
   type IweError,
-} from "../../effect/errors.ts";
-import { messageOf } from "../../effect/support.ts";
+} from "../../core/platform/effect/errors.ts";
+import { messageOf } from "../../core/platform/effect/support.ts";
 
 export type Completion = {
   /** Every repository is either merged already or has an approved pull request. */

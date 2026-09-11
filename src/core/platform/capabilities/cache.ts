@@ -19,7 +19,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Clock, Deferred, Effect, Exit, pipe } from "effect";
-import { fs } from "./effect/support.ts";
+import { fs } from "../effect/support.ts";
 
 type Entry = {
   /** When the value was produced. */

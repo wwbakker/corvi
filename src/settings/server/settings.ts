@@ -15,10 +15,10 @@ import {
   type ConfigFile,
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../core/host/index.ts";
-import { BadRequestError } from "../../effect/errors.ts";
-import { fs } from "../../effect/support.ts";
-import { invalidate } from "../../cache.ts";
-import { TOOLING } from "../../tooling.ts";
+import { BadRequestError } from "../../core/platform/effect/errors.ts";
+import { fs } from "../../core/platform/effect/support.ts";
+import { invalidate } from "../../core/platform/capabilities/cache.ts";
+import { TOOLING } from "../../core/platform/tooling.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "../../core/host/api.ts";
 
 /**

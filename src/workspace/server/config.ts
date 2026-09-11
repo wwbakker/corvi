@@ -5,7 +5,7 @@ import { Effect, Schema } from "effect";
 import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
 import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
-import { TOOLING } from "../../tooling.ts";
+import { TOOLING } from "../../core/platform/tooling.ts";
 
 // Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>

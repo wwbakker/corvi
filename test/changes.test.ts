@@ -14,7 +14,7 @@ import {
   readNotes,
   writeNotes,
 } from "../src/change/server/index.ts";
-import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/integrations/git.ts";
+import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/core/integrations/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/core/domain/change.ts";
 import type { TmuxWindow } from "../src/core/host/api.ts";
@@ -145,7 +145,7 @@ test("notes live beside change.json and survive archiving", async () => {
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
-  const { setRepos, isDirect } = await import("../src/integrations/git.ts");
+  const { setRepos, isDirect } = await import("../src/core/integrations/git.ts");
   const clean = await makeRepo("clean");
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");

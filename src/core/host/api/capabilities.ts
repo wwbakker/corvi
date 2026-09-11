@@ -1,18 +1,18 @@
 import { Context, Effect } from "effect";
-import { Shell, Workspace as WorkspaceTag } from "../../../effect/tags.ts";
+import { Shell, Workspace as WorkspaceTag } from "../../platform/effect/tags.ts";
 import type { Config } from "../../domain/config.ts";
 import type { Change } from "../../domain/change.ts";
-import type { IweError } from "../../../effect/errors.ts";
+import type { IweError } from "../../platform/effect/errors.ts";
 
 // --- Capabilities: what the host provides to every contributed effect ---------------------
 
-/** The request's workspace — the same tag the core's routes provide (src/effect/tags.ts).
+/** The request's workspace — the same tag the core's routes provide (src/core/platform/effect/tags.ts).
  * Re-exported so the contract stays the one import an extension needs. */
 export { Shell, WorkspaceTag as Workspace };
 
 /** One CLI call's outcome: exit codes are data — callers branch on `code`; the typed failure
- * is reserved for a timeout, which kills the child (src/sh.ts). */
-export type { Result } from "../../../sh.ts";
+ * is reserved for a timeout, which kills the child (src/core/platform/capabilities/sh.ts). */
+export type { Result } from "../../platform/capabilities/sh.ts";
 
 /** The answer cache: read-through with a TTL, one shared refresh per key, and prefix
  * invalidation for when an action has just made an answer wrong. The work's requirements

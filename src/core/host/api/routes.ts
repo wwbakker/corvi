@@ -9,8 +9,8 @@ export {
   ConflictError,
   DecodeError,
   NotFoundError,
-} from "../../../effect/errors.ts";
-export type RouteError = import("../../../effect/errors.ts").IweError;
+} from "../../platform/effect/errors.ts";
+export type RouteError = import("../../platform/effect/errors.ts").IweError;
 
 /** A route under `/api/ext/<extension>/…`, behind the same origin guard as the core's
  * routes, run as the workspace the request names. Failures map to HTTP status codes through

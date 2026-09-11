@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { changeDir, readChange } from "../change/server/index.ts";
+import { changeDir, readChange } from "../../../change/server/index.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
@@ -12,8 +12,8 @@ import {
   terminalGone,
   terminalPath,
   terminalPort,
-} from "../terminal/server/index.ts";
-import { proxyToTtyd, type Bridge } from "../terminal/server/proxy.ts";
+} from "../../../terminal/server/index.ts";
+import { proxyToTtyd, type Bridge } from "../../../terminal/server/proxy.ts";
 import { bodyOf, json, withChange } from "./helpers.ts";
 
 /** ttyd's page and its socket, served from here: see src/terminal/server/proxy.ts for why. */

@@ -1,8 +1,8 @@
 import { Duration, Effect, Either, Option } from "effect";
 import { homedir } from "node:os";
-import { CliError } from "./effect/errors.ts";
-import { Shell, Workspace } from "./effect/tags.ts";
-import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "./core/domain/config.ts";
+import { CliError } from "../effect/errors.ts";
+import { Shell, Workspace } from "../effect/tags.ts";
+import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "../../domain/config.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
@@ -48,7 +48,7 @@ const expand = (value: string): string =>
 /** What to add to a subprocess's environment: the workspace's own variables, `~` expanded,
  * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_CONFIG_FILE` —
  * and a shell would have done it. Empty outside a request. The workspace comes from the
- * `Workspace` tag (src/effect/tags.ts), read at run time by `sh` and by the Shell capability's
+ * `Workspace` tag (src/core/platform/effect/tags.ts), read at run time by `sh` and by the Shell capability's
  * live layer (src/core/host/services.ts). */
 export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, string> => {
   const own = workspace?.env ?? {};

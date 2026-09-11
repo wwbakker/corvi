@@ -1,4 +1,4 @@
-import { events, watchState } from "../events.ts";
+import { events, watchState } from "../capabilities/events.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
 import { json } from "./helpers.ts";

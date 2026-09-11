@@ -9,10 +9,10 @@ import {
   runCard,
   statusOne,
   wizardStepsFor,
-} from "../core/host/index.ts";
+} from "../../host/index.ts";
 import { guard } from "../origin.ts";
-import { isFinished } from "../core/domain/change.ts";
-import { workspaceById } from "../workspace/server/index.ts";
+import { isFinished } from "../../domain/change.ts";
+import { workspaceById } from "../../../workspace/server/index.ts";
 import {
   bodyOrEmpty,
   json,

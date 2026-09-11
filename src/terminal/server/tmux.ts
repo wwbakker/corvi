@@ -2,9 +2,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
 import { join } from "node:path";
 import { Deferred, Duration, Effect, Exit } from "effect";
-import { isLinux, isMac, loopbackInterface, commandAvailable } from "../../platform.ts";
-import { sh, shOrThrow, type Result } from "../../sh.ts";
-import { CliError } from "../../effect/errors.ts";
+import { isLinux, isMac, loopbackInterface, commandAvailable } from "../../core/platform/platform.ts";
+import { sh, shOrThrow, type Result } from "../../core/platform/capabilities/sh.ts";
+import { CliError } from "../../core/platform/effect/errors.ts";
 import {
   formatFor,
   paneOptions,

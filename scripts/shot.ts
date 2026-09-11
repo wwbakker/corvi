@@ -12,7 +12,7 @@
  * difference is what you are looking at, or for testing against the Chromium --app fallback
  * window; IWE_ENGINE overrides everything. */
 import { mkdir } from "node:fs/promises";
-import { isLinux, isMac } from "../src/platform.ts";
+import { isLinux, isMac } from "../src/core/platform/platform.ts";
 import { chromium, webkit } from "playwright";
 
 const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";

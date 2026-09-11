@@ -81,7 +81,7 @@ const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
  * repositories have one or two of these, not six), and so is anything git does not ignore.
  *
  * An Effect, because the ignore check runs `git` and so reads the request's `Workspace` tag at
- * run time (src/sh.ts): the caller (integrations/git.ts) runs it inside the request, so the
+ * run time (src/core/platform/capabilities/sh.ts): the caller (src/core/integrations/git.ts) runs it inside the request, so the
  * subprocess carries the workspace's environment like every other CLI IWE runs. Filesystem
  * failures stay in the error channel, which the caller logs and keeps going — the worktree is
  * the thing that was asked for, and a change that failed to provision over a copy of `.idea`

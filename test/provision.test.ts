@@ -12,10 +12,10 @@ import {
   parseWorktrees,
   parseStatus,
   type WtEntry,
-} from "../src/integrations/git.ts";
-import { isMac } from "../src/platform.ts";
-import { versionInLines } from "../src/integrations/azure.ts";
-import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts";
+} from "../src/core/integrations/git.ts";
+import { isMac } from "../src/core/platform/platform.ts";
+import { versionInLines } from "../src/core/integrations/azure.ts";
+import { readiness, headRef, waitingOnYou } from "../src/core/integrations/github.ts";
 import { presentWindow, type PresentedWindow } from "../src/terminal/server/index.ts";
 import type { TmuxWindow } from "../src/core/host/api.ts";
 import type { Change } from "../src/core/domain/change.ts";

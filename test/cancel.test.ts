@@ -3,12 +3,12 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/integrations/git.ts";
+import { provisionRepo, checkoutFor } from "../src/core/integrations/git.ts";
 import { Effect } from "effect";
 import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
 import { cancelChange } from "../src/change/server/index.ts";
 import { install, loaded } from "../src/core/host/registry.ts";
-import type { Result } from "../src/sh.ts";
+import type { Result } from "../src/core/platform/capabilities/sh.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/core/domain/change.ts";
 
 /**

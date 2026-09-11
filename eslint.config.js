@@ -38,8 +38,8 @@ import tseslint from "typescript-eslint";
  * `src/<module>/<submodule>/client/**` — and the client blocks add the sibling `../server/**`
  * (a submodule also adds its parent module's `../../server/**` and its sibling submodules'
  * `../../<submodule>/server/**`) by which a half imports a server. The group restricts every
- * server tree — the top-level files, `integrations/`, the built-ins' server halves, `routes/`,
- * `effect/`, `schemas/`, all of `core/` and every module's `server/` directory —
+ * server tree — the top-level `deploySettings.ts`, the built-ins' server halves, all of `core/`
+ * (its `platform/`, `integrations/` and `host/`) and every module's `server/` directory —
  * then re-includes `core/domain/`, `core/host/client.tsx` and any module's `model.ts`. Put a new
  * shared vocabulary module in `src/core/domain/`, not next to the server.
  */
@@ -56,7 +56,10 @@ import tseslint from "typescript-eslint";
  * applies them in.
  */
 const serverImports = (up, extra = []) => [
-  `${up}*.ts`,
+  // `server.ts` is the composition root a half never imports; after S6 the only top-level
+  // server module left to name is `deploySettings.ts`. Everything else that shells out lives
+  // under `core/` (a module's server half included), which the `core/**` group already covers.
+  `${up}deploySettings.ts`,
   ...extra,
   `${up}*/server/**`,
   `${up}core/**`,
@@ -69,11 +72,7 @@ const serverImports = (up, extra = []) => [
   `!${up}core/host`,
   `${up}core/host/**`,
   `!${up}core/host/client.tsx`,
-  `${up}integrations/**`,
   `${up}extensions/**`,
-  `${up}effect/**`,
-  `${up}schemas/**`,
-  `${up}routes/**`,
   `!${up}**/model.ts`,
 ];
 

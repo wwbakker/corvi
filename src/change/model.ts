@@ -4,7 +4,7 @@ import {
   type Change,
   type ChangeState,
 } from "../core/domain/change.ts";
-import { BadRequestError, ConflictError } from "../effect/errors.ts";
+import { BadRequestError, ConflictError } from "../core/platform/effect/errors.ts";
 
 /**
  * The two fields you may edit by hand: what a change is called, and where it stands.

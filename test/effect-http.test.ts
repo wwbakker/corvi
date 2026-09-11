@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Effect } from "effect";
-import { toResponse } from "../src/effect/http.ts";
-import { runRoute } from "../src/effect/run.ts";
+import { toResponse } from "../src/core/platform/effect/http.ts";
+import { runRoute } from "../src/core/platform/effect/run.ts";
 import {
   BadRequestError,
   CliError,
@@ -10,7 +10,7 @@ import {
   formatError,
   isIweError,
   NotFoundError,
-} from "../src/effect/errors.ts";
+} from "../src/core/platform/effect/errors.ts";
 
 /**
  * http.ts is the one module that knows a Response, so every status code the UI branches on is

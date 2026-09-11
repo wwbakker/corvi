@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { runRoute } from "../../effect/run.ts";
+import { runRoute } from "../platform/effect/run.ts";
 import { workspaceById } from "../../workspace/server/index.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { loaded, type CompiledRoute } from "./registry.ts";

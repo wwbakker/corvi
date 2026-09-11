@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, ChangeDraft } from "../../core/domain/change.ts";
-import { BadRequestError, ConflictError, DecodeError } from "../../effect/errors.ts";
+import { BadRequestError, ConflictError, DecodeError } from "../../core/platform/effect/errors.ts";
 import { readChange, writeChange, writeWtConfig } from "./store.ts";
 
 /** The core's creation input: the plain draft the wizard collected and the `change:creating`

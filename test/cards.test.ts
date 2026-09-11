@@ -1,6 +1,6 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect, Either, Layer } from "effect";
-import { clearCache } from "../src/cache.ts";
+import { clearCache } from "../src/core/platform/capabilities/cache.ts";
 import { config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import type { Widget, WidgetItem } from "../src/core/domain/widget.ts";
@@ -10,9 +10,9 @@ import { install, loaded } from "../src/core/host/registry.ts";
 import { provision, repoStatusOf, runCard, statusOne } from "../src/core/host/effects.ts";
 import ciExtension from "../src/extensions/ci/index.ts";
 import deploymentsExtension from "../src/extensions/deployments/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
+import { Shell, Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Result } from "../src/sh.ts";
+import type { Result } from "../src/core/platform/capabilities/sh.ts";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
 
 /**

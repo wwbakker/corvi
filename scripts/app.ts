@@ -16,7 +16,7 @@
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { isLinux, isMac } from "../src/platform.ts";
+import { isLinux, isMac } from "../src/core/platform/platform.ts";
 import { sh } from "./sh.ts";
 
 /** What it is called in the Dock, in the menu bar and in its own title bar. `IWE` is what the

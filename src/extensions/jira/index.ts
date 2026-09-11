@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
 import type { Change, CompletionStep } from "../../core/domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../core/domain/widget.ts";
-import { swr } from "../../cache.ts";
+import { swr } from "../../core/platform/capabilities/cache.ts";
 import { jiraFetch, jiraBaseUrl } from "./jiraHttp.ts";
 import {
   boardIssues,

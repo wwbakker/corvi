@@ -1,11 +1,11 @@
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/core/host/services.ts";
-import { setRepos } from "../src/integrations/git.ts";
-import { sh, type Result } from "../src/sh.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
-import type { CliError } from "../src/effect/errors.ts";
-import { swr } from "../src/cache.ts";
+import { setRepos } from "../src/core/integrations/git.ts";
+import { sh, type Result } from "../src/core/platform/capabilities/sh.ts";
+import { Shell, Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
+import type { CliError } from "../src/core/platform/effect/errors.ts";
+import { swr } from "../src/core/platform/capabilities/cache.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import { cancelChange } from "../src/change/server/index.ts";
@@ -20,7 +20,7 @@ import {
  * The one seam between the Promise-shaped tests and the Effect API.
  *
  * The server's modules are Effects, and where a call shells out the environment comes from the
- * request's `Workspace` tag (src/sh.ts). Tests are Promise-shaped by contract, so they run the
+ * request's `Workspace` tag (src/core/platform/capabilities/sh.ts). Tests are Promise-shaped by contract, so they run the
  * Effect here rather than through a request: this provides the capability services, the tag
  * included, and hands back a Promise. Nothing else in the test suite needs to know about layers.
  */
@@ -140,7 +140,7 @@ export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Pro
   );
 
 /** Editing a change's repositories, in the duck the tests read: the Effect API answers in a
- * tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
+ * tagged union (src/core/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
 ): Promise<{ change: import("../src/core/domain/change.ts").Change } | { needsForce: string[] }> => {

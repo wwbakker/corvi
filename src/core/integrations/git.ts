@@ -1,15 +1,15 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change } from "../core/domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../core/domain/widget.ts";
-import { shOrThrow } from "../sh.ts";
-import { config } from "../workspace/server/index.ts";
-import { copyTooling } from "../tooling.ts";
-import { writeChange, writeWtConfig, changeDir } from "../change/server/store.ts";
-import { isMac, commandAvailable } from "../platform.ts";
-import { BadRequestError, type CliError } from "../effect/errors.ts";
-import { fs, shSoft } from "../effect/support.ts";
+import type { Change } from "../domain/change.ts";
+import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
+import { shOrThrow } from "../platform/capabilities/sh.ts";
+import { config } from "../../workspace/server/index.ts";
+import { copyTooling } from "../platform/tooling.ts";
+import { writeChange, writeWtConfig, changeDir } from "../../change/server/store.ts";
+import { isMac, commandAvailable } from "../platform/platform.ts";
+import { BadRequestError, type CliError } from "../platform/effect/errors.ts";
+import { fs, shSoft } from "../platform/effect/support.ts";
 
 /**
  * One worktree, as the dashboard reads it.
@@ -403,7 +403,7 @@ const carryTooling = (repo: string, change: Change): Effect.Effect<void> =>
     const created = yield* checkoutFor(change, repo);
     if (!created) return;
     // The copy runs as an Effect too, so its `git check-ignore` carries the workspace env
-    // (src/tooling.ts); its failure is reported and never fatal.
+    // (src/core/platform/tooling.ts); its failure is reported and never fatal.
     yield* copyTooling(repo, created, config.worktreeCopy).pipe(
       Effect.catchAll((error) =>
         Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { BadRequestError } from "../../effect/errors.ts";
+import { BadRequestError } from "../../core/platform/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import type { Extension } from "../../core/host/api.ts";
 

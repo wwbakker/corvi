@@ -30,8 +30,9 @@ convenience.
 ## 3. A feature owns its code
 
 Declaration, implementation and client half live together under `src/extensions/<name>/`.
-`src/integrations/` holds only vendor clients genuinely shared by more than one feature
-(`git.ts` qualifies); top-level `src/*.ts` is core domain that is not a feature.
+`src/core/integrations/` holds only vendor clients genuinely shared by more than one feature
+(`git.ts` qualifies); the rest of `src/core/` is the substrate — vocabulary, the platform and
+the extension host.
 
 - **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`.
 - **Tell:** a feature whose implementation is a top-level module plus an `integrations/` file plus
@@ -54,7 +55,7 @@ is named for the one thing it does.
 
 - **Right:** `extensions/`, `extensionsFor`, one `git.ts`.
 - **Tell:** `src/change/server/review.ts` both meaning "local changes" alongside
-  `integrations/git.ts`; or a
+  `src/core/integrations/git.ts`; or a
   new field named `integration` where the wire contract (`Widget.integration`) does not force it.
 
 ## 6. Shared means shared
@@ -64,7 +65,8 @@ A helper used twice lives in one place — preferably on the service it belongs 
 
 - **Right:** one `shSoft`, one `cliJson`, one `messageOf`.
 - **Tell:** the same helper defined in several modules, each carrying its own copy of the same
-  explanatory comment. `shSoft`, `cliJson`, `messageOf` and `fs` live in `src/effect/support.ts`.
+  explanatory comment. `shSoft`, `cliJson`, `messageOf` and `fs` live in
+  `src/core/platform/effect/support.ts`.
 
 ## 7. State has an owner
 

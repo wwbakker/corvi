@@ -1,9 +1,9 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, FileChange } from "../../core/domain/change.ts";
-import { checkoutFor, baseFor } from "../../integrations/git.ts";
-import { sh, type Result } from "../../sh.ts";
-import { BadRequestError, CliError } from "../../effect/errors.ts";
+import { checkoutFor, baseFor } from "../../core/integrations/git.ts";
+import { sh, type Result } from "../../core/platform/capabilities/sh.ts";
+import { BadRequestError, CliError } from "../../core/platform/effect/errors.ts";
 
 export type { FileChange };
 

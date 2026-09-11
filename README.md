@@ -1213,7 +1213,7 @@ is why a `git` command in a terminal or a hand-edited `change.json` shows up too
 ## Caching
 
 Everything on a page costs a subprocess, and the same answers are wanted by the overview, the
-dashboard and the summaries within seconds of each other. `src/cache.ts` is one
+dashboard and the summaries within seconds of each other. `src/core/platform/capabilities/cache.ts` is one
 stale-while-revalidate store for all of them:
 
 ```typescript
@@ -1330,11 +1330,23 @@ choice was made, and `docs/plans/` holds active work only.
 The map, grouped by layer:
 
     src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
-    src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag ·
+
+    src/core/platform/        the substrate everything stands on
+      effect/                 errors (the taxonomy) · http→status · runRoute · Workspace tag ·
                               support.ts (the shared shSoft/cliJson/messageOf/fs helpers)
-    src/sh.ts                 the subprocess gate, timeout and trace
-    src/cache.ts              stale-while-revalidate for everything the CLIs answer
-    src/events.ts             the SSE hub and the watcher behind it
+      capabilities/           sh.ts (the subprocess gate, timeout and trace), cache.ts
+                              (stale-while-revalidate for everything the CLIs answer), events.ts
+                              (the SSE hub and the watcher behind it)
+      origin.ts               refusing requests another site made
+      platform.ts             platform detection
+      tooling.ts              IDE state carried into a new worktree, paths rewritten
+      routes/                 the HTTP handlers, one module per domain: helpers, changes,
+                              terminals, repos, settings, extensions, events, assets
+    src/core/integrations/    vendor CLI wrappers shared by more than one feature
+      git.ts                  worktrees and checkouts (wt, plus plain git)
+      github.ts               pull requests, review threads, merges
+      azure.ts                Azure DevOps pipelines and runs
+      stacks.ts               stacked pull requests
 
     src/change/               the change module: its server half, its client half, its shared rule
       model.ts                applyPatch: the two fields you may edit by hand
@@ -1364,9 +1376,6 @@ The map, grouped by layer:
       server/                 settings.ts (the page's read/write surface), legacySettings.ts (the
                               one precedence chain), index.ts (the public face)
       client/                 SettingsPage.tsx, SettingsFields.tsx
-    src/tooling.ts            IDE state carried into a new worktree, paths rewritten
-    src/platform.ts           platform detection
-    src/origin.ts             refusing requests another site made
 
     src/core/domain/          the vocabulary the server and the page share —
                               change.ts, widget.ts, terminal.ts, time.ts, config.ts
@@ -1375,16 +1384,7 @@ The map, grouped by layer:
                               services.ts, clientChunks.ts, client.tsx (the page's client-side
                               registry and the extension UI contract), index.ts
 
-    src/routes/               the HTTP handlers, one module per domain: helpers, changes,
-                              terminals, repos, settings, extensions, events, assets
-
     src/deploySettings.ts     the deployments settings, read by the shared azure client too
-
-    src/integrations/         vendor CLI wrappers shared by more than one feature
-      git.ts                  worktrees and checkouts (wt, plus plain git)
-      github.ts               pull requests, review threads, merges
-      azure.ts                Azure DevOps pipelines and runs
-      stacks.ts               stacked pull requests
 
     src/extensions/           the built-ins, and nothing else
       agents/ git/ github-issues/ jira/

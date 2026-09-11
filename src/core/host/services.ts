@@ -9,11 +9,11 @@ import {
   type Capabilities,
   type ExtensionStoreShape,
 } from "./api.ts";
-import { envOf, shWithEnv } from "../../sh.ts";
-import { invalidate, swr } from "../../cache.ts";
+import { envOf, shWithEnv } from "../platform/capabilities/sh.ts";
+import { invalidate, swr } from "../platform/capabilities/cache.ts";
 import { config } from "../../workspace/server/index.ts";
-import { announce } from "../../events.ts";
-import { BadRequestError } from "../../effect/errors.ts";
+import { announce } from "../platform/capabilities/events.ts";
+import { BadRequestError } from "../platform/effect/errors.ts";
 import {
   listExtensionFiles,
   readExtensionFile,
@@ -31,7 +31,7 @@ import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
 /** `run` requires `Workspace` in its own R — the environment comes from the tag, read at
  * run time, so one Shell instance serves every request and `~` expansion stays where the
- * rest of the env handling lives (src/sh.ts). */
+ * rest of the env handling lives (src/core/platform/capabilities/sh.ts). */
 export const ShellLive = Layer.effect(
   Shell,
   Effect.succeed({

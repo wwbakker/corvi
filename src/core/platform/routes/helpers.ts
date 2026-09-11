@@ -1,11 +1,11 @@
 import { Effect } from "effect";
-import { readChange } from "../change/server/index.ts";
+import { readChange } from "../../../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "../effect/errors.ts";
 import { messageOf } from "../effect/support.ts";
 import { runRoute } from "../effect/run.ts";
 import { Workspace } from "../effect/tags.ts";
-import type { Change } from "../core/domain/change.ts";
-import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
+import type { Change } from "../../domain/change.ts";
+import { workspaceById, workspaceOf } from "../../../workspace/server/index.ts";
 
 export const json = (data: unknown, status = 200): Response => Response.json(data, { status });
 

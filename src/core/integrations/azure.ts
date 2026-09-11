@@ -1,13 +1,13 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import { worst } from "../core/domain/widget.ts";
-import type { Change } from "../core/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../core/domain/widget.ts";
-import { swr } from "../cache.ts";
-import type { Workspace } from "../core/domain/config.ts";
-import { azureOf, usesAzure, workspaceOf } from "../workspace/server/index.ts";
-import { deploySettings } from "../deploySettings.ts";
-import { cliJson, shSoft } from "../effect/support.ts";
+import { worst } from "../domain/widget.ts";
+import type { Change } from "../domain/change.ts";
+import type { WidgetItem, WidgetState } from "../domain/widget.ts";
+import { swr } from "../platform/capabilities/cache.ts";
+import type { Workspace } from "../domain/config.ts";
+import { azureOf, usesAzure, workspaceOf } from "../../workspace/server/index.ts";
+import { deploySettings } from "../../deploySettings.ts";
+import { cliJson, shSoft } from "../platform/effect/support.ts";
 
 export type Run = {
   id: number;
@@ -137,7 +137,7 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
  * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
  * milliseconds of CPU per invocation — it is a Python program, started afresh each time. The
- * sharing and the staleness both live in src/cache.ts.
+ * sharing and the staleness both live in src/core/platform/capabilities/cache.ts.
  */
 
 /** Pipelines are moved between folders about never; runs happen while you watch. Both are

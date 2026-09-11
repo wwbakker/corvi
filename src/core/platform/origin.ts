@@ -1,5 +1,5 @@
 import type { Serve } from "bun";
-import type { Bridge } from "./terminal/server/proxy.ts";
+import type { Bridge } from "../../terminal/server/proxy.ts";
 
 /**
  * Whether this request came from our own page.

@@ -1,7 +1,8 @@
 /**
  * The configuration vocabulary: what a workspace is and what the resolved config holds.
  *
- * These are the types the platform (`src/effect/tags.ts`, `src/sh.ts`), the extension contract
+ * These are the types the platform (`src/core/platform/effect/tags.ts`,
+ * `src/core/platform/capabilities/sh.ts`), the extension contract
  * (`src/core/host/api/`) and every module speak, so they live in the ubiquitous language rather
  * than in the workspace module's server half. The loading, the file schema and the settings
  * precedence chain stay with the code that runs them (`src/workspace/server/` and
@@ -67,7 +68,7 @@ export type Config = {
    * workspace stands in. */
   workspaces: Workspace[];
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
-   * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */
+   * paths inside them rewritten. Empty disables it. See `src/core/platform/tooling.ts`. */
   worktreeCopy: string[];
   /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
    * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/core/host/index.ts). `~` is

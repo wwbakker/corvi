@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { sh, type Result } from "../sh.ts";
+import { sh, type Result } from "../capabilities/sh.ts";
 
 /**
  * Helpers shared by every module that shells out or reports a failure, so each invariant is

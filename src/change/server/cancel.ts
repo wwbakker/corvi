@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "../../core/domain/change.ts";
-import { removeWorktree, unsafeToRemove } from "../../integrations/git.ts";
+import { removeWorktree, unsafeToRemove } from "../../core/integrations/git.ts";
 import { archiveChange, changeDir, writeChange } from "./store.ts";
 import {
   afterChange,
@@ -12,8 +12,8 @@ import {
 import { capabilitiesLayer } from "../../core/host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { stopTerminal } from "../../terminal/server/index.ts";
-import { BadRequestError, type CliError, type IweError } from "../../effect/errors.ts";
-import { shSoft } from "../../effect/support.ts";
+import { BadRequestError, type CliError, type IweError } from "../../core/platform/effect/errors.ts";
+import { shSoft } from "../../core/platform/effect/support.ts";
 
 /**
  * Abandoning a change: the opposite end of `complete.ts`.
