@@ -102,7 +102,13 @@ export const withPageFixes = (html: string): string =>
     `<style>.xterm .xterm-viewport{overflow-y:hidden}</style><script src="/terminal-keys.js"></script></head>`,
   );
 
-type Bridge = { upstream?: WebSocket; queue: (string | Uint8Array)[]; port: number };
+type Bridge = { upstream?: WebSocket; queue: (string | Uint8Array<ArrayBuffer>)[]; port: number };
+
+/** `WebSocket.send` accepts an `ArrayBufferView` over a plain `ArrayBuffer`, while the runtime
+ * hands the message over as a `Uint8Array` over `ArrayBufferLike`; copying the bytes keeps the
+ * type honest. This is the browser-to-ttyd direction, where the traffic is keys and pastes. */
+const sendable = (message: string | Uint8Array): string | Uint8Array<ArrayBuffer> =>
+  typeof message === "string" ? message : new Uint8Array(message);
 
 /**
  * Pass a browser socket through to ttyd's. The queue exists because the browser's socket is open
@@ -129,8 +135,9 @@ export const bridge = {
       console.log("[bridge] from browser:", JSON.stringify(text));
     }
     const upstream = ws.data.upstream;
-    if (upstream?.readyState === WebSocket.OPEN) upstream.send(message);
-    else ws.data.queue.push(message);
+    const out = sendable(message);
+    if (upstream?.readyState === WebSocket.OPEN) upstream.send(out);
+    else ws.data.queue.push(out);
   },
 
   close(ws: ServerWebSocket<Bridge>): void {
