@@ -3,9 +3,9 @@
 > **Kind:** plan · **Status:** superseded
 
 > **Superseded.** Work packages 1–6 are implemented; the durable description lives in
-> [`docs/guides/extensions.md`](../guides/extensions.md) and the structure work continues in
-> [`../core-modules-plan.md`](../core-modules-plan.md). This file is kept as a record of what was
-> planned and why.
+> [`docs/guides/extensions.md`](../guides/extensions.md). The core-modules plan that followed
+> completed the structure work and was deleted when it finished, as `docs/README.md` prescribes;
+> its durable parts live in the guides. This file is kept as a record of what was planned and why.
 
 ## What is still hardcoded, and what happens to it
 

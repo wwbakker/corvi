@@ -39,7 +39,6 @@ Every doc starts with a status header:
 
 | Document | Status |
 |---|---|
-| [`plans/core-modules-plan.md`](plans/core-modules-plan.md) | active — a small core, module layout, and the before/after lifecycle contract |
 | [`plans/archive/review-1.md`](plans/archive/review-1.md) | input to the refactor plan (now archived) |
 | [`plans/archive/review-2.md`](plans/archive/review-2.md) | input to the refactor plan (now archived) |
 | [`plans/archive/`](plans/archive/) | completed or superseded, including the refactor plan, the extension slices and their follow-ups |
