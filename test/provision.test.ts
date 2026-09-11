@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provision } from "../src/extensions/index.ts";
+import { install, loaded, provision } from "../src/core/host/index.ts";
 import { Effect } from "effect";
 import {
   describe,
@@ -12,13 +12,13 @@ import {
   parseWorktrees,
   parseStatus,
   type WtEntry,
-} from "../src/integrations/git.ts";
-import { isMac } from "../src/platform.ts";
-import { versionInLines } from "../src/integrations/azure.ts";
-import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts";
-import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
-import type { TmuxWindow } from "../src/extensions/api.ts";
-import type { Change } from "../src/types.ts";
+} from "../src/core/integrations/git.ts";
+import { isMac } from "../src/core/platform/platform.ts";
+import { versionInLines } from "../src/core/integrations/azure.ts";
+import { readiness, headRef, waitingOnYou } from "../src/core/integrations/github.ts";
+import { presentWindow, type PresentedWindow } from "../src/terminal/server/index.ts";
+import type { TmuxWindow } from "../src/core/host/api.ts";
+import type { Change } from "../src/core/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 
 /**
@@ -327,33 +327,6 @@ test("a review thread you answered last is not waiting on you", () => {
   // No viewer to compare against, or an author we cannot read: counted, since "yes" is safe.
   expect(waitingOnYou(threads, undefined)).toBe(3);
   expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
-});
-
-test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../src/web/LocalPane.tsx");
-  const status = (files: unknown[], unpushed = 0): { repo: string; name: string; files: never[]; unpushed: number; tracked: boolean; } => ({
-    repo: "/r",
-    name: "r",
-    files: files as never[],
-    unpushed,
-    tracked: true,
-  });
-
-  // "Nothing here" is an answer, and gets a heading of its own rather than being left out.
-  expect(summarise(status([]))).toEqual({ text: "clean", state: "ok" });
-  expect(summarise(status([1]))).toEqual({ text: "1 change", state: "pending" });
-  expect(summarise(status([1, 2]))).toEqual({ text: "2 changes", state: "pending" });
-
-  // A clean repository with commits nobody else has looks finished and is not.
-  expect(summarise(status([], 3))).toEqual({ text: "3 unpushed", state: "pending" });
-  expect(summarise(status([1], 2))).toEqual({ text: "1 change, 2 unpushed", state: "pending" });
-
-  expect(summarise({ ...status([]), error: "no worktree" })).toEqual({
-    text: "no worktree",
-    state: "error",
-  });
-  // Not asked yet is not the same as clean.
-  expect(summarise(undefined)).toEqual({ text: "…", state: "none" });
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {

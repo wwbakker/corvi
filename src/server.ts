@@ -1,15 +1,15 @@
 import type { ServerWebSocket } from "bun";
 import { Effect } from "effect";
-import { loadCache, saveCache } from "./cache.ts";
-import { buildClientChunks } from "./extensions/clientChunks.ts";
-import { assetsRoutes } from "./routes/assets.ts";
-import { changesRoutes } from "./routes/changes.ts";
-import { eventsRoutes } from "./routes/events.ts";
-import { extensionsRoutes } from "./routes/extensions.ts";
-import { reposRoutes } from "./routes/repos.ts";
-import { settingsRoutes } from "./routes/settings.ts";
-import { terminalsRoutes } from "./routes/terminals.ts";
-import { bridge, type Bridge } from "./terminalProxy.ts";
+import { loadCache, saveCache } from "./core/platform/capabilities/cache.ts";
+import { buildClientChunks } from "./core/host/clientChunks.ts";
+import { assetsRoutes } from "./core/platform/routes/assets.ts";
+import { changesRoutes } from "./core/platform/routes/changes.ts";
+import { eventsRoutes } from "./core/platform/routes/events.ts";
+import { extensionsRoutes } from "./core/platform/routes/extensions.ts";
+import { reposRoutes } from "./core/platform/routes/repos.ts";
+import { settingsRoutes } from "./core/platform/routes/settings.ts";
+import { terminalsRoutes } from "./core/platform/routes/terminals.ts";
+import { bridge, type Bridge } from "./terminal/server/proxy.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
@@ -76,7 +76,7 @@ console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers rest
       `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
     );
     console.error(
-      "usually dependencies: run `bun install`. For the full error: bun build src/web/index.html --outdir /tmp/iwe-check --production",
+      "usually dependencies: run `bun install`. For the full error: bun build src/frontend/index.html --outdir /tmp/iwe-check --production",
     );
     process.exit(1);
   }

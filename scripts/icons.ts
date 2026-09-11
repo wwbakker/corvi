@@ -7,7 +7,7 @@
 import { mkdir } from "node:fs/promises";
 import { sh } from "./sh.ts";
 
-const out = "src/web/icons";
+const out = "src/frontend/icons";
 await mkdir(out, { recursive: true });
 
 const targets: { source: string; name: string; size: number }[] = [

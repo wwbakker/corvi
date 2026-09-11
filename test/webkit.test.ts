@@ -96,6 +96,7 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
     ["/deployments", ".page"],
     ["/settings", ".tabs"],
     [`/changes/${id}`, ".widget"],
+    [`/changes/${id}/notes`, "textarea.notes"],
     [`/changes/${id}/review`, ".local-pane, .page"],
   ];
 
@@ -128,7 +129,7 @@ test.skipIf(!usable)("the settings page reads and writes in WebKit", async () =>
     file: { extensionSettings?: { jira?: { doneTransition?: string } } };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/extensions/index.ts migrates top-level keys on load).
+  // top-level config keys (src/core/host/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
 }, 60_000);
 
@@ -137,7 +138,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card in WebKi
   // margin it contributes changes the height of the heading — and the whole card — on every
   // keystroke. It must be smaller than the title and take no space of its own.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/notes`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".widget:has(textarea.notes)");
   await card.waitFor();
   const heading = card.locator("h3");
@@ -164,7 +165,7 @@ test.skipIf(!usable)("Home and End move to the line's edges in the notes", async
   // WebKit gives Home and End the whole note's edges, unlike the line semantics macOS text
   // views — and Cmd-Left / Cmd-Right — use. A long note is the wrong place to learn that.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/notes`, { waitUntil: "domcontentloaded" });
   const notes = page.locator("textarea.notes");
   await notes.waitFor();
   await notes.fill("first line\nsecond line\nthird");

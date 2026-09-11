@@ -1,16 +1,17 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import type { Change } from "../src/types.ts";
-import { aborted, api, del, patch, post, put, type ApiError } from "../src/web/api.ts";
-import { stateClass } from "../src/web/changeState.tsx";
-import { moment } from "../src/web/moment.ts";
-import { getPref, setPref } from "../src/web/prefs.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import { aborted, api, del, patch, post, put, type ApiError } from "../src/frontend/api.ts";
+import { stateClass } from "../src/change/client/changeState.tsx";
+import { changeNav, resolveChangePage } from "../src/change/client/changeTabs.ts";
+import { moment } from "../src/frontend/moment.ts";
+import { getPref, setPref } from "../src/frontend/prefs.ts";
 import {
   ALL,
   DEFAULT_WORKSPACE,
   inWorkspace,
   workspaceOf,
   type Workspace,
-} from "../src/web/workspaces.ts";
+} from "../src/workspace/client/workspaces.ts";
 
 /**
  * The web client's pure logic: the pieces that decide what the sidebar shows, how a state is
@@ -63,7 +64,7 @@ test("the everything filter keeps every change, and a workspace keeps its own", 
   expect(inWorkspace([change({ workspace: "gone" }), untagged], "gone", both)).toHaveLength(1);
 });
 
-test("the default workspace is the one src/config.ts creates", () => {
+test("the default workspace is the one src/core/domain/config.ts defines", () => {
   expect(DEFAULT_WORKSPACE).toEqual({ id: "default", name: "Default workspace" });
   // "everything" is a filter, not a workspace: it is not one of the configured ids.
   expect(both.map((w) => w.id)).not.toContain(ALL);
@@ -81,6 +82,46 @@ test("a state becomes one class, lowercased with spaces as dashes", () => {
   // A state an extension wrote is still a safe class name: runs of whitespace collapse to one
   // dash each, not one per character.
   expect(stateClass("Some  Weird\tState")).toBe("state-some-weird-state");
+});
+
+test("a change's page id resolves to the core, an offered tab, or the dashboard", () => {
+  const review = { id: "review", title: "Review changes", extension: "review" };
+  const tab = { id: "ci", title: "CI", extension: "ci" };
+  const tabs = [review, tab];
+
+  expect(resolveChangePage("dashboard", tabs)).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("terminals", tabs)).toEqual({ kind: "terminals" });
+  expect(resolveChangePage("ci", tabs)).toEqual({ kind: "tab", tab });
+  // "Review changes" is an extension tab now, so it resolves through the offered list.
+  expect(resolveChangePage("review", tabs)).toEqual({ kind: "tab", tab: review });
+
+  // An id nobody offered — a stale URL, a tab the extension stopped declaring, `review` on a
+  // workspace that dropped the extension — is the dashboard, so the page still renders
+  // something rather than a blank page.
+  expect(resolveChangePage("gone", tabs)).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("gone", [])).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", [])).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", [tab])).toEqual({ kind: "dashboard" });
+});
+
+test("the change nav is the core's dashboard and then the extensions' in load order", () => {
+  expect(changeNav([])).toEqual([{ id: "dashboard", title: "Dashboard" }]);
+  expect(
+    changeNav([
+      { id: "review", title: "Review changes", extension: "review" },
+      { id: "ci", title: "CI", extension: "ci" },
+      { id: "jira", title: "Issues", extension: "jira" },
+    ]),
+  ).toEqual([
+    { id: "dashboard", title: "Dashboard" },
+    { id: "review", title: "Review changes" },
+    { id: "ci", title: "CI" },
+    { id: "jira", title: "Issues" },
+  ]);
+  // A contributed id that would shadow a core page is dropped: the core addressed it first.
+  expect(changeNav([{ id: "terminals", title: "Terminals again", extension: "x" }])).toEqual([
+    { id: "dashboard", title: "Dashboard" },
+  ]);
 });
 
 test("a timestamp reads as local date and time, zero-padded to the minute", () => {
@@ -205,7 +246,7 @@ test("PATCH, PUT and DELETE carry their method, and DELETE carries no body", asy
   stubFetch(() => json({ ok: true }));
   await patch("/changes/PROJ-1", { title: "renamed" });
   await put("/changes/PROJ-1/notes", { notes: "hi" });
-  await del("/changes/PROJ-1/leftovers/x");
+  await del("/changes/PROJ-1/notes");
 
   expect(calls.map((c) => c.init?.method)).toEqual(["PATCH", "PUT", "DELETE"]);
   expect(calls[0]!.init?.body).toBe('{"title":"renamed"}');

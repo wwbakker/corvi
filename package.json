@@ -10,6 +10,7 @@
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
+    "outline": "bun scripts/outline.ts",
     "lint": "eslint .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",

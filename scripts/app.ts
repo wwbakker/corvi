@@ -16,7 +16,7 @@
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { isLinux, isMac } from "../src/platform.ts";
+import { isLinux, isMac } from "../src/core/platform/platform.ts";
 import { sh } from "./sh.ts";
 
 /** What it is called in the Dock, in the menu bar and in its own title bar. `IWE` is what the
@@ -125,7 +125,7 @@ async function verify(): Promise<void> {
     process.exit(1);
   }
   const out = "/tmp/iwe-build-check";
-  const built = await sh(["bun", "build", "src/web/index.html", "--outdir", out, "--production"]);
+  const built = await sh(["bun", "build", "src/frontend/index.html", "--outdir", out, "--production"]);
   await rm(out, { recursive: true, force: true });
   if (built.code !== 0) {
     console.error(built.stderr || built.stdout);

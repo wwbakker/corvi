@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { BadRequestError } from "../../effect/errors.ts";
+import { BadRequestError } from "../../core/platform/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
-import type { Extension } from "../api.ts";
+import type { Extension } from "../../core/host/api.ts";
 
 /**
  * The deployments extension: what is deployed where, and the one irreversible thing on that
@@ -34,11 +34,21 @@ export default {
   // state, not a server route.
   pages: [{ id: "deployments", title: "Deployments" }],
 
+  // The per-workspace overrides of the same two names: shown in every workspace that has this
+  // extension enabled, and stored under `workspace.extensionSettings.deployments` — the first
+  // step of the chain the shared azure client reads (`azureOf`, src/core/integrations/azure.ts).
+  workspaceSettings: [
+    { key: "organization", label: "Organisation", placeholder: "the global setting" },
+    { key: "project", label: "Project", placeholder: "the global setting" },
+  ],
+
   // The server-wide settings this extension declares, shown on the settings page for every
-  // workspace and stored under `extensionSettings.deployments` — where deploySettings reads
-  // them back (src/deploySettings.ts), with the core config's `azure*` fields as the fallback.
-  // An environment variable keeps beating the page: the field shows locked when IWE_AZURE_* is
-  // set.
+  // workspace and stored under `extensionSettings.deployments`. The deployment conventions
+  // (pipeline, versionParameter, environmentParameter, environments) are read back by
+  // ./deploySettings.ts; organisation and project by the shared azure client's `azureOf`
+  // (src/core/integrations/azure.ts), which adds the per-workspace override above and the core
+  // config's `azure*` fields as the chain's fallback. An environment variable keeps beating the
+  // page: the field shows locked when IWE_AZURE_* is set.
   globalSettings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_ORG" },
     { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_PROJECT" },

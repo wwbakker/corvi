@@ -1,7 +1,7 @@
 import { Effect, Layer } from "effect";
-import { Workspace } from "../src/effect/tags.ts";
-import { sh as runCli, type Result } from "../src/sh.ts";
-import { workspaceById } from "../src/workspaces.ts";
+import { Workspace } from "../src/core/platform/effect/tags.ts";
+import { sh as runCli, type Result } from "../src/core/platform/capabilities/sh.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
 
 /**
  * The Promise-shaped CLI helper the scripts use.

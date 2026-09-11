@@ -13,10 +13,11 @@ The rulings behind these rules are recorded in
 
 Server-side `src/` only. Excluded, deliberately:
 
-- `src/terminalProxy.ts` — the WebSocket bridge stays as-is; it is proxy plumbing, not logic.
-- `src/web/**` — the React UI never sees Effect.
-- `src/origin.ts` — the sync guard stays as-is.
-- `src/platform.ts` — platform detection stays as-is.
+- `src/terminal/server/proxy.ts` — the WebSocket bridge stays as-is; it is proxy plumbing, not logic.
+- `src/frontend/**`, a module's `client/**`, an extension's `client.tsx` and the host's browser
+  contract (`src/core/host/client.tsx`) — the React UI never sees Effect.
+- `src/core/platform/origin.ts` — the sync guard stays as-is.
+- `src/core/platform/platform.ts` — platform detection stays as-is.
 - Purely synchronous code (pure string logic, pure data shaping) — no effect wrapper buys
   anything there.
 
@@ -37,7 +38,7 @@ one — `readFile`/`readFileSync`, `reloadConfig`/`reloadConfigSync`,
 `settingsView`/`settingsViewSync` — so a name means the same thing whether or not the caller can
 wait.
 
-## Error taxonomy (`src/effect/errors.ts`)
+## Error taxonomy (`src/core/platform/effect/errors.ts`)
 
 One small sealed tagged set, shared by every module. **No per-module error hierarchies beyond
 this** — if a failure does not fit, it is a defect, or it fits one of these with a message.
@@ -53,10 +54,10 @@ this** — if a failure does not fit, it is a defect, or it fits one of these wi
 Each error carries a human-readable message, which is what a user sees. `errors.ts` holds data
 types and message formatting only; it knows nothing about HTTP.
 
-## Services (`src/effect/tags.ts`)
+## Services (`src/core/platform/effect/tags.ts`)
 
 A `Workspace` service `Context.Tag` carries the workspace config object (the `Workspace` type
-in `src/config.ts`) through a request.
+in `src/core/domain/config.ts`) through a request.
 
 Code that may legitimately run outside a request scope (startup, caches) uses
 `Effect.serviceOption(Workspace)` and falls back to an `undefined` workspace and an empty env

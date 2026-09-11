@@ -2,8 +2,8 @@
 
 > **Kind:** plan · **Status:** implemented
 
-A single prioritized list built from `docs/plans/review-1.md` (my review) and
-`docs/plans/review-2.md` (the other agent's). Both are kept as written; this file only
+A single prioritized list built from `review-1.md` (my review) and
+`review-2.md` (the other agent's). Both are kept as written; this file only
 decides *what to do, in what order, and how to tell it is done*.
 
 Ranking is by (value ÷ risk) ÷ effort, not by how interesting the change is. Every

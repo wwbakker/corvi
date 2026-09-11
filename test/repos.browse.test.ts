@@ -2,8 +2,8 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "../src/config.ts";
-import { absolutePath, browse, remoteBranches, resolveInRoot, startPath } from "../src/repos.ts";
+import { config } from "../src/workspace/server/index.ts";
+import { absolutePath, browse, remoteBranches, resolveInRoot, startPath } from "../src/workspace/server/index.ts";
 import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
 
 /**

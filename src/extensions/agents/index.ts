@@ -1,4 +1,4 @@
-import type { Extension, TerminalPresenter } from "../api.ts";
+import type { Extension, TerminalPresenter } from "../../core/host/api.ts";
 
 /**
  * What a coding agent in a tmux window is doing, as it says itself.

@@ -1,9 +1,9 @@
 import { type JSX, useEffect, useState } from "react";
-import type { PageComponent } from "../../web/extensions.tsx";
-import { api } from "../../web/api.ts";
-import { moment } from "../../web/moment.ts";
+import type { PageComponent } from "../../core/host/client.tsx";
+import { api } from "../../frontend/api.ts";
+import { moment } from "../../frontend/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
-import { autoDeployedApp } from "../../shared/deployConventions.ts";
+import { autoDeployedApp } from "./deployConventions.ts";
 
 export type Deployed = {
   environment: string;

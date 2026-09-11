@@ -1,17 +1,18 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect, Either, Layer } from "effect";
-import { clearCache } from "../src/cache.ts";
-import { config, type Workspace } from "../src/config.ts";
-import type { Change, Widget, WidgetItem } from "../src/types.ts";
-import type { Capabilities, Card } from "../src/extensions/api.ts";
-import { BusLive, CacheLive, SettingsLive } from "../src/extensions/services.ts";
-import { install, loaded } from "../src/extensions/registry.ts";
-import { provision, repoStatusOf, runCard, statusOne } from "../src/extensions/effects.ts";
+import { clearCache } from "../src/core/platform/capabilities/cache.ts";
+import { config, type Workspace } from "../src/workspace/server/index.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { Widget, WidgetItem } from "../src/core/domain/widget.ts";
+import type { Capabilities, Card } from "../src/core/host/api.ts";
+import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/core/host/services.ts";
+import { install, loaded } from "../src/core/host/registry.ts";
+import { provision, repoStatusOf, runCard, statusOne } from "../src/core/host/effects.ts";
 import ciExtension from "../src/extensions/ci/index.ts";
 import deploymentsExtension from "../src/extensions/deployments/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
-import { workspaceById } from "../src/workspaces.ts";
-import type { Result } from "../src/sh.ts";
+import { Shell, Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
+import type { Result } from "../src/core/platform/capabilities/sh.ts";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
 
 /**
@@ -413,7 +414,9 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     CacheLive,
     SettingsLive,
     BusLive,
+    ChangesLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+    extensionStoreLayer("test"),
   );
 
 const runRoute = <A, E>(
@@ -741,17 +744,17 @@ test("repoStatusOf returns a card's rows for the repository, or a red row naming
   const repo = "/repos/example-api";
   const rows: WidgetItem[] = [{ label: "worktree", actions: [{ id: "a", label: "A" }] }];
   const fromCard = await runEffect(
-    repoStatusOf(card({ repoStatus: () => Effect.succeed(rows) }), change(), repo),
+    repoStatusOf("test", card({ repoStatus: () => Effect.succeed(rows) }), change(), repo),
   );
   expect(fromCard).toEqual(rows);
 
-  const noRepo = await runEffect(repoStatusOf(card(), change(), repo));
+  const noRepo = await runEffect(repoStatusOf("test", card(), change(), repo));
   expect(noRepo).toEqual([
     { label: "example-api", detail: "Card has no per-repository view", state: "error" },
   ]);
 
   const failed = await runEffect(
-    repoStatusOf(card({ repoStatus: () => Effect.fail(new TestError({ message: "gh said no" })) }), change(), repo),
+    repoStatusOf("test", card({ repoStatus: () => Effect.fail(new TestError({ message: "gh said no" })) }), change(), repo),
   );
   expect(failed).toEqual([{ label: "example-api", detail: "gh said no", state: "error" }]);
 });
@@ -761,6 +764,7 @@ test("a finished change's repository rows lose their actions too", async () => {
   const finished = change({ state: "Cancelled", completedAt: "2026-01-02T00:00:00Z" });
   const result = await runEffect(
     repoStatusOf(
+      "test",
       card({
         repoStatus: () =>
           Effect.succeed([
@@ -779,6 +783,7 @@ test("runCard performs the action with its argument", async () => {
   const seen: { action: string; arg: string | undefined }[] = [];
   const result = await runEffect(
     runCard(
+      "test",
       card({
         run: (_change, action, arg) => {
           seen.push({ action, arg });
@@ -795,7 +800,7 @@ test("runCard performs the action with its argument", async () => {
 });
 
 test("a card with no actions fails rather than silently doing nothing", async () => {
-  await expect(runEffect(runCard(card(), change(), "act", undefined))).rejects.toThrow(
+  await expect(runEffect(runCard("test", card(), change(), "act", undefined))).rejects.toThrow(
     "Card has no actions",
   );
 });

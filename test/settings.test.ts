@@ -2,8 +2,8 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { problems, settingsViewSync, writeSettings, type Settings } from "../src/settings.ts";
-import { config, reloadConfigSync, type Config } from "../src/config.ts";
+import { problems, settingsViewSync, writeSettings, type Settings } from "../src/settings/server/index.ts";
+import { config, reloadConfigSync, type Config } from "../src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -116,16 +116,61 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   expect("notificationSound" in cleared).toBe(false);
 });
 
-test("the file keeps what it had, and does not fill up with defaults", async () => {
-  await Bun.write(file, JSON.stringify({ somethingNewer: 1, jiraAssignee: "me" }));
-  await runEffect(writeSettings({ jiraDoneTransition: "Done", jiraAssignee: "" }));
+test("the file keeps what it had, including fields the core no longer names", async () => {
+  // A legacy-only config file: the flat jira fields left the schema when the extension took them
+  // over, so a settings-page write must carry them through the preserve decode rather than drop
+  // them. This is the round-trip proof for those fields.
+  await Bun.write(
+    file,
+    JSON.stringify({
+      somethingNewer: 1,
+      jiraAssignee: "me@example.com",
+      jiraStartTransition: "Start",
+      jiraDoneTransition: "Ready for release",
+    }),
+  );
+  await runEffect(writeSettings({ notificationSound: false }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of IWE that does.
   expect(written.somethingNewer).toBe(1);
-  expect(written.jiraDoneTransition).toBe("Done");
-  // Cleared on the page means "not set", which is an absent key rather than an empty string.
-  expect("jiraAssignee" in written).toBe(false);
+  // The write changed only what it meant to; the legacy jira fields survive intact.
+  expect(written.jiraAssignee).toBe("me@example.com");
+  expect(written.jiraStartTransition).toBe("Start");
+  expect(written.jiraDoneTransition).toBe("Ready for release");
+  expect(written.notificationSound).toBe(false);
+
+  // The resolved config carries the preserved keys too, which is where the jira extension's
+  // legacy fallback reads them from.
+  expect((config as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
+});
+
+test("a workspace-level legacy jira object survives a settings save", async () => {
+  // A workspace written before the settings bag carried its own `jira` site object. The loader
+  // passes the entry through untouched, and the page writes the workspace back as it read it.
+  await Bun.write(
+    file,
+    JSON.stringify({
+      workspaces: [{ id: "client", name: "Client", jira: { project: "LEGACY", board: "B" } }],
+    }),
+  );
+  reloadConfigSync();
+  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+    project: "LEGACY",
+    board: "B",
+  });
+
+  await runEffect(writeSettings({ workspaces: [config.workspaces[0]!] }));
+
+  const written = JSON.parse(await readFile(file, "utf8")) as {
+    workspaces: Record<string, unknown>[];
+  };
+  // The unknown key rode through the save, which is what the jira extension reads back.
+  expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
+  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+    project: "LEGACY",
+    board: "B",
+  });
 });
 
 test("a setting the environment overrides is reported as locked", async () => {

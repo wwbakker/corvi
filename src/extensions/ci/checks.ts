@@ -1,8 +1,9 @@
 import { Effect, Schema } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../../types.ts";
-import { checkoutFor } from "../../integrations/git.ts";
-import { swr } from "../../cache.ts";
-import { cliJson, shSoft } from "../../effect/support.ts";
+import type { Change } from "../../core/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../../core/domain/widget.ts";
+import { checkoutFor } from "../../core/integrations/git.ts";
+import { swr } from "../../core/platform/capabilities/cache.ts";
+import { cliJson, shSoft } from "../../core/platform/effect/support.ts";
 
 export type Check = {
   name: string;

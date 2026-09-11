@@ -39,10 +39,9 @@ Every doc starts with a status header:
 
 | Document | Status |
 |---|---|
-| [`plans/extensions-migration-plan.md`](plans/extensions-migration-plan.md) | active — moving the rest of the core behind the extension API |
-| [`plans/review-1.md`](plans/review-1.md) | input to the refactor plan (now archived) |
-| [`plans/review-2.md`](plans/review-2.md) | input to the refactor plan (now archived) |
-| [`plans/archive/`](plans/archive/) | completed or superseded, including the refactor plan and its follow-ups |
+| [`plans/archive/review-1.md`](plans/archive/review-1.md) | input to the refactor plan (now archived) |
+| [`plans/archive/review-2.md`](plans/archive/review-2.md) | input to the refactor plan (now archived) |
+| [`plans/archive/`](plans/archive/) | completed or superseded, including the refactor plan, the extension slices and their follow-ups |
 
 ## Not documentation
 

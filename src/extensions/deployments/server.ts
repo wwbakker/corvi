@@ -1,20 +1,21 @@
 import { Effect, Schema } from "effect";
-import type { WidgetState } from "../../types.ts";
-import { swr, invalidate } from "../../cache.ts";
+import type { WidgetState } from "../../core/domain/widget.ts";
+import { swr, invalidate } from "../../core/platform/capabilities/cache.ts";
 import {
   azFor,
+  azureEnabled,
   buildUrl,
   versionOf,
   expectedDuration,
   type Az,
   type Definition,
-} from "../../integrations/azure.ts";
-import { usesAzure, workspaceById } from "../../workspaces.ts";
-import { deploySettings } from "../../deploySettings.ts";
-import { autoDeployedApp } from "../../shared/deployConventions.ts";
-import { ago } from "../../shared/time.ts";
-import { BadRequestError } from "../../effect/errors.ts";
-import { cliJson, shSoft } from "../../effect/support.ts";
+} from "../../core/integrations/azure.ts";
+import { workspaceById } from "../../workspace/server/index.ts";
+import { deploySettings } from "./deploySettings.ts";
+import { autoDeployedApp } from "./deployConventions.ts";
+import { ago } from "../../core/domain/time.ts";
+import { BadRequestError } from "../../core/platform/effect/errors.ts";
+import { cliJson, shSoft } from "../../core/platform/effect/support.ts";
 
 /**
  * What is deployed where.
@@ -211,7 +212,7 @@ export const deployments = (
 ): Effect.Effect<{ services: Service[]; error?: string }> =>
   Effect.gen(function* () {
     const workspace = workspaceById(workspaceId);
-    if (!usesAzure(workspace)) return { services: [] }; // this context has no pipelines at all
+    if (!azureEnabled(workspace)) return { services: [] }; // this context has no pipelines at all
     const az = yield* azFor(workspace);
     if (!az.project) {
       return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
@@ -266,7 +267,7 @@ export const versionsFor = (
 ): Effect.Effect<Buildable[]> =>
   Effect.gen(function* () {
     const workspace = workspaceById(workspaceId);
-    if (!usesAzure(workspace)) return [];
+    if (!azureEnabled(workspace)) return [];
     const az = yield* azFor(workspace);
     const project = az.project;
     const pipelines = yield* allPipelines(az);
@@ -438,7 +439,7 @@ export const deploy = (
       return yield* new BadRequestError({ message: `unknown environment: ${environment}` });
     }
     const workspace = workspaceById(workspaceId);
-    if (!usesAzure(workspace)) {
+    if (!azureEnabled(workspace)) {
       return yield* new BadRequestError({ message: `${workspace.name} has no pipelines` });
     }
     const az = yield* azFor(workspace);

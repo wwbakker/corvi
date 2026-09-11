@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { BadRequestError } from "../../effect/errors.ts";
+import { BadRequestError } from "../../core/platform/effect/errors.ts";
 
 /**
  * Talking to Jira Cloud directly, over its own REST API.

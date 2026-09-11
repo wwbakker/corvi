@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { currentBranch } from "../src/integrations/git.ts";
-import { sh } from "../src/sh.ts";
-import { Workspace as WorkspaceTag } from "../src/effect/tags.ts";
-import { workspaceById } from "../src/workspaces.ts";
+import { currentBranch } from "../src/core/integrations/git.ts";
+import { sh } from "../src/core/platform/capabilities/sh.ts";
+import { Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /**
@@ -25,7 +25,7 @@ describe("sh with a provided Shell", () => {
 });
 
 /**
- * Routes provide only the `Workspace` tag, no `Shell` (src/routes/helpers.ts), so the direct
+ * Routes provide only the `Workspace` tag, no `Shell` (src/core/platform/routes/helpers.ts), so the direct
  * path is production code: with no Shell in context `sh` must still spawn exactly as before.
  */
 test("with no Shell in context, sh spawns directly", async () => {

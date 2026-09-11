@@ -4,8 +4,9 @@ A local dashboard for a *change*: the work spanning one or more repositories, pl
 worktrees, pull requests, tickets and builds around it.
 
 State lives in one directory per change (`~/changes/<id>/`, `~/changes/archive/<id>/` once
-completed), holding `change.json`, `notes.md`, a `wt.toml` that points `wt` at that directory, and the git
-worktrees themselves. Everything else (PR status,
+completed), holding `change.json`, a `wt.toml` that points `wt` at that directory, the git
+worktrees themselves, and per-extension files under `extensions/<name>/` (the notes extension's
+`notes.md`, say). Everything else (PR status,
 ticket status, pipeline runs) is read live from the vendors' own CLIs, so this tool stores no
 secrets and owns no copy of their data.
 
@@ -169,9 +170,7 @@ The dashboard shows three widgets, in this order:
 - **Jira** — the issue, its status and assignee. No transition buttons: `In Progress` is set when
   the change is created, and `Done` belongs to completing the change as a whole.
 - **Local changes** — the worktree per repository: clean or dirty, ahead/behind, merged.
-On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
-column of its own beside the others; narrower windows stack everything.
-
+  Reviewing and committing what is uncommitted here is the **Review changes** tab, below.
 - **CI** — per repository, the pull request and the pipeline runs it triggered, since "is this
   change green?" is one question even though two vendors answer it. Rows form a collapsible tree:
 
@@ -226,6 +225,9 @@ column of its own beside the others; narrower windows stack everything.
   their pipeline folder (`\example-api`), which mirrors the service directories of a
   monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
   builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
+
+On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
+column of its own beside the others; narrower windows stack everything.
 
 ## The app
 
@@ -340,7 +342,7 @@ it keeps a readable 1200px column.
 
 `http://127.0.0.1:4000` counts as a secure context, so no TLS is needed. The icon source is
 `assets/icon.svg` (and `assets/icon-maskable.svg` for the padded, croppable variant); edit those
-and run `bun run icons` to regenerate `src/web/icons/*.png` with `rsvg-convert`
+and run `bun run icons` to regenerate `src/frontend/icons/*.png` with `rsvg-convert`
 (`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
 
 ## Workspaces
@@ -883,15 +885,18 @@ want more care than a click.
 
 ## Notes
 
-Each change has a free-text note in the left column, stored as `notes.md` in its directory, so it
-travels into the archive with everything else. It saves shortly after you stop typing, on blur,
+Each change has a free-text note, a **Notes** tab beside the dashboard when the notes extension is
+enabled, stored as `extensions/notes/notes.md` in the change directory so it travels into the
+archive with everything else. A note written before the tab existed, at the change root's
+`notes.md`, still shows as a read-only fallback. It saves shortly after you stop typing, on blur,
 and when you navigate away.
 
 ## Left behind
 
-Under the changes list is a card for directories in the changes root that no longer belong to a
-change: what a completed one left behind — a build's `target/`, a shell's history, the terminal's
-note — or a change that was never finished being created. Each one opens to show what is in it,
+A page of its own, beside `Changes` in the navigation column when the leftovers extension is
+enabled: the directories in the changes root that no longer belong to a
+change — what a completed one left behind (a build's `target/`, a shell's history, the terminal's
+note) or a change that was never finished being created. Each one opens to show what is in it,
 with its size, and a Delete button. Nothing is removed on your behalf: `target/` is rubbish, the
 scratch file next to it might not be.
 
@@ -1213,7 +1218,7 @@ is why a `git` command in a terminal or a hand-edited `change.json` shows up too
 ## Caching
 
 Everything on a page costs a subprocess, and the same answers are wanted by the overview, the
-dashboard and the summaries within seconds of each other. `src/cache.ts` is one
+dashboard and the summaries within seconds of each other. `src/core/platform/capabilities/cache.ts` is one
 stale-while-revalidate store for all of them:
 
 ```typescript
@@ -1282,7 +1287,7 @@ requests of a big change keep saturating the browser's six connections per origi
 localhost, so no multiplexing), and the next page waits seconds for a free one: measured at
 2387ms for `GET /api/changes` mid-load versus 4ms idle.
 
-Widget data is kept in a small in-memory cache in the browser (`src/web/cache.ts`), keyed by
+Widget data is kept in a small in-memory cache in the browser (`src/frontend/cache.ts`), keyed by
 change, component and repository, so leaving a change and coming back paints the last known rows
 straight away while they refresh in the background. A page reload starts empty.
 
@@ -1301,8 +1306,8 @@ the surfaces in docs/guides/extensions.md. A card takes the same shape the integ
 a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
 `events["change:created"]` is the creation hook. A built-in is added to the loader in
-`src/extensions/index.ts` and, when it has a step or a page, to the client registry in
-`src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
+`src/core/host/index.ts` and, when it has a step, a page or a change tab, to the client registry in
+`src/core/host/client.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
 ## Tests and your real changes
@@ -1330,80 +1335,83 @@ choice was made, and `docs/plans/` holds active work only.
 The map, grouped by layer:
 
     src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
-    src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag ·
+
+    src/core/platform/        the substrate everything stands on
+      effect/                 errors (the taxonomy) · http→status · runRoute · Workspace tag ·
                               support.ts (the shared shSoft/cliJson/messageOf/fs helpers)
-    src/schemas/              Effect Schemas for change.json and config.json
-    src/sh.ts                 the subprocess gate, timeout and trace
-    src/cache.ts              stale-while-revalidate for everything the CLIs answer
-    src/events.ts             the SSE hub and the watcher behind it
-
-    src/changes.ts            change.json read/write, worktree paths, the archive
-    src/complete.ts           completing a change: merge, close, archive
-    src/cancel.ts             abandoning a change: worktrees back, nothing else touched
-    src/commit.ts             one commit per repository, with one message
-    src/local.ts              uncommitted work in a repository, and one file's diff
-    src/summary.ts            the numbers on an overview card, as contributed facts
-    src/titles.ts             what a change is called, from its ticket
-    src/description.ts        the pull request description an action copies
-    src/settings.ts           reading and writing the config file from the page
-    src/config.ts             config file + env overrides
-    src/repos.ts              directory browsing under reposRoot, remote branches
-    src/leftovers.ts          directories in the changes root without a change
-    src/tooling.ts            IDE state carried into a new worktree, paths rewritten
-    src/platform.ts           platform detection
-    src/origin.ts             refusing requests another site made
-    src/types.ts              the vocabulary the server and the page share
-    src/legacySettings.ts     the one legacy-settings resolver and migration
-
-    src/routes/               the HTTP handlers, one module per domain: helpers, changes,
+      capabilities/           sh.ts (the subprocess gate, timeout and trace), cache.ts
+                              (stale-while-revalidate for everything the CLIs answer), events.ts
+                              (the SSE hub and the watcher behind it)
+      origin.ts               refusing requests another site made
+      platform.ts             platform detection
+      tooling.ts              IDE state carried into a new worktree, paths rewritten
+      routes/                 the HTTP handlers, one module per domain: helpers, changes,
                               terminals, repos, settings, extensions, events, assets
-
-    src/terminal.ts           tmux sessions and the ttyd that serves them
-    src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
-    src/deploySettings.ts     the deployments settings, read by the shared azure client too
-
-    src/shared/               pure code both the server and the browser import
-      branch.ts               branch-name derivation
-      deployConventions.ts    how a build pipeline's name maps to its deploy twin
-
-    src/integrations/         vendor CLI wrappers shared by more than one feature
+    src/core/integrations/    vendor CLI wrappers shared by more than one feature
       git.ts                  worktrees and checkouts (wt, plus plain git)
       github.ts               pull requests, review threads, merges
       azure.ts                Azure DevOps pipelines and runs
       stacks.ts               stacked pull requests
 
-    src/extensions/           the extension host and the built-ins
-      index.ts                the public face: built-in load order and re-exports
-      registry.ts             the leaf registry (loaded, install, window presenters)
-      discover.ts selectors.ts effects.ts dispatch.ts   loading, queries, running, routing
-      api.ts                  the whole contract an extension sees
-      services.ts             the live layers behind Shell/Cache/Settings/Bus/Workspace
-      clientChunks.ts         builds out-of-tree client halves for the page
-      agents/ git/ github-issues/ jira/    the built-ins
-      ci/                     the CI card, and checks.ts (GitHub Actions checks)
-      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx
+    src/change/               the change module: its server half, its client half, its shared rule
+      model.ts                applyPatch: the two fields you may edit by hand
+      server/                 schema.ts (the change.json schema), store.ts (change.json, the
+                              archive, sidecars, ExtensionStore files), create.ts, complete.ts,
+                              cancel.ts, titles.ts, description.ts,
+                              index.ts (the public face)
+      client/                 ChangeView.tsx, changeState.tsx,
+                              EditReposDialog.tsx, CompletionCard.tsx
+      wizard/                 the New change wizard (client/Wizard.tsx, index.ts)
+      overview/               the dashboard: server/summary.ts composes change, terminal and the
+                              host; client/ holds ChangeCard, PerRepoCard, WidgetCard, WidgetRows,
+                              Progress
+    src/terminal/             the terminal module: sessions without change knowledge
+      server/                 tmux.ts (sessions, ttyd spawn), proxy.ts (ttyd through our
+                              origin, the key-fixing script), presenter.ts (the window merge and
+                              the core's defaults), index.ts (the public face)
+      client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx, newWindowKey.ts
+    src/workspace/            the workspace module: contexts, config and the repository browser
+      server/                 config.ts (config file + env overrides), schema.ts (the config file
+                              schema), workspaces.ts (which context a change belongs to),
+                              repos.ts (directory browsing under reposRoot, remote branches),
+                              index.ts (the public face)
+      client/                 workspaces.ts (the context switcher state), WorkspaceCard.tsx,
+                              RepoBrowser.tsx
+    src/settings/             the settings module: the settings file, read and written from the page
+      server/                 settings.ts (the page's read/write surface), legacySettings.ts (the
+                              one precedence chain), index.ts (the public face)
+      client/                 SettingsPage.tsx, SettingsFields.tsx
 
-    src/web/                  the React app, bundled by Bun's HTML import
+    src/core/domain/          the vocabulary the server and the page share —
+                              change.ts, widget.ts, terminal.ts, time.ts, config.ts
+    src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
+                              registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
+                              services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
+                              client-side registry and the extension UI contract), index.ts
+
+    src/extensions/           the built-ins, and nothing else
+      agents/ git/ github-issues/ jira/
+      ci/                     the CI card, and checks.ts (GitHub Actions checks)
+      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
+                              deploySettings.ts (the deployments' own settings, read back),
+                              deployConventions.ts (the pipeline-name convention both halves share)
+      leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
+                              (the Leftover type both halves read)
+      notes/                  index.ts (the Notes tab), server.ts (the store-backed read and write),
+                              client.tsx
+      review/                 index.ts (the declaration and routes), server.ts (the git surface),
+                              client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,
+                              shared.ts (the vocabulary both halves read)
+
+    src/frontend/             the browser shell and runtime, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view
       state.ts                the changes and tmux windows, owned by the app
       events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
-      Wizard.tsx              per-component change wizard
-      ChangeView.tsx          widget dashboard for one change
-      ChangeCard.tsx          one active change on the overview
-      LocalPane.tsx           the review-changes tab: files, and a diff
-      CommitDialog.tsx        committing across the change
-      RepoBrowser.tsx         repository picker: mode and base branch per repository
-      SettingsPage.tsx        the config file, as a form
       Sidebar.tsx             the navigation column: changes, pages, terminals
-      TerminalPane.tsx        the terminal itself, with CheatSheet.tsx
-      NotesCard.tsx           notes.md for a change
-      CompletionCard.tsx      how far completing a change got
-      Leftovers.tsx           directories left in the changes root
-      extensions.tsx          the hosts for an extension's step and page
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
-      ActionsMenu.tsx changeState.tsx EditReposDialog.tsx   the rest of the furniture
-      moment.ts newWindowKey.ts prefs.ts Progress.tsx
+      ActionsMenu.tsx         the change page's action menu
+      moment.ts prefs.ts poll.ts notify.tsx LifecycleFailures.tsx
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
