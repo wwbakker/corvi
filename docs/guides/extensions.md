@@ -4,9 +4,10 @@
 
 An extension is a piece of TypeScript that adds something to IWE — a dashboard card, a step in
 the "Create change" wizard, a hook on the change lifecycle, a route, a source of titles for the
-overview, a page of its own. It is the shape pi's extensions have: a module whose
-default export is a factory receiving an API object, contributing to registries instead of being
-wired in by hand.
+overview, a page of its own. It is the shape pi's extensions have: a module whose default export
+**describes** what it contributes — a static value, or a factory returning one — so the host
+wires it up from a registry instead of the core naming it by hand. An extension imports
+`src/core/host/api.ts`; the host never passes an API object in.
 
 "Integration" is the wire spelling of "extension", used in `Widget.integration` (and its
 out-of-tree client contract); everything else says extension.
@@ -50,6 +51,7 @@ Two ideas run through the model:
 | Loose ends | `looseEnds` | What cancelling the change would leave behind — the open ticket, the open pull requests — asked when the cancel is confirmed. |
 | Window presenters | `windowPresenters` | How a tmux window is named and drawn. Pure functions of tmux data, global rather than per-workspace (below). |
 | Pages | `pages` | A page of the extension's own, served at `/{id}` and offered by the sidebar (below). |
+| Per-workspace settings | `workspaceSettings` | Configuration the extension declares per context, rendered by the settings page for every workspace that has the extension enabled (below). |
 | Global settings | `globalSettings` | Server-wide settings the extension declares, rendered by the settings page in a section per extension (below). |
 | PR description | `descriptionSections` | A heading part, joined with the others into the description's first line. |
 | Completion steps | `completionSteps` | Part of completing a change — planned up front, journaled like the core's steps, run after the merges and before the worktrees go. |
@@ -234,15 +236,15 @@ export const step: StepComponent = ({ ctx }) => {
 };
 ```
 
-A built-in registers its halves in two places — the loader (src/core/host/index.ts) and, when
-it has a step or a page, the page's client registry (src/core/host/client.tsx). An out-of-tree
+A built-in registers its halves in two places — the loader (`src/core/host/index.ts`) and, when
+it has a step or a page, the page's client registry (`src/core/host/client.tsx`). An out-of-tree
 extension registers nowhere: it is discovered from the config and loaded through the same
 install path (below).
 
 Three rules keep the halves honest:
 
-1. **The client half never imports the server half.** Shared types live in a `shared.ts` that
-   imports nothing that runs.
+1. **The client half never imports the server half.** Shared types live in a sibling file (an
+   extension's own `shared.ts`, say) that imports nothing that runs.
 2. **Everything crossing the boundary is JSON.** "Callbacks" are route calls.
 3. **Refresh goes through the event stream.** The server announces what changed; components
    re-read, like every other card on the page.
@@ -268,7 +270,7 @@ runs through the same install/factory path: a static description installs as-is,
 once with the startup capabilities. Every failure — a missing file, a module that throws on
 import, one without a default export, a failed factory — is logged and skipped: a broken
 optional extension is an extension absent, never a failed server. Nothing about the contract
-changes with the extension's address; `api.ts` is still the whole promise. Loading happens
+changes with the extension's address; `src/core/host/api.ts` is still the whole promise. Loading happens
 once, at startup, so a change to the paths needs a restart.
 
 A discovered module's **client half** is the sibling `client.tsx`, when it exists. The page
@@ -373,11 +375,13 @@ a string and for a list alike: an emptied list is written to the config as `[]`,
 
 ## Scope, honestly stated
 
-- Extensions ship as **built-ins** and as **out-of-tree modules** (above). The built-ins are
-  imported statically and get the host's capabilities through the R channel rather than by
-  importing internals; the out-of-tree ones are imported from disk through the same install
-  path and get the same capabilities, because they run in the same process. `api.ts` is the
-  whole promise either way — its exports are all an extension may import.
+- Extensions ship as **built-ins** and as **out-of-tree modules** (above). Both install through
+  the same path and get the host's capabilities through the R channel. The built-ins are
+  **first-party**: imported statically, they may still reach into core modules and
+  `src/core/integrations/` while they live in this repository, but new built-in code uses
+  `src/core/host/api.ts` plus `src/core/domain/`, so the privilege shrinks by default.
+  Out-of-tree modules import only `src/core/host/api.ts` — the whole promise — and never get
+  the privilege. There is no stability promise for them yet.
 - What remains core is what everything else stands on: **tmux and ttyd session handling
   themselves** (what surrounds them — names, icons, status — is the extensible part), the **git
   worktree engine**, the **change lifecycle** (create, complete, cancel), and the **page
@@ -393,6 +397,5 @@ a string and for a list alike: an emptied list is written to the config as `[]`,
 
 See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md) and
 [`../plans/archive/extensions-migration-plan.md`](../plans/archive/extensions-migration-plan.md)
-for the plans behind these surfaces, and
-[`../plans/core-modules-plan.md`](../plans/core-modules-plan.md) for the active work on the core
-structure and the before/after event contract.
+for the plans behind these surfaces, and [`architecture.md`](architecture.md) for the core
+structure they attach to.

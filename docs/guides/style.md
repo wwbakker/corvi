@@ -27,17 +27,44 @@ convenience.
 - **Tell:** a Promise `readChange` next to the Effect one that only tests call. The browser
   boundary is HTTP, never a Promise wrapper.
 
-## 3. A feature owns its code
+## 3. A feature is one module directory
 
-Declaration, implementation and client half live together under `src/extensions/<name>/`.
-`src/core/integrations/` holds only vendor clients genuinely shared by more than one feature
-(`git.ts` qualifies); the rest of `src/core/` is the substrate — vocabulary, the platform and
-the extension host.
+A feature — a domain of the product, or an extension — is one directory whose aspects travel
+together:
 
-- **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`.
+- `server/` — the implementation that shells out or touches the filesystem; its `index.ts` is
+  the module's public face.
+- `client/` — the browser half, when there is one.
+- `model.ts` — the pure, synchronous logic both halves share.
+
+Any aspect may be absent: a headless module has no `client/`, a vocabulary-only one no
+`server/`. `src/core/integrations/` holds only vendor clients genuinely shared by more than one
+feature (`git.ts` qualifies); the rest of `src/core/` is the substrate — vocabulary, the
+platform and the extension host.
+
+**One role per file.** `store.ts` is the persisted state, `create.ts` one operation,
+`presenter.ts` the merge, `summary.ts` the composition — not a second concern grafted onto an
+existing file.
+
+**Submodules are modules.** `change/wizard/` and `change/overview/` are directories with their
+own aspects and their own face, and the same rules nest as far as a feature needs. The
+composition lives in the submodule that composes, which is why `overview` can depend on
+`terminal` and the host without `change/server` closing a cycle.
+
+**The server half's `index.ts` is the module's face, and nothing inside the module imports
+it.** Code outside enters through the barrel; siblings import each other directly, which is
+what keeps the barrel cycle-free. A submodule whose face is a browser component re-exports it
+from a top-level `index.ts` (`change/wizard/index.ts`); client components are otherwise imported
+file-to-file, because a barrel of components would pull every one into the page bundle. A leaf
+that a second module needs by value — `core/host/registry.ts`, `change/server/store.ts`,
+`terminal/server/proxy.ts` — is the exception rule 7 names.
+
+- **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`;
+  `change/server/index.ts` is the change face every route imports;
+  `bun run outline src/change/server` prints it.
 - **Tell:** a feature whose implementation is a top-level module plus an `integrations/` file plus
-  an `extensions/` folder. See
-  [`architecture.md`](architecture.md#where-a-features-code-lives).
+  an `extensions/` folder, or a route importing `change/server/complete.ts` directly instead of
+  the barrel. See [`architecture.md`](architecture.md#where-a-features-code-lives).
 
 ## 4. Failure is a value
 
@@ -94,6 +121,18 @@ by value.
 - **Right:** `src/core/domain/change.ts`, importable from `src/frontend/**` and `src/change/client/**`.
 - **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
   `src/core/domain/`.
+
+## 10. Read the interface before the implementation
+
+A module's exports are its surface, and the compiler already checks that surface against the
+callers. `bun run outline <file|directory>` prints the exported names, full types and doc
+summaries with every body elided, so a change is planned against the contract rather than
+discovered by reading the implementation. An Effect signature carries its error and requirement
+channels (`Effect<A, E, R>`), which is what makes the outline normally enough.
+
+- **Right:** `bun run outline src/change/server` before adding a route that calls it.
+- **Tell:** opening `store.ts` to find out what `change/server/index.ts` promises, or a module
+  whose only readable description is its implementation.
 
 ## Checklist for a change
 

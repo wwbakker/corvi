@@ -1381,8 +1381,8 @@ The map, grouped by layer:
                               change.ts, widget.ts, terminal.ts, time.ts, config.ts
     src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
                               registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
-                              services.ts, clientChunks.ts, client.tsx (the page's client-side
-                              registry and the extension UI contract), index.ts
+                              services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
+                              client-side registry and the extension UI contract), index.ts
 
     src/deploySettings.ts     the deployments settings, read by the shared azure client too
 

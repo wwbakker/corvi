@@ -12,28 +12,29 @@ change (`~/changes/<id>/`). Everything else is read live and cached in
 ```
 src/
   server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
+  change/              the change module: model.ts (the edit rule the halves share), server/
+                       (schema, store, create, complete, cancel, commit, review, titles,
+                       description, leftovers, index.ts), client/ (the page, the dialogs, the
+                       review surface), wizard/ (a submodule: the New change wizard, client/ +
+                       index.ts), overview/ (a submodule: the dashboard — server/ composes
+                       change, terminal and the host; client/ holds the cards)
+  terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
+                       the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
   workspace/           the workspace module: server/ (config loader, file schema, workspace
                        resolution, repository browser), client/ (the switcher, WorkspaceCard,
                        RepoBrowser)
   settings/            the settings module: server/ (settings page read/write, legacySettings),
                        client/ (SettingsPage, SettingsFields)
-  change/              the change module: model.ts, server/ (schema, store, create, complete,
-                       cancel, commit, review, titles, description, leftovers, index.ts), client/ (the
-                       page, the dialogs, the review surface), wizard/ (the New change wizard,
-                       client/ + index.ts), overview/ (the dashboard: server/summary.ts composes
-                       change, terminal and the host; client/ holds the cards)
-  terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
-                       the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
   core/
     domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
-    platform/          the substrate everything stands on: effect/ (errors, http, run, tags),
-                       capabilities/ (sh, cache, events), origin.ts, platform.ts, tooling.ts,
-                       routes/ (the HTTP tables)
+    platform/          the substrate everything stands on: effect/ (errors, http, run, support,
+                       tags), capabilities/ (sh, cache, events), origin.ts, platform.ts,
+                       tooling.ts, routes/ (the HTTP tables)
+    host/              the extension contract and its machinery: api.ts (and api/*.ts),
+                       registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
+                       services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
+                       client-side registry and the extension UI contract), index.ts
     integrations/      vendor CLI wrappers (git, github, azure, stacks)
-    host/              the extension contract and its machinery: api.ts (and api/*.ts), registry.ts,
-                       discover.ts, selectors.ts, effects.ts, dispatch.ts, services.ts,
-                       clientChunks.ts, client.tsx (the page's client-side registry and the
-                       extension UI contract), index.ts
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
@@ -76,22 +77,74 @@ scope.
 
 ## What stays core
 
-What everything else stands on: tmux and ttyd session handling themselves (names, icons, status
-are extensible), the git worktree engine, the change lifecycle (create, complete, cancel), and
-the page shell. Everything else is a surface an extension can contribute to.
+A thing is core only if it meets at least one of these:
+
+1. **It owns persisted state or an external session.** The `change.json` and `config.json`
+   schemas, archive semantics, the change directory, tmux/ttyd sessions.
+2. **It defines vocabulary that crosses a boundary** — server↔browser or core↔extensions. The
+   `Change` DTO, `Widget`/`SummaryFact`, completion steps, the error taxonomy.
+3. **It is a trust or capability boundary.** `Shell`, `Workspace`, `ExtensionStore`, the origin
+   guard, HTTP/SSE.
+4. **It is the composition root** — it decides when contributions run and merges them: the
+   dashboard, the wizard shell, the completion journal, the sidebar shell, the extension host.
+
+The consequences are worth stating because they settle arguments:
+
+- The change **dashboard is core even though every card on it is an extension**: it composes and
+  merges. "Review changes" is a good extension candidate because it is a bounded git surface, not
+  a composition.
+- The **sidebar is core as a shell**; its entries (workspaces, changes, pages, windows) are
+  data the server sends.
+- **Terminal presentation is extensible; tmux and ttyd themselves are core furniture.**
+- The **git worktree engine is core.** Extensions act on changes; they do not create them.
+
+Deliberately not core: tmux/ttyd internals, the git engine, and any native functionality. The
+native hosts provide capabilities (`notify`, dialogs, external links, window lifecycle), which
+extensions consume; no module ships per-platform code. A client-side `Host` capability would
+follow the server's `Shell`/`Workspace` pattern when it lands.
 
 ## Dependency rules
 
-- **Extensions** import only from `src/core/host/api.ts`, which is the whole promise. The host
-  provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`, `ExtensionStore`)
-  so an extension's requirements arrive through the Effect `R` channel.
-- **The browser halves** (`src/frontend/**`, a module's `client/**` and a submodule's) must not
-  import backend modules that shell out or touch the filesystem; `eslint.config.js` enforces the
-  boundary at each depth, `src/core/domain/**` is where pure vocabulary both sides need belongs,
-  and `src/core/host/client.tsx` is the one browser file under `core/` a half may import by value.
-  Everything under `src/core/platform/**` and `src/core/integrations/**` is server-only, like a
-  module's `server/**` half.
-- **HTTP** is the only client/server boundary — no shared runtime state across it.
+- **`core/domain/**` imports nothing that runs** — types, states, pure operations; no `node:*`,
+  no `Bun.*`, no Effect runtime. It is the ubiquitous language every module and the contract
+  speak.
+- **A module's `model.ts`** is the synchronous logic its halves share. It may import
+  `core/domain/**` and the error taxonomy's data types; it performs no effects.
+- **A module's `server/` half** may import its own module, `core/domain`, `core/platform`,
+  `core/integrations` and the host's server machinery. It must not import a `client/` file or
+  anything under `frontend/`.
+- **A module's `client/` half** may import its own module, `core/domain`, `frontend` and the
+  host's client contract. It must not import a `server/` file by value.
+- **`frontend/`** may import `core/domain` and module client halves; never a module server by
+  value. It is the browser's composition root, the counterpart of the extension host.
+- **Modules enter each other through the server half's `index.ts`** (`change/server/index.ts`,
+  `terminal/server/index.ts`, and a composing submodule's `change/overview/server/index.ts`),
+  never through a server file. Siblings import each other directly, and nothing inside a module
+  imports its own barrel, which is what keeps barrels cycle-free. A submodule whose face is a
+  browser component re-exports it from a top-level `index.ts` (`change/wizard/index.ts`); client
+  components are otherwise imported file-to-file, since a barrel of components would pull every
+  one into the page bundle. The deliberate exception is a leaf that breaks a cycle by depending
+  on state rather than on a half — `core/host/registry.ts`, `change/server/store.ts`,
+  `terminal/server/proxy.ts` (see [style.md](style.md), rule 7).
+- **Submodules are modules.** `change/wizard/` and `change/overview/` have their own aspects and
+  their own face, and the same rules apply at every depth. Composition lives in the submodule
+  that composes: `overview` depends on `terminal` and the host, so `change/server` does not have
+  to, and no cycle forms at any level.
+- **The contract (`core/host/api`) imports `core/domain` and the capability and error leaves it
+  re-exports** (`Shell`, `Workspace`, the taxonomy, `Result`) — never a module's server or client
+  half. The contract therefore does not change when a module is reshaped; it re-exports the
+  promised slice of the domain (`Change`, `branchFor`, the widget vocabulary).
+- **Out-of-tree extensions import only `core/host/api`**, which is the whole promise. **Built-ins
+  are first-party** and may reach into core modules and `core/integrations` today; new built-in
+  code uses the contract plus `core/domain` (and `core/integrations` when it needs a shared
+  vendor client), so the privilege shrinks by default. There is no stability promise for
+  out-of-tree extensions yet.
+- **`server.ts`** is the HTTP composition root: it imports `core/platform/routes` and the host.
+- **HTTP** is the only client/server boundary — no shared runtime state crosses it.
+
+`eslint.config.js` makes the browser-facing rules structural: a client half or `frontend/` may
+not import a server file by value, and a module inherits the boundary by existing. The
+domain/model purity above is a shape rule, not a lint allowlist.
 
 ## Running it
 
