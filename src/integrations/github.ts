@@ -1,32 +1,12 @@
 import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { checkoutForEffect, baseForEffect, remoteDefaultBranchEffect } from "./git.ts";
-import { stackOnBaseEffect, describeStack, mergeStackedEffect, type Stack } from "./stacks.ts";
-import { shEffect, shOrThrowEffect, type Result } from "../sh.ts";
-import { swrEffect, invalidate } from "../cache.ts";
+import { checkoutFor, baseFor, remoteDefaultBranch } from "./git.ts";
+import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
+import { shOrThrow, type Result } from "../sh.ts";
+import { swr, invalidate } from "../cache.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
- * printed nothing, or something this query did not expect, reads as the fallback rather than
- * failing — the documented silent fallback (docs/effect-conventions.md). */
-const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
-  (stdout: string): Effect.Effect<B> =>
-    stdout.trim()
-      ? Effect.orElseSucceed(
-          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
-          // back to the fallback's here, which is what the old cast did.
-          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
-          () => fallback,
-        )
-      : Effect.succeed(fallback);
+import { cliJson, shSoft } from "../effect/support.ts";
 
 /** `gh pr list --json` for one head. */
 const PrSchema = Schema.Struct({
@@ -70,7 +50,7 @@ export function readiness(
   const comments = unresolved
     ? `${unresolved} unresolved comment${unresolved === 1 ? "" : "s"}`
     : undefined;
-  const say = (text: string, tone?: WidgetState) => ({
+  const say = (text: string, tone?: WidgetState): { text: string; tone: WidgetState | undefined } => ({
     text: [comments, text].filter(Boolean).join(" · "),
     tone: comments ? ("warn" as WidgetState) : tone,
   });
@@ -104,8 +84,8 @@ function checksState(pr: Pr): { state: WidgetState; text: string } {
  * branch that was renamed, or made around work that already existed, pushes somewhere else — and
  * a pull request belongs to the branch that was pushed, not to the one you have locally.
  *
- * The remote's default branch is never it: a branch left tracking `origin/main` is the old
- * in-place bug, not a pull request.
+ * The remote's default branch is never it: a branch left tracking `origin/main` is not a
+ * pull request.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function headRef(branch: string, upstream?: string, remoteDefault?: string): string {
@@ -114,28 +94,27 @@ export function headRef(branch: string, upstream?: string, remoteDefault?: strin
   return name || branch;
 }
 
-const pushedAsEffect = (worktree: string, repo: string, branch: string): Effect.Effect<string> =>
+const pushedAs = (worktree: string, repo: string, branch: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const r = yield* shSoft(
       ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
       worktree,
     );
-    return headRef(branch, r.stdout || undefined, yield* remoteDefaultBranchEffect(repo));
+    return headRef(branch, r.stdout || undefined, yield* remoteDefaultBranch(repo));
   });
 
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
- * change's branch. Fails with NotFoundError-message-shaped BadRequestError where the old code
- * threw a plain Error. */
+ * change's branch. Fails with a BadRequestError carrying the CLI's message. */
 type FoundPr = { worktree: string; head: string; prs: Pr[] };
 
-const prQueryEffect = (
+const prQuery = (
   change: Change,
   repo: string,
 ): Effect.Effect<FoundPr | undefined, BadRequestError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) return undefined;
-    const head = yield* pushedAsEffect(wt, repo, change.branch);
+    const head = yield* pushedAs(wt, repo, change.branch);
     const r = yield* shSoft(
       [
         "gh",
@@ -153,9 +132,7 @@ const prQueryEffect = (
       wt,
     );
     if (r.code !== 0) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" }),
-      );
+      return yield* new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" });
     }
     const prs = yield* cliJson(Schema.Array(PrSchema), [] as Pr[])(r.stdout);
     return { worktree: wt, head, prs };
@@ -168,8 +145,8 @@ const prQueryEffect = (
  */
 const PR_TTL = 20_000;
 
-const shownPrEffect = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
-  swrEffect(`gh:pr:${change.id}:${repo}`, PR_TTL, prQueryEffect(change, repo));
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
+  swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -260,8 +237,7 @@ const DetailsSchema = Schema.Struct({
  *
  * A thread you answered last is out of your hands — you replied, or you asked a question back —
  * and counting it makes the number say "you have work" when you do not. Only the reviewer
- * resolves a thread, so an answered one stays unresolved for as long as they take to look, and
- * before this those never went away.
+ * resolves a thread, so an answered one stays unresolved for as long as they take to look.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function waitingOnYou(threads: readonly Thread[], me?: string): number {
@@ -282,14 +258,14 @@ export function waitingOnYou(threads: readonly Thread[], me?: string): number {
  * Stacked pull requests are a preview feature: where it is not enabled the fields do not exist
  * and the whole query fails, so that case asks again without them rather than losing the counts.
  */
-const prDetailsEffect = (
+const prDetails = (
   worktree: string,
   url: string,
   number: number,
 ): Effect.Effect<Details> =>
-  swrEffect(`gh:details:${url}`, PR_TTL, readDetailsEffect(worktree, url, number));
+  swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
 
-const readDetailsEffect = (
+const readDetails = (
   worktree: string,
   url: string,
   number: number,
@@ -297,7 +273,7 @@ const readDetailsEffect = (
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean) =>
+    const ask = (withStack: boolean): Effect.Effect<Result> =>
       shSoft(
         [
           "gh",
@@ -333,31 +309,31 @@ const readDetailsEffect = (
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
  * none. Failures are not errors here — the overview says nothing rather than a red card.
  */
-export const prSummaryEffect = (
+export const prSummary = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }> =>
   Effect.gen(function* () {
-    const found = yield* Effect.orElseSucceed(shownPrEffect(change, repo), () => undefined);
+    const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
     const pr = found?.prs[0];
     if (!found || !pr) return { unresolved: 0, checks: "none" };
     // The checks come with the pull request itself — `statusCheckRollup` is part of the lookup
     // that was already made — so the state of the build costs nothing extra here.
     const checks = pr.state === "MERGED" ? "ok" : checksState(pr).state;
     if (["MERGED", "CLOSED"].includes(pr.state)) return { number: pr.number, unresolved: 0, checks };
-    const details = yield* prDetailsEffect(found.worktree, pr.url, pr.number);
+    const details = yield* prDetails(found.worktree, pr.url, pr.number);
     return { number: pr.number, unresolved: details.unresolved ?? 0, checks };
   });
 
 /** The pull request for this change in `repo`, plus a row describing it. */
-export const prItemEffect = (
+export const prItem = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ number?: number; item: WidgetItem }> =>
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
-    const found = yield* Effect.either(shownPrEffect(change, repo));
+    const found = yield* Effect.either(shownPr(change, repo));
     if (Either.isLeft(found)) {
       return { item: { label, detail: found.left.message, state: "error" } };
     }
@@ -387,7 +363,7 @@ export const prItemEffect = (
     const elsewhere = hit.head !== change.branch ? `pushed as ${hit.head}` : undefined;
     // A merged or closed pull request is not waiting for anything, so it only says so.
     const settled = ["MERGED", "CLOSED"].includes(pr.state);
-    const details = yield* prDetailsEffect(hit.worktree, pr.url, pr.number);
+    const details = yield* prDetails(hit.worktree, pr.url, pr.number);
     const unresolved = settled ? 0 : (details.unresolved ?? 0);
     const status = settled ? { text: "", tone: undefined } : readiness(pr, unresolved);
     return {
@@ -413,13 +389,13 @@ export type MergeReadiness =
   | { ready: false; reason: string };
 
 /** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
-export const mergeReadinessEffect = (
+export const mergeReadiness = (
   change: Change,
   repo: string,
 ): Effect.Effect<MergeReadiness, BadRequestError> =>
   Effect.gen(function* () {
     const name = basename(repo);
-    const found = yield* prQueryEffect(change, repo);
+    const found = yield* prQuery(change, repo);
     if (!found) return { ready: false, reason: `${name}: no worktree` };
     const pr = found.prs[0];
     if (!pr) return { ready: false, reason: `${name}: no pull request` };
@@ -443,31 +419,29 @@ export const mergeReadinessEffect = (
  * takes everything below it along and that runs in the background — so those go through the
  * asynchronous merge API instead.
  */
-export const mergePrEffect = (
+export const mergePr = (
   change: Change,
   repo: string,
   number: number,
 ): Effect.Effect<string | undefined, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
-      );
+      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
 
-    const stacked = yield* isStackedEffect(wt, repo, number);
+    const stacked = yield* isStacked(wt, repo, number);
     if (!stacked) {
-      yield* shOrThrowEffect(["gh", "pr", "merge", String(number), "--squash"], wt);
+      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
       return undefined;
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
-    const note = yield* mergeStackedEffect(wt, stacked, number);
+    const note = yield* mergeStacked(wt, stacked, number);
     return note && `${basename(repo)} #${number}: ${note}`;
   });
 
 /** The repository as `owner/name` when this pull request belongs to a stack, otherwise nothing. */
-const isStackedEffect = (
+const isStacked = (
   worktree: string,
   repo: string,
   number: number,
@@ -486,29 +460,27 @@ const isStackedEffect = (
   });
 
 /** Push the branch and open a pull request for it. */
-export const createPrEffect = (
+export const createPr = (
   change: Change,
   repo: string,
 ): Effect.Effect<void, BadRequestError | CliError> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutForEffect(change, repo);
+    const wt = yield* checkoutFor(change, repo);
     if (!wt) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` }),
-      );
+      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
-    yield* shOrThrowEffect(["git", "push", "-u", "origin", change.branch], wt);
+    yield* shOrThrow(["git", "push", "-u", "origin", change.branch], wt);
     // A change stacked on another one's branch must open its pull request against that branch:
     // against main the diff would contain the other change's commits as well. GitHub retargets
     // the pull request to main by itself once the base branch merges.
-    const base = yield* baseForEffect(change, repo);
+    const base = yield* baseFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
-    const against = target && (yield* remoteDefaultBranchEffect(repo)) !== base ? ["--base", target] : [];
-    yield* shOrThrowEffect(["gh", "pr", "create", "--fill", ...against], wt);
+    const against = target && (yield* remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
+    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], wt);
     if (against.length) {
       const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], wt);
       const number = Number(view.stdout);
-      if (number) yield* stackOnBaseEffect(wt, target!, number);
+      if (number) yield* stackOnBase(wt, target!, number);
     }
     // The cached answer says there is no pull request, and it was right until a moment ago.
     invalidate(`gh:pr:${change.id}`);

@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import type { PageComponent } from "../../web/extensions.tsx";
 import { api } from "../../web/api.ts";
 import { moment } from "../../web/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
-import { autoDeployedApp } from "../../deployConventions.ts";
+import { autoDeployedApp } from "../../shared/deployConventions.ts";
 
 export type Deployed = {
   environment: string;
@@ -28,11 +28,10 @@ export type Service = {
  * produced it is a separate question. "What is on accept?" gets asked before a release and
  * during an incident, when there is no change open to ask it from.
  *
- * Read-only for now: what it says is what Azure DevOps says, since a deploy run records the
- * version and the environment it was given, and the newest run per environment is the truth
- * about that environment.
+ * The state shown is Azure DevOps's own: a deploy run records the version and the environment
+ * it was given, and the newest run per environment is the truth about that environment.
  */
-export function DeploymentsPage({ workspace }: { workspace?: string }) {
+export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Element {
   const [services, setServices] = useState<Service[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,7 +42,7 @@ export function DeploymentsPage({ workspace }: { workspace?: string }) {
   const [generation, setGeneration] = useState(0);
 
   useEffect(() => {
-    const load = () =>
+    const load = (): Promise<void> =>
       api<{ services: Service[]; error?: string }>(
         `/ext/deployments/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       )

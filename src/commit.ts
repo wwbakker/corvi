@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "./types.ts";
-import { currentBranchEffect, checkoutForEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { currentBranch, checkoutFor } from "./integrations/git.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
 
 /** Writing to git, for the review tab: committing across the change, and pushing what is
@@ -22,26 +22,24 @@ export type CommitResult = {
 };
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
- * failCli does). */
+ * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
 const badRequest = (message: string): BadRequestError => {
   const error = new BadRequestError({ message });
   (error as { message: string }).message = message;
   return error;
 };
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), which each repository
- * reports in its `error` field, exactly as any other non-zero exit did. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// The commitChange/pushChange facades below are kept for repos.test.ts, which must pass
-// unmodified.
+// Tests run these effects through a helper that provides the Workspace tag (test/helpers.ts).
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  checkoutForEffect(change, repo);
+  checkoutFor(change, repo);
 
 /**
  * Commit the chosen files in each repository that has any chosen.
@@ -58,16 +56,16 @@ const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefi
  * change committed is a normal state to be in — the ones that worked say so, the one that did
  * not says why.
  */
-export const commitChangeEffect = (
+export const commitChange = (
   change: Change,
   request: CommitRequest,
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
   Effect.gen(function* () {
     const message = request.message.trim();
-    if (!message) return yield* Effect.fail(badRequest("a commit needs a message"));
+    if (!message) return yield* badRequest("a commit needs a message");
 
     const chosen = Object.entries(request.files).filter(([, paths]) => paths.length > 0);
-    if (chosen.length === 0) return yield* Effect.fail(badRequest("select at least one file to commit"));
+    if (chosen.length === 0) return yield* badRequest("select at least one file to commit");
 
     return yield* Effect.forEach(
       chosen,
@@ -92,11 +90,6 @@ export const commitChangeEffect = (
     );
   });
 
-/** Promise facade over commitChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const commitChange = (change: Change, request: CommitRequest): Promise<CommitResult[]> =>
-  Effect.runPromise(commitChangeEffect(change, request));
-
 /**
  * Push what is committed, in every repository that has something the remote has not.
  *
@@ -106,12 +99,12 @@ export const commitChange = (change: Change, request: CommitRequest): Promise<Co
  *
  * Like committing, a repository that fails does not stop the others.
  */
-export const pushChangeEffect = (
+export const pushChange = (
   change: Change,
   repos: string[],
 ): Effect.Effect<CommitResult[], BadRequestError | unknown> =>
   Effect.gen(function* () {
-    if (repos.length === 0) return yield* Effect.fail(badRequest("nothing to push"));
+    if (repos.length === 0) return yield* badRequest("nothing to push");
     return yield* Effect.forEach(
       repos,
       (repo): Effect.Effect<CommitResult, unknown> =>
@@ -121,7 +114,7 @@ export const pushChangeEffect = (
           if (!worktree) return { repo, name, ok: false, error: "no worktree" };
 
           // The branch it is on, which is what a push without an upstream should name.
-          const branch = yield* currentBranchEffect(worktree);
+          const branch = yield* currentBranch(worktree);
           const pushed = yield* shResult(
             ["git", "push", "-u", "origin", branch || change.branch],
             worktree,
@@ -133,8 +126,3 @@ export const pushChangeEffect = (
       { concurrency: "unbounded" },
     );
   });
-
-/** Promise facade over pushChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const pushChange = (change: Change, repos: string[]): Promise<CommitResult[]> =>
-  Effect.runPromise(pushChangeEffect(change, repos));

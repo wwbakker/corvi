@@ -36,7 +36,15 @@ const CHOSEN = "iwe:workspace";
  * thing to want, and the server has no business having an opinion about which one you are
  * looking at.
  */
-export function useWorkspaces() {
+export function useWorkspaces(): {
+  workspaces: Workspace[];
+  chosen: string;
+  choose: (id: string) => void;
+  current: Workspace | undefined;
+  ready: boolean;
+  platform: Platform;
+  reload: () => void;
+} {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [chosen, setChosen] = useState<string>(() => getPref(CHOSEN) ?? ALL);
   // Until this is known, no list is shown. A moment of "everything" before the filter arrives
@@ -49,7 +57,7 @@ export function useWorkspaces() {
 
   // Read again after the settings page writes them: a context that has just been renamed should
   // not still be in the switcher under its old name.
-  const reload = () =>
+  const reload = (): Promise<void> =>
     api<{ workspaces: Workspace[]; platform: Platform }>("/workspaces")
       .then(({ workspaces: next, platform: told }) => {
         setWorkspaces(next);
@@ -62,7 +70,7 @@ export function useWorkspaces() {
     void reload();
   }, []);
 
-  const choose = (id: string) => {
+  const choose = (id: string): void => {
     setPref(CHOSEN, id);
     setChosen(id);
   };
@@ -91,7 +99,7 @@ export type PageInfo = { id: string; title: string; extension: string };
  * (a settings save toggles enablement without changing the context, which is why the settings
  * page calls it). A fetch that fails keeps the last good pages rather than clearing them — no
  * answer yet is the previous answer still; the next fetch or event tick recovers. */
-export function usePages(workspaceId?: string) {
+export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () => void } {
   const [pages, setPages] = useState<PageInfo[]>([]);
   useEffect(() => {
     // Alive guards the context-change race: only the latest fetch may answer.
@@ -118,8 +126,8 @@ export function usePages(workspaceId?: string) {
 }
 
 /**
- * Which context a change belongs to. Changes made before workspaces existed have none, and
- * belong to the first one — that is what everyone's existing changes are.
+ * Which context a change belongs to. A change that names none belongs to the first context,
+ * which is where a change written outside any workspace sits.
  */
 export const workspaceOf = (change: Change, workspaces: Workspace[]): string =>
   change.workspace ?? workspaces[0]?.id ?? ALL;

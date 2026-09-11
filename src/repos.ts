@@ -2,20 +2,9 @@ import { readdir, stat } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { Effect } from "effect";
 import { config } from "./config.ts";
-import { remoteDefaultBranchEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { remoteDefaultBranch } from "./integrations/git.ts";
 import { BadRequestError } from "./effect/errors.ts";
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** Filesystem failures are defects, not domain errors — the directories we read and write are
- * ours, and the old code let the raw rejection escape the same way. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> => Effect.orDie(Effect.tryPromise(work));
+import { fs, shSoft } from "./effect/support.ts";
 
 export type Entry = {
   /** Path relative to the repos root, e.g. "personal/my-project". */
@@ -26,8 +15,8 @@ export type Entry = {
 };
 
 /** Resolve a browser path inside the repos root, rejecting anything that escapes it.
- * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError) with
- * the exact message it always had, the way applyPatch in changes.ts does. */
+ * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError),
+ * the way applyPatch in changes.ts does. */
 export function resolveInRoot(relative: string): string {
   const full = join(config.reposRoot, normalize(relative));
   if (full !== config.reposRoot && !full.startsWith(config.reposRoot + sep)) {
@@ -47,7 +36,7 @@ export function startPath(): string {
 
 /** Directories directly under `relative`, hidden ones omitted. `undefined` means "wherever the
  * browser should open"; an explicit "" is the root, so going up still works. */
-export const browseEffect = (
+export const browse = (
   relative: string = startPath(),
 ): Effect.Effect<{ root: string; path: string; entries: Entry[] }> =>
   Effect.gen(function* () {
@@ -67,7 +56,7 @@ export const browseEffect = (
           );
           return { path, name: e.name, isRepo };
         }),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-entry stats are independent.
       { concurrency: "unbounded" },
     );
     return {
@@ -83,12 +72,12 @@ export const browseEffect = (
  * Fetched first, and pruned: the branch you want to build on is usually the one a colleague
  * pushed this morning, and a stale list is worse than a slow one — you would pick a base that
  * does not exist or is behind. Tags are skipped, nothing here needs them. */
-export const remoteBranchesEffect = (
+export const remoteBranches = (
   repo: string,
 ): Effect.Effect<{ branches: string[]; default?: string }> =>
   Effect.gen(function* () {
     yield* shSoft(["git", "fetch", "--quiet", "--prune", "--no-tags", "origin"], repo);
-    const fallback = yield* remoteDefaultBranchEffect(repo);
+    const fallback = yield* remoteDefaultBranch(repo);
     const r = yield* shSoft(
       ["git", "for-each-ref", "--sort=-committerdate", "--format=%(refname:short)", "refs/remotes"],
       repo,

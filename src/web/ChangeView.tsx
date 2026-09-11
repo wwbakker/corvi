@@ -1,6 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { type JSX, useEffect, useState } from "react";
 import {
-  aborted,
   api,
   patch,
   post,
@@ -9,297 +8,27 @@ import {
   type ChangeState,
   type Change,
   type Completion,
-  type IntegrationInfo,
+  type CardInfo,
   type ProvisionResult,
-  type RepoItems,
-  type Widget,
-  type WidgetItem,
 } from "./api.ts";
 import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
-import { AgentIcon, TerminalIcon } from "./icons.tsx";
 import type { TerminalWindow } from "../terminalTypes.ts";
-import { cached, putCached, useCached } from "./cache.ts";
+import { useCached } from "./cache.ts";
 import { stateClass } from "./changeState.tsx";
 import { isFinished } from "../types.ts";
-import { EditReposDialog } from "./EditReposDialog.tsx";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";
 import type { Platform } from "./newWindowKey.ts";
 import { CompletionCard } from "./CompletionCard.tsx";
 import { LocalPane } from "./LocalPane.tsx";
-import { Progress } from "./Progress.tsx";
-
-function Dot({ state }: { state?: string }) {
-  return <span className={`dot ${state ?? "none"}`} />;
-}
-
-/** A row and its children, collapsible like a project tree. Rows are open by default: the
- * hierarchy exists to group, not to hide. */
-function Item({
-  item,
-  onAction,
-  busy,
-  depth = 0,
-}: {
-  item: WidgetItem;
-  onAction: (actionId: string, arg?: string) => void;
-  busy: boolean;
-  depth?: number;
-}) {
-  const [open, setOpen] = useState(true);
-  const children = item.children ?? [];
-  return (
-    <>
-      <div className={`item depth-${depth}`} style={{ paddingLeft: depth * 22 }}>
-        {children.length > 0 ? (
-          <button className="toggle" onClick={() => setOpen(!open)} title={open ? "Collapse" : "Expand"}>
-            {open ? "−" : "+"}
-          </button>
-        ) : (
-          <span className="toggle-spacer" />
-        )}
-        <Dot state={item.state} />
-        <span className="label">
-          {item.url ? (
-            <a href={item.url} target="_blank" rel="noreferrer">
-              {item.label}
-            </a>
-          ) : (
-            item.label
-          )}
-        </span>
-        <span className={`detail ${item.detailTone ?? ""}`}>{item.detail}</span>
-        {item.progress && <Progress {...item.progress} />}
-        <span className="spacer" />
-        {item.menu?.length ? (
-          <ActionsMenu
-            className="dots"
-            label="⋯"
-            actions={item.menu.map((a) => ({
-              label: a.label,
-              disabled: busy,
-              onSelect: () => {
-                if (!a.confirm || window.confirm(a.confirm)) onAction(a.id, a.arg);
-              },
-            }))}
-          />
-        ) : null}
-        {(item.actions ?? []).map((a) => (
-          <button
-            key={a.id + (a.arg ?? "")}
-            disabled={busy}
-            // Anything that could surprise asks first; the server refuses the rest outright.
-            onClick={() => (!a.confirm || window.confirm(a.confirm)) && onAction(a.id, a.arg)}
-          >
-            {a.label}
-          </button>
-        ))}
-      </div>
-      {open &&
-        children.map((child) => (
-          <Item
-            key={child.label}
-            item={child}
-            busy={busy}
-            onAction={onAction}
-            depth={depth + 1}
-          />
-        ))}
-    </>
-  );
-}
-
-const worstOf = (items: WidgetItem[]): string =>
-  ["error", "pending", "warn", "ok"].find((s) => items.some((i) => i.state === s)) ?? "none";
-
-const nameOf = (repo: string): string => repo.split("/").pop() ?? repo;
+import { PerRepoCard } from "./PerRepoCard.tsx";
+import { WidgetCard } from "./WidgetCard.tsx";
+import { WindowTabs } from "./WindowTabs.tsx";
 
 /** Branch names start with the change id, which the crumb already shows: drop the repetition. */
 const branchLabel = (id: string, branch: string): string =>
   branch.startsWith(`${id}-`) ? branch.slice(id.length + 1) : branch;
-
-/**
- * A card whose rows come from a per-repository component: every repository is fetched on its own,
- * so they appear one by one instead of the card staying empty until the slowest one answers.
- */
-function PerRepoCard({
-  changeId,
-  info,
-  repos,
-  onReposChanged,
-}: {
-  changeId: string;
-  info: IntegrationInfo;
-  repos: string[];
-  onReposChanged: () => void;
-}) {
-  const key = (repo: string) => `${changeId}:${info.name}:${repo}`;
-  // undefined while that repository is still loading; seeded from the cache so coming back to a
-  // change shows its last known rows immediately.
-  const [items, setItems] = useState<Record<string, WidgetItem[] | undefined>>(() =>
-    Object.fromEntries(repos.map((repo) => [repo, cached<WidgetItem[]>(key(repo))])),
-  );
-  const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-
-  const loadRepo = useCallback(
-    (repo: string, signal?: AbortSignal): Promise<void> =>
-      api<RepoItems>(`/changes/${changeId}/${info.name}/repo?path=${encodeURIComponent(repo)}`, {
-        signal,
-      })
-        .then((r) => {
-          putCached(key(repo), r.items);
-          setItems((all) => ({ ...all, [repo]: r.items }));
-        })
-        .catch((e: Error) => {
-          if (aborted(e)) return;
-          setItems((all) => ({
-            ...all,
-            [repo]: [{ label: nameOf(repo), detail: e.message, state: "error" }],
-          }));
-        }),
-    [changeId, info.name],
-  );
-
-  useEffect(() => {
-    // Cancel on unmount: these requests are slow, and the browser only allows six at a time, so
-    // leaving them open makes the next page wait seconds for a free connection.
-    const ac = new AbortController();
-    const tick = () => repos.forEach((repo) => void loadRepo(repo, ac.signal));
-    tick();
-    const timer = setInterval(tick, 15000);
-    return () => {
-      ac.abort();
-      clearInterval(timer);
-    };
-  }, [loadRepo, repos.join(",")]);
-
-  const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
-    setBusy(repo);
-    return post<RepoItems>(`/changes/${changeId}/${info.name}/${actionId}`, { arg })
-      .then((r) => {
-        putCached(key(repo), r.items);
-        setItems((all) => ({ ...all, [repo]: r.items }));
-      })
-      .catch((e: Error) =>
-        setItems((all) => ({
-          ...all,
-          [repo]: [{ label: nameOf(repo), detail: e.message, state: "error" }],
-        })),
-      )
-      .finally(() => setBusy(null));
-  };
-
-  const loaded = repos.filter((r) => items[r]);
-  const all = loaded.flatMap((r) => items[r]!);
-  return (
-    <section className={`widget ${loaded.length === repos.length ? "" : "loading"}`}>
-      <h3>
-        <Dot state={loaded.length ? worstOf(all) : undefined} />
-        {info.title}
-        {/* The repository list belongs to the change, and git is the component that shows it. */}
-        {info.name === "git" && (
-          <>
-            <span className="spacer" />
-            <button className="icon" title="Edit repositories" onClick={() => setEditing(true)}>
-              ✎
-            </button>
-          </>
-        )}
-      </h3>
-      {/* No summary once everything is in: the rows already say it. */}
-      {loaded.length < repos.length && (
-        <div className="summary">{`${loaded.length}/${repos.length} repositories loaded…`}</div>
-      )}
-      {repos.map((repo) =>
-        items[repo] ? (
-          items[repo]!.map((item) => (
-            <Item
-              key={item.label}
-              item={item}
-              busy={busy === repo}
-              onAction={(actionId, arg) => act(repo, actionId, arg)}
-            />
-          ))
-        ) : (
-          <div key={repo} className="item depth-0 pending-row">
-            <span className="toggle-spacer" />
-            <Dot />
-            <span className="label">{nameOf(repo)}</span>
-            <span className="detail">loading…</span>
-          </div>
-        ),
-      )}
-      {info.name === "git" && (
-        <EditReposDialog
-          changeId={changeId}
-          open={editing}
-          onClose={() => setEditing(false)}
-          onSaved={onReposChanged}
-        />
-      )}
-    </section>
-  );
-}
-
-/** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
-function WidgetCard({ changeId, info }: { changeId: string; info: IntegrationInfo }) {
-  const [widget, setWidget] = useCached<Widget>(`${changeId}:${info.name}`);
-  const [busy, setBusy] = useState(false);
-
-  const load = useCallback(
-    (signal?: AbortSignal): Promise<void> =>
-      api<Widget>(`/changes/${changeId}/${info.name}`, { signal })
-        .then(setWidget)
-        .catch((e: Error) => {
-          if (aborted(e)) return;
-          setWidget({
-            integration: info.name,
-            title: info.title,
-            state: "error",
-            summary: e.message,
-            items: [],
-          });
-        }),
-    [changeId, info.name, info.title],
-  );
-
-  useEffect(() => {
-    const ac = new AbortController();
-    const tick = () => void load(ac.signal);
-    tick();
-    const timer = setInterval(tick, 15000);
-    return () => {
-      ac.abort();
-      clearInterval(timer);
-    };
-  }, [load]);
-
-  const act = (actionId: string, arg?: string): Promise<void> => {
-    setBusy(true);
-    return post<Widget>(`/changes/${changeId}/${info.name}/${actionId}`, { arg })
-      .then(setWidget)
-      .catch((e: Error) => setWidget({ ...widget!, state: "error", summary: e.message }))
-      .finally(() => setBusy(false));
-  };
-
-  return (
-    <section className={`widget ${widget ? "" : "loading"}`}>
-      <h3>
-        <Dot state={widget?.state} />
-        {info.title}
-      </h3>
-      {/* The summary is only worth the line while loading, or when it carries an error. */}
-      {(!widget || widget.state === "error") && (
-        <div className="summary">{widget ? widget.summary : "loading…"}</div>
-      )}
-      {(widget?.items ?? []).map((item) => (
-        <Item key={item.label} item={item} busy={busy} onAction={act} />
-      ))}
-    </section>
-  );
-}
 
 export function ChangeView({
   id,
@@ -347,10 +76,10 @@ export function ChangeView({
   onChanged: () => void;
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
-}) {
+}): JSX.Element {
   const [change, setChange] = useCached<Change>(`${id}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
-  const [infos, setInfos] = useCached<IntegrationInfo[]>(`${id}:integrations`);
+  const [infos, setInfos] = useCached<CardInfo[]>(`${id}:integrations`);
   const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -360,10 +89,6 @@ export function ChangeView({
   // opened and only hidden afterwards.
   const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
   const [cheatSheet, setCheatSheet] = useState(false);
-  // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
-  // — overview and "new" — take no part in either.
-  const [dragIndex, setDragIndex] = useState<number | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
   // The change's name, while you are typing a new one. null when you are not.
   const [draft, setDraft] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
@@ -378,7 +103,7 @@ export function ChangeView({
     api<Change>(`/changes/${id}`)
       .then(setChange)
       .catch((e: Error) => setError(e.message));
-    api<IntegrationInfo[]>(`/changes/${id}/integrations`)
+    api<CardInfo[]>(`/changes/${id}/integrations`)
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
   }, [id]);
@@ -387,7 +112,7 @@ export function ChangeView({
   useEffect(() => {
     if (change?.completedAt) return;
     const ac = new AbortController();
-    const load = () =>
+    const load = (): Promise<void> =>
       api<Completion>(`/changes/${id}/complete`, { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
@@ -399,7 +124,7 @@ export function ChangeView({
     };
   }, [id, change?.completedAt, generation]);
 
-  const card = (info: IntegrationInfo) =>
+  const card = (info: CardInfo): JSX.Element =>
     info.perRepo ? (
       <PerRepoCard
         key={`${info.name}-${generation}`}
@@ -413,14 +138,14 @@ export function ChangeView({
     );
 
   // Re-read the change and remount the cards: its repository list just changed.
-  const reload = () => {
+  const reload = (): void => {
     api<Change>(`/changes/${id}`)
       .then(setChange)
       .catch((e: Error) => setError(e.message));
     setGeneration((g) => g + 1);
   };
 
-  const copyDescription = () =>
+  const copyDescription = (): Promise<void> =>
     api<{ text: string }>(`/changes/${id}/description`)
       .then(({ text }) => navigator.clipboard.writeText(text))
       .then(() => {
@@ -429,7 +154,7 @@ export function ChangeView({
       })
       .catch((e: Error) => setError(e.message));
 
-  const complete = () => {
+  const complete = (): void => {
     setCompleting(true);
     setError(null);
     post<{ change: Change; notes: string[] }>(`/changes/${id}/complete`, {})
@@ -447,7 +172,7 @@ export function ChangeView({
    * Abandon the change: the worktrees and the terminal go, and everything anyone else can see —
    * branches, pull requests, the ticket — is left alone and listed back to you.
    */
-  const cancel = (force = false) => {
+  const cancel = (force = false): void => {
     if (
       !force &&
       !window.confirm(
@@ -505,104 +230,16 @@ export function ChangeView({
     },
   ];
 
-  /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and
-   * the terminal both show this strip — a window is one click from either — and because it is
-   * one element, the contents are the same on both: the same icon in the same colour, the same
-   * name. */
-  const startDrag = (e: ReactMouseEvent<HTMLButtonElement>, from: number): void => {
-    // The drag needs the mousedown that keeps the keyboard in the terminal after a plain click,
-    // so it is tracked by hand: mousedown, the window's mouse moves, mouseup. HTML5 drag events
-    // would not start at all once the default is prevented.
-    e.preventDefault();
-    if (e.button !== 0) return;
-    const strip = e.currentTarget.closest(".window-tabs");
-    if (!strip) return;
-    const under = (x: number, y: number): number | null => {
-      for (const tab of strip.querySelectorAll<HTMLElement>("[data-window-index]")) {
-        const box = tab.getBoundingClientRect();
-        if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
-          return Number(tab.dataset.windowIndex);
-        }
-      }
-      return null;
-    };
-    const startedAt = e.clientX;
-    let dragging = false;
-    const move = (ev: MouseEvent) => {
-      // A few pixels of travel: a click that wobbles is still a click.
-      if (!dragging && Math.abs(ev.clientX - startedAt) < 4) return;
-      dragging = true;
-      setDragIndex(from);
-      setDropIndex(under(ev.clientX, ev.clientY));
-    };
-    const up = (ev: MouseEvent) => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
-      setDragIndex(null);
-      setDropIndex(null);
-      const to = dragging ? under(ev.clientX, ev.clientY) : null;
-      if (to !== null && to !== from) onMoveWindow(from, to);
-    };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
-  };
-
   const windowTabs = (
-    <nav className="window-tabs">
-      {/* The way back to what the change is doing. On the dashboard the tab is already where
-          you are; in the terminal it is the way out. */}
-      <button
-        className={page === "dashboard" ? "window-tab overview current" : "window-tab overview"}
-        title="the change's overview"
-        onClick={() => onOpenPage("dashboard")}
-      >
-        <span className="label">Overview</span>
-      </button>
-      {windows.map((w) => {
-        const classes = ["window-tab"];
-        if (w.active && page === "terminals") classes.push("current");
-        if (dragIndex === w.index) classes.push("dragging");
-        if (dropIndex === w.index && dragIndex !== null && dragIndex !== w.index) {
-          classes.push("drop-target");
-        }
-        return (
-          <button
-            key={w.index}
-            data-window-index={w.index}
-            className={classes.join(" ")}
-            title={`ctrl-b ${w.index} — ${w.detail}`}
-            // Focus is what a mousedown moves, and a terminal you cannot type in after clicking
-            // a tab is useless; the drag rides the same mousedown (see startDrag).
-            onMouseDown={(e) => startDrag(e, w.index)}
-            onClick={() => onSelectWindow(w.index)}
-          >
-            <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
-              {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
-            </span>
-            <span className="label">{w.label}</span>
-            {/* Not for the window you are looking at: you see its output already. */}
-            {w.activity && !(w.active && page === "terminals") && (
-              <span className="bell" title="new output" />
-            )}
-          </button>
-        );
-      })}
-      {/* A session that has not started yet has nothing to add a window to; opening the
-          terminal starts it, with the first window. */}
-      <button
-        className="window-tab new"
-        title={
-          platform === "mac"
-            ? "new terminal here (cmd-t, or ctrl-b c)"
-            : "new terminal here (ctrl-alt-t, or ctrl-b c)"
-        }
-        onMouseDown={(e) => e.preventDefault()}
-        onClick={onNewWindow}
-      >
-        <TerminalIcon title="new terminal" />
-        <span className="label">new</span>
-      </button>
-    </nav>
+    <WindowTabs
+      page={page}
+      windows={windows}
+      platform={platform}
+      onSelectWindow={onSelectWindow}
+      onNewWindow={onNewWindow}
+      onMoveWindow={onMoveWindow}
+      onOpenPage={onOpenPage}
+    />
   );
 
   /** The terminal page's own bar: the windows, and the key reference. The change's id, name,
@@ -673,7 +310,7 @@ export function ChangeView({
           }
         >
           {/* Only the states you are in, not the ones a change ends in: picking "Completed"
-              from a list used to set the word without merging anything, removing a worktree or
+              from a list would set the word without merging anything, removing a worktree or
               archiving the change — a label that lies. Ending a change is Complete or Cancel,
               which do the work. A change that has already ended still shows its own state,
               because a select cannot display what it does not offer. */}
@@ -770,4 +407,3 @@ export function ChangeView({
     </div>
   );
 }
-

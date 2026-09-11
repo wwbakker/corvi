@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { type JSX, useEffect, useRef } from "react";
 import type { Platform } from "./newWindowKey.ts";
 
 /** tmux keys worth knowing, since the terminal is a tmux session and nothing in the page hints
@@ -55,7 +55,7 @@ export function CheatSheet({
   onClose: () => void;
   /** The server's platform: the copying rows are its business. */
   platform: Platform;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {

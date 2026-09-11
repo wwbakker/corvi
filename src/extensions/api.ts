@@ -1,5 +1,4 @@
 import { Context, Effect } from "effect";
-import type { CliError } from "../effect/errors.ts";
 import type {
   Change,
   CompletionStep,
@@ -9,10 +8,10 @@ import type {
   WidgetState,
 } from "../types.ts";
 import type { Config, Workspace as WorkspaceConfig } from "../config.ts";
-import { Workspace as WorkspaceTag } from "../effect/tags.ts";
+import { Shell, Workspace as WorkspaceTag } from "../effect/tags.ts";
 
 /**
- * The surface an extension can contribute to — Effect edition.
+ * The surface an extension can contribute to.
  *
  * An extension is a TypeScript module with a default-exported factory receiving this API — the
  * same shape pi's extensions have. It contributes to registries (cards, wizard steps, hooks)
@@ -39,15 +38,15 @@ import { Workspace as WorkspaceTag } from "../effect/tags.ts";
  *   data; no effect wrapper buys anything there, and the completion plan must be answerable
  *   before anything runs anyway.
  *
- * This file is the whole API on purpose: when out-of-tree extensions arrive, this is what
- * they get, and nothing else is a promise.
+ * This file is the whole API on purpose: out-of-tree extensions get this, and nothing else is a
+ * promise.
  */
 
 // --- Capabilities: what the host provides to every contributed effect ---------------------
 
 /** The request's workspace — the same tag the core's routes provide (src/effect/tags.ts).
  * Re-exported so this file stays the one import an extension needs. */
-export { WorkspaceTag as Workspace };
+export { Shell, WorkspaceTag as Workspace };
 
 /** One CLI call's outcome: exit codes are data — callers branch on `code`; the typed failure
  * is reserved for a timeout, which kills the child (src/sh.ts). */
@@ -57,18 +56,6 @@ export type { Result } from "../sh.ts";
  * (the summary surface speaks it too); re-exported so this file stays the one import an
  * extension needs. */
 export type { SummaryFact };
-
-/** Run a subprocess with the request workspace's environment already applied
- * (`GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_API_TOKEN`, …), through the shared semaphore
- * and the CLI timeout. `run` requires `Workspace` because the environment comes from it:
- * the host provides the tag alongside the service, so requiring both is free. */
-export class Shell extends Context.Tag("iwe/Shell")<Shell, {
-  run(cmd: readonly string[], opts?: { cwd?: string }): Effect.Effect<
-    { code: number; stdout: string; stderr: string },
-    CliError,
-    WorkspaceTag
-  >;
-}>() {}
 
 /** The answer cache: read-through with a TTL, one shared refresh per key, and prefix
  * invalidation for when an action has just made an answer wrong. The work's requirements
@@ -143,8 +130,8 @@ export type WizardStep = {
 };
 
 /** Names the changes it can title, and answers with summaries. A failed lookup contributes
- * nothing — stored titles stand, which is the behaviour the overview has always had. Asked
- * once per workspace, with that workspace's claimed changes. */
+ * nothing — stored titles stand. Asked once per workspace, with that workspace's claimed
+ * changes. */
 export type TitleSource = {
   /** Pure: which of these changes are this source's to name. Changes whose title was
    * written by hand are filtered out before this is asked. */
@@ -244,10 +231,9 @@ export type ExtensionSetting = {
   /** A list of strings rather than one value, edited as rows. */
   list?: boolean;
   /** The environment variable that overrides this setting, shown locked when set — the page
-   * cannot fight it. The override itself still works through the legacy config field the
-   * extension reads back, and the precedence is: extension setting (page/file) wins, then the
-   * legacy field (which carries defaults + environment resolution), so an env var keeps beating
-   * the page exactly as it beats the file today. */
+   * cannot fight it. The override still works through the core config field the extension reads
+   * back, and the precedence is: extension setting (page/file) wins, then that config field
+   * (which carries defaults + environment resolution), so an env var keeps beating the page. */
   env?: string;
 };
 

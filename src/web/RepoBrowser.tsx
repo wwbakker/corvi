@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type JSX, useEffect, useMemo, useState } from "react";
 import { api, type Branches, type Entry, type Listing, type Selection } from "./api.ts";
 
 /** Directory browser under the configured repos root. Browsing and selecting are separate
@@ -16,7 +16,7 @@ export function RepoBrowser({
   onAdd: (absolutePath: string) => void;
   onRemove: (absolutePath: string) => void;
   onChange: (absolutePath: string, patch: Partial<Selection>) => void;
-}) {
+}): JSX.Element {
   const [listing, setListing] = useState<Listing>({ root: "", path: "", entries: [] });
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -24,7 +24,7 @@ export function RepoBrowser({
   const [branches, setBranches] = useState<Record<string, Branches>>({});
 
   // No argument opens the configured starting directory; an explicit "" is the root.
-  const open = (path?: string) => {
+  const open = (path?: string): void => {
     api<Listing>(path === undefined ? "/repos" : `/repos?path=${encodeURIComponent(path)}`)
       .then((next) => {
         setListing(next);

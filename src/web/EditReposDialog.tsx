@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { api, post, type ApiError, type Change, type RepoState, type Selection } from "./api.ts";
 import { RepoBrowser } from "./RepoBrowser.tsx";
 
@@ -16,7 +16,7 @@ export function EditReposDialog({
   open: boolean;
   onClose: () => void;
   onSaved: (change: Change) => void;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [current, setCurrent] = useState<RepoState[]>([]);
   const [draft, setDraft] = useState<Selection[]>([]);
@@ -39,7 +39,7 @@ export function EditReposDialog({
       .catch((e: Error) => setError(e.message));
   }, [open, changeId]);
 
-  const save = (force = false) => {
+  const save = (force = false): void => {
     setBusy(true);
     setError(null);
     post<Change>(`/changes/${changeId}/repos`, {

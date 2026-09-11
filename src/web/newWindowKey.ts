@@ -13,7 +13,7 @@
  */
 
 /** Which desktop the server runs on, as one word. "other" gets the macOS bindings: it is an
- * unsupported platform, and macOS is what the UI has always assumed. */
+ * unsupported platform, and macOS is the UI's fallback. */
 export type Platform = "mac" | "linux" | "other";
 
 /** The part of KeyboardEvent the test reads, so the injected script can pass a plain object. */
@@ -25,7 +25,7 @@ type Keyish = {
 };
 
 export const isNewWindowKey = (e: Keyish, platform: Platform): boolean => {
-  // macOS, unchanged: cmd-t, with ctrl and alt excluded so tmux's ctrl-b chords stay tmux's.
+  // macOS: cmd-t, with ctrl and alt excluded so tmux's ctrl-b chords stay tmux's.
   const cmd = e.metaKey && !e.ctrlKey && !e.altKey;
   // ctrl-alt rather than meta on Linux: Super is the window manager's, and a keydown that
   // reaches the page with it held is a coin toss.

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { api, post } from "../../web/api.ts";
 import { moment } from "../../web/moment.ts";
 import { Progress } from "../../web/Progress.tsx";
@@ -45,7 +45,7 @@ export function DeployDialog({
   open: boolean;
   onClose: () => void;
   onStarted: (message: string) => void;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [versions, setVersions] = useState<Buildable[] | null>(null);
   const [version, setVersion] = useState<string>("");
@@ -105,7 +105,7 @@ export function DeployDialog({
       : undefined;
   const last = index === environments.length - 1;
 
-  const start = () => {
+  const start = (): void => {
     if (!service) return;
     setBusy(true);
     setError(null);

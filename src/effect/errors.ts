@@ -1,10 +1,9 @@
 import { Data } from "effect";
 
 /**
- * The one error taxonomy for the Effect rewrite — see docs/effect-conventions.md. Every
- * rewritten module fails with one of these five; nothing grows a per-module hierarchy beside
- * them. Each carries the human-readable message the old `throw new Error(...)` had, because
- * the strings the UI showed before are the strings it shows after.
+ * The one error taxonomy for the Effect layer — see docs/guides/effect-conventions.md. Every
+ * module fails with one of these five; nothing grows a per-module hierarchy beside them. Each
+ * carries a human-readable message, which is what the UI shows.
  *
  * This file knows nothing about HTTP: mapping these to status codes lives in http.ts, the only
  * place that knows what a Response is.
@@ -27,9 +26,9 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
 }> {}
 
 /** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost.
- * `message` is what the UI showed for this failure before the rewrite — for `shOrThrowEffect`
- * that is `<cmd> failed: <stderr>`, for a timeout `<cmd> timed out after N seconds` — and
- * `formatError` hands it to the response verbatim. */
+ * `message` is what the UI shows — for `shOrThrow` that is `<cmd> failed: <stderr>`, for a
+ * timeout `<cmd> timed out after N seconds` — and `formatError` hands it to the response
+ * verbatim. */
 export class CliError extends Data.TaggedError("CliError")<{
   readonly message: string;
   readonly tool: string;
@@ -54,5 +53,5 @@ export const isIweError = (e: unknown): e is IweError =>
     (e as { _tag: unknown })._tag as string,
   );
 
-/** The human-readable message for any of ours — what `e.message` gave the old fail(). */
+/** The human-readable message for any of ours. */
 export const formatError = (e: IweError): string => e.message;

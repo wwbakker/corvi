@@ -1,4 +1,4 @@
-import { useEffect, useState, type ComponentType } from "react";
+import { type JSX, useEffect, useState, type ComponentType } from "react";
 import type { Selection } from "./api.ts";
 
 /**
@@ -59,7 +59,7 @@ const runtimeImport = (specifier: string): Promise<ClientModule> => import(speci
 /** One extension's step, with its client module loaded the first time it is shown. A step
  * whose extension has no static entry is an out-of-tree extension: its client chunk comes
  * from the server. A step whose module cannot be loaded at all says so rather than vanishing. */
-export function StepHost({ info, ctx }: { info: StepInfo; ctx: StepContext }) {
+export function StepHost({ info, ctx }: { info: StepInfo; ctx: StepContext }): JSX.Element {
   const [Step, setStep] = useState<StepComponent>();
   const [error, setError] = useState<string>();
   useEffect(() => {
@@ -90,7 +90,7 @@ export function PageHost({
 }: {
   info: { id: string; extension: string };
   workspace?: string;
-}) {
+}): JSX.Element {
   const [Page, setPage] = useState<PageComponent>();
   const [error, setError] = useState<string>();
   useEffect(() => {

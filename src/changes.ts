@@ -4,8 +4,9 @@ import { Effect, ParseResult, Schema } from "effect";
 import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./types.ts";
 import { Change as ChangeSchema } from "./schemas/change.ts";
 import { BadRequestError, ConflictError, DecodeError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 import { config } from "./config.ts";
-export { branchFor } from "./branch.ts";
+export { branchFor } from "./shared/branch.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
 export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;
@@ -16,19 +17,13 @@ export const ARCHIVE = "archive";
 export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 
-/** The Effect API beneath the Promise facades below. Where the old code threw, the Effect fails
- * with the typed taxonomy (docs/effect-conventions.md) carrying the same message; the facades
- * keep old callers compiling until the server-wiring task sweeps them. */
-
-/** Filesystem failures are defects, not domain errors — the directories we read and write are
- * ours, and the old code let the raw rejection escape the same way. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
-  Effect.orDie(Effect.tryPromise(work));
+/** The Effect API. Failures go through the typed taxonomy
+ * (docs/guides/effect-conventions.md), each carrying a human-readable message. */
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 
 /** Active directory if it exists, otherwise the archived one. */
-const existingDirEffect = (id: string): Effect.Effect<string | null> =>
+const existingDir = (id: string): Effect.Effect<string | null> =>
   Effect.gen(function* () {
     for (const dir of [changeDir(id), archiveDir(id)]) {
       if (yield* fileExists(join(dir, "change.json"))) return dir;
@@ -46,8 +41,7 @@ export const wtConfigPath = (id: string): string => join(changeDir(id), "wt.toml
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
-// DecodeError with the ParseResult issues rendered the way the old raw parse error would have
-// been shown: one line per problem, path included.
+// DecodeError with the ParseResult issues rendered one line per problem, path included.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
   Schema.decodeUnknown(Schema.parseJson(ChangeSchema), { onExcessProperty: "preserve" })(text).pipe(
     Effect.mapError((error) => {
@@ -58,24 +52,18 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
     }),
   );
 
-/** Read one change's change.json through its Schema. `null` where the old code returned null:
- * no change.json in the change directory or the archive. A malformed or wrongly-shaped file —
- * which the old code handed back untyped or rejected with a raw parse error — is now a typed
- * DecodeError (sanctioned change; see docs/effect-conventions.md). */
-export const readChangeEffect = (id: string): Effect.Effect<Change | null, DecodeError> =>
+/** Read one change's change.json through its Schema. `null` means no change.json in the change
+ * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError (see
+ * docs/guides/effect-conventions.md). */
+export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
-    const dir = yield* existingDirEffect(id);
+    const dir = yield* existingDir(id);
     if (!dir) return null;
     const text = yield* Effect.tryPromise(() => Bun.file(join(dir, "change.json")).text()).pipe(
       Effect.orDie,
     );
     return yield* decodeChange(text, dir);
   });
-
-/** Promise facade over readChangeEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified; the server uses readChangeEffect directly. */
-export const readChange = (id: string): Promise<Change | null> =>
-  Effect.runPromise(readChangeEffect(id));
 
 /**
  * The two fields you may edit by hand: what a change is called, and where it stands.
@@ -86,11 +74,8 @@ export const readChange = (id: string): Promise<Change | null> =>
  * it had happened.
  *
  * Purely synchronous, so no Effect wrapper: the validation throws the typed taxonomy
- * (BadRequestError / ConflictError — both Errors, exactly where the old code threw plain
- * Errors), with the exact messages it always had.
- *
- * Sync; throws typed errors instead of plain Errors — the server route converts those throws
- * into failures at the boundary (Effect.try), exactly where the old route caught them.
+ * (BadRequestError / ConflictError). The server route converts those throws into failures at
+ * the boundary (Effect.try).
  */
 export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
   if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
@@ -114,24 +99,19 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
   };
 }
 
-export const writeChangeEffect = (change: Change): Effect.Effect<void> =>
+export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const dir = (yield* existingDirEffect(change.id)) ?? changeDir(change.id);
+    const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
   });
 
-/** Promise facade over writeChangeEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified. */
-export const writeChange = (change: Change): Promise<void> =>
-  Effect.runPromise(writeChangeEffect(change));
-
 /** A file beside change.json — notes, completion progress — which therefore travels into the
  * archive with it. Read from wherever the change currently lives. A missing or unreadable
  * sidecar reads as empty, which is what `.catch(() => "")` did. */
-export const readSidecarEffect = (id: string, name: string): Effect.Effect<string> =>
+export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const dir = yield* existingDirEffect(id);
+    const dir = yield* existingDir(id);
     if (!dir) return "";
     return yield* fs(() => Bun.file(join(dir, name)).text()).pipe(
       Effect.catchAllDefect(() => Effect.succeed("")),
@@ -139,44 +119,27 @@ export const readSidecarEffect = (id: string, name: string): Effect.Effect<strin
   });
 
 
-export const writeSidecarEffect = (id: string, name: string, text: string): Effect.Effect<void> =>
+export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void> =>
   Effect.gen(function* () {
-    const dir = (yield* existingDirEffect(id)) ?? changeDir(id);
+    const dir = (yield* existingDir(id)) ?? changeDir(id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => Bun.write(join(dir, name), text));
   });
 
-/** Promise facade over writeSidecarEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const writeSidecar = (id: string, name: string, text: string): Promise<void> =>
-  Effect.runPromise(writeSidecarEffect(id, name, text));
-
-
 /** Free-text notes, kept beside change.json so they travel into the archive with it. */
-export const readNotesEffect = (id: string): Effect.Effect<string> =>
-  readSidecarEffect(id, "notes.md");
-export const writeNotesEffect = (id: string, text: string): Effect.Effect<void> =>
-  writeSidecarEffect(id, "notes.md", text);
-
-/** Promise facades over the notes effects, in the old signatures. Kept for the test suite,
- * which must pass unmodified; the server uses the effects directly. */
-export const readNotes = (id: string): Promise<string> => Effect.runPromise(readNotesEffect(id));
-export const writeNotes = (id: string, text: string): Promise<void> =>
-  Effect.runPromise(writeNotesEffect(id, text));
+export const readNotes = (id: string): Effect.Effect<string> =>
+  readSidecar(id, "notes.md");
+export const writeNotes = (id: string, text: string): Effect.Effect<void> =>
+  writeSidecar(id, "notes.md", text);
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
-export const archiveChangeEffect = (id: string): Effect.Effect<void> =>
+export const archiveChange = (id: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!(yield* fileExists(changeFile(id)))) return; // already archived
     yield* fs(() => mkdir(join(root(), ARCHIVE), { recursive: true }));
     yield* fs(() => rename(changeDir(id), archiveDir(id)));
   });
-
-/** Promise facade over archiveChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const archiveChange = (id: string): Promise<void> =>
-  Effect.runPromise(archiveChangeEffect(id));
 
 const directoriesIn = (dir: string): Effect.Effect<string[]> =>
   Effect.tryPromise(() => readdir(dir, { withFileTypes: true })).pipe(
@@ -186,11 +149,10 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
 
 /** Active changes first, then archived ones; both are listed, the archive is not a hiding place.
  * A change whose change.json cannot be read or decoded — one being written mid-list, or one
- * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The old
- * code threw on a malformed file and failed the whole listing; the skip is deliberate (a
- * coordinator ruling on the review), and the single change's error still surfaces everywhere
- * that change is asked for by id. */
-export const listChangesEffect = (): Effect.Effect<Change[]> =>
+ * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The skip
+ * is deliberate (a coordinator ruling on the review), and the single change's error still
+ * surfaces everywhere that change is asked for by id. */
+export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const [active, archived] = yield* Effect.all([
       directoriesIn(root()),
@@ -203,7 +165,7 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     const changes = yield* Effect.forEach(
       entries,
       (name) =>
-        readChangeEffect(name).pipe(
+        readChange(name).pipe(
           Effect.map((c) => (c ? [c] : [])),
           Effect.catchAll(() => Effect.succeed([] as Change[])),
         ),
@@ -213,11 +175,7 @@ export const listChangesEffect = (): Effect.Effect<Change[]> =>
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });
 
-/** Promise facade over listChangesEffect, in the old signature. Kept for the test suite and
- * events.ts's stream (both fine as Promises); the server uses the effect directly. */
-export const listChanges = (): Promise<Change[]> => Effect.runPromise(listChangesEffect());
-
-export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
+export const writeWtConfig = (id: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const path = wtConfigPath(id);
     if (!(yield* fileExists(path))) {
@@ -229,7 +187,7 @@ export const writeWtConfigEffect = (id: string): Effect.Effect<string> =>
   });
 
 
-export const createChangeEffect = (input: {
+export const createChange = (input: {
   id: string;
   branch?: string;
   repos?: string[];
@@ -244,14 +202,14 @@ export const createChangeEffect = (input: {
   Effect.gen(function* () {
     const id = input.id.trim();
     if (!id || id !== basename(id) || id.startsWith(".")) {
-      yield* Effect.fail(new BadRequestError({ message: `invalid change id: ${input.id}` }));
+      return yield* new BadRequestError({ message: `invalid change id: ${input.id}` });
     }
-    if (yield* readChangeEffect(id)) {
-      yield* Effect.fail(new ConflictError({ message: `change already exists: ${id}` }));
+    if (yield* readChange(id)) {
+      return yield* new ConflictError({ message: `change already exists: ${id}` });
     }
     const repos = (input.repos ?? []).map((r) => r.trim()).filter(Boolean);
     if (repos.length === 0) {
-      yield* Effect.fail(new BadRequestError({ message: "select at least one repository" }));
+      return yield* new BadRequestError({ message: "select at least one repository" });
     }
     const change: Change = {
       id,
@@ -261,26 +219,13 @@ export const createChangeEffect = (input: {
       base: input.base,
       jira: input.jira?.trim() || undefined,
       extensions: input.extensions,
-      // The context it was made in. Unknown means the first workspace, which is what every change
-      // made before this belongs to.
+      // The context it was made in. Unknown means the first workspace, where every change
+      // without one belongs.
       workspace: input.workspace?.trim() || undefined,
       state: "In Progress",
       createdAt: new Date().toISOString(),
     };
-    yield* writeChangeEffect(change);
-    yield* writeWtConfigEffect(id);
+    yield* writeChange(change);
+    yield* writeWtConfig(id);
     return change;
   });
-
-/** Promise facade over createChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified; the server uses the effect directly. */
-export const createChange = (input: {
-  id: string;
-  branch?: string;
-  repos?: string[];
-  direct?: string[];
-  base?: Record<string, string>;
-  jira?: string;
-  extensions?: Record<string, unknown>;
-  workspace?: string;
-}): Promise<Change> => Effect.runPromise(createChangeEffect(input));

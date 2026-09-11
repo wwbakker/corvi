@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { post } from "./api.ts";
 import type { FileChange } from "../types.ts";
 
@@ -42,7 +42,7 @@ export function CommitDialog({
   onClose: () => void;
   /** Something was committed: the file lists are stale. */
   onCommitted: (results: CommitResult[]) => void;
-}) {
+}): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [message, setMessage] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -72,7 +72,7 @@ export function CommitDialog({
     );
   }, [open]);
 
-  const toggle = (repo: string, path: string) =>
+  const toggle = (repo: string, path: string): void =>
     setPicked((current) => {
       const next = new Set(current);
       const id = key(repo, path);
@@ -80,7 +80,7 @@ export function CommitDialog({
       return next;
     });
 
-  const commit = () => {
+  const commit = (): void => {
     setBusy(true);
     setError(null);
     const files = Object.fromEntries(

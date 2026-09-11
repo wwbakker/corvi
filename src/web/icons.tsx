@@ -1,3 +1,5 @@
+import type { JSX } from "react";
+
 /**
  * The status icons: one glyph for terminals, one for builds.
  *
@@ -12,7 +14,7 @@
 const size = { width: 13, height: 13, viewBox: "0 0 16 16" } as const;
 
 /** Terminals: a prompt. */
-export function TerminalIcon({ title }: { title: string }) {
+export function TerminalIcon({ title }: { title: string }): JSX.Element {
   return (
     <svg
       {...size}
@@ -32,7 +34,7 @@ export function TerminalIcon({ title }: { title: string }) {
 }
 
 /** Builds: the button you press to start one. */
-export function CiIcon({ title }: { title: string }) {
+export function CiIcon({ title }: { title: string }): JSX.Element {
   return (
     <svg {...size} fill="currentColor" role="img" aria-label={title}>
       <title>{title}</title>
@@ -42,7 +44,7 @@ export function CiIcon({ title }: { title: string }) {
 }
 
 /** Coding agents: a head with eyes and an antenna — the machine that talks back. */
-export function AgentIcon({ title }: { title: string }) {
+export function AgentIcon({ title }: { title: string }): JSX.Element {
   return (
     <svg
       {...size}

@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change, FileChange } from "./types.ts";
-import { checkoutForEffect, baseForEffect } from "./integrations/git.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { checkoutFor, baseFor } from "./integrations/git.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
 
 export type { FileChange };
@@ -58,7 +58,7 @@ export function parseStatus(stdout: string): FileChange[] {
       staged: index !== ".",
       unstaged: worktree !== ".",
       untracked: false,
-      // The old path is a field of its own, not a file of its own.
+      // The source path of a rename is a field of its own, not a file of its own.
       from: kind === "2" ? parts[++i] : undefined,
     });
   }
@@ -90,21 +90,19 @@ export const aheadIn = (stdout: string): number | undefined => {
 export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
- * operation. Everything downstream branches on `code`, exactly as before. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
-// The localChanges/fileDiff facades below are kept for repos.test.ts, which must pass
-// unmodified.
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  checkoutForEffect(change, repo);
+  checkoutFor(change, repo);
 
 const baseOf = (change: Change, repo: string): Effect.Effect<string | undefined> =>
-  baseForEffect(change, repo);
+  baseFor(change, repo);
 
 /** Commits made since the branch left its base, for a branch with no upstream to compare to. */
 const sinceBase = (
@@ -121,7 +119,7 @@ const sinceBase = (
 
 /** What is uncommitted in one repository of a change. Live, never cached: this is the file you
  * are editing, and a second-old answer is a wrong one. */
-export const localChangesEffect = (
+export const localChanges = (
   change: Change,
   repo: string,
 ): Effect.Effect<LocalStatus, unknown> =>
@@ -152,11 +150,6 @@ export const localChangesEffect = (
     };
   });
 
-/** Promise facade over localChangesEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const localChanges = (change: Change, repo: string): Promise<LocalStatus> =>
-  Effect.runPromise(localChangesEffect(change, repo));
-
 /**
  * The diff of one file, as `git diff` writes it.
  *
@@ -164,11 +157,11 @@ export const localChanges = (change: Change, repo: string): Promise<LocalStatus>
  * working tree against the index, and an untracked file is compared against nothing at all —
  * `--no-index` against /dev/null, which is how git itself shows a file it does not know.
  *
- * Where the old code threw, the Effect fails with the typed taxonomy: no worktree is a
- * `BadRequestError`, a `git diff` that failed for real (exit > 1 — 1 is "there is a difference")
- * is a `CliError`. Both carry the message the old throw had.
+ * The Effect fails with the typed taxonomy: no worktree is a `BadRequestError`, a `git diff`
+ * that failed for real (exit > 1 — 1 is "there is a difference") is a `CliError`. Both carry a
+ * human-readable message.
  */
-export const fileDiffEffect = (
+export const fileDiff = (
   change: Change,
   repo: string,
   file: string,
@@ -177,13 +170,13 @@ export const fileDiffEffect = (
   Effect.gen(function* () {
     const worktree = yield* worktreeOf(change, repo);
     if (!worktree) {
-      // 400, as this was before the rewrite: a wrong request against this change, not a missing
-      // resource (matching the same message's BadRequestError in the integrations).
+      // 400: a wrong request against this change, not a missing resource (matching the same
+      // message's BadRequestError in the integrations).
       const message = `no worktree for ${change.branch} in ${repo}`;
-      return yield* Effect.fail(new BadRequestError({ message }));
+      return yield* new BadRequestError({ message });
     }
 
-    const status = yield* localChangesEffect(change, repo);
+    const status = yield* localChanges(change, repo);
     const found = status.files.find((f) => f.path === file);
     const command = found?.untracked
       ? ["git", "diff", "--no-index", "--", "/dev/null", file]
@@ -193,24 +186,13 @@ export const fileDiffEffect = (
     const r = yield* shResult(command, worktree);
     if (r.code > 1) {
       const message = r.stderr || r.stdout || "git diff failed";
-      return yield* Effect.fail(
-        new CliError({
-          message,
-          tool: "git",
-          command: command.join(" "),
-          stderr: message,
-          exitCode: r.code,
-        }),
-      );
+      return yield* new CliError({
+        message,
+        tool: "git",
+        command: command.join(" "),
+        stderr: message,
+        exitCode: r.code,
+      });
     }
     return r.stdout;
   });
-
-/** Promise facade over fileDiffEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const fileDiff = (
-  change: Change,
-  repo: string,
-  file: string,
-  staged: boolean,
-): Promise<string> => Effect.runPromise(fileDiffEffect(change, repo, file, staged));

@@ -3,13 +3,13 @@ import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { copyTooling, rewritePaths, TOOLING } from "../src/tooling.ts";
-import { sh } from "../src/sh.ts";
+import { runEffect, runSh } from "./helpers.ts";
 
 /**
- * Opening a worktree in IntelliJ used to mean importing the project again, because none of the
- * IDE's state is in git and so none of it is in a new worktree. It is copied now — and a copy
- * with the old paths still in it is worse than no copy at all: a build server pointed at the
- * main checkout would build the wrong code from the right-looking project.
+ * A new worktree has none of the IDE's state, because none of it is in git. IWE copies it in
+ * rather than making you import the project again — and a copy with stale paths still in it is
+ * worse than no copy at all: a build server pointed at the main checkout would build the wrong
+ * code from the right-looking project.
  */
 let tmp: string;
 let repo: string;
@@ -19,7 +19,7 @@ let tree: string;
  * asked of the worktree, which is the thing that has to stay clean. */
 async function checkout(path: string, ignores: string[]): Promise<void> {
   await mkdir(path, { recursive: true });
-  await sh(["git", "init", "-q", "-b", "main", path]);
+  await runSh(["git", "init", "-q", "-b", "main", path]);
   await writeFile(join(path, ".gitignore"), `${ignores.join("\n")}\n`);
 }
 
@@ -61,7 +61,7 @@ test("IDE state is copied into the worktree with its paths pointing at the workt
     `<project><option value="${repo}/build" /></project>`,
   );
 
-  const copied = await copyTooling(repo, tree, TOOLING);
+  const copied = await runEffect(copyTooling(repo, tree, TOOLING));
 
   expect(copied.sort()).toEqual([".bsp", ".idea"]);
   expect(await readFile(join(tree, ".bsp", "scala.json"), "utf8")).toBe(
@@ -80,7 +80,7 @@ test("what the worktree already has is left alone, and binary files survive the 
   const icon = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01, 0x02, 0x00, 0xff]);
   await writeFile(join(repo, ".idea", "icon.png"), icon);
 
-  const copied = await copyTooling(repo, fresh, TOOLING);
+  const copied = await runEffect(copyTooling(repo, fresh, TOOLING));
 
   // .idea exists there already: the IDE owns it from creation onwards.
   expect(copied).toEqual([".bsp"]);
@@ -88,7 +88,7 @@ test("what the worktree already has is left alone, and binary files survive the 
 
   const second = join(tmp, "third", "example-api");
   await checkout(second, [".idea/", ".bsp/"]);
-  await copyTooling(repo, second, TOOLING);
+  await runEffect(copyTooling(repo, second, TOOLING));
   expect(Buffer.from(await readFile(join(second, ".idea", "icon.png")))).toEqual(icon);
 });
 
@@ -98,7 +98,7 @@ test("a repository without any of it is not a failure", async () => {
   await checkout(bare, []);
   await checkout(target, [".idea/"]);
 
-  expect(await copyTooling(bare, target, TOOLING)).toEqual([]);
+  expect(await runEffect(copyTooling(bare, target, TOOLING))).toEqual([]);
 });
 
 test("only what git ignores is copied, or the worktree is dirty from the moment it exists", async () => {
@@ -112,5 +112,5 @@ test("only what git ignores is copied, or the worktree is dirty from the moment 
   await writeFile(join(committed, ".idea", "workspace.xml"), "<p/>");
   await checkout(target, [".bsp/"]);
 
-  expect(await copyTooling(committed, target, TOOLING)).toEqual([".bsp"]);
+  expect(await runEffect(copyTooling(committed, target, TOOLING))).toEqual([".bsp"]);
 });

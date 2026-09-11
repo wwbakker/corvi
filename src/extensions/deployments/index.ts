@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { BadRequestError } from "../../effect/errors.ts";
-import { deploymentsEffect, versionsForEffect, deployEffect } from "../../deployments.ts";
+import { deployments, versionsFor, deploy } from "./server.ts";
 import type { Extension } from "../api.ts";
 
 /**
@@ -9,9 +9,8 @@ import type { Extension } from "../api.ts";
  *
  * It contributes a page (the sidebar's Deployments entry, rendered by its client half) and the
  * three routes the page fetches from, under its own namespace. The implementation it wires up
- * — every `az` call, the cache, the promotion guard — lives where it always has
- * (src/deployments.ts); this module only describes it and hands it the workspace the request
- * names.
+ * — every `az` call, the cache, the promotion guard — lives beside it (./server.ts); this
+ * module only describes it and hands it the workspace the request names.
  */
 
 /** The context these pipelines belong to, said the way every route says it: a query parameter
@@ -22,24 +21,24 @@ const workspaceParam = (req: Request): string | undefined =>
 /** The request body. A body that will not parse is the caller's mistake, said as the core's
  * routes say it: a BadRequestError, which the status-code mapping turns into a 400. */
 const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.mapError(
-    Effect.tryPromise({ try: () => req.json(), catch: (e) => e }),
-    (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  );
+  Effect.tryPromise({
+    try: () => req.json(),
+    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
+  });
 
 export default {
   name: "deployments",
   title: "Deployments",
 
-  // The page URL is the id: /deployments, where it always was — the id is client-side view
+  // The page URL is the id: /deployments — the id is client-side view
   // state, not a server route.
   pages: [{ id: "deployments", title: "Deployments" }],
 
   // The server-wide settings this extension declares, shown on the settings page for every
   // workspace and stored under `extensionSettings.deployments` — where deploySettings reads
-  // them back (src/deploySettings.ts), with the legacy config fields as the fallback chain's
-  // tail. An environment variable keeps beating the page: the field shows locked when
-  // IWE_AZURE_* is set.
+  // them back (src/deploySettings.ts), with the core config's `azure*` fields as the fallback.
+  // An environment variable keeps beating the page: the field shows locked when IWE_AZURE_* is
+  // set.
   globalSettings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_ORG" },
     { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: "IWE_AZURE_PROJECT" },
@@ -70,14 +69,14 @@ export default {
     {
       method: "GET",
       path: "/services",
-      handler: (req) => Effect.map(deploymentsEffect(workspaceParam(req)), Response.json),
+      handler: (req) => Effect.map(deployments(workspaceParam(req)), Response.json),
     },
     {
       // The versions a service has built and could be given, newest first.
       method: "GET",
       path: "/services/:service/versions",
       handler: (req, params) =>
-        Effect.map(versionsForEffect(params.service!, workspaceParam(req)), Response.json),
+        Effect.map(versionsFor(params.service!, workspaceParam(req)), Response.json),
     },
     {
       // The one irreversible thing on that page: start a deploy. The promotion guard — a later
@@ -87,14 +86,14 @@ export default {
       path: "/services/:service/deploy",
       handler: (req, params) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as { version?: string; environment?: string };
-          if (!body.version || !body.environment) {
-            return yield* Effect.fail(
-              new BadRequestError({ message: "version and environment required" }),
-            );
+          // A JSON body may be null or a primitive, not only an object: "no version or
+          // environment to read" is the caller's mistake, whichever shape it arrived in.
+          const body = (yield* bodyOf(req)) as { version?: string; environment?: string } | null;
+          if (!body?.version || !body.environment) {
+            return yield* new BadRequestError({ message: "version and environment required" });
           }
           return Response.json(
-            yield* deployEffect(params.service!, body.version, body.environment, workspaceParam(req)),
+            yield* deploy(params.service!, body.version, body.environment, workspaceParam(req)),
           );
         }),
     },

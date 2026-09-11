@@ -1,9 +1,9 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import { worst as worstOf, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
-import { activeRunsEffect, pipelineItemsEffect } from "../../integrations/azure.ts";
-import { createPrEffect, prItemEffect, prSummaryEffect } from "../../integrations/github.ts";
-import { checkItemsEffect } from "../../integrations/checks.ts";
+import { worst, type Change, type WidgetItem, type WidgetState } from "../../types.ts";
+import { activeRuns, pipelineItems } from "../../integrations/azure.ts";
+import { createPr, prItem, prSummary } from "../../integrations/github.ts";
+import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../effect/errors.ts";
 import type { Extension, SummaryContribution } from "../api.ts";
 
@@ -13,39 +13,41 @@ import type { Extension, SummaryContribution } from "../api.ts";
  */
 
 /** repository > pull request > pipeline > runs, as one collapsible tree per repository. */
-const repoItemEffect = (
+const repoItem = (
   change: Change,
   repo: string,
 ): Effect.Effect<{ item: WidgetItem; prs: number; runs: number }> =>
   Effect.gen(function* () {
-    const { number, item: pr } = yield* prItemEffect(change, repo);
+    const { number, item: pr } = yield* prItem(change, repo);
     // Pipelines run on the PR merge ref once a PR exists, so the two are looked up together.
-    const { items: azure, count } = yield* pipelineItemsEffect(change, repo, number);
+    const { items: azure, count } = yield* pipelineItems(change, repo, number);
     // Nothing found in Azure DevOps does not mean nothing ran: a repository can be built by
     // GitHub Actions, or by pipelines in another Azure project than the configured one. The pull
     // request itself knows about all of them, so fall back to what it reports.
     const pipelines =
-      count === 0 && number ? yield* fallbackChecksEffect(change, repo, number, azure) : azure;
+      count === 0 && number ? yield* fallbackChecks(change, repo, number, azure) : azure;
     const item: WidgetItem = {
       label: basename(repo),
-      state: worst([pr, ...pipelines]),
+      state: worstItem([pr, ...pipelines]),
       children: [{ ...pr, children: pipelines }],
     };
     return { item, prs: number ? 1 : 0, runs: count };
   });
 
-const fallbackChecksEffect = (
+const fallbackChecks = (
   change: Change,
   repo: string,
   number: number,
   azure: WidgetItem[],
 ): Effect.Effect<WidgetItem[]> =>
   Effect.gen(function* () {
-    const checks = yield* checkItemsEffect(change, repo, number);
+    const checks = yield* checkItems(change, repo, number);
     return checks.length ? checks : azure;
   });
 
-const worst = (items: WidgetItem[]): WidgetState =>
+/** The item-level variant of types.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
+ * card can pick a verdict from its own rows as well as from a list of states. */
+const worstItem = (items: WidgetItem[]): WidgetState =>
   items.some((i) => i.state === "error")
     ? "error"
     : items.some((i) => i.state === "pending")
@@ -56,7 +58,7 @@ const worst = (items: WidgetItem[]): WidgetState =>
           ? "ok"
           : "none";
 
-/** The CI card's action runner, in Effect. */
+/** The CI card's action runner. */
 const runEffect = (
   change: Change,
   action: string,
@@ -64,10 +66,10 @@ const runEffect = (
 ): Effect.Effect<void, BadRequestError | CliError> =>
   Effect.gen(function* () {
     if (action !== "create") {
-      return yield* Effect.fail(new BadRequestError({ message: `unknown ci action: ${action}` }));
+      return yield* new BadRequestError({ message: `unknown ci action: ${action}` });
     }
-    if (!repo) return yield* Effect.fail(new BadRequestError({ message: "repo required" }));
-    yield* createPrEffect(change, repo);
+    if (!repo) return yield* new BadRequestError({ message: "repo required" });
+    yield* createPr(change, repo);
   });
 
 /**
@@ -78,7 +80,7 @@ const runEffect = (
  * down is the contributor's own failure, which the host swallows: the card loses the facts,
  * not the request.
  */
-const summaryContributionEffect = (
+const summaryContribution = (
   change: Change,
 ): Effect.Effect<SummaryContribution, unknown> =>
   Effect.gen(function* () {
@@ -86,8 +88,8 @@ const summaryContributionEffect = (
       change.repos,
       (repo) =>
         Effect.gen(function* () {
-          const { number, unresolved, checks } = yield* prSummaryEffect(change, repo);
-          return { pipelines: yield* activeRunsEffect(change, repo, number), unresolved, checks };
+          const { number, unresolved, checks } = yield* prSummary(change, repo);
+          return { pipelines: yield* activeRuns(change, repo, number), unresolved, checks };
         }),
       { concurrency: "unbounded" },
     );
@@ -114,7 +116,7 @@ const summaryContributionEffect = (
       ],
       // A pipeline in flight is a build running, whatever the pull request's checks say about
       // the last one.
-      state: worstOf([
+      state: worst([
         ...perRepo.map((r) => r.checks),
         ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
       ]),
@@ -126,13 +128,13 @@ const summaryContributionEffect = (
  * repository in parallel and in repository order. A repository with no pull request, or no
  * network, is not a loose end worth failing a cancellation over, so each lookup is best effort.
  */
-const prLooseEndsEffect = (change: Change): Effect.Effect<string[]> =>
+const prLooseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
     Effect.forEach(
       change.repos,
       (repo) =>
         Effect.map(
-          Effect.catchAll(prSummaryEffect(change, repo), () => Effect.succeed(undefined)),
+          Effect.orElseSucceed(prSummary(change, repo), () => undefined),
           (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
         ),
       { concurrency: "unbounded" },
@@ -148,14 +150,14 @@ export default {
     {
       title: "CI",
       wide: true,
-      repoStatus: (change, repo) => Effect.map(repoItemEffect(change, repo), ({ item }) => [item]),
+      repoStatus: (change, repo) => Effect.map(repoItem(change, repo), ({ item }) => [item]),
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],
 
-  summaryContributions: [{ facts: summaryContributionEffect }],
+  summaryContributions: [{ facts: summaryContribution }],
 
   // Cancelling leaves the pull requests open — closing somebody else's pull request is a
   // decision about theirs — and says so, one line per repository that has one.
-  looseEnds: [{ looseEnds: prLooseEndsEffect }],
+  looseEnds: [{ looseEnds: prLooseEnds }],
 } satisfies Extension;

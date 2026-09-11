@@ -1,6 +1,7 @@
 import type { Change } from "./types.ts";
 import { config, type Workspace } from "./config.ts";
 import { deploySettings } from "./deploySettings.ts";
+import { resolveSetting } from "./legacySettings.ts";
 
 /**
  * Which context a change belongs to, and what that context implies.
@@ -11,8 +12,7 @@ import { deploySettings } from "./deploySettings.ts";
  */
 export const workspaces = (): Workspace[] => config.workspaces;
 
-/** The workspace with this id, or the first one — which is where every change made before
- * workspaces existed belongs, since that is where all the work was. */
+/** The workspace with this id, or the first one — where every change without one belongs. */
 export function workspaceById(id?: string): Workspace {
   return workspaces().find((w) => w.id === id) ?? workspaces()[0]!;
 }
@@ -20,21 +20,27 @@ export function workspaceById(id?: string): Workspace {
 export const workspaceOf = (change: Change): Workspace => workspaceById(change.workspace);
 
 /** Whether an integration applies here at all. Absent means yes: a workspace that says nothing
- * about Azure DevOps is one that has it, which is what IWE was before workspaces existed.
+ * about Azure DevOps is one that has it.
  *
- * Jira has no such helper anymore: enablement is the extensions list, and the site settings are
- * the jira extension's own (src/extensions/jira/jira.ts). */
+ * Jira has no such helper: enablement is the extensions list, and the site settings are the jira
+ * extension's own (src/extensions/jira/jira.ts). */
 export const usesAzure = (workspace: Workspace): boolean => workspace.azure !== false;
 
-/** Azure DevOps for this workspace, falling back to the single setting IWE had before — now
- * read through the deployments extension's own chain (the settings bag, then the legacy field,
- * src/deploySettings.ts) — and then to whatever `az devops configure` holds. */
+/** Azure DevOps for this workspace, falling back to the global setting — read through the
+ * deployments extension's own chain (the settings bag, then the flat field, src/deploySettings.ts)
+ * — and then to whatever `az devops configure` holds. */
 export function azureOf(workspace: Workspace): { organization: string; project: string } {
   const own = workspace.azure === false ? undefined : workspace.azure;
   const global = deploySettings();
   return {
-    organization: own?.organization ?? global.organization ?? config.azureOrganization,
-    project: own?.project ?? global.project ?? config.azureProject,
+    organization: resolveSetting({
+      bag: own?.organization,
+      fallback: global.organization ?? config.azureOrganization,
+    }),
+    project: resolveSetting({
+      bag: own?.project,
+      fallback: global.project ?? config.azureProject,
+    }),
   };
 }
 

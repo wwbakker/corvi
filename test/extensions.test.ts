@@ -2,14 +2,14 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChangeEffect } from "../src/changes.ts";
+import { createChange, readChange } from "../src/changes.ts";
+import { runEffect, TestError } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   dispatchExtensionRoute,
   extensionsFor,
   install,
   loaded,
-  migrateWorkspaceSettings,
   windowPresenters,
   wizardStepsFor,
 } from "../src/extensions/index.ts";
@@ -19,7 +19,7 @@ import type {
   WindowPresentation,
 } from "../src/extensions/api.ts";
 import { presentWindow } from "../src/terminal.ts";
-import { looseEndsEffect } from "../src/cancel.ts";
+import { looseEnds } from "../src/cancel.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";
@@ -43,7 +43,7 @@ afterAll(async () => {
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
 
 /** A window as tmux reports it, raw: the facts before anyone says what to call it. */
-const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}) => ({
+const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}): { index: number; name: string; command: string; active: boolean; activity: boolean; directory: string; named: boolean; options: Record<string, string>; id: string; } => ({
   index: 3,
   id: "@3",
   name: "zsh",
@@ -102,10 +102,10 @@ test("a window's presentation: the first presenter to answer a field wins, the c
     const agent = install({
       name: "test-presenters-agent",
       title: "Agent",
-      windowPresenters: [constant(undefined, ["@agent"])],
+      windowPresenters: [constant(undefined, ["@agent_status"])],
     });
     try {
-      expect(windowPresenters().flatMap((p) => p.paneOptions ?? [])).toContain("@agent");
+      expect(windowPresenters().flatMap((p) => p.paneOptions ?? [])).toContain("@agent_status");
     } finally {
       loaded.splice(loaded.indexOf(agent), 1);
     }
@@ -138,7 +138,7 @@ test("extension routes match :param patterns, first pattern wins", async () => {
     ],
   });
   try {
-    const call = (path: string, method = "GET") =>
+    const call = (path: string, method = "GET"): Promise<unknown> | undefined =>
       dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes/${path}`, { method }))
         ?.then((r) => r.json());
     // Registration order: the more specific pattern is declared first and wins.
@@ -168,11 +168,11 @@ test("extension route params are percent-decoded", async () => {
     ],
   });
   try {
-    const call = (path: string) =>
+    const call = (path: string): Promise<unknown> | undefined =>
       dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes-decode/${path}`))
         ?.then((r) => r.json());
-    // The client encodes (encodeURIComponent) and the old core route decoded: a captured
-    // segment arrives decoded, as the handlers see it elsewhere.
+    // The client encodes (encodeURIComponent), and a captured segment arrives decoded, as the
+    // handlers see it elsewhere.
     expect(await call("services/a%20b/versions")).toEqual({ service: "a b" });
     expect(await call("services/web%2Fapi/versions")).toEqual({ service: "web/api" });
     // A malformed escape falls back to the raw segment rather than throwing.
@@ -183,7 +183,7 @@ test("extension route params are percent-decoded", async () => {
 });
 
 test("a remote URL is read in every shape GitHub answers to", () => {
-  const parse = (url: string) => repoFromRemote(url);
+  const parse = (url: string): { owner: string; name: string; } | undefined => repoFromRemote(url);
   expect(parse("https://github.com/owner/name.git")).toEqual({ owner: "owner", name: "name" });
   expect(parse("https://github.com/owner/name")).toEqual({ owner: "owner", name: "name" });
   expect(parse("git@github.com:owner/name.git")).toEqual({ owner: "owner", name: "name" });
@@ -201,8 +201,8 @@ test("a change's ticket is read from the bag, and from the legacy field", () => 
   const legacy: Change = { id: "B", branch: "B", repos: [], jira: "PROJ-1", createdAt: "" };
   const neither: Change = { id: "C", branch: "C", repos: [], createdAt: "" };
 
-  // The bag is where the wizard writes now; change.jira is where it was written before
-  // extensions existed, and archived changes still carry it.
+  // Both are read: the bag is where the wizard writes, and change.jira is the field archived
+  // changes carry.
   expect(ticketOf(bag)).toBe("PROJ-2");
   expect(ticketOf(legacy)).toBe("PROJ-1");
   expect(ticketOf(neither)).toBeUndefined();
@@ -237,13 +237,13 @@ test("cancelling asks the loose-end contributors, in load order, and a failure c
     title: "Second",
     looseEnds: [
       // A vendor being down is not a reason for a cancellation to fail: the gatherer swallows it.
-      { looseEnds: () => Effect.fail(new Error("vendor down")) },
+      { looseEnds: () => Effect.fail(new TestError({ message: "vendor down" })) },
       { looseEnds: () => Effect.succeed(["the second extension's end"]) },
     ],
   });
   try {
     const change: Change = { id: "L", branch: "L", repos: [], createdAt: "" };
-    const ends = await Effect.runPromise(looseEndsEffect(change));
+    const ends = await Effect.runPromise(looseEnds(change));
     // Extension by extension, contributor by contributor — load order decides, the same order
     // every other per-workspace surface reads in.
     expect(ends).toEqual([
@@ -274,57 +274,6 @@ test("a workspace that names its extensions gets exactly those, in registration 
   expect(extensionsFor(ws({ extensions: ["github-issues", "nonexistent"] })).map((e) => e.name)).toEqual([
     "github-issues",
   ]);
-});
-
-test("legacy jira settings migrate into the extension's own per-workspace settings", () => {
-  // jira: false with no extensions list: an explicit list materializes — everything loaded
-  // except jira — because naming some is the whole list, and the flag itself is retired.
-  const off = migrateWorkspaceSettings([ws({ jira: false })])[0]!;
-  expect(off.extensions).toEqual(loaded.map((e) => e.name).filter((n) => n !== "jira"));
-  expect(off.extensions).not.toContain("jira");
-
-  // The legacy jira object: its fields land under extensionSettings.jira, where the jira
-  // extension's declaration puts and reads them. Present fields only.
-  const configured = migrateWorkspaceSettings([
-    ws({ jira: { project: "PROJ", configFile: "~/.config/.jira/client.yml" } }),
-  ])[0]!;
-  expect(configured.extensionSettings).toEqual({
-    jira: { project: "PROJ", configFile: "~/.config/.jira/client.yml" },
-  });
-  // Already migrated: untouched, however many times it runs.
-  expect(migrateWorkspaceSettings([configured])[0]!.extensionSettings).toEqual(
-    configured.extensionSettings,
-  );
-
-  // An explicit extensions list is never touched, flag or no flag.
-  const explicit = migrateWorkspaceSettings([ws({ extensions: ["ci"], jira: false })])[0]!;
-  expect(explicit.extensions).toEqual(["ci"]);
-  expect(explicit.extensionSettings).toBeUndefined();
-
-  // And a workspace that says nothing stays as it is.
-  const silent = migrateWorkspaceSettings([ws()])[0]!;
-  expect(silent.extensions).toBeUndefined();
-  expect(silent.extensionSettings).toBeUndefined();
-});
-
-test("legacy azure: false folds into the explicit extensions list too", () => {
-  // azure: false with no extensions list: everything loaded except the deployments extension —
-  // the flag always meant "this context has no pipelines", and the list now says so.
-  const off = migrateWorkspaceSettings([ws({ azure: false })])[0]!;
-  expect(off.extensions).toEqual(loaded.map((e) => e.name).filter((n) => n !== "deployments"));
-  expect(off.extensions).not.toContain("deployments");
-
-  // Both flags at once: both exclusions honoured, one list.
-  const both = migrateWorkspaceSettings([ws({ jira: false, azure: false })])[0]!;
-  expect(both.extensions).toEqual(
-    loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "deployments"),
-  );
-  expect(both.extensions).not.toContain("jira");
-  expect(both.extensions).not.toContain("deployments");
-
-  // An explicit extensions list is never touched, flag or no flag.
-  const explicit = migrateWorkspaceSettings([ws({ extensions: ["ci"], azure: false })])[0]!;
-  expect(explicit.extensions).toEqual(["ci"]);
 });
 
 test("the wizard's steps follow the phases and the enablement", () => {
@@ -366,7 +315,7 @@ test("a completion step is planned only when the change has something for it", (
 });
 
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {
-  const created = await createChange({
+  const created = await runEffect(createChange({
     id: "PROJ-BAG",
     repos: ["/tmp/whatever-repo"],
     workspace: "test",
@@ -374,8 +323,8 @@ test("the wizard's payload lands on the change record, verbatim and per extensio
       jira: { key: "PROJ-5" },
       "github-issues": { repo: "/repos/thing", number: 12 },
     },
-  });
-  const read = await Effect.runPromise(readChangeEffect("PROJ-BAG"));
+  }));
+  const read = await Effect.runPromise(readChange("PROJ-BAG"));
   // The core stores what the extensions picked and never looks inside: both survive as written.
   expect(read?.extensions).toEqual({
     jira: { key: "PROJ-5" },

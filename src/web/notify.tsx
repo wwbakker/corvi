@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { type JSX, useCallback, useRef, useState } from "react";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../terminalTypes.ts";
 
@@ -111,7 +111,7 @@ export function Notifier({
   windows: TerminalWindow[];
   /** Where a click should take you. */
   onOpen: (change: string, window: string) => void;
-}) {
+}): JSX.Element | null {
   const [toast, setToast] = useState<Notice | null>(null);
   // The listener subscribes once; what it needs to decide changes every render, so it reads the
   // latest from here rather than being rebuilt (and resubscribed) each time.

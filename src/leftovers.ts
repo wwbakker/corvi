@@ -2,8 +2,9 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { root, ARCHIVE, changeDir } from "./changes.ts";
-import { shEffect, type Result } from "./sh.ts";
+import { sh, type Result } from "./sh.ts";
 import { BadRequestError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 
 /**
  * A directory in the changes root that no longer belongs to a change: what a completed change
@@ -25,19 +26,18 @@ export type Leftover = {
 };
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry the human-readable message the old `throw` had, so set it explicitly (as sh.ts's
- * failCli does). */
+ * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
 const badRequest = (message: string): BadRequestError => {
   const error = new BadRequestError({ message });
   (error as { message: string }).message = message;
   return error;
 };
 
-/** The Result shape the old `sh()` facade returned: a timed-out CLI — the one `CliError`
- * `shEffect` can fail with here — is a failed command (exit code 124), not a failure of the
- * operation. Everything downstream branches on `code`, exactly as before. */
+/** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
 const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  shEffect(cmd, cwd).pipe(
+  sh(cmd, cwd).pipe(
     Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
   );
 
@@ -67,7 +67,7 @@ const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
 const isChange = (name: string): Effect.Effect<boolean> =>
   Effect.promise(() => Bun.file(join(changeDir(name), "change.json")).exists());
 
-export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(function* () {
+export const listLeftovers: Effect.Effect<Leftover[]> = Effect.gen(function* () {
   const names = yield* Effect.promise(() => readdir(root(), { withFileTypes: true }).catch(() => []));
   const candidates = names.filter((e) => e.isDirectory() && e.name !== ARCHIVE);
   const found = yield* Effect.forEach(
@@ -100,28 +100,24 @@ export const listLeftoversEffect: Effect.Effect<Leftover[]> = Effect.gen(functio
   return found.filter((l): l is Leftover => l !== undefined).sort((a, b) => b.kilobytes - a.kilobytes);
 });
 
-/** Promise facade over listLeftoversEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const listLeftovers = (): Promise<Leftover[]> => Effect.runPromise(listLeftoversEffect);
-
 /**
  * Delete one leftover directory. Refuses anything that is still a change, and anything outside
- * the changes root: this removes a directory tree, so it checks what it is pointed at. Where the
- * old code threw, the Effect fails with a `BadRequestError` carrying the same message.
+ * the changes root: this removes a directory tree, so it checks what it is pointed at. The
+ * Effect fails with a `BadRequestError` carrying a human-readable message.
  */
-export const removeLeftoverEffect = (name: string): Effect.Effect<void, BadRequestError> =>
+export const removeLeftover = (name: string): Effect.Effect<void, BadRequestError> =>
   Effect.gen(function* () {
     const path = changeDir(name);
     if (name !== "" && join(root(), name) !== path) {
-      return yield* Effect.fail(badRequest(`not a change directory: ${name}`));
+      return yield* badRequest(`not a change directory: ${name}`);
     }
     if (name === ARCHIVE || name.includes("/") || name.startsWith(".")) {
-      return yield* Effect.fail(badRequest(`not a change directory: ${name}`));
+      return yield* badRequest(`not a change directory: ${name}`);
     }
     if (yield* isChange(name)) {
-      return yield* Effect.fail(badRequest(`${name} is an active change, not a leftover`));
+      return yield* badRequest(`${name} is an active change, not a leftover`);
     }
-    // Already gone: what the old code's falsy `stat` check did.
+    // Already gone: a falsy stat means there is nothing left to remove.
     if (!(yield* Effect.promise(() => stat(path).catch(() => null)))) return;
 
     // Worktrees inside it stay registered with their repositories after the directory goes, and
@@ -140,17 +136,9 @@ export const removeLeftoverEffect = (name: string): Effect.Effect<void, BadReque
       { concurrency: "unbounded" },
     );
     // Filesystem failures are defects, not domain errors — the directories we remove are ours,
-    // and the old code let the raw rejection escape the same way.
-    yield* Effect.tryPromise({
-      try: () => rm(path, { recursive: true, force: true }).then(() => undefined),
-      catch: (e) => e,
-    }).pipe(Effect.orDie);
+    // so the raw rejection escapes as a defect.
+    yield* fs(() => rm(path, { recursive: true, force: true }).then(() => undefined));
     for (const repository of new Set(repositories.filter(Boolean) as string[])) {
       yield* shResult(["git", "worktree", "prune"], repository);
     }
   });
-
-/** Promise facade over removeLeftoverEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const removeLeftover = (name: string): Promise<void> =>
-  Effect.runPromise(removeLeftoverEffect(name));

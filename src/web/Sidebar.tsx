@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { api, type Change } from "./api.ts";
 import { stateClass } from "./changeState.tsx";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
@@ -34,7 +34,7 @@ const CI_WORDS: Record<string, string> = {
 
 /** What the change's builds are doing. Its own state is the coloured bar down the left of the
  * row, and its terminals are the rows underneath, so neither needs an icon here. */
-function Icons({ summary }: { summary?: ChangeSummary }) {
+function Icons({ summary }: { summary?: ChangeSummary }): JSX.Element {
   const ci = summary?.state ?? "none";
   return (
     <span className="icons">
@@ -48,10 +48,8 @@ function Icons({ summary }: { summary?: ChangeSummary }) {
 /**
  * The one navigation element: a single column, from the top of the window down.
  *
- * It replaces the breadcrumb, the tab strip and the terminal's own window strip, which between
- * them said where you were three times and disagreed about how. Here the whole hierarchy is
- * visible at once — the changes, the pages of the one you picked, and the terminals inside it —
- * so moving anywhere is one click from anywhere.
+ * The whole hierarchy is visible at once — the changes, the pages of the one you picked, and the
+ * terminals inside it — so moving anywhere is one click from anywhere.
  */
 export function Sidebar({
   changes,
@@ -96,7 +94,7 @@ export function Sidebar({
   onNewWindow: (id: string) => void;
   /** The server's platform: which chord the new-window hint names. */
   platform: Platform;
-}) {
+}): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
   // the newest of each at the top. The overview list is sorted the same way.
   const active = (changes ?? []).filter((c) => !isFinished(c)).sort(byWorkOrder);
@@ -109,7 +107,7 @@ export function Sidebar({
   const ids = active.map((c) => c.id).join("|");
   useEffect(() => {
     let alive = true;
-    const load = () =>
+    const load = (): void =>
       active.forEach((c) =>
         api<ChangeSummary>(`/changes/${c.id}/summary`)
           .then((s) => alive && setSummaries((all) => ({ ...all, [c.id]: s })))
@@ -126,12 +124,12 @@ export function Sidebar({
   // Dragging the edge: listened for on the window, so the pointer may leave the handle — which
   // it always does, since the thing being dragged moves out from under it.
   useEffect(() => {
-    const move = (e: MouseEvent) => {
+    const move = (e: MouseEvent): void => {
       if (!dragging.current) return;
       e.preventDefault(); // otherwise the drag selects the text it passes over
       setWidth(Math.min(MAX, Math.max(MIN, e.clientX)));
     };
-    const up = () => {
+    const up = (): void => {
       if (!dragging.current) return;
       dragging.current = false;
       document.body.classList.remove("resizing");

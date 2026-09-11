@@ -8,7 +8,7 @@
  *
  * WebKit by default because that is what the app is: the macOS window is a WKWebView, and the
  * Linux window chose WebKitGTK over QtWebEngine and a Chromium --app window
- * (docs/native-window.md) — WebKit either way. Chromium is a variable away for when the
+ * (docs/decisions/linux-native-window.md) — WebKit either way. Chromium is a variable away for when the
  * difference is what you are looking at, or for testing against the Chromium --app fallback
  * window; IWE_ENGINE overrides everything. */
 import { mkdir } from "node:fs/promises";
@@ -18,8 +18,7 @@ import { chromium, webkit } from "playwright";
 const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";
 
 /** The engine of the app's own window, per platform: WKWebView on macOS, WebKitGTK on Linux.
- * Playwright's `webkit` is that engine family on both. Had the Linux decision gone to the
- * Chromium fallback window, this would return "chromium" there instead. */
+ * Playwright's `webkit` is that engine family on both. */
 const windowEngine = (): "webkit" | "chromium" => {
   if (isMac || isLinux) return "webkit";
   return "webkit"; // no app on other platforms; WebKit is still the interesting difference

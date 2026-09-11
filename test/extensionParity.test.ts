@@ -4,7 +4,7 @@ import { clients } from "../src/web/extensions.tsx";
 
 /**
  * Parity between the two hand-kept extension registries — the one place the
- * "two lines each" contract of docs/extensions.md is checkable rather than a
+ * "two lines each" contract of docs/guides/extensions.md is checkable rather than a
  * matter of discipline:
  *
  * - the server's loader, src/extensions/index.ts `loaded`, which knows which
@@ -21,7 +21,7 @@ import { clients } from "../src/web/extensions.tsx";
  */
 
 /** An extension with an interface on the page: wizard steps or pages. */
-const interfaceNames = () =>
+const interfaceNames = (): string[] =>
   loaded
     .filter((e) => !e.clientPath && (e.wizardSteps.length > 0 || e.pages.length > 0))
     .map((e) => e.name);

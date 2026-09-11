@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { type JSX, useEffect, useRef, useState } from "react";
 import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
 
 /**
  * The change's terminal: a tmux session in the change directory, rendered by ttyd.
  *
- * There is nothing around it any more — which window you are in, and how to get to another, is
- * the navigation column's job. What is left here is the frame, the focus, and the new-window
- * chord.
+ * Which window you are in, and how to get to another, is the navigation column's job. This is
+ * the frame, the focus, and the new-window chord.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.
@@ -40,7 +39,7 @@ export function TerminalPane({
   /** How many windows this change's session has: none while one is starting, and none forever
    * once it is gone. */
   windows: number;
-}) {
+}): JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
@@ -69,12 +68,12 @@ export function TerminalPane({
   // keyboard usually is; the frame cannot open a window, so it forwards the key as a message.
   useEffect(() => {
     if (!visible) return;
-    const key = (e: KeyboardEvent) => {
+    const key = (e: KeyboardEvent): void => {
       if (!isNewWindowKey(e, platform)) return;
       e.preventDefault();
       onNewWindow();
     };
-    const message = (e: MessageEvent) => {
+    const message = (e: MessageEvent): void => {
       if (e.origin === location.origin && (e.data as { iwe?: string })?.iwe === "new-window")
         onNewWindow();
     };

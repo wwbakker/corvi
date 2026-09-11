@@ -2,20 +2,21 @@ import { basename } from "node:path";
 import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
-import { mergeReadinessEffect, mergePrEffect } from "./integrations/github.ts";
-import { removeWorktreeEffect, unsafeToRemoveEffect } from "./integrations/git.ts";
+import { mergeReadiness, mergePr } from "./integrations/github.ts";
+import { removeWorktree, unsafeToRemove, type Unsafe } from "./integrations/git.ts";
 import {
-  archiveChangeEffect,
-  readSidecarEffect,
-  writeChangeEffect,
-  writeSidecarEffect,
+  archiveChange,
+  readSidecar,
+  writeChange,
+  writeSidecar,
 } from "./changes.ts";
-import { stopTerminalEffect } from "./terminal.ts";
+import { stopTerminal } from "./terminal.ts";
 import { config } from "./config.ts";
 import { completionStepsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
-import { BadRequestError, type CliError } from "./effect/errors.ts";
+import { BadRequestError, DecodeError, type CliError } from "./effect/errors.ts";
+import { messageOf } from "./effect/support.ts";
 
 export type Completion = {
   /** Every repository is either merged already or has an approved pull request. */
@@ -42,21 +43,24 @@ export function verdict(
   return { ready: reasons.length === 0, reasons, toMerge };
 }
 
-/** One repository's readiness, checked live: the two lookups per repository were sequential
- * within the repository and parallel across repositories, and stay that way. */
-const completionOfRepo = (change: Change, repo: string) =>
+/** One repository's readiness, checked live: the two lookups per repository run sequentially,
+ * and the repositories in parallel. */
+const completionOfRepo = (
+  change: Change,
+  repo: string,
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError> =>
   Effect.gen(function* () {
     return {
       repo,
-      readiness: yield* mergeReadinessEffect(change, repo),
-      unsafe: yield* unsafeToRemoveEffect(change, repo),
+      readiness: yield* mergeReadiness(change, repo),
+      unsafe: yield* unsafeToRemove(change, repo),
     };
   });
 
-export const completionOfEffect = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
+export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
   Effect.map(
     Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded concurrency is deliberate: these per-repo lookups are independent.
       concurrency: "unbounded",
     }),
     verdict,
@@ -64,32 +68,23 @@ export const completionOfEffect = (change: Change): Effect.Effect<Completion, Cl
 
 const PROGRESS = "completion.json";
 
-/** A failure's message, exactly as the old `e instanceof Error ? e.message : String(e)` read it:
- * every typed error carries the sentence users saw before. */
-const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
 /** How far a completion got, or nothing if the change was never completed. */
-export const progressOfEffect = (id: string): Effect.Effect<CompletionProgress | null> =>
+export const progressOf = (id: string): Effect.Effect<CompletionProgress | null> =>
   Effect.gen(function* () {
-    const text = yield* readSidecarEffect(id, PROGRESS);
-    try {
-      return text ? (JSON.parse(text) as CompletionProgress) : null;
-    } catch {
-      // A half-written record reads as no record: it is our own file, and the completion that
-      // was interrupted will rewrite it from where it got to.
-      return null;
-    }
+    const text = yield* readSidecar(id, PROGRESS);
+    if (!text) return null;
+    // A half-written record reads as no record: it is our own file, and the completion that
+    // was interrupted will rewrite it from where it got to.
+    return yield* Effect.try({
+      try: () => JSON.parse(text) as CompletionProgress,
+      catch: (e) => new DecodeError({ source: "file", message: messageOf(e) }),
+    }).pipe(Effect.orElseSucceed(() => null));
   });
-
-/** Promise facade over progressOfEffect, in the old signature. Kept for the test suite, which
- * must pass unmodified. */
-export const progressOf = (id: string): Promise<CompletionProgress | null> =>
-  Effect.runPromise(progressOfEffect(id));
 
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
-  Effect.map(writeSidecarEffect(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
+  Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
     undefined);
 
 /** The work a completion is about to do, named before it starts so the page can show what is
@@ -130,9 +125,9 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  *
  * Every step is written to disk as it starts and as it finishes, so a completion that stops half
  * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
- * picks up what is left: merges already done are no longer outstanding.
+ * picks up what is left: merges already done are skipped.
  */
-export const completeChangeEffect = (
+export const completeChange = (
   change: Change,
 ): Effect.Effect<{ change: Change; notes: string[] }, CliError | BadRequestError> =>
   Effect.gen(function* () {
@@ -144,7 +139,7 @@ export const completeChangeEffect = (
     };
     yield* save(change.id, progress);
 
-    const completion = yield* completionOfEffect(change);
+    const completion = yield* completionOf(change);
     const checked = progress.steps[0]!;
     if (!completion.ready) {
       checked.state = "failed";
@@ -152,7 +147,7 @@ export const completeChangeEffect = (
       progress.error = `cannot complete: ${completion.reasons.join("; ")}`;
       progress.finishedAt = new Date().toISOString();
       yield* save(change.id, progress);
-      return yield* Effect.fail(new BadRequestError({ message: progress.error }));
+      return yield* new BadRequestError({ message: progress.error });
     }
     checked.state = "done";
     // The extensions' steps, planned once: named in the journal before anything runs, and run
@@ -185,7 +180,7 @@ export const completeChangeEffect = (
           progress.error = found.detail;
           progress.finishedAt = new Date().toISOString();
           yield* save(change.id, progress);
-          return yield* Effect.fail(outcome.left);
+          return yield* outcome.left;
         }
         found.detail = outcome.right;
         found.state = "done";
@@ -198,7 +193,7 @@ export const completeChangeEffect = (
     for (const { repo, number } of completion.toMerge) {
       yield* step(
         `merge:${repo}`,
-        Effect.tap(mergePrEffect(change, repo, number), (note) =>
+        Effect.tap(mergePr(change, repo, number), (note) =>
           Effect.sync(() => {
             if (note) notes.push(note);
           }),
@@ -224,7 +219,7 @@ export const completeChangeEffect = (
     yield* step(
       "worktrees",
       Effect.map(
-        Effect.forEach(change.repos, (repo) => removeWorktreeEffect(change, repo), {
+        Effect.forEach(change.repos, (repo) => removeWorktree(change, repo), {
           concurrency: 1,
           discard: true,
         }),
@@ -234,7 +229,7 @@ export const completeChangeEffect = (
     // The terminal sits in a directory that is about to move into the archive.
     yield* step(
       "terminal",
-      Effect.map(stopTerminalEffect(change.id), () => undefined),
+      Effect.map(stopTerminal(change.id), () => undefined),
     );
 
     const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
@@ -242,8 +237,8 @@ export const completeChangeEffect = (
       "archive",
       Effect.map(
       Effect.gen(function* () {
-        yield* writeChangeEffect(completed);
-        yield* archiveChangeEffect(change.id);
+        yield* writeChange(completed);
+        yield* archiveChange(change.id);
       }),
       () => undefined,
       ),
@@ -253,9 +248,3 @@ export const completeChangeEffect = (
     yield* save(change.id, progress);
     return { change: completed, notes };
   });
-
-/** Promise facade over completeChangeEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified. */
-export const completeChange = (
-  change: Change,
-): Promise<{ change: Change; notes: string[] }> => Effect.runPromise(completeChangeEffect(change));

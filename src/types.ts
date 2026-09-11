@@ -52,17 +52,16 @@ export type Change = {
   repos: string[];
   /** Branch each repository's work started from, keyed by repository path, e.g.
    * `origin/main` or another change's branch when this work is stacked on it. Absent means the
-   * remote's default branch, which is what every change made before this used. */
+   * remote's default branch. */
   base?: Record<string, string>;
   /** The subset of `repos` worked on in place: the repository's own checkout is switched to the
    * branch and linked from the change directory, instead of getting a worktree. */
   direct?: string[];
-  /** Which context this change belongs to: a client, or your own projects. Absent on changes
-   * made before workspaces existed, which belong to the first one. */
+  /** Which context this change belongs to: a client, or your own projects. Absent belongs to the
+   * first workspace. */
   workspace?: string;
-  /** Optional Jira issue key, e.g. PROJ-123. Legacy: the jira extension's own field, from
-   * before extensions kept their data in the namespaced bag below. Still read, no longer
-   * written by the wizard. */
+  /** Optional Jira issue key, e.g. PROJ-123. Read as the jira extension's own field for changes
+   * that carry it here; the wizard writes it into the namespaced bag below. */
   jira?: string;
   /** Each extension's own data about this change, keyed by extension name — the wizard stores
    * what its steps picked here, and each extension reads its own entry. Anything JSON-shaped
@@ -74,7 +73,7 @@ export type Change = {
   title?: string;
   /** The title is yours, not Jira's: stop refreshing it from the ticket. Set by editing it. */
   titleEdited?: boolean;
-  /** Absent on changes made before this existed; treated as "In Progress". */
+  /** Absent is treated as "In Progress". */
   state?: ChangeState;
   createdAt: string;
   /** Set when the change was finished, whichever way: completed (pull requests merged, ticket

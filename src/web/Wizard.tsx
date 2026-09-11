@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change, type Created, type Selection } from "./api.ts";
 import { RepoBrowser } from "./RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo } from "./extensions.tsx";
@@ -26,7 +26,7 @@ export function Wizard({
   workspace?: string;
   onCreated: (change: Change, provision: Created["provision"]) => void;
   onCancel: () => void;
-}) {
+}): JSX.Element {
   const [step, setStep] = useState(0);
   const [id, setId] = useState("");
   const [branch, setBranch] = useState("");
@@ -64,13 +64,13 @@ export function Wizard({
   const reposStep = changeStep + 1;
 
   // Added as a worktree off the remote default; both are changed per repository afterwards.
-  const addRepo = (path: string) =>
+  const addRepo = (path: string): void =>
     setRepos(repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }]);
-  const removeRepo = (path: string) => setRepos(repos.filter((r) => r.path !== path));
-  const changeRepo = (path: string, patch: Partial<Selection>) =>
+  const removeRepo = (path: string): void => setRepos(repos.filter((r) => r.path !== path));
+  const changeRepo = (path: string, patch: Partial<Selection>): void =>
     setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
 
-  const create = () => {
+  const create = (): void => {
     setBusy(true);
     setError(null);
     post<Created>("/changes", {
@@ -109,7 +109,7 @@ export function Wizard({
         return next;
       }),
   };
-  const panel = (info: StepInfo) => <StepHost key={info.id} info={info} ctx={ctx} />;
+  const panel = (info: StepInfo): JSX.Element => <StepHost key={info.id} info={info} ctx={ctx} />;
 
   return (
     <div className="wizard">

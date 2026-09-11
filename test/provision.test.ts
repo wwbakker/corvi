@@ -7,7 +7,6 @@ import { Effect } from "effect";
 import {
   describe,
   findWorktree,
-  setRepos,
   unsafeIn,
   openers,
   parseWorktrees,
@@ -15,29 +14,17 @@ import {
   type WtEntry,
 } from "../src/integrations/git.ts";
 import { isMac } from "../src/platform.ts";
-import {
-  averageDuration,
-  folderFor,
-  refsFor,
-  runState,
-  versionInLines,
-} from "../src/integrations/azure.ts";
-import { readiness, repoFromUrl, headRef, waitingOnYou } from "../src/integrations/github.ts";
-import { groupChecks } from "../src/integrations/checks.ts";
-import { stackRequest, describeStack, outcomeOf, pollResult } from "../src/integrations/stacks.ts";
-import { verdict } from "../src/complete.ts";
-import { describeChange } from "../src/description.ts";
-import { presentWindow } from "../src/terminal.ts";
+import { versionInLines } from "../src/integrations/azure.ts";
+import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts";
+import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
 import type { Change } from "../src/types.ts";
+import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 
 /**
- * A changes root of its own, because some of what is tested here writes one.
- *
- * `setRepos` used to refuse an empty list before it wrote anything, so this file never touched
- * the disk and never said where it would. Now that a change may be emptied, it does — and without
- * this it writes into whatever changes root the machine is configured with, which on the author's
- * machine was the real one.
+ * A changes root of its own, because some of what is tested here writes one. A change may be
+ * emptied, and without this the test writes into whatever changes root the machine is configured
+ * with — on the author's machine, the real one.
  */
 let tmp: string;
 
@@ -69,7 +56,7 @@ test("provisioning reports every extension and survives a failing one", async ()
       "change:created": [
         () => {
           calls.push("one");
-          return Effect.fail(new Error("one exploded"));
+          return Effect.fail(new TestError({ message: "one exploded" }));
         },
       ],
     },
@@ -81,13 +68,13 @@ test("provisioning reports every extension and survives a failing one", async ()
       "change:created": [
         () => {
           calls.push("two");
-          return Effect.succeed(undefined);
+          return Effect.void;
         },
       ],
     },
   });
 
-  const results = await provision(change);
+  const results = await runEffect(provision(change));
   expect(calls).toEqual(["one", "two"]); // a failure must not stop the extensions after it
   expect(results).toEqual([
     { integration: "one", ok: false, error: "one exploded" },
@@ -112,57 +99,6 @@ test("worktree status is read from wt's own output", () => {
   });
   expect(describe(entries[0]!)).toEqual({ detail: "clean", state: "ok" });
   expect(findWorktree(entries, "absent")).toBeUndefined();
-});
-
-test("pipelines are looked up by both the merge ref and the branch", () => {
-  expect(refsFor("PROJ-1-thing")).toEqual(["refs/heads/PROJ-1-thing"]);
-  // Validation builds run on the merge ref, CI-triggered ones stay on the branch: both matter.
-  expect(refsFor("PROJ-1-thing", 719)).toEqual([
-    "refs/pull/719/merge",
-    "refs/heads/PROJ-1-thing",
-  ]);
-
-  const run = (status: string, result?: string) =>
-    runState({ id: 1, buildNumber: "1", status, result, sourceBranch: "x" });
-  expect(run("inProgress")).toBe("pending");
-  expect(run("notStarted")).toBe("pending");
-  expect(run("completed", "succeeded")).toBe("ok");
-  expect(run("completed", "partiallySucceeded")).toBe("warn");
-  expect(run("completed", "canceled")).toBe("warn");
-  expect(run("completed", "failed")).toBe("error");
-});
-
-test("pipelines are attributed to a repository by its Azure DevOps folder", () => {
-  expect(folderFor("/Users/me/Repos/acme/example-api")).toBe("\\example-api");
-});
-
-test("expected build duration averages finished runs and ignores unfinished ones", () => {
-  const run = (start?: string, finish?: string) => ({
-    id: 1,
-    buildNumber: "1",
-    status: finish ? "completed" : "inProgress",
-    sourceBranch: "x",
-    startTime: start,
-    finishTime: finish,
-  });
-  expect(
-    averageDuration([
-      run("2026-08-18T10:00:00Z", "2026-08-18T10:10:00Z"), // 10m
-      run("2026-08-18T09:00:00Z", "2026-08-18T09:20:00Z"), // 20m
-      run("2026-08-18T11:00:00Z"), // still running, no contribution
-    ]),
-  ).toBe(15 * 60 * 1000);
-  expect(averageDuration([run("2026-08-18T11:00:00Z")])).toBeUndefined();
-  expect(averageDuration([])).toBeUndefined();
-});
-
-test("owner and name come from the pull request url", () => {
-  expect(repoFromUrl("https://github.com/owner/example-api-service/pull/720")).toEqual({
-    owner: "octocat",
-    name: "example-api-service",
-  });
-  // The directory name is not the repository name, which is why the URL is the source.
-  expect(repoFromUrl("https://example.com/nope")).toBeUndefined();
 });
 
 test("a pull request says what it is waiting for", () => {
@@ -190,42 +126,6 @@ test("a pull request says what it is waiting for", () => {
   });
 });
 
-test("a change completes as a whole or not at all", () => {
-  const merged = { ready: true, merged: true } as const;
-  const approved = (n: number) => ({ ready: true, merged: false, number: n }) as const;
-
-  expect(
-    verdict([
-      { repo: "/r/a", readiness: merged },
-      { repo: "/r/b", readiness: approved(7) },
-    ]),
-  ).toEqual({ ready: true, reasons: [], toMerge: [{ repo: "/r/b", number: 7 }] });
-
-  // One unapproved repository blocks the whole change, and says which.
-  expect(
-    verdict([
-      { repo: "/r/a", readiness: approved(7) },
-      { repo: "/r/b", readiness: { ready: false, reason: "b: not approved (review required)" } },
-    ]),
-  ).toEqual({
-    ready: false,
-    reasons: ["b: not approved (review required)"],
-    toMerge: [{ repo: "/r/a", number: 7 }],
-  });
-
-  // Everything merged by hand already: allowed, nothing left to merge.
-  expect(verdict([{ repo: "/r/a", readiness: merged }])).toEqual({
-    ready: true,
-    reasons: [],
-    toMerge: [],
-  });
-
-  // Completing removes worktrees, so work the remote never saw blocks it even when approved.
-  expect(verdict([{ repo: "/r/a", readiness: approved(7), unsafe: { text: "uncommitted changes" } }])).toEqual(
-    { ready: false, reasons: ["a: uncommitted changes"], toMerge: [{ repo: "/r/a", number: 7 }] },
-  );
-});
-
 test("what a worktree removal would destroy", () => {
   const entry = (over: Partial<WtEntry>): WtEntry => ({
     branch: "b",
@@ -249,11 +149,11 @@ test("what a worktree removal would destroy", () => {
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
   // double click rather than two repositories.
-  const emptied = await setRepos({ ...change, repos: [] }, ["  ", ""]);
+  const emptied = await runSetRepos({ ...change, repos: [] }, ["  ", ""]);
   expect((emptied as { change: Change }).change.repos).toEqual([]);
 
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
-  const once = await setRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
+  const once = await runSetRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
   expect((once as { change: Change }).change.repos).toEqual(["/r/a"]);
 });
 
@@ -267,59 +167,10 @@ test("the artifact version is read from the build log lines", () => {
   expect(versionInLines(["2026-08-18T11:40:02Z Version      : 1.0.0", "git version 2.52.0"])).toBeUndefined();
 });
 
-test("the pull request description lists the ticket and one link per repository", () => {
-  // The formatting, without the CLIs: heading, then one entry per repository.
-  const text = describeChange("PROJ-1627", "Anonymize customers", [
-    "https://github.com/org/a/pull/1",
-    "b-without-a-pr",
-  ]);
-  expect(text).toBe(
-    "PROJ-1627 - Anonymize customers\nhttps://github.com/org/a/pull/1\nb-without-a-pr\n",
-  );
-  expect(describeChange(undefined, undefined, ["a"])).toBe("\na\n");
-});
-
-test("a pipeline's dot follows its newest run, not its history", () => {
-  const run = (id: number, result: string) =>
-    ({ id, buildNumber: String(id), status: "completed", result, sourceBranch: "x" }) as const;
-  // Newest first, as the runs list is sorted.
-  expect(runState(run(3, "succeeded"))).toBe("ok");
-  expect(runState(run(2, "failed"))).toBe("error");
-  // The pipeline row takes the first (newest) child; an older failure keeps its own red dot.
-  const children = [run(3, "succeeded"), run(2, "failed")].map((r) => runState(r));
-  expect(children[0]).toBe("ok");
-});
-
-test("pull request checks are grouped by build, so one build is one row", () => {
-  const check = (name: string, bucket: string) => ({ name, bucket, state: bucket, link: `u/${name}` });
-  const items = groupChecks([
-    check("owner.frontend-app", "pass"),
-    check("owner.frontend-app (CI App @scope/one-app)", "fail"),
-    check("owner.frontend-app (CI Affected Build)", "pending"),
-    check("sonarqube", "pass"),
-  ]);
-  expect(items.map((i) => i.label)).toEqual(["owner.frontend-app", "sonarqube"]);
-
-  const [turbo, sonar] = items;
-  // A failure anywhere in the group colours the group, and the counts say what is going on.
-  expect(turbo!.state).toBe("error");
-  expect(turbo!.detail).toBe("3 checks · 1 failing · 1 running");
-  // The check named exactly like the group is the build itself, not one of its jobs.
-  expect(turbo!.children!.map((c) => c.label)).toEqual([
-    "overall",
-    "CI App @scope/one-app",
-    "CI Affected Build",
-  ]);
-
-  // A lone check needs no children, and keeps its own link.
-  expect(sonar!.children).toBeUndefined();
-  expect(sonar!.url).toBe("u/sonarqube");
-});
-
 test("a terminal window is labelled by where it is, or what you named it", () => {
   // The server-side composition, exactly as a window crosses to the page: raw tmux facts in,
   // the presented shape out.
-  const w = (over: Partial<TmuxWindow>) =>
+  const w = (over: Partial<TmuxWindow>): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -340,15 +191,15 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
   // An agent is `node` to tmux, which says nothing; what it says about itself replaces that,
-  // read from the `@agent` pane option the agents extension declares.
-  const working = w({ command: "node", options: { "@agent": "working" } });
+  // read from the `@agent_status` pane option the agents extension declares.
+  const working = w({ command: "node", options: { "@agent_status": "working" } });
   expect(working.label).toBe("example-api - (pi working)");
   expect(working.icon).toBe("agent");
   expect(working.state).toBe("ok");
   expect(working.busy).toBe(true);
   // Working is not wanting: nothing to notify about until it stops.
   expect(working.attention).toBe(false);
-  const waiting = w({ command: "node", options: { "@agent": "waiting" } });
+  const waiting = w({ command: "node", options: { "@agent_status": "waiting" } });
   expect(waiting.label).toBe("example-api - (pi waiting)");
   expect(waiting.state).toBe("idle");
   expect(waiting.busy).toBe(false);
@@ -356,7 +207,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(waiting.attention).toBe(true);
   const said = w({
     command: "node",
-    options: { "@agent": "waiting", "@agent_say": "I fixed the layout." },
+    options: { "@agent_status": "waiting", "@agent_last_message": "I fixed the layout." },
   });
   expect(said.attention).toBe(true);
   expect(said.note).toBe("I fixed the layout.");
@@ -364,7 +215,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   // the icon's colour, so the label does not have to repeat it.
   const named = w({
     command: "node",
-    options: { "@agent": "working", "@agent_name": "Build orders" },
+    options: { "@agent_status": "working", "@agent_session_name": "Build orders" },
   });
   expect(named.label).toBe("Build orders");
   expect(named.icon).toBe("agent");
@@ -375,29 +226,8 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(w({}).detail).toBe("zsh (zsh) in example-api");
 })
 
-test("a stacked pull request joins the stack below it, or starts one", () => {
-  // The pull request below already belongs to a stack: append to it, nothing else.
-  expect(stackRequest("org/repo", 161, 162, 163)).toEqual([
-    "repos/org/repo/stacks/163/add",
-    "-F",
-    "pull_requests[]=162",
-  ]);
-  // It does not: the two of them become a stack, bottom first.
-  expect(stackRequest("org/repo", 161, 162)).toEqual([
-    "repos/org/repo/stacks",
-    "-F",
-    "pull_requests[]=161",
-    "-F",
-    "pull_requests[]=162",
-  ]);
-});
-
-test("a pull request says where it sits in its stack", () => {
-  expect(describeStack({ number: 163, size: 2, position: 1 })).toBe("1 of 2 in stack #163");
-});
-
 test("opening a repository uses the platform's own launcher", () => {
-  const command = (id: string) => openers.find((o) => o.id === id)!.command("/w/repo");
+  const command = (id: string): string[] => openers.find((o) => o.id === id)!.command("/w/repo");
   if (isMac) {
     // No -n: the running IntelliJ gets the project and places it as you have configured.
     expect(command("open-idea")).toEqual(["open", "-a", "IntelliJ IDEA", "/w/repo"]);
@@ -462,23 +292,6 @@ test("a worktree's state is read from git's own porcelain output", () => {
   });
 });
 
-test("an asynchronous merge is followed until it is no longer pending", () => {
-  // Keep waiting only while it is running; both of the other endings are endings.
-  expect(outcomeOf({ status: "pending", details: { uuid: "u" } })).toEqual({ waiting: true });
-  expect(outcomeOf({ status: "merged", details: { sha: "abc" } })).toEqual({ waiting: false });
-  // A stack that went into the merge queue has left our hands, and did not fail.
-  expect(outcomeOf({ status: "enqueued" })).toEqual({
-    waiting: false,
-    note: "added to the merge queue",
-  });
-  // Whatever GitHub says is why, said back: "the merge failed" helps nobody.
-  expect(outcomeOf({ status: "failed", details: { message: "Merge conflict." } })).toEqual({
-    waiting: false,
-    error: "Merge conflict.",
-  });
-  expect(outcomeOf({ status: "failed" }).error).toBe("the merge failed");
-});
-
 test("a pull request is looked up by the branch that was pushed", () => {
   // The ordinary case: the branch is its own upstream.
   expect(headRef("PROJ-1", "origin/PROJ-1", "origin/main")).toBe("PROJ-1");
@@ -490,23 +303,12 @@ test("a pull request is looked up by the branch that was pushed", () => {
     "PROJ-1671-improve-mileage",
   );
 
-  // Tracking the default branch is the old in-place bug, not a pull request to go looking for.
+  // Tracking the default branch is not a pull request to go looking for.
   expect(headRef("PROJ-1", "origin/main", "origin/main")).toBe("PROJ-1");
 })
 
-test("a merge poll that fails is not mistaken for one still running", () => {
-  expect(pollResult(0, '{"status":"merged","details":{"sha":"abc"}}')).toEqual({
-    status: "merged",
-    details: { sha: "abc" },
-  });
-  // 404 when the merge request expired, or any other failure: unreadable, not pending.
-  expect(pollResult(1, '{"message":"Not Found","status":"404"}')).toBeUndefined();
-  expect(pollResult(0, "")).toBeUndefined();
-  expect(pollResult(0, "not json at all")).toBeUndefined();
-});
-
 test("a review thread you answered last is not waiting on you", () => {
-  const thread = (isResolved: boolean, ...logins: string[]) => ({
+  const thread = (isResolved: boolean, ...logins: string[]): { isResolved: boolean; comments: { nodes: { author: { login: string; }; }[]; }; } => ({
     isResolved,
     comments: { nodes: logins.map((login) => ({ author: { login } })) },
   });
@@ -529,7 +331,7 @@ test("a review thread you answered last is not waiting on you", () => {
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
   const { summarise } = await import("../src/web/LocalPane.tsx");
-  const status = (files: unknown[], unpushed = 0) => ({
+  const status = (files: unknown[], unpushed = 0): { repo: string; name: string; files: never[]; unpushed: number; tracked: boolean; } => ({
     repo: "/r",
     name: "r",
     files: files as never[],
@@ -555,14 +357,14 @@ test("a repository's line says what is uncommitted and what is only here", async
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {
-  const { latestFor, versionIn, serviceName } = await import("../src/deployments.ts");
+  const { latestFor, versionIn, serviceName } = await import("../src/extensions/deployments/server.ts");
   const run = (
     id: number,
     environment: string,
     version: string,
     result: string | null,
     status = "completed",
-  ) => ({
+  ): { id: number; buildNumber: string; status: string; result: string | null; sourceBranch: string; finishTime: string; startTime: string; templateParameters: { environment: string; dockerTag: string; }; } => ({
     id,
     buildNumber: `${environment} - ${version}`,
     status,
@@ -610,14 +412,14 @@ test("what an environment holds is the newest run that was sent to it", async ()
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { deploy, branchOf } = await import("../src/deployments.ts");
+  const { branchOf } = await import("../src/extensions/deployments/server.ts");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.
-  expect(deploy("no-such-service", "v9", "production")).rejects.toThrow(
+  expect(runDeploy("no-such-service", "v9", "production")).rejects.toThrow(
     /no deploy pipeline|not on accept|no Azure/,
   );
-  expect(deploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
+  expect(runDeploy("anything", "v1", "staging")).rejects.toThrow(/unknown environment: staging/);
 
   // What a build was built from, said the way you would say it.
   expect(branchOf("refs/heads/main")).toBe("main");

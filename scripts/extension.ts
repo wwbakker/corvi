@@ -11,7 +11,7 @@ import { lstat, mkdir, readlink, symlink, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 
-const SOURCE = resolve("extensions/agent-state.ts");
+const SOURCE = resolve("pi/agent-state.ts");
 /** Where pi discovers global extensions; overridable for a test or a different install. */
 const target = (): string =>
   join(process.env.PI_EXTENSIONS_DIR ?? join(homedir(), ".pi", "agent", "extensions"), "agent-state.ts");
@@ -56,7 +56,7 @@ async function uninstall(): Promise<void> {
   }
   await unlink(path);
   console.log(`removed: ${path}`);
-  console.log("tmux keeps @agent on panes where pi is still running: tmux set -p -u @agent");
+  console.log("tmux keeps @agent_status on panes where pi is still running: tmux set -p -u @agent_status");
 }
 
 const command = process.argv[2];

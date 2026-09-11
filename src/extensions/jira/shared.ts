@@ -31,9 +31,8 @@ export type TicketRef = { key: string };
 /**
  * The change's ticket key, from wherever this extension put it.
  *
- * The `extensions` bag is where the wizard's step writes now; `change.jira` is where it was
- * written before extensions existed, and every change recorded before then still carries it —
- * so both are read, the bag first. This is the one function that knows about either.
+ * The wizard's step writes the `extensions` bag; an early change record may carry `change.jira`
+ * instead, so both are read, the bag first. This is the one function that knows about either.
  */
 export const ticketOf = (change: Change): string | undefined =>
   (change.extensions?.["jira"] as TicketRef | undefined)?.key ?? change.jira;

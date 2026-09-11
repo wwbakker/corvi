@@ -1,14 +1,14 @@
 import { Effect } from "effect";
 import { worst, type Change, type ChangeSummary, type SummaryFact } from "./types.ts";
-import { listWindowsEffect } from "./terminal.ts";
+import { listWindows } from "./terminal.ts";
 import { summaryContributorsFor } from "./extensions/index.ts";
 import { capabilitiesLayer } from "./extensions/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 
 export type { ChangeSummary };
 
-// The helper moved to types.ts (pure, extension code needs it without importing this module
-// through the host); re-exported for everything that knew it from here.
+// Pure, and extension code needs it without importing this module through the host, so it is
+// defined in types.ts; re-exported here for callers of this module.
 export { worst };
 
 /**
@@ -21,11 +21,11 @@ export { worst };
  * reason to blank the card, let alone fail the request. The icon's verdict is the worst of
  * what was offered, and "none" when nobody offered one.
  */
-export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
+export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
   Effect.gen(function* () {
     // The core's own fact: tmux stays core, and busy is a presented fact — the merge in
     // terminal.ts says which windows are work.
-    const windows = yield* listWindowsEffect(change.id);
+    const windows = yield* listWindows(change.id);
     const busy = windows.filter((w) => w.busy).length;
     const terminals: SummaryFact = {
       id: "terminals",
@@ -39,7 +39,7 @@ export const summaryOfEffect = (change: Change): Effect.Effect<ChangeSummary, un
       (contributor) =>
         contributor.facts(change).pipe(
           Effect.provide(capabilitiesLayer(workspaceOf(change))),
-          Effect.catchAll(() => Effect.succeed(undefined)),
+          Effect.orElseSucceed(() => undefined),
         ),
       { concurrency: "unbounded" },
     );

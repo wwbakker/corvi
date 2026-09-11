@@ -32,19 +32,6 @@ export const Workspace = Schema.Struct({
       }),
     ),
   ),
-  /** Legacy: Jira's per-workspace settings, kept as passthrough so migrateWorkspaceSettings can
-   * fold them into `extensionSettings.jira` (the settings page no longer writes this key). */
-  jira: Schema.optional(
-    Schema.Union(
-      Schema.Literal(false),
-      Schema.Struct({
-        project: Schema.optional(Schema.String),
-        board: Schema.optional(Schema.String),
-        configFile: Schema.optional(Schema.String),
-        tokenEnv: Schema.optional(Schema.String),
-      }),
-    ),
-  ),
   azure: Schema.optional(
     Schema.Union(
       Schema.Literal(false),
@@ -79,10 +66,10 @@ export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/));
 /** An environment variable name, for a workspace's `env` map. */
 export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/));
 
-/** The old load() skipped a workspace without a truthy id and name rather than rejecting the
+/** `workspacesFrom` skips a workspace without a truthy id and name rather than rejecting the
  * file — one hand-mangled entry must not cost the rest of the configuration. That tolerance is
- * applied by `workspacesFrom` (called from load), not by the schema: rejecting the whole file
- * over one entry would turn a half-mangled config into "nothing configured". */
+ * applied here, not by the schema: rejecting the whole file over one entry would turn a
+ * half-mangled config into "nothing configured". */
 export const workspacesFrom = (items: unknown): WorkspaceShape[] =>
   Array.isArray(items) ? items.filter(hasIdAndName) : [];
 
@@ -93,7 +80,7 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
   Boolean((w as { name?: unknown }).name);
 
 /** The config file's own shape, as it is written. Everything is optional — an absent value
- * means "the default", which is what an empty file has always meant. This is also the settings
+ * means "the default", which is what an empty file means. This is also the settings
  * page's write shape (src/settings.ts' `Settings`). */
 export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
@@ -107,8 +94,8 @@ export const ConfigFile = Schema.Struct({
   azureOrganization: Schema.optional(Schema.String),
   azureProject: Schema.optional(Schema.String),
   // Passed through untouched, unvalidated, garbage entries included: dropping them here would
-  // let one hand-mangled workspace cost the rest of the file. load() applies the old per-item
-  // tolerance via workspacesFrom, exactly where it always sat.
+  // let one hand-mangled workspace cost the rest of the file. load() applies the per-item
+  // tolerance via workspacesFrom.
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   /** Where out-of-tree extension modules live: .ts files or directories, `~` allowed. Not

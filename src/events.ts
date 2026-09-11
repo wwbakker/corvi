@@ -1,6 +1,6 @@
 import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
-import { listChangesEffect } from "./changes.ts";
-import { allWindowsEffect } from "./terminal.ts";
+import { listChanges } from "./changes.ts";
+import { allWindows } from "./terminal.ts";
 import { config } from "./config.ts";
 
 /**
@@ -13,9 +13,8 @@ import { config } from "./config.ts";
  * tells whoever is listening.
  *
  * What is pushed is only the *news*, never the data. A page that hears "changes" asks for them,
- * through the same cached routes as before. That keeps this small — no second way to fetch
- * anything, no state to keep in sync — and means a missed event costs a refresh rather than a
- * wrong screen.
+ * through the same cached routes. That keeps this small — no second way to fetch anything, no
+ * state to keep in sync — and means a missed event costs a refresh rather than a wrong screen.
  */
 
 type EventName = "changes" | "windows" | "notify";
@@ -33,8 +32,8 @@ type Client = {
 const clients = new Set<Client>();
 
 /** How often the server looks. Terminals change under your hands — a command finishes, an agent
- * starts waiting — so this is the interval the navigation column used to poll at, now paid once
- * for everybody rather than once per open page. */
+ * starts waiting — so this is a fast cadence, paid once for everybody rather than once per open
+ * page. */
 const INTERVAL = Schedule.spaced("1.5 seconds");
 
 /**
@@ -74,27 +73,26 @@ const channel = (
     // What counts as news was decided above, against the serialized state: two ticks that read
     // the same state both return None, and a second transition in a row is real news — a terminal
     // that came up within the watcher's first interval goes {} -> one window with no quiet tick
-    // between, and a dedup on the event NAME would swallow it (the silence there once lost the
-    // navigation column; see `startWatcher` for the first-look half of the same story).
+    // between, and a dedup on the event NAME would swallow it. See `startWatcher` for the
+    // first-look half of the same story.
     Stream.filterMap((found: Option.Option<News>) => found),
   );
 
 /**
  * The windows tick: one tmux read per interval, used for two things. The serialized read is the
- * `windows` event, exactly as before. The attention edges are computed against the previous
- * successful read — keyed by tmux window id, because reordering the tabs changes indices and an
- * index-keyed diff would report a window that merely moved — and only the edge into "wants you"
- * is news. The state lives in the watcher run, like `last`: a fresh watcher only seeds the
- * picture, so a server that has just started (or a page that has just connected) does not
- * announce every waiting agent it finds, and nothing that happened while nobody listened is
- * replayed.
+ * `windows` event. The attention edges are computed against the previous successful read — keyed
+ * by tmux window id, because reordering the tabs changes indices and an index-keyed diff would
+ * report a window that merely moved — and only the edge into "wants you" is news. The state
+ * lives in the watcher run, like `last`: a fresh watcher only seeds the picture, so a server
+ * that has just started (or a page that has just connected) does not announce every waiting
+ * agent it finds, and nothing that happened while nobody listened is replayed.
  */
 type Attention = { previous: Map<string, boolean>; seeded: boolean };
 
 const windowsNews = (state: Attention): Stream.Stream<News> =>
   Stream.repeatEffectWithSchedule(
     Effect.gen(function* () {
-      const read = yield* Effect.exit(allWindowsEffect());
+      const read = yield* Effect.exit(allWindows());
       if (!Exit.isSuccess(read)) return []; // no tmux yet, or a read being written as we look
       const windows = read.value;
       const news: News[] = [];
@@ -137,7 +135,7 @@ const windowsNews = (state: Attention): Stream.Stream<News> =>
  * call, so this can run while anyone is connected and stop when nobody is. */
 const watchPipeline = (state: Attention): Effect.Effect<void> =>
   Stream.merge(
-    channel("changes", Effect.map(listChangesEffect(), (c) => JSON.stringify(c))),
+    channel("changes", Effect.map(listChanges(), (c) => JSON.stringify(c))),
     windowsNews(state),
   ).pipe(Stream.runForEach((news) => Effect.sync(() => broadcast(news.event, news.data))));
 
@@ -149,10 +147,10 @@ function startWatcher(): void {
   if (watcher) return;
   // What was last seen is kept across looks but not across watchers: a fresh watcher has an
   // empty map, so its own first look broadcasts whatever it finds — a page's own fetches can
-  // predate the stream by the width of a session starting, and a swallowed first look left a
-  // page sitting on stale state for ever. Always announcing costs one redundant refetch per
-  // watcher start; the silence cost a missing navigation column. The attention picture is
-  // seeded per watcher for the same reason — and so nothing that happened while nobody was
+  // predate the stream by the width of a session starting, and a swallowed first look would
+  // leave a page sitting on stale state for ever. Always announcing costs one redundant refetch
+  // per watcher start; the silence would cost a missing navigation column. The attention picture
+  // is seeded per watcher for the same reason — and so nothing that happened while nobody was
   // watching is announced as if it just did.
   last.clear();
   watcher = Effect.runFork(watchPipeline({ previous: new Map(), seeded: false }));
@@ -162,7 +160,8 @@ function stopWatcher(): void {
   if (!watcher) return;
   const fiber = watcher;
   watcher = undefined;
-  Fiber.interruptFork(fiber);
+  // `Fiber.interruptFork` returns an Effect; running it is what actually cancels the fiber.
+  Effect.runFork(Fiber.interrupt(fiber));
 }
 
 function broadcast(event: EventName, data = ""): void {
@@ -196,12 +195,12 @@ export function announce(event: EventName): void {
  * The stream itself: `GET /api/events`.
  *
  * The request is needed, not just its response: a closed tab is an *aborted request*, and the
- * stream's own `cancel` is not called for it. Without listening to the signal the client was
- * never forgotten, so the watcher kept looking at the disk and at tmux twice a second for
- * browsers that had been closed for hours. The abort listener and the client fiber's scope
- * finalization both forget the client, so either path alone is enough.
+ * stream's own `cancel` is not called for it. Without listening to the signal the client is
+ * never forgotten, and the watcher keeps looking at the disk and at tmux twice a second for
+ * browsers closed long ago. The abort listener and the client fiber's scope finalization both
+ * forget the client, so either path alone is enough.
  */
-export const eventsEffect = (req: Request): Effect.Effect<Response> =>
+export const events = (req: Request): Effect.Effect<Response> =>
   Effect.gen(function* () {
     const encoder = new TextEncoder();
     let push: ((chunk: Uint8Array) => void) | undefined;
@@ -232,15 +231,17 @@ export const eventsEffect = (req: Request): Effect.Effect<Response> =>
         // that has had nothing at all is indistinguishable from one that never connected. The
         // page refetches on open; the watcher's first look covers everything that moves after.
         client.send("open", "");
-        yield* Effect.forever(
+        return yield* Effect.forever(
           Effect.gen(function* () {
             yield* Effect.sleep(HEARTBEAT);
-            try {
-              client.ping();
-            } catch {
-              forget(client);
-              yield* Effect.interrupt;
-            }
+            // Writing to a stream nobody is reading throws: the connection is gone, whatever we
+            // were told, so forget the client and end this fiber's loop.
+            yield* Effect.sync(() => client.ping()).pipe(
+              Effect.catchAllDefect(() => {
+                forget(client);
+                return Effect.interrupt;
+              }),
+            );
           }),
         );
       }),

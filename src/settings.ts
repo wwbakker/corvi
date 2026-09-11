@@ -4,15 +4,16 @@ import { Effect, Schema } from "effect";
 import {
   config,
   configPath,
-  readFile,
-  reloadConfigEffect,
+  readFileSync,
+  reloadConfig,
   expandTilde,
-  ENV_OVERRIDES,
   type Config,
 } from "./config.ts";
+import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
-import { loaded, migrateWorkspaceSettings } from "./extensions/index.ts";
+import { loaded } from "./extensions/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
+import { fs } from "./effect/support.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
@@ -31,7 +32,7 @@ import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
  */
 
 /** What may be written: the config file's own shape. Everything is optional — an absent value
- * means "the default", which is what an empty file has always meant. */
+ * means "the default", which is what an empty file means. */
 export type Settings = ConfigFile;
 
 export type SettingsView = {
@@ -60,47 +61,18 @@ export type SettingsView = {
   }[];
 };
 
-/** Only the variables that are actually set: an override nobody has made is not one. */
-function overridden(): Record<string, string> {
-  const found: Record<string, string> = {};
-  for (const [field, variable] of Object.entries(ENV_OVERRIDES)) {
-    if (process.env[variable] !== undefined) found[field] = variable;
-  }
-  return found;
-}
-
-/** The same, for the fields the extensions declare: a setting whose `env` names a variable
- * that is set is shown locked, with the variable named. */
-function overriddenExtensions(): Record<string, Record<string, string>> {
-  const found: Record<string, Record<string, string>> = {};
-  for (const extension of loaded) {
-    for (const field of extension.globalSettings) {
-      if (field.env && process.env[field.env] !== undefined) {
-        (found[extension.name] ??= {})[field.key] = field.env;
-      }
-    }
-  }
-  return found;
-}
-
-export const settingsViewEffect = Effect.sync(() => settingsView());
+export const settingsView = Effect.sync(() => settingsViewSync());
 
 /** The settings page's read: the file as written, what is in effect, what is locked. Sync by
- * contract; the Effect form is settingsViewEffect above, which the server uses. Kept for the
- * test suite, which must pass unmodified.
- *
- * The file is handed over migrated (migrateWorkspaceSettings), so the page edits — and writes
- * back — the shape the extensions read today, never the legacy `jira` key the page no longer
- * renders. */
-export const settingsView = (): SettingsView => {
-  const file = readFile();
-  if (file.workspaces) migrateWorkspaceSettings(file.workspaces);
+ * contract; the Effect form is settingsView above, which the server uses. */
+export const settingsViewSync = (): SettingsView => {
+  const file = readFileSync();
   return {
     path: configPath(),
     file,
     effective: config,
-    overridden: overridden(),
-    overriddenExtensions: overriddenExtensions(),
+    overridden: overriddenSettings(),
+    overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
     extensions: loaded.map((e) => ({
       name: e.name,
@@ -110,10 +82,6 @@ export const settingsView = (): SettingsView => {
     })),
   };
 };
-
-/** Filesystem failures are defects, not domain errors — the config directory is ours. */
-const fs = <A>(work: () => Promise<A>): Effect.Effect<A> =>
-  Effect.orDie(Effect.tryPromise(work));
 
 const absolute = (value: string | undefined): boolean =>
   !value || isAbsolute(expandTilde(value));
@@ -197,35 +165,28 @@ function prune(value: unknown): unknown {
  *
  * Merged over what the file holds, not replacing it: a key IWE does not know about was put there
  * by hand, for a version of IWE that does, and losing it silently would be rude. The ENV_OVERRIDES
- * locking and the empty-field-means-unset pruning are unchanged.
+ * locking and the empty-field-means-unset pruning still apply.
  */
-export const writeSettingsEffect = (
+export const writeSettings = (
   next: Settings,
 ): Effect.Effect<SettingsView, BadRequestError> =>
   Effect.gen(function* () {
     const wrong = problems(next);
     if (wrong.length) {
-      yield* Effect.fail(new BadRequestError({ message: wrong.join("; ") }));
+      return yield* new BadRequestError({ message: wrong.join("; ") });
     }
 
-    const merged = prune({ ...readFile(), ...next }) as Settings;
+    const merged = prune({ ...readFileSync(), ...next }) as Settings;
     yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
-    yield* reloadConfigEffect;
-    // The legacy `jira` shapes fold into the extension's own settings, in memory as on disk —
-    // a page save is also a migration.
-    migrateWorkspaceSettings(config.workspaces);
-    // Everything the CLIs answered was answered for the old settings: another organisation, another
-    // Jira site, another set of environments. Cheaper to ask again than to reason about which.
+    yield* reloadConfig;
+    // Everything the CLIs answered was answered for the settings just replaced: another
+    // organisation, another Jira site, another set of environments. Cheaper to ask again than to
+    // reason about which.
     invalidate("");
-    return yield* settingsViewEffect;
+    return yield* settingsView;
   });
-
-/** Promise facade over writeSettingsEffect, in the old signature. Kept for the test suite,
- * which must pass unmodified; the server uses writeSettingsEffect directly. */
-export const writeSettings = (next: Settings): Promise<SettingsView> =>
-  Effect.runPromise(writeSettingsEffect(next));
 
 /** A workspace as the page adds one: everything off by default is wrong — a new context is
  * usually another client, with both. */

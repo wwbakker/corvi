@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, put } from "./api.ts";
 import { cached, putCached } from "./cache.ts";
 
@@ -6,7 +6,7 @@ import { cached, putCached } from "./cache.ts";
  * Free-text notes for a change, stored beside change.json. Saved a moment after you stop typing
  * and again when the card goes away, so navigating off does not lose the last sentence.
  */
-export function NotesCard({ changeId }: { changeId: string }) {
+export function NotesCard({ changeId }: { changeId: string }): JSX.Element {
   const key = `${changeId}:notes`;
   const [text, setText] = useState<string>(() => cached<string>(key) ?? "");
   const [saved, setSaved] = useState(true);
@@ -32,7 +32,7 @@ export function NotesCard({ changeId }: { changeId: string }) {
       })
       .catch(() => setSaved(false));
 
-  const change = (value: string) => {
+  const change = (value: string): void => {
     setText(value);
     setSaved(false);
     pending.current = value;

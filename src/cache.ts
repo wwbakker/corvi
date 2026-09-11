@@ -11,13 +11,15 @@
  *
  * - **Decisions do not read this.** `completionOf`, `mergeReadiness` and the merge itself always
  *   run live: a pull request that was approved ninety seconds ago is not a merge.
- * - **A failed refresh keeps the old value.** A Jira that is down means "no news", not "no data".
+ * - **A failed refresh keeps the last good value.** A Jira that is down means "no news", not
+ *   "no data".
  */
 
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { Deferred, Effect, Exit, pipe } from "effect";
+import { Clock, Deferred, Effect, Exit, pipe } from "effect";
+import { fs } from "./effect/support.ts";
 
 type Entry = {
   /** When the value was produced. */
@@ -29,14 +31,14 @@ type Entry = {
 
 const store = new Map<string, Entry>();
 
-/** The cached value, refreshed when older than `ttl`. Same semantics as `swr`, in Effect: the
- * first call for a key waits for the work; every later one is instant, and pays only for a
- * background refresh. Concurrent callers share one run rather than starting several.
+/** The cached value, refreshed when older than `ttl`: the first call for a key waits for the
+ * work; every later one is instant, and pays only for a background refresh. Concurrent callers
+ * share one run rather than starting several.
  *
  * The work's requirements (R) pass through untouched: the cache stores outcomes, not
  * contexts, and every caller still provides what the work needs — on a hit that demand is
  * simply unexercised. */
-export const swrEffect = <T, E, R>(
+export const swr = <T, E, R>(
   key: string,
   ttl: number,
   work: Effect.Effect<T, E, R>,
@@ -46,14 +48,16 @@ export const swrEffect = <T, E, R>(
 
     // Nothing to serve yet — never asked, or a first run still in flight — so this one waits.
     // `at === 0` is that first run: the entry exists only to hold the shared Deferred.
-    if (!found || found.at === 0) return yield* refreshEffect(key, work);
+    if (!found || found.at === 0) return yield* refresh(key, work);
 
-    if (Date.now() - found.at >= ttl) {
+    // Time comes from Effect's `Clock`, not the wall clock, so a test can drive staleness
+    // without sleeping. Under the default clock this is `Date.now()`.
+    if ((yield* Clock.currentTimeMillis) - found.at >= ttl) {
       // Stale: hand over what we had and let the refresh run behind it, on a fiber of its own —
       // a daemon, so it outlives this request. `Effect.exit` makes the fiber infallible: the
       // refresh's failure is news about the CLI, not about the page, and never reaches the
       // value served here.
-      yield* Effect.forkDaemon(Effect.exit(refreshEffect(key, work)));
+      yield* Effect.forkDaemon(Effect.exit(refresh(key, work)));
     }
     return found.value as T;
   });
@@ -61,7 +65,7 @@ export const swrEffect = <T, E, R>(
 /** The single-flight refresh: whoever asks first runs the work, everyone who arrives while it
  * runs awaits the same Deferred. A failure puts back what was there before — a CLI that fails
  * is news about the CLI, not about the work. */
-const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
+const refresh = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effect.Effect<T, E, R> =>
   Effect.gen(function* () {
     const found = store.get(key);
     if (found?.work) {
@@ -77,7 +81,7 @@ const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effe
     });
     const outcome = yield* Effect.exit(work);
     if (Exit.isSuccess(outcome)) {
-      store.set(key, { at: Date.now(), value: outcome.value });
+      store.set(key, { at: yield* Clock.currentTimeMillis, value: outcome.value });
       // Everyone who joined mid-flight gets the same answer.
       yield* Deferred.done(inFlight, outcome);
       return outcome.value;
@@ -91,17 +95,11 @@ const refreshEffect = <T, E, R>(key: string, work: Effect.Effect<T, E, R>): Effe
     return yield* Effect.failCause(outcome.cause);
   });
 
-/** Promise facade over swrEffect; same signature, rejects with whatever `work` rejected with,
- * exactly as before. Kept for the test suite, which must pass unmodified; src callers use
- * swrEffect directly. */
-export const swr = <T>(key: string, ttl: number, work: () => Promise<T>): Promise<T> =>
-  Effect.runPromise(
-    swrEffect(key, ttl, Effect.tryPromise<T, unknown>({ try: work, catch: (e) => e })),
-  );
-
 /** Milliseconds since this key was last produced; undefined when it was never asked for.
  * Meant for showing how old an answer is, which is what makes serving stale data honest. */
 // Synchronous by contract — a read of module state; there is no async work for an Effect to wrap.
+// It therefore stays on the wall clock: only the staleness *decisions* read Effect's `Clock`, so
+// a TestClock can drive them; a human reading an age wants real elapsed time.
 export const ageOf = (key: string): number | undefined => {
   const found = store.get(key);
   return found ? Date.now() - found.at : undefined;
@@ -135,49 +133,33 @@ const cacheFile = (): string =>
 const RESTORE_MAX_AGE = 6 * 60 * 60_000;
 
 /** Restores what a previous run saved, minus anything too old to trust. */
-export const loadCacheEffect: Effect.Effect<number> = Effect.gen(function* () {
+export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
   type Stored = Record<string, { at: number; value: unknown }>;
   const stored = yield* pipe(
-    Effect.tryPromise<Stored, unknown>({
-      try: () => Bun.file(cacheFile()).json(),
-      catch: (e) => e,
-    }),
-    // A missing or unreadable cache file is a cold cache, not an error: the old code caught
-    // everything and carried on, and so does this.
-    Effect.catchAll(() => Effect.succeed(null as Stored | null)),
+    fs<Stored>(() => Bun.file(cacheFile()).json()),
+    // A missing or unreadable cache file is a cold cache, not an error.
+    Effect.catchAllDefect(() => Effect.succeed(null as Stored | null)),
   );
   if (!stored) return 0;
   let restored = 0;
+  // The same `Clock` as the freshness check, so restore aging is controllable in tests too.
+  const now = yield* Clock.currentTimeMillis;
   for (const [key, entry] of Object.entries(stored)) {
-    if (Date.now() - entry.at > RESTORE_MAX_AGE) continue;
+    if (now - entry.at > RESTORE_MAX_AGE) continue;
     store.set(key, { at: entry.at, value: entry.value });
     restored++;
   }
   return restored;
 });
 
-/** Promise facade over loadCacheEffect; same signature. Kept for the test suite, which must
- * pass unmodified; the server uses loadCacheEffect directly. */
-export const loadCache = (): Promise<number> => Effect.runPromise(loadCacheEffect);
-
 /** Writes the cache out. A refresh in flight has nothing to save yet, and Maps do not survive
- * JSON — both are skipped, as before. */
-export const saveCacheEffect: Effect.Effect<void, unknown> = Effect.gen(function* () {
+ * JSON — both are skipped. */
+export const saveCache: Effect.Effect<void> = Effect.gen(function* () {
   const plain: Record<string, { at: number; value: unknown }> = {};
   for (const [key, entry] of store.entries()) {
     if (entry.at === 0 || entry.value instanceof Map) continue;
     plain[key] = { at: entry.at, value: entry.value };
   }
-  yield* Effect.tryPromise<void, unknown>({
-    try: () => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined),
-    catch: (e) => e,
-  });
-  yield* Effect.tryPromise<void, unknown>({
-    try: () => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined),
-    catch: (e) => e,
-  });
+  yield* fs(() => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined));
+  yield* fs(() => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined));
 });
-
-/** Promise facade over saveCacheEffect; same signature, rejects on write failure exactly as
- * before. Kept for the test suite, which must pass unmodified; the server uses the Effect. */
-export const saveCache = (): Promise<void> => Effect.runPromise(saveCacheEffect);

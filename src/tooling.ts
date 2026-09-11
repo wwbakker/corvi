@@ -1,6 +1,7 @@
 import { cp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { sh } from "./sh.ts";
+import { Effect } from "effect";
+import { shSoft } from "./effect/support.ts";
 
 /**
  * IDE and build-tool state, carried into a new worktree.
@@ -65,51 +66,53 @@ export function rewritePaths(text: string, from: string, to: string): string {
  * a worktree branches from the remote default, which may not carry the `.gitignore` that the
  * checkout you copied from has. The worktree is the one that has to stay clean.
  */
-async function ignored(worktree: string, name: string): Promise<boolean> {
-  return (await sh(["git", "check-ignore", "--quiet", "--", `${name}/`], worktree)).code === 0;
-}
+const ignored = (worktree: string, name: string): Effect.Effect<boolean> =>
+  Effect.map(shSoft(["git", "check-ignore", "--quiet", "--", `${name}/`], worktree), (r) => r.code === 0);
 
 /** Whether this looks like text. Bloop and IntelliJ write JSON and XML, but `.idea` also holds
  * the odd icon and `.scala-build` holds class files, and rewriting those would corrupt them. */
 const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
 
 /**
- * Copy `names` from `from` into `to`, rewriting the old path to the new one inside them.
+ * Copy `names` from `from` into `to`, rewriting `from` to `to` inside them.
  *
  * Returns what was copied. Anything already present in `to` is left as it is — the IDE may have
  * written it since — anything missing from `from` is skipped, which is the normal case (most
  * repositories have one or two of these, not six), and so is anything git does not ignore.
+ *
+ * An Effect, because the ignore check runs `git` and so reads the request's `Workspace` tag at
+ * run time (src/sh.ts): the caller (integrations/git.ts) runs it inside the request, so the
+ * subprocess carries the workspace's environment like every other CLI IWE runs. Filesystem
+ * failures stay in the error channel, which the caller logs and keeps going — the worktree is
+ * the thing that was asked for, and a change that failed to provision over a copy of `.idea`
+ * would be a poor trade.
  */
-/** Deliberately a Promise, not a facade awaiting migration: this is mostly synchronous
- * filesystem work, an Effect wrap buys nothing here, and the one caller (integrations/git.ts)
- * bridges it with Effect.tryPromise. `ignored` above goes through the `sh` facade for the same
- * reason — the whole function is Promise-shaped, so wrapping one CLI call in an Effect inside
- * it would be ceremony, not structure. */
-export async function copyTooling(
+export const copyTooling = (
   from: string,
   to: string,
   names: string[] = TOOLING,
-): Promise<string[]> {
-  const copied: string[] = [];
-  for (const name of names) {
-    const source = join(from, name);
-    const target = join(to, name);
-    if (!(await exists(source))) continue;
-    if (await exists(target)) continue;
-    if (!(await ignored(to, name))) continue;
+): Effect.Effect<string[], unknown> =>
+  Effect.gen(function* () {
+    const copied: string[] = [];
+    for (const name of names) {
+      const source = join(from, name);
+      const target = join(to, name);
+      if (!(yield* Effect.tryPromise(() => exists(source)))) continue;
+      if (yield* Effect.tryPromise(() => exists(target))) continue;
+      if (!(yield* ignored(to, name))) continue;
 
-    await cp(source, target, { recursive: true });
-    copied.push(name);
+      yield* Effect.tryPromise(() => cp(source, target, { recursive: true }));
+      copied.push(name);
 
-    for (const file of await walk(target)) {
-      const info = await stat(file);
-      if (info.size > MAX_REWRITE) continue;
-      const bytes = Buffer.from(await readFile(file));
-      if (!isText(bytes)) continue;
-      const text = bytes.toString("utf8");
-      if (!text.includes(from)) continue;
-      await writeFile(file, rewritePaths(text, from, to));
+      for (const file of yield* Effect.tryPromise(() => walk(target))) {
+        const info = yield* Effect.tryPromise(() => stat(file));
+        if (info.size > MAX_REWRITE) continue;
+        const bytes = yield* Effect.tryPromise(async () => Buffer.from(await readFile(file)));
+        if (!isText(bytes)) continue;
+        const text = bytes.toString("utf8");
+        if (!text.includes(from)) continue;
+        yield* Effect.tryPromise(() => writeFile(file, rewritePaths(text, from, to)));
+      }
     }
-  }
-  return copied;
-}
+    return copied;
+  });

@@ -7,9 +7,8 @@ import { BadRequestError } from "../../effect/errors.ts";
  * Talking to Jira Cloud directly, over its own REST API.
  *
  * Nothing new is configured: `jira-cli`'s config file already holds the site, the account and
- * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there. The
- * CLI is gone, its per-call process with it, but the setup it asked you for is still what this
- * reads — installing IWE on a new machine is still `jira init` and an exported token.
+ * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there.
+ * Installing IWE on a new machine is `jira init` and an exported token.
  */
 export type JiraSetup = {
   /** e.g. https://example.atlassian.net */
@@ -54,21 +53,20 @@ export function parseJiraConfig(text: string): Partial<JiraSetup> {
 }
 
 /** Read once per file: it is only written by `jira init`, and it is a megabyte of custom fields.
- * The map holds one memoized Effect per path, which is the old Map of promises: concurrent
- * askers share a single read, and a missing or unreadable file is an empty setup, not an error
- * — the old `.catch(() => ({}))`. */
+ * The map holds one memoized Effect per path: concurrent askers share a single read, and a
+ * missing or unreadable file is an empty setup, not an error. */
 const setups = new Map<string, Effect.Effect<Partial<JiraSetup>>>();
 
-export const jiraSetupEffect = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
+export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
   Effect.suspend(() => {
     const path = configPath(file);
     const known = setups.get(path);
     if (known) return known;
     const asking = Effect.runSync(
       Effect.cached(
-        Effect.tryPromise({ try: () => Bun.file(path).text(), catch: (e) => e }).pipe(
+        Effect.orDie(Effect.tryPromise(() => Bun.file(path).text())).pipe(
           Effect.map(parseJiraConfig),
-          Effect.catchAll(() => Effect.succeed({})),
+          Effect.catchAllDefect(() => Effect.succeed({})),
         ),
       ),
     );
@@ -78,32 +76,27 @@ export const jiraSetupEffect = (file?: string): Effect.Effect<Partial<JiraSetup>
 
 
 /** Base URL of the Jira instance, for the links in the UI. */
-export const jiraBaseUrlEffect = (file?: string): Effect.Effect<string | undefined> =>
-  Effect.map(jiraSetupEffect(file), (setup) => setup.server);
+export const jiraBaseUrl = (file?: string): Effect.Effect<string | undefined> =>
+  Effect.map(jiraSetup(file), (setup) => setup.server);
 
 
-/** What is missing, said in the words of the thing you would do about it. Fails with the message
- * the old throws carried (BadRequestError maps where the old thrown Error went — a 400 carrying
- * its message). */
-const credentialsEffect = (
+/** What is missing, said in the words of the thing you would do about it. Fails with a
+ * BadRequestError whose message the route mapping turns into a 400. */
+const credentials = (
   file?: string,
   tokenEnv?: string,
 ): Effect.Effect<{ server: string; auth: string }, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, login } = yield* jiraSetupEffect(file);
+    const { server, login } = yield* jiraSetup(file);
     // A second site is a second token: which variable holds it is the workspace's to say.
     const token = process.env[tokenEnv ?? "JIRA_API_TOKEN"];
     if (!server || !login) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `no Jira site configured in ${configPath(file)} — run \`jira init\``,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `no Jira site configured in ${configPath(file)} — run \`jira init\``,
+      });
     }
     if (!token) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `${tokenEnv ?? "JIRA_API_TOKEN"} is not set in the environment` }),
-      );
+      return yield* new BadRequestError({ message: `${tokenEnv ?? "JIRA_API_TOKEN"} is not set in the environment` });
     }
     return { server, auth: `Basic ${btoa(`${login}:${token}`)}` };
   });
@@ -112,7 +105,7 @@ const credentialsEffect = (
  * One request. Errors carry Jira's own explanation, because "400" on its own has never helped
  * anyone: the API answers with `errorMessages` and `errors`, and both are worth repeating.
  */
-export const jiraFetchEffect = <T>(
+export const jiraFetch = <T>(
   path: string,
   init?: {
     method?: string;
@@ -125,7 +118,7 @@ export const jiraFetchEffect = <T>(
   },
 ): Effect.Effect<T, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, auth } = yield* credentialsEffect(init?.configFile, init?.tokenEnv);
+    const { server, auth } = yield* credentials(init?.configFile, init?.tokenEnv);
     const url = new URL(path, server);
     for (const [key, value] of Object.entries(init?.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);
@@ -154,9 +147,9 @@ export const jiraFetchEffect = <T>(
 
     const text = yield* network(() => response.text(), "jira response failed");
     if (!response.ok) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `jira ${response.status}: ${explain(text) || response.statusText}` }),
-      );
+      return yield* new BadRequestError({
+        message: `jira ${response.status}: ${explain(text) || response.statusText}`,
+      });
     }
     return yield* Effect.try({
       try: () => (text ? (JSON.parse(text) as T) : (undefined as T)),

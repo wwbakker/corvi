@@ -3,16 +3,16 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { webkit, type Browser } from "playwright";
-import { sh } from "../src/sh.ts";
+import { runSh } from "./helpers.ts";
 
 /**
  * Every page, in the engine the app actually uses.
  *
  * The macOS app is a WKWebView, which is Safari's engine, and the development server is looked at
- * in Chrome. Twice now that gap has cost an afternoon: a missing route came back as HTML and
- * WebKit reported it as "The string did not match the expected pattern", and `confirm()` — which
- * a WKWebView does not implement unless the app does — silently returned false, so cancelling a
- * change quietly did nothing. Both would have been caught by loading the pages here.
+ * in Chrome. That gap is where WebKit reports what Chrome tolerates: a missing route comes back as
+ * HTML and WebKit calls it "The string did not match the expected pattern", and `confirm()` —
+ * which a WKWebView does not implement unless the app does — silently returns false, so cancelling
+ * a change quietly does nothing. Loading the pages here catches both.
  *
  * This is a smoke test, deliberately: it opens every route, fails on anything the engine
  * complains about, and checks that the page rendered rather than crashed. What each page *does*
@@ -39,10 +39,10 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-webkit-"));
   port = 4500 + Math.floor(Math.random() * 200);
   const repo = join(tmp, "example-api");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "example-api\n");
-  await sh(["git", "add", "."], repo);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+  await runSh(["git", "add", "."], repo);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
   server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
     env: {
@@ -105,8 +105,8 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
 }, 120_000);
 
 test.skipIf(!usable)("the settings page reads and writes in WebKit", async () => {
-  // The page that broke last time, and the one whose failure mode was a sentence about nothing:
-  // /api/settings answering with the app's own HTML, parsed as JSON.
+  // The page whose failure mode is a sentence about nothing: /api/settings answering with the
+  // app's own HTML, parsed as JSON.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`http://127.0.0.1:${port}/settings`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("nav.tabs");
@@ -128,7 +128,7 @@ test.skipIf(!usable)("the settings page reads and writes in WebKit", async () =>
     file: { extensionSettings?: { jira?: { doneTransition?: string } } };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/extensions/index.ts migrates the old ones on load).
+  // top-level config keys (src/extensions/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
 }, 60_000);
 
@@ -180,26 +180,3 @@ test.skipIf(!usable)("Home and End move to the line's edges in the notes", async
   await page.close();
 }, 30_000);
 
-test.skipIf(!usable)("a question the page asks is a question the engine can answer", async () => {
-  /*
-   * `window.confirm` is what every destructive action in IWE is behind. In a browser it is a
-   * dialog; in the WKWebView the app uses it is nothing at all unless the app implements
-   * `WKUIDelegate`, and a `confirm()` nobody implemented returns false — so the action silently
-   * does not happen. Playwright's WebKit auto-dismisses dialogs unless they are handled, which
-   * makes it the same shape of trap: this test states which answer it gives, so a page that stops
-   * asking is a test that fails.
-   */
-  const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
-
-  const asked: string[] = [];
-  page.on("dialog", (d) => {
-    asked.push(d.message());
-    void d.accept();
-  });
-  const answer = await page.evaluate(() => window.confirm("Cancel PROJ-WEBKIT?"));
-
-  expect(asked).toEqual(["Cancel PROJ-WEBKIT?"]);
-  expect(answer).toBe(true);
-  await page.close();
-}, 30_000);

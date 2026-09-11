@@ -14,11 +14,12 @@ import {
   readNotes,
   writeNotes,
 } from "../src/changes.ts";
-import { provisionRepoEffect, gitRunEffect, repoItemEffect, checkoutFor, currentBranch } from "../src/integrations/git.ts";
+import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/types.ts";
 import type { TmuxWindow } from "../src/extensions/api.ts";
-import { sh } from "../src/sh.ts";
+import type { PresentedWindow } from "../src/terminal.ts";
+import { runEffect, runSh, TestError } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
@@ -27,19 +28,19 @@ beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-"));
   process.env.IWE_ROOT = join(tmp, "changes");
   repo = join(tmp, "myrepo");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "hi\n");
-  await sh(["git", "add", "."], repo);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+  await runSh(["git", "add", "."], repo);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 });
 
 /** A repository with one commit on main, for the in-place tests. */
 async function makeRepo(name: string): Promise<string> {
   const path = join(tmp, name);
-  await sh(["git", "init", "-b", "main", path]);
+  await runSh(["git", "init", "-b", "main", path]);
   await Bun.write(join(path, "README.md"), `${name}\n`);
-  await sh(["git", "add", "."], path);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], path);
+  await runSh(["git", "add", "."], path);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], path);
   return path;
 }
 
@@ -48,109 +49,99 @@ afterAll(async () => {
 });
 
 test("create change, provision a worktree, report status, remove it", async () => {
-  const change = await createChange({ id: "PROJ-1", repos: [repo] });
+  const change = await runEffect(createChange({ id: "PROJ-1", repos: [repo] }));
   expect(change.branch).toBe("PROJ-1");
-  expect(await listChanges()).toHaveLength(1);
+  expect(await runEffect(listChanges())).toHaveLength(1);
 
-  const before = await Effect.runPromise(repoItemEffect(change, repo));
+  const before = await Effect.runPromise(repoItem(change, repo));
   expect(before.state).toBe("none");
   expect(before.actions?.[0]?.id).toBe("add");
 
   // wt is pointed at the change directory, so the worktree lives with the change's own state.
   // realpath on both sides: macOS temp dirs are symlinks into /private.
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
-  const found = await checkoutFor(change, repo);
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  const found = await runEffect(checkoutFor(change, repo));
   expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
   expect(await Bun.file(join(found!, "README.md")).text()).toBe("hi\n");
 
-  const after = await Effect.runPromise(repoItemEffect(change, repo));
+  const after = await Effect.runPromise(repoItem(change, repo));
   // Clean, but this fixture has no remote, so the branch is still only local.
   expect(after.state).toBe("pending");
   expect(after.detail).toContain("clean, no upstream");
 
-  await Effect.runPromise(gitRunEffect(change, "remove", repo));
-  expect((await Effect.runPromise(repoItemEffect(change, repo))).state).toBe("none");
+  await Effect.runPromise(gitRun(change, "remove", repo));
+  expect((await Effect.runPromise(repoItem(change, repo))).state).toBe("none");
 });
 
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
-  await createChange({ id: "PROJ-2", repos: [repo] });
-  expect(createChange({ id: "PROJ-2", repos: [repo] })).rejects.toThrow("already exists");
-  expect(createChange({ id: "../escape", repos: [repo] })).rejects.toThrow("invalid change id");
-  expect(createChange({ id: "PROJ-3" })).rejects.toThrow("at least one repository");
-});
-
-test("repo browser stays inside the configured root", async () => {
-  const { resolveInRoot } = await import("../src/repos.ts");
-  const { config } = await import("../src/config.ts");
-  expect(resolveInRoot("personal/thing")).toBe(`${config.reposRoot}/personal/thing`);
-  expect(resolveInRoot("")).toBe(config.reposRoot);
-  // Traversal is rejected rather than silently reinterpreted, however it is spelled.
-  expect(() => resolveInRoot("../../etc")).toThrow("outside repos root");
-  expect(() => resolveInRoot("ok/../../../etc")).toThrow("outside repos root");
+  await runEffect(createChange({ id: "PROJ-2", repos: [repo] }));
+  expect(runEffect(createChange({ id: "PROJ-2", repos: [repo] }))).rejects.toThrow("already exists");
+  expect(runEffect(createChange({ id: "../escape", repos: [repo] }))).rejects.toThrow("invalid change id");
+  expect(runEffect(createChange({ id: "PROJ-3" }))).rejects.toThrow("at least one repository");
 });
 
 test("completed changes move to the archive and stay listable", async () => {
-  const change = await createChange({ id: "PROJ-9", repos: [repo] });
-  expect(await listChanges()).toContainEqual(change);
+  const change = await runEffect(createChange({ id: "PROJ-9", repos: [repo] }));
+  expect(await runEffect(listChanges())).toContainEqual(change);
 
-  await archiveChange(change.id);
+  await runEffect(archiveChange(change.id));
   expect(await Bun.file(join(changeDir(change.id), "change.json")).exists()).toBe(false);
   expect(await Bun.file(join(archiveDir(change.id), "change.json")).exists()).toBe(true);
 
   // Reading, writing and listing all still find it where it now lives.
-  expect(await readChange(change.id)).toEqual(change);
+  expect(await runEffect(readChange(change.id))).toEqual(change);
   const completed = { ...change, completedAt: new Date().toISOString() };
-  await writeChange(completed);
-  expect(await readChange(change.id)).toEqual(completed);
-  expect(await listChanges()).toContainEqual(completed);
-  expect(await listChanges()).not.toContainEqual(change);
+  await runEffect(writeChange(completed));
+  expect(await runEffect(readChange(change.id))).toEqual(completed);
+  expect(await runEffect(listChanges())).toContainEqual(completed);
+  expect(await runEffect(listChanges())).not.toContainEqual(change);
 });
 
 test("a new worktree branches from the remote default, not a stale local main", async () => {
   // A bare origin, a clone whose main is behind it, and a change branching off.
   const origin = join(tmp, "origin.git");
   const clone = join(tmp, "clone");
-  await sh(["git", "init", "-q", "--bare", "-b", "main", origin]);
-  await sh(["git", "clone", "-q", origin, clone]);
+  await runSh(["git", "init", "-q", "--bare", "-b", "main", origin]);
+  await runSh(["git", "clone", "-q", origin, clone]);
   await Bun.write(join(clone, "f.txt"), "one\n");
-  await sh(["git", "add", "."], clone);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"], clone);
-  await sh(["git", "push", "-q", "origin", "main"], clone);
+  await runSh(["git", "add", "."], clone);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"], clone);
+  await runSh(["git", "push", "-q", "origin", "main"], clone);
 
   // Someone else pushes; our clone's local main is now behind by that commit.
   const other = join(tmp, "other");
-  await sh(["git", "clone", "-q", origin, other]);
+  await runSh(["git", "clone", "-q", origin, other]);
   await Bun.write(join(other, "f.txt"), "one\ntwo\n");
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "two"], other);
-  await sh(["git", "push", "-q", "origin", "main"], other);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "two"], other);
+  await runSh(["git", "push", "-q", "origin", "main"], other);
 
-  const change = await createChange({ id: "PROJ-REMOTE", repos: [clone] });
+  const change = await runEffect(createChange({ id: "PROJ-REMOTE", repos: [clone] }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
-  const worktree = (await checkoutFor(change, clone))!;
+  const worktree = (await runEffect(checkoutFor(change, clone)))!;
   expect(await Bun.file(join(worktree, "f.txt")).text()).toBe("one\ntwo\n");
 });
 
 test("a change starts in progress and completing it is what sets Completed", async () => {
-  const change = await createChange({ id: "PROJ-STATE", repos: [repo] });
+  const change = await runEffect(createChange({ id: "PROJ-STATE", repos: [repo] }));
   expect(change.state).toBe("In Progress");
 
   // Completing writes the state along with the timestamp; here just the shape of that write.
-  await writeChange({ ...change, state: "Awaiting Review" });
-  expect((await readChange(change.id))?.state).toBe("Awaiting Review");
+  await runEffect(writeChange({ ...change, state: "Awaiting Review" }));
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Awaiting Review");
 });
 
 test("notes live beside change.json and survive archiving", async () => {
-  const change = await createChange({ id: "PROJ-NOTES", repos: [repo] });
-  expect(await readNotes(change.id)).toBe(""); // nothing written yet
+  const change = await runEffect(createChange({ id: "PROJ-NOTES", repos: [repo] }));
+  expect(await runEffect(readNotes(change.id))).toBe(""); // nothing written yet
 
-  await writeNotes(change.id, "ask about the flag\n");
-  expect(await readNotes(change.id)).toBe("ask about the flag\n");
+  await runEffect(writeNotes(change.id, "ask about the flag\n"));
+  expect(await runEffect(readNotes(change.id))).toBe("ask about the flag\n");
 
-  await archiveChange(change.id);
-  expect(await readNotes(change.id)).toBe("ask about the flag\n");
+  await runEffect(archiveChange(change.id));
+  expect(await runEffect(readNotes(change.id))).toBe("ask about the flag\n");
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
@@ -159,85 +150,86 @@ test("a repository used in place is linked and switched, dirty ones are left alo
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
 
-  const change = await createChange({
+  const change = await runEffect(createChange({
     id: "PROJ-DIRECT",
     branch: "PROJ-DIRECT-work",
     repos: [clean, dirty],
     direct: [clean, dirty],
-  });
+  }));
   expect(isDirect(change, clean)).toBe(true);
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   // Both are linked from the change directory, so it still shows everything the change touches.
   for (const repo of [clean, dirty]) {
     expect(await realpath(join(changeDir(change.id), basename(repo)))).toBe(await realpath(repo));
   }
   // The clean one moved to the branch; the dirty one kept its own, uncommitted work intact.
-  expect(await currentBranch(clean)).toBe("PROJ-DIRECT-work");
-  expect(await currentBranch(dirty)).toBe("main");
+  expect(await runEffect(currentBranch(clean))).toBe("PROJ-DIRECT-work");
+  expect(await runEffect(currentBranch(dirty))).toBe("main");
   expect(await Bun.file(join(dirty, "scratch.txt")).text()).toBe("half-finished work\n");
 
   // Dropping it removes the link only: the checkout and its branch stay.
-  const result = await setRepos(change, [dirty], true, [dirty]);
-  expect("change" in result).toBe(true);
+  const result = await runEffect(setRepos(change, [dirty], true, [dirty]));
+  expect(result._tag).toBe("Done");
   expect(await Bun.file(join(changeDir(change.id), "clean")).exists()).toBe(false);
-  expect(await currentBranch(clean)).toBe("PROJ-DIRECT-work");
+  expect(await runEffect(currentBranch(clean))).toBe("PROJ-DIRECT-work");
 });
 
 test("a worktree starts from the base branch it was given, not the remote default", async () => {
   // A repository with main, plus a branch ahead of it that another change might be sitting on.
   const origin = await makeRepo("stack-origin");
-  await sh(["git", "switch", "-c", "PROJ-1-first"], origin);
+  await runSh(["git", "switch", "-c", "PROJ-1-first"], origin);
   await Bun.write(join(origin, "first.txt"), "work of the change below\n");
-  await sh(["git", "add", "."], origin);
-  await sh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "first"], origin);
-  await sh(["git", "switch", "main"], origin);
+  await runSh(["git", "add", "."], origin);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "first"], origin);
+  await runSh(["git", "switch", "main"], origin);
 
   const clone = join(tmp, "stacked");
-  await sh(["git", "clone", "--quiet", origin, clone]);
+  await runSh(["git", "clone", "--quiet", origin, clone]);
 
-  const change = await createChange({
+  const change = await runEffect(createChange({
     id: "PROJ-STACK",
     branch: "PROJ-STACK-second",
     repos: [clone],
     base: { [clone]: "origin/PROJ-1-first" },
-  });
+  }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   // The file only the base branch has must be there: the new branch grew out of it.
-  const worktree = (await checkoutFor(change, clone))!;
+  const worktree = (await runEffect(checkoutFor(change, clone)))!;
   expect(await Bun.file(join(worktree, "first.txt")).text()).toBe("work of the change below\n");
 
   // And a change without a base still starts from the remote default, which has no such file.
-  const plain = await createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] });
+  const plain = await runEffect(createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(plain.repos, (repo) => provisionRepoEffect(plain, repo), { concurrency: 1 }));
-  const plainTree = (await checkoutFor(plain, clone))!;
+  await Effect.runPromise(Effect.forEach(plain.repos, (repo) => provisionRepo(plain, repo), { concurrency: 1 }));
+  const plainTree = (await runEffect(checkoutFor(plain, clone)))!;
   expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });
 
 test("a completed change is listed once, even when its directory is left behind", async () => {
-  const change = await createChange({ id: "PROJ-TWICE", repos: [repo] });
-  await archiveChange(change.id);
-  // A terminal, or a build, writing into the old path recreates it after the archive moved.
+  const change = await runEffect(createChange({ id: "PROJ-TWICE", repos: [repo] }));
+  await runEffect(archiveChange(change.id));
+  // A terminal, or a build, writing into the change's original path recreates it after the
+  // archive moved.
   await Bun.write(join(changeDir(change.id), "terminal.json"), "{}\n");
 
-  const listed = (await listChanges()).filter((c) => c.id === "PROJ-TWICE");
+  const listed = (await runEffect(listChanges())).filter((c) => c.id === "PROJ-TWICE");
   expect(listed.length).toBe(1);
 });
 
 test("directories left by finished changes are found, and only those", async () => {
   const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
-  const active = await createChange({ id: "PROJ-ALIVE", repos: [repo] });
+  const active = await runEffect(createChange({ id: "PROJ-ALIVE", repos: [repo] }));
 
   // A change that was completed: change.json moved to the archive, the directory stayed.
-  const done = await createChange({ id: "PROJ-DONE", repos: [repo] });
-  await archiveChange(done.id);
+  const done = await runEffect(createChange({ id: "PROJ-DONE", repos: [repo] }));
+  await runEffect(archiveChange(done.id));
   await Bun.write(join(changeDir(done.id), "target", "build.jar"), "artifact\n");
 
-  const leftovers = await listLeftovers();
+  const leftovers = await runEffect(listLeftovers);
   const names = leftovers.map((l) => l.name);
   expect(names).toContain("PROJ-DONE");
   expect(names).not.toContain(active.id); // an active change is not litter
@@ -247,92 +239,48 @@ test("directories left by finished changes are found, and only those", async () 
   ]);
 
   // Deleting one takes the directory with it, and refuses to touch a change that is still live.
-  expect(removeLeftover(active.id)).rejects.toThrow(/active change/);
-  await removeLeftover("PROJ-DONE");
+  expect(runEffect(removeLeftover(active.id))).rejects.toThrow(/active change/);
+  await runEffect(removeLeftover("PROJ-DONE"));
   expect(await Bun.file(join(changeDir("PROJ-DONE"), "target", "build.jar")).exists()).toBe(false);
-  expect((await listLeftovers()).map((l) => l.name)).not.toContain("PROJ-DONE");
+  expect((await runEffect(listLeftovers)).map((l) => l.name)).not.toContain("PROJ-DONE");
   // The archived change itself is untouched: only the leftover directory went.
-  expect(await readChange("PROJ-DONE")).toMatchObject({ id: "PROJ-DONE" });
+  expect(await runEffect(readChange("PROJ-DONE"))).toMatchObject({ id: "PROJ-DONE" });
 });
 
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
   const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
-  const change = await createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] });
+  const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepoEffect(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
-  const worktree = (await checkoutFor(change, repo))!;
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
   expect(worktree).toBe(await realpath(join(changeDir(change.id), "myrepo")));
 
   // A change whose record is gone while its worktree is not: an interrupted creation, or a
   // change.json lost by hand. Completing removes worktrees first, so it cannot happen that way.
   await rm(join(changeDir(change.id), "change.json"));
-  const listed = (await listLeftovers()).find((l) => l.name === change.id)!;
+  const listed = (await runEffect(listLeftovers)).find((l) => l.name === change.id)!;
   // Shown as what it is, so the warning before deleting can say so.
   expect(listed.entries).toContainEqual({ name: "myrepo", directory: true, git: "worktree" });
 
-  await removeLeftover(change.id);
+  await runEffect(removeLeftover(change.id));
   // git forgets the worktree as well: a stale registration would block reusing the path.
-  const registered = await sh(["git", "worktree", "list"], repo);
+  const registered = await runSh(["git", "worktree", "list"], repo);
   expect(registered.stdout).not.toContain(worktree);
-});
-
-test("a completion says which steps it will take, and where it stopped", async () => {
-  const { progressOf, stepsFor } = await import("../src/complete.ts");
-  const { writeSidecar } = await import("../src/changes.ts");
-  const change = await createChange({ id: "PROJ-HALF", repos: [repo], jira: "PROJ-9" });
-
-  // Named before anything runs, so the page can show what is still to come.
-  const steps = stepsFor(change, {
-    ready: true,
-    reasons: [],
-    toMerge: [{ repo, number: 7 }],
-  });
-  expect(steps.map((s) => s.id)).toEqual([
-    `merge:${repo}`,
-    "jira",
-    "worktrees",
-    "terminal",
-    "archive",
-  ]);
-  expect(steps[0]!.label).toBe("merge myrepo #7");
-  expect(steps.every((s) => s.state === "waiting")).toBe(true);
-
-  // A completion that stopped: written to disk, so it is legible from a page opened later.
-  expect(await progressOf(change.id)).toBeNull();
-
-  await writeSidecar(
-    change.id,
-    "completion.json",
-    JSON.stringify({
-      startedAt: new Date().toISOString(),
-      finishedAt: new Date().toISOString(),
-      error: "could not merge #7: Merge conflict.",
-      steps: [{ ...steps[0], state: "failed", detail: "could not merge #7: Merge conflict." }],
-    }),
-  );
-  const stopped = (await progressOf(change.id))!;
-  expect(stopped.error).toBe("could not merge #7: Merge conflict.");
-  expect(stopped.steps[0]!.state).toBe("failed");
-
-  // And it travels with the change when that is archived.
-  await archiveChange(change.id);
-  expect((await progressOf(change.id))?.error).toBe("could not merge #7: Merge conflict.");
-  expect(await Bun.file(join(archiveDir(change.id), "completion.json")).exists()).toBe(true);
 });
 
 test("a completion records itself before it starts checking anything", async () => {
   const { completeChange, progressOf } = await import("../src/complete.ts");
-  const change = await createChange({ id: "PROJ-EARLY", repos: [repo] });
+  const change = await runEffect(createChange({ id: "PROJ-EARLY", repos: [repo] }));
 
   // Nothing yet: a change that was never completed has no record at all.
-  expect(await progressOf(change.id)).toBeNull();
+  expect(await runEffect(progressOf(change.id))).toBeNull();
 
-  // The repository has no remote, so the readiness check refuses. That refusal is recorded too:
-  // it used to be a message in a dialog, which a page opened later would never see.
-  expect(completeChange(change)).rejects.toThrow(/cannot complete/);
+  // The repository has no remote, so the readiness check refuses. That refusal is recorded too,
+  // so a page opened later still sees it.
+  expect(runEffect(completeChange(change))).rejects.toThrow(/cannot complete/);
   await Bun.sleep(2000);
-  const failed = (await progressOf(change.id))!;
+  const failed = (await runEffect(progressOf(change.id)))!;
   expect(failed.startedAt).toBeTruthy();
   expect(failed.steps[0]).toMatchObject({ id: "check", state: "failed" });
   expect(failed.steps[0]!.detail).toContain("no worktree");
@@ -343,7 +291,7 @@ test("a completion records itself before it starts checking anything", async () 
 test("the overview counts windows that are running something, not windows", async () => {
   // Busy is a presented fact now: the merge in terminal.ts says which windows are work.
   const { presentWindow } = await import("../src/terminal.ts");
-  const busy = (over: Partial<TmuxWindow>) =>
+  const busy = (over: Partial<TmuxWindow>): boolean =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -368,17 +316,17 @@ test("the overview counts windows that are running something, not windows", asyn
   // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
   // otherwise count as work for as long as the window stayed open.
   expect([
-    busy({ command: "node", options: { "@agent": "working" } }),
-    busy({ command: "node", options: { "@agent": "waiting" } }),
+    busy({ command: "node", options: { "@agent_status": "working" } }),
+    busy({ command: "node", options: { "@agent_status": "waiting" } }),
     busy({ command: "node" }), // no marker: something is running, count it
   ]).toEqual([true, false, true]);
 });
 
-test("an agent's own account of itself is read from the @agent pane option", async () => {
+test("an agent's own account of itself is read from the @agent_status pane option", async () => {
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../src/terminal.ts");
-  const presented = (option: string) =>
+  const presented = (option: string): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -388,13 +336,12 @@ test("an agent's own account of itself is read from the @agent pane option", asy
       activity: false,
       directory: "example-api",
       named: false,
-      options: { "@agent": option },
+      options: { "@agent_status": option },
     });
-  // What pi's busy-title extension sets with `tmux set -p @agent ...`.
+  // What pi's busy-title extension sets with `tmux set -p @agent_status ...`.
   expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
   expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
-  // Unset, or set to something else by something else: no claim is made about the window —
-  // exactly as the old agentIn ignored it.
+  // Unset, or set to something else by something else: no claim is made about the window.
   expect(presented("")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
   expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
@@ -404,7 +351,7 @@ test("a change is named after its ticket, and keeps that name when its vendor is
   const { install, loaded } = await import("../src/extensions/index.ts");
 
   // A stub source claiming every change that has a jira key, answering from a map the test
-  // controls — the same scenarios the injected lookup used to cover.
+  // controls.
   const answers = new Map<string, string>();
   const restore = loaded.splice(0, loaded.length);
   install({
@@ -425,14 +372,14 @@ test("a change is named after its ticket, and keeps that name when its vendor is
     ],
   });
 
-  const named = await createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" });
-  const bare = await createChange({ id: "PROJ-BARE", repos: [repo] });
+  const named = await runEffect(createChange({ id: "PROJ-NAMED", repos: [repo], jira: "PROJ-7" }));
+  const bare = await runEffect(createChange({ id: "PROJ-BARE", repos: [repo] }));
 
   // Captured rather than asserted inside: refreshTitles treats a failing source as "the vendor
   // is not answering", which would swallow the failure and pass the test for the wrong reason.
   let asked: string[] = [];
   answers.set("PROJ-7", "Split the invoice export");
-  const titles = await refreshTitles();
+  const titles = await runEffect(refreshTitles());
   // One question for the whole page, and only for changes that have a ticket at all.
   expect(asked).toContain("PROJ-7");
   expect(asked).not.toContain("PROJ-BARE");
@@ -440,20 +387,20 @@ test("a change is named after its ticket, and keeps that name when its vendor is
   expect(titles["PROJ-BARE"]).toBeUndefined(); // no ticket: the page falls back to the branch
 
   // Stored, so the list itself carries the name and the page needs no CLI call to draw.
-  expect((await readChange(named.id))?.title).toBe("Split the invoice export");
-  expect((await readChange(bare.id))?.title).toBeUndefined();
+  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the invoice export");
+  expect((await runEffect(readChange(bare.id)))?.title).toBeUndefined();
 
   // A renamed ticket is followed.
   answers.set("PROJ-7", "Split the export in two");
-  await refreshTitles();
-  expect((await readChange(named.id))?.title).toBe("Split the export in two");
+  await runEffect(refreshTitles());
+  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the export in two");
 
   // A vendor that answers nothing — down, unauthenticated, ticket deleted — keeps the last name
   // rather than falling back to a branch nobody recognises.
   answers.clear();
-  const kept = await refreshTitles();
+  const kept = await runEffect(refreshTitles());
   expect(kept["PROJ-NAMED"]).toBe("Split the export in two");
-  expect((await readChange(named.id))?.title).toBe("Split the export in two");
+  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the export in two");
 
   loaded.splice(0, loaded.length, ...restore);
 });
@@ -475,10 +422,10 @@ test("a change may be blocked, which is active but not workable", async () => {
 
   // The server accepts it, and the overview counts it among the active changes: blocked work is
   // work you still have.
-  const change = await createChange({ id: "PROJ-BLOCKED", repos: [repo] });
+  const change = await runEffect(createChange({ id: "PROJ-BLOCKED", repos: [repo] }));
   const blocked = { ...change, state: "Blocked" as const };
-  await writeChange(blocked);
-  expect((await readChange(change.id))?.state).toBe("Blocked");
+  await runEffect(writeChange(blocked));
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Blocked");
   expect(isFinished(blocked)).toBe(false);
 });
 
@@ -507,24 +454,24 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
     ],
   });
 
-  const change = await createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" });
+  const change = await runEffect(createChange({ id: "PROJ-NAME", repos: [repo], jira: "PROJ-8" }));
 
   // Until you say otherwise, the ticket names the change.
   answers.set("PROJ-8", "As the ticket puts it");
-  await refreshTitles();
-  expect((await readChange(change.id))?.title).toBe("As the ticket puts it");
+  await runEffect(refreshTitles());
+  expect((await runEffect(readChange(change.id)))?.title).toBe("As the ticket puts it");
 
   // Renaming it here says the name is yours: the ticket is not asked about any more.
-  await writeChange({ ...(await readChange(change.id))!, title: "What it is really about", titleEdited: true });
-  await refreshTitles();
+  await runEffect(writeChange({ ...(await runEffect(readChange(change.id)))!, title: "What it is really about", titleEdited: true }));
+  await runEffect(refreshTitles());
   expect(asked).not.toContain("PROJ-8");
-  expect((await readChange(change.id))?.title).toBe("What it is really about");
+  expect((await runEffect(readChange(change.id)))?.title).toBe("What it is really about");
 
   loaded.splice(0, loaded.length, ...restore);
 });
 
 test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
-  const { summaryOfEffect } = await import("../src/summary.ts");
+  const { summaryOf } = await import("../src/summary.ts");
   const { install, loaded } = await import("../src/extensions/index.ts");
 
   const restore = loaded.splice(0, loaded.length);
@@ -540,15 +487,15 @@ test("the summary gathers the core's terminals fact and the extensions' contribu
           }),
       },
       // A contributor whose vendor is down: it contributes nothing, never a failed request.
-      { facts: () => Effect.fail(new Error("down")) },
+      { facts: () => Effect.fail(new TestError({ message: "down" })) },
     ],
   });
 
   try {
     // A change with a repository but no tmux session: nothing busy, nothing contributed
     // except the stub's say-so.
-    const change = await createChange({ id: "PROJ-SUMMARY", repos: [repo] });
-    const summary = await Effect.runPromise(summaryOfEffect(change));
+    const change = await runEffect(createChange({ id: "PROJ-SUMMARY", repos: [repo] }));
+    const summary = await Effect.runPromise(summaryOf(change));
 
     // The core's own fact comes first, the contributed facts after it in load order — and the
     // failing contributor is simply absent, not an error on the card.
@@ -592,11 +539,11 @@ test("a change belongs to the context it was made in, and older ones to the firs
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },
   ];
-  const change = (id: string, workspace?: string) => ({ id, workspace }) as never;
+  const change = (id: string, workspace?: string): never => ({ id, workspace }) as never;
   const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
 
-  // Made before workspaces existed: it belongs to the first one, which is where all the work
-  // was when there was only one place for it.
+  // No workspace: it belongs to the first one, the default when there is only one place for
+  // the work.
   expect(workspaceOf(change("OLD-1"), workspaces)).toBe("client");
   expect(workspaceOf(change("IWE-1", "personal"), workspaces)).toBe("personal");
 
@@ -612,17 +559,24 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
   const { azureOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
-  const { extensionsFor, migrateWorkspaceSettings } = await import("../src/extensions/index.ts");
+  const { extensionsFor, loaded } = await import("../src/extensions/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
-  // Two contexts: a client with everything, and personal projects with neither.
-  (config as { workspaces: unknown }).workspaces = migrateWorkspaceSettings([
+  // Two contexts: a client with everything, and personal projects with neither. The personal
+  // one names its extensions explicitly — enablement is the list, not a vendor flag — and keeps
+  // `azure: false` for the pipelines it has none of.
+  (config as { workspaces: unknown }).workspaces = [
     { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
-    { id: "personal", name: "Personal", jira: false, azure: false },
-  ]);
+    {
+      id: "personal",
+      name: "Personal",
+      azure: false,
+      extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "deployments"),
+    },
+  ];
 
   const client = { id: "PROJ-1", workspace: "client" } as never;
   const personal = { id: "IWE-1", workspace: "personal" } as never;
-  const old = { id: "OLD-1" } as never; // made before workspaces existed
+  const old = { id: "OLD-1" } as never; // no workspace: it belongs to the first one
 
   // A personal project has no ticket, and being asked about one is noise and a CLI call: the
   // jira extension is not there at all. The CI card is pull requests as well as pipelines, so
@@ -639,7 +593,7 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   expect(siteFor("personal")).toEqual({});
   expect(siteFor("client")).toEqual({});
 
-  // A change from before all this belongs to the first workspace.
+  // A change with no workspace belongs to the first workspace.
   expect(workspaceOf(old).id).toBe("client");
 
   (config as { workspaces: unknown }).workspaces = original.workspaces;

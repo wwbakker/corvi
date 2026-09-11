@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
-import { shEffect, type Result } from "../sh.ts";
 import { BadRequestError } from "../effect/errors.ts";
+import { cliJson, shSoft } from "../effect/support.ts";
 
 /** Where a pull request sits in its stack, when it is in one. */
 export type Stack = { number: number; size: number; position: number };
@@ -35,21 +35,14 @@ export function stackRequest(
 
 // Pure and synchronous: nothing for an Effect to wrap.
 
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
 /** What a merge request says about itself; the same object comes back from both endpoints. */
 export type MergeResult = {
   status: "pending" | "merged" | "enqueued" | "failed";
   details?: { message?: string; uuid?: string; sha?: string };
 };
 
-/** Any object with a status is read as a merge result — the old cast trusted the field without
- * checking which word it held, and outcomeOf's default branch handled the rest. */
+/** Any object with a status is read as a merge result; a status that is not one of the known
+ * words is handled by outcomeOf's default branch. */
 const MergeResultSchema = Schema.Struct({
   status: Schema.String,
   details: Schema.optional(
@@ -81,7 +74,7 @@ export function outcomeOf(result: MergeResult): { waiting: boolean; note?: strin
 
 /** A merge result read from a response, or nothing when the response was not one: a poll can
  * fail (the request expired, the network hiccuped) and that is not the same as "still running".
- * Schema-decoded with the old tolerance — an unparseable or status-less answer is no result. */
+ * An unparseable or status-less answer is no result. */
 export function pollResult(code: number, stdout: string): MergeResult | undefined {
   if (code !== 0) return undefined;
   try {
@@ -94,7 +87,7 @@ export function pollResult(code: number, stdout: string): MergeResult | undefine
 
 /** Whether the pull request is merged, asked of the pull request itself. The merge request is a
  * report about the work; this is the work. */
-const mergedEffect = (worktree: string, repository: string, number: number): Effect.Effect<boolean> =>
+const merged = (worktree: string, repository: string, number: number): Effect.Effect<boolean> =>
   Effect.map(
     shSoft(["gh", "api", `repos/${repository}/pulls/${number}`, "-q", ".merged"], worktree),
     (r) => r.stdout.trim() === "true",
@@ -105,11 +98,10 @@ const mergedEffect = (worktree: string, repository: string, number: number): Eff
  * GitHub refuses and points here — because merging one pull request of a stack merges everything
  * below it too, which takes long enough that it runs in the background.
  *
- * Submit, then poll until it is no longer pending. Fails with the message the old throws carried:
- * these are user-visible sentences about a merge that did not happen (BadRequestError maps where
- * the old thrown Error went — a 400 carrying its message).
+ * Submit, then poll until it is no longer pending. The failures are user-visible sentences about
+ * a merge that did not happen, carried as a BadRequestError (a 400 with its message).
  */
-export const mergeStackedEffect = (
+export const mergeStacked = (
   worktree: string,
   repository: string,
   number: number,
@@ -133,18 +125,15 @@ export const mergeStackedEffect = (
       worktree,
     );
     // 409 means a merge request already exists; its uuid comes back all the same, so poll that one.
-    // The old cast trusted `status` without checking which word it held; outcomeOf's default
-    // branch handles the rest, so the decode keeps that tolerance.
+    // An unknown status is handled by outcomeOf's default branch, so the decode tolerates one.
     const submitted = (yield* Effect.orElseSucceed(
       Schema.decodeUnknown(Schema.parseJson(MergeResultSchema))(submit.stdout || "{}"),
       () => ({ status: "failed" }),
     )) as MergeResult;
     if (submit.code !== 0 && !submitted.details?.uuid) {
-      return yield* Effect.fail(
-        new BadRequestError({
-          message: `could not start the merge of #${number}: ${submit.stderr || submit.stdout}`,
-        }),
-      );
+      return yield* new BadRequestError({
+        message: `could not start the merge of #${number}: ${submit.stderr || submit.stdout}`,
+      });
     }
 
     let result = submitted;
@@ -153,10 +142,8 @@ export const mergeStackedEffect = (
     while (outcomeOf(result).waiting && uuid) {
       if (Date.now() > deadline) {
         // It may well have landed while we were failing to hear about it.
-        if (yield* mergedEffect(worktree, repository, number)) return undefined;
-        return yield* Effect.fail(
-          new BadRequestError({ message: `the merge of #${number} is still running after 5m` }),
-        );
+        if (yield* merged(worktree, repository, number)) return undefined;
+        return yield* new BadRequestError({ message: `the merge of #${number} is still running after 5m` });
       }
       // An interruptible sleep: an interrupted completion stops the polling too, and the `gh`
       // child of the next poll dies with it rather than outliving the request.
@@ -166,24 +153,20 @@ export const mergeStackedEffect = (
         worktree,
       );
       const read = pollResult(poll.code, poll.stdout);
-      // A failed poll used to be read as "still pending", which turned any hiccup into five
-      // minutes of silence and then a timeout — while the merge had usually happened.
+      // A failed poll is not "still pending": that would turn a hiccup into five minutes of
+      // silence and then a timeout, while the merge had usually happened. Ask the pull request.
       if (!read) {
-        if (yield* mergedEffect(worktree, repository, number)) return undefined;
-        return yield* Effect.fail(
-          new BadRequestError({
-            message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
-          }),
-        );
+        if (yield* merged(worktree, repository, number)) return undefined;
+        return yield* new BadRequestError({
+          message: `lost track of the merge of #${number}: ${poll.stderr.split("\n")[0] || "no result"}`,
+        });
       }
       result = read;
     }
 
     const outcome = outcomeOf(result);
     if (outcome.error) {
-      return yield* Effect.fail(
-        new BadRequestError({ message: `could not merge #${number}: ${outcome.error}` }),
-      );
+      return yield* new BadRequestError({ message: `could not merge #${number}: ${outcome.error}` });
     }
     return outcome.note;
   });
@@ -197,7 +180,7 @@ export const mergeStackedEffect = (
  * branch, so a repository without the preview feature, or a base branch with no pull request of
  * its own, changes nothing else.
  */
-export const stackOnBaseEffect = (
+export const stackOnBase = (
   worktree: string,
   baseBranch: string,
   number: number,
@@ -228,18 +211,3 @@ export const stackOnBaseEffect = (
     );
     if (r.code !== 0) console.warn(`could not stack #${number} onto #${below}: ${r.stderr.trim()}`);
   });
-
-
-/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
- * printed nothing, or something this query did not expect, reads as the fallback rather than
- * failing — the documented silent fallback (docs/effect-conventions.md). */
-const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
-  (stdout: string): Effect.Effect<B> =>
-    stdout.trim()
-      ? Effect.orElseSucceed(
-          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
-          // back to the fallback's here, which is what the old cast did.
-          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
-          () => fallback,
-        )
-      : Effect.succeed(fallback);

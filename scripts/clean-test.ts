@@ -25,7 +25,7 @@
 import { readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sh } from "../src/sh.ts";
+import { sh } from "./sh.ts";
 
 /** The roots a test directory can hide under: `tmpdir()` as written and as resolved. On macOS
  * `/var/folders/...` is a symlink into `/private/var/folders/...`, and both spellings turn up in

@@ -1,4 +1,4 @@
-import { StrictMode, useEffect, useRef, useState } from "react";
+import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished } from "../types.ts";
@@ -34,7 +34,7 @@ function Home({
   error: string | null;
   onOpen: (id: string) => void;
   onNew: () => void;
-}) {
+}): JSX.Element {
   // Two lists, because they are read for different reasons: what is going on, and what happened.
   // The active ones in work order — what you can get on with, then what is with somebody else,
   // then what is stuck — newest first within each.
@@ -109,7 +109,7 @@ function viewOf(path: string, pages: { id: string; extension: string }[] = []): 
   const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
   if (!m) {
     // A top-level path that names a page the server offered: the extension's own view. A path
-    // that is not a well-formed encoding was never a page, and is home as before.
+    // that is not a well-formed encoding was never a page, and is home.
     if (!path.slice(1).includes("/")) {
       const raw = path.slice(1);
       let id = raw;
@@ -138,13 +138,13 @@ const pathOf = (view: View): string =>
           ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
           : "/";
 
-function App() {
+function App(): JSX.Element {
   const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
   const { changes: everything, error, reload } = useChanges();
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
   // The pages the sidebar offers in this context, from the server: which extensions exist and
   // what they contribute is not the page's to know. Undefined ("All work") is the server's
-  // default context, as every workspace-scoped request before it was.
+  // default context, which is what a request without a workspace gets.
   const { pages, reload: reloadPages } = usePages(workspace?.id);
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
@@ -157,7 +157,7 @@ function App() {
   const onTerminal = view.name === "change" && view.page === "terminals";
   // The terminals belong to the changes, not to the page you are on: the column lists every
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
-  // one connection rather than a request per page per second and a half.
+  // one connection and no polling.
   const terminals = useWindows();
   // Only once a terminal is asked for: opening a dashboard is not asking for one.
   const [wantsTerminal, setWantsTerminal] = useState(false);
@@ -168,7 +168,7 @@ function App() {
   const terminal = useTerminal(selected, Boolean(change?.completedAt), wantsTerminal);
 
   // Navigating pushes a history entry; Back and a reload both land on the same page.
-  const setView = (next: View) => {
+  const setView = (next: View): void => {
     if (pathOf(next) !== window.location.pathname) window.history.pushState(null, "", pathOf(next));
     setViewState(next);
   };
@@ -198,7 +198,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    const onPop = () => setViewState(viewOf(window.location.pathname, pagesRef.current));
+    const onPop = (): void => setViewState(viewOf(window.location.pathname, pagesRef.current));
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);

@@ -1,11 +1,11 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../types.ts";
-import { shEffect, type Result } from "../sh.ts";
-import { swrEffect } from "../cache.ts";
+import { worst, type Change, type WidgetItem, type WidgetState } from "../types.ts";
+import { swr } from "../cache.ts";
 import type { Workspace } from "../config.ts";
 import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
 import { deploySettings } from "../deploySettings.ts";
+import { cliJson, shSoft } from "../effect/support.ts";
 
 export type Run = {
   id: number;
@@ -32,8 +32,7 @@ const RunsSchema = Schema.Array(
     buildNumber: Schema.String,
     status: Schema.String,
     result: Schema.optional(Schema.NullOr(Schema.String)),
-    // Always present from az, but the old cast tolerated its absence; the default keeps that
-    // tolerance without weakening the type.
+    // Always present from az, but absence is tolerated with an empty default.
     sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
@@ -42,27 +41,6 @@ const RunsSchema = Schema.Array(
     ),
   }),
 );
-
-/** The Result-branching contract of the old sh(), kept: non-zero exits are data, so a timed-out
- * CLI — the one failure shEffect can raise — surfaces as exit code 124 with its message, which
- * is what the Promise facade converts it to. Result-branching callers keep branching. */
-const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
-  Effect.catchAll(shEffect(cmd, cwd), (e) =>
-    Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
-
-/** `--json` output through the Schema, with the tolerance the old sh.ts json() had: a CLI that
- * printed nothing, or something this query did not expect, reads as the fallback rather than
- * failing — the documented silent fallback (docs/effect-conventions.md). */
-const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback: B) =>
-  (stdout: string): Effect.Effect<B> =>
-    stdout.trim()
-      ? Effect.orElseSucceed(
-          // JSON.parse produces mutable arrays at runtime; Schema's readonly type is tightened
-          // back to the fallback's here, which is what the old cast did.
-          Schema.decodeUnknown(Schema.parseJson(schema))(stdout) as Effect.Effect<B>,
-          () => fallback,
-        )
-      : Effect.succeed(fallback);
 
 /** How many finished runs the duration estimate averages over. Branches differ, but the same
  * pipeline on the same agents is the best predictor available. */
@@ -75,7 +53,7 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
-export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; project?: string }> =>
+export const azDefaults = (): Effect.Effect<{ organization?: string; project?: string }> =>
   Effect.suspend(() => {
     if (defaults) return Effect.succeed(defaults);
     return Effect.gen(function* () {
@@ -97,17 +75,17 @@ export const azDefaultsEffect = (): Effect.Effect<{ organization?: string; proje
  *
  * `az` has one configured default organisation and project, which is fine until a second client
  * turns up. A workspace that names its own gets them passed explicitly; one that does not falls
- * back to `az devops configure`, which is what every call did before workspaces existed.
+ * back to `az devops configure`.
  *
  * The key namespaces the cache: two organisations answering the same question differently is
  * exactly the bug this prevents.
  */
 export type Az = { key: string; args: string[]; organization?: string; project?: string };
 
-export const azForEffect = (workspace: Workspace): Effect.Effect<Az> =>
+export const azFor = (workspace: Workspace): Effect.Effect<Az> =>
   Effect.gen(function* () {
     const own = azureOf(workspace);
-    const fallback = yield* azDefaultsEffect();
+    const fallback = yield* azDefaults();
     const organization = own.organization || fallback.organization;
     const project = own.project || fallback.project;
     return {
@@ -157,7 +135,7 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
  * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
  * milliseconds of CPU per invocation — it is a Python program, started afresh each time. The
- * sharing and the staleness both live in src/cache.ts now.
+ * sharing and the staleness both live in src/cache.ts.
  */
 
 /** Pipelines are moved between folders about never; runs happen while you watch. Both are
@@ -165,8 +143,8 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
-const listDefinitionsEffect = (az: Az, repo: string): Effect.Effect<Definition[]> =>
-  swrEffect(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
+const listDefinitions = (az: Az, repo: string): Effect.Effect<Definition[]> =>
+  swr(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
     Effect.gen(function* () {
       const r = yield* shSoft([
         "az",
@@ -181,14 +159,14 @@ const listDefinitionsEffect = (az: Az, repo: string): Effect.Effect<Definition[]
       return r.code === 0 ? yield* cliJson(DefinitionsSchema, [] as Definition[])(r.stdout) : [];
     }));
 
-const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: string }> =>
+const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: string }> =>
   Effect.gen(function* () {
     // One query per ref; grouping per pipeline happens here rather than in a query per pipeline.
     // The branch ref is the same for every repository of a change, so this is asked six times at
     // once and answered once.
     const results = yield* Effect.all(
       refs.map((ref) =>
-        swrEffect(`az:${az.key}:runs:${ref}`, RUNS_TTL, shSoft([
+        swr(`az:${az.key}:runs:${ref}`, RUNS_TTL, shSoft([
           "az",
           "pipelines",
           "runs",
@@ -202,7 +180,7 @@ const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; err
           "json",
         ])),
       ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
     );
     const failed = results.find((r) => r.code !== 0);
@@ -222,14 +200,14 @@ const runsForEffect = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; err
  * the overview needs. Both queries behind it are the cached ones the dashboard uses, so asking
  * for it costs nothing extra while a change is open, and it skips durations, logs and versions.
  */
-export const activeRunsEffect = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
+export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
   Effect.gen(function* () {
     const workspace = workspaceOf(change);
     if (!usesAzure(workspace)) return 0; // a context without pipelines has none running
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
-      listDefinitionsEffect(az, repo),
-      runsForEffect(az, refsFor(change.branch, pr)),
+      listDefinitions(az, repo),
+      runsFor(az, refsFor(change.branch, pr)),
     ]);
     if (error) return 0;
     const mine = new Set(definitions.map((d) => d.id));
@@ -254,8 +232,8 @@ export function averageDuration(runs: Run[]): number | undefined {
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
 }
 
-export const expectedDurationEffect = (az: Az, definitionId: number): Effect.Effect<number | undefined> =>
-  swrEffect(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL,
+export const expectedDuration = (az: Az, definitionId: number): Effect.Effect<number | undefined> =>
+  swr(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL,
     Effect.gen(function* () {
       const r = yield* shSoft([
         "az",
@@ -277,12 +255,11 @@ export const expectedDurationEffect = (az: Az, definitionId: number): Effect.Eff
     }));
 
 
-/** The artifact version a build produced, as printed by the pipelines themselves. Ported from
- * a shell script that read the same lines out of build logs. */
+/** The artifact version a build produced, as printed by the pipelines themselves. */
 const VERSION_PATTERNS = [
   /Version is: '([^']+)'/,
-  // Deliberately looser than the source script: docker prints the tag after a full image
-  // reference ("pushing manifest for registry/app:20260818.4"), which its \b anchor missed.
+  // Deliberately loose: docker prints the tag after a full image reference
+  // ("pushing manifest for registry/app:20260818.4"), which a \b anchor would miss.
   /pushing manifest for \S*?([0-9]{8}\.\d+)\b/,
   /Built and pushed image as .*:([0-9]{8}\.\d+)\b/,
 ];
@@ -299,7 +276,7 @@ export function versionInLines(lines: string[]): string | undefined {
 }
 
 /** Log ids of a run, newest step last. */
-const logIdsEffect = (project: string, pipelineId: number, runId: number): Effect.Effect<number[]> =>
+const logIds = (project: string, pipelineId: number, runId: number): Effect.Effect<number[]> =>
   Effect.gen(function* () {
     const r = yield* shSoft([
       "az",
@@ -326,7 +303,7 @@ const logIdsEffect = (project: string, pipelineId: number, runId: number): Effec
     return parsed.logs?.map((l) => l.id) ?? [];
   });
 
-const logLinesEffect = (project: string, runId: number, logId: number): Effect.Effect<string[]> =>
+const logLines = (project: string, runId: number, logId: number): Effect.Effect<string[]> =>
   Effect.gen(function* () {
     const r = yield* shSoft([
       "az",
@@ -359,22 +336,22 @@ const logLinesEffect = (project: string, runId: number, logId: number): Effect.E
 /** A finished run's logs never change, so a version is looked up once and kept. */
 const versions = new Map<number, string | undefined>();
 
-export const versionOfEffect = (run: Run, project: string): Effect.Effect<string | undefined> =>
+export const versionOf = (run: Run, project: string): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     // Only successful builds produced an artifact worth naming.
-    if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
+    if (run.status !== "completed" || run.result !== "succeeded") return Effect.sync(() => undefined);
     if (versions.has(run.id)) return Effect.succeed(versions.get(run.id));
 
     const pipelineId = run.definition?.id;
     return Effect.gen(function* () {
-      const version = pipelineId ? yield* findVersionEffect(project, pipelineId, run.id) : undefined;
+      const version = pipelineId ? yield* findVersion(project, pipelineId, run.id) : undefined;
       versions.set(run.id, version);
       return version;
     });
   });
 
 
-const findVersionEffect = (
+const findVersion = (
   project: string,
   pipelineId: number,
   runId: number,
@@ -382,13 +359,13 @@ const findVersionEffect = (
   Effect.gen(function* () {
     // Publishing happens at the end of a build, so the last steps are searched first: in practice
     // the version turns up in the first batch. ponytail: batches of 5, widen if it ever drags.
-    const ids = (yield* logIdsEffect(project, pipelineId, runId)).sort((a, b) => b - a);
+    const ids = (yield* logIds(project, pipelineId, runId)).sort((a, b) => b - a);
     for (let i = 0; i < ids.length; i += 5) {
       const batch = yield* Effect.all(
         ids.slice(i, i + 5).map((id) =>
-          Effect.map(logLinesEffect(project, runId, id), (lines) => versionInLines(lines))
+          Effect.map(logLines(project, runId, id), (lines) => versionInLines(lines))
         ),
-        // The old Promise.all was unbounded, so this stays unbounded.
+        // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       );
       const found = batch.find(Boolean);
@@ -396,17 +373,6 @@ const findVersionEffect = (
     }
     return undefined;
   });
-
-const worst = (states: WidgetState[]): WidgetState =>
-  states.includes("error")
-    ? "error"
-    : states.includes("pending")
-      ? "pending"
-      : states.includes("warn")
-        ? "warn"
-        : states.includes("ok")
-          ? "ok"
-          : "none";
 
 // Pure and synchronous: nothing for an Effect to wrap.
 
@@ -422,7 +388,7 @@ export function buildUrl(id: number, az?: Az): string | undefined {
 // Pure and synchronous: nothing for an Effect to wrap.
 
 /** One row per pipeline of this repository, with its runs for this ref as children. */
-export const pipelineItemsEffect = (
+export const pipelineItems = (
   change: Change,
   repo: string,
   pr?: number,
@@ -432,11 +398,11 @@ export const pipelineItemsEffect = (
     // A context without pipelines is not an empty list of them, it is silence: the card shows the
     // pull request and nothing else, and no `az` process is started.
     if (!usesAzure(workspace)) return { items: [], count: 0 };
-    const az = yield* azForEffect(workspace);
+    const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([
-      listDefinitionsEffect(az, repo),
-      runsForEffect(az, refs),
+      listDefinitions(az, repo),
+      runsFor(az, refs),
     ]);
     if (error) {
       return {
@@ -446,7 +412,7 @@ export const pipelineItemsEffect = (
     }
 
     const { project } = az;
-    const url = (id: number) => buildUrl(id, az);
+    const url = (id: number): string | undefined => buildUrl(id, az);
 
     // Definitions come from this repository's folder; runs that match none of them are ignored,
     // which is what keeps a monorepo's other services out of this widget.
@@ -464,8 +430,8 @@ export const pipelineItemsEffect = (
     );
     const expected = new Map(
       yield* Effect.all(
-        running.map((d) => Effect.map(expectedDurationEffect(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
-        // The old Promise.all was unbounded, so this stays unbounded.
+        running.map((d) => Effect.map(expectedDuration(az, d.id), (ms): [number, number | undefined] => [d.id, ms])),
+        // Unbounded: the shared CLI semaphore caps how many of these run at once.
         { concurrency: "unbounded" },
       ),
     );
@@ -497,13 +463,13 @@ export const pipelineItemsEffect = (
               mine.map((run, index) => ({ run, index })),
               ({ run, index }) =>
                 Effect.gen(function* () {
-                  const version = yield* versionOfEffect(run, project);
+                  const version = yield* versionOf(run, project);
                   const child = children[index]!;
                   if (version) {
                     child.detail = [child.detail, version].filter(Boolean).join(" · ");
                   }
                 }),
-              // The old Promise.all was unbounded, so this stays unbounded.
+              // Unbounded: the shared CLI semaphore caps how many of these run at once.
               { concurrency: "unbounded", discard: true },
             );
           }
@@ -520,7 +486,7 @@ export const pipelineItemsEffect = (
           };
         }),
       ),
-      // The old Promise.all was unbounded, so this stays unbounded.
+      // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
     );
 

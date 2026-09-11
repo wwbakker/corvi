@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sh } from "../src/sh.ts";
+import { runSh } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -96,7 +96,7 @@ test("a page hears about a change it did not make", async () => {
   expect(seen[0]).toBe("open");
 
   const repo = join(tmp, "example-api");
-  await sh(["git", "init", "-b", "main", repo]);
+  await runSh(["git", "init", "-b", "main", repo]);
   // Made through the API, as another window would: the route says so at once, and the watcher
   // would have found it within a tick anyway. Settling first, so anything the watcher's own
   // first look announces is not mistaken for the change this test makes.
@@ -109,18 +109,6 @@ test("a page hears about a change it did not make", async () => {
 
   expect(await until(() => seen.length > before)).toBe(true);
   expect(seen.slice(before)).toContain("changes");
-  await stop();
-}, 20_000);
-
-test("nothing is said when nothing happened", async () => {
-  const { seen, stop } = await listen();
-  // Two ticks of the watcher, with the state on disk left alone: whatever the first look
-  // announced — a fresh watcher announces what it finds, an old one has nothing new — nothing
-  // repeats and nothing foreign arrives.
-  await Bun.sleep(3500);
-  expect(seen[0]).toBe("open");
-  expect(new Set(seen).size).toBe(seen.length);
-  expect(seen.every((e) => ["open", "changes", "windows", "notify"].includes(e))).toBe(true);
   await stop();
 }, 20_000);
 

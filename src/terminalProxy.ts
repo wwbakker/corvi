@@ -110,7 +110,7 @@ type Bridge = { upstream?: WebSocket; queue: (string | Uint8Array)[]; port: numb
  * it leaves a terminal that never starts.
  */
 export const bridge = {
-  open(ws: ServerWebSocket<Bridge>) {
+  open(ws: ServerWebSocket<Bridge>): void {
     const upstream = new WebSocket(`ws://127.0.0.1:${ws.data.port}/ws`, ["tty"]);
     upstream.binaryType = "arraybuffer";
     upstream.onopen = () => {
@@ -123,7 +123,7 @@ export const bridge = {
     ws.data.upstream = upstream;
   },
 
-  message(ws: ServerWebSocket<Bridge>, message: string | Uint8Array) {
+  message(ws: ServerWebSocket<Bridge>, message: string | Uint8Array): void {
     if (process.env.IWE_TRACE) {
       const text = typeof message === "string" ? message : new TextDecoder().decode(message);
       console.log("[bridge] from browser:", JSON.stringify(text));
@@ -133,7 +133,7 @@ export const bridge = {
     else ws.data.queue.push(message);
   },
 
-  close(ws: ServerWebSocket<Bridge>) {
+  close(ws: ServerWebSocket<Bridge>): void {
     ws.data.upstream?.close();
   },
 };

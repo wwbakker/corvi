@@ -6,7 +6,7 @@ import { guard, sameSite } from "../src/origin.ts";
  * you already have open. A page on any website can post to it, and while it cannot read the
  * answer, it does not need to read anything to create a change or delete a leftover.
  */
-const asked = (headers: Record<string, string>, url = "http://127.0.0.1:4000/api/changes") =>
+const asked = (headers: Record<string, string>, url = "http://127.0.0.1:4000/api/changes"): boolean =>
   sameSite(new Request(url, { headers }));
 
 test("who is allowed to ask", () => {
