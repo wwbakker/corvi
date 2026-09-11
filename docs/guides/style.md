@@ -53,7 +53,8 @@ across a module boundary; never a duck the caller probes.
 is named for the one thing it does.
 
 - **Right:** `extensions/`, `extensionsFor`, one `git.ts`.
-- **Tell:** `src/local.ts` both meaning "local changes" alongside `integrations/git.ts`; or a
+- **Tell:** `src/change/server/review.ts` both meaning "local changes" alongside
+  `integrations/git.ts`; or a
   new field named `integration` where the wire contract (`Widget.integration`) does not force it.
 
 ## 6. Shared means shared
@@ -84,9 +85,11 @@ do not call `fetch` themselves.
 ## 9. Shared code has a place, not a list
 
 Pure code both the server and the browser need lives in `src/core/domain/`. The lint boundary is
-then structural rather than an allowlist.
+then structural rather than an allowlist: it covers every server tree, for `src/web/**` and for
+a module's `client/` half alike, with only `src/core/domain/` and a module's `model.ts` importable
+by value.
 
-- **Right:** `src/core/domain/change.ts`, importable from `src/web/**`.
+- **Right:** `src/core/domain/change.ts`, importable from `src/web/**` and `src/change/client/**`.
 - **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
   `src/core/domain/`.
 

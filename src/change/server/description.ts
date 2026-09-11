@@ -1,10 +1,10 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change } from "./core/domain/change.ts";
-import { prItem } from "./integrations/github.ts";
-import { descriptionSectionsFor } from "./core/host/index.ts";
-import { capabilitiesLayer } from "./core/host/services.ts";
-import { workspaceOf } from "./workspaces.ts";
+import type { Change } from "../../core/domain/change.ts";
+import { prItem } from "../../integrations/github.ts";
+import { descriptionSectionsFor } from "../../core/host/index.ts";
+import { capabilitiesLayer } from "../../core/host/services.ts";
+import { workspaceOf } from "../../workspaces.ts";
 
 /**
  * The text to paste into a pull request: the tickets it implements — whatever the extensions

@@ -1,16 +1,23 @@
 import { Effect } from "effect";
 import {
   applyPatch,
+  cancelChange,
+  commitChange,
+  completeChange,
+  completionOf,
   createChange,
+  fileDiff,
   listChanges,
+  localChanges,
+  prDescription,
+  progressOf,
+  pushChange,
   readNotes,
+  refreshTitles,
   writeChange,
   writeNotes,
-} from "../changes.ts";
-import { cancelChange } from "../cancel.ts";
-import { commitChange, pushChange, type CommitRequest } from "../commit.ts";
-import { completeChange, completionOf, progressOf } from "../complete.ts";
-import { prDescription } from "../description.ts";
+  type CommitRequest,
+} from "../change/server/index.ts";
 import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
@@ -18,10 +25,8 @@ import { Workspace } from "../effect/tags.ts";
 import { announce } from "../events.ts";
 import { applyCreatingHooks, provision } from "../core/host/index.ts";
 import { repoStates, setRepos } from "../integrations/git.ts";
-import { fileDiff, localChanges } from "../local.ts";
 import { guard } from "../origin.ts";
 import { summaryOf } from "../summary.ts";
-import { refreshTitles } from "../titles.ts";
 import { workspaceOf } from "../workspaces.ts";
 import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "./helpers.ts";
 

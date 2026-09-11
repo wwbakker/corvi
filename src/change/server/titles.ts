@@ -1,9 +1,9 @@
 import { Effect } from "effect";
-import type { Change } from "./core/domain/change.ts";
-import { listChanges, writeChange } from "./changes.ts";
-import { titleSourcesFor } from "./core/host/index.ts";
-import { capabilitiesLayer } from "./core/host/services.ts";
-import { workspaceOf } from "./workspaces.ts";
+import type { Change } from "../../core/domain/change.ts";
+import { listChanges, writeChange } from "./store.ts";
+import { titleSourcesFor } from "../../core/host/index.ts";
+import { capabilitiesLayer } from "../../core/host/services.ts";
+import { workspaceOf } from "../../workspaces.ts";
 
 /**
  * What to call a change on the overview: its ticket's summary, which says what the work is,

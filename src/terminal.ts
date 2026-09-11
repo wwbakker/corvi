@@ -4,7 +4,7 @@ import { openSync, closeSync } from "node:fs";
 import { Deferred, Duration, Effect, Exit } from "effect";
 import type { Change } from "./core/domain/change.ts";
 import { join } from "node:path";
-import { changeDir } from "./changes.ts";
+import { changeDir } from "./change/server/store.ts";
 import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { sh, shOrThrow, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";

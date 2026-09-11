@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, changeDir } from "../src/changes.ts";
+import { createChange, changeDir } from "../src/change/server/index.ts";
 import {
   setRepos,
   checkoutFor,
@@ -231,7 +231,7 @@ test("an in-place branch does not track the branch it started from", async () =>
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../src/local.ts");
+  const { parseStatus } = await import("../src/change/server/index.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provision(change));
@@ -285,7 +285,7 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
 });
 
 test("committing takes the files you ticked, in every repository at once", async () => {
-  const { commitChange } = await import("../src/commit.ts");
+  const { commitChange } = await import("../src/change/server/index.ts");
   const a = await clonedRepo("commit-a");
   const b = await clonedRepo("commit-b");
   const change = await changeFor("PROJ-COMMIT", [a, b]);
@@ -326,7 +326,7 @@ test("committing takes the files you ticked, in every repository at once", async
 });
 
 test("a repository that refuses to commit does not stop the others", async () => {
-  const { commitChange } = await import("../src/commit.ts");
+  const { commitChange } = await import("../src/change/server/index.ts");
   const good = await clonedRepo("commit-good");
   const change = await changeFor("PROJ-PARTIAL", [good]);
   await runEffect(provision(change));
@@ -345,7 +345,7 @@ test("a repository that refuses to commit does not stop the others", async () =>
 });
 
 test("what is committed but only here is counted, and pushing takes it away", async () => {
-  const { pushChange } = await import("../src/commit.ts");
+  const { pushChange } = await import("../src/change/server/index.ts");
   const repo = await clonedRepo("push");
   const change = await changeFor("PROJ-PUSH", [repo]);
   await runEffect(provision(change));

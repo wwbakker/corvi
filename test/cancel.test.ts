@@ -2,11 +2,11 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChange, changeDir } from "../src/changes.ts";
+import { createChange, readChange, changeDir } from "../src/change/server/index.ts";
 import { provisionRepo, checkoutFor } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
-import { cancelChange } from "../src/cancel.ts";
+import { cancelChange } from "../src/change/server/index.ts";
 import { install, loaded } from "../src/core/host/registry.ts";
 import type { Result } from "../src/sh.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/core/domain/change.ts";
@@ -144,7 +144,7 @@ test("a change cannot be declared finished by hand", async () => {
   // The select offers the states you are in; this is where that is true rather than merely
   // displayed. Picking "Completed" from a list would set the word without merging anything,
   // removing a worktree or archiving the change.
-  const { applyPatch } = await import("../src/changes.ts");
+  const { applyPatch } = await import("../src/change/server/index.ts");
   const change = await runEffect(createChange({
     id: "PROJ-HAND",
     branch: "PROJ-HAND-x",

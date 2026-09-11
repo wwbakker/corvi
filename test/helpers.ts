@@ -8,8 +8,8 @@ import type { CliError } from "../src/effect/errors.ts";
 import { swr } from "../src/cache.ts";
 import { workspaceById } from "../src/workspaces.ts";
 import type { Change } from "../src/core/domain/change.ts";
-import { cancelChange } from "../src/cancel.ts";
-import { fileDiff, localChanges, type LocalStatus } from "../src/local.ts";
+import { cancelChange } from "../src/change/server/index.ts";
+import { fileDiff, localChanges, type LocalStatus } from "../src/change/server/index.ts";
 import {
   deploy,
   versionsFor,

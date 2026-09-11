@@ -139,7 +139,8 @@ export type CompletionProgress = {
 };
 
 /** One file git has something to say about, in the vocabulary git itself uses. Lives here rather
- * than in local.ts because the page needs the type and must not pull the server's modules in. */
+ * than in src/change/server/review.ts because the page needs the type and must not pull the
+ * server's modules in. */
 export type FileChange = {
   path: string;
   /** Status of the index against HEAD, and of the working tree against the index: git's own XY

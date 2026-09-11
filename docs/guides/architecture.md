@@ -15,7 +15,10 @@ src/
   effect/              errors (taxonomy) · http→status mapping · runRoute · Workspace tag
   schemas/             Effect Schemas for change.json and config.json
   config.ts settings.ts  config file + settings page
-  changes.ts complete.ts cancel.ts commit.ts local.ts summary.ts titles.ts …  core domain
+  change/              the change module: model.ts, server/ (store, create, complete, cancel,
+                       commit, review, titles, description, leftovers, index.ts), client/ (the
+                       page, the dialogs, the review surface)
+  summary.ts           the overview summary, still top-level until it moves into the change module
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
   terminal.ts terminalProxy.ts  tmux sessions, ttyd spawn, ws bridge
   integrations/        vendor CLI wrappers (git, github, azure, stacks)
@@ -68,9 +71,9 @@ the page shell. Everything else is a surface an extension can contribute to.
 - **Extensions** import only from `src/core/host/api.ts`, which is the whole promise. The host
   provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`, `ExtensionStore`)
   so an extension's requirements arrive through the Effect `R` channel.
-- **The browser** (`src/web/**`) must not import backend modules that shell out or touch the
-  filesystem; `eslint.config.js` enforces the boundary and `src/core/domain/**` is where pure
-  vocabulary both sides need belongs.
+- **The browser halves** (`src/web/**` and a module's `client/**`) must not import backend
+  modules that shell out or touch the filesystem; `eslint.config.js` enforces the boundary for
+  both depths and `src/core/domain/**` is where pure vocabulary both sides need belongs.
 - **HTTP** is the only client/server boundary — no shared runtime state across it.
 
 ## Running it

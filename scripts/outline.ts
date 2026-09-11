@@ -3,7 +3,7 @@
  * What a reader (or an agent) needs to work against a module, without paying for its
  * implementation.
  *
- *   bun run outline src/changes.ts          # one file
+ *   bun run outline src/core/domain/change.ts  # one file
  *   bun run outline src/extensions          # a directory: its index.ts, or its .ts files
  *   bun run outline src/core/domain/change.ts src/sh.ts  # several
  *

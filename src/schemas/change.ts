@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import { CHANGE_STATES, type Change as ChangeShape } from "../core/domain/change.ts";
 
 /**
- * The change.json on disk — the JSON boundary of a change (src/changes.ts).
+ * The change.json on disk — the JSON boundary of a change (src/change/server/store.ts).
  *
  * Decode keeps unknown keys (`onExcessProperty: "preserve"` at the decode site): a change.json
  * carries whatever the code that wrote it put there, and rewriting it must not drop fields a

@@ -6,7 +6,7 @@ import type { Widget, WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { shOrThrow } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";
-import { writeChange, writeWtConfig, changeDir } from "../changes.ts";
+import { writeChange, writeWtConfig, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../platform.ts";
 import { BadRequestError, type CliError } from "../effect/errors.ts";
 import { fs, shSoft } from "../effect/support.ts";

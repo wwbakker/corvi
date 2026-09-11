@@ -1,10 +1,10 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { root, ARCHIVE, changeDir } from "./changes.ts";
-import { sh, type Result } from "./sh.ts";
-import { BadRequestError } from "./effect/errors.ts";
-import { fs } from "./effect/support.ts";
+import { root, ARCHIVE, changeDir } from "./store.ts";
+import { sh, type Result } from "../../sh.ts";
+import { BadRequestError } from "../../effect/errors.ts";
+import { fs } from "../../effect/support.ts";
 
 /**
  * A directory in the changes root that no longer belongs to a change: what a completed change

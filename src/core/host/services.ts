@@ -19,7 +19,7 @@ import {
   readExtensionFile,
   setExtensionData,
   writeExtensionFile,
-} from "../../changes.ts";
+} from "../../change/server/store.ts";
 import type { Workspace as WorkspaceShape } from "../../config.ts";
 
 /**

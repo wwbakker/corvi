@@ -330,7 +330,7 @@ test("a review thread you answered last is not waiting on you", () => {
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../src/web/LocalPane.tsx");
+  const { summarise } = await import("../src/change/client/LocalPane.tsx");
   const status = (files: unknown[], unpushed = 0): { repo: string; name: string; files: never[]; unpushed: number; tracked: boolean; } => ({
     repo: "/r",
     name: "r",

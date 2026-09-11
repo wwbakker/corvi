@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { api, type Change } from "./api.ts";
-import { stateClass } from "./changeState.tsx";
+import { stateClass } from "../change/client/changeState.tsx";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, type ChangeSummary } from "../core/domain/change.ts";
 import type { TerminalWindow } from "../core/domain/terminal.ts";

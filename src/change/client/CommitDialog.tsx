@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { post } from "./api.ts";
-import type { FileChange } from "../core/domain/change.ts";
+import { post } from "../../web/api.ts";
+import type { FileChange } from "../../core/domain/change.ts";
 
 export type CommitResult = {
   repo: string;

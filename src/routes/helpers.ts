@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { readChange } from "../changes.ts";
+import { readChange } from "../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "../effect/errors.ts";
 import { messageOf } from "../effect/support.ts";
 import { runRoute } from "../effect/run.ts";

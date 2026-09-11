@@ -13,7 +13,7 @@ import {
   provision,
 } from "../src/core/host/index.ts";
 import { extensionStoreLayer } from "../src/core/host/services.ts";
-import { archiveChange, changeDir, createChange, readChange } from "../src/changes.ts";
+import { archiveChange, changeDir, createChange, readChange } from "../src/change/server/index.ts";
 import { BadRequestError, ConflictError } from "../src/effect/errors.ts";
 import { config } from "../src/config.ts";
 import type { Change, Change as ChangeShape } from "../src/core/domain/change.ts";

@@ -1,19 +1,12 @@
-import { join, basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
-import {
-  CHANGE_STATES,
-  isFinished,
-  type Change,
-  type ChangeDraft,
-  type ChangeState,
-} from "./core/domain/change.ts";
-import { Change as ChangeSchema } from "./schemas/change.ts";
-import { BadRequestError, ConflictError, DecodeError, NotFoundError } from "./effect/errors.ts";
-import { fs } from "./effect/support.ts";
-import { config } from "./config.ts";
-export { branchFor } from "./core/domain/change.ts";
+import type { Change } from "../../core/domain/change.ts";
+import { Change as ChangeSchema } from "../../schemas/change.ts";
+import { BadRequestError, DecodeError, NotFoundError } from "../../effect/errors.ts";
+import { fs } from "../../effect/support.ts";
+import { config } from "../../config.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
 export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;
@@ -71,40 +64,6 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
     );
     return yield* decodeChange(text, dir);
   });
-
-/**
- * The two fields you may edit by hand: what a change is called, and where it stands.
- *
- * Here rather than in the route, so what is allowed can be tested without a server — and so the
- * one rule that matters is stated once: a change ends by being completed or cancelled, which
- * merge, remove worktrees and archive. Setting the word by hand would do none of that and claim
- * it had happened.
- *
- * Purely synchronous, so no Effect wrapper: the validation throws the typed taxonomy
- * (BadRequestError / ConflictError). The server route converts those throws into failures at
- * the boundary (Effect.try).
- */
-export function applyPatch(change: Change, patch: { state?: string; title?: string }): Change {
-  if (patch.state && !CHANGE_STATES.includes(patch.state as ChangeState)) {
-    throw new BadRequestError({ message: `unknown state: ${patch.state}` });
-  }
-  if (patch.state && isFinished({ ...change, state: patch.state as ChangeState })) {
-    throw new ConflictError({
-      message: `${patch.state} is what completing or cancelling a change sets`,
-    });
-  }
-  const title = patch.title?.trim();
-  return {
-    ...change,
-    state: (patch.state as ChangeState) ?? change.state,
-    // An empty title hands the name back to the ticket; anything else is yours to keep.
-    ...(patch.title === undefined
-      ? {}
-      : title
-        ? { title, titleEdited: true }
-        : { title: undefined, titleEdited: undefined }),
-  };
-}
 
 export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
@@ -270,48 +229,4 @@ export const writeWtConfig = (id: string): Effect.Effect<string> =>
       yield* fs(() => Bun.write(path, `worktree-path = "${dir}/{{ repo }}"\n`));
     }
     return path;
-  });
-
-
-/** The core's creation input: the plain draft the wizard collected and the `change:creating`
- * hooks transformed, plus the legacy `jira` field kept for records written before the
- * `extensions` bag existed. */
-export type CreateChangeInput = ChangeDraft & { jira?: string };
-
-/** Create a change from an already-transformed draft. Every invariant is re-checked here — the
- * id shape, the non-empty repository list, the starting state — so a hook's patch is applied
- * by the caller and then validated by the core before anything is written: an extension may
- * suggest, never bypass. */
-export const createChange = (
-  input: CreateChangeInput,
-): Effect.Effect<Change, BadRequestError | ConflictError | DecodeError> =>
-  Effect.gen(function* () {
-    const id = input.id.trim();
-    if (!id || id !== basename(id) || id.startsWith(".")) {
-      return yield* new BadRequestError({ message: `invalid change id: ${input.id}` });
-    }
-    if (yield* readChange(id)) {
-      return yield* new ConflictError({ message: `change already exists: ${id}` });
-    }
-    const repos = (input.repos ?? []).map((r) => r.trim()).filter(Boolean);
-    if (repos.length === 0) {
-      return yield* new BadRequestError({ message: "select at least one repository" });
-    }
-    const change: Change = {
-      id,
-      branch: input.branch?.trim() || id,
-      repos,
-      direct: input.direct?.filter((r) => repos.includes(r)),
-      base: input.base,
-      jira: input.jira?.trim() || undefined,
-      extensions: input.extensions,
-      // The context it was made in. Unknown means the first workspace, where every change
-      // without one belongs.
-      workspace: input.workspace?.trim() || undefined,
-      state: "In Progress",
-      createdAt: new Date().toISOString(),
-    };
-    yield* writeChange(change);
-    yield* writeWtConfig(id);
-    return change;
   });

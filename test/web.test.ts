@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import type { Change } from "../src/core/domain/change.ts";
 import { aborted, api, del, patch, post, put, type ApiError } from "../src/web/api.ts";
-import { stateClass } from "../src/web/changeState.tsx";
+import { stateClass } from "../src/change/client/changeState.tsx";
 import { moment } from "../src/web/moment.ts";
 import { getPref, setPref } from "../src/web/prefs.ts";
 import {

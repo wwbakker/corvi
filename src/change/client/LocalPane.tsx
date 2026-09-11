@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post } from "./api.ts";
+import { api, post } from "../../web/api.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
-import type { FileChange } from "../core/domain/change.ts";
+import type { FileChange } from "../../core/domain/change.ts";
 
 export type LocalStatus = {
   repo: string;

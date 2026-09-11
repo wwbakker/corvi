@@ -1,0 +1,63 @@
+/**
+ * The change module's public face for the server: the pure edit rule, the store, and one file
+ * per operation. Routes and other core modules enter here; the module's own files import each
+ * other (and the store) directly, which is what keeps this barrel cycle-free.
+ *
+ * The client half (`../client/`) has its own entry points and is not re-exported here: a
+ * server barrel pulled into the browser bundle would drag the filesystem and the CLIs with it.
+ */
+export { applyPatch } from "../model.ts";
+
+export {
+  root,
+  ARCHIVE,
+  changeDir,
+  archiveDir,
+  wtConfigPath,
+  readChange,
+  writeChange,
+  readSidecar,
+  writeSidecar,
+  readNotes,
+  writeNotes,
+  listExtensionFiles,
+  readExtensionFile,
+  writeExtensionFile,
+  setExtensionData,
+  archiveChange,
+  listChanges,
+  writeWtConfig,
+} from "./store.ts";
+
+export { createChange, type CreateChangeInput } from "./create.ts";
+
+export {
+  completeChange,
+  completionOf,
+  progressOf,
+  stepsFor,
+  verdict,
+  type Completion,
+} from "./complete.ts";
+
+export { cancelChange, looseEnds, type Cancelled, type NeedsForce } from "./cancel.ts";
+
+export { commitChange, pushChange, type CommitRequest, type CommitResult } from "./commit.ts";
+
+export { refreshTitles } from "./titles.ts";
+
+export { describeChange, prDescription } from "./description.ts";
+
+export { listLeftovers, removeLeftover, type Leftover } from "./leftovers.ts";
+
+export {
+  aheadIn,
+  fileDiff,
+  localChanges,
+  parseStatus,
+  trackedIn,
+  type FileChange,
+  type LocalStatus,
+} from "./review.ts";
+
+export { branchFor } from "../../core/domain/change.ts";

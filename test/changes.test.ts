@@ -13,7 +13,7 @@ import {
   writeChange,
   readNotes,
   writeNotes,
-} from "../src/changes.ts";
+} from "../src/change/server/index.ts";
 import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/integrations/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/core/domain/change.ts";
@@ -221,7 +221,7 @@ test("a completed change is listed once, even when its directory is left behind"
 });
 
 test("directories left by finished changes are found, and only those", async () => {
-  const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
+  const { listLeftovers, removeLeftover } = await import("../src/change/server/index.ts");
   const active = await runEffect(createChange({ id: "PROJ-ALIVE", repos: [repo] }));
 
   // A change that was completed: change.json moved to the archive, the directory stayed.
@@ -248,7 +248,7 @@ test("directories left by finished changes are found, and only those", async () 
 });
 
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
-  const { listLeftovers, removeLeftover } = await import("../src/leftovers.ts");
+  const { listLeftovers, removeLeftover } = await import("../src/change/server/index.ts");
   const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] }));
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
@@ -270,7 +270,7 @@ test("deleting a leftover with a worktree in it prunes the repository afterwards
 });
 
 test("a completion records itself before it starts checking anything", async () => {
-  const { completeChange, progressOf } = await import("../src/complete.ts");
+  const { completeChange, progressOf } = await import("../src/change/server/index.ts");
   const change = await runEffect(createChange({ id: "PROJ-EARLY", repos: [repo] }));
 
   // Nothing yet: a change that was never completed has no record at all.
@@ -347,7 +347,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
 });
 
 test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
-  const { refreshTitles } = await import("../src/titles.ts");
+  const { refreshTitles } = await import("../src/change/server/index.ts");
   const { install, loaded } = await import("../src/core/host/index.ts");
 
   // A stub source claiming every change that has a jira key, answering from a map the test
@@ -407,7 +407,7 @@ test("a change is named after its ticket, and keeps that name when its vendor is
 
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("../src/core/domain/change.ts");
-  const { stateClass } = await import("../src/web/changeState.tsx");
+  const { stateClass } = await import("../src/change/client/changeState.tsx");
 
   // How much of your attention each state asks for: the select offers them in this order and the
   // lists sort by it.
@@ -430,7 +430,7 @@ test("a change may be blocked, which is active but not workable", async () => {
 });
 
 test("a name you wrote yourself is not overwritten by the ticket's", async () => {
-  const { refreshTitles } = await import("../src/titles.ts");
+  const { refreshTitles } = await import("../src/change/server/index.ts");
   const { install, loaded } = await import("../src/core/host/index.ts");
 
   const answers = new Map<string, string>();

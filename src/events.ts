@@ -1,5 +1,5 @@
 import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
-import { listChanges } from "./changes.ts";
+import { listChanges } from "./change/server/store.ts";
 import { allWindows } from "./terminal.ts";
 import { config } from "./config.ts";
 

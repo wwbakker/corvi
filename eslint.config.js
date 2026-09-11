@@ -1,10 +1,11 @@
 import tseslint from "typescript-eslint";
 
 /**
- * The one rule this exists to enforce: `src/web/**` is the browser bundle, and importing a
- * backend module into it does not fail loudly — Bun's HTML-import bundler pulls it in quietly,
- * and the first sign of trouble is an unrelated page timing out in a WebKit test, minutes later
- * and three files away from the mistake.
+ * The one rule this exists to enforce: the browser's own code — `src/web/**` and every module's
+ * `client/` half — is bundled into the page, and importing a backend module into it does not fail
+ * loudly. Bun's HTML-import bundler pulls the module in quietly, and the first sign of trouble is
+ * an unrelated page timing out in a WebKit test, minutes later and three files away from the
+ * mistake.
  *
  * Deliberately narrow rather than a general-purpose recommended config: `tsc --noEmit` already
  * checks types, and turning on style/correctness rules across a codebase that was never linted
@@ -16,24 +17,69 @@ import tseslint from "typescript-eslint";
  * inner functions, with expressions exempt so inline callbacks do not need a return annotation.
  * Return types are part of the contract a caller reads; inference across a module boundary turns a
  * signature change into a silent one. Its `files` are broad because the rule applies to every
- * TypeScript source in the repo, while the import-boundary block below stays a separate, narrower
- * object so the shared parser setup cannot accidentally weaken it.
+ * TypeScript source in the repo, while the import-boundary blocks below stay separate, narrower
+ * objects so the shared parser setup cannot accidentally weaken them.
  *
  * `import type` is exempt (`allowTypeImports`): those are erased at compile time by
  * `verbatimModuleSyntax` and never reach the bundle, which is how `SettingsPage.tsx` reads
  * `Config`'s shape from `config.ts` without pulling in the `az`/`gh`/`jira` CLI calls that live
  * beside it.
  *
- * Everything else outside `src/web/` that is not the pure domain is backend: it shells out to
- * CLIs, touches the filesystem, or both. `src/core/domain/` is the structural exception — pure
- * vocabulary and pure operations (no `node:*`, no `Bun.*`, no Effect runtime) that both the
- * server and the browser need, importable by value from `src/web/**`. A module's pure `model.ts`
- * joins it as the modules land, so the rule allows both. The patterns are relative to
- * `src/web/`, and the group restricts every server tree — the top-level files, `integrations/`,
- * the built-ins' server halves, `routes/`, `effect/`, `schemas/` and all of `core/` — then
- * re-includes `core/domain/` and any module's `model.ts`. Put a new shared vocabulary module in
- * `src/core/domain/`, not next to the server.
+ * Everything else outside the browser halves that is not the pure domain is backend: it shells
+ * out to CLIs, touches the filesystem, or both. `src/core/domain/` is the structural exception —
+ * pure vocabulary and pure operations (no `node:*`, no `Bun.*`, no Effect runtime) that both the
+ * server and the browser need, importable by value from a browser half. A module's pure
+ * `model.ts` joins it as the modules land, so the rule allows both. The patterns are matched
+ * against the specifier as written, so `serverImports` builds them from the path back to `src/` —
+ * `../` for `src/web/**`, `../../` for `src/<module>/client/**` — and the client block adds the
+ * sibling `../server/**` by which a module half imports its own server. The group restricts every
+ * server tree — the top-level files, `integrations/`, the built-ins' server halves, `routes/`,
+ * `effect/`, `schemas/`, all of `core/` and a module's `server/` (`change/server/**` today) —
+ * then re-includes `core/domain/` and any module's `model.ts`. Put a new shared vocabulary module
+ * in `src/core/domain/`, not next to the server.
  */
+
+/**
+ * The server trees a browser half may not import by value, as specifiers relative to it. `up` is
+ * the path from the half's directory back to `src/`: `../` from `src/web/**`, `../../` from
+ * `src/<module>/client/**`. `extra` carries patterns that only make sense at one depth — a module
+ * client half's own server directory is the sibling `../server/**`, while `src/web` has none. The
+ * negations re-admit the pure domain and a module's `model.ts`, and follow the patterns they
+ * narrow, which is the order `no-restricted-imports` applies them in.
+ */
+const serverImports = (up, extra = []) => [
+  `${up}*.ts`,
+  ...extra,
+  `${up}change/server/**`,
+  `${up}core/**`,
+  `!${up}core/domain`,
+  `!${up}core/domain/**`,
+  `${up}integrations/**`,
+  `${up}extensions/**`,
+  `${up}effect/**`,
+  `${up}schemas/**`,
+  `${up}routes/**`,
+  `!${up}**/model.ts`,
+];
+
+/** The `no-restricted-imports` rule value for one depth of browser half. */
+const browserBoundary = (up, extra = []) => [
+  "error",
+  {
+    patterns: [
+      {
+        group: serverImports(up, extra),
+        message:
+          "a browser half (src/web/** or src/<module>/client/**) may only import server " +
+          "modules with `import type`, which is erased before the bundle sees it. The pure " +
+          "domain under src/core/domain/ (and a module's model.ts) is importable by value; put " +
+          "new shared vocabulary there.",
+        allowTypeImports: true,
+      },
+    ],
+  },
+];
+
 export default tseslint.config(
   {
     ignores: ["node_modules/**", "assets/**", "shots/**"],
@@ -66,33 +112,17 @@ export default tseslint.config(
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      "no-restricted-imports": [
-        "error",
-        {
-          patterns: [
-            {
-              group: [
-                "../*.ts",
-                "../integrations/**",
-                "../extensions/**/*.ts",
-                "../routes/**",
-                "../effect/**",
-                "../schemas/**",
-                "../core/**",
-                "!../core/domain",
-                "!../core/domain/**",
-                "!../**/model.ts",
-              ],
-              message:
-                "src/web is the browser bundle: server modules (CLI/fs code such as config.ts, " +
-                "sh.ts, azure.ts, ...) may only be imported with `import type`, which is erased " +
-                "before the bundle sees it. The pure domain under src/core/domain/ (and a " +
-                "module's model.ts) is importable by value; put new shared vocabulary there.",
-              allowTypeImports: true,
-            },
-          ],
-        },
-      ],
+      "no-restricted-imports": browserBoundary("../"),
+    },
+  },
+  {
+    files: ["src/*/client/**/*.{ts,tsx}"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    rules: {
+      "no-restricted-imports": browserBoundary("../../", ["../server/**"]),
     },
   },
 );

@@ -12,22 +12,22 @@ import {
   type Completion,
   type CardInfo,
   type ProvisionResult,
-} from "./api.ts";
-import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
-import type { TerminalWindow } from "../core/domain/terminal.ts";
-import { useCached } from "./cache.ts";
+} from "../../web/api.ts";
+import { ActionsMenu, type Action } from "../../web/ActionsMenu.tsx";
+import type { TerminalWindow } from "../../core/domain/terminal.ts";
+import { useCached } from "../../web/cache.ts";
 import { stateClass } from "./changeState.tsx";
-import { isFinished } from "../core/domain/change.ts";
-import { LifecycleFailures } from "./LifecycleFailures.tsx";
+import { isFinished } from "../../core/domain/change.ts";
+import { LifecycleFailures } from "../../web/LifecycleFailures.tsx";
 import { NotesCard } from "./NotesCard.tsx";
-import { TerminalPane } from "./TerminalPane.tsx";
-import { CheatSheet } from "./CheatSheet.tsx";
-import type { Platform } from "./newWindowKey.ts";
+import { TerminalPane } from "../../web/TerminalPane.tsx";
+import { CheatSheet } from "../../web/CheatSheet.tsx";
+import type { Platform } from "../../web/newWindowKey.ts";
 import { CompletionCard } from "./CompletionCard.tsx";
 import { LocalPane } from "./LocalPane.tsx";
-import { PerRepoCard } from "./PerRepoCard.tsx";
-import { WidgetCard } from "./WidgetCard.tsx";
-import { WindowTabs } from "./WindowTabs.tsx";
+import { PerRepoCard } from "../../web/PerRepoCard.tsx";
+import { WidgetCard } from "../../web/WidgetCard.tsx";
+import { WindowTabs } from "../../web/WindowTabs.tsx";
 
 /** Branch names start with the change id, which the crumb already shows: drop the repetition. */
 const branchLabel = (id: string, branch: string): string =>

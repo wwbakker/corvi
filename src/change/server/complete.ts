@@ -1,32 +1,32 @@
 import { basename } from "node:path";
 import { Effect, Either } from "effect";
-import type { Change, CompletionProgress, CompletionStep } from "./core/domain/change.ts";
-import type { MergeReadiness } from "./integrations/github.ts";
-import { mergeReadiness, mergePr } from "./integrations/github.ts";
-import { removeWorktree, unsafeToRemove, type Unsafe } from "./integrations/git.ts";
+import type { Change, CompletionProgress, CompletionStep } from "../../core/domain/change.ts";
+import type { MergeReadiness } from "../../integrations/github.ts";
+import { mergeReadiness, mergePr } from "../../integrations/github.ts";
+import { removeWorktree, unsafeToRemove, type Unsafe } from "../../integrations/git.ts";
 import {
   archiveChange,
   readSidecar,
   writeChange,
   writeSidecar,
-} from "./changes.ts";
-import { stopTerminal } from "./terminal.ts";
-import { config } from "./config.ts";
+} from "./store.ts";
+import { stopTerminal } from "../../terminal.ts";
+import { config } from "../../config.ts";
 import {
   afterChange,
   beforeChange,
   completionStepsFor,
   type ProvisionResult,
-} from "./core/host/index.ts";
-import { capabilitiesLayer } from "./core/host/services.ts";
-import { workspaceOf } from "./workspaces.ts";
+} from "../../core/host/index.ts";
+import { capabilitiesLayer } from "../../core/host/services.ts";
+import { workspaceOf } from "../../workspaces.ts";
 import {
   BadRequestError,
   DecodeError,
   type CliError,
   type IweError,
-} from "./effect/errors.ts";
-import { messageOf } from "./effect/support.ts";
+} from "../../effect/errors.ts";
+import { messageOf } from "../../effect/support.ts";
 
 export type Completion = {
   /** Every repository is either merged already or has an approved pull request. */

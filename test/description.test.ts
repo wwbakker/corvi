@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { describeChange, prDescription } from "../src/description.ts";
+import { describeChange, prDescription } from "../src/change/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 

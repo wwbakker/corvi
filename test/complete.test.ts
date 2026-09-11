@@ -9,8 +9,8 @@ import {
   progressOf,
   stepsFor,
   verdict,
-} from "../src/complete.ts";
-import { changeDir, createChange, readChange, writeSidecar } from "../src/changes.ts";
+} from "../src/change/server/index.ts";
+import { changeDir, createChange, readChange, writeSidecar } from "../src/change/server/index.ts";
 import { config } from "../src/config.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";

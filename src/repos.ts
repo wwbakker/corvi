@@ -16,7 +16,7 @@ export type Entry = {
 
 /** Resolve a browser path inside the repos root, rejecting anything that escapes it.
  * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError),
- * the way applyPatch in changes.ts does. */
+ * the way applyPatch in src/change/model.ts does. */
 export function resolveInRoot(relative: string): string {
   const full = join(config.reposRoot, normalize(relative));
   if (full !== config.reposRoot && !full.startsWith(config.reposRoot + sep)) {

@@ -8,7 +8,7 @@ import {
   type WidgetItem,
 } from "./api.ts";
 import { cached, putCached } from "./cache.ts";
-import { EditReposDialog } from "./EditReposDialog.tsx";
+import { EditReposDialog } from "../change/client/EditReposDialog.tsx";
 import { usePolled } from "./poll.ts";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 

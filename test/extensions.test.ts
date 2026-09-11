@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChange } from "../src/changes.ts";
+import { createChange, readChange } from "../src/change/server/index.ts";
 import { runEffect, TestError } from "./helpers.ts";
 import { Effect } from "effect";
 import {
@@ -19,7 +19,7 @@ import type {
   WindowPresentation,
 } from "../src/core/host/api.ts";
 import { presentWindow } from "../src/terminal.ts";
-import { looseEnds } from "../src/cancel.ts";
+import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";

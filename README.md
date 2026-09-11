@@ -1337,18 +1337,17 @@ The map, grouped by layer:
     src/cache.ts              stale-while-revalidate for everything the CLIs answer
     src/events.ts             the SSE hub and the watcher behind it
 
-    src/changes.ts            change.json read/write, worktree paths, the archive
-    src/complete.ts           completing a change: merge, close, archive
-    src/cancel.ts             abandoning a change: worktrees back, nothing else touched
-    src/commit.ts             one commit per repository, with one message
-    src/local.ts              uncommitted work in a repository, and one file's diff
+    src/change/               the change module: its server half, its client half, its shared rule
+      model.ts                applyPatch: the two fields you may edit by hand
+      server/                 store.ts (change.json, the archive, sidecars, ExtensionStore files),
+                              create.ts, complete.ts, cancel.ts, commit.ts, titles.ts,
+                              description.ts, leftovers.ts, review.ts, index.ts (the public face)
+      client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
+                              EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
     src/summary.ts            the numbers on an overview card, as contributed facts
-    src/titles.ts             what a change is called, from its ticket
-    src/description.ts        the pull request description an action copies
     src/settings.ts           reading and writing the config file from the page
     src/config.ts             config file + env overrides
     src/repos.ts              directory browsing under reposRoot, remote branches
-    src/leftovers.ts          directories in the changes root without a change
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
     src/platform.ts           platform detection
     src/origin.ts             refusing requests another site made
@@ -1384,21 +1383,16 @@ The map, grouped by layer:
       state.ts                the changes and tmux windows, owned by the app
       events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
       Wizard.tsx              per-component change wizard
-      ChangeView.tsx          widget dashboard for one change
       ChangeCard.tsx          one active change on the overview
-      LocalPane.tsx           the review-changes tab: files, and a diff
-      CommitDialog.tsx        committing across the change
       RepoBrowser.tsx         repository picker: mode and base branch per repository
       SettingsPage.tsx        the config file, as a form
       Sidebar.tsx             the navigation column: changes, pages, terminals
       TerminalPane.tsx        the terminal itself, with CheatSheet.tsx
-      NotesCard.tsx           notes.md for a change
-      CompletionCard.tsx      how far completing a change got
       Leftovers.tsx           directories left in the changes root
       extensions.tsx          the hosts for an extension's step and page
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
-      ActionsMenu.tsx changeState.tsx EditReposDialog.tsx   the rest of the furniture
+      ActionsMenu.tsx         the change page's action menu
       moment.ts newWindowKey.ts prefs.ts Progress.tsx
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
