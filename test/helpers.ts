@@ -1,6 +1,7 @@
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/core/host/services.ts";
+import type { Capabilities } from "../src/core/host/api.ts";
 import { setRepos } from "../src/core/integrations/git.ts";
 import { sh, type Result } from "../src/core/platform/capabilities/sh.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
@@ -9,7 +10,8 @@ import { swr } from "../src/core/platform/capabilities/cache.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import { cancelChange } from "../src/change/server/index.ts";
-import { fileDiff, localChanges, type LocalStatus } from "../src/change/server/index.ts";
+import { fileDiff, localChanges } from "../src/extensions/review/server.ts";
+import type { LocalStatus } from "../src/extensions/review/shared.ts";
 import {
   deploy,
   versionsFor,
@@ -25,8 +27,10 @@ import {
  * included, and hands back a Promise. Nothing else in the test suite needs to know about layers.
  */
 
-/** Run an effect as the default workspace. */
-export const runEffect = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> =>
+/** Run an effect as the default workspace, with the capability services in place. An effect
+ * that requires nothing is one that requires fewer capabilities, so the same helper serves both
+ * the pure effects and the ones that go through `Changes` or `Shell`. */
+export const runEffect = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
 
 /** The same, as the workspace named: for the tests that exercise per-workspace behaviour. */

@@ -2,23 +2,17 @@ import { Effect } from "effect";
 import {
   applyPatch,
   cancelChange,
-  commitChange,
   completeChange,
   completionOf,
   createChange,
-  fileDiff,
   listChanges,
-  localChanges,
   prDescription,
   progressOf,
-  pushChange,
   readNotes,
   refreshTitles,
   writeChange,
   writeNotes,
-  type CommitRequest,
 } from "../../../change/server/index.ts";
-import { BadRequestError } from "../effect/errors.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
@@ -114,57 +108,6 @@ export const changesRoutes = guard({
   // own card.
   "/api/changes/:id/summary": {
     GET: (req) => withChange(req.params.id, (c) => Effect.map(summaryOf(c), json)),
-  },
-
-  // What is uncommitted in one repository, and the diff of one file of it. Live: this is the
-  // work you are doing, and a cached answer would be a wrong one.
-  "/api/changes/:id/local": {
-    GET: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const repo = new URL(req.url).searchParams.get("path");
-          if (!repo) {
-            return yield* new BadRequestError({ message: "path required" });
-          }
-          return json(yield* localChanges(c, repo));
-        }),
-      ),
-  },
-
-  // One commit per repository, with the same message: a change is one piece of work.
-  "/api/changes/:id/commit": {
-    POST: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          return json(yield* commitChange(c, (yield* bodyOf(req)) as CommitRequest));
-        }),
-      ),
-  },
-
-  // Pushing what is committed, in the repositories that have something to push.
-  "/api/changes/:id/push": {
-    POST: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as { repos?: string[] };
-          return json(yield* pushChange(c, body.repos ?? c.repos));
-        }),
-      ),
-  },
-
-  "/api/changes/:id/local/diff": {
-    GET: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const params = new URL(req.url).searchParams;
-          const repo = params.get("path");
-          const file = params.get("file");
-          if (!repo || !file) {
-            return yield* new BadRequestError({ message: "path and file required" });
-          }
-          return json({ text: yield* fileDiff(c, repo, file, params.get("staged") === "1") });
-        }),
-      ),
   },
 
   // Whatever you want to remember about this change; plain text in the change directory.

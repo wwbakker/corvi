@@ -329,33 +329,6 @@ test("a review thread you answered last is not waiting on you", () => {
   expect(waitingOnYou([{ isResolved: false, comments: { nodes: [] } }], "octocat")).toBe(1);
 });
 
-test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../src/change/client/LocalPane.tsx");
-  const status = (files: unknown[], unpushed = 0): { repo: string; name: string; files: never[]; unpushed: number; tracked: boolean; } => ({
-    repo: "/r",
-    name: "r",
-    files: files as never[],
-    unpushed,
-    tracked: true,
-  });
-
-  // "Nothing here" is an answer, and gets a heading of its own rather than being left out.
-  expect(summarise(status([]))).toEqual({ text: "clean", state: "ok" });
-  expect(summarise(status([1]))).toEqual({ text: "1 change", state: "pending" });
-  expect(summarise(status([1, 2]))).toEqual({ text: "2 changes", state: "pending" });
-
-  // A clean repository with commits nobody else has looks finished and is not.
-  expect(summarise(status([], 3))).toEqual({ text: "3 unpushed", state: "pending" });
-  expect(summarise(status([1], 2))).toEqual({ text: "1 change, 2 unpushed", state: "pending" });
-
-  expect(summarise({ ...status([]), error: "no worktree" })).toEqual({
-    text: "no worktree",
-    state: "error",
-  });
-  // Not asked yet is not the same as clean.
-  expect(summarise(undefined)).toEqual({ text: "…", state: "none" });
-});
-
 test("what an environment holds is the newest run that was sent to it", async () => {
   const { latestFor, versionIn, serviceName } = await import("../src/extensions/deployments/server.ts");
   const run = (

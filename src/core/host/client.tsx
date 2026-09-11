@@ -53,6 +53,7 @@ export const clients: Record<string, () => Promise<ClientModule>> = {
   "github-issues": () => import("../../extensions/github-issues/client.tsx"),
   deployments: () => import("../../extensions/deployments/client.tsx"),
   leftovers: () => import("../../extensions/leftovers/client.tsx"),
+  review: () => import("../../extensions/review/client.tsx"),
 };
 
 /** An import the bundler cannot resolve at build time: the specifier is computed, so it

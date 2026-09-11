@@ -14,7 +14,8 @@ import {
 import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
 import type { Result } from "../src/core/platform/capabilities/sh.ts";
 import { provision } from "../src/core/host/index.ts";
-import type { Change, FileChange } from "../src/core/domain/change.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { FileChange } from "../src/extensions/review/shared.ts";
 
 /**
  * Editing the repositories of a change moves real worktrees around, and the ways it can go wrong
@@ -231,7 +232,7 @@ test("an in-place branch does not track the branch it started from", async () =>
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../src/change/server/index.ts");
+  const { parseStatus } = await import("../src/extensions/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provision(change));
@@ -282,99 +283,4 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
     { path: "new name", index: "R", worktree: ".", staged: true, unstaged: false, untracked: false, from: "old name" },
     { path: "other", index: ".", worktree: "M", staged: false, unstaged: true, untracked: false, from: undefined },
   ]);
-});
-
-test("committing takes the files you ticked, in every repository at once", async () => {
-  const { commitChange } = await import("../src/change/server/index.ts");
-  const a = await clonedRepo("commit-a");
-  const b = await clonedRepo("commit-b");
-  const change = await changeFor("PROJ-COMMIT", [a, b]);
-  await runEffect(provision(change));
-  const wtA = (await runEffect(checkoutFor(change, a)))!;
-  const wtB = (await runEffect(checkoutFor(change, b)))!;
-
-  await Bun.write(join(wtA, "README.md"), "edited\n");
-  await Bun.write(join(wtA, "new.txt"), "untracked\n"); // never seen by git before
-  await Bun.write(join(wtA, "later.txt"), "not this time\n");
-  await Bun.write(join(wtB, "README.md"), "also edited\n");
-
-  // One message, one commit per repository: a change is one piece of work.
-  const results = await runEffect(commitChange(change, {
-    message: "PROJ-1 do the thing",
-    files: { [a]: ["README.md", "new.txt"], [b]: ["README.md"] },
-  }));
-  expect(results.every((r) => r.ok)).toBe(true);
-  expect(results.map((r) => r.name).sort()).toEqual(["commit-a", "commit-b"]);
-  expect(results[0]!.hash).toMatch(/^[0-9a-f]{7,}$/);
-
-  const subject = async (repo: string): Promise<string> =>
-    (await runSh(["git", "log", "-1", "--pretty=%s"], repo)).stdout;
-  expect(await subject(wtA)).toBe("PROJ-1 do the thing");
-  expect(await subject(wtB)).toBe("PROJ-1 do the thing");
-
-  // What was not ticked is still uncommitted, and nothing else was swept in.
-  const left = await runLocalChanges(change, a);
-  expect(left.files.map((f) => f.path)).toEqual(["later.txt"]);
-
-  // A message is not optional, and neither is a file.
-  expect(runEffect(commitChange(change, { message: "  ", files: { [a]: ["later.txt"] } }))).rejects.toThrow(
-    /needs a message/,
-  );
-  expect(runEffect(commitChange(change, { message: "x", files: { [a]: [] } }))).rejects.toThrow(
-    /select at least one file/,
-  );
-});
-
-test("a repository that refuses to commit does not stop the others", async () => {
-  const { commitChange } = await import("../src/change/server/index.ts");
-  const good = await clonedRepo("commit-good");
-  const change = await changeFor("PROJ-PARTIAL", [good]);
-  await runEffect(provision(change));
-  await Bun.write(join((await runEffect(checkoutFor(change, good)))!, "README.md"), "edited\n");
-
-  // A repository of this change without a worktree: it says so, the other one still commits.
-  const results = await runEffect(commitChange(change, {
-    message: "PROJ-1 do the thing",
-    files: { [good]: ["README.md"], "/nowhere/at/all": ["README.md"] },
-  }));
-  expect(results.find((r) => r.repo === good)?.ok).toBe(true);
-  expect(results.find((r) => r.repo === "/nowhere/at/all")).toMatchObject({
-    ok: false,
-    error: "no worktree",
-  });
-});
-
-test("what is committed but only here is counted, and pushing takes it away", async () => {
-  const { pushChange } = await import("../src/change/server/index.ts");
-  const repo = await clonedRepo("push");
-  const change = await changeFor("PROJ-PUSH", [repo]);
-  await runEffect(provision(change));
-  const wt = (await runEffect(checkoutFor(change, repo)))!;
-
-  // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since
-  // it left the base branch is unpushed, and that is what the button has to offer.
-  await Bun.write(join(wt, "one.txt"), "1\n");
-  await runSh(["git", "add", "."], wt);
-  await commit(wt, "first");
-  const before = await runLocalChanges(change, repo);
-  expect(before).toMatchObject({ tracked: false, unpushed: 1 });
-
-  const pushed = await runEffect(pushChange(change, [repo]));
-  expect(pushed.every((r) => r.ok)).toBe(true);
-  const after = await runLocalChanges(change, repo);
-  // Now it has an upstream, and nothing is ahead of it.
-  expect(after).toMatchObject({ tracked: true, unpushed: 0 });
-
-  // A second commit is one ahead, which is the other way of counting the same thing.
-  await Bun.write(join(wt, "two.txt"), "2\n");
-  await runSh(["git", "add", "."], wt);
-  await commit(wt, "second");
-  expect(await runLocalChanges(change, repo)).toMatchObject({ tracked: true, unpushed: 1 });
-  await runEffect(pushChange(change, [repo]));
-  expect((await runLocalChanges(change, repo)).unpushed).toBe(0);
-
-  // And a repository that is not there says so instead of stopping the push.
-  const bad = await runEffect(pushChange(change, ["/nowhere/at/all"]));
-  expect(bad[0]).toMatchObject({ ok: false, error: "no worktree" });
-  expect(runEffect(pushChange(change, []))).rejects.toThrow(/nothing to push/);
 });

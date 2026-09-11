@@ -81,8 +81,9 @@ across a module boundary; never a duck the caller probes.
 is named for the one thing it does.
 
 - **Right:** `extensions/`, `extensionsFor`, one `git.ts`.
-- **Tell:** `src/change/server/review.ts` both meaning "local changes" alongside
-  `src/core/integrations/git.ts`; or a
+- **Tell:** `src/extensions/review/` (the change's local-changes tab) and
+  `src/core/integrations/git.ts` (the worktree engine) both reading as "the local changes code";
+  or a
   new field named `integration` where the wire contract (`Widget.integration`) does not force it.
 
 ## 6. Shared means shared

@@ -13,9 +13,9 @@ change (`~/changes/<id>/`). Everything else is read live and cached in
 src/
   server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
   change/              the change module: model.ts (the edit rule the halves share), server/
-                       (schema, store, create, complete, cancel, commit, review, titles,
-                       description, index.ts), client/ (the page, the dialogs, the
-                       review surface), wizard/ (a submodule: the New change wizard, client/ +
+                       (schema, store, create, complete, cancel, titles, description,
+                       index.ts), client/ (the page, the dialogs), wizard/ (a submodule: the
+                       New change wizard, client/ +
                        index.ts), overview/ (a submodule: the dashboard — server/ composes
                        change, terminal and the host; client/ holds the cards)
   terminal/            the terminal module: model.ts (the new-window key the pane and the
@@ -40,7 +40,7 @@ src/
                        client-side registry and the extension UI contract), index.ts
     integrations/      vendor CLI wrappers (git, github, azure, stacks)
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments,
-                       leftovers)
+                       leftovers, review)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
   deploySettings.ts    the deployments settings, read by the shared azure client and the
@@ -58,7 +58,7 @@ directories:
 
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
   implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
-  this way.
+  this way, and so are `review/server.ts` (the git surface) and its `client.tsx`.
 - **`src/core/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
   (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
   core + the git extension).
@@ -96,12 +96,12 @@ A thing is core only if it meets at least one of these:
 The consequences are worth stating because they settle arguments:
 
 - The change **dashboard is core even though every card on it is an extension**: it composes and
-  merges. "Review changes" is a good extension candidate because it is a bounded git surface, not
-  a composition.
+  merges. "Review changes" moved behind the change-tab contract precisely because it is a bounded
+  git surface, not a composition.
 - The **sidebar is core as a shell**; its entries (workspaces, changes, pages, windows) are
   data the server sends. The **change page is core as a shell** too: it composes the core's
-  Dashboard and Review with the change tabs its workspace's extensions contribute, and resolves
-  a tab id nobody offers back to the dashboard.
+  Dashboard with the change tabs its workspace's extensions contribute — the review extension's
+  "Review changes" among them — and resolves a tab id nobody offers back to the dashboard.
 - **Terminal presentation is extensible; tmux and ttyd themselves are core furniture.**
 - The **git worktree engine is core.** Extensions act on changes; they do not create them.
 

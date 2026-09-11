@@ -1,24 +1,8 @@
 import { type JSX, useEffect, useState } from "react";
 import { api, post } from "../../frontend/api.ts";
+import type { Change } from "../../core/domain/change.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
-import type { FileChange } from "../../core/domain/change.ts";
-
-export type LocalStatus = {
-  repo: string;
-  name: string;
-  worktree?: string;
-  files: FileChange[];
-  /** Commits the remote has not got. */
-  unpushed: number;
-  tracked: boolean;
-  error?: string;
-};
-
-type PushResult = { repo: string; name: string; ok: boolean; hash?: string; error?: string };
-
-/** Which file is being looked at: the repository as well, since two repositories may both have
- * a README.md, and the staged half, since that is a different diff of the same path. */
-type Selection = { repo: string; file: string; staged: boolean };
+import type { CommitResult, FileChange, LocalStatus, Selection } from "./shared.ts";
 
 /** The word for a status letter, so a row reads as English rather than as porcelain. */
 const statusWord = (letter: string): string =>
@@ -32,6 +16,11 @@ const statusWord = (letter: string): string =>
     T: "type changed",
     "?": "untracked",
   })[letter] ?? "changed";
+
+/** The extension's routes live under its own namespace, and the request names the workspace the
+ * change belongs to, so the server's git calls inherit the right environment. */
+const url = (path: string, workspace?: string): string =>
+  workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
 
 /** A diff, coloured the way every tool colours one. Rendered line by line rather than by a
  * library: a unified diff is already a line format, and the whole grammar is five prefixes. */
@@ -121,17 +110,22 @@ export const summarise = (status?: LocalStatus): { text: string; state: string }
  * A repository with nothing uncommitted still gets its heading, because "nothing here" is an
  * answer: a change where one repository is clean and another is not is the normal case, and the
  * absence should be visible rather than inferred from a missing row.
+ *
+ * This is the review extension's change tab; the change it is about and its workspace arrive
+ * through the tab contract.
  */
 export function LocalPane({
-  changeId,
-  repos,
-  suggestion,
+  change,
+  workspace,
 }: {
-  changeId: string;
-  repos: string[];
-  /** What a commit message starts as: the change, and what it is about. */
-  suggestion: string;
+  change: Change;
+  workspace?: string;
 }): JSX.Element {
+  const changeId = change.id;
+  const repos = change.repos;
+  // What people write anyway, so it is there to edit rather than to type.
+  const suggestion = change.title ? `${changeId} ${change.title}` : changeId;
+
   const [statuses, setStatuses] = useState<Record<string, LocalStatus>>({});
   const [selected, setSelected] = useState<Selection | null>(null);
   const [diff, setDiff] = useState<string | null>(null);
@@ -146,7 +140,7 @@ export function LocalPane({
     const load = (): Promise<(false | void)[]> =>
       Promise.all(
         repos.map((repo) =>
-          api<LocalStatus>(`/changes/${changeId}/local?path=${encodeURIComponent(repo)}`)
+          api<LocalStatus>(url(`/ext/review/changes/${changeId}/local?path=${encodeURIComponent(repo)}`, workspace))
             .then((next) => alive && setStatuses((all) => ({ ...all, [repo]: next })))
             .catch((e: Error) => alive && setError(e.message)),
         ),
@@ -159,7 +153,7 @@ export function LocalPane({
       alive = false;
       clearInterval(timer);
     };
-  }, [changeId, repos.join("|"), reload]);
+  }, [changeId, repos.join("|"), reload, workspace]);
 
   // The diff follows the selection, and is re-read whenever the file changes underneath: the
   // point of the pane is watching your own edits appear.
@@ -168,10 +162,10 @@ export function LocalPane({
   useEffect(() => {
     if (!selected) return setDiff(null);
     const query = `path=${encodeURIComponent(selected.repo)}&file=${encodeURIComponent(selected.file)}&staged=${selected.staged ? 1 : 0}`;
-    api<{ text: string }>(`/changes/${changeId}/local/diff?${query}`)
+    api<{ text: string }>(url(`/ext/review/changes/${changeId}/local/diff?${query}`, workspace))
       .then((r) => setDiff(r.text))
       .catch((e: Error) => setError(e.message));
-  }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint]);
+  }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint, workspace]);
 
   // Only repositories with something in them: a clean one has nothing to offer the dialog.
   const candidates = repos
@@ -190,7 +184,7 @@ export function LocalPane({
     setPushing(true);
     setError(null);
     setNotice(null);
-    post<PushResult[]>(`/changes/${changeId}/push`, { repos: behind.map((s) => s.repo) })
+    post<CommitResult[]>(url(`/ext/review/changes/${changeId}/push`, workspace), { repos: behind.map((s) => s.repo) })
       .then((results) => {
         const failed = results.filter((r) => !r.ok);
         // The failures are the news; the successes are visible in the counts going away.
@@ -230,6 +224,7 @@ export function LocalPane({
         </div>
         <CommitDialog
           changeId={changeId}
+          workspace={workspace}
           open={committing}
           candidates={candidates}
           suggestion={suggestion}

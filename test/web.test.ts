@@ -85,27 +85,30 @@ test("a state becomes one class, lowercased with spaces as dashes", () => {
 });
 
 test("a change's page id resolves to the core, an offered tab, or the dashboard", () => {
+  const review = { id: "review", title: "Review changes", extension: "review" };
   const tab = { id: "ci", title: "CI", extension: "ci" };
-  const tabs = [tab];
+  const tabs = [review, tab];
 
   expect(resolveChangePage("dashboard", tabs)).toEqual({ kind: "dashboard" });
-  expect(resolveChangePage("review", tabs)).toEqual({ kind: "review" });
   expect(resolveChangePage("terminals", tabs)).toEqual({ kind: "terminals" });
   expect(resolveChangePage("ci", tabs)).toEqual({ kind: "tab", tab });
+  // "Review changes" is an extension tab now, so it resolves through the offered list.
+  expect(resolveChangePage("review", tabs)).toEqual({ kind: "tab", tab: review });
 
-  // An id nobody offered — a stale URL, a tab the extension stopped declaring — is the
-  // dashboard, so the page still renders something.
+  // An id nobody offered — a stale URL, a tab the extension stopped declaring, `review` on a
+  // workspace that dropped the extension — is the dashboard, so the page still renders
+  // something rather than a blank page.
   expect(resolveChangePage("gone", tabs)).toEqual({ kind: "dashboard" });
   expect(resolveChangePage("gone", [])).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", [])).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", [tab])).toEqual({ kind: "dashboard" });
 });
 
-test("the change nav is the core's two tabs and then the extensions' in load order", () => {
-  expect(changeNav([])).toEqual([
-    { id: "dashboard", title: "Dashboard" },
-    { id: "review", title: "Review changes" },
-  ]);
+test("the change nav is the core's dashboard and then the extensions' in load order", () => {
+  expect(changeNav([])).toEqual([{ id: "dashboard", title: "Dashboard" }]);
   expect(
     changeNav([
+      { id: "review", title: "Review changes", extension: "review" },
       { id: "ci", title: "CI", extension: "ci" },
       { id: "jira", title: "Issues", extension: "jira" },
     ]),
@@ -116,9 +119,8 @@ test("the change nav is the core's two tabs and then the extensions' in load ord
     { id: "jira", title: "Issues" },
   ]);
   // A contributed id that would shadow a core page is dropped: the core addressed it first.
-  expect(changeNav([{ id: "review", title: "Review again", extension: "x" }])).toEqual([
+  expect(changeNav([{ id: "terminals", title: "Terminals again", extension: "x" }])).toEqual([
     { id: "dashboard", title: "Dashboard" },
-    { id: "review", title: "Review changes" },
   ]);
 });
 

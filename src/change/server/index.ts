@@ -42,20 +42,8 @@ export {
 
 export { cancelChange, looseEnds, type Cancelled, type NeedsForce } from "./cancel.ts";
 
-export { commitChange, pushChange, type CommitRequest, type CommitResult } from "./commit.ts";
-
 export { refreshTitles } from "./titles.ts";
 
 export { describeChange, prDescription } from "./description.ts";
-
-export {
-  aheadIn,
-  fileDiff,
-  localChanges,
-  parseStatus,
-  trackedIn,
-  type FileChange,
-  type LocalStatus,
-} from "./review.ts";
 
 export { branchFor } from "../../core/domain/change.ts";

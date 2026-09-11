@@ -138,23 +138,6 @@ export type CompletionProgress = {
   error?: string;
 };
 
-/** One file git has something to say about, in the vocabulary git itself uses. Lives here rather
- * than in src/change/server/review.ts because the page needs the type and must not pull the
- * server's modules in. */
-export type FileChange = {
-  path: string;
-  /** Status of the index against HEAD, and of the working tree against the index: git's own XY
-   * pair, e.g. `M`, `A`, `D`, `R`. A dot means "nothing here" in porcelain v2. */
-  index: string;
-  worktree: string;
-  /** Where it will be listed. A file can be both: staged edits with more edits on top. */
-  staged: boolean;
-  unstaged: boolean;
-  untracked: boolean;
-  /** Where a renamed file came from, since the new name alone loses the point. */
-  from?: string;
-};
-
 /** What a change's card and its entry in the navigation column say beyond the change itself:
  * the facts its extensions contribute, and the worst verdict among them for the navigation's
  * icon. Lives here rather than in change/overview/server/summary.ts because the page needs the

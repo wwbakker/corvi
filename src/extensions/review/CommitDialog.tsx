@@ -1,19 +1,16 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { post } from "../../frontend/api.ts";
-import type { FileChange } from "../../core/domain/change.ts";
-
-export type CommitResult = {
-  repo: string;
-  name: string;
-  ok: boolean;
-  hash?: string;
-  error?: string;
-};
+import type { CommitResult, FileChange } from "./shared.ts";
 
 /** What the dialog is offered: the repositories with something in them, and their files. */
 export type Candidate = { repo: string; name: string; files: FileChange[] };
 
 const key = (repo: string, path: string): string => `${repo}\u0000${path}`;
+
+/** The extension's routes live under its own namespace, and the request names the workspace the
+ * change belongs to, so the server's git calls inherit the right environment. */
+const url = (path: string, workspace?: string): string =>
+  workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
 
 /**
  * Committing, across the repositories of a change at once.
@@ -28,6 +25,7 @@ const key = (repo: string, path: string): string => `${repo}\u0000${path}`;
  */
 export function CommitDialog({
   changeId,
+  workspace,
   open,
   candidates,
   suggestion,
@@ -35,6 +33,7 @@ export function CommitDialog({
   onCommitted,
 }: {
   changeId: string;
+  workspace?: string;
   open: boolean;
   candidates: Candidate[];
   /** What to start the message with — the change and what it is about. */
@@ -89,7 +88,7 @@ export function CommitDialog({
         c.files.map((f) => f.path).filter((path) => picked.has(key(c.repo, path))),
       ]),
     );
-    post<CommitResult[]>(`/changes/${changeId}/commit`, { message, files })
+    post<CommitResult[]>(url(`/ext/review/changes/${changeId}/commit`, workspace), { message, files })
       .then((next) => {
         setResults(next);
         onCommitted(next);

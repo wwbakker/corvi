@@ -26,8 +26,8 @@ import { loaded } from "./registry.ts";
 // The built-ins, in dashboard order: the agents' furniture first (it is what names windows
 // everywhere), then local changes, then CI, then the ticket cards. Each is a module whose
 // default export describes it — a static value, or a factory for one. Deployments and
-// leftovers own no card — their pages are offered beside the list, not on it — so they come
-// last and do not disturb the cards' order.
+// leftovers own no card — their pages are offered beside the list, not on it — and review owns
+// a change tab rather than a card, so the three come last and do not disturb the cards' order.
 import agentsExtension from "../../extensions/agents/index.ts";
 import gitExtension from "../../extensions/git/index.ts";
 import ciExtension from "../../extensions/ci/index.ts";
@@ -35,6 +35,7 @@ import jiraExtension from "../../extensions/jira/index.ts";
 import githubIssuesExtension from "../../extensions/github-issues/index.ts";
 import deploymentsExtension from "../../extensions/deployments/index.ts";
 import leftoversExtension from "../../extensions/leftovers/index.ts";
+import reviewExtension from "../../extensions/review/index.ts";
 
 // Awaited at module scope, so the server does not start listening before the extensions have
 // loaded, and a test importing this file sees the fully-loaded registry. Out-of-tree, after
@@ -48,6 +49,7 @@ await loadAll([
   githubIssuesExtension,
   deploymentsExtension,
   leftoversExtension,
+  reviewExtension,
 ]);
 await loadDiscovered();
 

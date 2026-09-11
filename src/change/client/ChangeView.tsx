@@ -24,7 +24,6 @@ import { TerminalPane } from "../../terminal/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminal/client/CheatSheet.tsx";
 import type { Platform } from "../../terminal/model.ts";
 import { CompletionCard } from "./CompletionCard.tsx";
-import { LocalPane } from "./LocalPane.tsx";
 import { PerRepoCard } from "../overview/client/PerRepoCard.tsx";
 import { WidgetCard } from "../overview/client/WidgetCard.tsx";
 import { WindowTabs } from "../../terminal/client/WindowTabs.tsx";
@@ -50,7 +49,7 @@ export function ChangeView({
   onChanged,
 }: {
   id: string;
-  /** Which page of the change to show: the core's dashboard, review or terminals, or a tab an
+  /** Which page of the change to show: the core's dashboard or terminals, or a tab an
    * extension contributes. */
   page: Page;
   /** Results of the creation step, shown once: it is the one moment something can fail
@@ -401,15 +400,6 @@ export function ChangeView({
           </div>
           <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
         </div>
-      )}
-      {/* Every repository in one list: a change is the unit of work, not a checkout. */}
-      {active.kind === "review" && (
-        <LocalPane
-          changeId={id}
-          repos={change?.repos ?? []}
-          // What people write anyway, so it is there to edit rather than to type.
-          suggestion={change?.title ? `${id} ${change.title}` : id}
-        />
       )}
       {/* An extension's own tab. It gets the change, which may still be loading: nothing to
           hand it means a hint rather than a crash. */}

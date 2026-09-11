@@ -1353,10 +1353,10 @@ The map, grouped by layer:
       model.ts                applyPatch: the two fields you may edit by hand
       server/                 schema.ts (the change.json schema), store.ts (change.json, the
                               archive, sidecars, ExtensionStore files), create.ts, complete.ts,
-                              cancel.ts, commit.ts, titles.ts, description.ts,
-                              review.ts, index.ts (the public face)
-      client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
-                              EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
+                              cancel.ts, titles.ts, description.ts,
+                              index.ts (the public face)
+      client/                 ChangeView.tsx, changeState.tsx,
+                              EditReposDialog.tsx, NotesCard.tsx, CompletionCard.tsx
       wizard/                 the New change wizard (client/Wizard.tsx, index.ts)
       overview/               the dashboard: server/summary.ts composes change, terminal and the
                               host; client/ holds ChangeCard, PerRepoCard, WidgetCard, WidgetRows,
@@ -1394,6 +1394,9 @@ The map, grouped by layer:
                               deployConventions.ts (the pipeline-name convention both halves share)
       leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
                               (the Leftover type both halves read)
+      review/                 index.ts (the declaration and routes), server.ts (the git surface),
+                              client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,
+                              shared.ts (the vocabulary both halves read)
 
     src/frontend/             the browser shell and runtime, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view
