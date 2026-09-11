@@ -9,7 +9,7 @@ import {
   type Az,
   type Definition,
 } from "../../integrations/azure.ts";
-import { usesAzure, workspaceById } from "../../workspaces.ts";
+import { usesAzure, workspaceById } from "../../workspace/server/index.ts";
 import { deploySettings } from "../../deploySettings.ts";
 import { autoDeployedApp } from "./deployConventions.ts";
 import { ago } from "../../core/domain/time.ts";

@@ -1,9 +1,9 @@
 import { Effect } from "effect";
-import { config } from "../config.ts";
+import { config } from "../workspace/server/index.ts";
 import { runRoute } from "../effect/run.ts";
 import { guard } from "../origin.ts";
 import { platformName } from "../platform.ts";
-import { settingsView, writeSettings, type Settings } from "../settings.ts";
+import { settingsView, writeSettings, type Settings } from "../settings/server/index.ts";
 import { bodyOf, json } from "./helpers.ts";
 
 export const settingsRoutes = guard({

@@ -3,10 +3,10 @@ import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
 import type { Change } from "../../core/domain/change.ts";
-import { Change as ChangeSchema } from "../../schemas/change.ts";
+import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../effect/errors.ts";
 import { fs } from "../../effect/support.ts";
-import { config } from "../../config.ts";
+import { config } from "../../workspace/server/index.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
 export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;

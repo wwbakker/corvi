@@ -1,12 +1,12 @@
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
-import type { Workspace } from "../src/config.ts";
+import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/core/host/services.ts";
 import { setRepos } from "../src/integrations/git.ts";
 import { sh, type Result } from "../src/sh.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
 import type { CliError } from "../src/effect/errors.ts";
 import { swr } from "../src/cache.ts";
-import { workspaceById } from "../src/workspaces.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 import { cancelChange } from "../src/change/server/index.ts";
 import { fileDiff, localChanges, type LocalStatus } from "../src/change/server/index.ts";

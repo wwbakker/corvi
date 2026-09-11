@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { runRoute } from "../effect/run.ts";
 import { listLeftovers, removeLeftover } from "../change/server/index.ts";
 import { guard } from "../origin.ts";
-import { absolutePath, browse, remoteBranches } from "../repos.ts";
+import { absolutePath, browse, remoteBranches } from "../workspace/server/index.ts";
 import { attempt, json } from "./helpers.ts";
 
 export const reposRoutes = guard({

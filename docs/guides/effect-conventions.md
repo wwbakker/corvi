@@ -56,7 +56,7 @@ types and message formatting only; it knows nothing about HTTP.
 ## Services (`src/effect/tags.ts`)
 
 A `Workspace` service `Context.Tag` carries the workspace config object (the `Workspace` type
-in `src/config.ts`) through a request.
+in `src/core/domain/config.ts`) through a request.
 
 Code that may legitimately run outside a request scope (startup, caches) uses
 `Effect.serviceOption(Workspace)` and falls back to an `undefined` workspace and an empty env

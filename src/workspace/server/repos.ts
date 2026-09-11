@@ -2,9 +2,9 @@ import { readdir, stat } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { Effect } from "effect";
 import { config } from "./config.ts";
-import { remoteDefaultBranch } from "./integrations/git.ts";
-import { BadRequestError } from "./effect/errors.ts";
-import { fs, shSoft } from "./effect/support.ts";
+import { remoteDefaultBranch } from "../../integrations/git.ts";
+import { BadRequestError } from "../../effect/errors.ts";
+import { fs, shSoft } from "../../effect/support.ts";
 
 export type Entry = {
   /** Path relative to the repos root, e.g. "personal/my-project". */

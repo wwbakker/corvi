@@ -1,7 +1,7 @@
 import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
 import { listChanges } from "./change/server/store.ts";
 import { allWindows } from "./terminal/server/index.ts";
-import { config } from "./config.ts";
+import { config } from "./workspace/server/index.ts";
 
 /**
  * One connection that says when something changed, instead of every page asking whether it has.

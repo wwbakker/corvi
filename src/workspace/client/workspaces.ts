@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "./api.ts";
-import { getPref, setPref } from "./prefs.ts";
-import type { Change } from "./api.ts";
-import type { Platform } from "../terminal/client/newWindowKey.ts";
+import { api } from "../../web/api.ts";
+import { getPref, setPref } from "../../web/prefs.ts";
+import type { Change } from "../../web/api.ts";
+import type { Platform } from "../../terminal/client/newWindowKey.ts";
+import { DEFAULT_WORKSPACE } from "../../core/domain/config.ts";
 
 export type Workspace = {
   id: string;
@@ -20,10 +21,9 @@ export type Workspace = {
  * why it is not one. */
 export const ALL = "*";
 
-/** What stands in when nothing is configured — the same default src/config.ts creates, by the
- * same reasoning. Duplicated rather than imported: that file is the server's, and this one runs
- * in the browser. */
-export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
+/** What stands in when nothing is configured — the same default the server resolves, from the
+ * pure vocabulary both halves share. */
+export { DEFAULT_WORKSPACE };
 
 // A cookie rather than localStorage: the app serves itself from a fresh port every launch, and
 // localStorage is scoped to the port (see prefs.ts).

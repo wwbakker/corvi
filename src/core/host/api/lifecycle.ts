@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { Config, Workspace as WorkspaceConfig } from "../../../config.ts";
+import type { Config, Workspace as WorkspaceConfig } from "../../domain/config.ts";
 import type { Change, ChangeDraft, CompletionStep } from "../../domain/change.ts";
 import type { Capabilities } from "./capabilities.ts";
 

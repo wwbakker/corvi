@@ -1,7 +1,8 @@
-import type { Change } from "./core/domain/change.ts";
-import { config, type Workspace } from "./config.ts";
-import { deploySettings } from "./deploySettings.ts";
-import { resolveSetting } from "./legacySettings.ts";
+import type { Change } from "../../core/domain/change.ts";
+import { config } from "./config.ts";
+import type { Workspace } from "../../core/domain/config.ts";
+import { deploySettings } from "../../deploySettings.ts";
+import { resolveSetting } from "../../settings/server/legacySettings.ts";
 
 /**
  * Which context a change belongs to, and what that context implies.

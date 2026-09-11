@@ -5,7 +5,7 @@ import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, type ChangeSummary } from "../core/domain/change.ts";
 import type { TerminalWindow } from "../core/domain/terminal.ts";
 import { getPref, setPref } from "./prefs.ts";
-import { ALL, type Workspace } from "./workspaces.ts";
+import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import type { Platform } from "../terminal/client/newWindowKey.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 

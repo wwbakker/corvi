@@ -27,7 +27,7 @@ import { applyCreatingHooks, provision } from "../core/host/index.ts";
 import { repoStates, setRepos } from "../integrations/git.ts";
 import { guard } from "../origin.ts";
 import { summaryOf } from "../summary.ts";
-import { workspaceOf } from "../workspaces.ts";
+import { workspaceOf } from "../workspace/server/index.ts";
 import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "./helpers.ts";
 
 export const changesRoutes = guard({

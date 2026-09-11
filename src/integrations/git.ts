@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import type { Change } from "../core/domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { shOrThrow } from "../sh.ts";
-import { config } from "../config.ts";
+import { config } from "../workspace/server/index.ts";
 import { copyTooling } from "../tooling.ts";
 import { writeChange, writeWtConfig, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../platform.ts";

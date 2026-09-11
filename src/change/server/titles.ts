@@ -3,7 +3,7 @@ import type { Change } from "../../core/domain/change.ts";
 import { listChanges, writeChange } from "./store.ts";
 import { titleSourcesFor } from "../../core/host/index.ts";
 import { capabilitiesLayer } from "../../core/host/services.ts";
-import { workspaceOf } from "../../workspaces.ts";
+import { workspaceOf } from "../../workspace/server/index.ts";
 
 /**
  * What to call a change on the overview: its ticket's summary, which says what the work is,

@@ -2,7 +2,7 @@ import { Duration, Effect, Either, Option } from "effect";
 import { homedir } from "node:os";
 import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
-import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "./config.ts";
+import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "./core/domain/config.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */

@@ -1332,16 +1332,16 @@ The map, grouped by layer:
     src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
     src/effect/               errors (the taxonomy) · http→status · runRoute · Workspace tag ·
                               support.ts (the shared shSoft/cliJson/messageOf/fs helpers)
-    src/schemas/              Effect Schemas for change.json and config.json
     src/sh.ts                 the subprocess gate, timeout and trace
     src/cache.ts              stale-while-revalidate for everything the CLIs answer
     src/events.ts             the SSE hub and the watcher behind it
 
     src/change/               the change module: its server half, its client half, its shared rule
       model.ts                applyPatch: the two fields you may edit by hand
-      server/                 store.ts (change.json, the archive, sidecars, ExtensionStore files),
-                              create.ts, complete.ts, cancel.ts, commit.ts, titles.ts,
-                              description.ts, leftovers.ts, review.ts, index.ts (the public face)
+      server/                 schema.ts (the change.json schema), store.ts (change.json, the
+                              archive, sidecars, ExtensionStore files), create.ts, complete.ts,
+                              cancel.ts, commit.ts, titles.ts, description.ts, leftovers.ts,
+                              review.ts, index.ts (the public face)
       client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
                               EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
     src/terminal/             the terminal module: sessions without change knowledge
@@ -1350,16 +1350,23 @@ The map, grouped by layer:
                               the core's defaults), index.ts (the public face)
       client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx, newWindowKey.ts
     src/summary.ts            the numbers on an overview card, as contributed facts
-    src/settings.ts           reading and writing the config file from the page
-    src/config.ts             config file + env overrides
-    src/repos.ts              directory browsing under reposRoot, remote branches
+    src/workspace/            the workspace module: contexts, config and the repository browser
+      server/                 config.ts (config file + env overrides), schema.ts (the config file
+                              schema), workspaces.ts (which context a change belongs to),
+                              repos.ts (directory browsing under reposRoot, remote branches),
+                              index.ts (the public face)
+      client/                 workspaces.ts (the context switcher state), WorkspaceCard.tsx,
+                              RepoBrowser.tsx
+    src/settings/             the settings module: the settings file, read and written from the page
+      server/                 settings.ts (the page's read/write surface), legacySettings.ts (the
+                              one precedence chain), index.ts (the public face)
+      client/                 SettingsPage.tsx, SettingsFields.tsx
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
     src/platform.ts           platform detection
     src/origin.ts             refusing requests another site made
-    src/legacySettings.ts     the one legacy-settings resolver and migration
 
     src/core/domain/          the vocabulary the server and the page share —
-                              change.ts, widget.ts, terminal.ts, time.ts
+                              change.ts, widget.ts, terminal.ts, time.ts, config.ts
     src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
                               registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
                               services.ts, clientChunks.ts, index.ts

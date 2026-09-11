@@ -1,22 +1,25 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
+import type { Config } from "../../core/domain/config.ts";
+import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import {
   config,
   configPath,
   readFileSync,
   reloadConfig,
   expandTilde,
-  type Config,
-} from "./config.ts";
-import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
-import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
-import { loaded } from "./core/host/index.ts";
-import { BadRequestError } from "./effect/errors.ts";
-import { fs } from "./effect/support.ts";
-import { invalidate } from "./cache.ts";
-import { TOOLING } from "./tooling.ts";
-import type { ExtensionSetting, WorkspaceSetting } from "./core/host/api.ts";
+  DirectoryName,
+  EnvVarName,
+  WorkspaceId,
+  type ConfigFile,
+} from "../../workspace/server/index.ts";
+import { loaded } from "../../core/host/index.ts";
+import { BadRequestError } from "../../effect/errors.ts";
+import { fs } from "../../effect/support.ts";
+import { invalidate } from "../../cache.ts";
+import { TOOLING } from "../../tooling.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "../../core/host/api.ts";
 
 /**
  * Reading and writing the settings file from the page.

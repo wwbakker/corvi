@@ -1,6 +1,6 @@
 import { CHANGE_STATES, type Change, type ChangeState } from "../core/domain/change.ts";
 import type { Widget, WidgetItem } from "../core/domain/widget.ts";
-import type { Entry } from "../repos.ts";
+import type { Entry } from "../workspace/server/index.ts";
 
 export type { Change, ChangeState, Widget, WidgetItem, Entry };
 export { CHANGE_STATES };

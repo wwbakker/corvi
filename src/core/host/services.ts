@@ -11,7 +11,7 @@ import {
 } from "./api.ts";
 import { envOf, shWithEnv } from "../../sh.ts";
 import { invalidate, swr } from "../../cache.ts";
-import { config } from "../../config.ts";
+import { config } from "../../workspace/server/index.ts";
 import { announce } from "../../events.ts";
 import { BadRequestError } from "../../effect/errors.ts";
 import {
@@ -20,7 +20,7 @@ import {
   setExtensionData,
   writeExtensionFile,
 } from "../../change/server/store.ts";
-import type { Workspace as WorkspaceShape } from "../../config.ts";
+import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
 /**
  * The live layers behind the capabilities (src/core/host/api.ts) — host-side, not part of

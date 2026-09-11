@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { api, post, type ApiError, type Change, type RepoState, type Selection } from "../../web/api.ts";
-import { RepoBrowser } from "../../web/RepoBrowser.tsx";
+import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 
 /**
  * Edits the repository list of a change as a draft: nothing is created or removed until OK.

@@ -4,8 +4,8 @@ import { worst } from "../core/domain/widget.ts";
 import type { Change } from "../core/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { swr } from "../cache.ts";
-import type { Workspace } from "../config.ts";
-import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";
+import type { Workspace } from "../core/domain/config.ts";
+import { azureOf, usesAzure, workspaceOf } from "../workspace/server/index.ts";
 import { deploySettings } from "../deploySettings.ts";
 import { cliJson, shSoft } from "../effect/support.ts";
 

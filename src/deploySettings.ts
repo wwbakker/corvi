@@ -1,10 +1,10 @@
-import { config } from "./config.ts";
-import { bagList, bagString, resolveSetting } from "./legacySettings.ts";
+import { config } from "./workspace/server/config.ts";
+import { bagList, bagString, resolveSetting } from "./settings/server/legacySettings.ts";
 
 /**
  * The deployments extension's server-wide settings, read back.
  *
- * The chain every extension setting follows, stated once in src/legacySettings.ts: what the
+ * The chain every extension setting follows, stated once in src/settings/server/legacySettings.ts: what the
  * settings page wrote under `extensionSettings.deployments` — the extension's own
  * `globalSettings` declaration — wins, and when the bag is empty the flat config field answers,
  * which carries the default and the environment resolution (IWE_AZURE_ORG, IWE_AZURE_PROJECT,

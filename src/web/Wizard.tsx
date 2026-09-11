@@ -1,8 +1,8 @@
 import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change, type Created, type Selection } from "./api.ts";
-import { RepoBrowser } from "./RepoBrowser.tsx";
+import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo } from "./extensions.tsx";
-import type { Workspace } from "./workspaces.ts";
+import type { Workspace } from "../workspace/client/workspaces.ts";
 
 /**
  * The "Create change" wizard.

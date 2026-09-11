@@ -1,4 +1,4 @@
-import type { ExtensionSetting } from "./core/host/api.ts";
+import type { ExtensionSetting } from "../../core/host/api.ts";
 
 /**
  * The settings precedence chain, in one place.
@@ -7,8 +7,8 @@ import type { ExtensionSetting } from "./core/host/api.ts";
  * chain: what the settings page wrote under `extensionSettings[name][key]` (the bag) wins; when
  * the bag is empty the flat field answers, and that field itself resolves as environment
  * variable → config file → vendor default. Every reader — the extension reads
- * (src/deploySettings.ts, src/workspaces.ts's `azureOf`) and the flat-field reads
- * (src/config.ts's `load()`) — goes through `resolveSetting`.
+ * (src/deploySettings.ts, src/workspace/server/workspaces.ts's `azureOf`) and the flat-field reads
+ * (src/workspace/server/config.ts's `load()`) — goes through `resolveSetting`.
  *
  * A caller hands `resolveSetting` whichever levels it holds: `load()` holds the file and the
  * environment, while an extension read holds the already-resolved flat value and only adds the

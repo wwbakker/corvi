@@ -1,4 +1,4 @@
-import { config } from "../src/config.ts";
+import { config } from "../src/workspace/server/index.ts";
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -535,7 +535,7 @@ test("every change's windows come back from one call, and other sessions are not
 });
 
 test("a change belongs to the context it was made in, and older ones to the first", async () => {
-  const { inWorkspace, workspaceOf, ALL } = await import("../src/web/workspaces.ts");
+  const { inWorkspace, workspaceOf, ALL } = await import("../src/workspace/client/workspaces.ts");
   const workspaces = [
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },
@@ -559,7 +559,7 @@ test("a change belongs to the context it was made in, and older ones to the firs
 
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
-  const { azureOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
+  const { azureOf, usesAzure, workspaceOf } = await import("../src/workspace/server/index.ts");
   const { extensionsFor, loaded } = await import("../src/core/host/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal

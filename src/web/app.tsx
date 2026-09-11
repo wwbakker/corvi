@@ -8,11 +8,11 @@ import { Leftovers } from "./Leftovers.tsx";
 import { moment } from "./moment.ts";
 import { Sidebar, type Page } from "./Sidebar.tsx";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
-import { inWorkspace, usePages, useWorkspaces } from "./workspaces.ts";
+import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "./Wizard.tsx";
 import { ChangeView } from "../change/client/ChangeView.tsx";
 import { PageHost } from "./extensions.tsx";
-import { SettingsPage } from "./SettingsPage.tsx";
+import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */

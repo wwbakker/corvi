@@ -1,4 +1,4 @@
-import type { SettingsView } from "../settings.ts";
+import type { SettingsView } from "../server/index.ts";
 import type { JSX } from "react";
 
 /** An extension the page knows about, with the settings it declares. */

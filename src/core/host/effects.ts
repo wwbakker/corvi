@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
 import { isFinished, type Change, type ChangeDraft } from "../domain/change.ts";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
-import { workspaceById, workspaceOf } from "../../workspaces.ts";
+import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
 import { messageOf } from "../../effect/support.ts";
 import { BadRequestError, isIweError, type IweError } from "../../effect/errors.ts";
 import { capabilitiesLayer } from "./services.ts";

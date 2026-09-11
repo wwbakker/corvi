@@ -12,7 +12,7 @@ import {
 } from "../core/host/index.ts";
 import { guard } from "../origin.ts";
 import { isFinished } from "../core/domain/change.ts";
-import { workspaceById } from "../workspaces.ts";
+import { workspaceById } from "../workspace/server/index.ts";
 import {
   bodyOrEmpty,
   json,

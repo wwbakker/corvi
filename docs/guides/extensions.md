@@ -342,7 +342,7 @@ no subtraction, because a list you can read is worth more than a default you hav
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
 `"azure": false` is still read where it states a fact — "this context has no pipelines" — by
-`usesAzure`/`azureOf` (src/workspaces.ts) and the workspace card, but it never rewrites the
+`usesAzure`/`azureOf` (src/workspace/server/workspaces.ts) and the workspace card, but it never rewrites the
 `extensions` list.
 
 ## Per-workspace settings

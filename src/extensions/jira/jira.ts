@@ -1,10 +1,10 @@
 import { Effect, Either } from "effect";
 import type { WidgetState } from "../../core/domain/widget.ts";
 import { swr, invalidate } from "../../cache.ts";
-import { config, type Config } from "../../config.ts";
+import { config, type Config } from "../../workspace/server/index.ts";
 import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
-import { workspaceById, workspaceOf } from "../../workspaces.ts";
+import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
 import { BadRequestError } from "../../effect/errors.ts";
 import { messageOf } from "../../effect/support.ts";
 import type { Issue, Sprint } from "./shared.ts";

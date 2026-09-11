@@ -1,19 +1,19 @@
 import { Schema } from "effect";
-import type { Config, Workspace as WorkspaceShape } from "../config.ts";
+import type { Workspace as WorkspaceShape } from "../../core/domain/config.ts";
 
 /**
  * Effect Schemas for the config layer — the JSON boundary of the config file.
  *
- * The file is the hand-edited source of truth (see src/settings.ts), so these schemas describe
+ * The file is the hand-edited source of truth (see src/settings/server/settings.ts), so these schemas describe
  * *the file as it is written*: every key optional, because an absent value means "the default",
  * and unknown keys preserved on decode, because a key IWE does not know about was put there by
  * hand for a version of IWE that does and losing it silently would be rude.
  *
- * The resolved shape (`config.ts`'s `Config`) is described by `Resolved`, which is what the
+ * The resolved shape (`src/core/domain/config.ts`'s `Config`) is described by `Resolved`, which is what the
  * rest of the program reads and what a future CLI `--json` or IPC surface would emit.
  */
 
-/** A context you work in: a client, or your own projects. Mirrors `config.ts`'s `Workspace`. */
+/** A context you work in: a client, or your own projects. Mirrors `src/core/domain/config.ts`'s `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -57,10 +57,10 @@ export const AzureDeploy = Schema.Struct({
 });
 
 /** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
- * it has to be a word. The same rule src/settings.ts enforces, as a schema. */
+ * it has to be a word. The same rule src/settings/server/settings.ts enforces, as a schema. */
 export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/));
 
-/** A directory copied into a worktree is a name next to the code, not a path (see settings.ts). */
+/** A directory copied into a worktree is a name next to the code, not a path (see src/settings/server/settings.ts). */
 export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/));
 
 /** An environment variable name, for a workspace's `env` map. */
@@ -81,7 +81,7 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings
- * page's write shape (src/settings.ts' `Settings`). */
+ * page's write shape (src/settings/server/settings.ts' `Settings`). */
 export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
   reposRoot: Schema.optional(Schema.String),
@@ -129,7 +129,7 @@ export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces
   workspaces?: WorkspaceShape[];
 };
 
-/** The resolved shape: file, environment and defaults combined — `config.ts`'s `Config`. Not a
+/** The resolved shape: file, environment and defaults combined — `src/core/domain/config.ts`'s `Config`. Not a
  * decoder of anything on disk (the resolved config is computed, never read); it states the
  * boundary a future CLI/IPC surface would emit, and pins the Workspace member to the type. */
 export const Resolved = Schema.Struct({

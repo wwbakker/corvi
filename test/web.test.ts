@@ -10,7 +10,7 @@ import {
   inWorkspace,
   workspaceOf,
   type Workspace,
-} from "../src/web/workspaces.ts";
+} from "../src/workspace/client/workspaces.ts";
 
 /**
  * The web client's pure logic: the pieces that decide what the sidebar shows, how a state is
@@ -63,7 +63,7 @@ test("the everything filter keeps every change, and a workspace keeps its own", 
   expect(inWorkspace([change({ workspace: "gone" }), untagged], "gone", both)).toHaveLength(1);
 });
 
-test("the default workspace is the one src/config.ts creates", () => {
+test("the default workspace is the one src/core/domain/config.ts defines", () => {
   expect(DEFAULT_WORKSPACE).toEqual({ id: "default", name: "Default workspace" });
   // "everything" is a filter, not a workspace: it is not one of the configured ids.
   expect(both.map((w) => w.id)).not.toContain(ALL);

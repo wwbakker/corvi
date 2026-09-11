@@ -1,6 +1,6 @@
 import type { Change } from "../domain/change.ts";
-import type { Workspace } from "../../config.ts";
-import { workspaceOf } from "../../workspaces.ts";
+import type { Workspace } from "../domain/config.ts";
+import { workspaceOf } from "../../workspace/server/index.ts";
 import { loaded, type LoadedExtension } from "./registry.ts";
 import type {
   Card,

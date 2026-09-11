@@ -13,10 +13,13 @@ change (`~/changes/<id>/`). Everything else is read live and cached in
 src/
   server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
   effect/              errors (taxonomy) · http→status mapping · runRoute · Workspace tag
-  schemas/             Effect Schemas for change.json and config.json
-  config.ts settings.ts  config file + settings page
-  change/              the change module: model.ts, server/ (store, create, complete, cancel,
-                       commit, review, titles, description, leftovers, index.ts), client/ (the
+  workspace/           the workspace module: server/ (config loader, file schema, workspace
+                       resolution, repository browser), client/ (the switcher, WorkspaceCard,
+                       RepoBrowser)
+  settings/            the settings module: server/ (settings page read/write, legacySettings),
+                       client/ (SettingsPage, SettingsFields)
+  change/              the change module: model.ts, server/ (schema, store, create, complete,
+                       cancel, commit, review, titles, description, leftovers, index.ts), client/ (the
                        page, the dialogs, the review surface)
   summary.ts           the overview summary, still top-level until it moves into the change module
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
@@ -24,7 +27,7 @@ src/
                        the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
   integrations/        vendor CLI wrappers (git, github, azure, stacks)
   core/
-    domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts
+    domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
     host/              the extension contract and its machinery: api.ts (and api/*.ts), registry.ts,
                        discover.ts, selectors.ts, effects.ts, dispatch.ts, services.ts,
                        clientChunks.ts, index.ts
@@ -51,7 +54,8 @@ directories:
 
 One shared module lives outside the feature folders:
 
-- `src/deploySettings.ts` — read by the shared `azure` client and by the core's `workspaces.ts`,
+- `src/deploySettings.ts` — read by the shared `azure` client and by the workspace module's
+  `workspaces.ts`,
   so moving it would invert the layering.
 
 A feature's pure vocabulary lives with it: `deployments/deployConventions.ts` is needed by both

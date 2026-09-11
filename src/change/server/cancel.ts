@@ -10,7 +10,7 @@ import {
   type ProvisionResult,
 } from "../../core/host/index.ts";
 import { capabilitiesLayer } from "../../core/host/services.ts";
-import { workspaceOf } from "../../workspaces.ts";
+import { workspaceOf } from "../../workspace/server/index.ts";
 import { stopTerminal } from "../../terminal/server/index.ts";
 import { BadRequestError, type CliError, type IweError } from "../../effect/errors.ts";
 import { shSoft } from "../../effect/support.ts";

@@ -9,7 +9,7 @@ import {
   wizardStepsFor,
 } from "../src/core/host/index.ts";
 import { homedir } from "node:os";
-import type { Workspace } from "../src/config.ts";
+import type { Workspace } from "../src/workspace/server/index.ts";
 
 /**
  * Out-of-tree extensions: modules that do not live in this repository, discovered from the
@@ -112,7 +112,7 @@ test("the environment override wins over the file, tilde-expanded and deduplicat
       cmd: [
         "bun",
         "-e",
-        `console.log(JSON.stringify((await import("${join(repoRoot, "src/config.ts")}")).config.extensionPaths))`,
+        `console.log(JSON.stringify((await import("${join(repoRoot, "src/workspace/server/config.ts")}")).config.extensionPaths))`,
       ],
       cwd: repoRoot,
       env: { ...base, IWE_CONFIG: configFile, IWE_ROOT: join(tmp, "changes"), ...env },

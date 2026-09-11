@@ -5,7 +5,7 @@ import type { SummaryFact } from "./core/domain/widget.ts";
 import { listWindows } from "./terminal/server/index.ts";
 import { summaryContributorsFor } from "./core/host/index.ts";
 import { capabilitiesLayer } from "./core/host/services.ts";
-import { workspaceOf } from "./workspaces.ts";
+import { workspaceOf } from "./workspace/server/index.ts";
 
 export type { ChangeSummary };
 

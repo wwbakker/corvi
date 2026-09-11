@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import { Shell, Workspace as WorkspaceTag } from "../../../effect/tags.ts";
-import type { Config } from "../../../config.ts";
+import type { Config } from "../../domain/config.ts";
 import type { Change } from "../../domain/change.ts";
 import type { IweError } from "../../../effect/errors.ts";
 

@@ -19,7 +19,7 @@ import {
 import type { Change } from "../src/core/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../src/core/domain/widget.ts";
 import { clearCache } from "../src/cache.ts";
-import { config } from "../src/config.ts";
+import { config } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache, and every test starts from a cold one so a

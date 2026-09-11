@@ -23,7 +23,7 @@ import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";
-import { config, type Workspace } from "../src/config.ts";
+import { config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/core/domain/change.ts";
 
 /**

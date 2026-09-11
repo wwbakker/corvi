@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import { currentBranch } from "../src/integrations/git.ts";
 import { sh } from "../src/sh.ts";
 import { Workspace as WorkspaceTag } from "../src/effect/tags.ts";
-import { workspaceById } from "../src/workspaces.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /**

@@ -1,13 +1,12 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, put } from "./api.ts";
-import { DEFAULT_WORKSPACE } from "./workspaces.ts";
+import { api, put } from "../../web/api.ts";
+import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
 // Types only: these are erased at build time, so the browser bundle gets none of the server's
 // file handling with them.
-import type { Settings, SettingsView } from "../settings.ts";
-import type { Config } from "../config.ts";
-import type { ExtensionSetting } from "../core/host/api.ts";
+import type { Settings, SettingsView } from "../server/index.ts";
+import type { ExtensionSetting } from "../../core/host/api.ts";
 import { CheckField, Field, ListEditor, type KnownExtension } from "./SettingsFields.tsx";
-import { WorkspaceCard } from "./WorkspaceCard.tsx";
+import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.

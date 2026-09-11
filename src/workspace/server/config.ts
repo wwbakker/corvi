@@ -2,94 +2,10 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { ConfigFile, workspacesFrom } from "./schemas/config.ts";
-import { ENV_OVERRIDES, resolveSetting } from "./legacySettings.ts";
-import { TOOLING } from "./tooling.ts";
-
-/**
- * A context you work in: a client, or your own projects. Which changes you are looking at, and —
- * from stage two — where its repositories live and which integrations apply, since a personal
- * project has no Jira issue and no Azure pipeline and should not be asked about either.
- */
-export type Workspace = {
-  /** Stable, and recorded in a change: renaming the name must not orphan anything. */
-  id: string;
-  name: string;
-  /** Where the repository browser opens in this context. */
-  reposStart?: string;
-  /** Which extensions exist here, by name (see src/extensions/). Absent means all of them. */
-  extensions?: string[];
-  /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
-   * holds the field the extension's `workspaceSettings` declaration names, which is where the
-   * extension reads it back. The core only carries it. */
-  extensionSettings?: Record<string, Record<string, string>>;
-  /** `false` for a context with no pipelines: no CI runs are looked for and the deployments page
-   * is not offered. */
-  azure?: false | { organization?: string; project?: string };
-  /**
-   * Added to the environment of every CLI run for this workspace. This is how two clients stop
-   * fighting over one login: `GH_CONFIG_DIR` for another GitHub account, `AZURE_CONFIG_DIR` for
-   * another tenant, `JIRA_API_TOKEN` for another site. `~` is expanded.
-   */
-  env?: Record<string, string>;
-};
-
-/** The workspace a change without one belongs to: the first one, which for everybody who has
- * not configured any is the only one. There is no such thing as no workspaces: a machine that
- * has not configured any gets this one. */
-export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
-
-/** File-based config, read once at startup. Environment variables still win, so tests and
- * one-off runs need no file. */
-export type Config = {
-  /** Where per-change directories (worktrees, change.json) are created. */
-  changesRoot: string;
-  /** Base directory the repository browser starts from. */
-  reposRoot: string;
-  /** Directory the browser opens on, inside reposRoot. Going up to reposRoot stays possible;
-   * this only saves the clicks you make every single time. */
-  reposStart: string;
-  /** Who a change's Jira issue is assigned to on creation. Empty means "the logged-in user". */
-  jiraAssignee: string;
-  /** Whether a notification plays the system sound; the settings page's one notification
-   * decision so far. */
-  notificationSound: boolean;
-  /** Transition a change's Jira issue moves to on creation. */
-  jiraStartTransition: string;
-  /** Transition a change's Jira issue moves to when the change is completed. */
-  jiraDoneTransition: string;
-  /** Azure DevOps organisation and project; empty means "whatever az devops configure holds". */
-  azureOrganization: string;
-  azureProject: string;
-  /** The contexts you switch between. Never empty: when nothing is configured, the default
-   * workspace stands in. */
-  workspaces: Workspace[];
-  /** IDE and build-tool directories copied from the repository into a new worktree, with the
-   * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */
-  worktreeCopy: string[];
-  /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
-   * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/core/host/index.ts). `~` is
-   * expanded and duplicates dropped; ~/.config/iwe/extensions is searched in addition, when
-   * it exists. A change here needs a restart — extensions load once, at startup. */
-  extensionPaths: string[];
-  /** Settings the extensions declared, stored under their own name:
-   * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
-   * declaration names, which is where the extension reads it back. A value is one string or a
-   * list of them. The core carries the bag without looking inside; the flat settings are the
-   * fallback the extension reads go through when the bag is empty. */
-  extensionSettings?: Record<string, Record<string, string | string[]>>;
-  /** How this organisation deploys. None of these names are ours, so all of them are settings:
-   * a build pipeline's deploy twin is named by swapping the prefixes, and the deploy pipeline is
-   * given the version and the environment as parameters. */
-  azureDeploy: {
-    /** `["build-", "deploy-"]`: how a build pipeline's name becomes its deploy pipeline's. */
-    pipeline: readonly [string, string];
-    versionParameter: string;
-    environmentParameter: string;
-    /** In the order they are deployed to, which is the order they are shown in. */
-    environments: string[];
-  };
-};
+import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
+import { ConfigFile, workspacesFrom } from "./schema.ts";
+import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
+import { TOOLING } from "../../tooling.ts";
 
 // Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>
@@ -104,7 +20,7 @@ const defaults: Pick<Config, "changesRoot" | "reposRoot"> = {
 };
 
 /**
- * The config file, decoded through its Schema (src/schemas/config.ts).
+ * The config file, decoded through its Schema (src/workspace/server/schema.ts).
  *
  * Reconciling the synchronous startup read with Effect: the read and decode are built as an
  * Effect so the file boundary has exactly one implementation, but it is run with
@@ -147,7 +63,7 @@ const resolvePath = (value: string): string => {
 /**
  * The file and the environment, resolved into what the rest of the code reads. The precedence
  * chain — environment wins over file, file over defaults, the bag over both — is stated once,
- * in src/legacySettings.ts. The per-workspace tolerance (skip entries without a truthy id and
+ * in src/settings/server/legacySettings.ts. The per-workspace tolerance (skip entries without a truthy id and
  * name) is applied by workspacesFrom.
  */
 function load(): Config {

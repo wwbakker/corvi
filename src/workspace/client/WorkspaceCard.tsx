@@ -1,5 +1,5 @@
-import type { Workspace } from "../config.ts";
-import { Field, Group, type KnownExtension } from "./SettingsFields.tsx";
+import type { Workspace } from "../../core/domain/config.ts";
+import { Field, Group, type KnownExtension } from "../../settings/client/SettingsFields.tsx";
 import type { JSX } from "react";
 
 /** The environment a workspace adds to every CLI it runs: how two clients stop fighting over one

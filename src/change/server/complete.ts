@@ -12,7 +12,7 @@ import {
   writeSidecar,
 } from "./store.ts";
 import { stopTerminal } from "../../terminal/server/index.ts";
-import { config } from "../../config.ts";
+import { config } from "../../workspace/server/index.ts";
 import {
   afterChange,
   beforeChange,
@@ -20,7 +20,7 @@ import {
   type ProvisionResult,
 } from "../../core/host/index.ts";
 import { capabilitiesLayer } from "../../core/host/services.ts";
-import { workspaceOf } from "../../workspaces.ts";
+import { workspaceOf } from "../../workspace/server/index.ts";
 import {
   BadRequestError,
   DecodeError,
