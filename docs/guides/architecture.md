@@ -14,7 +14,7 @@ src/
   server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
   change/              the change module: model.ts (the edit rule the halves share), server/
                        (schema, store, create, complete, cancel, commit, review, titles,
-                       description, leftovers, index.ts), client/ (the page, the dialogs, the
+                       description, index.ts), client/ (the page, the dialogs, the
                        review surface), wizard/ (a submodule: the New change wizard, client/ +
                        index.ts), overview/ (a submodule: the dashboard — server/ composes
                        change, terminal and the host; client/ holds the cards)
@@ -39,7 +39,8 @@ src/
                        services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
                        client-side registry and the extension UI contract), index.ts
     integrations/      vendor CLI wrappers (git, github, azure, stacks)
-  extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments)
+  extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments,
+                       leftovers)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
   deploySettings.ts    the deployments settings, read by the shared azure client and the

@@ -889,9 +889,10 @@ and when you navigate away.
 
 ## Left behind
 
-Under the changes list is a card for directories in the changes root that no longer belong to a
-change: what a completed one left behind — a build's `target/`, a shell's history, the terminal's
-note — or a change that was never finished being created. Each one opens to show what is in it,
+A page of its own, beside `Changes` in the navigation column when the leftovers extension is
+enabled: the directories in the changes root that no longer belong to a
+change — what a completed one left behind (a build's `target/`, a shell's history, the terminal's
+note) or a change that was never finished being created. Each one opens to show what is in it,
 with its size, and a Delete button. Nothing is removed on your behalf: `target/` is rubbish, the
 scratch file next to it might not be.
 
@@ -1352,7 +1353,7 @@ The map, grouped by layer:
       model.ts                applyPatch: the two fields you may edit by hand
       server/                 schema.ts (the change.json schema), store.ts (change.json, the
                               archive, sidecars, ExtensionStore files), create.ts, complete.ts,
-                              cancel.ts, commit.ts, titles.ts, description.ts, leftovers.ts,
+                              cancel.ts, commit.ts, titles.ts, description.ts,
                               review.ts, index.ts (the public face)
       client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
                               EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
@@ -1391,13 +1392,14 @@ The map, grouped by layer:
       ci/                     the CI card, and checks.ts (GitHub Actions checks)
       deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
                               deployConventions.ts (the pipeline-name convention both halves share)
+      leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
+                              (the Leftover type both halves read)
 
     src/frontend/             the browser shell and runtime, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view
       state.ts                the changes and tmux windows, owned by the app
       events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
       Sidebar.tsx             the navigation column: changes, pages, terminals
-      Leftovers.tsx           directories left in the changes root
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
       ActionsMenu.tsx         the change page's action menu

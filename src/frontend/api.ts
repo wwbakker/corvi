@@ -20,12 +20,6 @@ export type Selection = { path: string; direct: boolean; base?: string };
 
 export type Branches = { branches: string[]; default?: string };
 
-export type Leftover = {
-  name: string;
-  path: string;
-  entries: { name: string; directory: boolean; git?: "worktree" | "repository" }[];
-  kilobytes: number;
-};
 export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: string; number: number }[] };
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };

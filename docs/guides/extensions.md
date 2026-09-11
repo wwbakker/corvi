@@ -153,7 +153,8 @@ contribution contributes nothing.
 
 ## Pages
 
-A page is `/{id}` in the app — the deployments page is `/deployments`. An extension declares
+A page is `/{id}` in the app — the deployments page is `/deployments`, the leftovers page is
+`/leftovers`. An extension declares
 its pages (`{ id, title }`), and the sidebar offers what `GET /api/pages?workspace=…` says
 exists, exactly as the wizard already does with steps: the page exists for a workspace when
 the extension does, and a disabled extension's page is not offered, not an empty one.

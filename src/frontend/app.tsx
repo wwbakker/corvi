@@ -4,7 +4,6 @@ import { type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished } from "../core/domain/change.ts";
 import { stateClass } from "../change/client/changeState.tsx";
 import { ChangeCard } from "../change/overview/client/ChangeCard.tsx";
-import { Leftovers } from "./Leftovers.tsx";
 import { moment } from "./moment.ts";
 import { Sidebar, type Page } from "./Sidebar.tsx";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
@@ -94,7 +93,6 @@ function Home({
           </table>
         </>
       )}
-      <Leftovers />
     </div>
   );
 }

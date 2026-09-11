@@ -10,6 +10,7 @@ import {
   extensionsFor,
   install,
   loaded,
+  pagesFor,
   windowPresenters,
   wizardStepsFor,
 } from "../src/core/host/index.ts";
@@ -286,6 +287,17 @@ test("the wizard's steps follow the phases and the enablement", () => {
   // A context that dropped jira has no step to show for it, not an empty one.
   const withoutJira = wizardStepsFor(ws({ extensions: ["github-issues"] }));
   expect(withoutJira.map((s) => s.extension)).toEqual(["github-issues"]);
+});
+
+test("an extension's page is offered only in a context that has it", () => {
+  const withBoth = pagesFor(ws({ extensions: ["deployments", "leftovers"] }));
+  expect(withBoth.map((p) => [p.extension, p.id])).toEqual([
+    ["deployments", "deployments"],
+    ["leftovers", "leftovers"],
+  ]);
+  // A context that dropped leftovers has no Leftovers entry, not an empty one.
+  const withoutLeftovers = pagesFor(ws({ extensions: ["deployments"] }));
+  expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
 
 test("a completion step is planned only when the change has something for it", () => {

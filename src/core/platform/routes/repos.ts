@@ -1,26 +1,10 @@
 import { Effect } from "effect";
 import { runRoute } from "../effect/run.ts";
-import { listLeftovers, removeLeftover } from "../../../change/server/index.ts";
 import { guard } from "../origin.ts";
 import { absolutePath, browse, remoteBranches } from "../../../workspace/server/index.ts";
 import { attempt, json } from "./helpers.ts";
 
 export const reposRoutes = guard({
-  // Directories left in the changes root by changes that are done: shown, never removed on
-  // your behalf.
-  "/api/leftovers": {
-    GET: () => runRoute(Effect.map(listLeftovers, json)),
-  },
-  "/api/leftovers/:name": {
-    DELETE: (req) =>
-      runRoute(
-        Effect.gen(function* () {
-          yield* removeLeftover(req.params.name);
-          return json(yield* listLeftovers);
-        }),
-      ),
-  },
-
   // Directory browser rooted at the configured repos root; paths that escape it are rejected.
   "/api/repos": {
     GET: (req) =>

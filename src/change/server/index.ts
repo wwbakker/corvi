@@ -48,8 +48,6 @@ export { refreshTitles } from "./titles.ts";
 
 export { describeChange, prDescription } from "./description.ts";
 
-export { listLeftovers, removeLeftover, type Leftover } from "./leftovers.ts";
-
 export {
   aheadIn,
   fileDiff,

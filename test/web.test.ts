@@ -205,7 +205,7 @@ test("PATCH, PUT and DELETE carry their method, and DELETE carries no body", asy
   stubFetch(() => json({ ok: true }));
   await patch("/changes/PROJ-1", { title: "renamed" });
   await put("/changes/PROJ-1/notes", { notes: "hi" });
-  await del("/changes/PROJ-1/leftovers/x");
+  await del("/changes/PROJ-1/notes");
 
   expect(calls.map((c) => c.init?.method)).toEqual(["PATCH", "PUT", "DELETE"]);
   expect(calls[0]!.init?.body).toBe('{"title":"renamed"}');

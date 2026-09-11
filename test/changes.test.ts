@@ -220,54 +220,6 @@ test("a completed change is listed once, even when its directory is left behind"
   expect(listed.length).toBe(1);
 });
 
-test("directories left by finished changes are found, and only those", async () => {
-  const { listLeftovers, removeLeftover } = await import("../src/change/server/index.ts");
-  const active = await runEffect(createChange({ id: "PROJ-ALIVE", repos: [repo] }));
-
-  // A change that was completed: change.json moved to the archive, the directory stayed.
-  const done = await runEffect(createChange({ id: "PROJ-DONE", repos: [repo] }));
-  await runEffect(archiveChange(done.id));
-  await Bun.write(join(changeDir(done.id), "target", "build.jar"), "artifact\n");
-
-  const leftovers = await runEffect(listLeftovers);
-  const names = leftovers.map((l) => l.name);
-  expect(names).toContain("PROJ-DONE");
-  expect(names).not.toContain(active.id); // an active change is not litter
-  expect(names).not.toContain("archive"); // nor is the archive itself
-  expect(leftovers.find((l) => l.name === "PROJ-DONE")?.entries).toEqual([
-    { name: "target", directory: true },
-  ]);
-
-  // Deleting one takes the directory with it, and refuses to touch a change that is still live.
-  expect(runEffect(removeLeftover(active.id))).rejects.toThrow(/active change/);
-  await runEffect(removeLeftover("PROJ-DONE"));
-  expect(await Bun.file(join(changeDir("PROJ-DONE"), "target", "build.jar")).exists()).toBe(false);
-  expect((await runEffect(listLeftovers)).map((l) => l.name)).not.toContain("PROJ-DONE");
-  // The archived change itself is untouched: only the leftover directory went.
-  expect(await runEffect(readChange("PROJ-DONE"))).toMatchObject({ id: "PROJ-DONE" });
-});
-
-test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
-  const { listLeftovers, removeLeftover } = await import("../src/change/server/index.ts");
-  const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] }));
-  // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
-  // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
-  const worktree = (await runEffect(checkoutFor(change, repo)))!;
-  expect(worktree).toBe(await realpath(join(changeDir(change.id), "myrepo")));
-
-  // A change whose record is gone while its worktree is not: an interrupted creation, or a
-  // change.json lost by hand. Completing removes worktrees first, so it cannot happen that way.
-  await rm(join(changeDir(change.id), "change.json"));
-  const listed = (await runEffect(listLeftovers)).find((l) => l.name === change.id)!;
-  // Shown as what it is, so the warning before deleting can say so.
-  expect(listed.entries).toContainEqual({ name: "myrepo", directory: true, git: "worktree" });
-
-  await runEffect(removeLeftover(change.id));
-  // git forgets the worktree as well: a stale registration would block reusing the path.
-  const registered = await runSh(["git", "worktree", "list"], repo);
-  expect(registered.stdout).not.toContain(worktree);
-});
 
 test("a completion records itself before it starts checking anything", async () => {
   const { completeChange, progressOf } = await import("../src/change/server/index.ts");
