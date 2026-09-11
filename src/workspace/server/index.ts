@@ -43,7 +43,8 @@ export {
   browse,
   remoteBranches,
   absolutePath,
-  type Entry,
 } from "./repos.ts";
+
+export type { Entry } from "../model.ts";
 
 export { DEFAULT_WORKSPACE, type Config, type Workspace } from "../../core/domain/config.ts";

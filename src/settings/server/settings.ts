@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "../../core/domain/config.ts";
+import type { Settings, SettingsView } from "../model.ts";
 import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import {
   config,
@@ -12,14 +13,12 @@ import {
   DirectoryName,
   EnvVarName,
   WorkspaceId,
-  type ConfigFile,
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../core/host/index.ts";
 import { BadRequestError } from "../../core/platform/effect/errors.ts";
 import { fs } from "../../core/platform/effect/support.ts";
 import { invalidate } from "../../core/platform/capabilities/cache.ts";
 import { TOOLING } from "../../core/platform/tooling.ts";
-import type { ExtensionSetting, WorkspaceSetting } from "../../core/host/api.ts";
 
 /**
  * Reading and writing the settings file from the page.
@@ -33,36 +32,6 @@ import type { ExtensionSetting, WorkspaceSetting } from "../../core/host/api.ts"
  * values must be caught wherever they come from, and a page that duplicated the rules would
  * eventually disagree with them.
  */
-
-/** What may be written: the config file's own shape. Everything is optional — an absent value
- * means "the default", which is what an empty file means. */
-export type Settings = ConfigFile;
-
-export type SettingsView = {
-  /** Which file this is, so the page can say where to look when something is edited by hand. */
-  path: string;
-  /** What the file holds, as written. */
-  file: Settings;
-  /** What is actually in effect, defaults and environment included. */
-  effective: Config;
-  /** Setting to the environment variable currently overriding it. Those are shown as locked:
-   * the variable wins, so writing the file would change nothing and look like a bug. */
-  overridden: Record<string, string>;
-  /** The extensions' server-wide settings an environment variable is currently overriding, by
-   * extension name and setting key — the same locking as `overridden`, for the fields the
-   * extensions declare on the settings page. */
-  overriddenExtensions: Record<string, Record<string, string>>;
-  /** What `worktreeCopy` is when it is not set, so the page can offer it back. */
-  toolingDefault: string[];
-  /** The extensions there are to enable, in the order they were loaded, each with the
-   * per-workspace settings it declares — so the page needs no second request to render them. */
-  extensions: {
-    name: string;
-    title: string;
-    workspaceSettings: WorkspaceSetting[];
-    globalSettings: ExtensionSetting[];
-  }[];
-};
 
 export const settingsView = Effect.sync(() => settingsViewSync());
 

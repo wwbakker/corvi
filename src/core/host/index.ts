@@ -15,9 +15,9 @@ import { loaded } from "./registry.ts";
  * extension on the settings page takes effect at once.
  *
  * Contributed handlers are Effects (src/core/host/api.ts). The host runs each one inside
- * `capabilitiesLayer(workspaceOf(change))` — the request's workspace plus the four services —
- * so an extension's requirements arrive through the R channel, with no ambient state and no
- * bridging layer. The built-ins are joined, after them, by out-of-tree
+ * `capabilitiesLayer(workspaceOf(change), name)` — the request's workspace, the four services
+ * and the name-bound `ExtensionStore` — so an extension's requirements arrive through the R
+ * channel, with no ambient state and no bridging layer. The built-ins are joined, after them, by out-of-tree
  * extensions discovered from the config and imported from disk — through the same
  * install/factory path, so the contract (docs/guides/extensions.md) does not change with the
  * extension's address.

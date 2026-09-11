@@ -12,9 +12,9 @@ export {
   problems,
   writeSettings,
   blankWorkspace,
-  type Settings,
-  type SettingsView,
 } from "./settings.ts";
+
+export type { Settings, SettingsView } from "../model.ts";
 
 export {
   ENV_OVERRIDES,

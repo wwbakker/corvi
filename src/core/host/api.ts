@@ -51,6 +51,7 @@ export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore } from "./api/ca
 export type {
   Result,
   Capabilities,
+  CreatingCapabilities,
   Startup,
   ExtensionStoreShape,
 } from "./api/capabilities.ts";

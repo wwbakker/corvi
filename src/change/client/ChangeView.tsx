@@ -22,7 +22,7 @@ import { LifecycleFailures } from "../../frontend/LifecycleFailures.tsx";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "../../terminal/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminal/client/CheatSheet.tsx";
-import type { Platform } from "../../terminal/client/newWindowKey.ts";
+import type { Platform } from "../../terminal/model.ts";
 import { CompletionCard } from "./CompletionCard.tsx";
 import { LocalPane } from "./LocalPane.tsx";
 import { PerRepoCard } from "../overview/client/PerRepoCard.tsx";

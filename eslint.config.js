@@ -32,7 +32,12 @@ import tseslint from "typescript-eslint";
  * server and the browser need, importable by value from a browser half. A module's pure
  * `model.ts` joins it as the modules land, so the rule allows both, and `core/host/client.tsx`
  * is a second structural exception: it is the extension host's browser contract, not a server
- * module, and the page's hosts have to import it by value. The patterns are matched
+ * module, and the page's hosts have to import it by value. That purity is enforced by its own
+ * block (`pureBoundary`), over `src/core/domain/**` and a module's `model.ts`: neither may
+ * import `node:*`, `bun`/`bun:*` or the Effect runtime; a `model.ts` may import the error
+ * taxonomy (`core/platform/effect/errors.ts`) but the domain may not; and `Bun`/`process` are
+ * refused as ambient globals. The patterns
+ * are matched
  * against the specifier as written, so `serverImports` builds them from the path back to `src/` —
  * `../` for `src/frontend/**`, `../../` for `src/<module>/client/**`, `../../../` for
  * `src/<module>/<submodule>/client/**` — and the client blocks add the sibling `../server/**`
@@ -95,6 +100,30 @@ const browserBoundary = (up, extra = []) => [
   },
 ];
 
+/** The `no-restricted-imports` rule value for one pure domain/model tree. `extra` carries what
+ * only that tree additionally refuses — the domain also refuses the error taxonomy, which a
+ * `model.ts` is allowed to import. The bare package names go in `paths` (an exact match), not
+ * `patterns`: `effect` as a gitignore-style pattern would also match the taxonomy's own
+ * `platform/effect/errors.ts` path segment. */
+const pureBoundary = (extra = []) => [
+  "error",
+  {
+    paths: [
+      { name: "effect", message: "domain/** and model.ts are pure: no Effect runtime" },
+      { name: "bun", message: "domain/** and model.ts are pure: no Bun.*" },
+    ],
+    patterns: [
+      {
+        group: ["node:*", "bun:*", "effect/*", ...extra],
+        message:
+          "domain/** and a module's model.ts are pure: no node:*, no Bun.*, no Effect runtime. " +
+          "A model.ts may import the error taxonomy (core/platform/effect/errors.ts); the domain " +
+          "may not.",
+      },
+    ],
+  },
+];
+
 export default tseslint.config(
   {
     ignores: ["node_modules/**", "assets/**", "shots/**"],
@@ -152,6 +181,57 @@ export default tseslint.config(
         "../../server/**",
         "../../*/server/**",
       ]),
+    },
+  },
+  {
+    // An extension's browser code is its `client.tsx` and the `.tsx` siblings beside it (the
+    // shared pure `.ts` files are vocabulary, not a half). The extension's server half shares
+    // the directory as `index.ts`, `server.ts` and their `.ts` helpers; the generic
+    // `${up}*/server/**` catches a `server/` directory but not the `server.ts` file, so both
+    // halves are named explicitly as sibling specifiers.
+    files: ["src/extensions/**/*.tsx"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    rules: {
+      "no-restricted-imports": browserBoundary("../../", ["./index.ts", "./server.ts"]),
+    },
+  },
+  {
+    files: ["src/core/host/client.tsx"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    rules: {
+      // The host's browser contract is browser code under core/ by design (see serverImports),
+      // and the rule that keeps it one has to cover it too.
+      "no-restricted-imports": browserBoundary("../../"),
+    },
+  },
+  {
+    files: ["src/core/domain/**/*.{ts,tsx}"],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      "no-restricted-imports": pureBoundary(["**/effect/errors.ts"]),
+      "no-restricted-globals": [
+        "error",
+        { name: "Bun", message: "domain/** is pure: no Bun.*" },
+        { name: "process", message: "domain/** is pure: no ambient process" },
+      ],
+    },
+  },
+  {
+    files: ["src/**/model.ts"],
+    languageOptions: { parser: tseslint.parser },
+    rules: {
+      "no-restricted-imports": pureBoundary(),
+      "no-restricted-globals": [
+        "error",
+        { name: "Bun", message: "model.ts is pure: no Bun.*" },
+        { name: "process", message: "model.ts is pure: no ambient process" },
+      ],
     },
   },
 );

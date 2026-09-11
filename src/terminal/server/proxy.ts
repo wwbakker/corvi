@@ -9,7 +9,7 @@
  * takes away xterm's empty scrollbar, which its own stylesheet keeps for good (withPageFixes).
  */
 import type { Server, ServerWebSocket } from "bun";
-import { isNewWindowKey, type Platform } from "../client/newWindowKey.ts";
+import { isNewWindowKey, type Platform } from "../model.ts";
 
 /** ttyd's own protocol: a client frame is one byte of command, then the payload. */
 const INPUT = "0".charCodeAt(0);
@@ -25,7 +25,7 @@ const KEYS = `
  *
  * The platform is baked in at serve time: the shell on the other end of the socket lives on the
  * machine the server does, so it is the server's platform that decides which chord opens a
- * window. The key test itself comes from terminal/client/newWindowKey.ts, embedded here as
+ * window. The key test itself comes from terminal/model.ts, embedded here as
  * source so page and shim cannot drift apart. */
 export const keysScript = (platform: Platform): string => `
 (() => {

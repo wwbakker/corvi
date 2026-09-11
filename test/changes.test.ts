@@ -512,7 +512,7 @@ test("the summary gathers the core's terminals fact and the extensions' contribu
 });
 
 test("the icons take the worst of what the repositories say", async () => {
-  const { worst } = await import("../src/change/overview/server/index.ts");
+  const { worst } = await import("../src/core/domain/widget.ts");
   // One red build is what you want to know about, so it decides the colour; then one running.
   expect(worst(["ok", "error", "pending"])).toBe("error");
   expect(worst(["ok", "pending", "ok"])).toBe("pending");

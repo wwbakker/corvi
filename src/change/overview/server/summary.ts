@@ -9,10 +9,6 @@ import { workspaceOf } from "../../../workspace/server/index.ts";
 
 export type { ChangeSummary };
 
-// Pure, and extension code needs it without importing this module through the host, so it is
-// defined in core/domain/widget.ts; re-exported here for callers of this module.
-export { worst };
-
 /**
  * What the overview's card says about a change: what the core knows about its terminals, plus
  * what the extensions say.

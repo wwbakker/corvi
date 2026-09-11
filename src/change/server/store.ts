@@ -166,13 +166,23 @@ export const writeExtensionFile = (
   });
 
 /** Replace one extension's entry in the change's `extensions` bag and write change.json once.
- * `undefined` removes the entry, matching the wizard's "nothing picked" payload. */
-export const setExtensionData = (change: Change, name: string, data: unknown): Effect.Effect<Change> =>
+ * `undefined` removes the entry, matching the wizard's "nothing picked" payload.
+ *
+ * The current change is re-read inside the effect and the entry is merged onto it, not onto the
+ * `change` the caller passed: cards and contributions run concurrently, and a caller's snapshot
+ * can be older than another contribution's write. Merging on the latest value is what keeps two
+ * updates in the same window from clobbering each other's bag entries. */
+export const setExtensionData = (
+  change: Change,
+  name: string,
+  data: unknown,
+): Effect.Effect<Change, DecodeError> =>
   Effect.gen(function* () {
-    const extensions = { ...(change.extensions ?? {}) };
+    const current = (yield* readChange(change.id)) ?? change;
+    const extensions = { ...(current.extensions ?? {}) };
     if (data === undefined) delete extensions[name];
     else extensions[name] = data;
-    const updated: Change = { ...change, extensions };
+    const updated: Change = { ...current, extensions };
     yield* writeChange(updated);
     return updated;
   });

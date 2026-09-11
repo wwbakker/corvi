@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { isNewWindowKey, type Platform } from "./newWindowKey.ts";
+import { isNewWindowKey, type Platform } from "../model.ts";
 
 /**
  * The change's terminal: a tmux session in the change directory, rendered by ttyd.
@@ -28,7 +28,7 @@ export function TerminalPane({
    * to us. */
   visible: boolean;
   /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
-   * same test the injected shim applies, from terminal/client/newWindowKey.ts). */
+   * same test the injected shim applies, from terminal/model.ts). */
   platform: Platform;
   onNewWindow: () => void;
   /** The ttyd on record has outlived its tmux session, as the server said when the URL was

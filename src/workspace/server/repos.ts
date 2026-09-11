@@ -2,17 +2,10 @@ import { readdir, stat } from "node:fs/promises";
 import { join, normalize, sep } from "node:path";
 import { Effect } from "effect";
 import { config } from "./config.ts";
+import type { Entry } from "../model.ts";
 import { remoteDefaultBranch } from "../../core/integrations/git.ts";
 import { BadRequestError } from "../../core/platform/effect/errors.ts";
 import { fs, shSoft } from "../../core/platform/effect/support.ts";
-
-export type Entry = {
-  /** Path relative to the repos root, e.g. "personal/my-project". */
-  path: string;
-  name: string;
-  /** A git repository, so it can be selected as part of a change. */
-  isRepo: boolean;
-};
 
 /** Resolve a browser path inside the repos root, rejecting anything that escapes it.
  * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError),

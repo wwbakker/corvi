@@ -93,3 +93,35 @@ export type Config = {
     environments: string[];
   };
 };
+
+/**
+ * The config file's own shape, as it is written on disk: every key optional, because an absent
+ * value means "the default". This is also the settings page's write shape (the settings
+ * module's `Settings`). The Effect Schema that decodes it lives in
+ * `src/workspace/server/schema.ts`, which checks itself against this type.
+ */
+export type ConfigFile = {
+  changesRoot?: string;
+  reposRoot?: string;
+  reposStart?: string;
+  jiraAssignee?: string;
+  notificationSound?: boolean;
+  jiraStartTransition?: string;
+  jiraDoneTransition?: string;
+  azureOrganization?: string;
+  azureProject?: string;
+  /** The contexts you switch between, as the file holds them. Decoded with the per-item
+   * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
+  workspaces?: Workspace[];
+  worktreeCopy?: string[];
+  extensionPaths?: string[];
+  /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
+   * one string or a list of strings per key. */
+  extensionSettings?: Record<string, Record<string, string | string[]>>;
+  azureDeploy?: {
+    pipeline?: readonly [string, string];
+    versionParameter?: string;
+    environmentParameter?: string;
+    environments?: string[];
+  };
+};

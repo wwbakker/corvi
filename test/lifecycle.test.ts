@@ -221,6 +221,41 @@ test("ExtensionStore.update replaces the extension's bag entry and leaves the re
   expect(onDisk.repos).toEqual(["/r"]);
 });
 
+test("two updates through separate ExtensionStore layers both survive", async () => {
+  const change = await runEffect(
+    createChange({
+      id: "PROJ-5b",
+      repos: ["/r"],
+      extensions: { keep: { a: 1 } },
+    }),
+  );
+
+  // Both stores are handed the same snapshot, as two concurrent contributions would each hold
+  // the change they were given. The store merges onto the current file, not onto that snapshot,
+  // so the second write cannot erase the first contribution's entry.
+  await runStore(
+    "first",
+    Effect.gen(function* () {
+      const store = yield* ExtensionStore;
+      yield* store.update(change, { one: true });
+    }),
+  );
+  await runStore(
+    "second",
+    Effect.gen(function* () {
+      const store = yield* ExtensionStore;
+      yield* store.update(change, { two: true });
+    }),
+  );
+
+  const onDisk = (await runEffect(readChange("PROJ-5b")))!;
+  expect(onDisk.extensions).toEqual({
+    keep: { a: 1 },
+    first: { one: true },
+    second: { two: true },
+  });
+});
+
 test("store files land under extensions/<name>/ and are still readable after the change is archived", async () => {
   const change = await runEffect(createChange({ id: "PROJ-6", repos: ["/r"] }));
 

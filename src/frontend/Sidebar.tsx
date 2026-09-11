@@ -6,7 +6,7 @@ import { byWorkOrder, isFinished, type ChangeSummary } from "../core/domain/chan
 import type { TerminalWindow } from "../core/domain/terminal.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
-import type { Platform } from "../terminal/client/newWindowKey.ts";
+import type { Platform } from "../terminal/model.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens. */

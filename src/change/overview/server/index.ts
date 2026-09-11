@@ -8,4 +8,4 @@
  * re-exported here: a server barrel pulled into the page's bundle would drag the Effect
  * runtime and the CLIs with it.
  */
-export { summaryOf, worst, type ChangeSummary } from "./summary.ts";
+export { summaryOf, type ChangeSummary } from "./summary.ts";

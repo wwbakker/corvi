@@ -1,5 +1,8 @@
 import { Schema } from "effect";
-import type { Workspace as WorkspaceShape } from "../../core/domain/config.ts";
+import type {
+  ConfigFile as ConfigFileVocabulary,
+  Workspace as WorkspaceShape,
+} from "../../core/domain/config.ts";
 
 /**
  * Effect Schemas for the config layer — the JSON boundary of the config file.
@@ -81,7 +84,9 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings
- * page's write shape (src/settings/server/settings.ts' `Settings`). */
+ * page's write shape (src/settings/model.ts' `Settings`), and the two must not drift: the
+ * compile-time guards below pin this schema to core/domain/config.ts' hand-written
+ * `ConfigFile`. */
 export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
   reposRoot: Schema.optional(Schema.String),
@@ -128,6 +133,11 @@ export const ConfigFile = Schema.Struct({
 export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces"> & {
   workspaces?: WorkspaceShape[];
 };
+
+// The hand-written file vocabulary in core/domain/config.ts and this schema must not drift:
+// both directions fail to compile if the schema stops describing exactly the file shape.
+const _configFileMatchesVocabulary: ConfigFileVocabulary = {} as ConfigFile;
+const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabulary;
 
 /** The resolved shape: file, environment and defaults combined — `src/core/domain/config.ts`'s `Config`. Not a
  * decoder of anything on disk (the resolved config is computed, never read); it states the

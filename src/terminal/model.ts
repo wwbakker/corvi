@@ -9,7 +9,9 @@
  *
  * The helper is deliberately self-contained — no imports, no closure — because it reaches the
  * shim as source: the page bundle imports it as code, and terminal/server/proxy.ts stringifies
- * it into /terminal-keys.js with the platform baked in.
+ * it into /terminal-keys.js with the platform baked in. Living in the module's model.ts keeps
+ * that pure vocabulary out of both halves, so the server can embed it without importing a
+ * client file.
  */
 
 /** Which desktop the server runs on, as one word. "other" gets the macOS bindings: it is an

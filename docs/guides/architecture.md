@@ -18,15 +18,19 @@ src/
                        review surface), wizard/ (a submodule: the New change wizard, client/ +
                        index.ts), overview/ (a submodule: the dashboard — server/ composes
                        change, terminal and the host; client/ holds the cards)
-  terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
-                       the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
-  workspace/           the workspace module: server/ (config loader, file schema, workspace
-                       resolution, repository browser), client/ (the switcher, WorkspaceCard,
-                       RepoBrowser)
-  settings/            the settings module: server/ (settings page read/write, legacySettings),
-                       client/ (SettingsPage, SettingsFields)
+  terminal/            the terminal module: model.ts (the new-window key the pane and the
+                       injected ttyd script share), server/ (tmux sessions, ttyd spawn, the ws
+                       bridge, the presenter merge), client/ (the terminal pane, tabs, cheat
+                       sheet)
+  workspace/           the workspace module: model.ts (Entry, the repository-browser row),
+                       server/ (config loader, file schema, workspace resolution, repository
+                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser)
+  settings/            the settings module: model.ts (Settings, SettingsView), server/ (settings
+                       page read/write, legacySettings), client/ (SettingsPage, SettingsFields)
   core/
     domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
+                       (Workspace and the resolved Config as well as the ConfigFile shape),
+                       settings.ts (the extension-declared setting shapes)
     platform/          the substrate everything stands on: effect/ (errors, http, run, support,
                        tags), capabilities/ (sh, cache, events), origin.ts, platform.ts,
                        tooling.ts, routes/ (the HTTP tables)
@@ -112,7 +116,9 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   `core/domain/**` and the error taxonomy's data types; it performs no effects.
 - **A module's `server/` half** may import its own module, `core/domain`, `core/platform`,
   `core/integrations` and the host's server machinery. It must not import a `client/` file or
-  anything under `frontend/`.
+  anything under `frontend/`. The one deliberate server→`frontend/` edge is
+  `core/platform/routes/assets.ts` importing `frontend/index.html`: it is the Bun HTML entry the
+  route serves as the `/*` fallback, not frontend logic.
 - **A module's `client/` half** may import its own module, `core/domain`, `frontend` and the
   host's client contract. It must not import a `server/` file by value.
 - **`frontend/`** may import `core/domain` and module client halves; never a module server by
@@ -123,9 +129,14 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   imports its own barrel, which is what keeps barrels cycle-free. A submodule whose face is a
   browser component re-exports it from a top-level `index.ts` (`change/wizard/index.ts`); client
   components are otherwise imported file-to-file, since a barrel of components would pull every
-  one into the page bundle. The deliberate exception is a leaf that breaks a cycle by depending
-  on state rather than on a half — `core/host/registry.ts`, `change/server/store.ts`,
-  `terminal/server/proxy.ts` (see [style.md](style.md), rule 7).
+  one into the page bundle. The deliberate exceptions are leaves a second module needs by value,
+  and their reasons are three, not one: `core/host/registry.ts` and `change/server/store.ts`
+  break cycles by depending on state rather than on a half; `terminal/server/proxy.ts` is the
+  terminal's HTTP boundary, imported directly by the files that speak HTTP so the barrel does
+  not drag the ttyd page script into every server consumer; and
+  `settings/server/legacySettings.ts` is the one statement of the settings precedence chain,
+  shared by the workspace config loader and the top-level deployments settings (see
+  [style.md](style.md), rule 7).
 - **Submodules are modules.** `change/wizard/` and `change/overview/` have their own aspects and
   their own face, and the same rules apply at every depth. Composition lives in the submodule
   that composes: `overview` depends on `terminal` and the host, so `change/server` does not have
@@ -142,9 +153,11 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
 - **`server.ts`** is the HTTP composition root: it imports `core/platform/routes` and the host.
 - **HTTP** is the only client/server boundary — no shared runtime state crosses it.
 
-`eslint.config.js` makes the browser-facing rules structural: a client half or `frontend/` may
-not import a server file by value, and a module inherits the boundary by existing. The
-domain/model purity above is a shape rule, not a lint allowlist.
+`eslint.config.js` makes the browser-facing and purity rules structural: a client half or
+`frontend/` may not import a server file by value, and a module inherits the boundary by
+existing. `core/domain/**` and every `model.ts` may not import `node:*`, Bun or the Effect
+runtime (a `model.ts` may import the error taxonomy; the domain may not), so the promise above is
+enforced rather than conventional.
 
 ## Running it
 

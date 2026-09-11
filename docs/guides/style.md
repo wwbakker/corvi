@@ -57,7 +57,7 @@ what keeps the barrel cycle-free. A submodule whose face is a browser component 
 from a top-level `index.ts` (`change/wizard/index.ts`); client components are otherwise imported
 file-to-file, because a barrel of components would pull every one into the page bundle. A leaf
 that a second module needs by value — `core/host/registry.ts`, `change/server/store.ts`,
-`terminal/server/proxy.ts` — is the exception rule 7 names.
+`terminal/server/proxy.ts`, `settings/server/legacySettings.ts` — is the exception rule 7 names.
 
 - **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`;
   `change/server/index.ts` is the change face every route imports;
@@ -102,6 +102,20 @@ The registry, the config object, the cache: each lives in one named module that 
 - **Right:** a leaf `registry.ts` exports `loaded`; `terminal/server/presenter.ts` imports it.
 - **Tell:** a side-channel installed by the host to avoid an import cycle, rather than a leaf
   module both sides import.
+
+Four leaves are imported across module boundaries rather than through a barrel, and why is not
+one reason:
+
+- `core/host/registry.ts` and `change/server/store.ts` break cycles by depending on **state**
+  rather than on a half: the registry sits below both the host and the terminal, and the store is
+  the change module's state leaf.
+- `terminal/server/proxy.ts` is the terminal's **HTTP boundary**: the files that speak HTTP (the
+  terminal routes, the asset route, `server.ts`, `origin.ts`) import it directly so the module's
+  barrel does not drag the ttyd page script into every consumer of `stopTerminal` or
+  `listWindows`.
+- `settings/server/legacySettings.ts` shares one **precedence chain** — the settings bag, then the
+  flat field, then the environment — with the workspace config loader and the top-level
+  deployments settings; it is stated once there rather than copied or routed through the barrel.
 
 ## 8. Hooks fetch, components render
 

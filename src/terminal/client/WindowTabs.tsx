@@ -1,6 +1,6 @@
 import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AgentIcon, TerminalIcon } from "../../frontend/icons.tsx";
-import type { Platform } from "./newWindowKey.ts";
+import type { Platform } from "../model.ts";
 import type { TerminalWindow } from "../../core/domain/terminal.ts";
 
 /** The change's windows as tabs, with the way back to the dashboard first. The dashboard and

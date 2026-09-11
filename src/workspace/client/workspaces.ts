@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../frontend/api.ts";
 import { getPref, setPref } from "../../frontend/prefs.ts";
 import type { Change } from "../../frontend/api.ts";
-import type { Platform } from "../../terminal/client/newWindowKey.ts";
+import type { Platform } from "../../terminal/model.ts";
 import { DEFAULT_WORKSPACE } from "../../core/domain/config.ts";
 
 export type Workspace = {
