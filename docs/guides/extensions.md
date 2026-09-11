@@ -318,6 +318,8 @@ a string and for a list alike: an emptied list is written to the config as `[]`,
   `change:created` and the contributed steps are the model; more events arrive when a second
   consumer needs them.
 
-See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md) for the plan behind
-these surfaces, and [`../plans/extensions-migration-plan.md`](../plans/extensions-migration-plan.md)
-for the work moving the rest of the core behind them.
+See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md) and
+[`../plans/archive/extensions-migration-plan.md`](../plans/archive/extensions-migration-plan.md)
+for the plans behind these surfaces, and
+[`../plans/core-modules-plan.md`](../plans/core-modules-plan.md) for the active work on the core
+structure and the before/after event contract.

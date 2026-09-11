@@ -1,11 +1,11 @@
 # Extensions: the second migration slice
 
-> **Kind:** plan · **Status:** active
+> **Kind:** plan · **Status:** superseded
 
-> **Status: in progress.** This plan covers what is still hardcoded in the core after the
-> task-board slice (docs/plans/archive/extensions-plan.md, implemented) and the Effect rewrite
-> (docs/guides/effect-conventions.md, implemented), and how it moves behind the extension API
-> (src/extensions/api.ts).
+> **Superseded.** Work packages 1–6 are implemented; the durable description lives in
+> [`docs/guides/extensions.md`](../guides/extensions.md) and the structure work continues in
+> [`../core-modules-plan.md`](../core-modules-plan.md). This file is kept as a record of what was
+> planned and why.
 
 ## What is still hardcoded, and what happens to it
 

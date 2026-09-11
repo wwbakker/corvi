@@ -10,12 +10,12 @@ simplifications are worth making, in an order that keeps each step low-risk.
 
 Three server layers plus a React app:
 
-- **Route/feature layer** — `src/server.ts` and the root modules: `changes.ts`,
+- **Route/feature layer** — `../../../src/server.ts` and the root modules: `changes.ts`,
   `complete.ts`, `cancel.ts`, `summary.ts`, `local.ts`, `commit.ts`, `deployments.ts`,
   `terminal.ts`, and the rest.
 - **Vendor layer** — `src/integrations/*` (`git`, `github`, `azure`, `checks`,
-  `stacks`), process-spawning CLI adapters, plus `src/sh.ts` and `src/cache.ts`.
-- **Extension layer** — the host `src/extensions/index.ts`, the built-ins
+  `stacks`), process-spawning CLI adapters, plus `../../../src/sh.ts` and `src/cache.ts`.
+- **Extension layer** — the host `../../../src/extensions/index.ts`, the built-ins
   (`agents/`, `git/`, `ci/`, `jira/`, `github-issues/`, `deployments/`), and the
   out-of-tree loader.
 - **Client** — `src/web/*.tsx` and `src/web/*.ts`, bundled by Bun.
@@ -40,13 +40,13 @@ These private helpers are copy-pasted per module:
 | `worst` (state reducer) | **3** | canonical in `types.ts`, re-implemented in `extensions/ci/index.ts` and `integrations/azure.ts` |
 
 That is roughly **150 lines of near-identical code**, each copy carrying a comment
-that explains the same invariant. A single `src/effect/support.ts` (or methods on the
+that explains the same invariant. A single `../../../src/effect/support.ts` (or methods on the
 `Shell` service) removes all of it and makes the "timeouts are data, schema failures
 fall back" policy live in one place instead of eight. This is the change to do first.
 
 ## 2. Two ways to run subprocesses — the DI migration stops halfway
 
-`docs/guides/effect-conventions.md` and `api.ts` say the contract is the **`Shell`
+`../../guides/effect-conventions.md` and `api.ts` say the contract is the **`Shell`
 capability** (an Effect service, workspace supplied through the R channel). But only
 `extensions/github-issues/index.ts` actually uses it. Every other vendor call — all of
 `integrations/*`, `deployments.ts`, `terminal.ts`, `repos.ts`, `cancel.ts` — uses the
@@ -59,7 +59,7 @@ legacy one. This is also why `context.ts` still exists. Consolidating on `Shell`
 seam, and make the extension API's stated promise actually true. It is the
 highest-leverage *conceptual* cleanup.
 
-## 3. `src/extensions/index.ts` (597 lines) mixes five jobs
+## 3. `../../../src/extensions/index.ts` (597 lines) mixes five jobs
 
 One file holds:
 
@@ -80,7 +80,7 @@ importing *any* selector (e.g. `titles.ts` → `titleSourcesFor`) drags in every
 and its whole dependency graph. Not fatal, but it makes "just the registry" impossible
 to load alone.
 
-## 4. `src/server.ts` (652 lines, 38 route keys) is a single route table
+## 4. `../../../src/server.ts` (652 lines, 38 route keys) is a single route table
 
 It is well-commented, but every feature's routes live in one literal, all wrapped by
 the same `withChange`/`withWorkspaceParam`/`bodyOf` helpers. Composing a `routes`
@@ -91,30 +91,30 @@ uses. Bun's `routes` accepts a composed object, so this is mechanical.
 
 ## 5. Feature placement is inconsistent — no single rule
 
-- **jira** and **github-issues** live entirely under `src/extensions/`: declaration
+- **jira** and **github-issues** live entirely under `../../../src/extensions`: declaration
   *and* implementation (`jira.ts`, `jiraHttp.ts`, `account.ts`).
-- **deployments** splits across `src/deployments.ts` + `src/deploySettings.ts` +
+- **deployments** splits across `src/deployments.ts` + `../../../src/deploySettings.ts` +
   `src/deployConventions.ts` + `src/integrations/azure.ts` + `src/extensions/deployments/`
   (plus its client).
-- **git** splits across `src/integrations/git.ts` + `src/extensions/git/`.
+- **git** splits across `../../../src/integrations/git.ts` + `src/extensions/git/`.
 - **ci** has no root module; the composition lives in `extensions/ci/index.ts` over two
   integrations.
 
 The README's "Adding an integration" says "the implementation lives where it always
 has", which is true but does not give a rule. A consistent convention would help — for
 example `src/features/<name>/{index.ts (declaration), server.ts (implementation),
-client.tsx}`, with genuinely shared vendor adapters staying in `src/integrations/`.
+client.tsx}`, with genuinely shared vendor adapters staying in `../../../src/integrations`.
 Failing a move, documenting *which* layer owns implementation for each case would
 remove the guesswork.
 
 ## 6. Naming and documentation drift
 
 - `extensions/agent-state.ts` (a **pi** extension, out-of-tree) sits next to
-  `src/extensions/` (IWE's extension system). Two meanings of "extension" one
+  `../../../src/extensions` (IWE's extension system). Two meanings of "extension" one
   directory apart.
 - Four `deploy*` files at the root (`deployments.ts`, `deploySettings.ts`,
   `deployConventions.ts`) plus `integrations/azure.ts`.
-- `src/local.ts` is uncommitted changes and diffs; `integrations/git.ts` also does
+- `../../../src/local.ts` is uncommitted changes and diffs; `integrations/git.ts` also does
   "local changes" (worktree state). The word does double duty.
 - The **README "Layout" section is stale**: it lists `src/integrations/index.ts`,
   `src/integrations/jira.ts`, `src/integrations/ci.ts` and `src/web/IssueTable.tsx`,
