@@ -1,7 +1,8 @@
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useState } from "react";
 import { aborted, api, post, type CardInfo, type Widget } from "./api.ts";
 import { useCached } from "./cache.ts";
-import { Dot, Item } from "./WidgetRows.tsx";
+import { usePolled } from "./poll.ts";
+import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
 /** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
 export function WidgetCard({ changeId, info }: { changeId: string; info: CardInfo }): JSX.Element {
@@ -25,16 +26,8 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
     [changeId, info.name, info.title],
   );
 
-  useEffect(() => {
-    const ac = new AbortController();
-    const tick = () => void load(ac.signal);
-    tick();
-    const timer = setInterval(tick, 15000);
-    return () => {
-      ac.abort();
-      clearInterval(timer);
-    };
-  }, [load]);
+  // A slow CLI delays its own widget and nothing else, so the mark is the card's own.
+  const { refreshing, updated } = usePolled(load, 15_000);
 
   const act = (actionId: string, arg?: string): Promise<void> => {
     setBusy(true);
@@ -46,9 +39,10 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
 
   return (
     <section className={`widget ${widget ? "" : "loading"}`}>
-      <h3>
+      <h3 title={updated}>
         <Dot state={widget?.state} />
         {info.title}
+        {refreshing && <Refreshing />}
       </h3>
       {/* The summary is only worth the line while loading, or when it carries an error. */}
       {(!widget || widget.state === "error") && (

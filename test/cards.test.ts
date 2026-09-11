@@ -125,8 +125,54 @@ test("the ci card draws repository > pull request > pipeline > run", async () =>
   const pipeline = prRow.children![0]!;
   expect(pipeline.label).toBe("build-example-api");
   expect(pipeline.state).toBe("error");
-  expect(pipeline.children![0]).toMatchObject({ label: "100", detail: "failed", state: "error" });
+  expect(pipeline.children![0]).toMatchObject({
+    label: "100",
+    detail: "failed",
+    state: "error",
+    // A finished build is as old as its finish time.
+    at: "2026-01-01T09:05:00Z",
+  });
   expect(shell.calls.some((c) => c.cmd.join(" ").includes("--branch refs/pull/5/merge"))).toBe(true);
+});
+
+test("a finished build carries the moment to read, a running one counts in its bar", async () => {
+  const run = (over: Record<string, unknown>): Record<string, unknown> => ({
+    sourceBranch: `refs/heads/${branch}`,
+    definition: { id: 10, name: "build-example-api" },
+    ...over,
+  });
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    const checked = checkedOut(line);
+    if (checked !== undefined) return checked;
+    if (line.startsWith("gh pr list --head")) return "[]";
+    if (line.startsWith("az pipelines list ")) {
+      return JSON.stringify([{ id: 10, name: "build-example-api", path: "\\example-api" }]);
+    }
+    if (line.includes("--branch refs/heads/")) {
+      return JSON.stringify([
+        run({ id: 101, buildNumber: "101", status: "inProgress", startTime: "2026-01-01T10:00:00Z" }),
+        run({
+          id: 100,
+          buildNumber: "100",
+          status: "completed",
+          result: "succeeded",
+          startTime: "2026-01-01T09:00:00Z",
+          finishTime: "2026-01-01T09:05:00Z",
+        }),
+      ]);
+    }
+    return undefined;
+  });
+
+  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const runs = items[0]!.children![0]!.children![0]!.children!;
+  // Newest first, and only the finished one carries a moment to read: a running build's age is its
+  // progress bar, which counts from the same start time.
+  expect(runs.map((r) => [r.label, r.at, r.progress?.startedAt])).toEqual([
+    ["101", undefined, "2026-01-01T10:00:00Z"],
+    ["100", "2026-01-01T09:05:00Z", undefined],
+  ]);
 });
 
 test("the ci card falls back to GitHub's checks when Azure has no pipeline for the repository", async () => {

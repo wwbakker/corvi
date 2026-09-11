@@ -126,6 +126,11 @@ export type WidgetItem = {
   /** Something still running: the browser ticks the elapsed time and draws a bar against the
    * expected duration, so a 15s poll does not make the clock stutter. */
   progress?: { startedAt: string; expectedMs?: number };
+  /** When the thing this row is about happened: when a build finished, when an issue was last
+   * touched. Something still running counts its age in `progress` instead — elapsed time and
+   * "the moment it started" are one fact, and the bar is already showing it. The row shows how
+   * long ago, with the exact moment on hover. */
+  at?: string;
   /** Nested rows, rendered as a collapsible tree: repo > pull request > pipeline > runs. */
   children?: WidgetItem[];
 };

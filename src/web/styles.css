@@ -574,6 +574,16 @@ button.primary:not(:disabled) {
   margin: 0;
 }
 
+/* A card asking again, for fetches slow enough to notice: the same quiet note as "loading…",
+   because it is the same news one tick later. Sized and margined like the summary above, for the
+   same reason — the card must not change height when it appears. */
+.refreshing {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin: 0;
+}
+
 .item {
   display: flex;
   align-items: center;
@@ -593,6 +603,14 @@ button.primary:not(:disabled) {
 
 .item .detail.error {
   color: var(--error);
+}
+
+/* When a row happened, as its own small note after the detail: "3h ago" gets straight to it, and
+   the exact moment is a hover away. Never toned — the time is not a verdict. */
+.item .at {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .dot {

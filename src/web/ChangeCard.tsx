@@ -1,8 +1,9 @@
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useCallback, useState } from "react";
 import { api, type Change } from "./api.ts";
 import type { ChangeSummary } from "../types.ts";
 import { stateClass } from "./changeState.tsx";
 import { moment } from "./moment.ts";
+import { usePolled } from "./poll.ts";
 
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;
@@ -33,26 +34,23 @@ function Fact({ state, children }: { state: string; children: React.ReactNode })
 export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => void }): JSX.Element {
   const [summary, setSummary] = useState<ChangeSummary | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    const load = (): Promise<false | void> =>
-      api<ChangeSummary>(`/changes/${change.id}/summary`)
-        .then((s) => alive && setSummary(s))
-        .catch(() => {});
-    void load();
-    // Builds finish and comments arrive while the overview is open; a minute is soon enough
-    // for a page you are not looking at closely, and the calls behind it are not free.
-    const timer = setInterval(load, 60_000);
-    return () => {
-      alive = false;
-      clearInterval(timer);
-    };
-  }, [change.id]);
+  const load = useCallback(
+    (signal: AbortSignal): Promise<void> =>
+      api<ChangeSummary>(`/changes/${change.id}/summary`, { signal })
+        .then(setSummary)
+        .catch(() => {}),
+    [change.id],
+  );
+  // Builds finish and comments arrive while the overview is open; a minute is soon enough for a
+  // page you are not looking at closely, and the calls behind it are not free. Only the moment is
+  // shown, not a mark: this card's top line wraps when the summary is long, so a mark that took a
+  // line of its own would resize the card twice on every slow refresh.
+  const { updated } = usePolled(load, 60_000);
 
   return (
     <article className="change-card" onClick={onOpen}>
       {/* What it is, on its own line: the id and the ticket's summary read as one sentence. */}
-      <div className="top">
+      <div className="top" title={updated}>
         <h3>{change.id}</h3>
         {/* The branch stands in when there is no ticket, and reads as the identifier it is. */}
         <span className={change.title ? "story" : "branch"}>{change.title ?? change.branch}</span>

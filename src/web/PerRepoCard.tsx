@@ -1,4 +1,4 @@
-import { type JSX, useCallback, useEffect, useState } from "react";
+import { type JSX, useCallback, useState } from "react";
 import {
   aborted,
   api,
@@ -9,7 +9,8 @@ import {
 } from "./api.ts";
 import { cached, putCached } from "./cache.ts";
 import { EditReposDialog } from "./EditReposDialog.tsx";
-import { Dot, Item } from "./WidgetRows.tsx";
+import { usePolled } from "./poll.ts";
+import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
 const worstOf = (items: WidgetItem[]): string =>
   ["error", "pending", "warn", "ok"].find((s) => items.some((i) => i.state === s)) ?? "none";
@@ -59,18 +60,14 @@ export function PerRepoCard({
     [changeId, info.name],
   );
 
-  useEffect(() => {
-    // Cancel on unmount: these requests are slow, and the browser only allows six at a time, so
-    // leaving them open makes the next page wait seconds for a free connection.
-    const ac = new AbortController();
-    const tick = (): void => repos.forEach((repo) => void loadRepo(repo, ac.signal));
-    tick();
-    const timer = setInterval(tick, 15000);
-    return () => {
-      ac.abort();
-      clearInterval(timer);
-    };
-  }, [loadRepo, repos.join(",")]);
+  // The repositories by their content: the array itself is rebuilt on every render, and a new
+  // loader identity would restart the poll.
+  const loadAll = useCallback(
+    (signal: AbortSignal): Promise<unknown> =>
+      Promise.all(repos.map((repo) => loadRepo(repo, signal))),
+    [loadRepo, repos.join(",")],
+  );
+  const { refreshing, updated } = usePolled(loadAll, 15_000);
 
   const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
     setBusy(repo);
@@ -92,9 +89,10 @@ export function PerRepoCard({
   const all = loaded.flatMap((r) => items[r]!);
   return (
     <section className={`widget ${loaded.length === repos.length ? "" : "loading"}`}>
-      <h3>
+      <h3 title={updated}>
         <Dot state={loaded.length ? worstOf(all) : undefined} />
         {info.title}
+        {refreshing && <Refreshing />}
         {/* The repository list belongs to the change, and git is the component that shows it. */}
         {info.name === "git" && (
           <>

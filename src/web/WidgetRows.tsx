@@ -2,10 +2,18 @@ import { type JSX, useState } from "react";
 import type { WidgetItem } from "./api.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { Progress } from "./Progress.tsx";
+import { ago } from "../shared/time.ts";
+import { moment } from "./moment.ts";
 
 /** A row's state dot, shared by a widget's heading and its rows. */
 export function Dot({ state }: { state?: string }): JSX.Element {
   return <span className={`dot ${state ?? "none"}`} />;
+}
+
+/** The heading's note that a card is asking the server again, for fetches slow enough to notice:
+ * "loading…" means nothing yet, this means more is on the way. */
+export function Refreshing(): JSX.Element {
+  return <span className="refreshing">refreshing…</span>;
 }
 
 /** A row and its children, collapsible like a project tree. Rows are open by default: the
@@ -44,6 +52,14 @@ export function Item({
           )}
         </span>
         <span className={`detail ${item.detailTone ?? ""}`}>{item.detail}</span>
+        {/* How long ago the row's moment was, with the exact moment for the times "3h ago" is not
+            precise enough. A row that is still running carries none: the progress bar beside it
+            is already counting from the same moment. */}
+        {item.at && (
+          <span className="at" title={moment(item.at)}>
+            {ago(item.at)}
+          </span>
+        )}
         {item.progress && <Progress {...item.progress} />}
         <span className="spacer" />
         {item.menu?.length ? (

@@ -448,6 +448,9 @@ export const pipelineItems = (
               detail: done ? (run.result ?? "completed") : run.status,
               url: url(run.id),
               state: runState(run),
+              // A finished build is as old as its finish time. A running one says nothing here:
+              // its progress bar is already counting the same seconds, from the same moment.
+              at: done ? ((run.finishTime ?? run.startTime) ?? undefined) : undefined,
               progress:
                 !done && run.startTime
                   ? {
