@@ -1,7 +1,7 @@
 import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type Change, type ProvisionResult } from "./api.ts";
-import { byWorkOrder, isFinished } from "../types.ts";
+import { byWorkOrder, isFinished } from "../core/domain/change.ts";
 import { stateClass } from "./changeState.tsx";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { Leftovers } from "./Leftovers.tsx";

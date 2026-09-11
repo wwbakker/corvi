@@ -1,14 +1,16 @@
 import { Effect } from "effect";
-import { worst, type Change, type ChangeSummary, type SummaryFact } from "./types.ts";
+import { worst } from "./core/domain/widget.ts";
+import type { Change, ChangeSummary } from "./core/domain/change.ts";
+import type { SummaryFact } from "./core/domain/widget.ts";
 import { listWindows } from "./terminal.ts";
-import { summaryContributorsFor } from "./extensions/index.ts";
-import { capabilitiesLayer } from "./extensions/services.ts";
+import { summaryContributorsFor } from "./core/host/index.ts";
+import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 
 export type { ChangeSummary };
 
 // Pure, and extension code needs it without importing this module through the host, so it is
-// defined in types.ts; re-exported here for callers of this module.
+// defined in core/domain/widget.ts; re-exported here for callers of this module.
 export { worst };
 
 /**

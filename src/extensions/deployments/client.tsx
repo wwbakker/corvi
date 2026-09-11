@@ -3,7 +3,7 @@ import type { PageComponent } from "../../web/extensions.tsx";
 import { api } from "../../web/api.ts";
 import { moment } from "../../web/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
-import { autoDeployedApp } from "../../shared/deployConventions.ts";
+import { autoDeployedApp } from "./deployConventions.ts";
 
 export type Deployed = {
   environment: string;

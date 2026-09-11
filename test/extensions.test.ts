@@ -12,19 +12,19 @@ import {
   loaded,
   windowPresenters,
   wizardStepsFor,
-} from "../src/extensions/index.ts";
+} from "../src/core/host/index.ts";
 import type {
   Extension,
   TerminalPresenter,
   WindowPresentation,
-} from "../src/extensions/api.ts";
+} from "../src/core/host/api.ts";
 import { presentWindow } from "../src/terminal.ts";
 import { looseEnds } from "../src/cancel.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/shared.ts";
 import { config, type Workspace } from "../src/config.ts";
-import type { Change } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
 
 /**
  * A changes root of its own, because creating a change writes one.

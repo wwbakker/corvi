@@ -2,15 +2,15 @@ import { basename } from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
 import { Deferred, Duration, Effect, Exit } from "effect";
-import type { Change } from "./types.ts";
+import type { Change } from "./core/domain/change.ts";
 import { join } from "node:path";
 import { changeDir } from "./changes.ts";
 import { isLinux, isMac, loopbackInterface, commandAvailable } from "./platform.ts";
 import { sh, shOrThrow, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
-import type { TerminalWindow } from "./terminalTypes.ts";
-import type { TmuxWindow, WindowPresentation } from "./extensions/api.ts";
-import { windowPresenters } from "./extensions/registry.ts";
+import type { TerminalWindow } from "./core/domain/terminal.ts";
+import type { TmuxWindow, WindowPresentation } from "./core/host/api.ts";
+import { windowPresenters } from "./core/host/registry.ts";
 
 /**
  * A terminal for a change: one tmux session, started in the change directory, served to the

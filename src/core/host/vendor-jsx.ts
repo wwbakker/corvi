@@ -1,5 +1,5 @@
 /**
- * The entrypoint of the /vendor/react-jsx-runtime.js vendor chunk (src/extensions/clientChunks.ts).
+ * The entrypoint of the /vendor/react-jsx-runtime.js vendor chunk (src/core/host/clientChunks.ts).
  *
  * One file exporting both jsx runtimes: the import map points react/jsx-runtime and
  * react/jsx-dev-runtime at the same served chunk, and this is the file that makes that true —

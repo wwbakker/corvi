@@ -5,7 +5,7 @@
  *
  *   bun run outline src/changes.ts          # one file
  *   bun run outline src/extensions          # a directory: its index.ts, or its .ts files
- *   bun run outline src/types.ts src/sh.ts  # several
+ *   bun run outline src/core/domain/change.ts src/sh.ts  # several
  *
  * The types come from the compiler, not from a mirror kept in step by hand: an Effect signature
  * carries the errors and requirements (`Effect<A, E, R>`), so an outline is enough to plan

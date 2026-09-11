@@ -19,12 +19,16 @@ src/
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
   terminal.ts terminalProxy.ts  tmux sessions, ttyd spawn, ws bridge
   integrations/        vendor CLI wrappers (git, github, azure, stacks)
-  extensions/          host + api.ts contract + built-ins (agents, git, ci, jira,
-                       github-issues, deployments)
+  core/
+    domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts
+    host/              the extension contract and its machinery: api.ts (and api/*.ts), registry.ts,
+                       discover.ts, selectors.ts, effects.ts, dispatch.ts, services.ts,
+                       clientChunks.ts, index.ts
+  extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments)
   web/                 React UI, bundled by Bun's HTML import, no framework
 ```
 
-The extension host (`src/extensions/index.ts`) loads built-ins and out-of-tree modules through
+The extension host (`src/core/host/index.ts`) loads built-ins and out-of-tree modules through
 the same install path and answers the core's one question — which extensions exist for this
 workspace — with a filtered list. See [`extensions.md`](extensions.md) for the contract.
 
@@ -41,12 +45,13 @@ directories:
   core + the git extension).
 - **top-level `src/*.ts`** — core domain that is not a feature.
 
-Two shared modules live outside the deployments folder:
+One shared module lives outside the feature folders:
 
 - `src/deploySettings.ts` — read by the shared `azure` client and by the core's `workspaces.ts`,
-  so moving it would invert the layering;
-- `src/shared/deployConventions.ts` — pure vocabulary both the server and the browser halves of
-  deployments need.
+  so moving it would invert the layering.
+
+A feature's pure vocabulary lives with it: `deployments/deployConventions.ts` is needed by both
+that extension's server and browser halves, so it sits beside them.
 
 Git cannot be colocated while `src/integrations/git.ts` is shared by the core and the git
 extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
@@ -60,12 +65,12 @@ the page shell. Everything else is a surface an extension can contribute to.
 
 ## Dependency rules
 
-- **Extensions** import only from `src/extensions/api.ts`, which is the whole promise. The host
+- **Extensions** import only from `src/core/host/api.ts`, which is the whole promise. The host
   provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`) so an extension's
   requirements arrive through the Effect `R` channel.
 - **The browser** (`src/web/**`) must not import backend modules that shell out or touch the
-  filesystem; `eslint.config.js` enforces the boundary and `src/shared/` is where pure vocabulary
-  both sides need belongs.
+  filesystem; `eslint.config.js` enforces the boundary and `src/core/domain/**` is where pure
+  vocabulary both sides need belongs.
 - **HTTP** is the only client/server boundary — no shared runtime state across it.
 
 ## Running it

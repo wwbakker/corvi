@@ -11,7 +11,7 @@ export type Workspace = {
   /** `false` when this context has no Jira, and no ticket to pick in the wizard. */
   jira?: false | { project?: string; board?: string; configFile?: string; tokenEnv?: string };
   /** `false` when it has no pipelines: on load this folds into the extensions list without
-   * `deployments` (src/extensions/index.ts), so the page is not offered. */
+   * `deployments` (src/core/host/index.ts), so the page is not offered. */
   azure?: false | { organization?: string; project?: string };
   env?: Record<string, string>;
 };

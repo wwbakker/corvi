@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Effect, Either } from "effect";
 import { clearCache } from "../src/cache.ts";
 import { config, type Config, type Workspace } from "../src/config.ts";
-import type { Change } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
 import {
   boardIssues,
   createIssue,

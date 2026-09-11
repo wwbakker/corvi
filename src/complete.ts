@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { Effect, Either } from "effect";
-import type { Change, CompletionProgress, CompletionStep } from "./types.ts";
+import type { Change, CompletionProgress, CompletionStep } from "./core/domain/change.ts";
 import type { MergeReadiness } from "./integrations/github.ts";
 import { mergeReadiness, mergePr } from "./integrations/github.ts";
 import { removeWorktree, unsafeToRemove, type Unsafe } from "./integrations/git.ts";
@@ -12,8 +12,8 @@ import {
 } from "./changes.ts";
 import { stopTerminal } from "./terminal.ts";
 import { config } from "./config.ts";
-import { completionStepsFor } from "./extensions/index.ts";
-import { capabilitiesLayer } from "./extensions/services.ts";
+import { completionStepsFor } from "./core/host/index.ts";
+import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { BadRequestError, DecodeError, type CliError } from "./effect/errors.ts";
 import { messageOf } from "./effect/support.ts";

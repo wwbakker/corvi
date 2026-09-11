@@ -1,13 +1,13 @@
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/config.ts";
-import { capabilitiesLayer } from "../src/extensions/services.ts";
+import { capabilitiesLayer } from "../src/core/host/services.ts";
 import { setRepos } from "../src/integrations/git.ts";
 import { sh, type Result } from "../src/sh.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
 import type { CliError } from "../src/effect/errors.ts";
 import { swr } from "../src/cache.ts";
 import { workspaceById } from "../src/workspaces.ts";
-import type { Change } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
 import { cancelChange } from "../src/cancel.ts";
 import { fileDiff, localChanges, type LocalStatus } from "../src/local.ts";
 import {
@@ -143,7 +143,7 @@ export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Pro
  * tagged union (src/integrations/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
-): Promise<{ change: import("../src/types.ts").Change } | { needsForce: string[] }> => {
+): Promise<{ change: import("../src/core/domain/change.ts").Change } | { needsForce: string[] }> => {
   const result = await runEffect(setRepos(...args));
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };

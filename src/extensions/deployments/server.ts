@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import type { WidgetState } from "../../types.ts";
+import type { WidgetState } from "../../core/domain/widget.ts";
 import { swr, invalidate } from "../../cache.ts";
 import {
   azFor,
@@ -11,8 +11,8 @@ import {
 } from "../../integrations/azure.ts";
 import { usesAzure, workspaceById } from "../../workspaces.ts";
 import { deploySettings } from "../../deploySettings.ts";
-import { autoDeployedApp } from "../../shared/deployConventions.ts";
-import { ago } from "../../shared/time.ts";
+import { autoDeployedApp } from "./deployConventions.ts";
+import { ago } from "../../core/domain/time.ts";
 import { BadRequestError } from "../../effect/errors.ts";
 import { cliJson, shSoft } from "../../effect/support.ts";
 

@@ -9,9 +9,9 @@ import {
   runCard,
   statusOne,
   wizardStepsFor,
-} from "../extensions/index.ts";
+} from "../core/host/index.ts";
 import { guard } from "../origin.ts";
-import { isFinished } from "../types.ts";
+import { isFinished } from "../core/domain/change.ts";
 import { workspaceById } from "../workspaces.ts";
 import {
   bodyOrEmpty,

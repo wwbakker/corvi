@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from "react";
 import { useServerEvent } from "./events.ts";
-import type { TerminalWindow } from "../terminalTypes.ts";
+import type { TerminalWindow } from "../core/domain/terminal.ts";
 
 /**
  * What a window wanting you turns into: a native notification in the app's window, the browser's

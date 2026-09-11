@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { api, post, type Change } from "./api.ts";
 import { useServerEvent } from "./events.ts";
-import type { TerminalWindow } from "../terminalTypes.ts";
+import type { TerminalWindow } from "../core/domain/terminal.ts";
 
 /**
  * Every change's tmux windows, and the two things you do to them.

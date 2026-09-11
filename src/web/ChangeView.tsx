@@ -12,10 +12,10 @@ import {
   type ProvisionResult,
 } from "./api.ts";
 import { ActionsMenu, type Action } from "./ActionsMenu.tsx";
-import type { TerminalWindow } from "../terminalTypes.ts";
+import type { TerminalWindow } from "../core/domain/terminal.ts";
 import { useCached } from "./cache.ts";
 import { stateClass } from "./changeState.tsx";
-import { isFinished } from "../types.ts";
+import { isFinished } from "../core/domain/change.ts";
 import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "./TerminalPane.tsx";
 import { CheatSheet } from "./CheatSheet.tsx";

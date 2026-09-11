@@ -4,7 +4,7 @@ import { BadRequestError, isIweError, NotFoundError, type IweError } from "../ef
 import { messageOf } from "../effect/support.ts";
 import { runRoute } from "../effect/run.ts";
 import { Workspace } from "../effect/tags.ts";
-import type { Change } from "../types.ts";
+import type { Change } from "../core/domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspaces.ts";
 
 export const json = (data: unknown, status = 200): Response => Response.json(data, { status });

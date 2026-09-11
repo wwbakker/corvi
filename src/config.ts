@@ -68,7 +68,7 @@ export type Config = {
    * paths inside them rewritten. Empty disables it. See `src/tooling.ts`. */
   worktreeCopy: string[];
   /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
-   * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/extensions/index.ts). `~` is
+   * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/core/host/index.ts). `~` is
    * expanded and duplicates dropped; ~/.config/iwe/extensions is searched in addition, when
    * it exists. A change here needs a restart — extensions load once, at startup. */
   extensionPaths: string[];
@@ -253,7 +253,7 @@ function load(): Config {
 /** The extension paths, resolved: the environment override (comma-separated) wins over the
  * file — an empty one counts as unset, since it names nothing — `~` is expanded, and empties
  * and duplicates are dropped. The implicit default directory is not here — it is a convention
- * the loader adds (src/extensions/index.ts), not a decision the file records, so the settings
+ * the loader adds (src/core/host/index.ts), not a decision the file records, so the settings
  * page shows exactly what was configured. */
 function extensionPathsFrom(file: ConfigFile): string[] {
   const seen = new Set<string>();

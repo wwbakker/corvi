@@ -1,6 +1,7 @@
 /**
  * Naming conventions for deploy pipelines, shared between the backend (which reads Azure DevOps)
- * and the browser (which decides what to offer on the page) — the same split as `branch.ts`.
+ * and the browser (which decides what to offer on the page) — the same server/browser divide as
+ * `branchFor` in `src/core/domain/change.ts`.
  *
  * Deliberately its own file rather than living in the deployments implementation
  * (`src/extensions/deployments/server.ts`): that module calls out to the

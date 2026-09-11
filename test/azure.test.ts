@@ -16,7 +16,8 @@ import {
   type Az,
   type Run,
 } from "../src/integrations/azure.ts";
-import type { Change, WidgetItem, WidgetState } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../src/core/domain/widget.ts";
 import { clearCache } from "../src/cache.ts";
 import { config } from "../src/config.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { BadRequestError } from "../../effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
-import type { Extension } from "../api.ts";
+import type { Extension } from "../../core/host/api.ts";
 
 /**
  * The deployments extension: what is deployed where, and the one irreversible thing on that

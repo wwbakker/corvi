@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import { worst, type Change, type WidgetItem, type WidgetState } from "../types.ts";
+import { worst } from "../core/domain/widget.ts";
+import type { Change } from "../core/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { swr } from "../cache.ts";
 import type { Workspace } from "../config.ts";
 import { azureOf, usesAzure, workspaceOf } from "../workspaces.ts";

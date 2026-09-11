@@ -83,12 +83,12 @@ do not call `fetch` themselves.
 
 ## 9. Shared code has a place, not a list
 
-Pure code both the server and the browser need lives in `src/shared/`. The lint boundary is then
-structural rather than an allowlist.
+Pure code both the server and the browser need lives in `src/core/domain/`. The lint boundary is
+then structural rather than an allowlist.
 
-- **Right:** `src/shared/branch.ts`, importable from `src/web/**`.
-- **Tell:** `eslint.config.js` naming the individual files it lets through (the one remaining
-  filename exception is `types.ts`) instead of pointing at `src/shared/`.
+- **Right:** `src/core/domain/change.ts`, importable from `src/web/**`.
+- **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
+  `src/core/domain/`.
 
 ## Checklist for a change
 

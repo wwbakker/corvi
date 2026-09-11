@@ -1,12 +1,12 @@
 import { join, basename } from "node:path";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
-import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./types.ts";
+import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./core/domain/change.ts";
 import { Change as ChangeSchema } from "./schemas/change.ts";
 import { BadRequestError, ConflictError, DecodeError } from "./effect/errors.ts";
 import { fs } from "./effect/support.ts";
 import { config } from "./config.ts";
-export { branchFor } from "./shared/branch.ts";
+export { branchFor } from "./core/domain/change.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
 export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;

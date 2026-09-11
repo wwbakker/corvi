@@ -14,7 +14,7 @@ import { loaded } from "./registry.ts";
  * additive, and enablement is per request, read live from the config, which is why toggling an
  * extension on the settings page takes effect at once.
  *
- * Contributed handlers are Effects (src/extensions/api.ts). The host runs each one inside
+ * Contributed handlers are Effects (src/core/host/api.ts). The host runs each one inside
  * `capabilitiesLayer(workspaceOf(change))` — the request's workspace plus the four services —
  * so an extension's requirements arrive through the R channel, with no ambient state and no
  * bridging layer. The built-ins are joined, after them, by out-of-tree
@@ -28,12 +28,12 @@ import { loaded } from "./registry.ts";
 // default export describes it — a static value, or a factory for one. Deployments owns no
 // card — its page is offered beside the list, not on it — so it comes last and does not
 // disturb the cards' order.
-import agentsExtension from "./agents/index.ts";
-import gitExtension from "./git/index.ts";
-import ciExtension from "./ci/index.ts";
-import jiraExtension from "./jira/index.ts";
-import githubIssuesExtension from "./github-issues/index.ts";
-import deploymentsExtension from "./deployments/index.ts";
+import agentsExtension from "../../extensions/agents/index.ts";
+import gitExtension from "../../extensions/git/index.ts";
+import ciExtension from "../../extensions/ci/index.ts";
+import jiraExtension from "../../extensions/jira/index.ts";
+import githubIssuesExtension from "../../extensions/github-issues/index.ts";
+import deploymentsExtension from "../../extensions/deployments/index.ts";
 
 // Awaited at module scope, so the server does not start listening before the extensions have
 // loaded, and a test importing this file sees the fully-loaded registry. Out-of-tree, after
@@ -87,6 +87,6 @@ export {
 } from "./effects.ts";
 export { dispatchExtensionRoute } from "./dispatch.ts";
 
-/** Re-exported for the contributors' convenience; the type lives in types.ts with the rest of
- * the dashboard's vocabulary. */
-export type { CompletionStep } from "../types.ts";
+/** Re-exported for the contributors' convenience; the type lives in domain/change.ts with the
+ * rest of the dashboard's vocabulary. */
+export type { CompletionStep } from "../domain/change.ts";

@@ -16,8 +16,8 @@ import {
 } from "../src/changes.ts";
 import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/integrations/git.ts";
 import { Effect } from "effect";
-import type { Change } from "../src/types.ts";
-import type { TmuxWindow } from "../src/extensions/api.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { TmuxWindow } from "../src/core/host/api.ts";
 import type { PresentedWindow } from "../src/terminal.ts";
 import { runEffect, runSh, TestError } from "./helpers.ts";
 
@@ -348,7 +348,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
 
 test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const { install, loaded } = await import("../src/extensions/index.ts");
+  const { install, loaded } = await import("../src/core/host/index.ts");
 
   // A stub source claiming every change that has a jira key, answering from a map the test
   // controls.
@@ -406,7 +406,7 @@ test("a change is named after its ticket, and keeps that name when its vendor is
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
-  const { CHANGE_STATES, isFinished } = await import("../src/types.ts");
+  const { CHANGE_STATES, isFinished } = await import("../src/core/domain/change.ts");
   const { stateClass } = await import("../src/web/changeState.tsx");
 
   // How much of your attention each state asks for: the select offers them in this order and the
@@ -431,7 +431,7 @@ test("a change may be blocked, which is active but not workable", async () => {
 
 test("a name you wrote yourself is not overwritten by the ticket's", async () => {
   const { refreshTitles } = await import("../src/titles.ts");
-  const { install, loaded } = await import("../src/extensions/index.ts");
+  const { install, loaded } = await import("../src/core/host/index.ts");
 
   const answers = new Map<string, string>();
   let asked: string[] = [];
@@ -472,7 +472,7 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
 
 test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
   const { summaryOf } = await import("../src/summary.ts");
-  const { install, loaded } = await import("../src/extensions/index.ts");
+  const { install, loaded } = await import("../src/core/host/index.ts");
 
   const restore = loaded.splice(0, loaded.length);
   install({
@@ -559,7 +559,7 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
   const { azureOf, usesAzure, workspaceOf } = await import("../src/workspaces.ts");
-  const { extensionsFor, loaded } = await import("../src/extensions/index.ts");
+  const { extensionsFor, loaded } = await import("../src/core/host/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag — and keeps

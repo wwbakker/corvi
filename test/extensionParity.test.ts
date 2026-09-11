@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { loaded } from "../src/extensions/index.ts";
+import { loaded } from "../src/core/host/index.ts";
 import { clients } from "../src/web/extensions.tsx";
 
 /**
@@ -7,7 +7,7 @@ import { clients } from "../src/web/extensions.tsx";
  * "two lines each" contract of docs/guides/extensions.md is checkable rather than a
  * matter of discipline:
  *
- * - the server's loader, src/extensions/index.ts `loaded`, which knows which
+ * - the server's loader, src/core/host/index.ts `loaded`, which knows which
  *   extensions declare wizard steps or pages, and
  * - the page's client registry, src/web/extensions.tsx `clients`, which maps an
  *   extension's name to its lazy client module.

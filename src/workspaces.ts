@@ -1,4 +1,4 @@
-import type { Change } from "./types.ts";
+import type { Change } from "./core/domain/change.ts";
 import { config, type Workspace } from "./config.ts";
 import { deploySettings } from "./deploySettings.ts";
 import { resolveSetting } from "./legacySettings.ts";

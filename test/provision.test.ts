@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provision } from "../src/extensions/index.ts";
+import { install, loaded, provision } from "../src/core/host/index.ts";
 import { Effect } from "effect";
 import {
   describe,
@@ -17,8 +17,8 @@ import { isMac } from "../src/platform.ts";
 import { versionInLines } from "../src/integrations/azure.ts";
 import { readiness, headRef, waitingOnYou } from "../src/integrations/github.ts";
 import { presentWindow, type PresentedWindow } from "../src/terminal.ts";
-import type { TmuxWindow } from "../src/extensions/api.ts";
-import type { Change } from "../src/types.ts";
+import type { TmuxWindow } from "../src/core/host/api.ts";
+import type { Change } from "../src/core/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 
 /**

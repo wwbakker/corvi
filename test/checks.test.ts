@@ -9,7 +9,8 @@ import {
   stackRequest,
   type MergeResult,
 } from "../src/integrations/stacks.ts";
-import type { Change, WidgetItem } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { WidgetItem } from "../src/core/domain/widget.ts";
 import { clearCache } from "../src/cache.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 

@@ -1,13 +1,13 @@
 import { Effect, Layer } from "effect";
 import { Bus, Cache, Shell, Settings, Workspace, type Capabilities } from "./api.ts";
-import { envOf, shWithEnv } from "../sh.ts";
-import { invalidate, swr } from "../cache.ts";
-import { config } from "../config.ts";
-import { announce } from "../events.ts";
-import type { Workspace as WorkspaceShape } from "../config.ts";
+import { envOf, shWithEnv } from "../../sh.ts";
+import { invalidate, swr } from "../../cache.ts";
+import { config } from "../../config.ts";
+import { announce } from "../../events.ts";
+import type { Workspace as WorkspaceShape } from "../../config.ts";
 
 /**
- * The live layers behind the capabilities (src/extensions/api.ts) — host-side, not part of
+ * The live layers behind the capabilities (src/core/host/api.ts) — host-side, not part of
  * the contract. One static layer per service; the request's workspace is provided alongside
  * them per request, so one service instance serves every request and `Shell` reads the
  * request's workspace at run time.

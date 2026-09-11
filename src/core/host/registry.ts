@@ -1,5 +1,5 @@
 import type { Effect } from "effect";
-import type { Change } from "../types.ts";
+import type { Change } from "../domain/change.ts";
 import type {
   Capabilities,
   Card,
@@ -58,7 +58,7 @@ export type LoadedExtension = {
   globalSettings: ExtensionSetting[];
   /** Host-internal, out-of-tree extensions only: the sibling client.tsx of the discovered
    * module, which the server builds into a chunk the page imports at runtime
-   * (/extensions/<name>/client.js — src/extensions/clientChunks.ts). Built-ins are bundled
+   * (/extensions/<name>/client.js — src/core/host/clientChunks.ts). Built-ins are bundled
    * into the page instead and never carry one. */
   clientPath?: string;
 };

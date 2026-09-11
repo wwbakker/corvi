@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import { Effect } from "effect";
 import { loadCache, saveCache } from "./cache.ts";
-import { buildClientChunks } from "./extensions/clientChunks.ts";
+import { buildClientChunks } from "./core/host/clientChunks.ts";
 import { assetsRoutes } from "./routes/assets.ts";
 import { changesRoutes } from "./routes/changes.ts";
 import { eventsRoutes } from "./routes/events.ts";

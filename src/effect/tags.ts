@@ -18,7 +18,7 @@ export class Workspace extends Context.Tag("iwe/Workspace")<Workspace, Workspace
  * the host provides the tag alongside the service, so requiring both is free.
  *
  * The tag lives here, next to `Workspace`, rather than in the extension contract
- * (src/extensions/api.ts) so `sh` can read it without importing that contract — which
+ * (src/core/host/api.ts) so `sh` can read it without importing that contract — which
  * re-exports `sh`'s own `Result`. api.ts re-exports it, so extension imports are unchanged. */
 export class Shell extends Context.Tag("iwe/Shell")<Shell, {
   run(cmd: readonly string[], opts?: { cwd?: string }): Effect.Effect<

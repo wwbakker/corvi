@@ -3,8 +3,8 @@ import { existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { config, expandTilde } from "../config.ts";
-import { workspaceById } from "../workspaces.ts";
+import { config, expandTilde } from "../../config.ts";
+import { workspaceById } from "../../workspaces.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { install } from "./registry.ts";
 import type { ExtensionModule } from "./api.ts";
@@ -106,7 +106,7 @@ export function extensionModulePaths(
 }
 
 /** The sibling client.tsx of a discovered module file, when it exists — the half the server
- * builds into a chunk for the page (src/extensions/clientChunks.ts). */
+ * builds into a chunk for the page (src/core/host/clientChunks.ts). */
 const siblingClient = (modulePath: string): string | undefined => {
   const client = join(dirname(modulePath), "client.tsx");
   return existsSync(client) ? client : undefined;

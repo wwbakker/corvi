@@ -1,6 +1,6 @@
 import { type JSX, useCallback, useState } from "react";
 import { api, type Change } from "./api.ts";
-import type { ChangeSummary } from "../types.ts";
+import type { ChangeSummary } from "../core/domain/change.ts";
 import { stateClass } from "./changeState.tsx";
 import { moment } from "./moment.ts";
 import { usePolled } from "./poll.ts";

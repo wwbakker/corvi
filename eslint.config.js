@@ -22,17 +22,17 @@ import tseslint from "typescript-eslint";
  * `import type` is exempt (`allowTypeImports`): those are erased at compile time by
  * `verbatimModuleSyntax` and never reach the bundle, which is how `SettingsPage.tsx` reads
  * `Config`'s shape from `config.ts` without pulling in the `az`/`gh`/`jira` CLI calls that live
- * beside it. `types.ts` is additionally excluded outright: it is the shared type vocabulary and
- * also exports the pure reducers (`isFinished`, `byWorkOrder`, `CHANGE_STATES`) that the browser
- * renders with, so it is the one filename-level exception kept (see `docs/plans/archive/refactor-plan.md`
- * item 3; moving its browser-safe half into `src/shared/` is the follow-up that would retire it).
+ * beside it.
  *
- * Everything else one level up from `src/web/` is backend: it shells out to CLIs, touches the
- * filesystem, or both. `src/shared/` is the structural exception — pure code (no `node:fs`, no CLI,
- * no `Bun.spawn`) that both the server and the browser need, importable by value from
- * `src/web/**`. Because these patterns are relative to `src/web/` and `*` does not cross a
- * directory boundary, the shared tree is reachable at `../shared/*` while every sibling of
- * `src/web/` stays restricted. Put a new shared module in `src/shared/`, not next to the server.
+ * Everything else outside `src/web/` that is not the pure domain is backend: it shells out to
+ * CLIs, touches the filesystem, or both. `src/core/domain/` is the structural exception — pure
+ * vocabulary and pure operations (no `node:*`, no `Bun.*`, no Effect runtime) that both the
+ * server and the browser need, importable by value from `src/web/**`. A module's pure `model.ts`
+ * joins it as the modules land, so the rule allows both. The patterns are relative to
+ * `src/web/`, and the group restricts every server tree — the top-level files, `integrations/`,
+ * the built-ins' server halves, `routes/`, `effect/`, `schemas/` and all of `core/` — then
+ * re-includes `core/domain/` and any module's `model.ts`. Put a new shared vocabulary module in
+ * `src/core/domain/`, not next to the server.
  */
 export default tseslint.config(
   {
@@ -71,12 +71,23 @@ export default tseslint.config(
         {
           patterns: [
             {
-              group: ["../*.ts", "!../types.ts", "../integrations/*"],
+              group: [
+                "../*.ts",
+                "../integrations/**",
+                "../extensions/**/*.ts",
+                "../routes/**",
+                "../effect/**",
+                "../schemas/**",
+                "../core/**",
+                "!../core/domain",
+                "!../core/domain/**",
+                "!../**/model.ts",
+              ],
               message:
-                "src/web is the browser bundle: only import backend modules (CLI/fs code such as " +
-                "deployments.ts, config.ts, azure.ts, sh.ts, ...) with `import type`, which is " +
-                "erased before the bundle sees it. For a value both sides need, share it through " +
-                "a pure module under src/shared/ instead.",
+                "src/web is the browser bundle: server modules (CLI/fs code such as config.ts, " +
+                "sh.ts, azure.ts, ...) may only be imported with `import type`, which is erased " +
+                "before the bundle sees it. The pure domain under src/core/domain/ (and a " +
+                "module's model.ts) is importable by value; put new shared vocabulary there.",
               allowTypeImports: true,
             },
           ],

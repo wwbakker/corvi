@@ -5,7 +5,7 @@ import { DEFAULT_WORKSPACE } from "./workspaces.ts";
 // file handling with them.
 import type { Settings, SettingsView } from "../settings.ts";
 import type { Config } from "../config.ts";
-import type { ExtensionSetting } from "../extensions/api.ts";
+import type { ExtensionSetting } from "../core/host/api.ts";
 import { CheckField, Field, ListEditor, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "./WorkspaceCard.tsx";
 

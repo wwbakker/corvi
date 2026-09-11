@@ -1,8 +1,9 @@
 import { Effect, Either } from "effect";
-import { isFinished, type Change, type Widget, type WidgetItem } from "../types.ts";
-import { workspaceOf } from "../workspaces.ts";
-import { messageOf } from "../effect/support.ts";
-import { BadRequestError } from "../effect/errors.ts";
+import { isFinished, type Change } from "../domain/change.ts";
+import type { Widget, WidgetItem } from "../domain/widget.ts";
+import { workspaceOf } from "../../workspaces.ts";
+import { messageOf } from "../../effect/support.ts";
+import { BadRequestError } from "../../effect/errors.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { extensionsFor } from "./selectors.ts";
 import type { Capabilities, Card } from "./api.ts";

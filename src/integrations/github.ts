@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
-import type { Change, WidgetItem, WidgetState } from "../types.ts";
+import type { Change } from "../core/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { checkoutFor, baseFor, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, type Result } from "../sh.ts";

@@ -16,7 +16,7 @@ import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
 import { announce } from "../events.ts";
-import { provision } from "../extensions/index.ts";
+import { provision } from "../core/host/index.ts";
 import { repoStates, setRepos } from "../integrations/git.ts";
 import { fileDiff, localChanges } from "../local.ts";
 import { guard } from "../origin.ts";

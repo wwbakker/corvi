@@ -1301,7 +1301,7 @@ the surfaces in docs/guides/extensions.md. A card takes the same shape the integ
 a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
 `events["change:created"]` is the creation hook. A built-in is added to the loader in
-`src/extensions/index.ts` and, when it has a step or a page, to the client registry in
+`src/core/host/index.ts` and, when it has a step or a page, to the client registry in
 `src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
@@ -1352,8 +1352,13 @@ The map, grouped by layer:
     src/tooling.ts            IDE state carried into a new worktree, paths rewritten
     src/platform.ts           platform detection
     src/origin.ts             refusing requests another site made
-    src/types.ts              the vocabulary the server and the page share
     src/legacySettings.ts     the one legacy-settings resolver and migration
+
+    src/core/domain/          the vocabulary the server and the page share —
+                              change.ts, widget.ts, terminal.ts, time.ts
+    src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
+                              registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
+                              services.ts, clientChunks.ts, index.ts
 
     src/routes/               the HTTP handlers, one module per domain: helpers, changes,
                               terminals, repos, settings, extensions, events, assets
@@ -1362,26 +1367,17 @@ The map, grouped by layer:
     src/terminalProxy.ts      ttyd proxied through our origin, and the key-fixing script
     src/deploySettings.ts     the deployments settings, read by the shared azure client too
 
-    src/shared/               pure code both the server and the browser import
-      branch.ts               branch-name derivation
-      deployConventions.ts    how a build pipeline's name maps to its deploy twin
-
     src/integrations/         vendor CLI wrappers shared by more than one feature
       git.ts                  worktrees and checkouts (wt, plus plain git)
       github.ts               pull requests, review threads, merges
       azure.ts                Azure DevOps pipelines and runs
       stacks.ts               stacked pull requests
 
-    src/extensions/           the extension host and the built-ins
-      index.ts                the public face: built-in load order and re-exports
-      registry.ts             the leaf registry (loaded, install, window presenters)
-      discover.ts selectors.ts effects.ts dispatch.ts   loading, queries, running, routing
-      api.ts                  the whole contract an extension sees
-      services.ts             the live layers behind Shell/Cache/Settings/Bus/Workspace
-      clientChunks.ts         builds out-of-tree client halves for the page
-      agents/ git/ github-issues/ jira/    the built-ins
+    src/extensions/           the built-ins, and nothing else
+      agents/ git/ github-issues/ jira/
       ci/                     the CI card, and checks.ts (GitHub Actions checks)
-      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx
+      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
+                              deployConventions.ts (the pipeline-name convention both halves share)
 
     src/web/                  the React app, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view

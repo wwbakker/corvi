@@ -2,7 +2,7 @@ import { type JSX, useState } from "react";
 import type { WidgetItem } from "./api.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { Progress } from "./Progress.tsx";
-import { ago } from "../shared/time.ts";
+import { ago } from "../core/domain/time.ts";
 import { moment } from "./moment.ts";
 
 /** A row's state dot, shared by a widget's heading and its rows. */

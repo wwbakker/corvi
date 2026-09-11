@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { CHANGE_STATES, type Change as ChangeShape } from "../types.ts";
+import { CHANGE_STATES, type Change as ChangeShape } from "../core/domain/change.ts";
 
 /**
  * The change.json on disk — the JSON boundary of a change (src/changes.ts).

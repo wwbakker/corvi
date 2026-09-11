@@ -11,12 +11,12 @@ import {
 } from "./config.ts";
 import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import { DirectoryName, EnvVarName, WorkspaceId, type ConfigFile } from "./schemas/config.ts";
-import { loaded } from "./extensions/index.ts";
+import { loaded } from "./core/host/index.ts";
 import { BadRequestError } from "./effect/errors.ts";
 import { fs } from "./effect/support.ts";
 import { invalidate } from "./cache.ts";
 import { TOOLING } from "./tooling.ts";
-import type { ExtensionSetting, WorkspaceSetting } from "./extensions/api.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "./core/host/api.ts";
 
 /**
  * Reading and writing the settings file from the page.

@@ -1,5 +1,5 @@
 import { Effect, Either } from "effect";
-import type { WidgetState } from "../../types.ts";
+import type { WidgetState } from "../../core/domain/widget.ts";
 import { swr, invalidate } from "../../cache.ts";
 import { config, type Config } from "../../config.ts";
 import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { gitRun, provisionRepo, repoItem } from "../../integrations/git.ts";
-import type { Extension } from "../api.ts";
+import type { Extension } from "../../core/host/api.ts";
 
 /**
  * Local changes: the worktree card, and the change:created provisioning.

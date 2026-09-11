@@ -1,7 +1,8 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change, Widget, WidgetItem, WidgetState } from "../types.ts";
+import type { Change } from "../core/domain/change.ts";
+import type { Widget, WidgetItem, WidgetState } from "../core/domain/widget.ts";
 import { shOrThrow } from "../sh.ts";
 import { config } from "../config.ts";
 import { copyTooling } from "../tooling.ts";

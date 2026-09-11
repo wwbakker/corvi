@@ -23,11 +23,11 @@ import githubIssues from "../src/extensions/github-issues/index.ts";
 import { clearCache } from "../src/cache.ts";
 import { config } from "../src/config.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
-import type { Capabilities } from "../src/extensions/api.ts";
-import { BusLive, CacheLive, SettingsLive } from "../src/extensions/services.ts";
+import type { Capabilities } from "../src/core/host/api.ts";
+import { BusLive, CacheLive, SettingsLive } from "../src/core/host/services.ts";
 import { workspaceById } from "../src/workspaces.ts";
 import type { Result } from "../src/sh.ts";
-import type { Change } from "../src/types.ts";
+import type { Change } from "../src/core/domain/change.ts";
 import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /**

@@ -49,7 +49,7 @@ const expand = (value: string): string =>
  * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_CONFIG_FILE` —
  * and a shell would have done it. Empty outside a request. The workspace comes from the
  * `Workspace` tag (src/effect/tags.ts), read at run time by `sh` and by the Shell capability's
- * live layer (src/extensions/services.ts). */
+ * live layer (src/core/host/services.ts). */
 export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, string> => {
   const own = workspace?.env ?? {};
   return Object.fromEntries(Object.entries(own).map(([key, value]) => [key, expand(value)]));
@@ -128,7 +128,7 @@ const spawn = (
   });
 
 /** One CLI call with the environment given explicitly, instead of read from the request
- * scope. This is what the Shell capability (src/extensions/services.ts) runs, so extension
+ * scope. This is what the Shell capability (src/core/host/services.ts) runs, so extension
  * code depends on the service and the Workspace tag. */
 export const shWithEnv = (
   cmd: readonly string[],

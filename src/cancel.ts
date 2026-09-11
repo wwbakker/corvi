@@ -1,10 +1,10 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change } from "./types.ts";
+import type { Change } from "./core/domain/change.ts";
 import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
 import { archiveChange, writeChange } from "./changes.ts";
-import { looseEndContributorsFor } from "./extensions/index.ts";
-import { capabilitiesLayer } from "./extensions/services.ts";
+import { looseEndContributorsFor } from "./core/host/index.ts";
+import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { stopTerminal } from "./terminal.ts";
 import { BadRequestError, type CliError } from "./effect/errors.ts";

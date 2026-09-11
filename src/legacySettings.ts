@@ -1,4 +1,4 @@
-import type { ExtensionSetting } from "./extensions/api.ts";
+import type { ExtensionSetting } from "./core/host/api.ts";
 
 /**
  * The settings precedence chain, in one place.

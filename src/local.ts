@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change, FileChange } from "./types.ts";
+import type { Change, FileChange } from "./core/domain/change.ts";
 import { checkoutFor, baseFor } from "./integrations/git.ts";
 import { sh, type Result } from "./sh.ts";
 import { BadRequestError, CliError } from "./effect/errors.ts";
