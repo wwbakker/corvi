@@ -20,8 +20,9 @@ src/
                        client/ (SettingsPage, SettingsFields)
   change/              the change module: model.ts, server/ (schema, store, create, complete,
                        cancel, commit, review, titles, description, leftovers, index.ts), client/ (the
-                       page, the dialogs, the review surface)
-  summary.ts           the overview summary, still top-level until it moves into the change module
+                       page, the dialogs, the review surface), wizard/ (the New change wizard,
+                       client/ + index.ts), overview/ (the dashboard: server/summary.ts composes
+                       change, terminal and the host; client/ holds the cards)
   sh.ts cache.ts events.ts  subprocess gate, SWR cache, SSE hub + watcher
   terminal/            the terminal module: server/ (tmux sessions, ttyd spawn, the ws bridge,
                        the presenter merge), client/ (the terminal pane, tabs, cheat sheet)
@@ -30,9 +31,11 @@ src/
     domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
     host/              the extension contract and its machinery: api.ts (and api/*.ts), registry.ts,
                        discover.ts, selectors.ts, effects.ts, dispatch.ts, services.ts,
-                       clientChunks.ts, index.ts
+                       clientChunks.ts, client.tsx (the page's client-side registry and the
+                       extension UI contract), index.ts
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments)
-  web/                 React UI, bundled by Bun's HTML import, no framework
+  frontend/            the browser shell and runtime: index.html, styles, the app router, the
+                       sidebar, the data hooks, the fetch client and notifications
 ```
 
 The extension host (`src/core/host/index.ts`) loads built-ins and out-of-tree modules through
@@ -76,9 +79,10 @@ the page shell. Everything else is a surface an extension can contribute to.
 - **Extensions** import only from `src/core/host/api.ts`, which is the whole promise. The host
   provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`, `ExtensionStore`)
   so an extension's requirements arrive through the Effect `R` channel.
-- **The browser halves** (`src/web/**` and a module's `client/**`) must not import backend
-  modules that shell out or touch the filesystem; `eslint.config.js` enforces the boundary for
-  both depths and `src/core/domain/**` is where pure vocabulary both sides need belongs.
+- **The browser halves** (`src/frontend/**`, a module's `client/**` and a submodule's) must not
+  import backend modules that shell out or touch the filesystem; `eslint.config.js` enforces the
+  boundary at each depth, `src/core/domain/**` is where pure vocabulary both sides need belongs,
+  and `src/core/host/client.tsx` is the one browser file under `core/` a half may import by value.
 - **HTTP** is the only client/server boundary — no shared runtime state across it.
 
 ## Running it

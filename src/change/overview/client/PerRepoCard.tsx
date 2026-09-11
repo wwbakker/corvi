@@ -6,10 +6,10 @@ import {
   type CardInfo,
   type RepoItems,
   type WidgetItem,
-} from "./api.ts";
-import { cached, putCached } from "./cache.ts";
-import { EditReposDialog } from "../change/client/EditReposDialog.tsx";
-import { usePolled } from "./poll.ts";
+} from "../../../frontend/api.ts";
+import { cached, putCached } from "../../../frontend/cache.ts";
+import { EditReposDialog } from "../../client/EditReposDialog.tsx";
+import { usePolled } from "../../../frontend/poll.ts";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
 const worstOf = (items: WidgetItem[]): string =>

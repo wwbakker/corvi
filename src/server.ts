@@ -76,7 +76,7 @@ console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers rest
       `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
     );
     console.error(
-      "usually dependencies: run `bun install`. For the full error: bun build src/web/index.html --outdir /tmp/iwe-check --production",
+      "usually dependencies: run `bun install`. For the full error: bun build src/frontend/index.html --outdir /tmp/iwe-check --production",
     );
     process.exit(1);
   }

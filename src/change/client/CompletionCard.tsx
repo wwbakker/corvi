@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post, type Change } from "../../web/api.ts";
+import { api, post, type Change } from "../../frontend/api.ts";
 
 export type CompletionStep = {
   id: string;

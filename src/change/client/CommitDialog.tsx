@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { post } from "../../web/api.ts";
+import { post } from "../../frontend/api.ts";
 import type { FileChange } from "../../core/domain/change.ts";
 
 export type CommitResult = {

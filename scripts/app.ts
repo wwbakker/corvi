@@ -125,7 +125,7 @@ async function verify(): Promise<void> {
     process.exit(1);
   }
   const out = "/tmp/iwe-build-check";
-  const built = await sh(["bun", "build", "src/web/index.html", "--outdir", out, "--production"]);
+  const built = await sh(["bun", "build", "src/frontend/index.html", "--outdir", out, "--production"]);
   await rm(out, { recursive: true, force: true });
   if (built.code !== 0) {
     console.error(built.stderr || built.stdout);

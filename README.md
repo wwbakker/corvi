@@ -340,7 +340,7 @@ it keeps a readable 1200px column.
 
 `http://127.0.0.1:4000` counts as a secure context, so no TLS is needed. The icon source is
 `assets/icon.svg` (and `assets/icon-maskable.svg` for the padded, croppable variant); edit those
-and run `bun run icons` to regenerate `src/web/icons/*.png` with `rsvg-convert`
+and run `bun run icons` to regenerate `src/frontend/icons/*.png` with `rsvg-convert`
 (`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
 
 ## Workspaces
@@ -1282,7 +1282,7 @@ requests of a big change keep saturating the browser's six connections per origi
 localhost, so no multiplexing), and the next page waits seconds for a free one: measured at
 2387ms for `GET /api/changes` mid-load versus 4ms idle.
 
-Widget data is kept in a small in-memory cache in the browser (`src/web/cache.ts`), keyed by
+Widget data is kept in a small in-memory cache in the browser (`src/frontend/cache.ts`), keyed by
 change, component and repository, so leaving a change and coming back paints the last known rows
 straight away while they refresh in the background. A page reload starts empty.
 
@@ -1302,7 +1302,7 @@ a time — and the UI renders whatever widgets come back; a card needs no fronte
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
 `events["change:created"]` is the creation hook. A built-in is added to the loader in
 `src/core/host/index.ts` and, when it has a step or a page, to the client registry in
-`src/web/extensions.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
+`src/core/host/client.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
 ## Tests and your real changes
@@ -1344,12 +1344,15 @@ The map, grouped by layer:
                               review.ts, index.ts (the public face)
       client/                 ChangeView.tsx, changeState.tsx, CommitDialog.tsx,
                               EditReposDialog.tsx, LocalPane.tsx, NotesCard.tsx, CompletionCard.tsx
+      wizard/                 the New change wizard (client/Wizard.tsx, index.ts)
+      overview/               the dashboard: server/summary.ts composes change, terminal and the
+                              host; client/ holds ChangeCard, PerRepoCard, WidgetCard, WidgetRows,
+                              Progress
     src/terminal/             the terminal module: sessions without change knowledge
       server/                 tmux.ts (sessions, ttyd spawn), proxy.ts (ttyd through our
                               origin, the key-fixing script), presenter.ts (the window merge and
                               the core's defaults), index.ts (the public face)
       client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx, newWindowKey.ts
-    src/summary.ts            the numbers on an overview card, as contributed facts
     src/workspace/            the workspace module: contexts, config and the repository browser
       server/                 config.ts (config file + env overrides), schema.ts (the config file
                               schema), workspaces.ts (which context a change belongs to),
@@ -1369,7 +1372,8 @@ The map, grouped by layer:
                               change.ts, widget.ts, terminal.ts, time.ts, config.ts
     src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
                               registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
-                              services.ts, clientChunks.ts, index.ts
+                              services.ts, clientChunks.ts, client.tsx (the page's client-side
+                              registry and the extension UI contract), index.ts
 
     src/routes/               the HTTP handlers, one module per domain: helpers, changes,
                               terminals, repos, settings, extensions, events, assets
@@ -1388,21 +1392,16 @@ The map, grouped by layer:
       deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
                               deployConventions.ts (the pipeline-name convention both halves share)
 
-    src/web/                  the React app, bundled by Bun's HTML import
+    src/frontend/             the browser shell and runtime, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view
       state.ts                the changes and tmux windows, owned by the app
       events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
-      Wizard.tsx              per-component change wizard
-      ChangeCard.tsx          one active change on the overview
-      RepoBrowser.tsx         repository picker: mode and base branch per repository
-      SettingsPage.tsx        the config file, as a form
       Sidebar.tsx             the navigation column: changes, pages, terminals
       Leftovers.tsx           directories left in the changes root
-      extensions.tsx          the hosts for an extension's step and page
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
       ActionsMenu.tsx         the change page's action menu
-      moment.ts prefs.ts Progress.tsx
+      moment.ts prefs.ts poll.ts notify.tsx LifecycleFailures.tsx
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension

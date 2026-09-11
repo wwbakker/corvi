@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { loaded } from "../src/core/host/index.ts";
-import { clients } from "../src/web/extensions.tsx";
+import { clients } from "../src/core/host/client.tsx";
 
 /**
  * Parity between the two hand-kept extension registries — the one place the
@@ -9,7 +9,7 @@ import { clients } from "../src/web/extensions.tsx";
  *
  * - the server's loader, src/core/host/index.ts `loaded`, which knows which
  *   extensions declare wizard steps or pages, and
- * - the page's client registry, src/web/extensions.tsx `clients`, which maps an
+ * - the page's client registry, src/core/host/client.tsx `clients`, which maps an
  *   extension's name to its lazy client module.
  *
  * Both directions are pinned: a wizard step or page with no client entry shows

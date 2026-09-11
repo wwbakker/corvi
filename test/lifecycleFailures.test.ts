@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { LifecycleFailures } from "../src/web/LifecycleFailures.tsx";
-import type { ProvisionResult } from "../src/web/api.ts";
+import { LifecycleFailures } from "../src/frontend/LifecycleFailures.tsx";
+import type { ProvisionResult } from "../src/frontend/api.ts";
 
 /**
  * The lifecycle observers' failures as the change page renders them. The component is

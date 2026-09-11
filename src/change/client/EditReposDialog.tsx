@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post, type ApiError, type Change, type RepoState, type Selection } from "../../web/api.ts";
+import { api, post, type ApiError, type Change, type RepoState, type Selection } from "../../frontend/api.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 
 /**

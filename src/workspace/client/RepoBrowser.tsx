@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useMemo, useState } from "react";
-import { api, type Branches, type Entry, type Listing, type Selection } from "../../web/api.ts";
+import { api, type Branches, type Entry, type Listing, type Selection } from "../../frontend/api.ts";
 
 /** Directory browser under the configured repos root. Browsing and selecting are separate
  * actions on every row, because a directory can be both a repository and a parent of others.

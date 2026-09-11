@@ -1,5 +1,5 @@
 import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { AgentIcon, TerminalIcon } from "../../web/icons.tsx";
+import { AgentIcon, TerminalIcon } from "../../frontend/icons.tsx";
 import type { Platform } from "./newWindowKey.ts";
 import type { TerminalWindow } from "../../core/domain/terminal.ts";
 

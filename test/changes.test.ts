@@ -472,7 +472,7 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
 });
 
 test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
-  const { summaryOf } = await import("../src/summary.ts");
+  const { summaryOf } = await import("../src/change/overview/server/index.ts");
   const { install, loaded } = await import("../src/core/host/index.ts");
 
   const restore = loaded.splice(0, loaded.length);
@@ -512,7 +512,7 @@ test("the summary gathers the core's terminals fact and the extensions' contribu
 });
 
 test("the icons take the worst of what the repositories say", async () => {
-  const { worst } = await import("../src/summary.ts");
+  const { worst } = await import("../src/change/overview/server/index.ts");
   // One red build is what you want to know about, so it decides the colour; then one running.
   expect(worst(["ok", "error", "pending"])).toBe("error");
   expect(worst(["ok", "pending", "ok"])).toBe("pending");

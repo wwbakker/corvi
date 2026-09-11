@@ -1,7 +1,7 @@
 import { type JSX, useCallback, useState } from "react";
-import { aborted, api, post, type CardInfo, type Widget } from "./api.ts";
-import { useCached } from "./cache.ts";
-import { usePolled } from "./poll.ts";
+import { aborted, api, post, type CardInfo, type Widget } from "../../../frontend/api.ts";
+import { useCached } from "../../../frontend/cache.ts";
+import { usePolled } from "../../../frontend/poll.ts";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
 /** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */

@@ -235,7 +235,7 @@ export const step: StepComponent = ({ ctx }) => {
 ```
 
 A built-in registers its halves in two places — the loader (src/core/host/index.ts) and, when
-it has a step or a page, the page's client registry (src/web/extensions.tsx). An out-of-tree
+it has a step or a page, the page's client registry (src/core/host/client.tsx). An out-of-tree
 extension registers nowhere: it is discovered from the config and loaded through the same
 install path (below).
 

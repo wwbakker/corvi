@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, put } from "../../web/api.ts";
+import { api, put } from "../../frontend/api.ts";
 import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
 // Types only: these are erased at build time, so the browser bundle gets none of the server's
 // file handling with them.

@@ -76,7 +76,7 @@ The registry, the config object, the cache: each lives in one named module that 
 
 ## 8. Hooks fetch, components render
 
-Client data goes through the shared hooks and cache (`web/state.ts`, `web/cache.ts`); components
+Client data goes through the shared hooks and cache (`frontend/state.ts`, `frontend/cache.ts`); components
 do not call `fetch` themselves.
 
 - **Right:** `useChanges`, `useWindows`, `useTerminal`.
@@ -85,11 +85,11 @@ do not call `fetch` themselves.
 ## 9. Shared code has a place, not a list
 
 Pure code both the server and the browser need lives in `src/core/domain/`. The lint boundary is
-then structural rather than an allowlist: it covers every server tree, for `src/web/**` and for
-a module's `client/` half alike, with only `src/core/domain/` and a module's `model.ts` importable
+then structural rather than an allowlist: it covers every server tree, for `src/frontend/**` and for
+a module's `client/` half (a submodule's alike), with only `src/core/domain/`, a module's `model.ts` importable
 by value.
 
-- **Right:** `src/core/domain/change.ts`, importable from `src/web/**` and `src/change/client/**`.
+- **Right:** `src/core/domain/change.ts`, importable from `src/frontend/**` and `src/change/client/**`.
 - **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
   `src/core/domain/`.
 

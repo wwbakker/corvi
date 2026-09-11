@@ -3,7 +3,7 @@ import { clientChunkPath, chunkRoot } from "../core/host/clientChunks.ts";
 import { guard } from "../origin.ts";
 import { platformName } from "../platform.ts";
 import { keysScript } from "../terminal/server/proxy.ts";
-import index from "../web/index.html";
+import index from "../frontend/index.html";
 
 export const assetsRoutes = guard({
   "/terminal-keys.js": () =>
@@ -12,7 +12,7 @@ export const assetsRoutes = guard({
     }),
 
   // The browser half of an out-of-tree extension, built at startup into the state dir and
-  // imported by the page at runtime (src/web/extensions.tsx). Built-ins are in the page's
+  // imported by the page at runtime (src/core/host/client.tsx). Built-ins are in the page's
   // own bundle instead; an unknown name has no chunk and answers 404.
   "/extensions/:name/client.js": async (req) => {
     const file = Bun.file(clientChunkPath(req.params.name));
@@ -35,7 +35,7 @@ export const assetsRoutes = guard({
   // The manifest is bundled with the page; its icons are plain files served from here.
   "/icons/:file": async (req) => {
     // basename: the parameter must not walk out of the icons directory.
-    const file = Bun.file(join("src/web/icons", basename(req.params.file)));
+    const file = Bun.file(join("src/frontend/icons", basename(req.params.file)));
     return (await file.exists()) ? new Response(file) : new Response("no such icon", { status: 404 });
   },
 

@@ -1,9 +1,9 @@
 import { type JSX, useCallback, useState } from "react";
-import { api, type Change } from "./api.ts";
-import type { ChangeSummary } from "../core/domain/change.ts";
-import { stateClass } from "../change/client/changeState.tsx";
-import { moment } from "./moment.ts";
-import { usePolled } from "./poll.ts";
+import { api, type Change } from "../../../frontend/api.ts";
+import type { ChangeSummary } from "../../../core/domain/change.ts";
+import { stateClass } from "../../client/changeState.tsx";
+import { moment } from "../../../frontend/moment.ts";
+import { usePolled } from "../../../frontend/poll.ts";
 
 const plural = (n: number, one: string, many = `${one}s`): string =>
   `${n} ${n === 1 ? one : many}`;

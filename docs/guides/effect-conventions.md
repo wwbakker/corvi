@@ -14,7 +14,7 @@ The rulings behind these rules are recorded in
 Server-side `src/` only. Excluded, deliberately:
 
 - `src/terminal/server/proxy.ts` — the WebSocket bridge stays as-is; it is proxy plumbing, not logic.
-- `src/web/**` — the React UI never sees Effect.
+- `src/frontend/**` and a module's `client/**` — the React UI never sees Effect.
 - `src/origin.ts` — the sync guard stays as-is.
 - `src/platform.ts` — platform detection stays as-is.
 - Purely synchronous code (pure string logic, pure data shaping) — no effect wrapper buys

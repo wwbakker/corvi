@@ -1,9 +1,9 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import type { Change } from "../src/core/domain/change.ts";
-import { aborted, api, del, patch, post, put, type ApiError } from "../src/web/api.ts";
+import { aborted, api, del, patch, post, put, type ApiError } from "../src/frontend/api.ts";
 import { stateClass } from "../src/change/client/changeState.tsx";
-import { moment } from "../src/web/moment.ts";
-import { getPref, setPref } from "../src/web/prefs.ts";
+import { moment } from "../src/frontend/moment.ts";
+import { getPref, setPref } from "../src/frontend/prefs.ts";
 import {
   ALL,
   DEFAULT_WORKSPACE,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../../web/api.ts";
-import { getPref, setPref } from "../../web/prefs.ts";
-import type { Change } from "../../web/api.ts";
+import { api } from "../../frontend/api.ts";
+import { getPref, setPref } from "../../frontend/prefs.ts";
+import type { Change } from "../../frontend/api.ts";
 import type { Platform } from "../../terminal/client/newWindowKey.ts";
 import { DEFAULT_WORKSPACE } from "../../core/domain/config.ts";
 

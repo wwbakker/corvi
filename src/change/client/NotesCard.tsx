@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { api, put } from "../../web/api.ts";
-import { cached, putCached } from "../../web/cache.ts";
+import { api, put } from "../../frontend/api.ts";
+import { cached, putCached } from "../../frontend/cache.ts";
 
 /**
  * Free-text notes for a change, stored beside change.json. Saved a moment after you stop typing

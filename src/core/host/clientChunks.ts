@@ -11,10 +11,10 @@ import { loaded } from "./index.ts";
  * after the page was built, or changes without one. So the server builds it, once at startup
  * into the XDG state directory, and serves it at /extensions/<name>/client.js; the page
  * imports that URL at runtime when a step's extension has no static entry
- * (src/web/extensions.tsx).
+ * (src/core/host/client.tsx).
  *
  * The chunk is built with react and its jsx runtimes external, and the import map in the page
- * (src/web/index.html) resolves those specifiers to the vendor chunks built here from the
+ * (src/frontend/index.html) resolves those specifiers to the vendor chunks built here from the
  * app's own react entrypoints — so an out-of-tree step runs on the same react the page runs,
  * as nearly as serving allows. Two reacts break hooks and context; a chunk that bundled its
  * own would be a step that crashes the moment it called useState.

@@ -1,9 +1,9 @@
 import { type JSX, useState } from "react";
-import type { WidgetItem } from "./api.ts";
-import { ActionsMenu } from "./ActionsMenu.tsx";
+import type { WidgetItem } from "../../../frontend/api.ts";
+import { ActionsMenu } from "../../../frontend/ActionsMenu.tsx";
 import { Progress } from "./Progress.tsx";
-import { ago } from "../core/domain/time.ts";
-import { moment } from "./moment.ts";
+import { ago } from "../../../core/domain/time.ts";
+import { moment } from "../../../frontend/moment.ts";
 
 /** A row's state dot, shared by a widget's heading and its rows. */
 export function Dot({ state }: { state?: string }): JSX.Element {

@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState, type ComponentType } from "react";
-import type { Selection } from "./api.ts";
+import type { Selection } from "../../frontend/api.ts";
 
 /**
  * The client halves of the extensions, and the hosts that render them.
@@ -45,13 +45,13 @@ export type PageComponent = ComponentType<PageProps>;
 export type ClientModule = { step?: StepComponent; page?: PageComponent };
 
 export const clients: Record<string, () => Promise<ClientModule>> = {
-  jira: () => import("../extensions/jira/client.tsx"),
-  "github-issues": () => import("../extensions/github-issues/client.tsx"),
-  deployments: () => import("../extensions/deployments/client.tsx"),
+  jira: () => import("../../extensions/jira/client.tsx"),
+  "github-issues": () => import("../../extensions/github-issues/client.tsx"),
+  deployments: () => import("../../extensions/deployments/client.tsx"),
 };
 
 /** An import the bundler cannot resolve at build time: the specifier is computed, so it
- * stays a runtime import (verified against `bun build src/web/index.html`) and the request
+ * stays a runtime import (verified against `bun build src/frontend/index.html`) and the request
  * goes to the server, which answers with the chunk it built for that extension. A static
  * import here would fail the whole page's build — the module does not exist at build time. */
 const runtimeImport = (specifier: string): Promise<ClientModule> => import(specifier);

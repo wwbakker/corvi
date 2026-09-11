@@ -26,7 +26,7 @@ import { announce } from "../events.ts";
 import { applyCreatingHooks, provision } from "../core/host/index.ts";
 import { repoStates, setRepos } from "../integrations/git.ts";
 import { guard } from "../origin.ts";
-import { summaryOf } from "../summary.ts";
+import { summaryOf } from "../change/overview/server/index.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
 import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "./helpers.ts";
 

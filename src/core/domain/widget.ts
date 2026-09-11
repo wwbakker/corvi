@@ -1,8 +1,9 @@
 export type WidgetState = "ok" | "pending" | "warn" | "none" | "error";
 
 /** One red build decides the colour; then one still running; then green. Pure, and here
- * rather than in summary.ts because extension code needs it (the ci extension's verdict) and
- * must not import summary.ts through the host — that would be a module cycle. */
+ * rather than in change/overview/server/summary.ts because extension code needs it (the ci
+ * extension's verdict) and must not import that summary through the host — that would be a
+ * module cycle. */
 export const worst = (states: WidgetState[]): WidgetState =>
   states.includes("error")
     ? "error"
@@ -16,7 +17,8 @@ export const worst = (states: WidgetState[]): WidgetState =>
 
 /** One fact on a change's overview card: a coloured dot and a phrase. Lives here rather than
  * in the extension API because the summary surface (src/core/domain/change.ts's ChangeSummary,
- * and later src/summary.ts) speaks it too, and the contract already shares this vocabulary. */
+ * and change/overview/server/summary.ts) speaks it too, and the contract already shares this
+ * vocabulary. */
 export type SummaryFact = {
   /** Stable key, e.g. "pipelines". */
   id: string;

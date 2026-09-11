@@ -157,8 +157,8 @@ export type FileChange = {
 
 /** What a change's card and its entry in the navigation column say beyond the change itself:
  * the facts its extensions contribute, and the worst verdict among them for the navigation's
- * icon. Lives here rather than in summary.ts because the page needs the type and must not pull
- * the server's modules in. */
+ * icon. Lives here rather than in change/overview/server/summary.ts because the page needs the
+ * type and must not pull the server's modules in. */
 export type ChangeSummary = {
   /** One fact per contributed line, in the order they should read. */
   facts: SummaryFact[];
