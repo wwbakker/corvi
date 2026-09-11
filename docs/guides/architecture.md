@@ -40,7 +40,7 @@ src/
                        client-side registry and the extension UI contract), index.ts
     integrations/      vendor CLI wrappers (git, github, azure, stacks)
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments,
-                       leftovers, review)
+                       leftovers, review, notes)
   frontend/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications
   deploySettings.ts    the deployments settings, read by the shared azure client and the
@@ -58,7 +58,8 @@ directories:
 
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
   implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
-  this way, and so are `review/server.ts` (the git surface) and its `client.tsx`.
+  this way, and so are `review/server.ts` (the git surface) and its `client.tsx`, and
+  `notes/server.ts` (the `ExtensionStore` surface) and its `client.tsx`.
 - **`src/core/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
   (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
   core + the git extension).

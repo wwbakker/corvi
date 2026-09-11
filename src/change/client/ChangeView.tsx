@@ -19,7 +19,6 @@ import { useCached } from "../../frontend/cache.ts";
 import { stateClass } from "./changeState.tsx";
 import { isFinished } from "../../core/domain/change.ts";
 import { LifecycleFailures } from "../../frontend/LifecycleFailures.tsx";
-import { NotesCard } from "./NotesCard.tsx";
 import { TerminalPane } from "../../terminal/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminal/client/CheatSheet.tsx";
 import type { Platform } from "../../terminal/model.ts";
@@ -396,7 +395,6 @@ export function ChangeView({
           <div className="column">
             <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
             {(infos ?? []).filter((i) => !i.wide).map(card)}
-            <NotesCard changeId={id} />
           </div>
           <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
         </div>

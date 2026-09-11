@@ -8,10 +8,8 @@ import {
   listChanges,
   prDescription,
   progressOf,
-  readNotes,
   refreshTitles,
   writeChange,
-  writeNotes,
 } from "../../../change/server/index.ts";
 import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
@@ -108,20 +106,6 @@ export const changesRoutes = guard({
   // own card.
   "/api/changes/:id/summary": {
     GET: (req) => withChange(req.params.id, (c) => Effect.map(summaryOf(c), json)),
-  },
-
-  // Whatever you want to remember about this change; plain text in the change directory.
-  "/api/changes/:id/notes": {
-    GET: (req) =>
-      withChange(req.params.id, (c) => Effect.map(readNotes(c.id), (text) => json({ text }))),
-    PUT: (req) =>
-      withChange(req.params.id, (c) =>
-        Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as { text?: string };
-          yield* writeNotes(c.id, body.text ?? "");
-          return json({ text: body.text ?? "" });
-        }),
-      ),
   },
 
   // Text for a pull request, built here because the ticket summary comes from the Jira CLI.

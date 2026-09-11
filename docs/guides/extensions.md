@@ -52,7 +52,7 @@ Two ideas run through the model:
 | Loose ends | `looseEnds` | What cancelling the change would leave behind — the open ticket, the open pull requests — asked when the cancel is confirmed. |
 | Window presenters | `windowPresenters` | How a tmux window is named and drawn. Pure functions of tmux data, global rather than per-workspace (below). |
 | Pages | `pages` | A page of the extension's own, served at `/{id}` and offered by the sidebar (below). |
-| Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard. The client half exports `tab`, a component receiving the change and its workspace (below); the review extension is the change-tab example. |
+| Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard. The client half exports `tab`, a component receiving the change and its workspace (below); the review extension is the change-tab example, and the notes extension pairs a tab with the `ExtensionStore`. |
 | Per-workspace settings | `workspaceSettings` | Configuration the extension declares per context, rendered by the settings page for every workspace that has the extension enabled (below). |
 | Global settings | `globalSettings` | Server-wide settings the extension declares, rendered by the settings page in a section per extension (below). |
 | PR description | `descriptionSections` | A heading part, joined with the others into the description's first line. |
@@ -168,8 +168,8 @@ the served chunk, under the same contract as steps (below).
 ## Change tabs
 
 A change's page is a row of tabs: the core's Dashboard (its widgets), and whatever the change's
-workspace's extensions contribute — the review extension's "Review changes" is the built-in
-example. An extension
+workspace's extensions contribute — the review extension's "Review changes" and the notes
+extension's "Notes" are the built-in examples. An extension
 declares its tabs (`{ id, title }`), and the page asks `GET /api/changes/:id/tabs` for them —
 exactly as the sidebar asks `/api/pages`, and the wizard `/api/wizard`. The tab exists for a
 change when the extension does in the change's workspace, and a disabled extension's tab is not
@@ -351,6 +351,15 @@ directory. `change.json`, `wt.toml` and the core's own sidecars are not reachabl
 The capability exists wherever a committed change does — after-hooks, planned completion steps,
 cards, routes — and a `change:creating` hook has no directory yet, so it writes files in
 `change:created`.
+
+The **notes extension** is the worked example: its Notes tab reads and writes
+`extensions/notes/notes.md` through the store, and no core route or card touches notes any more.
+A change whose notes predate the store still shows them, through one deliberately narrow read on
+the `Changes` capability: `readSidecar(change, name)` returns a legacy file from the change root
+by bare filename — no path separators — and "" when it is absent or unreadable, so the store is
+tried first and the legacy sidecar is the fallback. That is **migration access, not a general
+escape hatch**: new data always goes to `ExtensionStore`, a write never touches the legacy file,
+and the core's own `change.json`, `wt.toml` and sidecars stay out of reach.
 
 ## Enablement
 

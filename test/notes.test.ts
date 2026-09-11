@@ -1,0 +1,140 @@
+import { test, expect, beforeAll, afterAll } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Effect } from "effect";
+import {
+  archiveChange,
+  archiveDir,
+  changeDir,
+  createChange,
+  writeSidecar,
+} from "../src/change/server/index.ts";
+import { changeTabsFor, dispatchExtensionRoute } from "../src/core/host/index.ts";
+import { resolveChangePage } from "../src/change/client/changeTabs.ts";
+import { Changes } from "../src/core/host/api.ts";
+import type { Change } from "../src/core/domain/change.ts";
+import type { Workspace } from "../src/workspace/server/index.ts";
+import { runEffect } from "./helpers.ts";
+
+/**
+ * The notes extension (E4): a change tab backed by `ExtensionStore`, plus the one migration it
+ * needed — notes written before the store existed, as a `notes.md` sidecar in the change root,
+ * still read through `Changes.readSidecar`. Every route goes through the real dispatcher, so the
+ * namespace, the change lookup and the status-code mapping are exercised as the app uses them.
+ */
+let tmp: string;
+
+beforeAll(async () => {
+  tmp = await mkdtemp(join(tmpdir(), "iwe-notes-"));
+  process.env.IWE_ROOT = join(tmp, "changes");
+});
+
+afterAll(async () => {
+  await rm(tmp, { recursive: true, force: true });
+});
+
+const changeFor = (id: string): Promise<Change> =>
+  runEffect(createChange({ id, branch: `${id}-work`, repos: [join(tmp, "example-api")] }));
+
+/** Call the extension's own namespace (the path after `/api/ext/notes/`), as the page does. */
+const ext = async (path: string, method = "GET", body?: unknown): Promise<Response> => {
+  const response = dispatchExtensionRoute(
+    new Request(`http://localhost/api/ext/notes/${path}`, {
+      method,
+      ...(body === undefined
+        ? {}
+        : { body: JSON.stringify(body), headers: { "content-type": "application/json" } }),
+    }),
+  );
+  if (!response) throw new Error(`no route: ${method} ${path}`);
+  return response;
+};
+
+const textAt = (path: string): Promise<string> => Bun.file(path).text();
+
+const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
+
+test("the Notes tab is offered only when the extension is enabled, and its URL otherwise falls back", () => {
+  const enabled = changeTabsFor(ws({ extensions: ["notes"] }));
+  expect(enabled).toEqual([{ id: "notes", title: "Notes", extension: "notes" }]);
+  expect(resolveChangePage("notes", enabled)).toEqual({ kind: "tab", tab: enabled[0]! });
+
+  // A workspace that dropped notes has no tab for it, and /changes/:id/notes is the dashboard.
+  const disabled = changeTabsFor(ws({ extensions: [] }));
+  expect(disabled).toEqual([]);
+  expect(resolveChangePage("notes", disabled)).toEqual({ kind: "dashboard" });
+});
+
+test("notes written before the store still show, and the first write lands under the extension", async () => {
+  const change = await changeFor("PROJ-NOTES-MIGRATE");
+
+  // The legacy sidecar the core used to write: a notes.md beside change.json.
+  await runEffect(writeSidecar(change.id, "notes.md", "ask about the flag\n"));
+
+  // Read: nothing under extensions/notes yet, so the legacy file answers.
+  const migrated = await ext(`changes/${change.id}/notes`);
+  expect(migrated.status).toBe(200);
+  expect(await migrated.json()).toEqual({ text: "ask about the flag\n" });
+
+  // Write: the extension's own file, never the legacy one.
+  const saved = await ext(`changes/${change.id}/notes`, "PUT", { text: "answered: keep it\n" });
+  expect(saved.status).toBe(200);
+  expect(await saved.json()).toEqual({ text: "answered: keep it\n" });
+  expect(await textAt(join(changeDir(change.id), "extensions", "notes", "notes.md"))).toBe(
+    "answered: keep it\n",
+  );
+  // The legacy file is left exactly as it was.
+  expect(await textAt(join(changeDir(change.id), "notes.md"))).toBe("ask about the flag\n");
+
+  // The store now answers, so the legacy file no longer shadows the newer text.
+  const reread = await ext(`changes/${change.id}/notes`);
+  expect(await reread.json()).toEqual({ text: "answered: keep it\n" });
+
+  // Archiving moves the whole change directory: both the store's file and the legacy one travel.
+  await runEffect(archiveChange(change.id));
+  const archived = await ext(`changes/${change.id}/notes`);
+  expect(await archived.json()).toEqual({ text: "answered: keep it\n" });
+  expect(await textAt(join(archiveDir(change.id), "extensions", "notes", "notes.md"))).toBe(
+    "answered: keep it\n",
+  );
+  expect(await textAt(join(archiveDir(change.id), "notes.md"))).toBe("ask about the flag\n");
+});
+
+test("the notes route answers an unknown change with 404 and a malformed body with 400", async () => {
+  const missing = await ext("changes/PROJ-NOPE/notes");
+  expect(missing.status).toBe(404);
+  expect((await missing.json() as { error: string }).error).toMatch(/no such change/);
+
+  const change = await changeFor("PROJ-NOTES-BODY");
+  const badBody = dispatchExtensionRoute(
+    new Request(`http://localhost/api/ext/notes/changes/${change.id}/notes`, {
+      method: "PUT",
+      body: "not json",
+      headers: { "content-type": "application/json" },
+    }),
+  )!;
+  expect((await badBody).status).toBe(400);
+});
+
+test("the readSidecar migration access reads a bare change-root file and refuses a path", async () => {
+  const change = await changeFor("PROJ-NOTES-SIDECAR");
+  await runEffect(writeSidecar(change.id, "notes.md", "legacy\n"));
+
+  const read = (name: string): Promise<string> =>
+    runEffect(
+      Effect.gen(function* () {
+        const changes = yield* Changes;
+        return yield* changes.readSidecar(change, name);
+      }),
+    );
+
+  expect(await read("notes.md")).toBe("legacy\n");
+  expect(await read("missing.md")).toBe("");
+  // A name with a separator is not a change-root file, and reads as absent rather than escaping.
+  expect(await read("../change.json")).toBe("");
+  expect(await read("extensions/notes/notes.md")).toBe("");
+  // Nor are the directory components, which a bare-name check would otherwise let through.
+  expect(await read("..")).toBe("");
+  expect(await read(".")).toBe("");
+});

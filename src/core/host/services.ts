@@ -19,10 +19,12 @@ import {
   listExtensionFiles,
   readChange,
   readExtensionFile,
+  readSidecar,
   setExtensionData,
   writeExtensionFile,
 } from "../../change/server/store.ts";
 import { checkoutFor } from "../integrations/git.ts";
+import type { Change } from "../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
 /**
@@ -57,13 +59,19 @@ export const BusLive = Layer.succeed(Bus, {
   announce: (event) => Effect.sync(() => announce(event)),
 });
 
-/** The read-only `Changes` store: the change module's own read and the git checkout lookup,
- * provided statically like the other services. It is a leaf delegation — nothing here needs a
- * workspace — and `../integrations/git.ts` is imported by value rather than its barrel so the
- * host's module graph stays acyclic. */
+/** The read-only `Changes` store: the change module's own read, the git checkout lookup, and
+ * the legacy sidecar read a migration uses. Provided statically like the other services. It is
+ * a leaf delegation — nothing here needs a workspace — and `../integrations/git.ts` is imported
+ * by value rather than its barrel so the host's module graph stays acyclic. */
 export const ChangesLive = Layer.succeed(Changes, {
   read: readChange,
   checkout: checkoutFor,
+  // A legacy sidecar is a bare filename: the capability is migration access, so a name with a
+  // separator — or a directory component like ".." — is not a change-root file and reads as "".
+  readSidecar: (change: Change, name: string) =>
+    name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\")
+      ? Effect.succeed("")
+      : readSidecar(change.id, name),
 });
 
 /** The `ExtensionStore` layer with the extension's name bound, so an effect writes `notes.md`

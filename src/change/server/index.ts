@@ -18,8 +18,6 @@ export {
   writeChange,
   readSidecar,
   writeSidecar,
-  readNotes,
-  writeNotes,
   listExtensionFiles,
   readExtensionFile,
   writeExtensionFile,

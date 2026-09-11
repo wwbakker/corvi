@@ -36,6 +36,7 @@ import githubIssuesExtension from "../../extensions/github-issues/index.ts";
 import deploymentsExtension from "../../extensions/deployments/index.ts";
 import leftoversExtension from "../../extensions/leftovers/index.ts";
 import reviewExtension from "../../extensions/review/index.ts";
+import notesExtension from "../../extensions/notes/index.ts";
 
 // Awaited at module scope, so the server does not start listening before the extensions have
 // loaded, and a test importing this file sees the fully-loaded registry. Out-of-tree, after
@@ -50,6 +51,7 @@ await loadAll([
   deploymentsExtension,
   leftoversExtension,
   reviewExtension,
+  notesExtension,
 ]);
 await loadDiscovered();
 

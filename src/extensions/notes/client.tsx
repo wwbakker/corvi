@@ -1,30 +1,52 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, put } from "../../frontend/api.ts";
 import { cached, putCached } from "../../frontend/cache.ts";
+import type { TabComponent } from "../../core/host/client.tsx";
 
 /**
- * Free-text notes for a change, stored beside change.json. Saved a moment after you stop typing
- * and again when the card goes away, so navigating off does not lose the last sentence.
+ * The notes extension's browser half: the change's Notes tab. The tab contract hands it the
+ * change and its workspace, and the component below is the notes card that used to sit on the
+ * dashboard — same debounce, same unsaved marker, same line-edge Home and End — now reading and
+ * writing the extension's own routes.
  */
-export function NotesCard({ changeId }: { changeId: string }): JSX.Element {
+
+/** The extension's routes live under its own namespace, and the request names the workspace the
+ * change belongs to. */
+const url = (path: string, workspace?: string): string =>
+  workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
+
+/**
+ * Free-text notes for a change. Saved a moment after you stop typing and again when the tab goes
+ * away, so navigating off does not lose the last sentence.
+ */
+export function NotesCard({
+  changeId,
+  workspace,
+}: {
+  changeId: string;
+  workspace?: string;
+}): JSX.Element {
   const key = `${changeId}:notes`;
   const [text, setText] = useState<string>(() => cached<string>(key) ?? "");
   const [saved, setSaved] = useState(true);
   // Read by the unmount effect, which must not re-run on every keystroke.
   const pending = useRef<string | null>(null);
+  // The same notes are read and written through the extension's namespace, as the change's
+  // workspace, so the server resolves the change from the right root.
+  const endpoint = url(`/ext/notes/changes/${changeId}/notes`, workspace);
 
   useEffect(() => {
-    api<{ text: string }>(`/changes/${changeId}/notes`)
+    api<{ text: string }>(endpoint)
       .then(({ text: loaded }) => {
         if (pending.current !== null) return; // do not overwrite what is being typed
         putCached(key, loaded);
         setText(loaded);
       })
       .catch(() => {});
-  }, [changeId]);
+  }, [endpoint]);
 
   const save = (value: string): Promise<void> =>
-    put<{ text: string }>(`/changes/${changeId}/notes`, { text: value })
+    put<{ text: string }>(endpoint, { text: value })
       .then(() => {
         putCached(key, value);
         pending.current = null;
@@ -99,3 +121,7 @@ export function NotesCard({ changeId }: { changeId: string }): JSX.Element {
     </section>
   );
 }
+
+export const tab: TabComponent = ({ change, workspace }) => (
+  <NotesCard changeId={change.id} workspace={workspace} />
+);

@@ -55,9 +55,10 @@ export class ExtensionStore extends Context.Tag("iwe/ExtensionStore")<
   ExtensionStoreShape
 >() {}
 
-/** Read access to the change store: the change module's own read, and the git checkout lookup.
- * An extension can find a change and where its worktree is without importing a module's server
- * half. Deliberately read-only: there is no write, complete or cancel. */
+/** Read access to the change store: the change module's own read, the git checkout lookup, and
+ * the one read a migration needs. An extension can find a change and where its worktree is
+ * without importing a module's server half. Deliberately read-only: there is no write, complete
+ * or cancel. */
 export class Changes extends Context.Tag("iwe/Changes")<Changes, {
   /** The change with this id, or null when no change.json exists for it. */
   read(id: string): Effect.Effect<Change | null, DecodeError>;
@@ -65,6 +66,11 @@ export class Changes extends Context.Tag("iwe/Changes")<Changes, {
    * undefined when the change has no checkout there. `checkoutFor` never fails, and this does
    * not widen that. */
   checkout(change: Change, repo: string): Effect.Effect<string | undefined>;
+  /** Read a legacy change-root file, by bare filename, for migrating data written before
+   * `ExtensionStore` existed. The name carries no path separators, and a file that is absent or
+   * unreadable reads as "". This is migration access, not a general escape hatch: an extension's
+   * new data goes to `ExtensionStore` (docs/guides/extensions.md, "Data on a change"). */
+  readSidecar(change: Change, name: string): Effect.Effect<string>;
 }>() {}
 
 /** The union the host provides. An effect may require any subset — requiring less is

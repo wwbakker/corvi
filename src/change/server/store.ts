@@ -92,12 +92,6 @@ export const writeSidecar = (id: string, name: string, text: string): Effect.Eff
     yield* fs(() => Bun.write(join(dir, name), text));
   });
 
-/** Free-text notes, kept beside change.json so they travel into the archive with it. */
-export const readNotes = (id: string): Effect.Effect<string> =>
-  readSidecar(id, "notes.md");
-export const writeNotes = (id: string, text: string): Effect.Effect<void> =>
-  writeSidecar(id, "notes.md", text);
-
 /** Where one extension's files live inside a change: `extensions/<name>/`, resolved through
  * the change's current directory so they travel into the archive with it. Not created here;
  * writing creates it on demand. */

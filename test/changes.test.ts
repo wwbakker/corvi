@@ -11,8 +11,6 @@ import {
   archiveChange,
   readChange,
   writeChange,
-  readNotes,
-  writeNotes,
 } from "../src/change/server/index.ts";
 import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/core/integrations/git.ts";
 import { Effect } from "effect";
@@ -131,17 +129,6 @@ test("a change starts in progress and completing it is what sets Completed", asy
   // Completing writes the state along with the timestamp; here just the shape of that write.
   await runEffect(writeChange({ ...change, state: "Awaiting Review" }));
   expect((await runEffect(readChange(change.id)))?.state).toBe("Awaiting Review");
-});
-
-test("notes live beside change.json and survive archiving", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-NOTES", repos: [repo] }));
-  expect(await runEffect(readNotes(change.id))).toBe(""); // nothing written yet
-
-  await runEffect(writeNotes(change.id, "ask about the flag\n"));
-  expect(await runEffect(readNotes(change.id))).toBe("ask about the flag\n");
-
-  await runEffect(archiveChange(change.id));
-  expect(await runEffect(readNotes(change.id))).toBe("ask about the flag\n");
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
