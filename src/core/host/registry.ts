@@ -1,8 +1,8 @@
-import type { Effect } from "effect";
-import type { Change } from "../domain/change.ts";
 import type {
-  Capabilities,
   Card,
+  ChangeAfterHook,
+  ChangeBeforeHook,
+  ChangeCreatingHook,
   CompletionStepContributor,
   DescriptionSection,
   Extension,
@@ -39,8 +39,19 @@ export type LoadedExtension = {
   titleSources: TitleSource[];
   descriptionSections: DescriptionSection[];
   completionSteps: CompletionStepContributor[];
+  /** Handlers declared under `events["change:creating"]`, in declaration order: the draft
+   * transforms before the change exists. */
+  changeCreating: ChangeCreatingHook[];
   /** Handlers declared under `events["change:created"]`, in declaration order. */
-  changeCreated: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
+  changeCreated: ChangeAfterHook[];
+  /** Handlers declared under `events["change:completing"]`, before any irreversible step. */
+  changeCompleting: ChangeBeforeHook[];
+  /** Handlers declared under `events["change:completed"]`, after the change is archived. */
+  changeCompleted: ChangeAfterHook[];
+  /** Handlers declared under `events["change:cancelling"]`, before any irreversible step. */
+  changeCancelling: ChangeBeforeHook[];
+  /** Handlers declared under `events["change:cancelled"]`, after the change is archived. */
+  changeCancelled: ChangeAfterHook[];
   /** The routes, compiled at install: each declared path split on "/", with `:name` segments
    * capturing. Matched in registration order within the extension, load order across them. */
   routes: CompiledRoute[];
@@ -90,7 +101,12 @@ const normalize = (ext: Extension, clientPath?: string): LoadedExtension => ({
   titleSources: ext.titleSources ?? [],
   descriptionSections: ext.descriptionSections ?? [],
   completionSteps: ext.completionSteps ?? [],
+  changeCreating: ext.events?.["change:creating"] ?? [],
   changeCreated: ext.events?.["change:created"] ?? [],
+  changeCompleting: ext.events?.["change:completing"] ?? [],
+  changeCompleted: ext.events?.["change:completed"] ?? [],
+  changeCancelling: ext.events?.["change:cancelling"] ?? [],
+  changeCancelled: ext.events?.["change:cancelled"] ?? [],
   routes: compileRoutes(ext),
   summaryContributions: ext.summaryContributions ?? [],
   looseEnds: ext.looseEnds ?? [],

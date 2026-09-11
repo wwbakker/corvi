@@ -39,15 +39,14 @@ export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> 
       (group) =>
         Effect.gen(function* () {
           const workspace = workspaceOf(group[0]!);
-          const capabilities = capabilitiesLayer(workspace);
           const titles = new Map<string, string>();
-          for (const source of titleSourcesFor(workspace)) {
+          for (const { name, contribution: source } of titleSourcesFor(workspace)) {
             const claimed = group.filter((c) => source.applies(c));
             if (claimed.length === 0) continue;
             // A source that fails contributes nothing: a vendor being down is not a reason to
             // blank the names.
             const found = yield* source.lookup(claimed).pipe(
-              Effect.provide(capabilities),
+              Effect.provide(capabilitiesLayer(workspace, name)),
               Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
             );
             for (const [id, summary] of found) titles.set(id, summary);

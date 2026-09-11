@@ -38,9 +38,9 @@ export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown>
     // contributes nothing, never a failed request.
     const answered = yield* Effect.forEach(
       summaryContributorsFor(workspaceOf(change)),
-      (contributor) =>
-        contributor.facts(change).pipe(
-          Effect.provide(capabilitiesLayer(workspaceOf(change))),
+      ({ name, contribution }) =>
+        contribution.facts(change).pipe(
+          Effect.provide(capabilitiesLayer(workspaceOf(change), name)),
           Effect.orElseSucceed(() => undefined),
         ),
       { concurrency: "unbounded" },

@@ -1,9 +1,25 @@
 import { Effect, Layer } from "effect";
-import { Bus, Cache, Shell, Settings, Workspace, type Capabilities } from "./api.ts";
+import {
+  Bus,
+  Cache,
+  ExtensionStore,
+  Shell,
+  Settings,
+  Workspace,
+  type Capabilities,
+  type ExtensionStoreShape,
+} from "./api.ts";
 import { envOf, shWithEnv } from "../../sh.ts";
 import { invalidate, swr } from "../../cache.ts";
 import { config } from "../../config.ts";
 import { announce } from "../../events.ts";
+import { BadRequestError } from "../../effect/errors.ts";
+import {
+  listExtensionFiles,
+  readExtensionFile,
+  setExtensionData,
+  writeExtensionFile,
+} from "../../changes.ts";
 import type { Workspace as WorkspaceShape } from "../../config.ts";
 
 /**
@@ -38,14 +54,40 @@ export const BusLive = Layer.succeed(Bus, {
   announce: (event) => Effect.sync(() => announce(event)),
 });
 
-/** Everything an extension's effect may ask for, provided at once: the request's workspace
- * plus the four services. Contributed effects run through this, so their requirements are
+/** The `ExtensionStore` layer with the extension's name bound, so an effect writes `notes.md`
+ * and lands in `extensions/<extension>/notes.md` without naming itself. The name arrives at
+ * the contribution boundary (the host knows which extension it is running); a place with no
+ * extension in hand still gets the capability, but its methods refuse rather than guess whose
+ * bag they would be editing. Exported so the tests that assemble the capability union by hand
+ * (with a scripted Shell) can include it; production goes through `capabilitiesLayer`. */
+export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<ExtensionStore> => {
+  const unbound = <A>(): Effect.Effect<A, BadRequestError> =>
+    Effect.fail(new BadRequestError({ message: "ExtensionStore has no extension in context" }));
+  const store: ExtensionStoreShape = {
+    update: (change, data) =>
+      extension ? setExtensionData(change, extension, data) : unbound(),
+    read: (change, path) =>
+      extension ? readExtensionFile(change, extension, path) : unbound(),
+    write: (change, path, text) =>
+      extension ? writeExtensionFile(change, extension, path, text) : unbound(),
+    list: (change) => (extension ? listExtensionFiles(change, extension) : unbound()),
+  };
+  return Layer.succeed(ExtensionStore, store);
+};
+
+/** Everything an extension's effect may ask for, provided at once: the request's workspace,
+ * the four services, and the single-writer `ExtensionStore` bound to the extension whose
+ * contribution is running. Contributed effects run through this, so their requirements are
  * satisfied wherever the host runs them — cards, hooks, lookups, steps, routes. */
-export const capabilitiesLayer = (workspace: WorkspaceShape): Layer.Layer<Capabilities> =>
+export const capabilitiesLayer = (
+  workspace: WorkspaceShape,
+  extension?: string,
+): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     ShellLive,
     CacheLive,
     SettingsLive,
     BusLive,
     Layer.succeed(Workspace, workspace),
+    extensionStoreLayer(extension),
   );

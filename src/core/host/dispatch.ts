@@ -52,13 +52,17 @@ export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefi
   const match = /^\/api\/ext\/([^/]+)\/(.+)$/.exec(url.pathname);
   if (!match) return undefined;
   const ext = loaded.find((e) => e.name === match[1]);
+  if (!ext) return undefined;
   const parts = match[2]!.split("/");
-  for (const candidate of ext?.routes ?? []) {
+  for (const candidate of ext.routes) {
     const params = matchRoute(candidate, req.method, parts);
     if (!params) continue;
     const run = candidate.handler(req, params).pipe(
       Effect.provide(
-        capabilitiesLayer(workspaceById(url.searchParams.get("workspace") ?? undefined)),
+        capabilitiesLayer(
+          workspaceById(url.searchParams.get("workspace") ?? undefined),
+          ext.name,
+        ),
       ),
     );
     return runRoute(run);

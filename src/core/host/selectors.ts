@@ -40,6 +40,19 @@ const contributed = <T>(
   pick: (ext: LoadedExtension) => readonly T[],
 ): T[] => extensionsFor(workspace).flatMap(pick);
 
+/** One contribution paired with the extension it came from. The host binds that name into the
+ * `ExtensionStore` when it runs the effect, so a hook or a step can write its own files without
+ * naming itself. */
+export type NamedContribution<T> = { name: string; contribution: T };
+
+/** One surface across a workspace's extensions, each contribution named for its extension, in
+ * load order. */
+const namedContributed = <T>(
+  workspace: Workspace,
+  pick: (ext: LoadedExtension) => readonly T[],
+): NamedContribution<T>[] =>
+  extensionsFor(workspace).flatMap((e) => pick(e).map((contribution) => ({ name: e.name, contribution })));
+
 /** The cards a change's dashboard shows, with the extension each belongs to — the extension's
  * name is the card's identity on the routes. */
 export const cardsFor = (change: Change): { name: string; card: Card }[] =>
@@ -61,20 +74,28 @@ export const wizardStepsFor = (workspace: Workspace): WizardStepInfo[] => {
   return [...steps.filter((s) => s.phase === "issue"), ...steps.filter((s) => s.phase === "repos")];
 };
 
-export const titleSourcesFor = (workspace: Workspace): TitleSource[] =>
-  contributed(workspace, (e) => e.titleSources);
+export const titleSourcesFor = (workspace: Workspace): NamedContribution<TitleSource>[] =>
+  namedContributed(workspace, (e) => e.titleSources);
 
-export const descriptionSectionsFor = (workspace: Workspace): DescriptionSection[] =>
-  contributed(workspace, (e) => e.descriptionSections);
+export const descriptionSectionsFor = (
+  workspace: Workspace,
+): NamedContribution<DescriptionSection>[] =>
+  namedContributed(workspace, (e) => e.descriptionSections);
 
-export const completionStepsFor = (workspace: Workspace): CompletionStepContributor[] =>
-  contributed(workspace, (e) => e.completionSteps);
+export const completionStepsFor = (
+  workspace: Workspace,
+): NamedContribution<CompletionStepContributor>[] =>
+  namedContributed(workspace, (e) => e.completionSteps);
 
-export const summaryContributorsFor = (workspace: Workspace): SummaryContributor[] =>
-  contributed(workspace, (e) => e.summaryContributions);
+export const summaryContributorsFor = (
+  workspace: Workspace,
+): NamedContribution<SummaryContributor>[] =>
+  namedContributed(workspace, (e) => e.summaryContributions);
 
-export const looseEndContributorsFor = (workspace: Workspace): LooseEndContributor[] =>
-  contributed(workspace, (e) => e.looseEnds);
+export const looseEndContributorsFor = (
+  workspace: Workspace,
+): NamedContribution<LooseEndContributor>[] =>
+  namedContributed(workspace, (e) => e.looseEnds);
 
 /** The pages a workspace's sidebar offers, with the extension each belongs to — the page's
  * identity on the routes and the URL is the extension's own. */

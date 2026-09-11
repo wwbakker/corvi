@@ -12,10 +12,20 @@ import {
 } from "./changes.ts";
 import { stopTerminal } from "./terminal.ts";
 import { config } from "./config.ts";
-import { completionStepsFor } from "./core/host/index.ts";
+import {
+  afterChange,
+  beforeChange,
+  completionStepsFor,
+  type ProvisionResult,
+} from "./core/host/index.ts";
 import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
-import { BadRequestError, DecodeError, type CliError } from "./effect/errors.ts";
+import {
+  BadRequestError,
+  DecodeError,
+  type CliError,
+  type IweError,
+} from "./effect/errors.ts";
 import { messageOf } from "./effect/support.ts";
 
 export type Completion = {
@@ -115,8 +125,8 @@ export function stepsFor(
  * plain data, so the plan reads the config and the workspace as arguments. */
 const plannedContributions = (change: Change): CompletionStep[] =>
   completionStepsFor(workspaceOf(change))
-    .map((contributor) =>
-      contributor.plan(change, { config, workspace: workspaceOf(change) }))
+    .map(({ contribution }) =>
+      contribution.plan(change, { config, workspace: workspaceOf(change) }))
     .filter((s): s is CompletionStep => Boolean(s));
 
 /**
@@ -129,7 +139,7 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  */
 export const completeChange = (
   change: Change,
-): Effect.Effect<{ change: Change; notes: string[] }, CliError | BadRequestError> =>
+): Effect.Effect<{ change: Change; notes: string[]; after: ProvisionResult[] }, IweError> =>
   Effect.gen(function* () {
     // Written before the checking starts, which is itself slow: a page that just asked for this
     // should see something immediately, and this is also the record that a completion is running.
@@ -149,14 +159,30 @@ export const completeChange = (
       yield* save(change.id, progress);
       return yield* new BadRequestError({ message: progress.error });
     }
+    // The before-hooks run now, with readiness proven and nothing irreversible done: a veto here
+    // leaves the change exactly as it was. These see the change, not a draft — there is nothing
+    // to patch about a completion — so their only move is to fail. The journal records the veto
+    // rather than leaving a completion looking like it is still checking.
+    const vetoed = yield* Effect.either(beforeChange("change:completing", change));
+    if (Either.isLeft(vetoed)) {
+      checked.state = "failed";
+      checked.detail = messageOf(vetoed.left);
+      progress.error = messageOf(vetoed.left);
+      progress.finishedAt = new Date().toISOString();
+      yield* save(change.id, progress);
+      return yield* vetoed.left;
+    }
     checked.state = "done";
     // The extensions' steps, planned once: named in the journal before anything runs, and run
     // from that plan so it cannot promise one thing and do another.
     const workspace = workspaceOf(change);
-    const capabilities = capabilitiesLayer(workspace);
     const contributions = completionStepsFor(workspace)
-      .map((contributor) => ({ contributor, planned: contributor.plan(change, { config, workspace }) }))
-      .filter((c): c is { contributor: typeof c.contributor; planned: CompletionStep } =>
+      .map(({ name, contribution }) => ({
+        name,
+        contributor: contribution,
+        planned: contribution.plan(change, { config, workspace }),
+      }))
+      .filter((c): c is { name: string; contributor: typeof c.contributor; planned: CompletionStep } =>
         Boolean(c.planned));
     progress.steps = [checked, ...stepsFor(change, completion, contributions.map((c) => c.planned))];
     yield* save(change.id, progress);
@@ -202,12 +228,12 @@ export const completeChange = (
     }
     // The extensions' steps: close the ticket, comment on the issue, whatever each one planned
     // for a finished change. A failure stops the completion where it stands, like any core step.
-    for (const { contributor, planned } of contributions) {
+    for (const { name, contributor, planned } of contributions) {
       yield* step(
         planned.id,
         Effect.map(
           Effect.catchAll(
-            contributor.run(change).pipe(Effect.provide(capabilities)),
+            contributor.run(change).pipe(Effect.provide(capabilitiesLayer(workspace, name))),
             (e) => new BadRequestError({ message: messageOf(e) }),
           ),
           (note) => (typeof note === "string" ? note : undefined),
@@ -246,5 +272,8 @@ export const completeChange = (
 
     progress.finishedAt = new Date().toISOString();
     yield* save(change.id, progress);
-    return { change: completed, notes };
+    // The after-hooks observe a change that is already committed and archived. Their failures are
+    // reported under each extension's name and never fail the completion.
+    const after = yield* afterChange("change:completed", completed);
+    return { change: completed, notes, after };
   });

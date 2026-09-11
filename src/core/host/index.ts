@@ -75,10 +75,14 @@ export {
   summaryContributorsFor,
   titleSourcesFor,
   wizardStepsFor,
+  type NamedContribution,
   type PageInfo,
   type WizardStepInfo,
 } from "./selectors.ts";
 export {
+  afterChange,
+  applyCreatingHooks,
+  beforeChange,
   provision,
   repoStatusOf,
   runCard,

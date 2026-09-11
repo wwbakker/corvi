@@ -16,7 +16,7 @@ import { runRoute } from "../effect/run.ts";
 import { messageOf } from "../effect/support.ts";
 import { Workspace } from "../effect/tags.ts";
 import { announce } from "../events.ts";
-import { provision } from "../core/host/index.ts";
+import { applyCreatingHooks, provision } from "../core/host/index.ts";
 import { repoStates, setRepos } from "../integrations/git.ts";
 import { fileDiff, localChanges } from "../local.ts";
 import { guard } from "../origin.ts";
@@ -34,7 +34,10 @@ export const changesRoutes = guard({
       runRoute(
         Effect.gen(function* () {
           const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0];
-          const change = yield* createChange(body);
+          // The creating hooks transform the draft; the core then re-runs every invariant in
+          // createChange before anything is written. `body` keeps the legacy `jira` field.
+          const draft = yield* applyCreatingHooks(body);
+          const change = yield* createChange({ ...body, ...draft });
           const provisioned = yield* Effect.provideService(
             provision(change),
             Workspace,
@@ -187,7 +190,7 @@ export const changesRoutes = guard({
           // The same protocol a repository removal uses: ask once, then repeat with force.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
-            : json({ change: result.change, loose: result.loose });
+            : json({ change: result.change, loose: result.loose, after: result.after });
         }),
       ),
   },

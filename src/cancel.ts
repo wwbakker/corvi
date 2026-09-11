@@ -3,12 +3,17 @@ import { Effect } from "effect";
 import type { Change } from "./core/domain/change.ts";
 import { removeWorktree, unsafeToRemove } from "./integrations/git.ts";
 import { archiveChange, writeChange } from "./changes.ts";
-import { looseEndContributorsFor } from "./core/host/index.ts";
+import {
+  afterChange,
+  beforeChange,
+  looseEndContributorsFor,
+  type ProvisionResult,
+} from "./core/host/index.ts";
 import { capabilitiesLayer } from "./core/host/services.ts";
 import { workspaceOf } from "./workspaces.ts";
 import { stopTerminal } from "./terminal.ts";
-import { BadRequestError, type CliError } from "./effect/errors.ts";
-import { messageOf, shSoft } from "./effect/support.ts";
+import { BadRequestError, type CliError, type IweError } from "./effect/errors.ts";
+import { shSoft } from "./effect/support.ts";
 
 /**
  * Abandoning a change: the opposite end of `complete.ts`.
@@ -28,12 +33,18 @@ import { messageOf, shSoft } from "./effect/support.ts";
  * The Effect API answers in one discriminated union that callers branch on by `_tag`; the
  * `NeedsForce` arm is the one that asks before losing commits nobody else has. */
 export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
-export type Cancelled = { _tag: "Done"; change: Change; loose: string[] };
+export type Cancelled = {
+  _tag: "Done";
+  change: Change;
+  loose: string[];
+  /** What the after-hooks reported, under each extension's name: collected, never fatal. */
+  after: ProvisionResult[];
+};
 
 export const cancelChange = (
   change: Change,
   force = false,
-): Effect.Effect<Cancelled | NeedsForce, CliError | BadRequestError> =>
+): Effect.Effect<Cancelled | NeedsForce, IweError> =>
   Effect.gen(function* () {
     const unsafe = yield* Effect.forEach(
       change.repos,
@@ -59,6 +70,11 @@ export const cancelChange = (
       return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
     }
 
+    // The before-hooks run before anything irreversible: a veto here leaves the change, its
+    // worktrees and its terminal exactly as they were. They see the change, not a draft, so
+    // their only move is to fail.
+    yield* beforeChange("change:cancelling", change);
+
     // Asked before the worktrees go, because that is where the pull request is looked up from.
     const loose = yield* looseEnds(change);
 
@@ -79,7 +95,10 @@ export const cancelChange = (
     };
     yield* writeChange(cancelled);
     yield* archiveChange(change.id);
-    return { _tag: "Done", change: cancelled, loose };
+    // The after-hooks observe the archived change. Their failures are reported under each
+    // extension's name and never fail the cancellation.
+    const after = yield* afterChange("change:cancelled", cancelled);
+    return { _tag: "Done", change: cancelled, loose, after };
   });
 
 /**
@@ -95,9 +114,12 @@ export const looseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
     Effect.forEach(
       looseEndContributorsFor(workspaceOf(change)),
-      (contributor) =>
+      ({ name, contribution }) =>
         Effect.catchAll(
-          Effect.provide(contributor.looseEnds(change), capabilitiesLayer(workspaceOf(change))),
+          Effect.provide(
+            contribution.looseEnds(change),
+            capabilitiesLayer(workspaceOf(change), name),
+          ),
           () => Effect.succeed([] as string[]),
         ),
       // Unbounded concurrency is deliberate: these contributors are independent.

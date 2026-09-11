@@ -24,7 +24,7 @@ import { clearCache } from "../src/cache.ts";
 import { config } from "../src/config.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/effect/tags.ts";
 import type { Capabilities } from "../src/core/host/api.ts";
-import { BusLive, CacheLive, SettingsLive } from "../src/core/host/services.ts";
+import { BusLive, CacheLive, SettingsLive, extensionStoreLayer } from "../src/core/host/services.ts";
 import { workspaceById } from "../src/workspaces.ts";
 import type { Result } from "../src/sh.ts";
 import type { Change } from "../src/core/domain/change.ts";
@@ -162,6 +162,7 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     SettingsLive,
     BusLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+    extensionStoreLayer("test"),
   );
 
 const runExtension = <A, E>(

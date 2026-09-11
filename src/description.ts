@@ -30,12 +30,11 @@ export const prDescription = (change: Change): Effect.Effect<string> =>
     // The heading, one contributed part per extension that claims this change, joined with
     // " - ". A section that fails is absent, not a failed request.
     const workspace = workspaceOf(change);
-    const capabilities = capabilitiesLayer(workspace);
     const parts = yield* Effect.forEach(
       descriptionSectionsFor(workspace),
-      (section) =>
+      ({ name, contribution: section }) =>
         section.heading(change).pipe(
-          Effect.provide(capabilities),
+          Effect.provide(capabilitiesLayer(workspace, name)),
           Effect.orElseSucceed(() => undefined),
         ),
       { concurrency: "unbounded" },

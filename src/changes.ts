@@ -1,9 +1,16 @@
-import { join, basename } from "node:path";
+import { join, basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
-import { CHANGE_STATES, isFinished, type Change, type ChangeState } from "./core/domain/change.ts";
+import {
+  CHANGE_STATES,
+  isFinished,
+  type Change,
+  type ChangeDraft,
+  type ChangeState,
+} from "./core/domain/change.ts";
 import { Change as ChangeSchema } from "./schemas/change.ts";
-import { BadRequestError, ConflictError, DecodeError } from "./effect/errors.ts";
+import { BadRequestError, ConflictError, DecodeError, NotFoundError } from "./effect/errors.ts";
 import { fs } from "./effect/support.ts";
 import { config } from "./config.ts";
 export { branchFor } from "./core/domain/change.ts";
@@ -132,6 +139,85 @@ export const readNotes = (id: string): Effect.Effect<string> =>
 export const writeNotes = (id: string, text: string): Effect.Effect<void> =>
   writeSidecar(id, "notes.md", text);
 
+/** Where one extension's files live inside a change: `extensions/<name>/`, resolved through
+ * the change's current directory so they travel into the archive with it. Not created here;
+ * writing creates it on demand. */
+const extensionDir = (change: Change, name: string): Effect.Effect<string> =>
+  Effect.map(existingDir(change.id), (dir) => join(dir ?? changeDir(change.id), "extensions", name));
+
+/** Resolve a path against the extension's directory, rejecting anything that escapes it. The
+ * confinement is what keeps `../change.json` and the core's own sidecars out of reach. */
+const confinedPath = (base: string, path: string): Effect.Effect<string, BadRequestError> => {
+  const target = resolve(base, path);
+  const rel = relative(base, target);
+  return rel.startsWith("..") || isAbsolute(rel)
+    ? Effect.fail(new BadRequestError({ message: `extension path escapes its directory: ${path}` }))
+    : Effect.succeed(target);
+};
+
+/** The files under one extension's directory, recursively, as paths relative to it. A directory
+ * that does not exist yet reads as empty, which is an extension that has stored nothing. */
+export const listExtensionFiles = (change: Change, name: string): Effect.Effect<string[], BadRequestError> =>
+  Effect.gen(function* () {
+    const base = yield* extensionDir(change, name);
+    const walk = (dir: string, prefix: string): Effect.Effect<string[], BadRequestError> =>
+      Effect.gen(function* () {
+        const entries: Dirent[] = yield* fs(() => readdir(dir, { withFileTypes: true })).pipe(
+          Effect.catchAllDefect(() => Effect.succeed([] as Dirent[])),
+        );
+        const found: string[] = [];
+        for (const entry of entries) {
+          const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+          if (entry.isDirectory()) found.push(...(yield* walk(join(dir, entry.name), path)));
+          else if (entry.isFile()) found.push(path);
+        }
+        return found;
+      });
+    return (yield* walk(base, "")).sort();
+  });
+
+/** Read one file of an extension's own store. A file that is not there is a typed miss rather
+ * than an empty string, so a typo does not read as "nothing stored". */
+export const readExtensionFile = (
+  change: Change,
+  name: string,
+  path: string,
+): Effect.Effect<string, BadRequestError | NotFoundError> =>
+  Effect.gen(function* () {
+    const base = yield* extensionDir(change, name);
+    const target = yield* confinedPath(base, path);
+    if (!(yield* fileExists(target))) {
+      return yield* new NotFoundError({ message: `no such file: ${name}/${path}` });
+    }
+    return yield* fs(() => Bun.file(target).text());
+  });
+
+/** Write one file of an extension's own store, creating its directory on demand. */
+export const writeExtensionFile = (
+  change: Change,
+  name: string,
+  path: string,
+  text: string,
+): Effect.Effect<void, BadRequestError> =>
+  Effect.gen(function* () {
+    const base = yield* extensionDir(change, name);
+    const target = yield* confinedPath(base, path);
+    yield* fs(() => mkdir(dirname(target), { recursive: true }));
+    yield* fs(() => Bun.write(target, text));
+  });
+
+/** Replace one extension's entry in the change's `extensions` bag and write change.json once.
+ * `undefined` removes the entry, matching the wizard's "nothing picked" payload. */
+export const setExtensionData = (change: Change, name: string, data: unknown): Effect.Effect<Change> =>
+  Effect.gen(function* () {
+    const extensions = { ...(change.extensions ?? {}) };
+    if (data === undefined) delete extensions[name];
+    else extensions[name] = data;
+    const updated: Change = { ...change, extensions };
+    yield* writeChange(updated);
+    return updated;
+  });
+
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and the wt config travels. */
 export const archiveChange = (id: string): Effect.Effect<void> =>
@@ -187,18 +273,18 @@ export const writeWtConfig = (id: string): Effect.Effect<string> =>
   });
 
 
-export const createChange = (input: {
-  id: string;
-  branch?: string;
-  repos?: string[];
-  direct?: string[];
-  base?: Record<string, string>;
-  jira?: string;
-  /** Extensions' own data about the change, keyed by extension name — what the wizard's
-   * extension steps picked. Stored verbatim on the change; the core never looks inside. */
-  extensions?: Record<string, unknown>;
-  workspace?: string;
-}): Effect.Effect<Change, BadRequestError | ConflictError | DecodeError> =>
+/** The core's creation input: the plain draft the wizard collected and the `change:creating`
+ * hooks transformed, plus the legacy `jira` field kept for records written before the
+ * `extensions` bag existed. */
+export type CreateChangeInput = ChangeDraft & { jira?: string };
+
+/** Create a change from an already-transformed draft. Every invariant is re-checked here — the
+ * id shape, the non-empty repository list, the starting state — so a hook's patch is applied
+ * by the caller and then validated by the core before anything is written: an extension may
+ * suggest, never bypass. */
+export const createChange = (
+  input: CreateChangeInput,
+): Effect.Effect<Change, BadRequestError | ConflictError | DecodeError> =>
   Effect.gen(function* () {
     const id = input.id.trim();
     if (!id || id !== basename(id) || id.startsWith(".")) {

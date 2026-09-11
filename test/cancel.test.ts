@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../src/changes.ts";
 import { provisionRepo, checkoutFor } from "../src/integrations/git.ts";
 import { Effect } from "effect";
-import { runCancel, runEffect, runSh } from "./helpers.ts";
+import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
+import { cancelChange } from "../src/cancel.ts";
+import { install, loaded } from "../src/core/host/registry.ts";
 import type { Result } from "../src/sh.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/core/domain/change.ts";
 
@@ -174,11 +176,11 @@ test("a change that is over is read, not acted on", async () => {
   const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));
 
   const git = cardForExtension("git")!;
-  const live = await runEffect(repoStatusOf(git, change, repo));
+  const live = await runEffect(repoStatusOf("git", git, change, repo));
   expect(live.flatMap((i) => i.actions ?? []).map((a) => a.label)).toContain("Create worktree");
 
   const cancelled = ((await runCancel(change)) as { change: Change }).change;
-  const after = await runEffect(repoStatusOf(git, cancelled, repo));
+  const after = await runEffect(repoStatusOf("git", git, cancelled, repo));
 
   // The row stays — what the change touched is worth reading afterwards — but offering to make
   // a worktree for an archived change is offering to half-revive something that is finished.
@@ -203,4 +205,31 @@ test("what cancelling leaves alone is said out loud", async () => {
   // loose ends are gathered from the extensions in load order, so ci's pull-request lines would
   // precede jira's ticket line.
   expect(result.loose).toContain("PROJ-LOOSE is still open in Jira");
+});
+
+test("a failing change:cancelling hook vetoes before the worktree goes", async () => {
+  const repo = await clonedRepo("cancel-veto");
+  const change = await runEffect(
+    createChange({ id: "PROJ-VETO-C", branch: "PROJ-VETO-C-x", repos: [repo] }),
+  );
+  await Effect.runPromise(
+    Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }),
+  );
+  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
+
+  const saved = loaded.splice(0, loaded.length);
+  install({
+    name: "veto-cancel",
+    title: "Veto",
+    events: { "change:cancelling": [() => Effect.fail(new TestError({ message: "hold on" }))] },
+  });
+  try {
+    await expect(runEffect(cancelChange(change))).rejects.toThrow("hold on");
+  } finally {
+    loaded.splice(0, loaded.length, ...saved);
+  }
+
+  // The veto came before the removal: the worktree is still there and the change is active.
+  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
+  expect((await runEffect(readChange("PROJ-VETO-C")))?.state).toBe("In Progress");
 });

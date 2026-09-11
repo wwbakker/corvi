@@ -12,7 +12,9 @@ import {
 } from "../src/complete.ts";
 import { changeDir, createChange, readChange, writeSidecar } from "../src/changes.ts";
 import { config } from "../src/config.ts";
-import { fakeShell, runEffect, runWithShell, type FakeShell, type ShellCall } from "./helpers.ts";
+import { Effect } from "effect";
+import { fakeShell, runEffect, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
+import { install, loaded } from "../src/core/host/registry.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
@@ -329,4 +331,34 @@ test("completeChange: every step is journaled as it runs and the change is archi
   expect(asked).toContain(`gh pr merge 7 --squash`);
   expect(asked.some((line) => line.startsWith("wt --config"))).toBe(true);
   expect(asked).toContain(`tmux kill-session -t iwe-${change.id}`);
+});
+
+test("completeChange: a failing change:completing hook vetoes before any merge", async () => {
+  const repo = join(tmp, "veto-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-VETO", branch: "PROJ-VETO", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-veto"),
+    branch: change.branch,
+    pr: approved(7),
+  });
+  const saved = loaded.splice(0, loaded.length);
+  install({
+    name: "veto-complete",
+    title: "Veto",
+    events: { "change:completing": [() => Effect.fail(new TestError({ message: "hold" }))] },
+  });
+  try {
+    await expect(runWithShell(shell, completeChange(change))).rejects.toThrow("hold");
+  } finally {
+    loaded.splice(0, loaded.length, ...saved);
+  }
+  // The merge never ran: the veto came before the irreversible step, and the change is untouched.
+  expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
+  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+  // The veto is legible afterwards rather than leaving a completion looking half-started.
+  const journal = (await runEffect(progressOf(change.id)))!;
+  expect(journal.steps[0]).toMatchObject({ id: "check", state: "failed", detail: "hold" });
+  expect(journal.finishedAt).toBeTruthy();
 });

@@ -14,9 +14,9 @@
  *
  * - **The host provides `Capabilities`** — the Workspace tag (the request's own), a `Shell`
  *   for subprocesses with the workspace's environment, the answer `Cache`, the `Settings`,
- *   and the event `Bus`. An effect may require any subset; requiring anything outside the
- *   union fails to typecheck, which is what makes "no host imports" checkable rather than a
- *   matter of discipline.
+ *   the event `Bus`, and the name-bound `ExtensionStore`. An effect may require any subset;
+ *   requiring anything outside the union fails to typecheck, which is what makes "no host
+ *   imports" checkable rather than a matter of discipline.
  * - **Failures are values in the E channel.** On the capability surfaces the host handles any
  *   failure by its message (a failed card is a red card, a failed lookup contributes
  *   nothing), so those channels are `unknown` — fail with whatever typed error you like.
@@ -47,13 +47,22 @@ import type { TerminalPresenter } from "./api/terminal.ts";
 import type { Startup } from "./api/capabilities.ts";
 import type { WizardStep } from "./api/wizard.ts";
 
-export { Shell, Workspace, Cache, Settings, Bus } from "./api/capabilities.ts";
-export type { Result, Capabilities, Startup } from "./api/capabilities.ts";
+export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore } from "./api/capabilities.ts";
+export type {
+  Result,
+  Capabilities,
+  Startup,
+  ExtensionStoreShape,
+} from "./api/capabilities.ts";
 export type { Card } from "./api/cards.ts";
 export type { WizardStep } from "./api/wizard.ts";
 export type {
+  ChangeDraft,
   PlanWorld,
   CompletionStepContributor,
+  ChangeBeforeHook,
+  ChangeAfterHook,
+  ChangeCreatingHook,
   ExtensionEvents,
 } from "./api/lifecycle.ts";
 export type {

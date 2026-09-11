@@ -56,6 +56,30 @@ export function branchFor(key: string, summary: string): string {
   return `${key}-${slug}`.slice(0, 60).replace(/-+$/, "");
 }
 
+/** The creation input, before a change exists: what the "Create change" wizard collected and
+ * what the `change:creating` hooks transform. Everything but the id is optional, because the
+ * core fills the gaps (branch defaults to the id, state to "In Progress", createdAt to now).
+ *
+ * Defined with the domain vocabulary rather than beside the hooks that receive it: it is the
+ * same shape the core's `<change> create` takes, and the contract re-exports it for extension
+ * authors (src/core/host/api/lifecycle.ts). */
+export type ChangeDraft = {
+  /** Directory name under the changes root; also the default branch name. */
+  id: string;
+  /** Branch used in every repo worktree of this change. Defaults to the id. */
+  branch?: string;
+  /** Absolute paths to the source repositories this change touches. */
+  repos?: string[];
+  /** The subset of `repos` worked on in place. */
+  direct?: string[];
+  /** Branch each repository's work started from, keyed by repository path. */
+  base?: Record<string, string>;
+  /** Which context this change belongs to. Absent belongs to the first workspace. */
+  workspace?: string;
+  /** Each extension's own data about this change, keyed by extension name. */
+  extensions?: Record<string, unknown>;
+};
+
 /** A unit of work spanning one or more repositories, plus the tickets/PRs/builds around it. */
 export type Change = {
   /** Directory name under the changes root; also the default branch name. */

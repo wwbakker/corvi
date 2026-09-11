@@ -3,8 +3,8 @@
 > **Kind:** guide · **Status:** active
 
 An extension is a piece of TypeScript that adds something to IWE — a dashboard card, a step in
-the "Create change" wizard, a hook that runs when a change is created, a route, a source of
-titles for the overview, a page of its own. It is the shape pi's extensions have: a module whose
+the "Create change" wizard, a hook on the change lifecycle, a route, a source of titles for the
+overview, a page of its own. It is the shape pi's extensions have: a module whose
 default export is a factory receiving an API object, contributing to registries instead of being
 wired in by hand.
 
@@ -15,9 +15,10 @@ Handlers are **Effects**, and that is the dependency-injection contract:
 
 - **The host provides the capabilities** — the request's `Workspace` tag, a `Shell` for
   subprocesses with the workspace's environment already applied, the answer `Cache`, the
-  `Settings`, and the event `Bus`. An effect requires what it uses through `yield*`; requiring
-  anything outside the union fails to typecheck, which is what makes "no host imports"
-  checkable rather than a matter of discipline.
+  `Settings`, the event `Bus`, and the name-bound `ExtensionStore` for the extension's own data
+  about a change. An effect requires what it uses through `yield*`; requiring anything outside
+  the union fails to typecheck, which is what makes "no host imports" checkable rather than a
+  matter of discipline.
 - **Failures are values in the error channel.** On the capability surfaces the host handles any
   failure by its message (a failed card is a red card, a failed lookup contributes nothing), so
   those channels are `unknown` — fail with whatever typed error you like. Routes are the
@@ -42,7 +43,8 @@ Two ideas run through the model:
 |---|---|---|
 | Dashboard card | `cards` | A `Widget` per change, fetched on its own; optionally per-repository rows and actions. Effects requiring capabilities. |
 | Wizard step | `wizardSteps` | A step in "Create change". `phase: "issue"` runs before the change details (it prefills the id and branch); `phase: "repos"` runs after the repositories are picked. |
-| Provisioning | `events["change:created"]` | Runs when a change was created and its worktrees are in place — the git extension creates the worktrees here, jira assigns and moves its ticket. A failure is reported to the wizard under the extension's name and never fails the change. |
+| Lifecycle hooks | `events` | Before/after hooks on each change moment — `change:creating`/`change:created`, `change:completing`/`change:completed`, `change:cancelling`/`change:cancelled`. A before hook may transform a create or veto an operation; an after hook observes a committed change and never fails the operation (below). |
+| Data store | `ExtensionStore` capability | This extension's own entry in the change's `extensions` bag, and the files under `extensions/<name>/` in the change directory. The core stays the only writer of `change.json` (below). |
 | Title sources | `titleSources` | Names changes on the overview after their ticket. Asked once per workspace; a source that cannot answer contributes nothing, so stored titles stand. |
 | Summary contributions | `summaryContributions` | Facts on a change's overview card, merged by the host into the one summary it renders; a contribution's `state`, when given, is its verdict for the navigation icon, which takes the worst offered. |
 | Loose ends | `looseEnds` | What cancelling the change would leave behind — the open ticket, the open pull requests — asked when the cancel is confirmed. |
@@ -63,6 +65,44 @@ for `/services/example-service/versions` with `params.service === "example-servi
 tries the extension's patterns in registration order, then the next extension in load order;
 the first pattern whose shape fits wins. Handlers receive `(req, params)`, and one that only
 takes `req` stays assignable as it is — a function with fewer parameters is one with more.
+
+## Lifecycle events
+
+Every change moment comes in a pair: a **before** hook that runs before the core commits the
+operation and may transform or veto it, and an **after** hook that runs once the change exists
+and only observes.
+
+| Moment | Before (may transform or veto) | After (observer, never fails) |
+|---|---|---|
+| Create | `change:creating` | `change:created` |
+| Complete | `change:completing` | `change:completed` |
+| Cancel | `change:cancelling` | `change:cancelled` |
+
+A **before** hook on creation receives the plain `ChangeDraft` (id, branch, repos, direct, base,
+workspace, extensions) and returns a patch (`Partial<ChangeDraft>`) or nothing. Hooks run in
+extension load order and chain — each sees the previous hook's result — and the core applies the
+result and then re-runs every invariant (id shape, non-empty repositories, valid state
+transition) before writing. An extension may suggest, never bypass. Failing with the taxonomy
+vetoes the create, and the message is shown where the create was started. A `change:creating`
+hook runs before the change directory exists, so a creator that needs files writes them in
+`change:created`.
+
+`change:completing` and `change:cancelling` receive the `Change` — there is no draft to patch —
+and veto by failing. They run before any irreversible step (the merges, the worktree removal), so
+a veto leaves the change exactly as it was.
+
+`change:created`, `change:completed` and `change:cancelled` run once the core has committed
+(`change.json` written, and archived for the finished states). A failure is reported under the
+extension's name and never fails the operation, exactly as `change:created` provisioning has
+always behaved: the results are collected, and a failed hook stops the rest of its own
+extension's hooks but no other extension's.
+
+Enablement is resolved per workspace at the moment of the event, like every other surface. Each
+hook runs as that workspace and with the contributing extension's name bound into its
+`ExtensionStore`. **Planned completion steps stay separate**: they live on `completionSteps`,
+are named in the journal before anything runs and can stop it, and they are deliberately not
+reachable through the events map — so there are not two ways to hang work off a completion with
+different failure semantics.
 
 ## The overview
 
@@ -256,6 +296,32 @@ extension name:
 `change.jira` holds the jira extension's key on changes recorded before the `extensions` bag
 existed, and is still read. New fields go in the bag.
 
+An effect that needs to *wander* that bag, or keep files beside it, uses the **`ExtensionStore`**
+capability rather than touching `change.json`. The host provides it per contribution with the
+extension's name already bound, so an effect says `store.write(change, "notes.md", text)` and
+lands in `extensions/<name>/notes.md` without naming itself:
+
+```ts
+import { Effect } from "effect";
+import { ExtensionStore } from "../../core/host/api.ts";
+
+Effect.gen(function* () {
+  const store = yield* ExtensionStore;
+  const saved = yield* store.update(change, { reviewed: true }); // this extension's bag entry
+  yield* store.write(saved, "notes.md", "what I found");
+  return yield* store.list(saved);
+});
+```
+
+`update` replaces this extension's own entry in the change's `extensions` bag and writes
+`change.json` once; `read`, `write` and `list` work on files under `extensions/<name>/`, created
+on demand and confined to that directory (a path that escapes it is rejected). All of them
+resolve the change's *current* location, so they keep working after `archiveChange` moves the
+directory. `change.json`, `wt.toml` and the core's own sidecars are not reachable through it.
+The capability exists wherever a committed change does — after-hooks, planned completion steps,
+cards, routes — and a `change:creating` hook has no directory yet, so it writes files in
+`change:created`.
+
 ## Enablement
 
 ```json
@@ -314,9 +380,13 @@ a string and for a list alike: an emptied list is written to the config as `[]`,
   worktree engine**, the **change lifecycle** (create, complete, cancel), and the **page
   shell**. The deployments page, the overview's summary, cancelling's loose ends and the
   terminal presentation have all moved behind the surfaces above.
-- There are no interception-style events yet (nothing can block or transform a core action).
-  `change:created` and the contributed steps are the model; more events arrive when a second
-  consumer needs them.
+- Lifecycle events are interception-style where the moment allows it: the `change:creating`,
+  `change:completing` and `change:cancelling` before-hooks can transform or veto a core action,
+  and the core re-runs its own invariants after any transform. Planned completion steps stay
+  separate from the events map. More moments arrive as pairs, when a second consumer needs them.
+- An extension's own data about a change has one writer: the core writes `change.json`, and the
+  extension writes through `ExtensionStore` — its bag entry, and the files under its namespaced
+  directory. Nothing else reaches `change.json`.
 
 See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md) and
 [`../plans/archive/extensions-migration-plan.md`](../plans/archive/extensions-migration-plan.md)

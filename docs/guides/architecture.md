@@ -66,8 +66,8 @@ the page shell. Everything else is a surface an extension can contribute to.
 ## Dependency rules
 
 - **Extensions** import only from `src/core/host/api.ts`, which is the whole promise. The host
-  provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`) so an extension's
-  requirements arrive through the Effect `R` channel.
+  provides the capabilities (`Shell`, `Cache`, `Settings`, `Bus`, `Workspace`, `ExtensionStore`)
+  so an extension's requirements arrive through the Effect `R` channel.
 - **The browser** (`src/web/**`) must not import backend modules that shell out or touch the
   filesystem; `eslint.config.js` enforces the boundary and `src/core/domain/**` is where pure
   vocabulary both sides need belongs.

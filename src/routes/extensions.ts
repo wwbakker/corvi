@@ -89,7 +89,7 @@ export const extensionsRoutes = guard({
           if (!repo) {
             return yield* new BadRequestError({ message: "path required" });
           }
-          return json({ items: yield* repoStatusOf(card, c, repo) });
+          return json({ items: yield* repoStatusOf(req.params.card, card, c, repo) });
         }),
       ),
   },
@@ -122,11 +122,11 @@ export const extensionsRoutes = guard({
             return yield* new ConflictError({ message: `${c.id} is finished` });
           }
           const body = (yield* bodyOrEmpty(req)) as { arg?: string };
-          yield* runCard(card, c, req.params.action, body.arg);
+          yield* runCard(req.params.card, card, c, req.params.action, body.arg);
           // Per-repository components answer with the rows of the repository acted on; the
           // argument of every such action is that repository.
           if (card.repoStatus && body.arg) {
-            return json({ items: yield* repoStatusOf(card, c, body.arg) });
+            return json({ items: yield* repoStatusOf(req.params.card, card, c, body.arg) });
           }
           return json(yield* statusOne(req.params.card, card, c));
         }),

@@ -1,7 +1,9 @@
 import type { Effect } from "effect";
 import type { Config, Workspace as WorkspaceConfig } from "../../../config.ts";
-import type { Change, CompletionStep } from "../../domain/change.ts";
+import type { Change, ChangeDraft, CompletionStep } from "../../domain/change.ts";
 import type { Capabilities } from "./capabilities.ts";
+
+export type { ChangeDraft } from "../../domain/change.ts";
 
 /** What a pure completion-plan function is handed, since it runs before anything does: the
  * plain data it may name a step from. Pure functions get plain data, not services. */
@@ -20,8 +22,36 @@ export type CompletionStepContributor = {
   run(change: Change): Effect.Effect<string | void, unknown, Capabilities>;
 };
 
-/** The handlers an extension can hang off the change lifecycle. Grows per event, typed, when a
- * second consumer needs one. */
+/** A before-hook for an operation that has no draft to patch (completing, cancelling): it sees
+ * the change and either lets the operation through or fails to veto it. It runs before any
+ * irreversible step — the merges, the worktree removal — so a veto leaves nothing behind. */
+export type ChangeBeforeHook = (change: Change) => Effect.Effect<void, unknown, Capabilities>;
+
+/** An after-hook: it observes a change the core has already committed (change.json written,
+ * and archived for the finished states). A failure is reported under the extension's name and
+ * never fails the operation, exactly as `change:created` provisioning behaves. */
+export type ChangeAfterHook = (change: Change) => Effect.Effect<void, unknown, Capabilities>;
+
+/** A creation before-hook: it sees the plain draft and may return a patch, or nothing to leave
+ * it alone. Hooks run in extension load order and chain — each sees the previous hook's
+ * result. Failing vetoes the create; the core applies the final draft and then re-runs every
+ * invariant before writing, so an extension may suggest, never bypass. */
+export type ChangeCreatingHook = (
+  draft: ChangeDraft,
+) => Effect.Effect<Partial<ChangeDraft> | void, unknown, Capabilities>;
+
+/** The handlers an extension can hang off the change lifecycle, one pair per moment — a
+ * before that may transform or veto, and an after that only observes. `change:creating` has no
+ * opposite draft to observe, so it pairs with `change:created` (the worktree provisioning).
+ *
+ * Planned completion steps are deliberately not here: they stay on `completionSteps`, where
+ * they are planned up front, journaled and ordered inside the completion, rather than being a
+ * second way to hang work off the same moment. */
 export type ExtensionEvents = {
-  "change:created"?: ((change: Change) => Effect.Effect<void, unknown, Capabilities>)[];
+  "change:creating"?: ChangeCreatingHook[];
+  "change:created"?: ChangeAfterHook[];
+  "change:completing"?: ChangeBeforeHook[];
+  "change:completed"?: ChangeAfterHook[];
+  "change:cancelling"?: ChangeBeforeHook[];
+  "change:cancelled"?: ChangeAfterHook[];
 };
