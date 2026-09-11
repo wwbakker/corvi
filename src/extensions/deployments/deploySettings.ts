@@ -1,4 +1,4 @@
-import { config } from "../../workspace/server/config.ts";
+import { config } from "../../workspace/server/index.ts";
 import { bagList, bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
 
 /**

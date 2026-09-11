@@ -86,6 +86,18 @@ function ExtensionToggles({
   );
 }
 
+/** The patch an enablement change applies: the extensions list, and — when the change leaves
+ * the deployments extension enabled — the legacy `azure: false` cleared. A workspace save
+ * preserves unknown keys, so that field would otherwise keep `azureEnabled` false for ever
+ * once the Deployments switch is on. */
+export const enablementPatch = (
+  workspace: Workspace,
+  extensions: string[] | undefined,
+): Partial<Workspace> =>
+  workspace.azure === false && (extensions === undefined || extensions.includes("deployments"))
+    ? { extensions, azure: undefined }
+    : { extensions };
+
 /** One workspace: which repositories it starts from, and which integrations it has at all. There
  * is always at least one workspace: removing the last configured one leaves the draft empty,
  * and the Default workspace card takes its place. That default is not in the file, so it has
@@ -165,7 +177,7 @@ export function WorkspaceCard({
       <ExtensionToggles
         known={extensions}
         selected={workspace.extensions}
-        onChange={(extensions) => set({ extensions })}
+        onChange={(next) => set(enablementPatch(workspace, next))}
       />
     </div>
   );

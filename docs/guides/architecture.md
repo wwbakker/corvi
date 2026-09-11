@@ -71,8 +71,9 @@ needed by both that extension's server and browser halves, and
 sit beside them.
 
 The vendor layer owns what is a vendor's: `src/core/integrations/azure.ts` holds the
-organisation-and-project chain (`azureOf`) and the enablement rule (`azureEnabled`) for ci and
-deployments alike, so `src/workspace/server/workspaces.ts` names no vendor — it only answers
+organisation-and-project chain (`azureOf`) and the enablement predicates — `azureConfigured`,
+the legacy fact the CI facts use, and `azureEnabled`, the deployments page's extension-gated
+rule — so `src/workspace/server/workspaces.ts` names no vendor — it only answers
 `extensionEnabled`, the generic enablement every surface uses.
 
 Git cannot be colocated while `src/core/integrations/git.ts` is shared by the core and the git
@@ -150,8 +151,11 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
 - **Out-of-tree extensions import only `core/host/api`**, which is the whole promise. **Built-ins
   are first-party** and may reach into core modules and `core/integrations` today; new built-in
   code uses the contract plus `core/domain` (and `core/integrations` when it needs a shared
-  vendor client), so the privilege shrinks by default. There is no stability promise for
-  out-of-tree extensions yet.
+  vendor client), so the privilege shrinks by default. The documented first-party exceptions are
+  the leftovers page's read of the changes root, the deployments settings' read of `config`, and
+  the jira legacy shim's read of `settings/server/legacySettings.ts`
+  (see [extensions.md](extensions.md), "Scope, honestly stated"). There is no stability promise
+  for out-of-tree extensions yet.
 - **`server.ts`** is the HTTP composition root: it imports `core/platform/routes` and the host.
 - **HTTP** is the only client/server boundary — no shared runtime state crosses it.
 

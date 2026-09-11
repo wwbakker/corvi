@@ -17,7 +17,8 @@ Handlers are **Effects**, and that is the dependency-injection contract:
 - **The host provides the capabilities** — the request's `Workspace` tag, a `Shell` for
   subprocesses with the workspace's environment already applied, the answer `Cache`, the
   `Settings`, the event `Bus`, the name-bound `ExtensionStore` for the extension's own data
-  about a change, and the read-only `Changes` store (read a change, locate its git checkout).
+  about a change, and the read-only `Changes` store (read a change, locate its git checkout and
+  base branch, and read a legacy sidecar for migration).
   An effect requires what it uses through `yield*`; requiring anything outside
   the union fails to typecheck, which is what makes "no host imports" checkable rather than a
   matter of discipline.
@@ -262,7 +263,8 @@ export const step: StepComponent = ({ ctx }) => {
 ```
 
 A built-in registers its halves in two places — the loader (`src/core/host/index.ts`) and, when
-it has a step or a page, the page's client registry (`src/core/host/client.tsx`). An out-of-tree
+it has a step, a page or a change tab, the page's client registry (`src/core/host/client.tsx`).
+An out-of-tree
 extension registers nowhere: it is discovered from the config and loaded through the same
 install path (below).
 
@@ -303,8 +305,8 @@ cannot bundle it — it was written after the page was built, or changes without
 server builds it at startup (Bun.build, react and its jsx runtimes external) into the XDG state
 directory and serves it at `GET /extensions/<name>/client.js`. The wizard's step host imports
 that URL at runtime when a step's extension has no static entry in the page's registry, and the
-page host does the same for a page — one chunk serves a step, a page, or both, whichever of
-`step` and `page` the module exports.
+page host does the same for a page — one chunk serves a step, a page or a change tab,
+whichever of `step`, `page` and `tab` the module exports.
 
 So that the served chunk and the page run one react — two reacts break hooks and context — the
 server also builds vendor chunks once from the app's own react entrypoints and serves them at
@@ -327,7 +329,9 @@ extension name:
 existed. It is no longer part of the core's `Change` type, but both `change.json` and the config
 file decode with unknown keys preserved, so the field is still there at runtime and the jira
 extension reads it through its own `src/extensions/jira/legacy.ts` — the one place that names it,
-with `extensions.jira` tried first. New fields go in the bag.
+with `extensions.jira` tried first. New fields go in the bag. The core no longer copies a legacy
+`jira` field posted to `POST /api/changes`: an old client that wants the ticket recorded posts it
+under `extensions.jira`, and a bare `jira` is dropped rather than written.
 
 An effect that needs to *wander* that bag, or keep files beside it, uses the **`ExtensionStore`**
 capability rather than touching `change.json`. The host provides it per contribution with the
@@ -359,10 +363,14 @@ The **notes extension** is the worked example: its Notes tab reads and writes
 `extensions/notes/notes.md` through the store, and no core route or card touches notes any more.
 A change whose notes predate the store still shows them, through one deliberately narrow read on
 the `Changes` capability: `readSidecar(change, name)` returns a legacy file from the change root
-by bare filename — no path separators — and "" when it is absent or unreadable, so the store is
-tried first and the legacy sidecar is the fallback. That is **migration access, not a general
-escape hatch**: new data always goes to `ExtensionStore`, a write never touches the legacy file,
-and the core's own `change.json`, `wt.toml` and sidecars stay out of reach.
+by bare filename — no path separators, and not one of the core's own change-root files — and ""
+when it is refused, absent or unreadable, so the store is tried first and the legacy sidecar is
+the fallback. The core's `change.json`, `wt.toml` and `completion.json` are refused by name, so
+the read cannot be turned on the change record or the completion journal. That is **migration
+access, not a general escape hatch**: new data always goes to `ExtensionStore`, a write never
+touches the legacy file, and the bare-filename scope exists only for data a former feature wrote
+at the change root. There is no removal plan yet; new migrations should get their own narrow read
+rather than widening this one.
 
 ## Enablement
 
@@ -380,9 +388,10 @@ A workspace that names no `extensions` has all of them. Naming some is the whole
 no subtraction, because a list you can read is worth more than a default you have to reason
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
-`"azure": false` is still read where it states a fact — "this context has no pipelines" — by
-`azureEnabled`/`azureOf` (src/core/integrations/azure.ts), the shared azure client, which also
-honours the deployments extension's enablement; it never rewrites the `extensions` list.
+`"azure": false` is still read where it states a fact — "this context has no pipelines":
+`azureConfigured` (the CI facts) and `azureEnabled` (the deployments page, which also honours the
+deployments extension's enablement) in src/core/integrations/azure.ts, the shared azure client;
+it never rewrites the `extensions` list.
 
 ## Per-workspace settings
 
@@ -425,9 +434,13 @@ as `[]`, and readers
   the same path and get the host's capabilities through the R channel. The built-ins are
   **first-party**: imported statically, they may still reach into core modules and
   `src/core/integrations/` while they live in this repository, but new built-in code uses
-  `src/core/host/api.ts` plus `src/core/domain/`, so the privilege shrinks by default.
-  Out-of-tree modules import only `src/core/host/api.ts` — the whole promise — and never get
-  the privilege. There is no stability promise for them yet.
+  `src/core/host/api.ts` plus `src/core/domain/`, so the privilege shrinks by default. The
+  first-party exceptions are listed rather than assumed: the leftovers page reads the changes
+  root through `change/server/index.ts`; the deployments settings read `config` through
+  `workspace/server/index.ts`; and the jira legacy shim reads the one settings precedence chain
+  through `settings/server/legacySettings.ts`, the documented leaf. Out-of-tree modules import
+  only `src/core/host/api.ts` — the whole promise — and never get the privilege. There is no
+  stability promise for them yet.
 - What remains core is what everything else stands on: **tmux and ttyd session handling
   themselves** (what surrounds them — names, icons, status — is the extensible part), the **git
   worktree engine**, the **change lifecycle** (create, complete, cancel), and the **page

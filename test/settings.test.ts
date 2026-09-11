@@ -145,6 +145,34 @@ test("the file keeps what it had, including fields the core no longer names", as
   expect((config as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
 });
 
+test("a workspace-level legacy jira object survives a settings save", async () => {
+  // A workspace written before the settings bag carried its own `jira` site object. The loader
+  // passes the entry through untouched, and the page writes the workspace back as it read it.
+  await Bun.write(
+    file,
+    JSON.stringify({
+      workspaces: [{ id: "client", name: "Client", jira: { project: "LEGACY", board: "B" } }],
+    }),
+  );
+  reloadConfigSync();
+  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+    project: "LEGACY",
+    board: "B",
+  });
+
+  await runEffect(writeSettings({ workspaces: [config.workspaces[0]!] }));
+
+  const written = JSON.parse(await readFile(file, "utf8")) as {
+    workspaces: Record<string, unknown>[];
+  };
+  // The unknown key rode through the save, which is what the jira extension reads back.
+  expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
+  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+    project: "LEGACY",
+    board: "B",
+  });
+});
+
 test("a setting the environment overrides is reported as locked", async () => {
   process.env.IWE_WORKTREE_COPY = ".idea";
   reloadConfigSync();

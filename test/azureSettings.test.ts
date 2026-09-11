@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { azureEnabled, azureOf } from "../src/core/integrations/azure.ts";
+import { azureConfigured, azureEnabled, azureOf } from "../src/core/integrations/azure.ts";
 import { deploySettings } from "../src/extensions/deployments/deploySettings.ts";
 import {
   config,
@@ -45,6 +45,16 @@ test("azureEnabled is the deployments extension's enablement plus the legacy fla
   expect(azureEnabled(ws({ extensions: ["ci", "deployments"] }))).toBe(true);
   // The legacy fact still wins over a listed deployments.
   expect(azureEnabled(ws({ extensions: ["deployments"], azure: false }))).toBe(false);
+});
+
+test("azureConfigured is the legacy fact alone, so CI keeps its pipelines without deployments", () => {
+  // The legacy flag is the only thing that says "this context has no pipelines".
+  expect(azureConfigured(ws())).toBe(true);
+  expect(azureConfigured(ws({ azure: false }))).toBe(false);
+  // A workspace that listed ci without deployments still has Azure: the deployments page's
+  // enablement must not gate the CI facts (azureEnabled is the other, deployment-only rule).
+  expect(azureConfigured(ws({ extensions: ["ci", "git"] }))).toBe(true);
+  expect(azureConfigured(ws({ extensions: ["ci", "git"], azure: false }))).toBe(false);
 });
 
 test("azureOf walks the chain one level at a time", () => {

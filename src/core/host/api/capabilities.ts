@@ -66,10 +66,16 @@ export class Changes extends Context.Tag("iwe/Changes")<Changes, {
    * undefined when the change has no checkout there. `checkoutFor` never fails, and this does
    * not widen that. */
   checkout(change: Change, repo: string): Effect.Effect<string | undefined>;
+  /** The branch this repository's work starts from: what the change chose, or the remote's
+   * default (`origin/HEAD`, then `origin/main`), or undefined for a repository without a remote.
+   * The review tab needs it to count the commits a never-pushed branch holds. */
+  base(change: Change, repo: string): Effect.Effect<string | undefined>;
   /** Read a legacy change-root file, by bare filename, for migrating data written before
-   * `ExtensionStore` existed. The name carries no path separators, and a file that is absent or
-   * unreadable reads as "". This is migration access, not a general escape hatch: an extension's
-   * new data goes to `ExtensionStore` (docs/guides/extensions.md, "Data on a change"). */
+   * `ExtensionStore` existed. The name carries no path separators and is not one of the core's
+   * own change-root files (`change.json`, `wt.toml`, `completion.json`); a name that is refused,
+   * absent or unreadable reads as "". This is migration access, not a general escape hatch: an
+   * extension's new data goes to `ExtensionStore` (docs/guides/extensions.md, "Data on a
+   * change"). */
   readSidecar(change: Change, name: string): Effect.Effect<string>;
 }>() {}
 

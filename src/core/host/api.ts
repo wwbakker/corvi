@@ -129,7 +129,7 @@ export type Extension = {
   windowPresenters?: TerminalPresenter[];
   /** Pages this extension offers the sidebar. */
   pages?: Page[];
-  /** Tabs this extension adds to a change's page, beside the core's Dashboard and Review. The
+  /** Tabs this extension adds to a change's page, beside the core's Dashboard. The
    * tab's client half exports `tab`, a component receiving the change. */
   changeTabs?: ChangeTab[];
   /** Server-wide settings this extension declares, shown on the settings page for every

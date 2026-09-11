@@ -109,17 +109,23 @@ export const pagesFor = (workspace: Workspace): PageInfo[] =>
  * tab's identity on the routes and the change URL. */
 export type ChangeTabInfo = ChangeTab & { extension: string };
 
+/** The core's own change-page ids. A contributed tab may not shadow one: the core addressed it
+ * first, and dropping it here keeps the route and the page's selector in agreement for any
+ * client. */
+const CORE_TAB_IDS: ReadonlySet<string> = new Set(["dashboard", "terminals"]);
+
 /** The tabs a workspace's extensions add to a change's page, in load order. A tab id is the
  * tab's identity on the route and the URL, so a duplicate would be two tabs at one address:
  * the first extension to declare an id keeps it and a later one's is skipped, mirroring how a
- * duplicate extension name is resolved (registry.install). */
+ * duplicate extension name is resolved (registry.install). The core's own ids are reserved and
+ * never offered. */
 export const changeTabsFor = (workspace: Workspace): ChangeTabInfo[] => {
   const seen = new Set<string>();
   const tabs: ChangeTabInfo[] = [];
   for (const tab of contributed(workspace, (e) =>
     e.changeTabs.map((t) => ({ ...t, extension: e.name })),
   )) {
-    if (seen.has(tab.id)) continue;
+    if (CORE_TAB_IDS.has(tab.id) || seen.has(tab.id)) continue;
     seen.add(tab.id);
     tabs.push(tab);
   }

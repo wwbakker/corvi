@@ -21,7 +21,7 @@ export const workspaceOf = (change: Change): Workspace => workspaceById(change.w
 /** Whether an extension exists in this workspace. Absent means all of them: a workspace that
  * names no extensions has every one. This is the one enablement rule, shared by every surface
  * that asks; a vendor's own client adds its legacy flag on top (src/core/integrations/azure.ts's
- * `azureEnabled`). */
+ * `azureEnabled`/`azureConfigured`). */
 export const extensionEnabled = (workspace: Workspace, name: string): boolean =>
   workspace.extensions ? workspace.extensions.includes(name) : true;
 

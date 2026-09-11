@@ -55,11 +55,16 @@ const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
  * Azure CLI stays the single place this is configured. */
 let defaults: { organization?: string; project?: string } | null = null;
 
-/** Whether Azure DevOps is enabled for this workspace: the deployments extension is present
- * (an absent extensions list means all of them), and the legacy `azure: false` — "this context
- * has no pipelines" — still says no. */
+/** Whether this workspace has Azure DevOps at all: only the legacy `azure: false` — "this
+ * context has no pipelines" — says no. This is the predicate the CI facts use, so a workspace
+ * that enabled ci without the deployments page still shows its pipeline runs. */
+export const azureConfigured = (workspace: Workspace): boolean => workspace.azure !== false;
+
+/** Whether the deployments extension's surface is enabled for this workspace: the extension must
+ * be present (an absent extensions list means all of them), and the legacy `azure: false` —
+ * "this context has no pipelines" — still says no. */
 export const azureEnabled = (workspace: Workspace): boolean =>
-  extensionEnabled(workspace, "deployments") && workspace.azure !== false;
+  extensionEnabled(workspace, "deployments") && azureConfigured(workspace);
 
 /** The organisation and project every workspace falls back to: the deployments extension's
  * global settings bag, then the legacy flat field (which resolves IWE_AZURE_ORG /
@@ -243,7 +248,7 @@ const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: s
 export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
   Effect.gen(function* () {
     const workspace = workspaceOf(change);
-    if (!azureEnabled(workspace)) return 0; // a context without pipelines has none running
+    if (!azureConfigured(workspace)) return 0; // a context without pipelines has none running
     const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
       listDefinitions(az, repo),
@@ -437,7 +442,7 @@ export const pipelineItems = (
     const workspace = workspaceOf(change);
     // A context without pipelines is not an empty list of them, it is silence: the card shows the
     // pull request and nothing else, and no `az` process is started.
-    if (!azureEnabled(workspace)) return { items: [], count: 0 };
+    if (!azureConfigured(workspace)) return { items: [], count: 0 };
     const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([

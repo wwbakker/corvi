@@ -8,6 +8,7 @@ import {
   archiveDir,
   changeDir,
   createChange,
+  readSidecar,
   writeSidecar,
 } from "../src/change/server/index.ts";
 import { changeTabsFor, dispatchExtensionRoute } from "../src/core/host/index.ts";
@@ -117,7 +118,7 @@ test("the notes route answers an unknown change with 404 and a malformed body wi
   expect((await badBody).status).toBe(400);
 });
 
-test("the readSidecar migration access reads a bare change-root file and refuses a path", async () => {
+test("the readSidecar migration access reads a bare change-root file and refuses a path or a core file", async () => {
   const change = await changeFor("PROJ-NOTES-SIDECAR");
   await runEffect(writeSidecar(change.id, "notes.md", "legacy\n"));
 
@@ -137,4 +138,15 @@ test("the readSidecar migration access reads a bare change-root file and refuses
   // Nor are the directory components, which a bare-name check would otherwise let through.
   expect(await read("..")).toBe("");
   expect(await read(".")).toBe("");
+
+  // The store's own files are reserved: they exist, but the capability refuses them, so the
+  // migration read cannot be turned on the change record or the completion journal.
+  await runEffect(writeSidecar(change.id, "completion.json", "{}\n"));
+  await runEffect(writeSidecar(change.id, "wt.toml", 'worktree-path = "x"\n'));
+  expect(await read("change.json")).toBe("");
+  expect(await read("wt.toml")).toBe("");
+  expect(await read("completion.json")).toBe("");
+  // The refusal is the guard, not an absent file: the store's own read still sees them.
+  expect(await runEffect(readSidecar(change.id, "completion.json"))).toBe("{}\n");
+  expect(await runEffect(readSidecar(change.id, "wt.toml"))).toBe('worktree-path = "x"\n');
 });

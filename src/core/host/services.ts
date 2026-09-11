@@ -16,6 +16,7 @@ import { config } from "../../workspace/server/index.ts";
 import { announce } from "../platform/capabilities/events.ts";
 import { BadRequestError } from "../platform/effect/errors.ts";
 import {
+  CORE_SIDECARS,
   listExtensionFiles,
   readChange,
   readExtensionFile,
@@ -23,7 +24,7 @@ import {
   setExtensionData,
   writeExtensionFile,
 } from "../../change/server/store.ts";
-import { checkoutFor } from "../integrations/git.ts";
+import { baseFor, checkoutFor } from "../integrations/git.ts";
 import type { Change } from "../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
@@ -59,17 +60,23 @@ export const BusLive = Layer.succeed(Bus, {
   announce: (event) => Effect.sync(() => announce(event)),
 });
 
-/** The read-only `Changes` store: the change module's own read, the git checkout lookup, and
- * the legacy sidecar read a migration uses. Provided statically like the other services. It is
- * a leaf delegation — nothing here needs a workspace — and `../integrations/git.ts` is imported
- * by value rather than its barrel so the host's module graph stays acyclic. */
+/** The read-only `Changes` store: the change module's own read, the git checkout and
+ * base-branch lookups, and the legacy sidecar read a migration uses. Provided statically like
+ * the other services. It is a leaf delegation — nothing here needs a workspace at the type
+ * level, and the git lookups reach the request's `Shell` at run time — and
+ * `../integrations/git.ts` is imported by value rather than its barrel so the host's module
+ * graph stays acyclic. */
 export const ChangesLive = Layer.succeed(Changes, {
   read: readChange,
   checkout: checkoutFor,
+  base: baseFor,
   // A legacy sidecar is a bare filename: the capability is migration access, so a name with a
   // separator — or a directory component like ".." — is not a change-root file and reads as "".
+  // The store's own files (change.json, wt.toml, completion.json) are refused too, so the read
+  // cannot be turned on the change record or the completion journal.
   readSidecar: (change: Change, name: string) =>
-    name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\")
+    name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\") ||
+      CORE_SIDECARS.has(name)
       ? Effect.succeed("")
       : readSidecar(change.id, name),
 });

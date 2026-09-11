@@ -22,6 +22,15 @@ export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
 
+/** The change-root files the change module writes for itself. `Changes.readSidecar` refuses
+ * these names, so the capability's migration read cannot be turned on the core's own record or
+ * journal; a legacy sidecar from a former feature (notes.md) stays reachable. */
+export const CORE_SIDECARS: ReadonlySet<string> = new Set([
+  "change.json",
+  "wt.toml",
+  "completion.json",
+]);
+
 /** Active directory if it exists, otherwise the archived one. */
 const existingDir = (id: string): Effect.Effect<string | null> =>
   Effect.gen(function* () {

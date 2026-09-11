@@ -11,6 +11,7 @@ export { applyPatch } from "../model.ts";
 export {
   root,
   ARCHIVE,
+  CORE_SIDECARS,
   changeDir,
   archiveDir,
   wtConfigPath,

@@ -4,8 +4,9 @@ A local dashboard for a *change*: the work spanning one or more repositories, pl
 worktrees, pull requests, tickets and builds around it.
 
 State lives in one directory per change (`~/changes/<id>/`, `~/changes/archive/<id>/` once
-completed), holding `change.json`, `notes.md`, a `wt.toml` that points `wt` at that directory, and the git
-worktrees themselves. Everything else (PR status,
+completed), holding `change.json`, a `wt.toml` that points `wt` at that directory, the git
+worktrees themselves, and per-extension files under `extensions/<name>/` (the notes extension's
+`notes.md`, say). Everything else (PR status,
 ticket status, pipeline runs) is read live from the vendors' own CLIs, so this tool stores no
 secrets and owns no copy of their data.
 
@@ -169,9 +170,7 @@ The dashboard shows three widgets, in this order:
 - **Jira** — the issue, its status and assignee. No transition buttons: `In Progress` is set when
   the change is created, and `Done` belongs to completing the change as a whole.
 - **Local changes** — the worktree per repository: clean or dirty, ahead/behind, merged.
-On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
-column of its own beside the others; narrower windows stack everything.
-
+  Reviewing and committing what is uncommitted here is the **Review changes** tab, below.
 - **CI** — per repository, the pull request and the pipeline runs it triggered, since "is this
   change green?" is one question even though two vendors answer it. Rows form a collapsible tree:
 
@@ -226,6 +225,9 @@ column of its own beside the others; narrower windows stack everything.
   their pipeline folder (`\example-api`), which mirrors the service directories of a
   monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
   builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
+
+On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
+column of its own beside the others; narrower windows stack everything.
 
 ## The app
 
@@ -883,8 +885,10 @@ want more care than a click.
 
 ## Notes
 
-Each change has a free-text note in the left column, stored as `notes.md` in its directory, so it
-travels into the archive with everything else. It saves shortly after you stop typing, on blur,
+Each change has a free-text note, a **Notes** tab beside the dashboard when the notes extension is
+enabled, stored as `extensions/notes/notes.md` in the change directory so it travels into the
+archive with everything else. A note written before the tab existed, at the change root's
+`notes.md`, still shows as a read-only fallback. It saves shortly after you stop typing, on blur,
 and when you navigate away.
 
 ## Left behind
@@ -1302,7 +1306,7 @@ the surfaces in docs/guides/extensions.md. A card takes the same shape the integ
 a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
 `events["change:created"]` is the creation hook. A built-in is added to the loader in
-`src/core/host/index.ts` and, when it has a step or a page, to the client registry in
+`src/core/host/index.ts` and, when it has a step, a page or a change tab, to the client registry in
 `src/core/host/client.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
@@ -1356,7 +1360,7 @@ The map, grouped by layer:
                               cancel.ts, titles.ts, description.ts,
                               index.ts (the public face)
       client/                 ChangeView.tsx, changeState.tsx,
-                              EditReposDialog.tsx, NotesCard.tsx, CompletionCard.tsx
+                              EditReposDialog.tsx, CompletionCard.tsx
       wizard/                 the New change wizard (client/Wizard.tsx, index.ts)
       overview/               the dashboard: server/summary.ts composes change, terminal and the
                               host; client/ holds ChangeCard, PerRepoCard, WidgetCard, WidgetRows,
@@ -1385,15 +1389,16 @@ The map, grouped by layer:
                               services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
                               client-side registry and the extension UI contract), index.ts
 
-    src/deploySettings.ts     the deployments settings, read by the shared azure client too
-
     src/extensions/           the built-ins, and nothing else
       agents/ git/ github-issues/ jira/
       ci/                     the CI card, and checks.ts (GitHub Actions checks)
       deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
+                              deploySettings.ts (the deployments' own settings, read back),
                               deployConventions.ts (the pipeline-name convention both halves share)
       leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
                               (the Leftover type both halves read)
+      notes/                  index.ts (the Notes tab), server.ts (the store-backed read and write),
+                              client.tsx
       review/                 index.ts (the declaration and routes), server.ts (the git surface),
                               client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,
                               shared.ts (the vocabulary both halves read)

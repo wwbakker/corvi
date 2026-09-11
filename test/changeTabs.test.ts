@@ -105,9 +105,47 @@ test("a duplicate tab id is owned by the first extension, at the route as in the
   }
 });
 
+test("the tabs route never offers a tab whose id shadows a core page", async () => {
+  const ext = install({
+    name: "test-tab-shadow",
+    title: "Shadow",
+    changeTabs: [
+      { id: "dashboard", title: "Shadow dashboard" },
+      { id: "terminals", title: "Shadow terminals" },
+      { id: "inspect", title: "Inspect" },
+    ],
+  });
+  const saved = config.workspaces;
+  config.workspaces = [{ id: "shadow", name: "Shadow", extensions: ["test-tab-shadow"] }];
+  try {
+    const change = await runEffect(
+      createChange({ id: "PROJ-TAB-SHADOW", repos: [repo], workspace: "shadow" }),
+    );
+    // The core addressed dashboard and terminals first, so the route and the client selector
+    // drop the shadows rather than let a contributed tab own a core URL.
+    expect(await tabsOf(change.id)).toEqual([
+      { id: "inspect", title: "Inspect", extension: "test-tab-shadow" },
+    ]);
+  } finally {
+    config.workspaces = saved;
+    loaded.splice(loaded.indexOf(ext), 1);
+  }
+});
+
 /** Run a `Changes`-requiring effect through the real layer, not a hand-built one. */
 const runChanges = <A, E>(effect: Effect.Effect<A, E, Changes>): Promise<A> =>
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
+
+test("the Changes layer answers the base branch through the contract", async () => {
+  const change = await runEffect(createChange({ id: "PROJ-LAYER-BASE", repos: [repo] }));
+  const base = (c: typeof change): Promise<string | undefined> =>
+    runChanges(Effect.flatMap(Changes, (changes) => changes.base(c, repo)));
+
+  // No base chosen and no remote on this repository: there is nowhere to start from.
+  expect(await base(change)).toBeUndefined();
+  // What the change chose answers without asking git, so a stacked change keeps its base.
+  expect(await base({ ...change, base: { [repo]: "origin/release" } })).toBe("origin/release");
+});
 
 test("the Changes layer reads a change, or answers null when there is none", async () => {
   const created = await runEffect(createChange({ id: "PROJ-LAYER-READ", repos: [repo] }));

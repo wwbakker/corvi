@@ -38,10 +38,13 @@ beforeAll(async () => {
       wizardSteps: [{ id: "${NAME}", title: "Out of tree", phase: "repos" }],
     };\n`,
   );
-  // The client half: one module exporting `step`, per the contract. No react import, so the
-  // built chunk has nothing to resolve — the import map's work is the server-boot test's
-  // vendor assertions below.
-  await writeFile(join(extensionDir, "client.tsx"), `export const step = () => null;\n`);
+  // The client half: one module exporting `step`, `page` and `tab`, per the contract. No react
+  // import, so the built chunk has nothing to resolve — the import map's work is the
+  // server-boot test's vendor assertions below.
+  await writeFile(
+    join(extensionDir, "client.tsx"),
+    `export const step = () => null;\nexport const page = () => null;\nexport const tab = () => null;\n`,
+  );
   // The env override is how a test — or a one-off run — points the loader somewhere else.
   process.env.IWE_EXTENSION_PATHS = tmp;
   await loadDiscovered([extensionDir]);
@@ -168,11 +171,15 @@ test("the server serves the built client chunk and the react vendor chunks", asy
     };
     expect(wizard.steps.map((s) => s.extension)).toContain(NAME);
 
-    // The server-built client chunk: javascript, and the contract's `step` export in it.
+    // The server-built client chunk: javascript, and each contract export — a step, a page and a
+    // tab — survives the build, so one served chunk can serve any of the three surfaces.
     const client = await fetch(`http://127.0.0.1:${port}/extensions/${NAME}/client.js`);
     expect(client.status).toBe(200);
     expect(client.headers.get("content-type")).toContain("text/javascript");
-    expect(await client.text()).toContain("step");
+    const chunk = await client.text();
+    expect(chunk).toContain("step");
+    expect(chunk).toContain("page");
+    expect(chunk).toContain("tab");
 
     // The vendor chunks the import map points the chunk's react specifiers at: the app's own
     // react, served for the page and the out-of-tree chunk to share.

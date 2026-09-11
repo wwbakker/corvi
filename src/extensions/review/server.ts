@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { Effect } from "effect";
 import {
   BadRequestError,
@@ -20,9 +21,10 @@ import type {
  * and writing to git — committing across the change and pushing what is committed.
  *
  * Everything it needs arrives through the contract: the read-only `Changes` store locates a
- * change and its checkout, and `Shell` runs git with the request workspace's environment already
- * applied. It reaches nothing else in core — no change store, no git integration, no route
- * helpers — so the extension is a self-contained git surface on the change-tab contract.
+ * change, its checkout and its base branch, and `Shell` runs git with the request workspace's
+ * environment already applied. It reaches nothing else in core — no change store, no git
+ * integration, no route helpers — so the extension is a self-contained git surface on the
+ * change-tab contract.
  */
 
 /** The path of a porcelain-v2 entry: everything after `n` space-separated fields, since a path
@@ -104,51 +106,26 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result, never, She
     );
   });
 
-/** The last segment of a repository path: what a person calls the repository. */
-const nameOf = (repo: string): string => repo.replace(/\/+$/, "").split("/").pop() ?? repo;
-
 /** The change's checkout of `repo`, read through the contract's `Changes` store. */
 const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, never, Changes> =>
   Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
 
-/** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
- * remote. New branches start here rather than at a local main that may be days behind. A
- * timed-out git reads as "no default branch", exactly as `baseFor` always has. */
-const remoteDefaultBranch = (
-  repo: string,
-): Effect.Effect<string | undefined, never, Shell | Workspace> =>
-  Effect.gen(function* () {
-    const remotes = yield* shResult(["git", "remote"], repo);
-    if (!remotes.stdout) return undefined;
-    const read = (): Effect.Effect<string | undefined, never, Shell | Workspace> =>
-      Effect.map(
-        shResult(["git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], repo),
-        (r) => (r.code === 0 && r.stdout ? r.stdout : undefined),
-      );
-    const known = yield* read();
-    if (known) return known;
-    // A clone made with --single-branch has no origin/HEAD until it is asked for.
-    yield* shResult(["git", "remote", "set-head", "origin", "-a"], repo);
-    return (yield* read()) ?? "origin/main";
-  });
-
-/** The branch this repository's work starts from: what you chose, or the remote's default. */
-const baseFor = (
+/** The branch this repository's work starts from, through the contract's `Changes` store: what
+ * the change chose, or the remote's default. */
+const baseOf = (
   change: Change,
   repo: string,
-): Effect.Effect<string | undefined, never, Shell | Workspace> => {
-  const chosen = change.base?.[repo];
-  return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranch(repo);
-};
+): Effect.Effect<string | undefined, never, Changes> =>
+  Effect.flatMap(Changes, (changes) => changes.base(change, repo));
 
 /** Commits made since the branch left its base, for a branch with no upstream to compare to. */
 const sinceBase = (
   change: Change,
   repo: string,
   worktree: string,
-): Effect.Effect<number, never, Shell | Workspace> =>
+): Effect.Effect<number, never, Changes | Shell | Workspace> =>
   Effect.gen(function* () {
-    const base = yield* baseFor(change, repo);
+    const base = yield* baseOf(change, repo);
     if (!base) return 0; // no remote at all: there is nowhere to push, so nothing is unpushed
     const r = yield* shResult(["git", "rev-list", "--count", `${base}..HEAD`], worktree);
     return r.code === 0 ? Number(r.stdout.trim()) || 0 : 0;
@@ -161,7 +138,7 @@ export const localChanges = (
   repo: string,
 ): Effect.Effect<LocalStatus, never, Changes | Shell | Workspace> =>
   Effect.gen(function* () {
-    const name = nameOf(repo);
+    const name = basename(repo);
     const worktree = yield* worktreeOf(change, repo);
     if (!worktree) return { repo, name, files: [], unpushed: 0, tracked: false, error: "no worktree" };
     // --branch as well: the header carries the upstream and how far ahead of it we are, which is
@@ -278,7 +255,7 @@ export const commitChange = (
       chosen,
       ([repo, paths]): Effect.Effect<CommitResult, never, Changes | Shell | Workspace> =>
         Effect.gen(function* () {
-          const name = nameOf(repo);
+          const name = basename(repo);
           const worktree = yield* worktreeOf(change, repo);
           if (!worktree) return { repo, name, ok: false, error: "no worktree" };
 
@@ -316,7 +293,7 @@ export const pushChange = (
       repos,
       (repo): Effect.Effect<CommitResult, never, Changes | Shell | Workspace> =>
         Effect.gen(function* () {
-          const name = nameOf(repo);
+          const name = basename(repo);
           const worktree = yield* worktreeOf(change, repo);
           if (!worktree) return { repo, name, ok: false, error: "no worktree" };
 

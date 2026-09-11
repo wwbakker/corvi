@@ -400,6 +400,39 @@ test("a workspace without pipelines is asked nothing", async () => {
   }
 });
 
+test("a workspace that enabled ci without deployments still asks Azure for pipeline facts", async () => {
+  const original = config.workspaces;
+  (config as { workspaces: unknown }).workspaces = [
+    { id: "ci-only", name: "CI only", extensions: ["ci", "git"] },
+  ];
+  try {
+    const shell = fakeShell((cmd) => {
+      const line = cmd.join(" ");
+      if (line.startsWith("az pipelines list --folder-path")) {
+        return JSON.stringify([{ id: 11, name: "build-a", path: "\\repo" }]);
+      }
+      if (line.startsWith("az pipelines runs list --branch")) {
+        return JSON.stringify([
+          runRow(31, "inProgress", null, 11),
+          runRow(30, "completed", "succeeded", 11),
+        ]);
+      }
+      return undefined;
+    });
+    const ciOnly: Change = { ...change, workspace: "ci-only" };
+
+    // The ci extension reads these facts, not the deployments page: dropping deployments from a
+    // workspace must not turn its pipelines into silence.
+    expect(await runWithShell(shell, activeRuns(ciOnly, "/repos/repo"))).toBe(1);
+    const { items, count } = await runWithShell(shell, pipelineItems(ciOnly, "/repos/repo"));
+    expect(count).toBe(2);
+    expect(items.map((i) => i.label)).toEqual(["build-a"]);
+    expect(shell.calls.length).toBeGreaterThan(0);
+  } finally {
+    (config as { workspaces: unknown }).workspaces = original;
+  }
+});
+
 test("pipelineItems nests each pipeline's newest runs under it", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
