@@ -1,9 +1,10 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { runSh } from "./helpers.ts";
+import { runSh, testRun, testTempDir } from "./helpers.ts";
+import { isLinux } from "../src/capabilities/os.ts";
+import { terminalPath } from "../src/terminals/server/index.ts";
 
 /**
  * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only
@@ -35,6 +36,17 @@ async function tmux(...args: string[]): Promise<string> {
 const have = async (tool: string): Promise<boolean> => (await runSh(["which", tool])).code === 0;
 const usable = (await have("ttyd")) && (await have("tmux"));
 
+/** The renderer is a performance decision, not a detail. This machine's WebKitGTK can only take
+ * the software-composited path (accelerated compositing presents canvas updates a frame late),
+ * and in that path ttyd's WebGL default and 2D canvas fallback peg a core on ordinary terminal
+ * output — the whole app then lags by hundreds of milliseconds. xterm's DOM renderer damages
+ * only the changed text. macOS keeps WebGL, where the compositor is correct and cheap. */
+test("the terminal asks for the renderer its engine can afford", () => {
+  const path = terminalPath("PROJ-TERM");
+  if (isLinux) expect(path).toBe("/terminal/PROJ-TERM/?rendererType=dom");
+  else expect(path).toBe("/terminal/PROJ-TERM/");
+});
+
 let tmp: string;
 let browser: Browser;
 let port: number;
@@ -44,7 +56,7 @@ const session = `iwe-${id}`;
 
 beforeAll(async () => {
   if (!usable) return;
-  tmp = await mkdtemp(join(tmpdir(), "iwe-term-"));
+  tmp = await testTempDir("term");
   // A tmux server of our own, so the test can change server options and kill everything
   // afterwards without touching the sessions you are working in. TMUX_TMPDIR alone does not do
   // that when the suite is run from inside tmux: $TMUX wins, and every tmux command here —
@@ -53,7 +65,7 @@ beforeAll(async () => {
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmp;
   port = 4300 + Math.floor(Math.random() * 200);
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
     stdout: "ignore",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
@@ -87,7 +99,7 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   // Restart, as happens constantly while working on IWE itself.
   server.kill();
   await Bun.sleep(500);
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
     stdout: "ignore",
     stderr: "ignore",
@@ -109,7 +121,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal iframe");
 
-  // ttyd draws into a canvas, so what the shell did has to be read from the shell, not the page.
+  // The terminal is ttyd's to draw; what the shell did is read from the shell's own output file.
   const term = page.frameLocator(".terminal iframe").locator("body");
   await term.waitFor({ state: "visible", timeout: 15_000 });
   await term.click();

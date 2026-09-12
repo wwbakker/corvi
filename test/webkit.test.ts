@@ -1,9 +1,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { webkit, type Browser } from "playwright";
-import { runSh } from "./helpers.ts";
+import { runSh, testRun, testTempDir } from "./helpers.ts";
 
 /**
  * Every page, in the engine the app actually uses.
@@ -36,7 +35,7 @@ const id = "PROJ-WEBKIT";
 
 beforeAll(async () => {
   if (!usable) return;
-  tmp = await mkdtemp(join(tmpdir(), "iwe-webkit-"));
+  tmp = await testTempDir("webkit");
   port = 4500 + Math.floor(Math.random() * 200);
   const repo = join(tmp, "example-api");
   await runSh(["git", "init", "-b", "main", repo]);
@@ -44,7 +43,7 @@ beforeAll(async () => {
   await runSh(["git", "add", "."], repo);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: {
       ...process.env,
       IWE_ROOT: join(tmp, "changes"),

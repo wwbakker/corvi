@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "NODE_ENV=production bun src/server.ts",
-    "test": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --timeout 30000",
+    "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
+    "perf": "bun scripts/perf.ts",
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
     "extension:uninstall": "bun scripts/extension.ts uninstall",
