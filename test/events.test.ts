@@ -1,8 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { runSh } from "./helpers.ts";
+import { runSh, testRun, testTempDir } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -18,10 +17,10 @@ let server: ReturnType<typeof Bun.spawn>;
 let url: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-events-"));
+  tmp = await testTempDir("events");
   port = 4700 + Math.floor(Math.random() * 200);
   url = `http://127.0.0.1:${port}`;
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: {
       ...process.env,
       IWE_ROOT: join(tmp, "changes"),

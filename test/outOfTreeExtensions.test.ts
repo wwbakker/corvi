@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { testRun, testTempDir } from "./helpers.ts";
 import {
   extensionModulePaths,
   loadDiscovered,
@@ -27,7 +27,7 @@ let tmp: string;
 let extensionDir: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-out-of-tree-"));
+  tmp = await testTempDir("out-of-tree");
   extensionDir = join(tmp, "my-extension");
   await mkdir(extensionDir, { recursive: true });
   await writeFile(
@@ -141,7 +141,7 @@ test("the server serves the built client chunk and the react vendor chunks", asy
   // override above proved the env path; this proves the file path.
   const configFile = join(tmp, "boot-config.json");
   await writeFile(configFile, JSON.stringify({ extensionPaths: [extensionDir] }));
-  const server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  const server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     cwd: repoRoot,
     env: {
       ...process.env,

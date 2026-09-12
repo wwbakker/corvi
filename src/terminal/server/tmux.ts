@@ -101,13 +101,16 @@ const alive = (pid: number): boolean => {
  * so the page can reach into the frame — to focus it, and to fix up keys the browser cannot
  * encode by itself.
  *
- * On Linux the frame carries ttyd's `rendererType=canvas` override. The default WebGL renderer
- * draws into a webgl2 canvas that WebKitGTK — this machine's NVIDIA setup included — presents
- * a frame late: a keystroke's output reaches the page in a millisecond (measured) but lands on
- * screen only when the next one renders, so the terminal reads one keystroke behind. The 2D
- * canvas renderer goes through a presentation path without the problem; macOS keeps WebGL. */
+ * On Linux the frame carries ttyd's `rendererType=dom` override. This machine's WebKitGTK
+ * (NVIDIA/Wayland) needs accelerated compositing off — with it on, canvas updates are presented
+ * a frame late. In that software path the canvas and WebGL renderers are ruinously expensive:
+ * a full-size terminal with a status line repainting a dozen times a second held the WebProcess
+ * main thread at ~70% of a core (plus ~20% in the UI process), and the whole app felt it as
+ * roughly half a second between a keystroke or a hover and the screen. xterm's DOM renderer
+ * damages only the changed text, so the same terminal sits at ~6% and the UI stays responsive.
+ * macOS keeps WebGL, where the compositor presents it correctly. */
 export const terminalPath = (id: string): string =>
-  `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=canvas" : ""}`;
+  `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=dom" : ""}`;
 
 /** The port ttyd serves a change's session on, starting or adopting it as needed.
  *

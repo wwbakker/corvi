@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { readdir } from "node:fs/promises";
-import { isTestCommand, isTestSocket } from "../scripts/clean-test.ts";
+import { isTestCommand, isTestSocket, tokenFromPath, tokenOf } from "../scripts/clean-test.ts";
 
 /**
  * `bun run test:clean` decides by command line and socket path alone, because that is all a
@@ -53,6 +53,23 @@ test("tmux servers are told apart by their socket", () => {
   );
   // Yours: the default socket, however deep /private/tmp may look like a temp dir.
   expect(isTestSocket("/private/tmp/tmux-501/default", roots)).toBe(false);
+});
+
+test("a run is named by the token its resources carry", () => {
+  expect(tokenOf("bun src/server.ts --iwe-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
+  expect(
+    tokenOf("ttyd -c /var/folders/tp/xyz/T/iwe-1a2b.3c4d-term-abc/changes/PROJ"),
+  ).toBe("1a2b.3c4d");
+  // A resource with no token is one this tool cannot attribute to a run: an old run, or the
+  // app's own. It is listed, and only --all ends it.
+  expect(tokenOf("bun src/server.ts --iwe-test-run")).toBeUndefined();
+  expect(tokenOf("ttyd -c /var/folders/tp/xyz/T/iwe-term-abc123/changes/PROJ")).toBeUndefined();
+});
+
+test("a label that looks like a token is not one: the dot is the tell", () => {
+  expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-term-abc/changes/PROJ")).toBeUndefined();
+  expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-abc.def-term-x/changes/PROJ")).toBe("abc.def");
+  expect(tokenFromPath("/private/tmp/tmux-501/default")).toBeUndefined();
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {
