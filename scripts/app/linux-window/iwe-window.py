@@ -48,12 +48,15 @@ os.environ.setdefault("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
 # frame late: in the terminal, a keystroke's echo only appeared when the
 # next one was typed (press A — nothing; press B — A shows). Measured with
 # a socket probe: the echo reaches the page in ~1 ms, so the delay is in
-# presentation, and both of xterm.js's canvas renderers are affected —
-# this is a known shape of WebKitGTK-on-NVIDIA trouble. Without
-# compositing, canvas repaints go straight to the window and typing is
-# immediate. The dashboard is mostly static UI, so the performance cost is
-# small; override with WEBKIT_DISABLE_COMPOSITING_MODE=0 to test the
+# presentation. Without compositing, repaints go straight to the window and
+# typing is immediate. The dashboard is mostly static UI, so the performance
+# cost is small; override with WEBKIT_DISABLE_COMPOSITING_MODE=0 to test the
 # accelerated path.
+#
+# This is not the whole story for the terminal: in the non-composited path
+# the canvas renderers (ttyd's WebGL default, and its 2D canvas fallback)
+# are very expensive, so the terminal asks for xterm's DOM renderer instead
+# (see terminalPath in src/terminal/server/tmux.ts).
 os.environ.setdefault("WEBKIT_DISABLE_COMPOSITING_MODE", "1")
 
 import gi

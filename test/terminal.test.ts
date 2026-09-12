@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh } from "./helpers.ts";
+import { isLinux } from "../src/core/platform/platform.ts";
+import { terminalPath } from "../src/terminal/server/index.ts";
 
 /**
  * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only
@@ -34,6 +36,17 @@ async function tmux(...args: string[]): Promise<string> {
 
 const have = async (tool: string): Promise<boolean> => (await runSh(["which", tool])).code === 0;
 const usable = (await have("ttyd")) && (await have("tmux"));
+
+/** The renderer is a performance decision, not a detail. This machine's WebKitGTK can only take
+ * the software-composited path (accelerated compositing presents canvas updates a frame late),
+ * and in that path ttyd's WebGL default and 2D canvas fallback peg a core on ordinary terminal
+ * output — the whole app then lags by hundreds of milliseconds. xterm's DOM renderer damages
+ * only the changed text. macOS keeps WebGL, where the compositor is correct and cheap. */
+test("the terminal asks for the renderer its engine can afford", () => {
+  const path = terminalPath("PROJ-TERM");
+  if (isLinux) expect(path).toBe("/terminal/PROJ-TERM/?rendererType=dom");
+  else expect(path).toBe("/terminal/PROJ-TERM/");
+});
 
 let tmp: string;
 let browser: Browser;
@@ -109,7 +122,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal iframe");
 
-  // ttyd draws into a canvas, so what the shell did has to be read from the shell, not the page.
+  // The terminal is ttyd's to draw; what the shell did is read from the shell's own output file.
   const term = page.frameLocator(".terminal iframe").locator("body");
   await term.waitFor({ state: "visible", timeout: 15_000 });
   await term.click();
