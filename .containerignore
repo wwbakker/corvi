@@ -1,0 +1,5 @@
+# The WebKit image copies nothing — the run mounts the checkout instead — but podman still
+# sends the build context, so the heavy directories are left out of it.
+node_modules
+.git
+shots

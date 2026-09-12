@@ -1,0 +1,13 @@
+# The engine Playwright's WebKit tests need, for hosts where its bundle cannot start.
+#
+# Playwright's WebKit is built for Ubuntu 24.04, and the libraries it links are that
+# distribution's — icu 74, libxml2.so.2, flite 1.4. On a host with different versions (Arch, for
+# one) `webkit.launch()` fails, and `test/webkit.test.ts` skips rather than fails. This image is
+# the other way to run it: Playwright publishes the bundle together with every library it links,
+# and Bun is added because the suite runs on `bun:test`. No CMD and no source: `bun run
+# test:webkit` mounts the checkout and supplies the command.
+#
+# The tag tracks the `playwright` version in bun.lock (1.63.0); bump both together.
+FROM mcr.microsoft.com/playwright:v1.63.0-noble
+RUN npm install -g bun
+WORKDIR /app

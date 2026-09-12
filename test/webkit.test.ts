@@ -17,18 +17,23 @@ import { runSh, testRun, testTempDir } from "./helpers.ts";
  * complains about, and checks that the page rendered rather than crashed. What each page *does*
  * is tested elsewhere, without a browser.
  */
-// Skipped rather than failed where the engine has not been downloaded: `bunx playwright install
-// webkit` is a 100MB step, and the rest of the suite needs none of it.
+// Skipped rather than failed where the engine cannot run here: `bunx playwright install webkit`
+// is a 100MB step, the bundle is built against one distribution's libraries, and the rest of the
+// suite needs none of it. The probe is a real launch rather than the executable's existence — a
+// bundle that is downloaded but missing its host libraries fails at launch, and a red suite for
+// that says nothing about IWE. The browser it starts is the one the tests use.
+let browser: Browser;
 const usable = await (async (): Promise<boolean> => {
   try {
-    return await Bun.file(webkit.executablePath()).exists();
+    if (!(await Bun.file(webkit.executablePath()).exists())) return false;
+    browser = await webkit.launch();
+    return true;
   } catch {
     return false;
   }
 })();
 
 let tmp: string;
-let browser: Browser;
 let port: number;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-WEBKIT";
@@ -64,7 +69,6 @@ beforeAll(async () => {
     method: "POST",
     body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
   });
-  browser = await webkit.launch();
 });
 
 afterAll(async () => {
