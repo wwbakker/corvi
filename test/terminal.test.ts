@@ -519,13 +519,32 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   await page.waitForSelector(".terminal iframe");
   expect(await page.locator(".terminal-gone").count()).toBe(0);
 
+  // The pane waits five seconds after its window list empties before calling the session gone,
+  // so that a terminal merely starting is not mistaken for one that was lost. That wait is what
+  // this test is about, so it is advanced rather than sat through: the clock goes in after the
+  // terminal is up, and the timer the pane starts when the list empties is then ours to run.
+  await page.clock.install();
+
   // The server goes away under the open terminal, the way a killed tmux server does: the page
   // has to say so rather than leave a dead frame that looks merely slow.
   await tmux("kill-server");
-  expect(await until(() => page.locator(".terminal-gone").count(), 1, 60)).toBe(1);
+  // Wait on the page's own state, not on the clock: the window list emptying is what starts the
+  // timer, and that is a fact about the server (its watcher has seen the session die), not a
+  // duration to guess at.
+  const windows = page.locator(".sidebar .entry.window");
+  expect(await until(() => windows.count(), 0, 60)).toBe(0);
+  await page.clock.runFor(5000);
+  expect(await until(() => page.locator(".terminal-gone").count(), 1)).toBe(1);
 
   // And it is said again when the tab is reopened: the server answers with the stale ttyd and the
-  // pid to stop.
+  // pid to stop. That report has a grace — a ttyd whose note is younger than five seconds is not
+  // judged, so a terminal that is merely starting is not called dead — and the test before this
+  // one restarts the ttyd. Age the note past the grace so the reopen tests the report, not the
+  // birth.
+  const note = join(tmp, "changes", id, "terminal.json");
+  const running = JSON.parse(await Bun.file(note).text()) as { at?: number };
+  await Bun.write(note, `${JSON.stringify({ ...running, at: Date.now() - 60_000 })}\n`);
+
   await page.reload();
   await page.waitForSelector(".terminal iframe");
   expect(await until(() => page.locator(".terminal-gone").count(), 1)).toBe(1);
