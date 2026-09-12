@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
-import { api, post } from "../../frontend/api.ts";
-import { branchFor } from "../../core/domain/change.ts";
-import type { StepComponent } from "../../core/host/client.tsx";
+import { api, post } from "../../app-root/api.ts";
+import { branchFor } from "../../domain/change.ts";
+import type { StepComponent } from "../../extension-host/client.tsx";
 import type { Board, Issue } from "./shared.ts";
 
 /**

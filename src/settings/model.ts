@@ -4,8 +4,8 @@
  * (`./server/`) imports this, and the browser half reads it without touching a server file.
  */
 
-import type { Config, ConfigFile } from "../core/domain/config.ts";
-import type { ExtensionSetting, WorkspaceSetting } from "../core/domain/settings.ts";
+import type { Config, ConfigFile } from "../domain/config.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "../domain/settings.ts";
 
 /** What may be written: the config file's own shape. Everything is optional — an absent value
  * means "the default", which is what an empty file means. */

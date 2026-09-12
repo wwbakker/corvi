@@ -1,6 +1,6 @@
 import { Effect } from "effect";
-import { Changes, ExtensionStore, type RouteError } from "../../core/host/api.ts";
-import type { Change } from "../../core/domain/change.ts";
+import { Changes, ExtensionStore, type RouteError } from "../../extension-host/api.ts";
+import type { Change } from "../../domain/change.ts";
 
 /**
  * The notes extension's server half: free text about a change, kept in the extension's own

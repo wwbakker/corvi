@@ -11,10 +11,10 @@ import {
   readSidecar,
   writeSidecar,
 } from "../src/change/server/index.ts";
-import { changeTabsFor, dispatchExtensionRoute } from "../src/core/host/index.ts";
-import { resolveChangePage } from "../src/change/client/changeTabs.ts";
-import { Changes } from "../src/core/host/api.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import { changeTabsFor, dispatchExtensionRoute } from "../src/extension-host/index.ts";
+import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
+import { Changes } from "../src/extension-host/api.ts";
+import type { Change } from "../src/domain/change.ts";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 

@@ -2,10 +2,10 @@ import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
-import type { Change } from "../../core/domain/change.ts";
+import type { Change } from "../../domain/change.ts";
 import { Change as ChangeSchema } from "./schema.ts";
-import { BadRequestError, DecodeError, NotFoundError } from "../../core/platform/effect/errors.ts";
-import { fs } from "../../core/platform/effect/support.ts";
+import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
+import { fs } from "../../capabilities/effect/support.ts";
 import { config } from "../../workspace/server/index.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */

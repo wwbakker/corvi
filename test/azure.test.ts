@@ -15,10 +15,10 @@ import {
   versionOf,
   type Az,
   type Run,
-} from "../src/core/integrations/azure.ts";
-import type { Change } from "../src/core/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../src/core/domain/widget.ts";
-import { clearCache } from "../src/core/platform/capabilities/cache.ts";
+} from "../src/vendors/azure.ts";
+import type { Change } from "../src/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../src/domain/widget.ts";
+import { clearCache } from "../src/capabilities/cache.ts";
 import { config } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 

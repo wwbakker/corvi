@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post } from "../../frontend/api.ts";
-import type { Change } from "../../core/domain/change.ts";
+import { api, post } from "../../app-root/api.ts";
+import type { Change } from "../../domain/change.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
 import type { CommitResult, FileChange, LocalStatus, Selection } from "./shared.ts";
 

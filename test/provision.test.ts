@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provision } from "../src/core/host/index.ts";
+import { install, loaded, provision } from "../src/extension-host/index.ts";
 import { Effect } from "effect";
 import {
   describe,
@@ -12,13 +12,13 @@ import {
   parseWorktrees,
   parseStatus,
   type WtEntry,
-} from "../src/core/integrations/git.ts";
-import { isMac } from "../src/core/platform/platform.ts";
-import { versionInLines } from "../src/core/integrations/azure.ts";
-import { readiness, headRef, waitingOnYou } from "../src/core/integrations/github.ts";
-import { presentWindow, type PresentedWindow } from "../src/terminal/server/index.ts";
-import type { TmuxWindow } from "../src/core/host/api.ts";
-import type { Change } from "../src/core/domain/change.ts";
+} from "../src/vendors/git.ts";
+import { isMac } from "../src/capabilities/os.ts";
+import { versionInLines } from "../src/vendors/azure.ts";
+import { readiness, headRef, waitingOnYou } from "../src/vendors/github.ts";
+import { presentWindow, type PresentedWindow } from "../src/terminals/server/index.ts";
+import type { TmuxWindow } from "../src/extension-host/api.ts";
+import type { Change } from "../src/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 
 /**

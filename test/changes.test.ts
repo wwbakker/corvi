@@ -12,11 +12,11 @@ import {
   readChange,
   writeChange,
 } from "../src/change/server/index.ts";
-import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/core/integrations/git.ts";
+import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/vendors/git.ts";
 import { Effect } from "effect";
-import type { Change } from "../src/core/domain/change.ts";
-import type { TmuxWindow } from "../src/core/host/api.ts";
-import type { PresentedWindow } from "../src/terminal/server/index.ts";
+import type { Change } from "../src/domain/change.ts";
+import type { TmuxWindow } from "../src/extension-host/api.ts";
+import type { PresentedWindow } from "../src/terminals/server/index.ts";
 import { runEffect, runSh, TestError } from "./helpers.ts";
 
 let tmp: string;
@@ -136,7 +136,7 @@ test("a change starts in progress and completing it is what sets Completed", asy
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
-  const { setRepos, isDirect } = await import("../src/core/integrations/git.ts");
+  const { setRepos, isDirect } = await import("../src/vendors/git.ts");
   const clean = await makeRepo("clean");
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
@@ -232,9 +232,9 @@ test("a completion records itself before it starts checking anything", async () 
 }, 20_000);
 
 test("the overview counts windows that are running something, not windows", async () => {
-  // Busy is a presented fact now: the merge in terminal/server/presenter.ts says which windows
+  // Busy is a presented fact now: the merge in terminals/server/presenter.ts says which windows
   // are work.
-  const { presentWindow } = await import("../src/terminal/server/index.ts");
+  const { presentWindow } = await import("../src/terminals/server/index.ts");
   const busy = (over: Partial<TmuxWindow>): boolean =>
     presentWindow({
       index: 0,
@@ -269,7 +269,7 @@ test("the overview counts windows that are running something, not windows", asyn
 test("an agent's own account of itself is read from the @agent_status pane option", async () => {
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
-  const { presentWindow } = await import("../src/terminal/server/index.ts");
+  const { presentWindow } = await import("../src/terminals/server/index.ts");
   const presented = (option: string): PresentedWindow =>
     presentWindow({
       index: 0,
@@ -292,7 +292,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
 
 test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
   const { refreshTitles } = await import("../src/change/server/index.ts");
-  const { install, loaded } = await import("../src/core/host/index.ts");
+  const { install, loaded } = await import("../src/extension-host/index.ts");
 
   // A stub source claiming every change that has a stub key, answering from a map the test
   // controls.
@@ -354,8 +354,8 @@ test("a change is named after its ticket, and keeps that name when its vendor is
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
-  const { CHANGE_STATES, isFinished } = await import("../src/core/domain/change.ts");
-  const { stateClass } = await import("../src/change/client/changeState.tsx");
+  const { CHANGE_STATES, isFinished } = await import("../src/domain/change.ts");
+  const { stateClass } = await import("../src/app-root/stateClass.ts");
 
   // How much of your attention each state asks for: the select offers them in this order and the
   // lists sort by it.
@@ -379,7 +379,7 @@ test("a change may be blocked, which is active but not workable", async () => {
 
 test("a name you wrote yourself is not overwritten by the ticket's", async () => {
   const { refreshTitles } = await import("../src/change/server/index.ts");
-  const { install, loaded } = await import("../src/core/host/index.ts");
+  const { install, loaded } = await import("../src/extension-host/index.ts");
 
   const answers = new Map<string, string>();
   let asked: string[] = [];
@@ -423,8 +423,8 @@ test("a name you wrote yourself is not overwritten by the ticket's", async () =>
 });
 
 test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
-  const { summaryOf } = await import("../src/change/overview/server/index.ts");
-  const { install, loaded } = await import("../src/core/host/index.ts");
+  const { summaryOf } = await import("../src/dashboard/server/index.ts");
+  const { install, loaded } = await import("../src/extension-host/index.ts");
 
   const restore = loaded.splice(0, loaded.length);
   install({
@@ -463,7 +463,7 @@ test("the summary gathers the core's terminals fact and the extensions' contribu
 });
 
 test("the icons take the worst of what the repositories say", async () => {
-  const { worst } = await import("../src/core/domain/widget.ts");
+  const { worst } = await import("../src/domain/widget.ts");
   // One red build is what you want to know about, so it decides the colour; then one running.
   expect(worst(["ok", "error", "pending"])).toBe("error");
   expect(worst(["ok", "pending", "ok"])).toBe("pending");
@@ -475,7 +475,7 @@ test("the icons take the worst of what the repositories say", async () => {
 });
 
 test("every change's windows come back from one call, and other sessions are not ours", async () => {
-  const { changeOfSession } = await import("../src/terminal/server/index.ts");
+  const { changeOfSession } = await import("../src/terminals/server/index.ts");
   // The navigation column lists the terminals of every change at once; asking tmux per change
   // would be a process per change every few seconds.
   expect(changeOfSession("iwe-PROJ-1")).toBe("PROJ-1");
@@ -511,8 +511,8 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
   const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
-  const { azureEnabled, azureOf } = await import("../src/core/integrations/azure.ts");
-  const { extensionsFor, loaded } = await import("../src/core/host/index.ts");
+  const { azureEnabled, azureOf } = await import("../src/vendors/azure.ts");
+  const { extensionsFor, loaded } = await import("../src/extension-host/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag — and keeps

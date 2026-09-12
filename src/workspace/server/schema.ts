@@ -2,7 +2,7 @@ import { Schema } from "effect";
 import type {
   ConfigFile as ConfigFileVocabulary,
   Workspace as WorkspaceShape,
-} from "../../core/domain/config.ts";
+} from "../../domain/config.ts";
 
 /**
  * Effect Schemas for the config layer — the JSON boundary of the config file.
@@ -12,11 +12,11 @@ import type {
  * and unknown keys preserved on decode, because a key IWE does not know about was put there by
  * hand for a version of IWE that does and losing it silently would be rude.
  *
- * The resolved shape (`src/core/domain/config.ts`'s `Config`) is described by `Resolved`, which is what the
+ * The resolved shape (`src/domain/config.ts`'s `Config`) is described by `Resolved`, which is what the
  * rest of the program reads and what a future CLI `--json` or IPC surface would emit.
  */
 
-/** A context you work in: a client, or your own projects. Mirrors `src/core/domain/config.ts`'s `Workspace`. */
+/** A context you work in: a client, or your own projects. Mirrors `src/domain/config.ts`'s `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
@@ -85,7 +85,7 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings
  * page's write shape (src/settings/model.ts' `Settings`), and the two must not drift: the
- * compile-time guards below pin this schema to core/domain/config.ts' hand-written
+ * compile-time guards below pin this schema to domain/config.ts' hand-written
  * `ConfigFile`. */
 export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
@@ -131,12 +131,12 @@ export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces
   workspaces?: WorkspaceShape[];
 };
 
-// The hand-written file vocabulary in core/domain/config.ts and this schema must not drift:
+// The hand-written file vocabulary in domain/config.ts and this schema must not drift:
 // both directions fail to compile if the schema stops describing exactly the file shape.
 const _configFileMatchesVocabulary: ConfigFileVocabulary = {} as ConfigFile;
 const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabulary;
 
-/** The resolved shape: file, environment and defaults combined — `src/core/domain/config.ts`'s `Config`. Not a
+/** The resolved shape: file, environment and defaults combined — `src/domain/config.ts`'s `Config`. Not a
  * decoder of anything on disk (the resolved config is computed, never read); it states the
  * boundary a future CLI/IPC surface would emit, and pins the Workspace member to the type. */
 export const Resolved = Schema.Struct({

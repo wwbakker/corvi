@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { Change, CompletionStep } from "../src/core/domain/change.ts";
+import type { Change, CompletionStep } from "../src/domain/change.ts";
 import {
   completeChange,
   completionOf,
@@ -14,7 +14,7 @@ import { changeDir, createChange, readChange, writeSidecar } from "../src/change
 import { config } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
-import { install, loaded } from "../src/core/host/registry.ts";
+import { install, loaded } from "../src/extension-host/registry.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and

@@ -38,26 +38,27 @@ together:
 - `model.ts` — the pure, synchronous logic both halves share.
 
 Any aspect may be absent: a headless module has no `client/`, a vocabulary-only one no
-`server/`. `src/core/integrations/` holds only vendor clients genuinely shared by more than one
-feature (`git.ts` qualifies); the rest of `src/core/` is the substrate — vocabulary, the
-platform and the extension host.
+`server/`. `src/vendors/` holds only vendor clients genuinely shared by more than one
+feature (`git.ts` qualifies); the rest of the substrate is `src/domain/` (the vocabulary),
+`src/capabilities/` and `src/extension-host/`, with each feature's HTTP table in its own
+`routes.ts`.
 
 **One role per file.** `store.ts` is the persisted state, `create.ts` one operation,
 `presenter.ts` the merge, `summary.ts` the composition — not a second concern grafted onto an
 existing file.
 
-**Submodules are modules.** `change/wizard/` and `change/overview/` are directories with their
+**Submodules are modules.** `wizard/` and `dashboard/` are directories with their
 own aspects and their own face, and the same rules nest as far as a feature needs. The
-composition lives in the submodule that composes, which is why `overview` can depend on
+composition lives in the submodule that composes, which is why `dashboard` can depend on
 `terminal` and the host without `change/server` closing a cycle.
 
 **The server half's `index.ts` is the module's face, and nothing inside the module imports
 it.** Code outside enters through the barrel; siblings import each other directly, which is
 what keeps the barrel cycle-free. A submodule whose face is a browser component re-exports it
-from a top-level `index.ts` (`change/wizard/index.ts`); client components are otherwise imported
+from a top-level `index.ts` (`wizard/index.ts`); client components are otherwise imported
 file-to-file, because a barrel of components would pull every one into the page bundle. A leaf
-that a second module needs by value — `core/host/registry.ts`, `change/server/store.ts`,
-`terminal/server/proxy.ts`, `settings/server/legacySettings.ts` — is the exception rule 7 names.
+that a second module needs by value — `extension-host/registry.ts`, `change/server/store.ts`,
+`terminals/server/proxy.ts`, `settings/server/legacySettings.ts` — is the exception rule 7 names.
 
 - **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`;
   `change/server/index.ts` is the change face every route imports;
@@ -82,7 +83,7 @@ is named for the one thing it does.
 
 - **Right:** `extensions/`, `extensionsFor`, one `git.ts`.
 - **Tell:** `src/extensions/review/` (the change's local-changes tab) and
-  `src/core/integrations/git.ts` (the worktree engine) both reading as "the local changes code";
+  `src/vendors/git.ts` (the worktree engine) both reading as "the local changes code";
   or a
   new field named `integration` where the wire contract (`Widget.integration`) does not force it.
 
@@ -94,24 +95,24 @@ A helper used twice lives in one place — preferably on the service it belongs 
 - **Right:** one `shSoft`, one `cliJson`, one `messageOf`.
 - **Tell:** the same helper defined in several modules, each carrying its own copy of the same
   explanatory comment. `shSoft`, `cliJson`, `messageOf` and `fs` live in
-  `src/core/platform/effect/support.ts`.
+  `src/capabilities/effect/support.ts`.
 
 ## 7. State has an owner
 
 The registry, the config object, the cache: each lives in one named module that others import.
 
-- **Right:** a leaf `registry.ts` exports `loaded`; `terminal/server/presenter.ts` imports it.
+- **Right:** a leaf `registry.ts` exports `loaded`; `terminals/server/presenter.ts` imports it.
 - **Tell:** a side-channel installed by the host to avoid an import cycle, rather than a leaf
   module both sides import.
 
 Four leaves are imported across module boundaries rather than through a barrel, and why is not
 one reason:
 
-- `core/host/registry.ts` and `change/server/store.ts` break cycles by depending on **state**
+- `extension-host/registry.ts` and `change/server/store.ts` break cycles by depending on **state**
   rather than on a half: the registry sits below both the host and the terminal, and the store is
   the change module's state leaf.
-- `terminal/server/proxy.ts` is the terminal's **HTTP boundary**: the files that speak HTTP (the
-  terminal routes, the asset route, `server.ts`, `origin.ts`) import it directly so the module's
+- `terminals/server/proxy.ts` is the terminal's **HTTP boundary**: the files that speak HTTP (the
+  terminal routes, the app-root routes, `server.ts`, `capabilities/web.ts`) import it directly so the module's
   barrel does not drag the ttyd page script into every consumer of `stopTerminal` or
   `listWindows`.
 - `settings/server/legacySettings.ts` shares one **precedence chain** — the settings bag, then the
@@ -120,7 +121,7 @@ one reason:
 
 ## 8. Hooks fetch, components render
 
-Client data goes through the shared hooks and cache (`frontend/state.ts`, `frontend/cache.ts`); components
+Client data goes through the shared hooks and cache (`app-root/state.ts`, `app-root/cache.ts`); components
 do not call `fetch` themselves.
 
 - **Right:** `useChanges`, `useWindows`, `useTerminal`.
@@ -128,14 +129,14 @@ do not call `fetch` themselves.
 
 ## 9. Shared code has a place, not a list
 
-Pure code both the server and the browser need lives in `src/core/domain/`. The lint boundary is
-then structural rather than an allowlist: it covers every server tree, for `src/frontend/**` and for
-a module's `client/` half (a submodule's alike), with only `src/core/domain/`, a module's `model.ts` importable
-by value.
+Pure code both the server and the browser need lives in `src/domain/`. The lint boundary is
+then structural rather than an allowlist: it covers every server tree, for `src/app-root/**` and for
+a module's `client/` half (and the wizard's module-root browser half), with only `src/domain/`, a
+module's `model.ts` importable by value.
 
-- **Right:** `src/core/domain/change.ts`, importable from `src/frontend/**` and `src/change/client/**`.
+- **Right:** `src/domain/change.ts`, importable from `src/app-root/**` and `src/change-page/client/**`.
 - **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
-  `src/core/domain/`.
+  `src/domain/`.
 
 ## 10. Read the interface before the implementation
 

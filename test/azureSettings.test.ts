@@ -2,7 +2,7 @@ import { test, expect, afterEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { azureConfigured, azureEnabled, azureOf } from "../src/core/integrations/azure.ts";
+import { azureConfigured, azureEnabled, azureOf } from "../src/vendors/azure.ts";
 import { deploySettings } from "../src/extensions/deployments/deploySettings.ts";
 import {
   config,

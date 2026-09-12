@@ -1,8 +1,8 @@
 import { Effect } from "effect";
-import type { Change } from "../../core/domain/change.ts";
+import type { Change } from "../../domain/change.ts";
 import { listChanges, writeChange } from "./store.ts";
-import { titleSourcesFor } from "../../core/host/index.ts";
-import { capabilitiesLayer } from "../../core/host/services.ts";
+import { titleSourcesFor } from "../../extension-host/index.ts";
+import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
 /**

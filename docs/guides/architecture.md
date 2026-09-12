@@ -5,47 +5,56 @@
 IWE is one Bun process that serves an HTTP API and a React page, talks to the vendors' own CLIs
 (`git`, `gh`, `az`, `jira`, `tmux`, `ttyd`), and keeps its only state in one directory per
 change (`~/changes/<id>/`). Everything else is read live and cached in
-[`src/core/platform/capabilities/cache.ts`](../../src/core/platform/capabilities/cache.ts).
+[`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 
 ## Layers
 
 ```
 src/
-  server.ts            Bun.serve: the core route table, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
+  server.ts            Bun.serve: composes the modules' route tables, /api/ext/:name/* dispatch,
+                       SSE, ttyd ws-proxy
   change/              the change module: model.ts (the edit rule the halves share), server/
                        (schema, store, create, complete, cancel, titles, description,
-                       index.ts), client/ (the page, the dialogs), wizard/ (a submodule: the
-                       New change wizard, client/ +
-                       index.ts), overview/ (a submodule: the dashboard — server/ composes
-                       change, terminal and the host; client/ holds the cards)
-  terminal/            the terminal module: model.ts (the new-window key the pane and the
+                       index.ts), routes.ts (its HTTP table). No UI.
+  dashboard/           the dashboard tab: server/ (summary.ts composes change, terminal and the
+                       host; index.ts is the face), client/ (WidgetCard, WidgetRows,
+                       PerRepoCard, CompletionCard, EditReposDialog), routes.ts (the summary route)
+  change-page/         the change shell: client/ (ChangeView.tsx, changeTabs.ts) composes the
+                       dashboard, the extension tabs and the terminal; owns no data
+  wizard/              /new: Wizard.tsx, and index.ts (the face)
+  terminals/           the terminal module: model.ts (the new-window key the pane and the
                        injected ttyd script share), server/ (tmux sessions, ttyd spawn, the ws
                        bridge, the presenter merge), client/ (the terminal pane, tabs, cheat
-                       sheet)
+                       sheet), routes.ts (the ttyd proxy, the key script and the window API)
   workspace/           the workspace module: model.ts (Entry, the repository-browser row),
                        server/ (config loader, file schema, workspace resolution, repository
-                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser)
+                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser),
+                       routes.ts (the repo browser and the workspaces list)
   settings/            the settings module: model.ts (Settings, SettingsView), server/ (settings
-                       page read/write, legacySettings), client/ (SettingsPage, SettingsFields)
-  core/
-    domain/            the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
+                       page read/write, legacySettings), client/ (SettingsPage, SettingsFields),
+                       routes.ts (the settings file route)
+  domain/              the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
                        (Workspace and the resolved Config as well as the ConfigFile shape),
                        settings.ts (the extension-declared setting shapes)
-    platform/          the substrate everything stands on: effect/ (errors, http, run, support,
-                       tags), capabilities/ (sh, cache, events), origin.ts, platform.ts,
-                       tooling.ts, routes/ (the HTTP tables)
-    host/              the extension contract and its machinery: api.ts (and api/*.ts),
+  capabilities/        the substrate everything stands on: effect/ (errors, http, run, support,
+                       tags), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher and the
+                       stream's routes), web.ts, os.ts
+  extension-host/      the extension contract and its machinery: api.ts (and api/*.ts),
                        registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
                        services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
-                       client-side registry and the extension UI contract), index.ts
-    integrations/      vendor CLI wrappers (git, github, azure, stacks)
+                       client-side registry and the extension UI contract), index.ts, routes.ts
+                       (wizard, pages, ext dispatch, card/tab endpoints, extension client and
+                       vendor chunks)
+  vendors/             vendor CLI wrappers (git, github, azure, stacks)
   extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments,
                        leftovers, review, notes)
-  frontend/            the browser shell and runtime: index.html, styles, the app router, the
-                       sidebar, the data hooks, the fetch client and notifications
+  app-root/            the browser shell and runtime: index.html, styles, the app router, the
+                       sidebar, the data hooks, the fetch client and notifications, and the
+                       shell's shared fragments — ChangeCard, Progress, stateClass — plus
+                       routes.ts (the icons and the /* fallback)
 ```
 
-The extension host (`src/core/host/index.ts`) loads built-ins and out-of-tree modules through
+The extension host (`src/extension-host/index.ts`) loads built-ins and out-of-tree modules through
 the same install path and answers the core's one question — which extensions exist for this
 workspace — with a filtered list. See [`extensions.md`](extensions.md) for the contract.
 
@@ -58,11 +67,11 @@ directories:
   implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
   this way, and so are `review/server.ts` (the git surface) and its `client.tsx`, and
   `notes/server.ts` (the `ExtensionStore` surface) and its `client.tsx`.
-- **`src/core/integrations/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
+- **`src/vendors/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
   (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
   core + the git extension).
-- **`src/core/platform/`** — the substrate, not a feature: the route tables, the Effect runtime
-  plumbing and the capabilities (`sh`, `cache`, `events`) every module runs on.
+- **`src/capabilities/`** — the substrate, not a feature: the Effect runtime
+  plumbing and the capabilities (`shell`, `cache`, `bus`, `web`, `os`) every module runs on.
 - **top-level `src/*.ts`** — `server.ts`, the composition root.
 
 A feature's pure vocabulary and its settings live with it: `deployments/deployConventions.ts` is
@@ -70,13 +79,13 @@ needed by both that extension's server and browser halves, and
 `deployments/deploySettings.ts` is the extension's own read of the settings it declares, so both
 sit beside them.
 
-The vendor layer owns what is a vendor's: `src/core/integrations/azure.ts` holds the
+The vendor layer owns what is a vendor's: `src/vendors/azure.ts` holds the
 organisation-and-project chain (`azureOf`) and the enablement predicates — `azureConfigured`,
 the legacy fact the CI facts use, and `azureEnabled`, the deployments page's extension-gated
 rule — so `src/workspace/server/workspaces.ts` names no vendor — it only answers
 `extensionEnabled`, the generic enablement every surface uses.
 
-Git cannot be colocated while `src/core/integrations/git.ts` is shared by the core and the git
+Git cannot be colocated while `src/vendors/git.ts` is shared by the core and the git
 extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
 scope.
 
@@ -112,58 +121,74 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
 
 ## Dependency rules
 
-- **`core/domain/**` imports nothing that runs** — types, states, pure operations; no `node:*`,
+- **`domain/**` imports nothing that runs** — types, states, pure operations; no `node:*`,
   no `Bun.*`, no Effect runtime. It is the ubiquitous language every module and the contract
   speak.
 - **A module's `model.ts`** is the synchronous logic its halves share. It may import
-  `core/domain/**` and the error taxonomy's data types; it performs no effects.
-- **A module's `server/` half** may import its own module, `core/domain`, `core/platform`,
-  `core/integrations` and the host's server machinery. It must not import a `client/` file or
-  anything under `frontend/`. The one deliberate server→`frontend/` edge is
-  `core/platform/routes/assets.ts` importing `frontend/index.html`: it is the Bun HTML entry the
-  route serves as the `/*` fallback, not frontend logic.
-- **A module's `client/` half** may import its own module, `core/domain`, `frontend` and the
-  host's client contract. It must not import a `server/` file by value.
-- **`frontend/`** may import `core/domain` and module client halves; never a module server by
-  value. It is the browser's composition root, the counterpart of the extension host.
+  `domain/**` and the error taxonomy's data types; it performs no effects.
+- **`capabilities/`** imports `domain`, plus three documented upward edges that predate this
+  layout: `web.ts` (the `withChange` glue reads the change store and workspace resolution;
+  its `Bridge` type import from `terminals/server/proxy.ts` is type-only and likewise
+  carried over) and `bus.ts` (the watcher reads changes, windows and the notification
+  setting). Injecting the watcher's sources is a named follow-up, not done here.
+- **`vendors/`** imports `domain` and `capabilities`, plus two carried-over exceptions:
+  `git.ts` (the worktree engine) reads the change store leaves and the workspace config, and
+  `azure.ts` reads the workspace resolution and the settings precedence chain. The former is
+  why git cannot be colocated (see [../plans/archive/refactor-plan.md](../plans/archive/refactor-plan.md)
+  item 5); the latter predates this layout identically.
+- **`extension-host/`** imports `domain`, `capabilities` and the documented first-party leaves
+  (the change store, `vendors/git`, the workspace config, the settings precedence chain).
+- **A feature module** (`change`, `dashboard`, `change-page`, `wizard`, `terminals`,
+  `workspace`, `settings`) keeps its aspects together: `model.ts` is the pure logic both halves
+  share, `server/` the implementation, `client/` the browser half when there is one, and
+  `routes.ts` the HTTP table the composition root mounts. Its **server half** may import its own
+  module, `domain`, `capabilities`, `vendors` and the host's server machinery; it must not import
+  a `client/` file or `app-root/`'s browser code. Its **client half** may import its own module,
+  `domain`, `app-root` and the host's client contract; it must not import a `server/` file by
+  value. Cross-feature client→client imports (ChangeView composing the dashboard and terminal
+  cards) are composition, not a boundary violation.
+- **`app-root/`** is the browser's composition root and the counterpart of the extension host:
+  it imports `domain`, feature client halves and the host's client contract, never a module's
+  server file by value. Its `routes.ts` is the module's own server half — the icons route and the
+  `/*` fallback that returns `app-root/index.html` — which is why that one file sits beside the
+  browser code rather than in a `server/` directory.
 - **Modules enter each other through the server half's `index.ts`** (`change/server/index.ts`,
-  `terminal/server/index.ts`, and a composing submodule's `change/overview/server/index.ts`),
+  `terminals/server/index.ts` and `dashboard/server/index.ts`),
   never through a server file. Siblings import each other directly, and nothing inside a module
-  imports its own barrel, which is what keeps barrels cycle-free. A submodule whose face is a
-  browser component re-exports it from a top-level `index.ts` (`change/wizard/index.ts`); client
+  imports its own barrel, which is what keeps barrels cycle-free. A module whose face is a
+  browser component re-exports it from a top-level `index.ts` (`wizard/index.ts`); client
   components are otherwise imported file-to-file, since a barrel of components would pull every
   one into the page bundle. The deliberate exceptions are leaves a second module needs by value,
-  and their reasons are three, not one: `core/host/registry.ts` and `change/server/store.ts`
-  break cycles by depending on state rather than on a half; `terminal/server/proxy.ts` is the
+  and their reasons are three, not one: `extension-host/registry.ts` and `change/server/store.ts`
+  break cycles by depending on state rather than on a half; `terminals/server/proxy.ts` is the
   terminal's HTTP boundary, imported directly by the files that speak HTTP so the barrel does
   not drag the ttyd page script into every server consumer; and
   `settings/server/legacySettings.ts` is the one statement of the settings precedence chain,
   shared by the workspace config loader and the top-level deployments settings (see
   [style.md](style.md), rule 7).
-- **Submodules are modules.** `change/wizard/` and `change/overview/` have their own aspects and
-  their own face, and the same rules apply at every depth. Composition lives in the submodule
-  that composes: `overview` depends on `terminal` and the host, so `change/server` does not have
-  to, and no cycle forms at any level.
-- **The contract (`core/host/api`) imports `core/domain` and the capability and error leaves it
+- **Composition lives in the module that composes.** `dashboard` depends on `terminals` and the
+  host, so `change/server` does not have to, and no cycle forms.
+- **The contract (`extension-host/api`) imports `domain` and the capability and error leaves it
   re-exports** (`Shell`, `Workspace`, the taxonomy, `Result`) — never a module's server or client
   half. The contract therefore does not change when a module is reshaped; it re-exports the
   promised slice of the domain (`Change`, `branchFor`, the widget vocabulary).
-- **Out-of-tree extensions import only `core/host/api`**, which is the whole promise. **Built-ins
-  are first-party** and may reach into core modules and `core/integrations` today; new built-in
-  code uses the contract plus `core/domain` (and `core/integrations` when it needs a shared
+- **Out-of-tree extensions import only `extension-host/api`**, which is the whole promise. **Built-ins
+  are first-party** and may reach into core modules and `vendors` today; new built-in
+  code uses the contract plus `domain` (and `vendors` when it needs a shared
   vendor client), so the privilege shrinks by default. The documented first-party exceptions are
   the leftovers page's read of the changes root, the deployments settings' read of `config`, and
   the jira legacy shim's read of `settings/server/legacySettings.ts`
   (see [extensions.md](extensions.md), "Scope, honestly stated"). There is no stability promise
   for out-of-tree extensions yet.
-- **`server.ts`** is the HTTP composition root: it imports `core/platform/routes` and the host.
-- **HTTP** is the only client/server boundary — no shared runtime state crosses it.
+- **`server.ts`** is the HTTP composition root: it imports the modules' route tables, the host
+  and the capabilities bootstrap (cache, client chunks). **HTTP** is the only client/server
+  boundary — no shared runtime state crosses it.
 
-`eslint.config.js` makes the browser-facing and purity rules structural: a client half or
-`frontend/` may not import a server file by value, and a module inherits the boundary by
-existing. `core/domain/**` and every `model.ts` may not import `node:*`, Bun or the Effect
-runtime (a `model.ts` may import the error taxonomy; the domain may not), so the promise above is
-enforced rather than conventional.
+`eslint.config.js` makes the browser-facing and purity rules structural: a client half,
+`app-root/` or the wizard's module-root browser half may not import a server file by value, and a
+module inherits the boundary by existing. `domain/**` and every `model.ts` may not import
+`node:*`, Bun or the Effect runtime (a `model.ts` may import the error taxonomy; the domain may
+not), so the promise above is enforced rather than conventional.
 
 ## Running it
 

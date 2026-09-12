@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { copyTooling, rewritePaths, TOOLING } from "../src/core/platform/tooling.ts";
+import { copyTooling, rewritePaths, TOOLING } from "../src/capabilities/os.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**

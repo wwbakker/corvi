@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
-import { Workspace } from "../src/core/platform/effect/tags.ts";
-import { sh as runCli, type Result } from "../src/core/platform/capabilities/sh.ts";
+import { Workspace } from "../src/capabilities/effect/tags.ts";
+import { sh as runCli, type Result } from "../src/capabilities/shell.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 
 /**

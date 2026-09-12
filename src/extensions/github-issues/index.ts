@@ -1,9 +1,9 @@
 import { Context, Effect, Option, Schema } from "effect";
-import type { Change, CompletionStep } from "../../core/domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../../core/domain/widget.ts";
-import { Cache, Shell, Workspace, type Extension } from "../../core/host/api.ts";
-import { BadRequestError, type CliError } from "../../core/platform/effect/errors.ts";
-import { cliJson } from "../../core/platform/effect/support.ts";
+import type { Change, CompletionStep } from "../../domain/change.ts";
+import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
+import { Cache, Shell, Workspace, type Extension } from "../../extension-host/api.ts";
+import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
+import { cliJson } from "../../capabilities/effect/support.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
 
 /**

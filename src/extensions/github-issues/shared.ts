@@ -1,4 +1,4 @@
-import type { Change } from "../../core/domain/change.ts";
+import type { Change } from "../../domain/change.ts";
 
 /**
  * The github-issues extension's vocabulary, shared between its two halves. Types only, so the

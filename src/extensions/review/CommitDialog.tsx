@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { post } from "../../frontend/api.ts";
+import { post } from "../../app-root/api.ts";
 import type { CommitResult, FileChange } from "./shared.ts";
 
 /** What the dialog is offered: the repositories with something in them, and their files. */

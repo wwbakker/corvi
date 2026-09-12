@@ -1,8 +1,8 @@
 import tseslint from "typescript-eslint";
 
 /**
- * The one rule this exists to enforce: the browser's own code — `src/frontend/**`, every module's
- * `client/` half and a submodule's — is bundled into the page, and importing a backend module
+ * The one rule this exists to enforce: the browser's own code — `src/app-root/**`, `src/wizard/**`
+ * and every module's `client/` half — is bundled into the page, and importing a backend module
  * into it does not fail
  * loudly. Bun's HTML-import bundler pulls the module in quietly, and the first sign of trouble is
  * an unrelated page timing out in a WebKit test, minutes later and three files away from the
@@ -27,56 +27,54 @@ import tseslint from "typescript-eslint";
  * beside it.
  *
  * Everything else outside the browser halves that is not the pure domain is backend: it shells
- * out to CLIs, touches the filesystem, or both. `src/core/domain/` is the structural exception —
+ * out to CLIs, touches the filesystem, or both. `src/domain/` is the structural exception —
  * pure vocabulary and pure operations (no `node:*`, no `Bun.*`, no Effect runtime) that both the
  * server and the browser need, importable by value from a browser half. A module's pure
- * `model.ts` joins it as the modules land, so the rule allows both, and `core/host/client.tsx`
+ * `model.ts` joins it as the modules land, so the rule allows both, and `extension-host/client.tsx`
  * is a second structural exception: it is the extension host's browser contract, not a server
  * module, and the page's hosts have to import it by value. That purity is enforced by its own
- * block (`pureBoundary`), over `src/core/domain/**` and a module's `model.ts`: neither may
+ * block (`pureBoundary`), over `src/domain/**` and a module's `model.ts`: neither may
  * import `node:*`, `bun`/`bun:*` or the Effect runtime; a `model.ts` may import the error
- * taxonomy (`core/platform/effect/errors.ts`) but the domain may not; and `Bun`/`process` are
+ * taxonomy (`capabilities/effect/errors.ts`) but the domain may not; and `Bun`/`process` are
  * refused as ambient globals. The patterns
  * are matched
  * against the specifier as written, so `serverImports` builds them from the path back to `src/` —
- * `../` for `src/frontend/**`, `../../` for `src/<module>/client/**`, `../../../` for
- * `src/<module>/<submodule>/client/**` — and the client blocks add the sibling `../server/**`
- * (a submodule also adds its parent module's `../../server/**` and its sibling submodules'
- * `../../<submodule>/server/**`) by which a half imports a server. The group restricts every
- * server tree — the top-level `deploySettings.ts`, the built-ins' server halves, all of `core/`
- * (its `platform/`, `integrations/` and `host/`) and every module's `server/` directory —
- * then re-includes `core/domain/`, `core/host/client.tsx` and any module's `model.ts`. Put a new
- * shared vocabulary module in `src/core/domain/`, not next to the server.
+ * `../` for the module-root halves `src/app-root/**` and `src/wizard/**`, `../../` for
+ * `src/<module>/client/**` — and a client block adds the sibling `../server/**` by which a half
+ * imports a server. The group restricts every
+ * server tree — the built-ins' server halves, `capabilities/`, `vendors/`, `extension-host/`,
+ * every module-top `routes.ts` and every module's `server/` directory —
+ * then re-includes `domain/`, `extension-host/client.tsx` and any module's `model.ts`. Put a new
+ * shared vocabulary module in `src/domain/`, not next to the server.
  */
 
 /**
  * The server trees a browser half may not import by value, as specifiers relative to it. `up` is
- * the path from the half's directory back to `src/`: `../` from `src/frontend/**`, `../../` from
- * `src/<module>/client/**`, `../../../` from `src/<module>/<submodule>/client/**`. `extra`
+ * the path from the half's directory back to `src/`: `../` from the module-root halves
+ * `src/app-root/**` and `src/wizard/**`, `../../` from `src/<module>/client/**`. `extra`
  * carries patterns that only make sense at one depth — a client half's own server directory is
- * the sibling `../server/**`, a submodule also spells its parent module's `../../server/**` and
- * its sibling submodules' `../../<submodule>/server/**`, while `src/frontend` has none. The
+ * the sibling `../server/**`, and every browser half's own route table is a sibling specifier
+ * (`./routes.ts` at the module root, `../routes.ts` one directory down). The
  * negations re-admit the pure domain, the host's client contract and a module's
  * `model.ts`, and follow the patterns they narrow, which is the order `no-restricted-imports`
  * applies them in.
  */
 const serverImports = (up, extra = []) => [
-  // `server.ts` is the composition root a half never imports; after S6 the only top-level
-  // server module left to name is `deploySettings.ts`. Everything else that shells out lives
-  // under `core/` (a module's server half included), which the `core/**` group already covers.
-  `${up}deploySettings.ts`,
+  // A module's route table is server code, even though it sits at the module root.
+  `${up}*/routes.ts`,
   ...extra,
   `${up}*/server/**`,
-  `${up}core/**`,
-  `!${up}core/domain`,
-  `!${up}core/domain/**`,
-  // The extension host's client contract is browser code that lives under core/ by design:
-  // the host owns it, not a module, so a browser half may import this one file by value. Its
-  // parent directory is re-included first (a file cannot be re-admitted while every parent is
-  // excluded), then its contents are restricted again and the one file re-admitted.
-  `!${up}core/host`,
-  `${up}core/host/**`,
-  `!${up}core/host/client.tsx`,
+  `${up}capabilities/**`,
+  `${up}vendors/**`,
+  `!${up}domain`,
+  `!${up}domain/**`,
+  // The extension host's client contract is browser code that lives under extension-host/ by
+  // design: the host owns it, not a module, so a browser half may import this one file by
+  // value. Its parent directory is re-included first (a file cannot be re-admitted while every
+  // parent is excluded), then its contents are restricted again and the one file re-admitted.
+  `!${up}extension-host`,
+  `${up}extension-host/**`,
+  `!${up}extension-host/client.tsx`,
   `${up}extensions/**`,
   `!${up}**/model.ts`,
 ];
@@ -89,10 +87,10 @@ const browserBoundary = (up, extra = []) => [
       {
         group: serverImports(up, extra),
         message:
-          "a browser half (src/frontend/**, src/<module>/client/** or a submodule's client/) " +
+          "a browser half (src/app-root/**, src/wizard/** or src/<module>/client/**) " +
           "may only import server " +
           "modules with `import type`, which is erased before the bundle sees it. The pure " +
-          "domain under src/core/domain/ (and a module's model.ts) is importable by value; put " +
+          "domain under src/domain/ (and a module's model.ts) is importable by value; put " +
           "new shared vocabulary there.",
         allowTypeImports: true,
       },
@@ -104,7 +102,7 @@ const browserBoundary = (up, extra = []) => [
  * only that tree additionally refuses — the domain also refuses the error taxonomy, which a
  * `model.ts` is allowed to import. The bare package names go in `paths` (an exact match), not
  * `patterns`: `effect` as a gitignore-style pattern would also match the taxonomy's own
- * `platform/effect/errors.ts` path segment. */
+ * `capabilities/effect/errors.ts` path segment. */
 const pureBoundary = (extra = []) => [
   "error",
   {
@@ -117,7 +115,7 @@ const pureBoundary = (extra = []) => [
         group: ["node:*", "bun:*", "effect/*", ...extra],
         message:
           "domain/** and a module's model.ts are pure: no node:*, no Bun.*, no Effect runtime. " +
-          "A model.ts may import the error taxonomy (core/platform/effect/errors.ts); the domain " +
+          "A model.ts may import the error taxonomy (capabilities/effect/errors.ts); the domain " +
           "may not.",
       },
     ],
@@ -150,13 +148,17 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/frontend/**/*.{ts,tsx}"],
+    // The page's composition root: everything here is browser code except `routes.ts`, the
+    // server half that serves the icons and the fallback — it is server code by design, so the
+    // browser boundary skips it.
+    files: ["src/app-root/**/*.{ts,tsx}"],
+    ignores: ["src/app-root/routes.ts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      "no-restricted-imports": browserBoundary("../"),
+      "no-restricted-imports": browserBoundary("../", ["./routes.ts"]),
     },
   },
   {
@@ -166,21 +168,21 @@ export default tseslint.config(
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      "no-restricted-imports": browserBoundary("../../", ["../server/**"]),
+      "no-restricted-imports": browserBoundary("../../", ["../server/**", "../routes.ts"]),
     },
   },
   {
-    files: ["src/*/*/client/**/*.{ts,tsx}"],
+    // The wizard's browser half sits at the module root (`Wizard.tsx`, with `index.ts` as its
+    // barrel) rather than under `client/`, so it needs its own block. It is one level below
+    // `src/` like `src/app-root/**`, so backend modules are `../` away and there is no sibling
+    // server directory to name.
+    files: ["src/wizard/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      "no-restricted-imports": browserBoundary("../../../", [
-        "../server/**",
-        "../../server/**",
-        "../../*/server/**",
-      ]),
+      "no-restricted-imports": browserBoundary("../", ["./routes.ts"]),
     },
   },
   {
@@ -199,19 +201,19 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/core/host/client.tsx"],
+    files: ["src/extension-host/client.tsx"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      // The host's browser contract is browser code under core/ by design (see serverImports),
-      // and the rule that keeps it one has to cover it too.
-      "no-restricted-imports": browserBoundary("../../"),
+      // The host's browser contract is browser code under extension-host/ by design (see
+      // serverImports), and the rule that keeps it one has to cover it too.
+      "no-restricted-imports": browserBoundary("../", ["./routes.ts"]),
     },
   },
   {
-    files: ["src/core/domain/**/*.{ts,tsx}"],
+    files: ["src/domain/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     rules: {
       "no-restricted-imports": pureBoundary(["**/effect/errors.ts"]),

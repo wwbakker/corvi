@@ -1,9 +1,9 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import type { Change } from "../../core/domain/change.ts";
-import { prItem } from "../../core/integrations/github.ts";
-import { descriptionSectionsFor } from "../../core/host/index.ts";
-import { capabilitiesLayer } from "../../core/host/services.ts";
+import type { Change } from "../../domain/change.ts";
+import { prItem } from "../../vendors/github.ts";
+import { descriptionSectionsFor } from "../../extension-host/index.ts";
+import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
 /**

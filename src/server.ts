@@ -1,15 +1,16 @@
 import type { ServerWebSocket } from "bun";
 import { Effect } from "effect";
-import { loadCache, saveCache } from "./core/platform/capabilities/cache.ts";
-import { buildClientChunks } from "./core/host/clientChunks.ts";
-import { assetsRoutes } from "./core/platform/routes/assets.ts";
-import { changesRoutes } from "./core/platform/routes/changes.ts";
-import { eventsRoutes } from "./core/platform/routes/events.ts";
-import { extensionsRoutes } from "./core/platform/routes/extensions.ts";
-import { reposRoutes } from "./core/platform/routes/repos.ts";
-import { settingsRoutes } from "./core/platform/routes/settings.ts";
-import { terminalsRoutes } from "./core/platform/routes/terminals.ts";
-import { bridge, type Bridge } from "./terminal/server/proxy.ts";
+import { loadCache, saveCache } from "./capabilities/cache.ts";
+import { eventsRoutes } from "./capabilities/bus.ts";
+import { buildClientChunks } from "./extension-host/clientChunks.ts";
+import { extensionHostRoutes } from "./extension-host/routes.ts";
+import { appRootRoutes } from "./app-root/routes.ts";
+import { changeRoutes } from "./change/routes.ts";
+import { dashboardRoutes } from "./dashboard/routes.ts";
+import { settingsRoutes } from "./settings/routes.ts";
+import { terminalsRoutes } from "./terminals/routes.ts";
+import { workspaceRoutes } from "./workspace/routes.ts";
+import { bridge, type Bridge } from "./terminals/server/proxy.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
@@ -53,13 +54,14 @@ const server = Bun.serve({
 
   // One table per domain, each guarded as it is defined; composed here, where the server is.
   routes: {
-    ...assetsRoutes,
-    ...changesRoutes,
+    ...appRootRoutes,
+    ...changeRoutes,
+    ...dashboardRoutes,
     ...eventsRoutes,
-    ...extensionsRoutes,
-    ...reposRoutes,
+    ...extensionHostRoutes,
     ...settingsRoutes,
     ...terminalsRoutes,
+    ...workspaceRoutes,
   },
 });
 
@@ -76,7 +78,7 @@ console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers rest
       `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
     );
     console.error(
-      "usually dependencies: run `bun install`. For the full error: bun build src/frontend/index.html --outdir /tmp/iwe-check --production",
+      "usually dependencies: run `bun install`. For the full error: bun build src/app-root/index.html --outdir /tmp/iwe-check --production",
     );
     process.exit(1);
   }

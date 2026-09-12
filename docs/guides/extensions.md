@@ -7,7 +7,7 @@ the "Create change" wizard, a hook on the change lifecycle, a route, a source of
 overview, a page of its own. It is the shape pi's extensions have: a module whose default export
 **describes** what it contributes — a static value, or a factory returning one — so the host
 wires it up from a registry instead of the core naming it by hand. An extension imports
-`src/core/host/api.ts`; the host never passes an API object in.
+`src/extension-host/api.ts`; the host never passes an API object in.
 
 "Integration" is the wire spelling of "extension", used in `Widget.integration` (and its
 out-of-tree client contract); everything else says extension.
@@ -204,7 +204,7 @@ src/extensions/my-extension/
 ```ts
 // src/extensions/my-extension/index.ts
 import { Effect } from "effect";
-import { Shell, Cache, Workspace, type Extension } from "../../core/host/api.ts";
+import { Shell, Cache, Workspace, type Extension } from "../../extension-host/api.ts";
 
 export default {
   name: "my-extension",
@@ -262,8 +262,8 @@ export const step: StepComponent = ({ ctx }) => {
 };
 ```
 
-A built-in registers its halves in two places — the loader (`src/core/host/index.ts`) and, when
-it has a step, a page or a change tab, the page's client registry (`src/core/host/client.tsx`).
+A built-in registers its halves in two places — the loader (`src/extension-host/index.ts`) and, when
+it has a step, a page or a change tab, the page's client registry (`src/extension-host/client.tsx`).
 An out-of-tree
 extension registers nowhere: it is discovered from the config and loaded through the same
 install path (below).
@@ -297,7 +297,7 @@ runs through the same install/factory path: a static description installs as-is,
 once with the startup capabilities. Every failure — a missing file, a module that throws on
 import, one without a default export, a failed factory — is logged and skipped: a broken
 optional extension is an extension absent, never a failed server. Nothing about the contract
-changes with the extension's address; `src/core/host/api.ts` is still the whole promise. Loading happens
+changes with the extension's address; `src/extension-host/api.ts` is still the whole promise. Loading happens
 once, at startup, so a change to the paths needs a restart.
 
 A discovered module's **client half** is the sibling `client.tsx`, when it exists. The page
@@ -340,7 +340,7 @@ lands in `extensions/<name>/notes.md` without naming itself:
 
 ```ts
 import { Effect } from "effect";
-import { ExtensionStore } from "../../core/host/api.ts";
+import { ExtensionStore } from "../../extension-host/api.ts";
 
 Effect.gen(function* () {
   const store = yield* ExtensionStore;
@@ -390,7 +390,7 @@ about. The settings page renders one switch per discovered extension per workspa
 this key for you; a name nothing loaded answers for is reported when the settings are written.
 `"azure": false` is still read where it states a fact — "this context has no pipelines":
 `azureConfigured` (the CI facts) and `azureEnabled` (the deployments page, which also honours the
-deployments extension's enablement) in src/core/integrations/azure.ts, the shared azure client;
+deployments extension's enablement) in src/vendors/azure.ts, the shared azure client;
 it never rewrites the `extensions` list.
 
 ## Per-workspace settings
@@ -433,13 +433,13 @@ as `[]`, and readers
 - Extensions ship as **built-ins** and as **out-of-tree modules** (above). Both install through
   the same path and get the host's capabilities through the R channel. The built-ins are
   **first-party**: imported statically, they may still reach into core modules and
-  `src/core/integrations/` while they live in this repository, but new built-in code uses
-  `src/core/host/api.ts` plus `src/core/domain/`, so the privilege shrinks by default. The
+  `src/vendors/` while they live in this repository, but new built-in code uses
+  `src/extension-host/api.ts` plus `src/domain/`, so the privilege shrinks by default. The
   first-party exceptions are listed rather than assumed: the leftovers page reads the changes
   root through `change/server/index.ts`; the deployments settings read `config` through
   `workspace/server/index.ts`; and the jira legacy shim reads the one settings precedence chain
   through `settings/server/legacySettings.ts`, the documented leaf. Out-of-tree modules import
-  only `src/core/host/api.ts` — the whole promise — and never get the privilege. There is no
+  only `src/extension-host/api.ts` — the whole promise — and never get the privilege. There is no
   stability promise for them yet.
 - What remains core is what everything else stands on: **tmux and ttyd session handling
   themselves** (what surrounds them — names, icons, status — is the extensible part), the **git

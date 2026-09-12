@@ -10,10 +10,10 @@ import {
   looseEndContributorsFor,
   summaryContributorsFor,
   windowPresenters,
-} from "../src/core/host/index.ts";
+} from "../src/extension-host/index.ts";
 import type { Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/core/domain/change.ts";
-import type { TmuxWindow } from "../src/core/host/api.ts";
+import type { Change } from "../src/domain/change.ts";
+import type { TmuxWindow } from "../src/extension-host/api.ts";
 
 /**
  * The portability proof, in two steps.
@@ -25,7 +25,7 @@ import type { TmuxWindow } from "../src/core/host/api.ts";
  * The second test copies the agents extension's own source out of the repository, rewriting its
  * only in-repo reference — the type-only contract import — to the contract's absolute address,
  * and asserts the presenter that installs behaves. That is the stronger claim: a built-in's own
- * code needs nothing from inside the repository but `src/core/host/api.ts`.
+ * code needs nothing from inside the repository but `src/extension-host/api.ts`.
  *
  * The registry is saved and cleared first: `install` rejects a second extension under a used
  * name, so these exercise the discovery path rather than finding the copy the host already
@@ -95,11 +95,11 @@ const windowFacts = (options: Record<string, string>): TmuxWindow => ({
 
 test("a built-in's own source installs from outside the repository with only the contract", async () => {
   const source = await readFile(join(repoRoot, "src", "extensions", "agents", "index.ts"), "utf8");
-  const contract = pathToFileURL(join(repoRoot, "src", "core", "host", "api.ts")).href;
+  const contract = pathToFileURL(join(repoRoot, "src", "extension-host", "api.ts")).href;
   // The agents extension's only in-repo reference is the contract, as a type-only import.
   // Rewriting it to the contract's absolute address is the whole portability claim: nothing
   // else in its source points inside the repository.
-  const rewritten = source.replace('"../../core/host/api.ts"', JSON.stringify(contract));
+  const rewritten = source.replace('"../../extension-host/api.ts"', JSON.stringify(contract));
   expect(rewritten).not.toBe(source);
   expect(rewritten).not.toContain("../../");
 

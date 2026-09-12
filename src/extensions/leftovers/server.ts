@@ -2,9 +2,9 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { root, ARCHIVE, changeDir } from "../../change/server/index.ts";
-import { Shell, type Result, type Workspace } from "../../core/host/api.ts";
-import { BadRequestError } from "../../core/platform/effect/errors.ts";
-import { fs } from "../../core/platform/effect/support.ts";
+import { Shell, type Result, type Workspace } from "../../extension-host/api.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { fs } from "../../capabilities/effect/support.ts";
 import type { Leftover } from "./shared.ts";
 
 /**

@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
 import { createChange, archiveChange, changeDir, readChange } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/core/integrations/git.ts";
-import { dispatchExtensionRoute } from "../src/core/host/index.ts";
+import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
+import { dispatchExtensionRoute } from "../src/extension-host/index.ts";
 import type { Leftover } from "../src/extensions/leftovers/shared.ts";
 import { runEffect, runSh } from "./helpers.ts";
 

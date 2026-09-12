@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { api, put } from "../../frontend/api.ts";
-import { cached, putCached } from "../../frontend/cache.ts";
-import type { TabComponent } from "../../core/host/client.tsx";
+import { api, put } from "../../app-root/api.ts";
+import { cached, putCached } from "../../app-root/cache.ts";
+import type { TabComponent } from "../../extension-host/client.tsx";
 
 /**
  * The notes extension's browser half: the change's Notes tab. The tab contract hands it the

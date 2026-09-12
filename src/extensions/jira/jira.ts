@@ -1,14 +1,14 @@
 import { Effect, Either } from "effect";
-import type { Change } from "../../core/domain/change.ts";
-import type { WidgetState } from "../../core/domain/widget.ts";
-import { swr, invalidate } from "../../core/platform/capabilities/cache.ts";
+import type { Change } from "../../domain/change.ts";
+import type { WidgetState } from "../../domain/widget.ts";
+import { swr, invalidate } from "../../capabilities/cache.ts";
 import { config, type Config } from "../../workspace/server/index.ts";
 import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
-import { BadRequestError } from "../../core/platform/effect/errors.ts";
-import { messageOf } from "../../core/platform/effect/support.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Issue, Sprint, TicketRef } from "./shared.ts";
 
 export type { Issue, Sprint } from "./shared.ts";

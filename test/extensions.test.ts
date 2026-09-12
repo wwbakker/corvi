@@ -14,19 +14,19 @@ import {
   pagesFor,
   windowPresenters,
   wizardStepsFor,
-} from "../src/core/host/index.ts";
+} from "../src/extension-host/index.ts";
 import type {
   Extension,
   TerminalPresenter,
   WindowPresentation,
-} from "../src/core/host/api.ts";
-import { presentWindow } from "../src/terminal/server/index.ts";
+} from "../src/extension-host/api.ts";
+import { presentWindow } from "../src/terminals/server/index.ts";
 import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
 import { config, type Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import type { Change } from "../src/domain/change.ts";
 
 /**
  * A changes root of its own, because creating a change writes one.

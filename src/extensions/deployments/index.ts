@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { BadRequestError } from "../../core/platform/effect/errors.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
-import type { Extension } from "../../core/host/api.ts";
+import type { Extension } from "../../extension-host/api.ts";
 
 /**
  * The deployments extension: what is deployed where, and the one irreversible thing on that
@@ -36,7 +36,7 @@ export default {
 
   // The per-workspace overrides of the same two names: shown in every workspace that has this
   // extension enabled, and stored under `workspace.extensionSettings.deployments` — the first
-  // step of the chain the shared azure client reads (`azureOf`, src/core/integrations/azure.ts).
+  // step of the chain the shared azure client reads (`azureOf`, src/vendors/azure.ts).
   workspaceSettings: [
     { key: "organization", label: "Organisation", placeholder: "the global setting" },
     { key: "project", label: "Project", placeholder: "the global setting" },
@@ -46,7 +46,7 @@ export default {
   // workspace and stored under `extensionSettings.deployments`. The deployment conventions
   // (pipeline, versionParameter, environmentParameter, environments) are read back by
   // ./deploySettings.ts; organisation and project by the shared azure client's `azureOf`
-  // (src/core/integrations/azure.ts), which adds the per-workspace override above and the core
+  // (src/vendors/azure.ts), which adds the per-workspace override above and the core
   // config's `azure*` fields as the chain's fallback. An environment variable keeps beating the
   // page: the field shows locked when IWE_AZURE_* is set.
   globalSettings: [

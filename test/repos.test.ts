@@ -10,11 +10,11 @@ import {
   unsafeToRemove,
   repoStates,
   isDirect,
-} from "../src/core/integrations/git.ts";
+} from "../src/vendors/git.ts";
 import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
-import type { Result } from "../src/core/platform/capabilities/sh.ts";
-import { provision } from "../src/core/host/index.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import type { Result } from "../src/capabilities/shell.ts";
+import { provision } from "../src/extension-host/index.ts";
+import type { Change } from "../src/domain/change.ts";
 import type { FileChange } from "../src/extensions/review/shared.ts";
 
 /**

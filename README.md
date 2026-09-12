@@ -342,7 +342,7 @@ it keeps a readable 1200px column.
 
 `http://127.0.0.1:4000` counts as a secure context, so no TLS is needed. The icon source is
 `assets/icon.svg` (and `assets/icon-maskable.svg` for the padded, croppable variant); edit those
-and run `bun run icons` to regenerate `src/frontend/icons/*.png` with `rsvg-convert`
+and run `bun run icons` to regenerate `src/app-root/icons/*.png` with `rsvg-convert`
 (`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
 
 ## Workspaces
@@ -1218,7 +1218,7 @@ is why a `git` command in a terminal or a hand-edited `change.json` shows up too
 ## Caching
 
 Everything on a page costs a subprocess, and the same answers are wanted by the overview, the
-dashboard and the summaries within seconds of each other. `src/core/platform/capabilities/cache.ts` is one
+dashboard and the summaries within seconds of each other. `src/capabilities/cache.ts` is one
 stale-while-revalidate store for all of them:
 
 ```typescript
@@ -1287,7 +1287,7 @@ requests of a big change keep saturating the browser's six connections per origi
 localhost, so no multiplexing), and the next page waits seconds for a free one: measured at
 2387ms for `GET /api/changes` mid-load versus 4ms idle.
 
-Widget data is kept in a small in-memory cache in the browser (`src/frontend/cache.ts`), keyed by
+Widget data is kept in a small in-memory cache in the browser (`src/app-root/cache.ts`), keyed by
 change, component and repository, so leaving a change and coming back paints the last known rows
 straight away while they refresh in the background. A page reload starts empty.
 
@@ -1306,8 +1306,8 @@ the surfaces in docs/guides/extensions.md. A card takes the same shape the integ
 a time — and the UI renders whatever widgets come back; a card needs no frontend change. A
 wizard step is `wizardSteps` plus a React component in the extension's `client.tsx`, and
 `events["change:created"]` is the creation hook. A built-in is added to the loader in
-`src/core/host/index.ts` and, when it has a step, a page or a change tab, to the client registry in
-`src/core/host/client.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
+`src/extension-host/index.ts` and, when it has a step, a page or a change tab, to the client registry in
+`src/extension-host/client.tsx`; an out-of-tree one is added to `extensionPaths` in the config instead
 and registers nowhere.
 
 ## Tests and your real changes
@@ -1336,40 +1336,43 @@ The map, grouped by layer:
 
     src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
 
-    src/core/platform/        the substrate everything stands on
+    src/capabilities/         the substrate everything stands on
       effect/                 errors (the taxonomy) · http→status · runRoute · Workspace tag ·
                               support.ts (the shared shSoft/cliJson/messageOf/fs helpers)
-      capabilities/           sh.ts (the subprocess gate, timeout and trace), cache.ts
-                              (stale-while-revalidate for everything the CLIs answer), events.ts
-                              (the SSE hub and the watcher behind it)
-      origin.ts               refusing requests another site made
-      platform.ts             platform detection
-      tooling.ts              IDE state carried into a new worktree, paths rewritten
-      routes/                 the HTTP handlers, one module per domain: helpers, changes,
-                              terminals, repos, settings, extensions, events, assets
-    src/core/integrations/    vendor CLI wrappers shared by more than one feature
+      shell.ts                the subprocess gate, timeout and trace
+      cache.ts                stale-while-revalidate for everything the CLIs answer
+      bus.ts                  the SSE hub and the watcher behind it
+      web.ts                  refusing requests another site made, and the HTTP helpers
+      os.ts                   platform detection and IDE state carried into a new worktree
+    src/vendors/              vendor CLI wrappers shared by more than one feature
       git.ts                  worktrees and checkouts (wt, plus plain git)
       github.ts               pull requests, review threads, merges
       azure.ts                Azure DevOps pipelines and runs
       stacks.ts               stacked pull requests
 
-    src/change/               the change module: its server half, its client half, its shared rule
+    src/change/               the change module: its server half and its shared rule, no UI
       model.ts                applyPatch: the two fields you may edit by hand
       server/                 schema.ts (the change.json schema), store.ts (change.json, the
                               archive, sidecars, ExtensionStore files), create.ts, complete.ts,
                               cancel.ts, titles.ts, description.ts,
                               index.ts (the public face)
-      client/                 ChangeView.tsx, changeState.tsx,
-                              EditReposDialog.tsx, CompletionCard.tsx
-      wizard/                 the New change wizard (client/Wizard.tsx, index.ts)
-      overview/               the dashboard: server/summary.ts composes change, terminal and the
-                              host; client/ holds ChangeCard, PerRepoCard, WidgetCard, WidgetRows,
-                              Progress
-    src/terminal/             the terminal module: sessions without change knowledge
+      routes.ts               its HTTP table
+    src/dashboard/            the dashboard tab
+      server/                 summary.ts (composes change, terminal and the host),
+                              index.ts (the public face)
+      client/                 WidgetCard.tsx, WidgetRows.tsx, PerRepoCard.tsx, CompletionCard.tsx,
+                              EditReposDialog.tsx
+      routes.ts               the change's summary endpoint
+    src/change-page/          the change shell: composes the dashboard, extension tabs and the
+                              terminal; owns no data
+      client/                 ChangeView.tsx, changeTabs.ts
+    src/wizard/               /new: Wizard.tsx, index.ts (the face)
+    src/terminals/            the terminal module: sessions without change knowledge
       server/                 tmux.ts (sessions, ttyd spawn), proxy.ts (ttyd through our
                               origin, the key-fixing script), presenter.ts (the window merge and
                               the core's defaults), index.ts (the public face)
-      client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx, newWindowKey.ts
+      client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx
+      routes.ts               the ttyd proxy, the key script and the window API
     src/workspace/            the workspace module: contexts, config and the repository browser
       server/                 config.ts (config file + env overrides), schema.ts (the config file
                               schema), workspaces.ts (which context a change belongs to),
@@ -1377,17 +1380,21 @@ The map, grouped by layer:
                               index.ts (the public face)
       client/                 workspaces.ts (the context switcher state), WorkspaceCard.tsx,
                               RepoBrowser.tsx
+      routes.ts               the repo browser and the workspaces list
     src/settings/             the settings module: the settings file, read and written from the page
       server/                 settings.ts (the page's read/write surface), legacySettings.ts (the
                               one precedence chain), index.ts (the public face)
       client/                 SettingsPage.tsx, SettingsFields.tsx
+      routes.ts               the settings file route
 
-    src/core/domain/          the vocabulary the server and the page share —
+    src/domain/               the vocabulary the server and the page share —
                               change.ts, widget.ts, terminal.ts, time.ts, config.ts
-    src/core/host/            the extension contract and its machinery — api.ts (api/*.ts),
+    src/extension-host/       the extension contract and its machinery — api.ts (api/*.ts),
                               registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
                               services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
-                              client-side registry and the extension UI contract), index.ts
+                              client-side registry and the extension UI contract), index.ts,
+                              routes.ts (wizard, pages, ext dispatch, card/tab endpoints,
+                              extension client and vendor chunks)
 
     src/extensions/           the built-ins, and nothing else
       agents/ git/ github-issues/ jira/
@@ -1403,7 +1410,7 @@ The map, grouped by layer:
                               client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,
                               shared.ts (the vocabulary both halves read)
 
-    src/frontend/             the browser shell and runtime, bundled by Bun's HTML import
+    src/app-root/             the browser shell and runtime, bundled by Bun's HTML import
       app.tsx                 shell, changes list, URL↔view
       state.ts                the changes and tmux windows, owned by the app
       events.ts api.ts cache.ts   the SSE client, the fetch helpers, the in-memory cache
@@ -1411,7 +1418,10 @@ The map, grouped by layer:
       icons.tsx icons/        the status glyphs, and the generated app icons
       styles.css manifest.webmanifest index.html
       ActionsMenu.tsx         the change page's action menu
+      ChangeCard.tsx          the home list's card
+      stateClass.ts Progress.tsx   the shared state-class helper and progress primitive
       moment.ts prefs.ts poll.ts notify.tsx LifecycleFailures.tsx
+      routes.ts               the icons and the /* fallback
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension

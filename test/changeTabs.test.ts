@@ -3,12 +3,12 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { Changes } from "../src/core/host/api.ts";
-import { capabilitiesLayer } from "../src/core/host/services.ts";
-import { changesRoutes } from "../src/core/platform/routes/changes.ts";
+import { Changes } from "../src/extension-host/api.ts";
+import { capabilitiesLayer } from "../src/extension-host/services.ts";
+import { extensionHostRoutes } from "../src/extension-host/routes.ts";
 import { changeDir, createChange } from "../src/change/server/index.ts";
-import { provisionRepo } from "../src/core/integrations/git.ts";
-import { install, loaded } from "../src/core/host/index.ts";
+import { provisionRepo } from "../src/vendors/git.ts";
+import { install, loaded } from "../src/extension-host/index.ts";
 import { config, workspaceById } from "../src/workspace/server/index.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
@@ -37,7 +37,7 @@ afterAll(async () => {
 
 /** The route as server.ts mounts it, called with the path parameter Bun would have filled in. */
 const tabsOf = async (id: string): Promise<{ id: string; title: string; extension: string }[]> => {
-  const route = changesRoutes["/api/changes/:id/tabs"] as unknown as {
+  const route = extensionHostRoutes["/api/changes/:id/tabs"] as unknown as {
     GET: (req: Request, srv: unknown) => Promise<Response>;
   };
   const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/tabs`), {
