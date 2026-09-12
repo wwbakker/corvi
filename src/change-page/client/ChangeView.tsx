@@ -28,7 +28,7 @@ import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
-import { TabHost } from "../../extension-host/client.tsx";
+import { TabHost, WidgetHost, type WidgetInfo } from "../../extension-host/client.tsx";
 
 /** Branch names start with the change id, which the crumb already shows: drop the repetition. */
 const branchLabel = (id: string, branch: string): string =>
@@ -88,6 +88,8 @@ export function ChangeView({
   // The tabs the change's page shows, per change for the same reason: they depend on the
   // workspace, and the server resolves that.
   const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${id}:tabs`);
+  // The client-drawn widgets the dashboard shows, per change for the same reason.
+  const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${id}:widgets`);
   const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -119,6 +121,9 @@ export function ChangeView({
       .catch((e: Error) => setError(e.message));
     api<{ tabs: ChangeTabInfo[] }>(`/changes/${id}/tabs`)
       .then(({ tabs }) => setTabs(tabs))
+      .catch((e: Error) => setError(e.message));
+    api<{ widgets: WidgetInfo[] }>(`/changes/${id}/widgets`)
+      .then(({ widgets }) => setWidgets(widgets))
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
@@ -395,8 +400,36 @@ export function ChangeView({
           <div className="column">
             <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
             {(infos ?? []).filter((i) => !i.wide).map(card)}
+            {/* Client-drawn widgets, after the server-drawn cards: textareas and other client
+                state a polled card cannot hold. Deliberately not keyed by generation — a
+                remount after a merge would drop in-flight typing. Nothing to hand a widget
+                before the change loads, so they wait for it; the cards do not. */}
+            {change &&
+              (widgets ?? [])
+                .filter((w) => !w.wide)
+                .map((w) => (
+                  <WidgetHost
+                    key={`${w.extension}:${w.id}`}
+                    info={w}
+                    change={change}
+                    workspace={change.workspace}
+                  />
+                ))}
           </div>
-          <div className="column">{(infos ?? []).filter((i) => i.wide).map(card)}</div>
+          <div className="column">
+            {(infos ?? []).filter((i) => i.wide).map(card)}
+            {change &&
+              (widgets ?? [])
+                .filter((w) => w.wide)
+                .map((w) => (
+                  <WidgetHost
+                    key={`${w.extension}:${w.id}`}
+                    info={w}
+                    change={change}
+                    workspace={change.workspace}
+                  />
+                ))}
+          </div>
         </div>
       )}
       {/* An extension's own tab. It gets the change, which may still be loading: nothing to

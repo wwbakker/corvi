@@ -10,12 +10,13 @@ import type { Change } from "../../domain/change.ts";
 import { readNotes, writeNotes } from "./server.ts";
 
 /**
- * The notes extension: whatever you want to remember about a change, as a tab of its own.
+ * The notes extension: whatever you want to remember about a change, as a widget on its
+ * dashboard.
  *
- * It contributes a change tab (rendered by its client half) and the two routes that tab reads
- * and writes, under `/api/ext/notes/`. The notes themselves live in the extension's own
- * `ExtensionStore`, and a change whose notes predate the store still shows its old sidecar
- * through the `Changes.readSidecar` migration access — see ./server.ts.
+ * It contributes a dashboard widget (rendered by its client half) and the two routes that
+ * widget reads and writes, under `/api/ext/notes/`. The notes themselves live in the
+ * extension's own `ExtensionStore`, and a change whose notes predate the store still shows its
+ * old sidecar through the `Changes.readSidecar` migration access — see ./server.ts.
  */
 
 /** The request body. A body that will not parse is the caller's mistake, said as the core's
@@ -42,7 +43,9 @@ export default {
   name: "notes",
   title: "Notes",
 
-  changeTabs: [{ id: "notes", title: "Notes" }],
+  // A client-drawn widget, not a server-drawn card: the textarea's debounce, unsaved marker
+  // and never-overwrite-while-typing are client state a `Card.status` effect cannot hold.
+  dashboardWidgets: [{ id: "notes", title: "Notes" }],
 
   routes: [
     {

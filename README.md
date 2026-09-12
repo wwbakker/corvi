@@ -885,9 +885,9 @@ want more care than a click.
 
 ## Notes
 
-Each change has a free-text note, a **Notes** tab beside the dashboard when the notes extension is
+Each change has a free-text note, a **Notes** card on the dashboard when the notes extension is
 enabled, stored as `extensions/notes/notes.md` in the change directory so it travels into the
-archive with everything else. A note written before the tab existed, at the change root's
+archive with everything else. A note written before the widget existed, at the change root's
 `notes.md`, still shows as a read-only fallback. It saves shortly after you stop typing, on blur,
 and when you navigate away.
 
@@ -1404,7 +1404,7 @@ The map, grouped by layer:
                               deployConventions.ts (the pipeline-name convention both halves share)
       leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
                               (the Leftover type both halves read)
-      notes/                  index.ts (the Notes tab), server.ts (the store-backed read and write),
+      notes/                  index.ts (the Notes widget), server.ts (the store-backed read and write),
                               client.tsx
       review/                 index.ts (the declaration and routes), server.ts (the git surface),
                               client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,

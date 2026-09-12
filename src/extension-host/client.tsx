@@ -5,15 +5,17 @@ import type { Change, Selection } from "../app-root/api.ts";
  * The client halves of the extensions, and the hosts that render them.
  *
  * An extension's interface is a React component it ships next to its server half, exported as
- * `step` (a wizard step), `page` (a page the sidebar offers) or `tab` (a tab on a change's
- * page) — or any combination. Built-ins are in the registry below — build-time dynamic imports,
- * each made its own chunk by the bundler, loaded the first time a page renders that extension's
- * step, page or tab. An out-of-tree extension has no static entry: its client was never seen by
- * the bundler, so StepHost, PageHost and TabHost fall back to importing the chunk the server
- * built and serves at /extensions/<name>/client.js. The contract — one module exporting `step`
- * and/or `page` and/or `tab` — stays, which is why the server, not the page, decides what
- * exists: the wizard is told the steps, the sidebar the pages and the change page its tabs, and
- * each renders what it is told.
+ * `step` (a wizard step), `page` (a page the sidebar offers), `tab` (a tab on a change's
+ * page) or `widget` (a client-drawn widget on a change's dashboard) — or any combination.
+ * Built-ins are in the registry below — build-time dynamic imports, each made its own chunk by
+ * the bundler, loaded the first time a page renders that extension's step, page, tab or
+ * widget. An out-of-tree extension has no static entry: its client was never seen by
+ * the bundler, so StepHost, PageHost, TabHost and WidgetHost fall back to importing the chunk
+ * the server built and serves at /extensions/<name>/client.js. The contract — one module
+ * exporting `step` and/or `page` and/or `tab` and/or `widget` — stays, which is why the
+ * server, not the page, decides what exists: the wizard is told the steps, the sidebar the
+ * pages, the change page its tabs and the dashboard its widgets, and each renders what it is
+ * told.
  */
 
 /** What the wizard has in hand while its steps run, shared between them. */
@@ -46,7 +48,18 @@ export type PageComponent = ComponentType<PageProps>;
 /** What a change tab gets: the change it is about, and the workspace that change belongs to. */
 export type TabComponent = ComponentType<{ change: Change; workspace?: string }>;
 
-export type ClientModule = { step?: StepComponent; page?: PageComponent; tab?: TabComponent };
+/** What a dashboard widget gets: the same props as a change tab, on the dashboard instead. */
+export type WidgetComponent = ComponentType<{ change: Change; workspace?: string }>;
+
+export type ClientModule = {
+  step?: StepComponent;
+  page?: PageComponent;
+  tab?: TabComponent;
+  widget?: WidgetComponent;
+};
+
+/** One extension's client-drawn widget on a change's dashboard. */
+export type WidgetInfo = { id: string; title: string; extension: string; wide?: boolean };
 
 export const clients: Record<string, () => Promise<ClientModule>> = {
   jira: () => import("../extensions/jira/client.tsx"),
@@ -158,4 +171,41 @@ export function TabHost({
   if (error) return <div className="error-banner">{error}</div>;
   if (!Tab) return <p className="hint">loading…</p>;
   return <Tab change={change} workspace={workspace} />;
+}
+
+/** One extension's dashboard widget, the same way: the module loaded the first time the
+ * dashboard is shown, from the registry when the extension is built in, from the server's
+ * chunk when it is not. An extension that offered a widget server-side but exports none on
+ * this side says so. */
+export function WidgetHost({
+  info,
+  change,
+  workspace,
+}: {
+  info: WidgetInfo;
+  change: Change;
+  workspace?: string;
+}): JSX.Element {
+  const [Widget, setWidget] = useState<WidgetComponent>();
+  const [error, setError] = useState<string>();
+  useEffect(() => {
+    let alive = true;
+    const load = clients[info.extension];
+    const loader = load ?? (() => runtimeImport(`/extensions/${info.extension}/client.js`));
+    loader()
+      .then((m) => {
+        if (!alive) return;
+        if (!m.widget) setError(`${info.extension} has no widget on this side`);
+        else setWidget(() => m.widget);
+      })
+      .catch((e: Error) => {
+        if (alive) setError(e.message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [info.extension]);
+  if (error) return <div className="error-banner">{error}</div>;
+  if (!Widget) return <p className="hint">loading…</p>;
+  return <Widget change={change} workspace={workspace} />;
 }
