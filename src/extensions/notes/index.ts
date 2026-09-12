@@ -5,8 +5,8 @@ import {
   DecodeError,
   NotFoundError,
   type Extension,
-} from "../../core/host/api.ts";
-import type { Change } from "../../core/domain/change.ts";
+} from "../../extension-host/api.ts";
+import type { Change } from "../../domain/change.ts";
 import { readNotes, writeNotes } from "./server.ts";
 
 /**

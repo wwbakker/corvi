@@ -8,10 +8,10 @@ import {
   stackOnBase,
   stackRequest,
   type MergeResult,
-} from "../src/core/integrations/stacks.ts";
-import type { Change } from "../src/core/domain/change.ts";
-import type { WidgetItem } from "../src/core/domain/widget.ts";
-import { clearCache } from "../src/core/platform/capabilities/cache.ts";
+} from "../src/vendors/stacks.ts";
+import type { Change } from "../src/domain/change.ts";
+import type { WidgetItem } from "../src/domain/widget.ts";
+import { clearCache } from "../src/capabilities/cache.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 beforeEach(() => clearCache());

@@ -1,4 +1,4 @@
-import type { Workspace } from "../../core/domain/config.ts";
+import type { Workspace } from "../../domain/config.ts";
 import { Field, Group, type KnownExtension } from "../../settings/client/SettingsFields.tsx";
 import type { JSX } from "react";
 

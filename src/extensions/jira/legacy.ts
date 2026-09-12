@@ -1,5 +1,5 @@
-import type { Change } from "../../core/domain/change.ts";
-import type { Config } from "../../core/domain/config.ts";
+import type { Change } from "../../domain/change.ts";
+import type { Config } from "../../domain/config.ts";
 import { resolveSetting } from "../../settings/server/legacySettings.ts";
 
 /**

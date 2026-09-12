@@ -45,4 +45,4 @@ export { refreshTitles } from "./titles.ts";
 
 export { describeChange, prDescription } from "./description.ts";
 
-export { branchFor } from "../../core/domain/change.ts";
+export { branchFor } from "../../domain/change.ts";

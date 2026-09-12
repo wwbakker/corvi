@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import type { Config } from "../../core/domain/config.ts";
+import type { Config } from "../../domain/config.ts";
 import type { Settings, SettingsView } from "../model.ts";
 import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import {
@@ -14,11 +14,11 @@ import {
   EnvVarName,
   WorkspaceId,
 } from "../../workspace/server/index.ts";
-import { loaded } from "../../core/host/index.ts";
-import { BadRequestError } from "../../core/platform/effect/errors.ts";
-import { fs } from "../../core/platform/effect/support.ts";
-import { invalidate } from "../../core/platform/capabilities/cache.ts";
-import { TOOLING } from "../../core/platform/tooling.ts";
+import { loaded } from "../../extension-host/index.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { fs } from "../../capabilities/effect/support.ts";
+import { invalidate } from "../../capabilities/cache.ts";
+import { TOOLING } from "../../capabilities/os.ts";
 
 /**
  * Reading and writing the settings file from the page.

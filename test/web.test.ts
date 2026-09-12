@@ -1,10 +1,10 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import type { Change } from "../src/core/domain/change.ts";
-import { aborted, api, del, patch, post, put, type ApiError } from "../src/frontend/api.ts";
-import { stateClass } from "../src/change/client/changeState.tsx";
-import { changeNav, resolveChangePage } from "../src/change/client/changeTabs.ts";
-import { moment } from "../src/frontend/moment.ts";
-import { getPref, setPref } from "../src/frontend/prefs.ts";
+import type { Change } from "../src/domain/change.ts";
+import { aborted, api, del, patch, post, put, type ApiError } from "../src/app-root/api.ts";
+import { stateClass } from "../src/app-root/stateClass.ts";
+import { changeNav, resolveChangePage } from "../src/change-page/client/changeTabs.ts";
+import { moment } from "../src/app-root/moment.ts";
+import { getPref, setPref } from "../src/app-root/prefs.ts";
 import {
   ALL,
   DEFAULT_WORKSPACE,
@@ -64,7 +64,7 @@ test("the everything filter keeps every change, and a workspace keeps its own", 
   expect(inWorkspace([change({ workspace: "gone" }), untagged], "gone", both)).toHaveLength(1);
 });
 
-test("the default workspace is the one src/core/domain/config.ts defines", () => {
+test("the default workspace is the one src/domain/config.ts defines", () => {
   expect(DEFAULT_WORKSPACE).toEqual({ id: "default", name: "Default workspace" });
   // "everything" is a filter, not a workspace: it is not one of the configured ids.
   expect(both.map((w) => w.id)).not.toContain(ALL);

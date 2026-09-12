@@ -1,13 +1,13 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import { worst } from "../../core/domain/widget.ts";
-import type { Change } from "../../core/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../../core/domain/widget.ts";
-import { activeRuns, pipelineItems } from "../../core/integrations/azure.ts";
-import { createPr, prItem, prSummary } from "../../core/integrations/github.ts";
+import { worst } from "../../domain/widget.ts";
+import type { Change } from "../../domain/change.ts";
+import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
+import { activeRuns, pipelineItems } from "../../vendors/azure.ts";
+import { createPr, prItem, prSummary } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
-import { BadRequestError, type CliError } from "../../core/platform/effect/errors.ts";
-import type { Extension, SummaryContribution } from "../../core/host/api.ts";
+import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
+import type { Extension, SummaryContribution } from "../../extension-host/api.ts";
 
 /**
  * Pull requests and the pipelines they trigger, per repository: one question ("is this change
@@ -47,7 +47,7 @@ const fallbackChecks = (
     return checks.length ? checks : azure;
   });
 
-/** The item-level variant of core/domain/widget.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
+/** The item-level variant of domain/widget.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
  * card can pick a verdict from its own rows as well as from a list of states. */
 const worstItem = (items: WidgetItem[]): WidgetState =>
   items.some((i) => i.state === "error")

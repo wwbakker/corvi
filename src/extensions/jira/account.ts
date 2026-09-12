@@ -1,8 +1,7 @@
 import { Effect } from "effect";
 import { jiraFetch } from "./jiraHttp.ts";
 import type { Site } from "./jira.ts";
-import { config } from "../../workspace/server/index.ts";
-import { BadRequestError } from "../../core/platform/effect/errors.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
 
 /**
  * The account to assign to: whatever is configured, or the one the token belongs to. A name is

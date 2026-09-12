@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkspaceCard, enablementPatch } from "../src/workspace/client/WorkspaceCard.tsx";
 import type { KnownExtension } from "../src/settings/client/SettingsFields.tsx";
-import type { Workspace } from "../src/core/domain/config.ts";
+import type { Workspace } from "../src/domain/config.ts";
 
 /**
  * The workspace card renders whatever the extensions declare and nothing vendor-specific: the

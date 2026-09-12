@@ -11,7 +11,7 @@ import { bagList, bagString, resolveSetting } from "../../settings/server/legacy
  * file). A bag value that is not the right shape, or an empty one, is not set: empty means unset.
  *
  * Organisation and project are not here: they belong to the shared azure client, whose chain
- * also carries the per-workspace override (src/core/integrations/azure.ts's `azureOf`).
+ * also carries the per-workspace override (src/vendors/azure.ts's `azureOf`).
  *
  * The exception is `pipeline`: the list holds exactly two names — how a build pipeline is named,
  * and its deploy twin — so a bag list that is not two names reads as not set and the flat field

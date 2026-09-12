@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { listLeftovers, removeLeftover } from "./server.ts";
-import type { Extension } from "../../core/host/api.ts";
+import type { Extension } from "../../extension-host/api.ts";
 
 /**
  * The leftovers extension: the directories in the changes root that no longer belong to a

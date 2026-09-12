@@ -11,7 +11,7 @@ import {
   repoFromUrl,
   waitingOnYou,
   type MergeReadiness,
-} from "../src/core/integrations/github.ts";
+} from "../src/vendors/github.ts";
 import {
   createIssue,
   listIssues,
@@ -20,18 +20,18 @@ import {
   viewIssue,
 } from "../src/extensions/github-issues/index.ts";
 import githubIssues from "../src/extensions/github-issues/index.ts";
-import { clearCache } from "../src/core/platform/capabilities/cache.ts";
+import { clearCache } from "../src/capabilities/cache.ts";
 import { config } from "../src/workspace/server/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/core/platform/effect/tags.ts";
-import type { Capabilities } from "../src/core/host/api.ts";
-import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/core/host/services.ts";
+import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
+import type { Capabilities } from "../src/extension-host/api.ts";
+import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Result } from "../src/core/platform/capabilities/sh.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import type { Result } from "../src/capabilities/shell.ts";
+import type { Change } from "../src/domain/change.ts";
 import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /**
- * `src/core/integrations/github.ts` and the github-issues extension, driven through the fake-Shell
+ * `src/vendors/github.ts` and the github-issues extension, driven through the fake-Shell
  * seam. The core functions reach `gh` and `git` through `sh`, which prefers a Shell in context;
  * the extension functions take the `Shell` and `Cache` services directly, so the layers below
  * provide the whole capability union with a scripted Shell in place of the live one.

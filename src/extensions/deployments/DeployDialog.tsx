@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post } from "../../frontend/api.ts";
-import { moment } from "../../frontend/moment.ts";
-import { Progress } from "../../change/overview/client/Progress.tsx";
+import { api, post } from "../../app-root/api.ts";
+import { moment } from "../../app-root/moment.ts";
+import { Progress } from "../../app-root/Progress.tsx";
 
 export type Buildable = {
   runId: number;

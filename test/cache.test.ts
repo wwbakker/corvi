@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, TestClock } from "effect";
-import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/core/platform/capabilities/cache.ts";
+import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/capabilities/cache.ts";
 import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
 const file = join(tmpdir(), "iwe-cache-test.json");
@@ -170,7 +170,7 @@ test("a command that cannot start is a failed command, not a crash", async () =>
 });
 
 test("every CLI a workspace runs gets that workspace's environment", async () => {
-  const { envOf, sh } = await import("../src/core/platform/capabilities/sh.ts");
+  const { envOf, sh } = await import("../src/capabilities/shell.ts");
   const workspace = {
     id: "client",
     name: "Acme",

@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { ExtensionStore } from "../src/core/host/api.ts";
+import { ExtensionStore } from "../src/extension-host/api.ts";
 import {
   afterChange,
   applyCreatingHooks,
@@ -11,12 +11,12 @@ import {
   install,
   loaded,
   provision,
-} from "../src/core/host/index.ts";
-import { extensionStoreLayer } from "../src/core/host/services.ts";
+} from "../src/extension-host/index.ts";
+import { extensionStoreLayer } from "../src/extension-host/services.ts";
 import { archiveChange, changeDir, createChange, readChange } from "../src/change/server/index.ts";
-import { BadRequestError, ConflictError } from "../src/core/platform/effect/errors.ts";
+import { BadRequestError, ConflictError } from "../src/capabilities/effect/errors.ts";
 import { config } from "../src/workspace/server/index.ts";
-import type { Change, Change as ChangeShape } from "../src/core/domain/change.ts";
+import type { Change, Change as ChangeShape } from "../src/domain/change.ts";
 import { runEffect, TestError } from "./helpers.ts";
 
 /**

@@ -3,13 +3,13 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/core/integrations/git.ts";
+import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
 import { Effect } from "effect";
 import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
 import { cancelChange } from "../src/change/server/index.ts";
-import { install, loaded } from "../src/core/host/registry.ts";
-import type { Result } from "../src/core/platform/capabilities/sh.ts";
-import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/core/domain/change.ts";
+import { install, loaded } from "../src/extension-host/registry.ts";
+import type { Result } from "../src/capabilities/shell.ts";
+import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/domain/change.ts";
 
 /**
  * Cancelling is the other way a change ends, and the one with no undo button on the far side: it
@@ -170,7 +170,7 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, cardForExtension } = await import("../src/core/host/index.ts");
+  const { repoStatusOf, cardForExtension } = await import("../src/extension-host/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));

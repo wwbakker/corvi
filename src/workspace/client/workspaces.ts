@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../../frontend/api.ts";
-import { getPref, setPref } from "../../frontend/prefs.ts";
-import type { Change } from "../../frontend/api.ts";
-import type { Platform } from "../../terminal/model.ts";
-import { DEFAULT_WORKSPACE } from "../../core/domain/config.ts";
+import { api } from "../../app-root/api.ts";
+import { getPref, setPref } from "../../app-root/prefs.ts";
+import type { Change } from "../../app-root/api.ts";
+import type { Platform } from "../../terminals/model.ts";
+import { DEFAULT_WORKSPACE } from "../../domain/config.ts";
 
 export type Workspace = {
   id: string;
   name: string;
   reposStart?: string;
   /** `false` when it has no pipelines: on load this folds into the extensions list without
-   * `deployments` (src/core/host/index.ts), so the page is not offered. */
+   * `deployments` (src/extension-host/index.ts), so the page is not offered. */
   azure?: false | { organization?: string; project?: string };
   env?: Record<string, string>;
 };

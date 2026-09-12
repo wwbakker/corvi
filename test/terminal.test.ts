@@ -3,8 +3,8 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, testRun, testTempDir } from "./helpers.ts";
-import { isLinux } from "../src/core/platform/platform.ts";
-import { terminalPath } from "../src/terminal/server/index.ts";
+import { isLinux } from "../src/capabilities/os.ts";
+import { terminalPath } from "../src/terminals/server/index.ts";
 
 /**
  * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only

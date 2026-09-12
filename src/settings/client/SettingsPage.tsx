@@ -1,10 +1,10 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, put } from "../../frontend/api.ts";
-import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
+import { api, put } from "../../app-root/api.ts";
+import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 // The settings vocabulary lives in the module's model.ts, so the browser bundle gets none of
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
-import type { ExtensionSetting } from "../../core/host/api.ts";
+import type { ExtensionSetting } from "../../extension-host/api.ts";
 import { CheckField, Field, ListEditor, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 

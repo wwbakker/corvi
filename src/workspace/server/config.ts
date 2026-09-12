@@ -2,10 +2,10 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { DEFAULT_WORKSPACE, type Config } from "../../core/domain/config.ts";
+import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
-import { TOOLING } from "../../core/platform/tooling.ts";
+import { TOOLING } from "../../capabilities/os.ts";
 
 // Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>
@@ -159,7 +159,7 @@ function load(): Config {
 /** The extension paths, resolved: the environment override (comma-separated) wins over the
  * file — an empty one counts as unset, since it names nothing — `~` is expanded, and empties
  * and duplicates are dropped. The implicit default directory is not here — it is a convention
- * the loader adds (src/core/host/index.ts), not a decision the file records, so the settings
+ * the loader adds (src/extension-host/index.ts), not a decision the file records, so the settings
  * page shows exactly what was configured. */
 function extensionPathsFrom(file: ConfigFile): string[] {
   const seen = new Set<string>();

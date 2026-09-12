@@ -3,9 +3,9 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect, Either } from "effect";
-import { clearCache } from "../src/core/platform/capabilities/cache.ts";
+import { clearCache } from "../src/capabilities/cache.ts";
 import { config, type Config, type Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import type { Change } from "../src/domain/change.ts";
 import {
   boardIssues,
   createIssue,

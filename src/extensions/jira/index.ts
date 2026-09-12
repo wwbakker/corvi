@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
-import type { Change, CompletionStep } from "../../core/domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../../core/domain/widget.ts";
-import { swr } from "../../core/platform/capabilities/cache.ts";
+import type { Change, CompletionStep } from "../../domain/change.ts";
+import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
+import { swr } from "../../capabilities/cache.ts";
 import { jiraFetch, jiraBaseUrl } from "./jiraHttp.ts";
 import {
   boardIssues,
@@ -18,7 +18,7 @@ import {
 } from "./jira.ts";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
-import { Settings, Workspace, type Extension } from "../../core/host/api.ts";
+import { Settings, Workspace, type Extension } from "../../extension-host/api.ts";
 
 /**
  * The jira extension: a self-describing value.

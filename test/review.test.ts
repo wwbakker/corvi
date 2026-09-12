@@ -3,14 +3,14 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange } from "../src/change/server/index.ts";
-import { checkoutFor } from "../src/core/integrations/git.ts";
-import { changeTabsFor, dispatchExtensionRoute, provision } from "../src/core/host/index.ts";
-import { resolveChangePage } from "../src/change/client/changeTabs.ts";
+import { checkoutFor } from "../src/vendors/git.ts";
+import { changeTabsFor, dispatchExtensionRoute, provision } from "../src/extension-host/index.ts";
+import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import type { Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/core/domain/change.ts";
+import type { Change } from "../src/domain/change.ts";
 import type { CommitResult, LocalStatus } from "../src/extensions/review/shared.ts";
 import { runEffect, runSh } from "./helpers.ts";
-import type { Result } from "../src/core/platform/capabilities/sh.ts";
+import type { Result } from "../src/capabilities/shell.ts";
 
 /**
  * The review extension on the change-tab contract (E3): its tab exists exactly when the

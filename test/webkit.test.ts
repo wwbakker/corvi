@@ -128,7 +128,7 @@ test.skipIf(!usable)("the settings page reads and writes in WebKit", async () =>
     file: { extensionSettings?: { jira?: { doneTransition?: string } } };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/core/host/index.ts migrates top-level keys on load).
+  // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
 }, 60_000);
 
