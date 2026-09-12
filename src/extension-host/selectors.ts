@@ -6,6 +6,7 @@ import type {
   Card,
   ChangeTab,
   CompletionStepContributor,
+  DashboardWidget,
   DescriptionSection,
   LooseEndContributor,
   Page,
@@ -97,6 +98,18 @@ export const looseEndContributorsFor = (
   workspace: Workspace,
 ): NamedContribution<LooseEndContributor>[] =>
   namedContributed(workspace, (e) => e.looseEnds);
+
+/** A client-drawn widget on a change's dashboard, with the extension it belongs to — the
+ * extension plus the id is the key the page knows the widget by. */
+export type DashboardWidgetInfo = DashboardWidget & { extension: string };
+
+/** The client-drawn widgets a change's dashboard shows, in load order. Widgets carry no
+ * address, so there is no first-wins rule and no reserved ids: two extensions may each draw
+ * one, and the page tells them apart by extension plus id. */
+export const widgetsFor = (change: Change): DashboardWidgetInfo[] =>
+  contributed(workspaceOf(change), (e) =>
+    e.dashboardWidgets.map((widget) => ({ ...widget, extension: e.name })),
+  );
 
 /** The pages a workspace's sidebar offers, with the extension each belongs to — the page's
  * identity on the routes and the URL is the extension's own. */

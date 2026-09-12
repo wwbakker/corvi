@@ -11,15 +11,15 @@ import {
   readSidecar,
   writeSidecar,
 } from "../src/change/server/index.ts";
-import { changeTabsFor, dispatchExtensionRoute } from "../src/extension-host/index.ts";
+import { dispatchExtensionRoute, widgetsFor } from "../src/extension-host/index.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import { Changes } from "../src/extension-host/api.ts";
+import { config } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
-import type { Workspace } from "../src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
- * The notes extension (E4): a change tab backed by `ExtensionStore`, plus the one migration it
+ * The notes extension: a dashboard widget backed by `ExtensionStore`, plus the one migration it
  * needed — notes written before the store existed, as a `notes.md` sidecar in the change root,
  * still read through `Changes.readSidecar`. Every route goes through the real dispatcher, so the
  * namespace, the change lookup and the status-code mapping are exercised as the app uses them.
@@ -54,17 +54,23 @@ const ext = async (path: string, method = "GET", body?: unknown): Promise<Respon
 
 const textAt = (path: string): Promise<string> => Bun.file(path).text();
 
-const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
-
-test("the Notes tab is offered only when the extension is enabled, and its URL otherwise falls back", () => {
-  const enabled = changeTabsFor(ws({ extensions: ["notes"] }));
-  expect(enabled).toEqual([{ id: "notes", title: "Notes", extension: "notes" }]);
-  expect(resolveChangePage("notes", enabled)).toEqual({ kind: "tab", tab: enabled[0]! });
-
-  // A workspace that dropped notes has no tab for it, and /changes/:id/notes is the dashboard.
-  const disabled = changeTabsFor(ws({ extensions: [] }));
-  expect(disabled).toEqual([]);
-  expect(resolveChangePage("notes", disabled)).toEqual({ kind: "dashboard" });
+test("the Notes widget is offered only when the extension is enabled, and its old URL falls back", () => {
+  const saved = config.workspaces;
+  config.workspaces = [
+    { id: "with-notes", name: "With notes", extensions: ["notes"] },
+    { id: "without-notes", name: "Without notes", extensions: [] },
+  ];
+  try {
+    const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", repos: [], createdAt: "" };
+    expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
+      { id: "notes", title: "Notes", extension: "notes" },
+    ]);
+    // A workspace that dropped notes has no widget for it, and /changes/:id/notes is the dashboard.
+    expect(widgetsFor({ ...change, workspace: "without-notes" })).toEqual([]);
+    expect(resolveChangePage("notes", [])).toEqual({ kind: "dashboard" });
+  } finally {
+    config.workspaces = saved;
+  }
 });
 
 test("notes written before the store still show, and the first write lands under the extension", async () => {

@@ -5,6 +5,7 @@ import type {
   ChangeCreatingHook,
   ChangeTab,
   CompletionStepContributor,
+  DashboardWidget,
   DescriptionSection,
   Extension,
   ExtensionSetting,
@@ -70,6 +71,9 @@ export type LoadedExtension = {
    * (`changeTabsFor` in ./selectors.ts), mirroring how a duplicate extension name is resolved
    * by `install`. */
   changeTabs: ChangeTab[];
+  /** Client-drawn widgets this extension adds to a change's dashboard, in declaration order.
+   * Widgets carry no address — the page keys them by extension plus id — so duplicates coexist. */
+  dashboardWidgets: DashboardWidget[];
   /** Per-workspace settings the extension declares, for the settings page to render. */
   workspaceSettings: WorkspaceSetting[];
   /** Server-wide settings the extension declares, for the settings page to render. */
@@ -120,6 +124,7 @@ const normalize = (ext: Extension, clientPath?: string): LoadedExtension => ({
   windowPresenters: ext.windowPresenters ?? [],
   pages: ext.pages ?? [],
   changeTabs: ext.changeTabs ?? [],
+  dashboardWidgets: ext.dashboardWidgets ?? [],
   ...(clientPath ? { clientPath } : {}),
 });
 

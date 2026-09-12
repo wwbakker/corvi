@@ -39,6 +39,8 @@ Every doc starts with a status header:
 
 | Document | Status |
 |---|---|
+| [`plans/module-layout.md`](plans/module-layout.md) | the `src/` tree follows the web app |
+| [`plans/notes-widget.md`](plans/notes-widget.md) | notes back on the dashboard as a client-drawn widget |
 | [`plans/archive/review-1.md`](plans/archive/review-1.md) | input to the refactor plan (now archived) |
 | [`plans/archive/review-2.md`](plans/archive/review-2.md) | input to the refactor plan (now archived) |
 | [`plans/archive/`](plans/archive/) | completed or superseded, including the refactor plan, the extension slices and their follow-ups |
