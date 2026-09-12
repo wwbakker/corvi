@@ -20,13 +20,21 @@ beforeAll(async () => {
   tmp = await testTempDir("events");
   port = 4700 + Math.floor(Math.random() * 200);
   url = `http://127.0.0.1:${port}`;
+  const env = {
+    ...process.env,
+    // A tmux of its own, or none. The host's default socket carries the app's own `iwe-*`
+    // sessions, and the watcher would read their windows and say `windows` in the middle of a
+    // test — a terminal that is none of this test's business. Its own TMUX_TMPDIR, with the
+    // inherited TMUX removed, leaves `tmux list-windows` nothing to find. The directory must
+    // exist: tmux ignores a TMUX_TMPDIR it cannot enter and falls back to the default socket.
+    TMUX_TMPDIR: tmp,
+    IWE_ROOT: join(tmp, "changes"),
+    IWE_PORT: String(port),
+    IWE_CONFIG: join(tmp, "config.json"),
+  };
+  delete (env as Record<string, string | undefined>).TMUX;
   server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: {
-      ...process.env,
-      IWE_ROOT: join(tmp, "changes"),
-      IWE_PORT: String(port),
-      IWE_CONFIG: join(tmp, "config.json"),
-    },
+    env,
     stdout: "ignore",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -41,12 +49,32 @@ afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
 });
 
+const until = async (has: () => boolean | Promise<boolean>, tries = 60): Promise<boolean> => {
+  for (let i = 0; i < tries && !(await has()); i++) await Bun.sleep(100);
+  return await has();
+};
+
+/** What the server says about the stream: how many listeners it has, and whether the watcher is
+ * running. The tests synchronise on this rather than on a guess — a listener is counted once the
+ * server has it, and the watcher lives only while one is. */
+const listeners = async (): Promise<{ listeners: number; watching: boolean }> =>
+  (await fetch(`${url}/api/events/listeners`).then((r) => r.json())) as {
+    listeners: number;
+    watching: boolean;
+  };
+
 /**
  * Listen, and hand back the events as they arrive.
  *
  * Stopping aborts the request rather than cancelling the reader: a cancelled reader leaves the
  * connection in the pool, so the server hears nothing and keeps the listener — which is a fair
  * imitation of a browser that has crashed, but not of one that closed the tab.
+ *
+ * The stream is handed back only once the server counts it as the one listener and the watcher's
+ * first look has arrived. That first look is the greeting — a watcher starts with nothing
+ * remembered, so it says what it can see — and waiting for it is what keeps a test's own
+ * measurement from racing it. `stop` likewise waits for the server to have forgotten the
+ * listener, so the next stream starts a fresh watcher rather than joining one about to stop.
  */
 async function listen(): Promise<{ seen: string[]; stop: () => Promise<void> }> {
   const aborter = new AbortController();
@@ -73,22 +101,19 @@ async function listen(): Promise<{ seen: string[]; stop: () => Promise<void> }> 
     }
   })();
 
-  // The stream says "open" as soon as it is: an EventSource that has had nothing at all is
-  // indistinguishable from one that never connected.
-  for (let i = 0; i < 30 && seen.length === 0; i++) await Bun.sleep(50);
+  // This client, and not a second one the retry left behind.
+  expect(await until(async () => (await listeners()).listeners === 1)).toBe(true);
+  // The greeting: a fresh watcher says it can see changes and windows. Waiting for both keeps
+  // the hello out of what a test measures, instead of sleeping for a tick and hoping.
+  expect(await until(() => seen.includes("changes") && seen.includes("windows"))).toBe(true);
   return {
     seen,
     stop: async () => {
       aborter.abort();
-      await Bun.sleep(50); // the server is told by the connection closing, not by us
+      expect(await until(async () => (await listeners()).listeners === 0)).toBe(true);
     },
   };
 }
-
-const until = async (has: () => boolean | Promise<boolean>, tries = 60): Promise<boolean> => {
-  for (let i = 0; i < tries && !(await has()); i++) await Bun.sleep(100);
-  return await has();
-};
 
 test("a page hears about a change it did not make", async () => {
   const { seen, stop } = await listen();
@@ -97,9 +122,7 @@ test("a page hears about a change it did not make", async () => {
   const repo = join(tmp, "example-api");
   await runSh(["git", "init", "-b", "main", repo]);
   // Made through the API, as another window would: the route says so at once, and the watcher
-  // would have found it within a tick anyway. Settling first, so anything the watcher's own
-  // first look announces is not mistaken for the change this test makes.
-  await Bun.sleep(2000);
+  // would have found it within a tick anyway.
   const before = seen.length;
   await fetch(`${url}/api/changes`, {
     method: "POST",
@@ -116,9 +139,8 @@ test("a change written by anything at all is noticed", async () => {
 
   // Not through the API: a `git` command in a terminal, another window, a hand-edited file. The
   // watcher is what makes those arrive, and why announcing from a route is an optimisation
-  // rather than the mechanism. The greeting has settled by now (the watcher's first look fired
-  // within a tick of connect), so anything new down the wire is the edit, not the hello.
-  await Bun.sleep(2000);
+  // rather than the mechanism. `listen` waited for the greeting, so anything new down the wire
+  // is the edit, not the hello.
   const before = seen.length;
   const change = join(tmp, "changes", "PROJ-EVENT", "change.json");
   const json = JSON.parse(await Bun.file(change).text()) as { title?: string };
@@ -145,18 +167,13 @@ test("a quiet stream stays open", async () => {
 }, 30_000);
 
 test("the watcher runs while a page is listening, and stops when it goes", async () => {
-  const state = async (): Promise<{ listeners: number; watching: boolean }> =>
-    (await fetch(`${url}/api/events/listeners`).then((r) => r.json())) as {
-      listeners: number;
-      watching: boolean;
-    };
-
   const { stop } = await listen();
-  expect(await state()).toEqual({ listeners: 1, watching: true });
+  expect(await listeners()).toEqual({ listeners: 1, watching: true });
 
   await stop();
   // Asked of the server, because the point is that the process is not looking at the disk and at
-  // tmux twice a second for a browser that has been closed since this morning.
-  expect(await until(async () => (await state()).listeners === 0)).toBe(true);
-  expect(await state()).toEqual({ listeners: 0, watching: false });
+  // tmux twice a second for a browser that has been closed since this morning. `stop` waited for
+  // the listener to be forgotten, and the watcher is ref-counted by that set: it stops with the
+  // last client.
+  expect(await listeners()).toEqual({ listeners: 0, watching: false });
 }, 20_000);

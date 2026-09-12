@@ -26,21 +26,30 @@ import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
-import { config, type Workspace } from "../src/workspace/server/index.ts";
+import { config, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 
 /**
  * A changes root of its own, because creating a change writes one.
  */
 let tmp: string;
+const originalConfig = process.env.IWE_CONFIG;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-extensions-"));
   process.env.IWE_ROOT = tmp;
+  // A config of its own: the changes root is not the only environment that leaks in. A
+  // developer's own config — a workspace that names its extensions, say — would decide what
+  // `looseEnds` and `extensionsFor` see, and this file is about the built-ins.
+  process.env.IWE_CONFIG = join(tmp, "config.json");
+  reloadConfigSync();
 });
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
+  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
+  else process.env.IWE_CONFIG = originalConfig;
+  reloadConfigSync();
 });
 
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });

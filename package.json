@@ -9,6 +9,7 @@
     "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
+    "test:webkit": "bun scripts/test-webkit.ts",
     "typecheck": "tsc --noEmit",
     "outline": "bun scripts/outline.ts",
     "lint": "eslint .",
