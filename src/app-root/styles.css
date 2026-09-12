@@ -1,4 +1,9 @@
 :root {
+  /* The page is dark, and says so: without this, WebKitGTK paints native control faces —
+     the select's button, checkboxes, the option list — in the light appearance, a white box,
+     even where the rules below set a dark background. Chromium happens to follow the author
+     background there; WebKit follows the scheme. */
+  color-scheme: dark;
   --bg: #14161a;
   --panel: #1c1f25;
   --line: #2b3038;
