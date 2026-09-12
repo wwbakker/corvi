@@ -1,10 +1,12 @@
 /**
- * Ends what a test run left running, and nothing else.
+ * Ends what test runs left running, and nothing else.
  *
- *   bun run test:clean                    # what it would end, and what it leaves alone
- *   bun run test:clean --kill             # end it
- *   bun run test:clean --prune            # end it, and remove the temp dirs and files it left
- *   bun run test:clean --verbose          # also say so when there is nothing
+ *   bun run test:clean                  # list every test-owned process, and whose run it is
+ *   bun run test:clean --kill           # end the leavings of runs that are gone
+ *   bun run test:clean --kill --run=T   # end exactly run T (what a run's EXIT trap does)
+ *   bun run test:clean --kill --all     # end every test-owned process (the escape hatch)
+ *   bun run test:clean --prune          # ...and remove the temp dirs and pid-files it ended
+ *   bun run test:clean --verbose        # also say so when there is nothing
  *
  * Tests start real things — bun servers, ttyd servers, whole tmux servers — and an aborted run
  * leaves them behind. Killing those by port or by process name is how a live IWE.app server and
@@ -18,10 +20,21 @@
  *   - a bun server is a test's when its command line carries `--iwe-test-run`, which the tests
  *     pass and src/server.ts ignores.
  *
- * Anything that only looks like IWE — the app's server, its terminal, your tmux — is listed as
- * left alone and is never signalled. `bun run test` runs the kill pass afterwards too (an EXIT
- * trap), so strays do not accumulate between runs in the first place.
+ * Which run, and whether that run is still alive, is the second question — the one that lets two
+ * suites run at once. A run is named by a token, a `<base36>.<base36>` pair the dot keeps apart
+ * from the human labels a temp dir also carries. Its resources carry the token too:
+ *
+ *   - the server in `--iwe-test-run=<token>`;
+ *   - the ttyd's change directory, and the tmux socket, under `<tmpdir>/iwe-<token>-...`;
+ *   - and the run itself in `<tmpdir>/iwe-<token>.pid`, written by `testRun()` (test/helpers.ts)
+ *     and holding its pid for as long as it lives.
+ *
+ * So the default `--kill` ends only runs whose pid-file is gone or whose pid is dead: a crash's
+ * leavings, never a suite in progress. A run's own EXIT trap passes `--run=<token>` to end
+ * exactly its own. `--all` is there for the day a pid-file lies (a reused pid can only make the
+ * tool *skip* a dead run, not kill a live one, so the failure is a leak, not a casualty).
  */
+import { readFileSync } from "node:fs";
 import { readdir, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -57,6 +70,31 @@ export const isTestCommand = (command: string, roots: readonly string[]): boolea
 export const isTestSocket = (socket: string, roots: readonly string[]): boolean =>
   underTestRoot(socket, roots);
 
+/** A run token: two base36 words joined by a dot. The dot is what makes it recognisable in a
+ * path that also carries a human label, and what keeps `iwe-term-abc` (label `term`) from being
+ * read as run `term`. */
+const TOKEN = "[0-9a-z]+\\.[0-9a-z]+";
+
+/** The token a test process carries: a server says it outright; a ttyd carries it in the change
+ * directory it serves. */
+export const tokenOf = (command: string): string | undefined =>
+  new RegExp(`--iwe-test-run=(${TOKEN})`).exec(command)?.[1] ??
+  tokenFromPath(/(?:^|\s)-c\s+(\S+)/.exec(command)?.[1] ?? "");
+
+/** The token a path carries, or undefined: a resource with no token is one this tool cannot
+ * attribute to a run (the app's, or a leftover from before tokens), and is left alone unless
+ * `--all`. */
+export const tokenFromPath = (path: string): string | undefined =>
+  new RegExp(`(?:^|[\\\\/])iwe-(${TOKEN})(?=[-/]|$)`).exec(normalize(path))?.[1];
+
+/** The token a pid-file name carries (`iwe-<token>.pid`), for pruning. */
+const tokenFromPidFile = (name: string): string | undefined =>
+  new RegExp(`^iwe-(${TOKEN})\\.pid$`).exec(name)?.[1];
+
+/** Where a run writes its liveness: `<tmpdir>/iwe-<token>.pid`. The token names all of a run's
+ * temp dirs, so one file answers for all of them. */
+export const runPidPath = (root: string, token: string): string => join(root, `iwe-${token}.pid`);
+
 type Proc = { pid: number; command: string };
 
 const processes = async (): Promise<Proc[]> => {
@@ -90,6 +128,20 @@ const testSockets = async (roots: readonly string[]): Promise<string[]> => {
   return [...sockets];
 };
 
+/** Whether a run is still alive: its pid-file names a live process. A missing file, a malformed
+ * one, or a dead pid all mean the run is gone. */
+const liveToken = (token: string, roots: readonly string[]): boolean => {
+  for (const root of roots) {
+    try {
+      const pid = Number(readFileSync(runPidPath(root, token), "utf8").trim());
+      if (Number.isInteger(pid) && pid > 0 && alive(pid)) return true;
+    } catch {
+      // no pid-file under this spelling of the root
+    }
+  }
+  return false;
+};
+
 /** The only processes this tool is ever allowed to end: ttyd and the test's bun server. tmux
  * servers are ended through their own socket (known to be a test's) rather than by pid, so the
  * pattern here need not know a tmux server from a tmux client. */
@@ -112,49 +164,104 @@ const alive = (pid: number): boolean => {
   }
 };
 
+/** Remove the temp dirs and pid-files of the runs a purge covers. */
+const pruneLeftovers = async (
+  roots: readonly string[],
+  covers: (token: string) => boolean,
+  removeUnnamed: boolean,
+): Promise<string[]> => {
+  const removed: string[] = [];
+  const unique = [...new Set(await Promise.all(roots.map((root) => realpath(root).catch(() => root))))];
+  for (const root of unique) {
+    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
+      if (!entry.name.startsWith("iwe-")) continue;
+      const path = join(root, entry.name);
+      const token = tokenFromPath(entry.name) ?? tokenFromPidFile(entry.name);
+      if (token === undefined ? !removeUnnamed : !covers(token)) continue;
+      await rm(path, { recursive: true, force: true }).then(
+        () => removed.push(path),
+        () => undefined, // something else is holding it; next time
+      );
+    }
+  }
+  return removed;
+};
+
 const main = async (): Promise<void> => {
-  const kill = process.argv.includes("--kill") || process.argv.includes("--prune");
-  const prune = process.argv.includes("--prune");
-  const verbose = process.argv.includes("--verbose");
+  const args = process.argv.slice(2);
+  const has = (name: string): boolean => args.includes(`--${name}`);
+  const kill = has("kill") || has("prune");
+  const prune = has("prune");
+  const all = has("all");
+  const verbose = has("verbose");
+  const run = args.find((a) => a.startsWith("--run="))?.slice("--run=".length);
+  if (all && run !== undefined) {
+    console.error("--all and --run= are alternatives: --all ignores whose run it is");
+    process.exit(1);
+  }
+
   const roots = await testRoots();
-  const all = await processes();
-  const testProcs = all.filter((p) => isKillable(p.command) && isTestCommand(p.command, roots));
+  const procs = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command, roots));
   const sockets = await testSockets(roots);
 
-  if (!testProcs.length && !sockets.length) {
+  /** How a resource is judged: `chosen` (ended, or listed as such), `live` (a suite in progress),
+   * or `unnamed` (a test-owned resource with no run token: an old run, or the app's). */
+  const verdict = (token: string | undefined): "chosen" | "live" | "unnamed" => {
+    if (all) return "chosen";
+    if (run !== undefined) return token === run ? "chosen" : "unnamed";
+    if (token === undefined) return "unnamed";
+    return liveToken(token, roots) ? "live" : "chosen";
+  };
+
+  const note = (token: string | undefined): string => {
+    const state = verdict(token);
+    if (token === undefined) return "[no run — only --all ends this]";
+    return state === "live" ? `[run ${token}, alive]` : `[run ${token}, gone]`;
+  };
+
+  const chosenProcs = procs.filter((p) => verdict(tokenOf(p.command)) === "chosen");
+  const chosenSockets = sockets.filter((s) => verdict(tokenFromPath(s)) === "chosen");
+
+  if (!procs.length && !sockets.length) {
     if (verbose) console.log("no test processes or tmux servers are running");
-    // Leftover directories can outlive their processes — a timed-out test never reaches its own
-    // cleanup — so pruning is still worth doing with nothing to kill.
-    if (prune) await pruneLeftovers(roots);
+    if (prune) {
+      // Quiescent: nothing test-owned is running, so an `iwe-*` entry no run names is a stray
+      // (an old run's, or a fixed-path log), and the old prune's behaviour is right.
+      const removed = await pruneLeftovers(roots, (t) => all || run === t || !liveToken(t, roots), true);
+      if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
+    }
     return;
   }
 
-  const untouched = all.filter((p) => looksLikeApp(p.command) && !isTestCommand(p.command, roots));
   console.log(
-    `${kill ? "ending" : "found"} ${testProcs.length} test process(es) and ${sockets.length} test tmux server(s):`,
+    `${kill ? "ending" : "found"} ${chosenProcs.length} test process(es) and ${chosenSockets.length} test tmux server(s)` +
+      (all ? " (--all)" : run !== undefined ? ` (run ${run})` : " of runs that are gone") +
+      ` — ${procs.length + sockets.length} test-owned in all:`,
   );
-  for (const p of testProcs) console.log(`  ${p.pid} ${p.command.slice(0, 140)}`);
-  for (const socket of sockets) console.log(`  tmux server on ${socket}`);
-  // Named so the report itself teaches the difference, which is the whole point of the tool.
+  for (const p of procs) console.log(`  ${p.pid} ${p.command.slice(0, 120)} ${note(tokenOf(p.command))}`);
+  for (const socket of sockets) {
+    console.log(`  tmux server on ${socket} ${note(tokenFromPath(socket))}`);
+  }
+  const untouched = (await processes()).filter((p) => looksLikeApp(p.command) && !isTestCommand(p.command, roots));
   if (untouched.length) {
     console.log(`${untouched.length} server/terminal process(es) left alone (not test-owned):`);
-    for (const p of untouched) console.log(`  ${p.pid} ${p.command.slice(0, 140)}`);
+    for (const p of untouched) console.log(`  ${p.pid} ${p.command.slice(0, 120)}`);
   }
   if (!kill) {
-    console.log("nothing was ended; pass --kill to end them");
+    console.log("nothing was ended; pass --kill to end them, or --all for the ones no run names");
     return;
   }
 
-  for (const p of testProcs) {
+  for (const p of chosenProcs) {
     try {
       process.kill(p.pid, "SIGTERM");
     } catch {
       // gone between the listing and now
     }
   }
-  for (const socket of sockets) await sh(["tmux", "-S", socket, "kill-server"]);
+  for (const socket of chosenSockets) await sh(["tmux", "-S", socket, "kill-server"]);
   await Bun.sleep(500);
-  for (const p of testProcs) {
+  for (const p of chosenProcs) {
     if (!alive(p.pid)) continue;
     try {
       process.kill(p.pid, "SIGKILL");
@@ -163,35 +270,13 @@ const main = async (): Promise<void> => {
     }
   }
 
-  if (prune) await pruneLeftovers(roots);
-};
-
-/** Remove what aborted runs leave on disk under the test roots: the `iwe-*` entries the tests
- * create and their own cleanup did not reach. The kill pass has already run, so a surviving
- * test-owned process means another suite is mid-run and the directories are still in use. */
-const pruneLeftovers = async (roots: readonly string[]): Promise<void> => {
-  const running = (await processes()).filter(
-    (p) => isKillable(p.command) && isTestCommand(p.command, roots),
-  );
-  if (running.length) {
-    console.log(`not pruning: ${running.length} test process(es) are still running (another suite?)`);
-    return;
-  }
-  const unique = [...new Set(await Promise.all(roots.map((root) => realpath(root).catch(() => root))))];
-  const removed: string[] = [];
-  for (const root of unique) {
-    for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
-      if (!entry.name.startsWith("iwe-")) continue;
-      const path = join(root, entry.name);
-      await rm(path, { recursive: true, force: true }).then(
-        () => removed.push(path),
-        () => undefined, // something else is holding it; next time
-      );
-    }
-  }
-  if (removed.length) {
-    console.log(`removed ${removed.length} leftover test path(s):`);
-    for (const path of removed) console.log(`  ${path}`);
+  if (prune) {
+    // Untokened leftovers are only safe to remove when nothing test-owned survived: a run too old
+    // to name itself cannot be asked whether it is still using its directories.
+    const stillRunning = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command, roots));
+    const covers = (token: string): boolean => all || run === token || !liveToken(token, roots);
+    const removed = await pruneLeftovers(roots, covers, all || stillRunning.length === 0);
+    if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
   }
 };
 

@@ -1,9 +1,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { runSh } from "./helpers.ts";
+import { runSh, testRun, testTempDir } from "./helpers.ts";
 import { isLinux } from "../src/core/platform/platform.ts";
 import { terminalPath } from "../src/terminal/server/index.ts";
 
@@ -57,7 +56,7 @@ const session = `iwe-${id}`;
 
 beforeAll(async () => {
   if (!usable) return;
-  tmp = await mkdtemp(join(tmpdir(), "iwe-term-"));
+  tmp = await testTempDir("term");
   // A tmux server of our own, so the test can change server options and kill everything
   // afterwards without touching the sessions you are working in. TMUX_TMPDIR alone does not do
   // that when the suite is run from inside tmux: $TMUX wins, and every tmux command here —
@@ -66,7 +65,7 @@ beforeAll(async () => {
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmp;
   port = 4300 + Math.floor(Math.random() * 200);
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
     stdout: "ignore",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
@@ -100,7 +99,7 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   // Restart, as happens constantly while working on IWE itself.
   server.kill();
   await Bun.sleep(500);
-  server = Bun.spawn(["bun", "src/server.ts", "--iwe-test-run"], {
+  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
     stdout: "ignore",
     stderr: "ignore",

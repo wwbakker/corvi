@@ -1,3 +1,8 @@
+import { writeFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/core/host/services.ts";
@@ -17,6 +22,39 @@ import {
   versionsFor,
   type Buildable,
 } from "../src/extensions/deployments/server.ts";
+
+/** Whether this process has written the run's pid-file yet. */
+let announced = false;
+
+/** The token that names this run. The suite's own script sets `IWE_TEST_RUN`; a lone
+ * `bun test test/foo.test.ts` gets one from its pid and the clock. It is written into every temp
+ * dir's name and into `<tmpdir>/iwe-<token>.pid`, which is what lets scripts/clean-test.ts tell
+ * one run's resources from another's, and a live run from a crashed one. */
+export const testRun = (): string => {
+  const fromEnv = process.env.IWE_TEST_RUN;
+  const token =
+    fromEnv !== undefined && fromEnv !== ""
+      ? fromEnv
+      : `${Date.now().toString(36)}.${process.pid.toString(36)}`;
+  process.env.IWE_TEST_RUN = token;
+  // The run's script writes this with the wrapper shell's pid, which lives for the whole run;
+  // "wx" leaves that in place. A lone `bun test` has no wrapper, so its own pid stands in.
+  if (!announced) {
+    announced = true;
+    try {
+      writeFileSync(runPidPath(tmpdir(), token), String(process.pid), { flag: "wx" });
+    } catch {
+      // already written by the run's script, or a temp dir we cannot write: --all remains
+    }
+  }
+  return token;
+};
+
+/** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
+export const testTempDir = async (label: string): Promise<string> => {
+  const token = testRun();
+  return mkdtemp(join(tmpdir(), `iwe-${token}-${label}-`));
+};
 
 /**
  * The one seam between the Promise-shaped tests and the Effect API.
