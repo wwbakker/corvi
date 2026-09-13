@@ -357,9 +357,10 @@ test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("../src/domain/change.ts");
   const { stateClass } = await import("../src/app-root/stateClass.ts");
 
-  // How much of your attention each state asks for: the select offers them in this order and the
-  // lists sort by it.
+  // The lifecycle, which the select offers in this order and the lists sort by; the overview
+  // and the navigation column group `Ideation` into its own block rather than interleaving it.
   expect(CHANGE_STATES).toEqual([
+    "Ideation",
     "In Progress",
     "Awaiting Review",
     "Blocked",

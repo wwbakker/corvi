@@ -50,6 +50,11 @@ export type ChangeCreatingHook = (
 export type ExtensionEvents = {
   "change:creating"?: ChangeCreatingHook[];
   "change:created"?: ChangeAfterHook[];
+  /** After an idea's work has started: the change left `Ideation` for `In Progress`, and its
+   * repositories are provisioned. The git extension creates the worktrees here, and a vendor
+   * that tracks the ticket moves it. It is separate from `change:created` because creating an
+   * idea must not start anything — no branch, no worktree, no ticket transition. */
+  "change:started"?: ChangeAfterHook[];
   "change:completing"?: ChangeBeforeHook[];
   "change:completed"?: ChangeAfterHook[];
   "change:cancelling"?: ChangeBeforeHook[];

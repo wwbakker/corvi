@@ -447,6 +447,43 @@ export const selectWindow = (id: string, index: number): Effect.Effect<void, Cli
   );
 
 /**
+ * Make sure the change's tmux session exists, so something can be written into it before a
+ * browser has opened the terminal. `new-session -A` attaches to an existing one, so this is
+ * compatible with the session ttyd adopts: it only ever creates the session ttyd would have
+ * created on connection, with the change directory as its cwd.
+ *
+ * Detached, because nobody is looking yet; the options ttyd sets on attach still run when it
+ * does.
+ */
+export const ensureSession = (id: string, dir: string): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    const has = yield* sh(["tmux", "has-session", "-t", sessionName(id)]);
+    if (has.code === 0) return;
+    yield* shOrThrow(["tmux", "new-session", "-d", "-s", sessionName(id), "-c", dir]);
+  });
+
+/**
+ * Paste a prompt into the change's terminal, at its active pane, without submitting it: a
+ * bracketed paste so a multi-line prompt lands in the editor whole rather than being executed
+ * line by line. The caller ensures the session exists first.
+ *
+ * Deliberately does not press Enter: IWE cannot tell a running agent from a shell (pi's status
+ * is the agent extension's private vocabulary), and submitting a paragraph to a shell would run
+ * it. The user reads it and sends it, which is the one keystroke worth keeping.
+ *
+ * The buffer is named for the change, so two prompts sent close together cannot overwrite each
+ * other's text between the load and the paste.
+ */
+export const pastePrompt = (id: string, text: string): Effect.Effect<void, CliError> =>
+  Effect.gen(function* () {
+    const buffer = `iwe-prompt-${id}`;
+    // `--` so a prompt that begins with a dash is data, not an option.
+    yield* shOrThrow(["tmux", "set-buffer", "-b", buffer, "--", text]);
+    yield* shOrThrow(["tmux", "paste-buffer", "-p", "-b", buffer, "-t", sessionName(id)]);
+    yield* shOrThrow(["tmux", "delete-buffer", "-b", buffer]);
+  });
+
+/**
  * Put a window where another one is, shifting the windows in between. tmux's own move-window
  * refuses an occupied index, so this is a walk of swaps along the session's actual indices —
  * which may have gaps where a window was closed. The current window follows the move, wherever

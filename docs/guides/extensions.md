@@ -47,7 +47,7 @@ Two ideas run through the model:
 | Dashboard card | `cards` | A `Widget` per change, fetched on its own; optionally per-repository rows and actions. Effects requiring capabilities. |
 | Dashboard widget | `dashboardWidgets` | A client-drawn component on a change's dashboard. The client half exports `widget`, receiving the change and its workspace (below); for content with client state a server-drawn card cannot hold. |
 | Wizard step | `wizardSteps` | A step in "Create change". `phase: "issue"` runs before the change details (it prefills the id and branch); `phase: "repos"` runs after the repositories are picked. |
-| Lifecycle hooks | `events` | Before/after hooks on each change moment — `change:creating`/`change:created`, `change:completing`/`change:completed`, `change:cancelling`/`change:cancelled`. A before hook may transform a create or veto an operation; an after hook observes a committed change and never fails the operation (below). |
+| Lifecycle hooks | `events` | Before/after hooks on each change moment — `change:creating`/`change:created`, `change:started`, `change:completing`/`change:completed`, `change:cancelling`/`change:cancelled`. A before hook may transform a create or veto an operation; an after hook observes a committed change and never fails the operation (below). |
 | Data store | `ExtensionStore` capability | This extension's own entry in the change's `extensions` bag, and the files under `extensions/<name>/` in the change directory. The core stays the only writer of `change.json` (below). |
 | Title sources | `titleSources` | Names changes on the overview after their ticket. Asked once per workspace; a source that cannot answer contributes nothing, so stored titles stand. |
 | Summary contributions | `summaryContributions` | Facts on a change's overview card, merged by the host into the one summary it renders; a contribution's `state`, when given, is its verdict for the navigation icon, which takes the worst offered. |
@@ -81,26 +81,33 @@ and only observes.
 | Moment | Before (may transform or veto) | After (observer, never fails) |
 |---|---|---|
 | Create | `change:creating` | `change:created` |
+| Start | — | `change:started` |
 | Complete | `change:completing` | `change:completed` |
 | Cancel | `change:cancelling` | `change:cancelled` |
 
-A **before** hook on creation receives the plain `ChangeDraft` (id, branch, repos, direct, base,
-workspace, extensions) and returns a patch (`Partial<ChangeDraft>`) or nothing. Hooks run in
-extension load order and chain — each sees the previous hook's result — and the core applies the
-result and then re-runs every invariant (id shape, non-empty repositories, valid state
-transition) before writing. An extension may suggest, never bypass. Failing with the taxonomy
-vetoes the create, and the message is shown where the create was started. A `change:creating`
-hook runs before the change directory exists, so a creator that needs files writes them in
-`change:created`.
+A **before** hook on creation receives the plain `ChangeDraft` (id, title, branch, repos, direct,
+base, workspace, state, extensions) and returns a patch (`Partial<ChangeDraft>`) or nothing.
+Hooks run in extension load order and chain — each sees the previous hook's result — and the core
+applies the result and then re-runs every invariant (id shape, repositories present for a change
+created ready to work, valid creation state) before writing. An extension may suggest, never
+bypass. Failing with the taxonomy vetoes the create, and the message is shown where the create
+was started. A `change:creating` hook runs before the change directory exists, so a creator that
+needs files writes them in `change:created`.
+
+`change:started` is the after hook for the one real transition out of `Ideation`. The state is
+written before it runs, so it is where work that a start implies happens: the git extension
+creates each repository's checkout (worktree, or in place), and a vendor that tracks the ticket
+moves it — creating an idea provisions neither, which is what keeps an idea that never starts
+from leaving a branch behind. Its results are reported like a created change's.
 
 `change:completing` and `change:cancelling` receive the `Change` — there is no draft to patch —
 and veto by failing. They run before any irreversible step (the merges, the worktree removal), so
 a veto leaves the change exactly as it was.
 
-`change:created`, `change:completed` and `change:cancelled` run once the core has committed
-(`change.json` written, and archived for the finished states). A failure is reported under the
-extension's name and never fails the operation, exactly as `change:created` provisioning has
-always behaved: the results are collected, and a failed hook stops the rest of its own
+`change:created`, `change:started`, `change:completed` and `change:cancelled` run once the core
+has committed (`change.json` written, and archived for the finished states). A failure is reported
+under the extension's name and never fails the operation, exactly as `change:created` provisioning
+has always behaved: the results are collected, and a failed hook stops the rest of its own
 extension's hooks but no other extension's. The change page shows those failures as one error
 banner per extension (`<extension>: <error>`): creation's where the create was started, and a
 completion's or cancellation's on the page that performed it. A successful observer says

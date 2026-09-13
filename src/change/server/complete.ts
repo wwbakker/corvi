@@ -1,6 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "../../domain/change.ts";
+import { isIdeation } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
 import { mergeReadiness, mergePr } from "../../vendors/github.ts";
 import type { Changes } from "../../extension-host/api/capabilities.ts";
@@ -70,13 +71,21 @@ const completionOfRepo = (
   });
 
 export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError, Changes> =>
-  Effect.map(
-    Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
-      // Unbounded concurrency is deliberate: these per-repo lookups are independent.
-      concurrency: "unbounded",
-    }),
-    verdict,
-  );
+  // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
+  // lookups, which would find nothing and cost a call per repository.
+  isIdeation(change)
+    ? Effect.succeed({
+        ready: false,
+        reasons: ["still an idea: start the work before completing it"],
+        toMerge: [],
+      })
+    : Effect.map(
+        Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
+          // Unbounded concurrency is deliberate: these per-repo lookups are independent.
+          concurrency: "unbounded",
+        }),
+        verdict,
+      );
 
 const PROGRESS = "completion.json";
 
@@ -143,6 +152,13 @@ export const completeChange = (
   change: Change,
 ): Effect.Effect<{ change: Change; notes: string[]; after: ProvisionResult[] }, IweError, Changes> =>
   Effect.gen(function* () {
+    // The one transition out of `Ideation` is starting the work; completing an idea would archive
+    // it as landed with no checkouts and no ticket moved. Refused before anything is written.
+    if (isIdeation(change)) {
+      return yield* new BadRequestError({
+        message: `${change.id} is still an idea: start the work before completing it`,
+      });
+    }
     // Written before the checking starts, which is itself slow: a page that just asked for this
     // should see something immediately, and this is also the record that a completion is running.
     const progress: CompletionProgress = {

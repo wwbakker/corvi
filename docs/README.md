@@ -35,6 +35,7 @@ Every doc starts with a status header:
 | [`decisions/linux-native-window.md`](decisions/linux-native-window.md) | WebKitGTK + PyGObject for the Linux window |
 | [`decisions/wt-on-linux.md`](decisions/wt-on-linux.md) | `wt` is Worktrunk; no Linux-specific work needed |
 | [`decisions/notifications.md`](decisions/notifications.md) | When a window needs you: suppression, sound, text, batching |
+| [`decisions/ideation-stage.md`](decisions/ideation-stage.md) | An idea before a change: `Ideation`, a real `start`, `PLAN.md` |
 
 ## Plans
 

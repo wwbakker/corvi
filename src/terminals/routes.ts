@@ -1,14 +1,17 @@
 import { Effect } from "effect";
 import { changeDir, readChange } from "../change/server/index.ts";
+import { ideationPromptFor } from "../change/server/index.ts";
 import { BadRequestError } from "../capabilities/effect/errors.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { platformName } from "../capabilities/os.ts";
 import { guard } from "../capabilities/web.ts";
 import {
   allWindows,
+  ensureSession,
   listWindows,
   moveWindow,
   newWindow,
+  pastePrompt,
   selectWindow,
   terminalGone,
   terminalPath,
@@ -116,6 +119,26 @@ export const terminalsRoutes = guard({
             return yield* new BadRequestError({ message: `unknown window action: ${body.action}` });
           }
           return json(yield* listWindows(c.id));
+        }),
+      ),
+  },
+
+  // Brief an agent about an idea: paste the configured prompt into the change's terminal, which
+  // is where the conversation happens. The session is created if it is not up yet, so this works
+  // from the dashboard without opening the terminal first. The text is not submitted — see
+  // pastePrompt for why that keystroke is the user's.
+  "/api/changes/:id/terminal/prompt": {
+    POST: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          if (c.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is completed: its terminal is gone",
+            });
+          }
+          yield* ensureSession(c.id, changeDir(c.id));
+          yield* pastePrompt(c.id, ideationPromptFor(c));
+          return json({ pasted: true });
         }),
       ),
   },

@@ -143,9 +143,11 @@ export default {
   wizardSteps: [{ id: "jira", title: "Jira", phase: "issue" }],
 
   events: {
-    // A new change means the ticket is being worked on: assign it and move it to the start
-    // status. One hook, reported to the wizard under this extension's name.
-    "change:created": [
+    // Starting the work means the ticket is being worked on: assign it and move it to the start
+    // status. Creating an idea does not touch the ticket — the idea may come to nothing, and a
+    // ticket moved to In Progress for a thought is a lie other people can see. One hook,
+    // reported to the wizard under this extension's name when the work starts.
+    "change:started": [
       (change) =>
         Effect.gen(function* () {
           const key = ticketOf(change);

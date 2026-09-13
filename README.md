@@ -10,11 +10,12 @@ worktrees themselves, and per-extension files under `extensions/<name>/` (the no
 ticket status, pipeline runs) is read live from the vendors' own CLIs, so this tool stores no
 secrets and owns no copy of their data.
 
-Creating a change provisions it: the Jira issue is assigned and moved to `In Progress`, and a git
-worktree on the change's branch is created in every selected repository. New branches start from
-the remote's default branch (`origin/HEAD`, fetched first), never from a local `main` that may be
-behind. Components that fail are
-reported on the dashboard; the change itself is written first and always survives.
+A change begins as an **idea**: a title, a plan (`PLAN.md`), and a conversation with an agent in
+the change's terminal — before any branch or worktree exists. Creating an idea touches nothing
+outside `~/changes/<id>/`; starting the work is what creates each repository's checkout and
+moves the Jira issue to `In Progress`. New branches start from the remote's default branch
+(`origin/HEAD`, fetched first), never from a local `main` that may be behind. Components that
+fail are reported on the dashboard; the change itself is written first and always survives.
 
 ## Requirements
 
@@ -56,6 +57,7 @@ is reported as "the server has no /settings — it is probably running older cod
   "changesRoot": "~/changes",
   "reposRoot": "~/Repos",
   "reposStart": "~/Repos/acme",
+  "ideationPrompt": "",
   "extensionSettings": {
     "jira": { "assignee": "", "startTransition": "In Progress", "doneTransition": "Done" },
     "azure-devops": { "organization": "", "project": "" }
@@ -75,7 +77,9 @@ a field while its variable is set.
 
 `changesRoot` holds one directory per change; `reposRoot` bounds the repository browser and
 `reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
-Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
+`ideationPrompt` is the briefing pasted into an idea's terminal by **Brief the agent**
+(`{id}`, `{title}`, `{plan}` and `{state}` are filled in from the change); an empty value uses the
+built-in one. Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IWE_REPOS_START`, `IWE_PORT`, `IWE_JIRA_ASSIGNEE`,
 `IWE_JIRA_START_TRANSITION`, `IWE_JIRA_DONE_TRANSITION`, `IWE_AZURE_ORG`, `IWE_AZURE_PROJECT`, `IWE_AZURE_RUNS`,
 `IWE_CACHE` (where the cache is stored), `IWE_PARALLEL` (how many CLIs may run at once),
 `IWE_CLI_TIMEOUT` (seconds a CLI may run before it is killed; 120 by default, 0 disables) and
@@ -130,10 +134,10 @@ widget reports the problem and the change picker falls back to typing an id by h
 nothing is configured twice. The CLI is not called at runtime: four values are read out of the
 config file it wrote, and the rest is HTTP.
 
-## Creating a change
+## Creating an idea
 
-"New change" opens a wizard whose steps are its extensions', in phases — the issue steps first
-(they prefill the change), then the change details, then the repositories, then steps that want
+"New idea" opens a wizard whose steps are its extensions', in phases — the issue steps first
+(they prefill the idea), then the idea details, then the repositories, then steps that want
 the repositories. Which steps a context has is resolved per workspace; an extension that is not
 enabled there has no step, not an empty one.
 
@@ -149,11 +153,23 @@ enabled there has no step, not an empty one.
    issue prefills the change, names it on the overview, shows on the dashboard as its own card
    and is closed when the change completes. Both this step and the Jira step can be on at once:
    two tickets on one change is a thing, not a conflict.
-3. **Change** — id and branch, prefilled from the picked issue, both editable.
-4. **Repositories** — at least one is required, from a directory browser rooted at `reposRoot`. Clicking a name browses into
-   it, the button beside it adds it to the selection: a directory that is both a repository and
-   a parent of repositories (`acme/services`) can be either. Selected repositories are listed on
-   the right and removed with the cross. A worktree is created per selected repository.
+3. **Idea** — Title (which the id and branch follow: "Ideation Stage" becomes `ideation-stage`),
+   Description (the starting text of `PLAN.md`), Change id and Branch name (both editable, and both
+   stop following the title once you touch them), and the Ticket the issue step picked. Skipping the
+   issue steps is fine: type a title and you have an idea.
+4. **Repositories** (optional) — from a directory browser rooted at `reposRoot`. Clicking a name
+   browses into it, the button beside it adds it to the selection: a directory that is both a
+   repository and a parent of repositories (`acme/services`) can be either. Selected repositories
+   are listed on the right and removed with the cross. A repository picked now is linked into the
+   change directory for reading, without switching its branch or creating a worktree; **Start
+   work** turns that link into the checkout, so an idea that never starts leaves no branch behind.
+
+Creating an idea writes `change.json` and `PLAN.md` and provisions nothing else: no branch, no
+worktree, and no ticket transition. Its page has a **Plan** card — editable, the same `PLAN.md`
+the agent reads, and still there (read-only once the change is finished) when the work starts —
+and a **Brief the agent** button that pastes the configured prompt into the change's terminal. **Start work** is the one action that leaves the ideation stage: it moves the
+state to `In Progress`, creates each repository's checkout (in place or a worktree, as the
+repository list says), and moves the ticket.
 
 Each step's pick is stored on the change under the step's extension's name — `change.json`'s
 `extensions` bag — so completing the change knows what to close, and the core never had to know
@@ -927,6 +943,7 @@ Active changes, in the navigation column and on the overview, are sorted by **st
 newest first**:
 
 ```
+Ideation          ← an idea, not started
 In Progress       ← what you can get on with
 Awaiting Review   ← what is with somebody else
 Blocked           ← what is stuck
@@ -935,6 +952,11 @@ Blocked           ← what is stuck
 That is `CHANGE_STATES` itself, so there is one order and it is used twice: the state select
 offers them in it, and the lists sort by it. Within a state the newest change is on top, because
 that is the one you are most likely to be looking for.
+
+Ideas are the one place that order is not read straight down: the overview and the navigation
+column put them in a block of their own at the top, under an **Ideas** heading, because an idea is
+a question where the rest is a job. `Ideation` still ranks first in `CHANGE_STATES`, so the block
+and the order agree.
 
 Finished changes — completed and cancelled — go to a table below, newest first, with a column
 saying which of the two it was. A change that was abandoned is not one that landed, and that is
@@ -945,7 +967,8 @@ go once in a while, and it should be in the same place whether you have two chan
 
 ## The overview
 
-The front page is two lists, because they are read for two reasons.
+The front page is three lists, because they are read for different reasons: ideas you have not
+started, work in flight, and what happened.
 
 A change is named by **its ticket's summary** — "Anonymise customer names on the acceptance
 environment" — rather than its branch, which says how the work is spelled and not what it is. A
@@ -1114,9 +1137,11 @@ ended, and the server is where the truth lives.
 
 ## Change state
 
-Every change carries one of `In Progress` (amber), `Blocked` (purple), `Awaiting Review` (blue)
-or `Completed` (green), chosen in the select beside `Complete change`, and it decides which half
-of the overview a change appears in — only `Completed` is finished.
+Every change carries one of `Ideation` (teal), `In Progress` (amber), `Awaiting Review` (blue),
+`Blocked` (purple) or `Completed`/`Cancelled` (green/grey). The states you work in are chosen in
+the select beside `Complete change`; `Ideation` is not one of them. It is set by creating an idea
+and left by **Start work**, which is an action rather than a word in the list because starting
+does more than change a label: it creates each repository's checkout and moves the ticket.
 
 `Blocked` is waiting on something you cannot do yourself: an answer, a decision, another change.
 That is a different thing from `Awaiting Review`, which is waiting on a named person to look at

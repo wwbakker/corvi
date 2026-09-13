@@ -1,9 +1,9 @@
-import { CHANGE_STATES, type Change, type ChangeState } from "../domain/change.ts";
+import { CHANGE_STATES, IDEATION, isIdeation, type Change, type ChangeState } from "../domain/change.ts";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
 import type { Entry } from "../workspace/model.ts";
 
 export type { Change, ChangeState, Widget, WidgetItem, Entry };
-export { CHANGE_STATES };
+export { CHANGE_STATES, IDEATION, isIdeation };
 export type Listing = { root: string; path: string; entries: Entry[] };
 export type CardInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
 export type RepoItems = { items: WidgetItem[] };

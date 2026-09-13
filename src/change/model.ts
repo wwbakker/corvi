@@ -1,5 +1,6 @@
 import {
   CHANGE_STATES,
+  IDEATION,
   isFinished,
   type Change,
   type ChangeState,
@@ -12,7 +13,8 @@ import { BadRequestError, ConflictError } from "../capabilities/effect/errors.ts
  * Here rather than in the route, so what is allowed can be tested without a server — and so the
  * one rule that matters is stated once: a change ends by being completed or cancelled, which
  * merge, remove worktrees and archive. Setting the word by hand would do none of that and claim
- * it had happened.
+ * it had happened. `Ideation` is the same shape at the other end: it is set by creating an idea,
+ * and leaving it is starting the work, which provisions the checkouts and moves the ticket.
  *
  * Purely synchronous, so no Effect wrapper: the validation throws the typed taxonomy
  * (BadRequestError / ConflictError). The server route converts those throws into failures at
@@ -25,6 +27,11 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
   if (patch.state && isFinished({ ...change, state: patch.state as ChangeState })) {
     throw new ConflictError({
       message: `${patch.state} is what completing or cancelling a change sets`,
+    });
+  }
+  if (patch.state === IDEATION) {
+    throw new ConflictError({
+      message: "Ideation is what creating an idea sets: use start work to leave it",
     });
   }
   const title = patch.title?.trim();

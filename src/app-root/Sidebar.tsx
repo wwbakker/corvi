@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { api, type Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
-import { byWorkOrder, isFinished, type ChangeSummary } from "../domain/change.ts";
+import { byWorkOrder, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
@@ -99,7 +99,11 @@ export function Sidebar({
 }): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
   // the newest of each at the top. The overview list is sorted the same way.
-  const active = (changes ?? []).filter((c) => !isFinished(c)).sort(byWorkOrder);
+  const live = (changes ?? []).filter((c) => !isFinished(c)).sort(byWorkOrder);
+  // Ideas are a different kind of thing — a question, not a job — so they get their own block
+  // above the work rather than sitting in the attention order among it.
+  const ideas = live.filter(isIdeation);
+  const active = live.filter((c) => !isIdeation(c));
   const [width, setWidth] = useState(storedWidth);
   const dragging = useRef(false);
   const [summaries, setSummaries] = useState<Record<string, ChangeSummary>>({});
@@ -145,6 +149,81 @@ export function Sidebar({
     };
   }, [width]);
 
+  /** One change in the column, with its terminals and the new-window button. Shared by the two
+   * blocks — ideas, and the work they become — so a change looks the same in both. */
+  const entry = (c: Change): JSX.Element => {
+    const mine = windows[c.id] ?? [];
+    const selected = c.id === current?.id;
+    // One thing is highlighted at a time. On a terminal that thing is the window, not the
+    // change it belongs to: two highlights would be two answers to "where am I".
+    const here = selected && page !== "terminals";
+    return (
+      <div key={c.id} className="change-entry">
+        <button
+          // The bar down the left is the change's own state, in the usual colours.
+          className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
+          title={c.title ?? c.branch}
+          onClick={() => onOpenChange(c.id)}
+        >
+          {/* What it is and how it is doing on the first line, what it is about on the
+              second: the id is what you scan for, the summary is what you read. */}
+          <span className="top">
+            <span className="id">{c.id}</span>
+            <Icons summary={summaries[c.id]} />
+          </span>
+          <span className="subject">{c.title ?? c.branch}</span>
+        </button>
+
+        {/* The change's terminals, under the change they belong to. The server says what
+            each window is called and which glyph it draws; the page renders that. */}
+        {mine.map((w) => (
+          <button
+            key={w.index}
+            className={
+              selected && page === "terminals" && w.active
+                ? "entry sub window current"
+                : "entry sub window"
+            }
+            title={`ctrl-b ${w.index} — ${w.detail}`}
+            // Focus is what a mousedown moves, and a terminal you cannot type in after
+            // clicking is useless. Preventing the default keeps it in the terminal.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onSelectWindow(c.id, w.index)}
+          >
+            <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
+              {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
+            </span>
+            <span className="label">{w.label}</span>
+            {/* Not for the window you are looking at: you see its output already. */}
+            {w.activity && !(selected && page === "terminals" && w.active) && (
+              <span className="bell" title="new output" />
+            )}
+          </button>
+        ))}
+
+        {/* Only where you are working: every change offering a terminal it has not got
+            would be more noise than help. */}
+        {selected && (
+          <button
+            className="entry sub new-window"
+            // meta is Super on Linux, which the window manager owns: the Linux hint names
+            // the binding that reliably reaches the page.
+            title={
+              platform === "mac"
+                ? "new terminal here (cmd-t, or ctrl-b c)"
+                : "new terminal here (ctrl-alt-t, or ctrl-b c)"
+            }
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onNewWindow(c.id)}
+          >
+            <TerminalIcon title="new terminal" />
+            <span className="label">new</span>
+          </button>
+        )}
+      </div>
+    );
+  };
+
   return (
     <nav className="sidebar" style={{ width }}>
       {/* Which client's world this is. Everything below is what that context contains, so it
@@ -170,79 +249,17 @@ export function Sidebar({
         Changes
       </button>
       <div className="list">
-        {active.map((c) => {
-          const mine = windows[c.id] ?? [];
-          const selected = c.id === current?.id;
-          // One thing is highlighted at a time. On a terminal that thing is the window, not the
-          // change it belongs to: two highlights would be two answers to "where am I".
-          const here = selected && page !== "terminals";
-          return (
-            <div key={c.id} className="change-entry">
-              <button
-                // The bar down the left is the change's own state, in the usual colours.
-                className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
-                title={c.title ?? c.branch}
-                onClick={() => onOpenChange(c.id)}
-              >
-                {/* What it is and how it is doing on the first line, what it is about on the
-                    second: the id is what you scan for, the summary is what you read. */}
-                <span className="top">
-                  <span className="id">{c.id}</span>
-                  <Icons summary={summaries[c.id]} />
-                </span>
-                <span className="subject">{c.title ?? c.branch}</span>
-              </button>
-
-              {/* The change's terminals, under the change they belong to. The server says what
-                  each window is called and which glyph it draws; the page renders that. */}
-              {mine.map((w) => (
-                <button
-                  key={w.index}
-                  className={
-                    selected && page === "terminals" && w.active
-                      ? "entry sub window current"
-                      : "entry sub window"
-                  }
-                  title={`ctrl-b ${w.index} — ${w.detail}`}
-                  // Focus is what a mousedown moves, and a terminal you cannot type in after
-                  // clicking is useless. Preventing the default keeps it in the terminal.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onSelectWindow(c.id, w.index)}
-                >
-                  <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
-                    {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
-                  </span>
-                  <span className="label">{w.label}</span>
-                  {/* Not for the window you are looking at: you see its output already. */}
-                  {w.activity && !(selected && page === "terminals" && w.active) && (
-                    <span className="bell" title="new output" />
-                  )}
-                </button>
-              ))}
-
-              {/* Only where you are working: every change offering a terminal it has not got
-                  would be more noise than help. */}
-              {selected && (
-                <button
-                  className="entry sub new-window"
-                  // meta is Super on Linux, which the window manager owns: the Linux hint names
-                  // the binding that reliably reaches the page.
-                  title={
-                    platform === "mac"
-                      ? "new terminal here (cmd-t, or ctrl-b c)"
-                      : "new terminal here (ctrl-alt-t, or ctrl-b c)"
-                  }
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onNewWindow(c.id)}
-                >
-                  <TerminalIcon title="new terminal" />
-                  <span className="label">new</span>
-                </button>
-              )}
-            </div>
-          );
-        })}
-        {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
+        {/* Ideas first, under their own heading: they are the newest thing and the one thing you
+            have not started. The work they become follows in attention order. */}
+        {ideas.length > 0 && (
+          <>
+            <p className="group-label">Ideas</p>
+            {ideas.map(entry)}
+          </>
+        )}
+        {ideas.length > 0 && active.length > 0 && <p className="group-label">Changes</p>}
+        {active.map(entry)}
+        {changes && live.length === 0 && <p className="hint">nothing in progress</p>}
       </div>
 
       {/* Not under a change, because they are not about one: the extensions' pages, offered

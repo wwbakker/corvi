@@ -54,16 +54,18 @@ test("the order the lists show changes in", () => {
     state,
     createdAt,
   });
-  // What you can get on with, then what is with somebody else, then what is stuck.
+  // The lifecycle: an idea first, then what you can get on with, then what is with somebody
+  // else, then what is stuck.
   const sorted = [
     at("stuck", "Blocked", "2026-01-05T00:00:00Z"),
     at("older", "In Progress", "2026-01-01T00:00:00Z"),
+    at("idea", "Ideation", "2026-01-02T00:00:00Z"),
     at("review", "Awaiting Review", "2026-01-04T00:00:00Z"),
     at("newer", "In Progress", "2026-01-03T00:00:00Z"),
   ]
     .sort(byWorkOrder)
     .map((c) => c.id);
-  expect(sorted).toEqual(["newer", "older", "review", "stuck"]);
+  expect(sorted).toEqual(["idea", "newer", "older", "review", "stuck"]);
 
   // A change with no state is one you are working on.
   expect([at("none", undefined, "2026-01-09T00:00:00Z"), at("b", "Blocked", "2026-01-09T00:00:00Z")]
@@ -71,7 +73,7 @@ test("the order the lists show changes in", () => {
     .map((c) => c.id)).toEqual(["none", "b"]);
 
   // The select offers them in the same order the lists sort by: one order, used twice.
-  expect(CHANGE_STATES.slice(0, 3)).toEqual(["In Progress", "Awaiting Review", "Blocked"]);
+  expect(CHANGE_STATES.slice(0, 3)).toEqual(["Ideation", "In Progress", "Awaiting Review"]);
 });
 
 test("a change is over when it was completed or cancelled", () => {
@@ -154,6 +156,8 @@ test("a change cannot be declared finished by hand", async () => {
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Cancelled" })).toThrow(/completing or cancelling/);
   expect(() => applyPatch(change, { state: "Nonsense" })).toThrow(/unknown state/);
+  // Ideation is the other end of the same rule: set by creating an idea, left by starting work.
+  expect(() => applyPatch(change, { state: "Ideation" })).toThrow(/start work/);
 
   // The states you work in are still yours to set, and so is the name.
   expect(applyPatch(change, { state: "Blocked" }).state).toBe("Blocked");

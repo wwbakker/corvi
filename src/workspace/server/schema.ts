@@ -76,6 +76,9 @@ export const ConfigFile = Schema.Struct({
   reposStart: Schema.optional(Schema.String),
   /** Whether a notification plays the system sound. Absent means yes. */
   notificationSound: Schema.optional(Schema.Boolean),
+  /** The prompt that briefs an agent about an idea, `{id}`/`{title}`/`{plan}`/`{state}`
+   * filled in. Free text, so nothing is validated; an empty value means the default. */
+  ideationPrompt: Schema.optional(Schema.String),
   // Passed through untouched, unvalidated, garbage entries included: dropping them here would
   // let one hand-mangled workspace cost the rest of the file. load() applies the per-item
   // tolerance via workspacesFrom.
@@ -126,6 +129,7 @@ export const Resolved = Schema.Struct({
   reposRoot: Schema.String,
   reposStart: Schema.String,
   notificationSound: Schema.Boolean,
+  ideationPrompt: Schema.String,
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
   extensionPaths: Schema.Array(Schema.String),

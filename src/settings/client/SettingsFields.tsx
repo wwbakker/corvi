@@ -41,6 +41,39 @@ export function Field({
   );
 }
 
+/**
+ * A multi-line field: for prose rather than a value, such as the prompt that briefs an agent.
+ * Grows with its content by the browser's own sizing rules, and takes the full width of the form.
+ */
+export function TextArea({
+  label,
+  hint,
+  value,
+  placeholder,
+  rows = 6,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string | undefined;
+  placeholder?: string;
+  rows?: number;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <label>
+      <span>{label}</span>
+      <textarea
+        rows={rows}
+        value={value ?? ""}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {hint && <small>{hint}</small>}
+    </label>
+  );
+}
+
 /** A checkbox: a decision rather than a value, so it is its own control beside its name. */
 export function CheckField({
   label,

@@ -46,6 +46,9 @@ export type LoadedExtension = {
   changeCreating: ChangeCreatingHook[];
   /** Handlers declared under `events["change:created"]`, in declaration order. */
   changeCreated: ChangeAfterHook[];
+  /** Handlers declared under `events["change:started"]`: an idea's work has begun, so the
+   * checkouts are provisioned and the ticket moves. */
+  changeStarted: ChangeAfterHook[];
   /** Handlers declared under `events["change:completing"]`, before any irreversible step. */
   changeCompleting: ChangeBeforeHook[];
   /** Handlers declared under `events["change:completed"]`, after the change is archived. */
@@ -114,6 +117,7 @@ const normalize = (ext: Extension, clientPath?: string): LoadedExtension => ({
   completionSteps: ext.completionSteps ?? [],
   changeCreating: ext.events?.["change:creating"] ?? [],
   changeCreated: ext.events?.["change:created"] ?? [],
+  changeStarted: ext.events?.["change:started"] ?? [],
   changeCompleting: ext.events?.["change:completing"] ?? [],
   changeCompleted: ext.events?.["change:completed"] ?? [],
   changeCancelling: ext.events?.["change:cancelling"] ?? [],

@@ -30,6 +30,8 @@ export {
 
 export { createChange, type CreateChangeInput } from "./create.ts";
 
+export { startChange } from "./start.ts";
+
 export {
   completeChange,
   completionOf,
@@ -43,6 +45,8 @@ export { cancelChange, looseEnds, type Cancelled, type NeedsForce } from "./canc
 
 export { refreshTitles } from "./titles.ts";
 
+export { ideationPromptFor } from "./plan.ts";
+
 export { describeChange, prDescription } from "./description.ts";
 
-export { branchFor } from "../../domain/change.ts";
+export { branchFor, PLAN_FILE, slugFor } from "../../domain/change.ts";
