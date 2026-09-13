@@ -538,8 +538,9 @@ button.primary:not(:disabled) {
 }
 
 /* Widgets */
-/* Narrow: one column, everything stacked. Wide: the component that asks for it (CI, whose tree
-   is taller than the rest together) gets a column of its own beside the others. */
+/* Documents (the plan, notes) on the left, status on the right, each card the full width of
+   its column. When either side is empty the grid stays one column, so the other is not
+   squeezed into half a window. */
 .widgets {
   display: grid;
   gap: 16px;
@@ -552,8 +553,13 @@ button.primary:not(:disabled) {
   min-width: 0;
 }
 
+/* An empty region claims no track and adds no gap. */
+.column:empty {
+  display: none;
+}
+
 @media (min-width: 1280px) {
-  .widgets {
+  .widgets:has(> .column.documents > *):has(> .column.status > *) {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     align-items: start;
   }

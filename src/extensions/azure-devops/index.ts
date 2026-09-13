@@ -104,7 +104,6 @@ export default {
   cards: [
     {
       title: "Azure DevOps",
-      wide: true,
       repoStatus: (change, repo) => repoItem(change, repo),
     },
   ],

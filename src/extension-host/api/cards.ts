@@ -8,8 +8,9 @@ import type { Capabilities } from "./capabilities.ts";
  * carrying the error's message — fail with whatever typed error you like. */
 export type Card = {
   title: string;
-  /** Ask for the tall column of its own on a wide window (the CI card's tree). */
-  wide?: boolean;
+  /** Which dashboard column the card belongs to: the change's documents on the left, or the
+   * status widgets on the right (the default). */
+  column?: "left" | "right";
   /** Whole-widget status; a card without it reports per repository. */
   status?: (change: Change) => Effect.Effect<Widget, unknown, Capabilities>;
   /** Rows for one repository, fetched a repository at a time, so a change with many

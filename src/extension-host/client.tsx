@@ -59,7 +59,12 @@ export type ClientModule = {
 };
 
 /** One extension's client-drawn widget on a change's dashboard. */
-export type WidgetInfo = { id: string; title: string; extension: string; wide?: boolean };
+export type WidgetInfo = {
+  id: string;
+  title: string;
+  extension: string;
+  column?: "left" | "right";
+};
 
 export const clients: Record<string, () => Promise<ClientModule>> = {
   jira: () => import("../extensions/jira/client.tsx"),

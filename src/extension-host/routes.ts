@@ -90,7 +90,7 @@ export const extensionHostRoutes = guard({
               title: card.title,
               // Per-repository components are fetched a repository at a time by the browser.
               perRepo: Boolean(card.repoStatus),
-              wide: Boolean(card.wide),
+              column: card.column ?? "right",
             })),
           ),
         ),

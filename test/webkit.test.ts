@@ -183,3 +183,23 @@ test.skipIf(!usable)("Home and End move to the line's edges in the notes", async
   await page.close();
 }, 30_000);
 
+test.skipIf(!usable)("the documents sit left of the status cards in WebKit", async () => {
+  // The dashboard's two regions: the change's documents (the plan, notes) on the left, the
+  // status cards on the right. At this width both are present, so the grid has two columns and
+  // the status region starts where the documents end.
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const documents = page.locator(".column.documents");
+  await documents.locator("textarea.plan").waitFor();
+  await documents.locator("textarea.notes").waitFor();
+  const status = page.locator(".column.status");
+  await status.locator(".widget").first().waitFor();
+  expect(await status.locator(".widget").count()).toBeGreaterThan(0);
+
+  const docBox = await documents.boundingBox();
+  const statusBox = await status.boundingBox();
+  if (!docBox || !statusBox) throw new Error("the dashboard's columns did not lay out");
+  expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
+  await page.close();
+}, 30_000);
+

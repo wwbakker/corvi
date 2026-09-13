@@ -5,7 +5,12 @@ import type { Entry } from "../workspace/model.ts";
 export type { Change, ChangeState, Widget, WidgetItem, Entry };
 export { CHANGE_STATES, IDEATION, isIdeation };
 export type Listing = { root: string; path: string; entries: Entry[] };
-export type CardInfo = { name: string; title: string; perRepo: boolean; wide: boolean };
+export type CardInfo = {
+  name: string;
+  title: string;
+  perRepo: boolean;
+  column: "left" | "right";
+};
 export type RepoItems = { items: WidgetItem[] };
 export type RepoState = {
   path: string;

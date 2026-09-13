@@ -44,8 +44,9 @@ export default {
   title: "Notes",
 
   // A client-drawn widget, not a server-drawn card: the textarea's debounce, unsaved marker
-  // and never-overwrite-while-typing are client state a `Card.status` effect cannot hold.
-  dashboardWidgets: [{ id: "notes", title: "Notes" }],
+  // and never-overwrite-while-typing are client state a `Card.status` effect cannot hold. It
+  // is a document, so it sits in the dashboard's left column beside the plan.
+  dashboardWidgets: [{ id: "notes", title: "Notes", column: "left" }],
 
   routes: [
     {
