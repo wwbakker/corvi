@@ -26,9 +26,6 @@ export type Workspace = {
    * holds the field the extension's `workspaceSettings` declaration names, which is where the
    * extension reads it back. The core only carries it. */
   extensionSettings?: Record<string, Record<string, string>>;
-  /** `false` for a context with no pipelines: no CI runs are looked for and the deployments page
-   * is not offered. */
-  azure?: false | { organization?: string; project?: string };
   /**
    * Added to the environment of every CLI run for this workspace. This is how two clients stop
    * fighting over one login: `GH_CONFIG_DIR` for another GitHub account, `AZURE_CONFIG_DIR` for
@@ -55,9 +52,6 @@ export type Config = {
   /** Whether a notification plays the system sound; the settings page's one notification
    * decision so far. */
   notificationSound: boolean;
-  /** Azure DevOps organisation and project; empty means "whatever az devops configure holds". */
-  azureOrganization: string;
-  azureProject: string;
   /** The contexts you switch between. Never empty: when nothing is configured, the default
    * workspace stands in. */
   workspaces: Workspace[];
@@ -75,17 +69,6 @@ export type Config = {
    * list of them. The core carries the bag without looking inside; the flat settings are the
    * fallback the extension reads go through when the bag is empty. */
   extensionSettings?: Record<string, Record<string, string | string[]>>;
-  /** How this organisation deploys. None of these names are ours, so all of them are settings:
-   * a build pipeline's deploy twin is named by swapping the prefixes, and the deploy pipeline is
-   * given the version and the environment as parameters. */
-  azureDeploy: {
-    /** `["build-", "deploy-"]`: how a build pipeline's name becomes its deploy pipeline's. */
-    pipeline: readonly [string, string];
-    versionParameter: string;
-    environmentParameter: string;
-    /** In the order they are deployed to, which is the order they are shown in. */
-    environments: string[];
-  };
 };
 
 /**
@@ -99,8 +82,6 @@ export type ConfigFile = {
   reposRoot?: string;
   reposStart?: string;
   notificationSound?: boolean;
-  azureOrganization?: string;
-  azureProject?: string;
   /** The contexts you switch between, as the file holds them. Decoded with the per-item
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];
@@ -109,10 +90,4 @@ export type ConfigFile = {
   /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
    * one string or a list of strings per key. */
   extensionSettings?: Record<string, Record<string, string | string[]>>;
-  azureDeploy?: {
-    pipeline?: readonly [string, string];
-    versionParameter?: string;
-    environmentParameter?: string;
-    environments?: string[];
-  };
 };

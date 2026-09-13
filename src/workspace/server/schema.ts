@@ -35,29 +35,12 @@ export const Workspace = Schema.Struct({
       }),
     ),
   ),
-  azure: Schema.optional(
-    Schema.Union(
-      Schema.Literal(false),
-      Schema.Struct({
-        organization: Schema.optional(Schema.String),
-        project: Schema.optional(Schema.String),
-      }),
-    ),
-  ),
   env: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))),
 });
 
 // The schema and the hand-written type must not drift: this line fails to compile if the
 // schema stops describing exactly the Workspace every module reads.
 const _workspaceMatchesType: Schema.Schema<WorkspaceShape> = Workspace;
-
-/** The `azureDeploy` subshape as the file holds it: every key optional. */
-export const AzureDeploy = Schema.Struct({
-  pipeline: Schema.optional(Schema.Tuple(Schema.String, Schema.String)),
-  versionParameter: Schema.optional(Schema.String),
-  environmentParameter: Schema.optional(Schema.String),
-  environments: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-});
 
 /** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
  * it has to be a word. The same rule src/settings/server/settings.ts enforces, as a schema. */
@@ -93,8 +76,6 @@ export const ConfigFile = Schema.Struct({
   reposStart: Schema.optional(Schema.String),
   /** Whether a notification plays the system sound. Absent means yes. */
   notificationSound: Schema.optional(Schema.Boolean),
-  azureOrganization: Schema.optional(Schema.String),
-  azureProject: Schema.optional(Schema.String),
   // Passed through untouched, unvalidated, garbage entries included: dropping them here would
   // let one hand-mangled workspace cost the rest of the file. load() applies the per-item
   // tolerance via workspacesFrom.
@@ -120,7 +101,6 @@ export const ConfigFile = Schema.Struct({
       }),
     ),
   ),
-  azureDeploy: Schema.optional(AzureDeploy),
 });
 
 /** What the config file decodes to. Decode with `onExcessProperty: "preserve"` (readFile does)
@@ -138,14 +118,14 @@ const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabular
 
 /** The resolved shape: file, environment and defaults combined — `src/domain/config.ts`'s `Config`. Not a
  * decoder of anything on disk (the resolved config is computed, never read); it states the
- * boundary a future CLI/IPC surface would emit, and pins the Workspace member to the type. */
+ * boundary a future CLI/IPC surface would emit, and pins the Workspace member to the type.
+ * The azure-devops fields the core used to own are unknown keys now: the extension reads
+ * them through its own legacy.ts, so they ride the preserve decode rather than this shape. */
 export const Resolved = Schema.Struct({
   changesRoot: Schema.String,
   reposRoot: Schema.String,
   reposStart: Schema.String,
   notificationSound: Schema.Boolean,
-  azureOrganization: Schema.String,
-  azureProject: Schema.String,
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
   extensionPaths: Schema.Array(Schema.String),
@@ -162,10 +142,4 @@ export const Resolved = Schema.Struct({
       }),
     ),
   ),
-  azureDeploy: Schema.Struct({
-    pipeline: Schema.Tuple(Schema.String, Schema.String),
-    versionParameter: Schema.String,
-    environmentParameter: Schema.String,
-    environments: Schema.Array(Schema.String),
-  }),
 });

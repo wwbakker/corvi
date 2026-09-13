@@ -25,8 +25,8 @@ import {
   workspaceParam,
 } from "../capabilities/web.ts";
 
-// What is deployed where lives under the deployments extension's namespace
-// (/api/ext/deployments/…): the implementation (extensions/deployments/server.ts) lives with
+// What is deployed where lives under the azure-devops extension's namespace
+// (/api/ext/azure-devops/…): the implementation (extensions/azure-devops/server.ts) lives with
 // the extension, the routes and the page are the extension's own.
 
 export const extensionHostRoutes = guard({
@@ -42,7 +42,7 @@ export const extensionHostRoutes = guard({
   },
 
   // The pages a context's sidebar offers, the same question one surface over: what is
-  // deployed where is the deployments extension's page here, another extension's page
+  // deployed where is the azure-devops extension's page here, another extension's page
   // elsewhere. A context without the extension has no entry, not an empty one.
   "/api/pages": {
     GET: (req) =>

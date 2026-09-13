@@ -19,7 +19,7 @@ export type Buildable = {
 /**
  * Starting a deploy: which version, and where to.
  *
- * The one irreversible thing on the deployments page, so it says what it is about to do in the
+ * The one irreversible thing on the Azure DevOps page, so it says what it is about to do in the
  * button rather than on it — `Deploy 20260901_… to production` — and the last environment is
  * marked as the one you cannot take back.
  *
@@ -67,7 +67,7 @@ export function DeployDialog({
     // Read at the moment it opens, not from the row: a row is up to half a minute old, and this
     // is the decision, not the display.
     api<Buildable[]>(
-      `/ext/deployments/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      `/ext/azure-devops/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
     )
       .then((found) => {
         setVersions(found);
@@ -110,7 +110,7 @@ export function DeployDialog({
     setBusy(true);
     setError(null);
     post<{ runId: number }>(
-      `/ext/deployments/services/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+      `/ext/azure-devops/services/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       { version, environment },
     )
       .then(() => {

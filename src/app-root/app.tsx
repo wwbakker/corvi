@@ -204,7 +204,7 @@ function App(): JSX.Element {
   }, []);
 
   // The pages are the server's, and they may arrive after the first view was resolved: a link
-  // or a reload on /deployments reads as home until then. Once known, the URL is re-read — the
+  // or a reload on /azure-devops reads as home until then. Once known, the URL is re-read — the
   // URL is the truth, and this only ever makes it match.
   const pagesRef = useRef(pages);
   pagesRef.current = pages;

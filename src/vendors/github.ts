@@ -2,9 +2,10 @@ import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import type { Change } from "../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../domain/widget.ts";
-import { checkoutFor, baseFor, remoteDefaultBranch } from "./git.ts";
+import { baseFor, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, type Result } from "../capabilities/shell.ts";
+import { Changes } from "../extension-host/api/capabilities.ts";
 import { swr, invalidate } from "../capabilities/cache.ts";
 import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
 import { cliJson, shSoft } from "../capabilities/effect/support.ts";
@@ -111,9 +112,9 @@ type FoundPr = { worktree: string; head: string; prs: Pr[] };
 const prQuery = (
   change: Change,
   repo: string,
-): Effect.Effect<FoundPr | undefined, BadRequestError> =>
+): Effect.Effect<FoundPr | undefined, BadRequestError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutFor(change, repo);
+    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!wt) return undefined;
     const head = yield* pushedAs(wt, repo, change.branch);
     const r = yield* shSoft(
@@ -146,7 +147,7 @@ const prQuery = (
  */
 const PR_TTL = 20_000;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError> =>
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -309,11 +310,23 @@ const readDetails = (
  * The pull request of this repository as the overview needs it: its number, and how many review
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
  * none. Failures are not errors here — the overview says nothing rather than a red card.
+ *
+ * The number alone is what the azure-devops extension needs for the merge ref, through
+ * `prNumberOf` below: one cached lookup serves both cards.
  */
+export const prNumberOf = (
+  change: Change,
+  repo: string,
+): Effect.Effect<number | undefined, never, Changes> =>
+  Effect.map(
+    Effect.orElseSucceed(prSummary(change, repo), () => undefined),
+    (summary) => summary?.number,
+  );
+
 export const prSummary = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }> =>
+): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes> =>
   Effect.gen(function* () {
     const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
     const pr = found?.prs[0];
@@ -330,7 +343,7 @@ export const prSummary = (
 export const prItem = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; item: WidgetItem }> =>
+): Effect.Effect<{ number?: number; item: WidgetItem }, BadRequestError, Changes> =>
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
@@ -393,7 +406,7 @@ export type MergeReadiness =
 export const mergeReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError> =>
+): Effect.Effect<MergeReadiness, BadRequestError, Changes> =>
   Effect.gen(function* () {
     const name = basename(repo);
     const found = yield* prQuery(change, repo);
@@ -424,9 +437,9 @@ export const mergePr = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined, BadRequestError | CliError> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutFor(change, repo);
+    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!wt) {
       return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
@@ -464,9 +477,9 @@ const isStacked = (
 export const createPr = (
   change: Change,
   repo: string,
-): Effect.Effect<void, BadRequestError | CliError> =>
+): Effect.Effect<void, BadRequestError | CliError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* checkoutFor(change, repo);
+    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!wt) {
       return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }

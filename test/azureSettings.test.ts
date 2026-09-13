@@ -1,79 +1,69 @@
-import { test, expect, afterEach } from "bun:test";
+import { test, expect, afterEach, beforeEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { azureConfigured, azureEnabled, azureOf } from "../src/vendors/azure.ts";
-import { deploySettings } from "../src/extensions/deployments/deploySettings.ts";
+import { clearCache } from "../src/capabilities/cache.ts";
+import { azureOf } from "../src/extensions/azure-devops/azure.ts";
+import { deploySettings, deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
 import {
   config,
   extensionEnabled,
   reloadConfigSync,
   type Workspace,
 } from "../src/workspace/server/index.ts";
+import { runEffect } from "./helpers.ts";
 
 /**
- * The azure client's settings chain and its enablement rule, both read live from the one config
- * object. The tests mutate that object and put it back, because it is shared by every module.
+ * The azure-devops extension's settings chain and the migration that folds the retired shapes
+ * into it, both read live from the one config object. The tests mutate that object and put it
+ * back, because it is shared by every module.
  */
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "t", name: "T", ...patch });
 
-const original = {
-  extensionSettings: config.extensionSettings,
-  azureOrganization: config.azureOrganization,
-  azureProject: config.azureProject,
-};
+const originalConfig = process.env.IWE_CONFIG;
+const originalOrg = process.env.IWE_AZURE_ORG;
+const originalProject = process.env.IWE_AZURE_PROJECT;
+const originalEnvironments = process.env.IWE_AZURE_ENVIRONMENTS;
+
+beforeEach(() => {
+  clearCache();
+  config.extensionSettings = undefined;
+});
 
 afterEach(() => {
-  config.extensionSettings = original.extensionSettings;
-  config.azureOrganization = original.azureOrganization;
-  config.azureProject = original.azureProject;
+  config.extensionSettings = undefined;
+  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
+  else process.env.IWE_CONFIG = originalConfig;
+  if (originalOrg === undefined) delete process.env.IWE_AZURE_ORG;
+  else process.env.IWE_AZURE_ORG = originalOrg;
+  if (originalProject === undefined) delete process.env.IWE_AZURE_PROJECT;
+  else process.env.IWE_AZURE_PROJECT = originalProject;
+  if (originalEnvironments === undefined) delete process.env.IWE_AZURE_ENVIRONMENTS;
+  else process.env.IWE_AZURE_ENVIRONMENTS = originalEnvironments;
+  reloadConfigSync();
 });
 
 test("extensionEnabled is the one enablement rule: an absent list means all of them", () => {
   expect(extensionEnabled(ws(), "anything")).toBe(true);
   expect(extensionEnabled(ws({ extensions: [] }), "anything")).toBe(false);
-  expect(extensionEnabled(ws({ extensions: ["ci"] }), "ci")).toBe(true);
-  expect(extensionEnabled(ws({ extensions: ["ci"] }), "jira")).toBe(false);
-});
-
-test("azureEnabled is the deployments extension's enablement plus the legacy flag", () => {
-  // A workspace that names no extensions has deployments, unless it said `azure: false`.
-  expect(azureEnabled(ws())).toBe(true);
-  expect(azureEnabled(ws({ azure: false }))).toBe(false);
-  // Naming a list is the whole list: without deployments there are no pipelines.
-  expect(azureEnabled(ws({ extensions: ["ci", "git"] }))).toBe(false);
-  expect(azureEnabled(ws({ extensions: ["ci", "deployments"] }))).toBe(true);
-  // The legacy fact still wins over a listed deployments.
-  expect(azureEnabled(ws({ extensions: ["deployments"], azure: false }))).toBe(false);
-});
-
-test("azureConfigured is the legacy fact alone, so CI keeps its pipelines without deployments", () => {
-  // The legacy flag is the only thing that says "this context has no pipelines".
-  expect(azureConfigured(ws())).toBe(true);
-  expect(azureConfigured(ws({ azure: false }))).toBe(false);
-  // A workspace that listed ci without deployments still has Azure: the deployments page's
-  // enablement must not gate the CI facts (azureEnabled is the other, deployment-only rule).
-  expect(azureConfigured(ws({ extensions: ["ci", "git"] }))).toBe(true);
-  expect(azureConfigured(ws({ extensions: ["ci", "git"], azure: false }))).toBe(false);
+  expect(extensionEnabled(ws({ extensions: ["github"] }), "github")).toBe(true);
+  expect(extensionEnabled(ws({ extensions: ["github"] }), "jira")).toBe(false);
 });
 
 test("azureOf walks the chain one level at a time", () => {
-  config.azureOrganization = "flat-org";
-  config.azureProject = "flat-proj";
   config.extensionSettings = {
-    deployments: { organization: "global-org", project: "global-proj" },
+    "azure-devops": { organization: "global-org", project: "global-proj" },
   };
 
   // The global settings bag is the first level that answers when the workspace says nothing.
-  expect(azureOf(ws())).toEqual({ organization: "global-org", project: "global-proj" });
+  expect(azureOf(ws(), config)).toEqual({ organization: "global-org", project: "global-proj" });
 
   // The legacy per-workspace object sits above it.
-  expect(azureOf(ws({ azure: { organization: "legacy-org", project: "legacy-proj" } }))).toEqual({
-    organization: "legacy-org",
-    project: "legacy-proj",
-  });
+  expect(
+    azureOf(ws({ azure: { organization: "legacy-org", project: "legacy-proj" } } as never), config),
+  ).toEqual({ organization: "legacy-org", project: "legacy-proj" });
   // Half a legacy address still leaves the other half to the level below.
-  expect(azureOf(ws({ azure: { project: "legacy-proj" } }))).toEqual({
+  expect(azureOf(ws({ azure: { project: "legacy-proj" } } as never), config)).toEqual({
     organization: "global-org",
     project: "legacy-proj",
   });
@@ -83,28 +73,57 @@ test("azureOf walks the chain one level at a time", () => {
     azureOf(
       ws({
         azure: { organization: "legacy-org", project: "legacy-proj" },
-        extensionSettings: { deployments: { organization: "own-org", project: "own-proj" } },
-      }),
+        extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } },
+      } as never),
+      config,
     ),
   ).toEqual({ organization: "own-org", project: "own-proj" });
 
   // With the global bag empty, the legacy flat field answers; with nothing at all, the empty
   // answer is what `azFor` falls back from to `az devops configure`.
   config.extensionSettings = {};
-  expect(azureOf(ws())).toEqual({ organization: "flat-org", project: "flat-proj" });
-  config.azureOrganization = "";
-  config.azureProject = "";
-  expect(azureOf(ws())).toEqual({ organization: "", project: "" });
+  expect(azureOf(ws(), config)).toEqual({ organization: "", project: "" });
+});
+
+test("deploySettingsOf reads the bag first, then the legacy flat field, then the default", () => {
+  expect(
+    deploySettingsOf({ environments: ["dev", "accept"] }, { environments: ["accept", "production"] }),
+  ).toMatchObject({ environments: ["dev", "accept"] });
+  expect(deploySettingsOf(undefined, { environments: ["accept", "production"] })).toMatchObject({
+    environments: ["accept", "production"],
+  });
+  // A bag list that is not two names is not set: the legacy field answers whole.
+  expect(
+    deploySettingsOf({ pipeline: ["only-one"] }, { pipeline: ["build-", "deploy-"] as const }),
+  ).toMatchObject({ pipeline: ["build-", "deploy-"] });
+  expect(deploySettingsOf(undefined, {})).toMatchObject({
+    pipeline: ["build-", "deploy-"],
+    versionParameter: "dockerTag",
+    environmentParameter: "environment",
+    environments: ["accept", "production"],
+  });
+});
+
+test("deploySettings reads the extension's own bag through the Settings capability", async () => {
+  const before = config.extensionSettings;
+  config.extensionSettings = { "azure-devops": { environments: ["dev", "accept"] } };
+  try {
+    expect((await runEffect(deploySettings())).environments).toEqual(["dev", "accept"]);
+  } finally {
+    config.extensionSettings = before;
+  }
 });
 
 test("a config file with only the legacy fields still works", async () => {
   const originalConfig = process.env.IWE_CONFIG;
   const originalOrg = process.env.IWE_AZURE_ORG;
   const originalProject = process.env.IWE_AZURE_PROJECT;
+  const originalEnv = process.env.IWE_AZURE_ENVIRONMENTS;
   const dir = await mkdtemp(join(tmpdir(), "iwe-azure-legacy-"));
   process.env.IWE_CONFIG = join(dir, "config.json");
   delete process.env.IWE_AZURE_ORG;
   delete process.env.IWE_AZURE_PROJECT;
+  delete process.env.IWE_AZURE_ENVIRONMENTS;
   try {
     await Bun.write(
       process.env.IWE_CONFIG,
@@ -120,15 +139,15 @@ test("a config file with only the legacy fields still works", async () => {
     );
     reloadConfigSync();
 
-    // The flat fields and the deployment conventions still resolve from a legacy-only file.
-    expect(config.azureOrganization).toBe("https://dev.azure.com/legacy");
-    expect(config.azureProject).toBe("LegacyProj");
-    expect(deploySettings().pipeline).toEqual(["build-", "deploy-"]);
-    expect(deploySettings().environments).toEqual(["accept", "production"]);
+    // The flat fields and the deployment conventions still resolve from a legacy-only file —
+    // through the extension's own fallback read, not the resolved config, which no longer
+    // types them.
+    expect(azureOf(ws(), config).organization).toBe("https://dev.azure.com/legacy");
+    expect((await runEffect(deploySettings())).environments).toEqual(["accept", "production"]);
 
     // The legacy per-workspace object still wins for project; the flat field answers organisation.
     const client = config.workspaces[0]!;
-    expect(azureOf(client)).toEqual({
+    expect(azureOf(client as never, config)).toEqual({
       organization: "https://dev.azure.com/legacy",
       project: "PerWorkspace",
     });
@@ -136,9 +155,11 @@ test("a config file with only the legacy fields still works", async () => {
     // The flat field carries the environment resolution, and the global bag still beats it.
     process.env.IWE_AZURE_ORG = "https://dev.azure.com/from-env";
     reloadConfigSync();
-    expect(azureOf(config.workspaces[0]!).organization).toBe("https://dev.azure.com/from-env");
-    config.extensionSettings = { deployments: { organization: "global-org" } };
-    expect(azureOf(config.workspaces[0]!).organization).toBe("global-org");
+    expect(azureOf(config.workspaces[0]! as never, config).organization).toBe(
+      "https://dev.azure.com/from-env",
+    );
+    config.extensionSettings = { "azure-devops": { organization: "global-org" } };
+    expect(azureOf(config.workspaces[0]! as never, config).organization).toBe("global-org");
   } finally {
     if (originalConfig === undefined) delete process.env.IWE_CONFIG;
     else process.env.IWE_CONFIG = originalConfig;
@@ -146,7 +167,10 @@ test("a config file with only the legacy fields still works", async () => {
     else process.env.IWE_AZURE_ORG = originalOrg;
     if (originalProject === undefined) delete process.env.IWE_AZURE_PROJECT;
     else process.env.IWE_AZURE_PROJECT = originalProject;
+    if (originalEnv === undefined) delete process.env.IWE_AZURE_ENVIRONMENTS;
+    else process.env.IWE_AZURE_ENVIRONMENTS = originalEnv;
     await rm(dir, { recursive: true, force: true });
     reloadConfigSync();
+    clearCache();
   }
 });

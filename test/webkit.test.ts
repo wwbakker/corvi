@@ -96,7 +96,7 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
   const pages: [string, string][] = [
     ["/", ".change-cards"],
     ["/new", ".wizard"],
-    ["/deployments", ".page"],
+    ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
     [`/changes/${id}`, ".widget"],
     [`/changes/${id}/review`, ".local-pane, .page"],

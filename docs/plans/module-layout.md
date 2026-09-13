@@ -23,7 +23,7 @@ src/
     bus.ts                announce + the SSE stream/watcher + its two routes
     web.ts                sameSite/guard + json/bodyOf/attempt/withChange/withWorkspaceParam
     os.ts                 platform facts (isMac, platformName) + IDE tooling copy
-  vendors/                clients for their CLIs (was core/integrations): git, github, azure, stacks
+  vendors/                clients for their CLIs (was core/integrations): git, github, stacks
   extension-host/         the extension contract + machinery (was core/host), incl. client.tsx,
                           clientChunks.ts, vendor-jsx.ts — and its routes (wizard/pages/ext/cards)
   change/                 one change's lifecycle service: store, schema, create, complete, cancel,
@@ -108,16 +108,19 @@ is stated here rather than discovered.
 - **`domain/`** imports nothing that runs. Unchanged, new path.
 - **`capabilities/`** imports `domain`, plus three documented upward edges that
   predate this plan: `web.ts` (the `withChange` glue reads the change store and
-  workspace resolution; its `Bridge` type import from `terminals/server/proxy.ts`
-  is type-only and likewise carried over) and `bus.ts` (the watcher reads changes,
-  windows and the notification setting). Follow-up, not this plan: inject the
-  watcher's sources.
-- **`vendors/`** imports `domain` + `capabilities`, plus two carried-over
-  exceptions: `git.ts` (the worktree engine) reads the change store leaves and
-  the workspace config, and `azure.ts` reads the workspace resolution and the
-  settings precedence chain. The former is the old "git cannot be colocated"
-  scope (archive/refactor-plan.md item 5), restated at its new address; the
-  latter predates this plan identically and is listed here so the rule is true.
+  workspace resolution and provides the host's `ChangesLive` layer, so effects that read
+  a checkout through the contract run on routes; its `Bridge` type import from
+  `terminals/server/proxy.ts` is type-only and likewise carried over) and `bus.ts`
+  (the watcher reads changes, windows and the notification setting). Follow-up, not
+  this plan: inject the watcher's sources.
+- **`vendors/`** imports `domain` + `capabilities`, plus one carried-over
+  exception: `git.ts` (the worktree engine) reads the change store leaves and
+  the workspace config. That is the old "git cannot be colocated"
+  scope (archive/refactor-plan.md item 5), restated at its new address.
+  `github.ts` additionally reads the contract's `Changes` capability for the checkout
+  lookup. The azure-devops extension's `azure.ts`/`pipelines.ts`/`server.ts` run their
+  `az` calls through the contract's `Shell`, `Cache`, `Settings` and `Changes`
+  capabilities.
 - **`extension-host/`** imports `domain` + `capabilities` + the documented
   first-party leaves (change store, `vendors/git`, workspace config,
   settings precedence chain). Unchanged semantics.

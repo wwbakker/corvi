@@ -18,7 +18,7 @@ import type { TmuxWindow } from "../src/extension-host/api.ts";
 /**
  * The portability proof, in two steps.
  *
- * The first test writes a one-line re-export of the ci extension's default export and loads it
+ * The first test writes a one-line re-export of the github extension's default export and loads it
  * through the out-of-tree discovery path: it proves the discovery/install path works for a
  * built-in with no static in-repo registration.
  *
@@ -33,7 +33,7 @@ import type { TmuxWindow } from "../src/extension-host/api.ts";
  */
 
 const repoRoot = join(import.meta.dir, "..");
-const BUILTIN = "ci";
+const BUILTIN = "github";
 
 let tmp: string;
 let saved: typeof loaded = [];
@@ -52,7 +52,7 @@ const workspace = (patch: Partial<Workspace> = {}): Workspace => ({ id: "t", nam
 const change = (): Change => ({ id: "t", branch: "b", repos: [], createdAt: new Date().toISOString() });
 
 test("a built-in installs from a re-exported module through the out-of-tree path", async () => {
-  const moduleDir = join(tmp, "ci-outside");
+  const moduleDir = join(tmp, "github-outside");
   await mkdir(moduleDir, { recursive: true });
   const modulePath = join(moduleDir, "index.ts");
   const builtinPath = join(repoRoot, "src", "extensions", BUILTIN, "index.ts");
@@ -69,7 +69,7 @@ test("a built-in installs from a re-exported module through the out-of-tree path
   // The description installed, name and title intact.
   const installed = loaded.find((e) => e.name === BUILTIN);
   expect(installed).toBeDefined();
-  expect(installed?.title).toBe("CI");
+  expect(installed?.title).toBe("GitHub");
 
   // And its surfaces answer through the ordinary selectors, not by reaching into the record.
   expect(cardsFor(change()).map((c) => c.name)).toEqual([BUILTIN]);

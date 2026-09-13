@@ -58,7 +58,7 @@ is reported as "the server has no /settings — it is probably running older cod
   "reposStart": "~/Repos/acme",
   "extensionSettings": {
     "jira": { "assignee": "", "startTransition": "In Progress", "doneTransition": "Done" },
-    "deployments": { "organization": "", "project": "" }
+    "azure-devops": { "organization": "", "project": "" }
   },
   "worktreeCopy": [".idea", ".bsp", ".bloop", ".scala-build", ".metals", ".vscode"]
 }
@@ -68,7 +68,8 @@ The Jira and deployment settings are the extensions' own — `extensionSettings[
 keys each extension declares (docs/guides/extensions.md). Empty values fall back to the tools' own
 configuration: the account the Jira token belongs to (`/myself`) for the assignee, and
 `az devops configure` for the Azure DevOps organisation and project. The flat fields
-(`jiraAssignee`, `azureOrganization`, …) are still read when the bag does not
+(`jiraAssignee`, and the retired `azureOrganization`/`azureDeploy` fields the azure-devops
+extension reads from the file, …) are still read when the bag does not
 answer, and the `IWE_*` environment variables beat them — which is why the settings page locks
 a field while its variable is set.
 
@@ -171,8 +172,11 @@ The dashboard shows three widgets, in this order:
   the change is created, and `Done` belongs to completing the change as a whole.
 - **Local changes** — the worktree per repository: clean or dirty, ahead/behind, merged.
   Reviewing and committing what is uncommitted here is the **Review changes** tab, below.
-- **CI** — per repository, the pull request and the pipeline runs it triggered, since "is this
-  change green?" is one question even though two vendors answer it. Rows form a collapsible tree:
+- **GitHub** — per repository, the pull request and the checks it reports: "is this
+  change green?", from GitHub's side. Rows form a collapsible tree, with the checks grouped by
+  the part of the name before the bracket.
+- **Azure DevOps** — per repository, the pipeline runs it triggered, beside the GitHub card.
+  Rows form a collapsible tree:
 
       example-api
       └─ #719 Fix the thing
@@ -202,13 +206,15 @@ The dashboard shows three widgets, in this order:
   GraphQL query as the unresolved comments, so it costs no extra call. Where the preview feature
   is not enabled the query is repeated without those fields rather than losing the comment counts.
 
-  A repository whose pipelines Azure DevOps does not know about — built by GitHub Actions, or by
-  pipelines in another Azure project than the configured one — falls back to the checks the pull
-  request itself reports. Those are grouped by the part of the name before the bracket, so a build
-  with thirty jobs (`owner.frontend-app (CI App @scope/one-app)`) is one row you can open.
+  The GitHub card always shows the checks the pull request itself reports — GitHub Actions,
+  Azure Pipelines in any project, whatever the repository has bolted on — grouped by the part of
+  the name before the bracket, so a build with thirty jobs
+  (`owner.frontend-app (CI App @scope/one-app)`) is one row you can open. The Azure DevOps
+  card stays silent for a repository its pipelines do not know about: no row at all, rather than
+  a row saying so.
 
   A pipeline's own dot follows its **newest** run: an older failure that a later run fixed does
-  not keep the pipeline, the repository or the whole CI card red. The failed run keeps its red dot
+  not keep the pipeline, the repository or the whole card red. The failed run keeps its red dot
   in the list, where it belongs.
 
   A successful run also shows the artifact version its pipeline printed
@@ -391,28 +397,32 @@ are looking at.
       "extensionSettings": {
         "jira": { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" }
       },
-      "azure": { "organization": "https://dev.azure.com/org", "project": "Project" } },
+      "extensionSettings": {
+        "azure-devops": { "organization": "https://dev.azure.com/org", "project": "Project" }
+      } },
 
-    { "id": "personal", "name": "Personal", "extensions": ["git", "ci"] }
+    { "id": "personal", "name": "Personal", "extensions": ["git", "github"] }
   ]
 }
 ```
 
-The per-workspace `azure` object — organisation and project overrides — is the deployments
-extension's own business, read through the `Workspace` tag. Which extensions a workspace has is
-the `extensions` list (below); a workspace still carrying the vendor flags instead is migrated
-on load.
+The per-workspace organisation and project overrides live under
+`extensionSettings.azure-devops` — the azure-devops extension's own business, read through the
+`Workspace` tag. Which extensions a workspace has is the `extensions` list (below); a workspace
+still carrying the retired names instead is migrated on load.
 
-A workspace can also name **which extensions it has** (`"extensions": ["git", "ci",
+A workspace can also name **which extensions it has** (`"extensions": ["git", "github",
 "github-issues"]`): the cards, wizard steps, pages, summary facts and hooks it gets at all.
 Naming none means all of them; naming some is the whole list. Extensions are described in
 [docs/guides/extensions.md](docs/guides/extensions.md) — the jira and github-issues extensions each
 contribute a wizard step and a card, and both can be on at once: two tickets on one change is a
-thing, not a conflict. A workspace still carrying `"jira": false` or `"azure": false` (with no
-`extensions` list) is migrated on load — the flag becomes an explicit list naming everything but
-the extension it excluded (jira, deployments), and a `jira` object is folded into
-`extensionSettings.jira`. The migration is automatic, for hand-edits and settings-page writes
-alike.
+thing, not a conflict. A workspace still carrying a retired name is migrated on load — `ci` becomes `github` +
+`azure-devops`, `deployments` becomes `azure-devops`, the `deployments` bags move to
+`azure-devops`, and a legacy per-workspace `azure` object (`false`, or
+`{ organization, project }`) folds into the same bag (`false` additionally materializing an
+explicit list without `azure-devops`). The retired flat `azureOrganization`/`azureProject`/
+`azureDeploy` fields stay readable through the extension's own fallback until that is removed.
+The migration is automatic, for hand-edits and settings-page writes alike.
 
 Extensions do not have to live in this repository: `"extensionPaths"` in the config (or the
 `IWE_EXTENSION_PATHS` environment variable) names `.ts` modules or directories of them, loaded
@@ -423,9 +433,9 @@ page — see "Out-of-tree extensions" in [docs/guides/extensions.md](docs/guides
 
 **A second client is a second site.** `extensionSettings.jira.configFile` points at another
 `jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
-variable holding that site's token, and `azure.organization`/`project` are passed to `az`
-explicitly rather than relying on its single configured default. Two clients can be open at
-once.
+variable holding that site's token, and `azure-devops`'s organisation/`project` are passed
+to `az` explicitly rather than relying on its single configured default. Two clients can be open
+at once.
 
 ### A second client is also a second login
 
@@ -455,7 +465,7 @@ bug this prevents, and it would have looked like "why is my personal change show
 pipelines".
 
 The browser sends the chosen workspace where the request is not about a change
-(`/api/ext/deployments/services?workspace=…`, `/api/ext/jira/issues?workspace=…`); where it *is*
+(`/api/ext/azure-devops/services?workspace=…`, `/api/ext/jira/issues?workspace=…`); where it *is*
 about a change, the change says which workspace it belongs to and nothing has to be passed.
 
 ## Navigation
@@ -978,7 +988,7 @@ open threads), so a change you have open answers immediately.
 **Completed changes** stay a table — id, story, repositories, created, completed. No state
 column: every row in it is `Completed`, which is what the heading says.
 
-## Deployments
+## Azure DevOps
 
 A page of its own, beside `Changes` in the navigation column: one row per service, one column per
 environment, and what each of them holds.
@@ -1010,13 +1020,13 @@ The version parameter is not called the same thing in every pipeline (`dockerTag
 parameter there is: a deploy run takes the environment and the thing to deploy, and when those
 are the only two, which is which is not a guess.
 
-Configured under the deployments extension's own settings — `extensionSettings.deployments` on
-the settings page, or by hand — because none of these names are ours:
+Configured under the azure-devops extension's own settings — `extensionSettings.azure-devops`
+on the settings page, or by hand — because none of these names are ours:
 
 ```json
 {
   "extensionSettings": {
-    "deployments": {
+    "azure-devops": {
       "pipeline": ["build-", "deploy-"],
       "versionParameter": "dockerTag",
       "environmentParameter": "environment",
@@ -1026,8 +1036,8 @@ the settings page, or by hand — because none of these names are ours:
 }
 ```
 
-The flat `azureDeploy` field is still read when the bag does not answer — its
-defaults and the `IWE_AZURE_*` environment variables included.
+The retired flat `azureDeploy` field is still read from the file when the bag does not
+answer — its defaults and the `IWE_AZURE_*` environment variables included.
 
 **Deploy…** opens a dialog: which version, and where to. The versions are the service's own recent
 builds, newest first, each with the version it produced — scraped from the build's logs, because
@@ -1174,7 +1184,7 @@ even if the pull request is approved: removing it would throw that work away.
 
 ## Routing
 
-`/` lists changes, `/new` is the wizard, `/deployments` is the deployments page, `/settings` is
+`/` lists changes, `/new` is the wizard, `/azure-devops` is the Azure DevOps page, `/settings` is
 the settings page, `/changes/<id>`
 is a dashboard, and `/changes/<id>/review` and `/changes/<id>/terminals` are its other two pages. Navigation uses
 `history.pushState`, the server serves the app for any non-`/api` path, so deep links, reload and
@@ -1366,7 +1376,7 @@ The map, grouped by layer:
     src/vendors/              vendor CLI wrappers shared by more than one feature
       git.ts                  worktrees and checkouts (wt, plus plain git)
       github.ts               pull requests, review threads, merges
-      azure.ts                Azure DevOps pipelines and runs
+      github.ts               pull requests, review threads, merges
       stacks.ts               stacked pull requests
 
     src/change/               the change module: its server half and its shared rule, no UI
@@ -1417,9 +1427,12 @@ The map, grouped by layer:
 
     src/extensions/           the built-ins, and nothing else
       agents/ git/ github-issues/ jira/
-      ci/                     the CI card, and checks.ts (GitHub Actions checks)
-      deployments/            index.ts, server.ts (the implementation), client.tsx, DeployDialog.tsx,
-                              deploySettings.ts (the deployments' own settings, read back),
+      github/                 the GitHub card, and checks.ts (the pull request's checks)
+      azure-devops/           index.ts, pipelines.ts (the per-change facts), server.ts (the page's
+                              implementation), client.tsx, DeployDialog.tsx,
+                              deploySettings.ts (the extension's own settings, read back),
+                              azure.ts (which Azure DevOps is meant), legacy.ts (the retired
+                              fields, read back), migrate.ts (the retired names, folded away),
                               deployConventions.ts (the pipeline-name convention both halves share)
       leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
                               (the Leftover type both halves read)

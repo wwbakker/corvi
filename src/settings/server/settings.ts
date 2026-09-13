@@ -15,6 +15,7 @@ import {
   WorkspaceId,
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../extension-host/index.ts";
+import { migrateExtensionSettings, migrateFileSettings } from "../../extension-host/migrate.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import { invalidate } from "../../capabilities/cache.ts";
@@ -39,6 +40,9 @@ export const settingsView = Effect.sync(() => settingsViewSync());
  * contract; the Effect form is settingsView above, which the server uses. */
 export const settingsViewSync = (): SettingsView => {
   const file = readFileSync();
+  // The file is handed over migrated, so the page edits — and writes back — the shape the
+  // extensions read today, never the retired names the migration folds away.
+  migrateFileSettings(file);
   return {
     path: configPath(),
     file,
@@ -106,16 +110,6 @@ export function problems(next: Settings): string[] {
     }
   }
 
-  const deploy = next.azureDeploy;
-  if (deploy) {
-    if (deploy.pipeline && deploy.pipeline.filter(Boolean).length !== 2) {
-      found.push("the pipeline naming needs both a build prefix and a deploy prefix");
-    }
-    if (deploy.environments && deploy.environments.some((e) => !e.trim())) {
-      found.push("an environment has no name");
-    }
-  }
-
   return found;
 }
 
@@ -153,6 +147,9 @@ export const writeSettings = (
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
 
     yield* reloadConfig;
+    // The retired names fold into the extensions' own settings, in memory as on disk —
+    // a page save is also a migration.
+    migrateExtensionSettings(config.workspaces);
     // Everything the CLIs answered was answered for the settings just replaced: another
     // organisation, another Jira site, another set of environments. Cheaper to ask again than to
     // reason about which.

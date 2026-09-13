@@ -119,8 +119,9 @@ The summary a change's card on the overview carries is contributed facts. Each c
 answers with facts — a coloured dot and a phrase, the dashboard's own vocabulary — and, when it
 has an opinion, a verdict for the change's status icon. The host merges every answer into the
 one `{ facts, state }` the card renders: the core contributes the terminals fact (tmux stays
-core), the ci extension the vendor facts — pipelines active, unresolved comments, the CI
-verdict. The core's fact leads, and the extension facts follow in load order, so the terminals
+core), the github extension the review facts (unresolved comments, the checks verdict) and the
+azure-devops extension the pipeline facts (pipelines active). The core's fact leads, and the
+extension facts follow in load order, so the terminals
 line reads first even when pipelines are active. The navigation icon takes the worst verdict
 offered. A failed contribution contributes nothing.
 
@@ -149,7 +150,7 @@ called. The `busy` field is sent for the overview summary's use, not rendered by
 ## Cancelling
 
 Cancelling a change asks the contributors what it would leave behind. The jira extension
-answers with the open ticket, ci with the open pull requests; one string per end, phrased for
+answers with the open ticket, github with the open pull requests; one string per end, phrased for
 a person, merged into the confirmation the cancel dialog has always shown. The ends follow
 extension load order, so the pull requests come before the ticket; the set of sentences is
 unchanged. A failed
@@ -157,7 +158,7 @@ contribution contributes nothing.
 
 ## Pages
 
-A page is `/{id}` in the app — the deployments page is `/deployments`, the leftovers page is
+A page is `/{id}` in the app — the Azure DevOps page is `/azure-devops`, the leftovers page is
 `/leftovers`. An extension declares
 its pages (`{ id, title }`), and the sidebar offers what `GET /api/pages?workspace=…` says
 exists, exactly as the wizard already does with steps: the page exists for a workspace when
@@ -258,7 +259,7 @@ capabilities (everything but the request `Workspace`, which does not exist yet �
 export default () =>
   Effect.gen(function* () {
     const settings = yield* Settings;
-    if (!settings.azureOrganization) return { name: "my-extension", title: "My extension" };
+    if (!settings.notificationSound) return { name: "my-extension", title: "My extension" };
     return { name: "my-extension", title: "My extension", cards: [/* … */] };
   });
 ```
@@ -397,7 +398,7 @@ rather than widening this one.
   "workspaces": [
     { "id": "client", "name": "Acme" },
     { "id": "personal", "name": "Personal",
-      "extensions": ["git", "ci", "github-issues"] }
+      "extensions": ["git", "github", "github-issues"] }
   ]
 }
 ```
@@ -406,10 +407,13 @@ A workspace that names no `extensions` has all of them. Naming some is the whole
 no subtraction, because a list you can read is worth more than a default you have to reason
 about. The settings page renders one switch per discovered extension per workspace and writes
 this key for you; a name nothing loaded answers for is reported when the settings are written.
-`"azure": false` is still read where it states a fact — "this context has no pipelines":
-`azureConfigured` (the CI facts) and `azureEnabled` (the deployments page, which also honours the
-deployments extension's enablement) in src/vendors/azure.ts, the shared azure client;
-it never rewrites the `extensions` list.
+Retired names migrate on load and on every settings write (`migrateExtensionSettings` in
+src/extension-host/migrate.ts): `ci` becomes `github` + `azure-devops`, `deployments` becomes
+`azure-devops`, the `deployments` bags move to `azure-devops`, and a legacy per-workspace
+`azure` object (`false`, or `{ organization, project }`) folds into the same bag — `false`
+additionally materializing an explicit list without `azure-devops`, since naming some is the
+whole list. The legacy flat `azureOrganization`/`azureProject`/`azureDeploy` fields stay
+readable through the extension's own `legacy.ts` until that fallback is removed.
 
 ## Per-workspace settings
 
@@ -419,9 +423,9 @@ the extension enabled, stored under the workspace's `extensionSettings[name][key
 carries that bag without looking inside — what belongs there is the extension's own declaration,
 and the extension reads it back from the request's `Workspace` tag (the jira extension's
 `siteOfWorkspace` is the model; it reads `extensionSettings.jira` first and falls back to a
-legacy `workspace.jira` object through its own `legacy.ts`). The deployments extension is the
-other worked example: it declares `workspaceSettings` for organisation and project, and the
-shared azure client reads them
+legacy `workspace.jira` object through its own `legacy.ts`). The azure-devops extension is the
+other worked example: it declares `workspaceSettings` for organisation and project, and its
+`azure.ts` reads them
 back as the first step of its chain — a per-workspace override the page can write, with the
 legacy `workspace.azure` object and the global settings as the fallbacks below it.
 
@@ -442,9 +446,11 @@ page wrote the field, which is why the page locks it while the variable is set. 
 no longer types is the extension's own read: the jira extension's `globalOf` falls back to the
 legacy `jiraAssignee`/`jiraStartTransition`/`jiraDoneTransition` fields through its own
 `legacy.ts`, keeping the config's environment resolution, and nothing in the core names them.
+The azure-devops extension's `legacy.ts` does the same for the retired `azureOrganization`,
+`azureProject` and `azureDeploy` fields, read from the file rather than the resolved config.
 Empty means unset, for a string and for a list alike: an emptied list is written to the config
 as `[]`, and readers
-(like the deployments settings' `bagList`) treat that as unset.
+(like the azure-devops settings' `bagList`) treat that as unset.
 
 ## Scope, honestly stated
 
@@ -454,15 +460,17 @@ as `[]`, and readers
   `src/vendors/` while they live in this repository, but new built-in code uses
   `src/extension-host/api.ts` plus `src/domain/`, so the privilege shrinks by default. The
   first-party exceptions are listed rather than assumed: the leftovers page reads the changes
-  root through `change/server/index.ts`; the deployments settings read `config` through
-  `workspace/server/index.ts`; and the jira legacy shim reads the one settings precedence chain
-  through `settings/server/legacySettings.ts`, the documented leaf. Out-of-tree modules import
-  only `src/extension-host/api.ts` — the whole promise — and never get the privilege. There is no
-  stability promise for them yet.
+  root through `change/server/index.ts`; the azure-devops settings read the config file through
+  `workspace/server/config.ts` for their legacy fallback; and the jira legacy shim reads the one
+  settings precedence chain through `settings/server/legacySettings.ts`, the documented leaf.
+  Out-of-tree modules import only `src/extension-host/api.ts` — the whole promise — and never get
+  the privilege. There is no stability promise for them yet. The github and azure-devops
+  extensions already run their `az`/`gh` calls through the contract's `Shell`, `Cache`,
+  `Settings` and `Changes` capabilities.
 - What remains core is what everything else stands on: **tmux and ttyd session handling
   themselves** (what surrounds them — names, icons, status — is the extensible part), the **git
   worktree engine**, the **change lifecycle** (create, complete, cancel), and the **page
-  shell**. The deployments page, the overview's summary, cancelling's loose ends and the
+  shell**. The Azure DevOps page, the overview's summary, cancelling's loose ends and the
   terminal presentation have all moved behind the surfaces above.
 - Lifecycle events are interception-style where the moment allows it: the `change:creating`,
   `change:completing` and `change:cancelling` before-hooks can transform or veto a core action,

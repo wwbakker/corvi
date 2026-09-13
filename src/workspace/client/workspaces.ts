@@ -9,9 +9,6 @@ export type Workspace = {
   id: string;
   name: string;
   reposStart?: string;
-  /** `false` when it has no pipelines: on load this folds into the extensions list without
-   * `deployments` (src/extension-host/index.ts), so the page is not offered. */
-  azure?: false | { organization?: string; project?: string };
   env?: Record<string, string>;
 };
 

@@ -14,7 +14,8 @@ import {
   type WtEntry,
 } from "../src/vendors/git.ts";
 import { isMac } from "../src/capabilities/os.ts";
-import { versionInLines } from "../src/vendors/azure.ts";
+import { versionInLines } from "../src/extensions/azure-devops/pipelines.ts";
+import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
 import { readiness, headRef, waitingOnYou } from "../src/vendors/github.ts";
 import { presentWindow, type PresentedWindow } from "../src/terminals/server/index.ts";
 import type { TmuxWindow } from "../src/extension-host/api.ts";
@@ -330,7 +331,8 @@ test("a review thread you answered last is not waiting on you", () => {
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {
-  const { latestFor, versionIn, serviceName } = await import("../src/extensions/deployments/server.ts");
+  const { latestFor, versionIn, serviceName } = await import("../src/extensions/azure-devops/server.ts");
+  const settings = deploySettingsOf(undefined, {});
   const run = (
     id: number,
     environment: string,
@@ -353,39 +355,39 @@ test("what an environment holds is the newest run that was sent to it", async ()
     run(2, "accept", "v3", "succeeded"),
     run(1, "accept", "v2", "succeeded"),
   ];
-  expect(latestFor(runs, "accept")).toMatchObject({ version: "v3", state: "ok" });
-  expect(latestFor(runs, "production")).toMatchObject({ version: "v3", state: "ok" });
+  expect(latestFor(runs, "accept", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
+  expect(latestFor(runs, "production", settings, { key: "t", args: [] })).toMatchObject({ version: "v3", state: "ok" });
   // An environment nobody has deployed to says so rather than pretending to be empty.
-  expect(latestFor(runs, "sandbox")).toMatchObject({ state: "none", detail: "never deployed" });
+  expect(latestFor(runs, "sandbox", settings, { key: "t", args: [] })).toMatchObject({ state: "none", detail: "never deployed" });
 
   // A deploy in flight is what that environment is doing, whatever it holds at this moment.
-  expect(latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept")).toMatchObject({
+  expect(latestFor([run(4, "accept", "v4", null, "inProgress"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
     state: "pending",
     detail: "deploying v4",
   });
 
   // A failed deploy leaves the previous version running: the state is red, and the version is
   // the one that is actually there.
-  expect(latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept")).toMatchObject({
+  expect(latestFor([run(4, "accept", "v4", "failed"), ...runs], "accept", settings, { key: "t", args: [] })).toMatchObject({
     state: "error",
     version: "v3",
   });
 
   // The version parameter is not called the same thing in every pipeline: one of these deploys
   // an image, the other a docker tag, and both are "the thing being deployed".
-  expect(versionIn({ environment: "accept", dockerTag: "v1" })).toBe("v1");
-  expect(versionIn({ environment: "accept", imageTag: "v2" })).toBe("v2");
+  expect(versionIn({ environment: "accept", dockerTag: "v1" }, settings)).toBe("v1");
+  expect(versionIn({ environment: "accept", imageTag: "v2" }, settings)).toBe("v2");
   // Nothing to go on: two unknown parameters could be anything, so it says nothing.
-  expect(versionIn({ environment: "accept", a: "1", b: "2" })).toBeUndefined();
-  expect(versionIn(null)).toBeUndefined();
+  expect(versionIn({ environment: "accept", a: "1", b: "2" }, settings)).toBeUndefined();
+  expect(versionIn(null, settings)).toBeUndefined();
 
   // The service is what the pipelines are named after.
-  expect(serviceName("deploy-example-service")).toBe("example-service");
-  expect(serviceName("something-else")).toBe("something-else");
+  expect(serviceName("deploy-example-service", settings)).toBe("example-service");
+  expect(serviceName("something-else", settings)).toBe("something-else");
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { branchOf } = await import("../src/extensions/deployments/server.ts");
+  const { branchOf } = await import("../src/extensions/azure-devops/server.ts");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.

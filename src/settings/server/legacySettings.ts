@@ -6,10 +6,10 @@ import type { ExtensionSetting } from "../../extension-host/api.ts";
  * Every setting that has both a flat config field and an extension bag entry follows the same
  * chain: what the settings page wrote under `extensionSettings[name][key]` (the bag) wins; when
  * the bag is empty the flat field answers, and that field itself resolves as environment
- * variable → config file → vendor default. Every reader — the extension reads
- * (the deployments extension's own settings read, the shared azure client's `azureOf` in
- * src/vendors/azure.ts) and the flat-field reads
- * (src/workspace/server/config.ts's `load()`) — goes through `resolveSetting`.
+ * variable → config file → vendor default. Every reader — the extension reads (the
+ * azure-devops extension's own settings read in src/extensions/azure-devops/, through its
+ * legacy.ts) and the flat-field reads (src/workspace/server/config.ts's `load()`) — goes
+ * through `resolveSetting`.
  *
  * A caller hands `resolveSetting` whichever levels it holds: `load()` holds the file and the
  * environment, while an extension read holds the already-resolved flat value and only adds the
@@ -27,11 +27,8 @@ export const ENV_OVERRIDES: Record<string, string> = {
   changesRoot: "IWE_ROOT",
   reposRoot: "IWE_REPOS_ROOT",
   reposStart: "IWE_REPOS_START",
-  azureOrganization: "IWE_AZURE_ORG",
-  azureProject: "IWE_AZURE_PROJECT",
   worktreeCopy: "IWE_WORKTREE_COPY",
   extensionPaths: "IWE_EXTENSION_PATHS",
-  "azureDeploy.environments": "IWE_AZURE_ENVIRONMENTS",
 };
 
 /** One extension's settings bag, as the config holds it: a value is one string or a list. */

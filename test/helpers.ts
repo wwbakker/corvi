@@ -10,6 +10,7 @@ import type { Capabilities } from "../src/extension-host/api.ts";
 import { setRepos } from "../src/vendors/git.ts";
 import { sh, type Result } from "../src/capabilities/shell.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
+import { CacheLive, ChangesLive, SettingsLive } from "../src/extension-host/services.ts";
 import type { CliError } from "../src/capabilities/effect/errors.ts";
 import { swr } from "../src/capabilities/cache.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
@@ -21,7 +22,8 @@ import {
   deploy,
   versionsFor,
   type Buildable,
-} from "../src/extensions/deployments/server.ts";
+} from "../src/extensions/azure-devops/server.ts";
+
 
 /** Whether this process has written the run's pid-file yet. */
 let announced = false;
@@ -144,17 +146,21 @@ export const fakeShell = (
 /** Run an effect with a fake Shell in place of the real one, as the default workspace. The
  * workspace tag is provided alongside the Shell because the Shell service's `run` requires it,
  * exactly as the host provides both. `sh` reads the Shell from context and delegates, so a core
- * integration function can be driven with no subprocess. */
-export const runWithShell = <A, E>(
+ * integration function can be driven with no subprocess. Extension effects additionally read
+ * `Cache`, `Settings` and `Changes` from context, so those ride along with their live layers. */
+export const runWithShell = <A, E, R>(
   shell: FakeShell,
-  effect: Effect.Effect<A, E, never>,
+  effect: Effect.Effect<A, E, R>,
 ): Promise<A> =>
   Effect.runPromise(
     Effect.provide(
-      effect,
+      effect as Effect.Effect<A, E, never>,
       Layer.mergeAll(
         Layer.succeed(Shell, shell),
         Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+        CacheLive,
+        SettingsLive,
+        ChangesLive,
       ),
     ),
   );
@@ -220,3 +226,5 @@ export const runVersionsFor = (
 export const runDeploy = (
   ...args: Parameters<typeof deploy>
 ): Promise<{ runId: number; url?: string }> => runEffect(deploy(...args));
+
+

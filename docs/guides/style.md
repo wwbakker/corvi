@@ -116,8 +116,11 @@ one reason:
   barrel does not drag the ttyd page script into every consumer of `stopTerminal` or
   `listWindows`.
 - `settings/server/legacySettings.ts` shares one **precedence chain** — the settings bag, then the
-  flat field, then the environment — with the workspace config loader and the top-level
-  deployments settings; it is stated once there rather than copied or routed through the barrel.
+  flat field, then the environment — with the workspace config loader and the azure-devops
+  extension's settings read; it is stated once there rather than copied or routed through the barrel.
+- `extension-host/services.ts`'s `ChangesLive` is provided by `capabilities/web.ts`'s
+  `withChange`, so route effects that read a checkout through the contract run without
+  importing the host: the layer is the shared leaf, the provider is the HTTP boundary.
 
 ## 8. Hooks fetch, components render
 

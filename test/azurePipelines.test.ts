@@ -1,10 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
-import { Effect } from "effect";
 import {
   activeRuns,
   averageDuration,
-  azDefaults,
-  azFor,
   buildUrl,
   expectedDuration,
   folderFor,
@@ -13,18 +10,20 @@ import {
   runState,
   versionInLines,
   versionOf,
-  type Az,
   type Run,
-} from "../src/vendors/azure.ts";
+} from "../src/extensions/azure-devops/pipelines.ts";
+import { azDefaults, azFor, type Az } from "../src/extensions/azure-devops/azure.ts";
 import type { Change } from "../src/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../src/domain/widget.ts";
 import { clearCache } from "../src/capabilities/cache.ts";
 import { config } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
-/** Every effect below goes through the shared cache, and every test starts from a cold one so a
- * key one test warmed cannot answer for another. */
-beforeEach(() => clearCache());
+/** Every effect below goes through the shared cache and the contract's capabilities, and every
+ * test starts from a cold one so a key one test warmed cannot answer for another. */
+beforeEach(() => {
+  clearCache();
+});
 
 const az = (key = "test"): Az => ({
   key,
@@ -156,27 +155,61 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
     ].join("\n"),
   });
 
-  const first = await runWithShell(shell, azDefaults());
-  // When nothing was cached from an earlier request, the lines az printed are the answer. A
-  // value already cached by another test is a valid answer too, so only the fresh case asserts.
-  if (shell.calls.length > 0) {
+  // Nothing configured anywhere beats what the CLI itself holds: no bag on the shared config,
+  // no legacy flat field in the file it was loaded from, no environment override. (An earlier
+  // test file may have left any of those behind, so all three are cleared first rather than
+  // assumed — including the file, which is pointed at an empty one and reloaded.)
+  const beforeBag = config.extensionSettings;
+  const beforeConfig = process.env.IWE_CONFIG;
+  const beforeOrg = process.env.IWE_AZURE_ORG;
+  const beforeProject = process.env.IWE_AZURE_PROJECT;
+  const { mkdtemp, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { reloadConfigSync } = await import("../src/workspace/server/index.ts");
+  const empty = await mkdtemp(join(tmpdir(), "iwe-az-empty-"));
+  config.extensionSettings = undefined;
+  delete process.env.IWE_AZURE_ORG;
+  delete process.env.IWE_AZURE_PROJECT;
+  process.env.IWE_CONFIG = join(empty, "config.json");
+  await Bun.write(process.env.IWE_CONFIG, "{}");
+  reloadConfigSync();
+  try {
+    const first = await runWithShell(shell, azDefaults());
     expect(first).toEqual({
       organization: "https://dev.azure.com/fresh",
       project: "FreshProj",
     });
-  }
 
-  const calls = shell.calls.length;
-  const second = await runWithShell(shell, azDefaults());
-  expect(second).toBe(first);
-  expect(shell.calls.length).toBe(calls);
+    // The shared cache answers the second ask: the CLI runs once no matter how many
+    // workspaces fall back to it.
+    const calls = shell.calls.length;
+    const second = await runWithShell(shell, azDefaults());
+    expect(second).toEqual(first);
+    expect(shell.calls.length).toBe(calls);
+  } finally {
+    config.extensionSettings = beforeBag;
+    if (beforeConfig === undefined) delete process.env.IWE_CONFIG;
+    else process.env.IWE_CONFIG = beforeConfig;
+    if (beforeOrg === undefined) delete process.env.IWE_AZURE_ORG;
+    else process.env.IWE_AZURE_ORG = beforeOrg;
+    if (beforeProject === undefined) delete process.env.IWE_AZURE_PROJECT;
+    else process.env.IWE_AZURE_PROJECT = beforeProject;
+    await rm(empty, { recursive: true, force: true });
+    reloadConfigSync();
+  }
 });
 
 test("azFor names the workspace's own Azure DevOps when it has one", async () => {
   const workspace = {
     id: "client",
     name: "Client",
-    azure: { organization: "https://dev.azure.com/client", project: "ClientProj" },
+    extensionSettings: {
+      "azure-devops": {
+        organization: "https://dev.azure.com/client",
+        project: "ClientProj",
+      },
+    },
   };
   const result = await runWithShell(fakeShell(), azFor(workspace));
   expect(result).toMatchObject({
@@ -283,7 +316,7 @@ test("versionOf finds the version in the newest log that printed one, and rememb
   const run = runRow(700003, "completed", "succeeded", 77);
   expect(await runWithShell(shell, versionOf(run, "proj"))).toBe("20260818.7");
 
-  // A finished run's logs never change, so the second lookup is answered from memory.
+  // A finished run's logs never change, so the second lookup is answered from the cache.
   const calls = shell.calls.length;
   expect(await runWithShell(shell, versionOf(run, "proj"))).toBe("20260818.7");
   expect(shell.calls.length).toBe(calls);
@@ -383,56 +416,6 @@ test("activeRuns reads a failed query as no runs, not as an error", async () => 
   expect(await runWithShell(shell, activeRuns(change, "/repos/repo"))).toBe(0);
 });
 
-test("a workspace without pipelines is asked nothing", async () => {
-  const original = config.workspaces;
-  (config as { workspaces: unknown }).workspaces = [{ id: "personal", name: "Personal", azure: false }];
-  try {
-    const shell = fakeShell();
-    const personal: Change = { ...change, workspace: "personal" };
-    expect(await runWithShell(shell, activeRuns(personal, "/repos/repo"))).toBe(0);
-    expect(await runWithShell(shell, pipelineItems(personal, "/repos/repo"))).toEqual({
-      items: [],
-      count: 0,
-    });
-    expect(shell.calls).toEqual([]);
-  } finally {
-    (config as { workspaces: unknown }).workspaces = original;
-  }
-});
-
-test("a workspace that enabled ci without deployments still asks Azure for pipeline facts", async () => {
-  const original = config.workspaces;
-  (config as { workspaces: unknown }).workspaces = [
-    { id: "ci-only", name: "CI only", extensions: ["ci", "git"] },
-  ];
-  try {
-    const shell = fakeShell((cmd) => {
-      const line = cmd.join(" ");
-      if (line.startsWith("az pipelines list --folder-path")) {
-        return JSON.stringify([{ id: 11, name: "build-a", path: "\\repo" }]);
-      }
-      if (line.startsWith("az pipelines runs list --branch")) {
-        return JSON.stringify([
-          runRow(31, "inProgress", null, 11),
-          runRow(30, "completed", "succeeded", 11),
-        ]);
-      }
-      return undefined;
-    });
-    const ciOnly: Change = { ...change, workspace: "ci-only" };
-
-    // The ci extension reads these facts, not the deployments page: dropping deployments from a
-    // workspace must not turn its pipelines into silence.
-    expect(await runWithShell(shell, activeRuns(ciOnly, "/repos/repo"))).toBe(1);
-    const { items, count } = await runWithShell(shell, pipelineItems(ciOnly, "/repos/repo"));
-    expect(count).toBe(2);
-    expect(items.map((i) => i.label)).toEqual(["build-a"]);
-    expect(shell.calls.length).toBeGreaterThan(0);
-  } finally {
-    (config as { workspaces: unknown }).workspaces = original;
-  }
-});
-
 test("pipelineItems nests each pipeline's newest runs under it", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
@@ -493,34 +476,37 @@ test("pipelineItems nests each pipeline's newest runs under it", async () => {
 });
 
 test("pipelineItems appends the version a successful build printed", async () => {
-  const originalOrg = config.azureOrganization;
-  const originalProject = config.azureProject;
+  const before = config.extensionSettings;
   // A project is what makes a version lookup worth attempting at all.
-  config.azureOrganization = "https://dev.azure.com/org";
-  config.azureProject = "proj";
-  try {
-    const shell = fakeShell((cmd) => {
-      const line = cmd.join(" ");
-      if (line.startsWith("az pipelines list --folder-path")) {
-        return JSON.stringify([{ id: 601, name: "build-a", path: "\\repo" }]);
-      }
-      if (line.startsWith("az pipelines runs list --branch")) {
-        return JSON.stringify([runRow(701, "completed", "succeeded", 601)]);
-      }
-      if (line.includes("--area pipelines --resource logs")) {
-        return JSON.stringify({ logs: [{ id: 1 }] });
-      }
-      if (line.includes("--area build --resource logs")) {
-        return JSON.stringify({ value: ["Version is: '20260818.5'"] });
-      }
-      return undefined;
-    });
+  config.extensionSettings = { "azure-devops": { project: "proj" } };
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line.startsWith("az pipelines list --folder-path")) {
+      return JSON.stringify([{ id: 601, name: "build-a", path: "\\repo" }]);
+    }
+    if (line.startsWith("az pipelines runs list --branch")) {
+      return JSON.stringify([runRow(701, "completed", "succeeded", 601)]);
+    }
+    if (line.includes("--area pipelines --resource logs")) {
+      return JSON.stringify({ logs: [{ id: 1 }] });
+    }
+    if (line.includes("--area build --resource logs")) {
+      return JSON.stringify({ value: ["Version is: '20260818.5'"] });
+    }
+    return undefined;
+  });
 
-    const { items } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
+  try {
+    const { items } = await runWithShell(
+      shell,
+      pipelineItems(
+        { ...change, workspace: undefined },
+        "/repos/repo",
+      ),
+    );
     expect(items[0]!.children![0]!.detail).toBe("succeeded · 20260818.5");
   } finally {
-    config.azureOrganization = originalOrg;
-    config.azureProject = originalProject;
+    config.extensionSettings = before;
   }
 });
 
@@ -542,13 +528,13 @@ test("pipelineItems names the pull request when there is one and no runs", async
   });
 });
 
-test("pipelineItems says which folder was empty when it found no pipelines", async () => {
+test("pipelineItems answers empty when it found no pipelines", async () => {
   const shell = fakeShell((cmd) =>
     cmd.join(" ").startsWith("az pipelines list --folder-path") ? JSON.stringify([]) : JSON.stringify([]),
   );
   const { items, count } = await runWithShell(shell, pipelineItems(change, "/repos/repo"));
   expect(count).toBe(0);
-  expect(items).toEqual([{ label: "pipelines", detail: "none in \\repo", state: "none" }]);
+  expect(items).toEqual([]);
 });
 
 test("pipelineItems turns a failed runs query into one error row", async () => {
