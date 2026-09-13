@@ -1,13 +1,13 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, put } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
-import type { TabComponent } from "../../extension-host/client.tsx";
+import type { WidgetComponent } from "../../extension-host/client.tsx";
 
 /**
- * The notes extension's browser half: the change's Notes tab. The tab contract hands it the
- * change and its workspace, and the component below is the notes card that used to sit on the
- * dashboard — same debounce, same unsaved marker, same line-edge Home and End — now reading and
- * writing the extension's own routes.
+ * The notes extension's browser half: the change's Notes widget on its dashboard. The widget
+ * contract hands it the change and its workspace, and the component below is the notes card
+ * that used to sit on the dashboard — same debounce, same unsaved marker, same line-edge Home
+ * and End — reading and writing the extension's own routes.
  */
 
 /** The extension's routes live under its own namespace, and the request names the workspace the
@@ -16,8 +16,8 @@ const url = (path: string, workspace?: string): string =>
   workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
 
 /**
- * Free-text notes for a change. Saved a moment after you stop typing and again when the tab goes
- * away, so navigating off does not lose the last sentence.
+ * Free-text notes for a change. Saved a moment after you stop typing and again when the widget
+ * goes away, so navigating off does not lose the last sentence.
  */
 export function NotesCard({
   changeId,
@@ -122,6 +122,6 @@ export function NotesCard({
   );
 }
 
-export const tab: TabComponent = ({ change, workspace }) => (
+export const widget: WidgetComponent = ({ change, workspace }) => (
   <NotesCard changeId={change.id} workspace={workspace} />
 );

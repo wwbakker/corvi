@@ -553,8 +553,10 @@ lived in that gap:
   cancelling a change silently did nothing — in the app only.
 
 `test/webkit.test.ts` opens every route in WebKit, saves the settings page, and fails on anything
-the engine complains about. It skips itself when the engine has not been downloaded, since that is
-a 100MB step and nothing else in the suite needs it. It earned its place immediately: it found the
+the engine complains about. It skips itself when the engine is not there or cannot start — a
+100MB download, and on a non-Ubuntu host the libraries its bundle links are the wrong versions —
+since nothing else in the suite needs it. `bun run test:webkit` runs it in Playwright's own image
+when the skip is not what you want. It earned its place immediately: it found the
 dashboard firing a readiness check that answered `400` when there is no GitHub remote, which the
 page swallowed — the menu item was disabled with nothing to say. That is now a reason like any
 other ("cannot complete: …"), which is what the reasons list is for.
@@ -895,9 +897,9 @@ want more care than a click.
 
 ## Notes
 
-Each change has a free-text note, a **Notes** tab beside the dashboard when the notes extension is
+Each change has a free-text note, a **Notes** card on the dashboard when the notes extension is
 enabled, stored as `extensions/notes/notes.md` in the change directory so it travels into the
-archive with everything else. A note written before the tab existed, at the change root's
+archive with everything else. A note written before the widget existed, at the change root's
 `notes.md`, still shows as a read-only fallback. It saves shortly after you stop typing, on blur,
 and when you navigate away.
 
@@ -1335,6 +1337,23 @@ Terminals tab in Chromium, types `pwd > out.txt` into the frame and reads the fi
 checks `ctrl-b c` reaches tmux, mouse mode is on, and that asking twice reuses one ttyd. It skips
 itself when `ttyd` or `tmux` is missing rather than failing.
 
+## Testing in WebKit
+
+`test/webkit.test.ts` is the engine the app ships — the macOS window is a WKWebView, the Linux
+window is WebKitGTK — and catches what Chrome tolerates. Playwright's WebKit bundle is built for
+Ubuntu 24.04, so on a host whose icu/libxml2/flite are different versions it cannot start and the
+file skips rather than fails. To run it anyway, `bun run test:webkit` builds
+[`Containerfile.webkit`](Containerfile.webkit) — Playwright's own image, which has the bundle and
+every library it links, with Bun added — and runs the file in it under rootless podman:
+
+```bash
+sudo pacman -S podman fuse-overlayfs slirp4netns   # once
+bun run test:webkit
+```
+
+The checkout is mounted, and `node_modules` lives in a named volume, so the modules installed for
+the host are never replaced by the container's.
+
 ## Layout
 
 The layers, and the rule for where a feature's code lives, are in
@@ -1417,7 +1436,7 @@ The map, grouped by layer:
                               deployConventions.ts (the pipeline-name convention both halves share)
       leftovers/              index.ts, server.ts (the implementation), client.tsx, shared.ts
                               (the Leftover type both halves read)
-      notes/                  index.ts (the Notes tab), server.ts (the store-backed read and write),
+      notes/                  index.ts (the Notes widget), server.ts (the store-backed read and write),
                               client.tsx
       review/                 index.ts (the declaration and routes), server.ts (the git surface),
                               client.tsx (the change tab), LocalPane.tsx, CommitDialog.tsx,

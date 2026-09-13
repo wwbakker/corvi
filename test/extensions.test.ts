@@ -12,6 +12,7 @@ import {
   install,
   loaded,
   pagesFor,
+  widgetsFor,
   windowPresenters,
   wizardStepsFor,
 } from "../src/extension-host/index.ts";
@@ -25,21 +26,30 @@ import { looseEnds } from "../src/change/server/index.ts";
 import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
-import { config, type Workspace } from "../src/workspace/server/index.ts";
+import { config, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 
 /**
  * A changes root of its own, because creating a change writes one.
  */
 let tmp: string;
+const originalConfig = process.env.IWE_CONFIG;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "iwe-extensions-"));
   process.env.IWE_ROOT = tmp;
+  // A config of its own: the changes root is not the only environment that leaks in. A
+  // developer's own config — a workspace that names its extensions, say — would decide what
+  // `looseEnds` and `extensionsFor` see, and this file is about the built-ins.
+  process.env.IWE_CONFIG = join(tmp, "config.json");
+  reloadConfigSync();
 });
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
+  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
+  else process.env.IWE_CONFIG = originalConfig;
+  reloadConfigSync();
 });
 
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
@@ -356,6 +366,46 @@ test("a change tab is offered only in a context that has the extension, and a du
     // A context without either extension has no tab to show, not an empty one.
     expect(changeTabsFor(ws({ extensions: [] }))).toEqual([]);
   } finally {
+    loaded.splice(loaded.indexOf(first), 1);
+    loaded.splice(loaded.indexOf(second), 1);
+  }
+});
+
+test("dashboard widgets follow the enablement, in load order, and duplicates coexist", () => {
+  const first = install({
+    name: "test-widget-first",
+    title: "First widget",
+    dashboardWidgets: [{ id: "notes", title: "First notes" }],
+  });
+  const second = install({
+    name: "test-widget-second",
+    title: "Second widget",
+    // The same id as the first: widgets carry no address, so both render — the page keys
+    // them by extension plus id.
+    dashboardWidgets: [
+      { id: "notes", title: "Second notes" },
+      { id: "timeline", title: "Timeline", wide: true },
+    ],
+  });
+  const saved = config.workspaces;
+  config.workspaces = [
+    { id: "both-widgets", name: "Both", extensions: ["test-widget-first", "test-widget-second"] },
+    { id: "no-widgets", name: "None", extensions: [] },
+  ];
+  try {
+    const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
+    const both = widgetsFor({ ...change, workspace: "both-widgets" });
+    // Load order, extension-keyed; the wide flag travels with the widget.
+    expect(both).toEqual([
+      { id: "notes", title: "First notes", extension: "test-widget-first" },
+      { id: "notes", title: "Second notes", extension: "test-widget-second" },
+      { id: "timeline", title: "Timeline", extension: "test-widget-second", wide: true },
+    ]);
+
+    // A context without either extension has no widget to show, not an empty one.
+    expect(widgetsFor({ ...change, workspace: "no-widgets" })).toEqual([]);
+  } finally {
+    config.workspaces = saved;
     loaded.splice(loaded.indexOf(first), 1);
     loaded.splice(loaded.indexOf(second), 1);
   }

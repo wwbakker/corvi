@@ -106,8 +106,10 @@ A thing is core only if it meets at least one of these:
 The consequences are worth stating because they settle arguments:
 
 - The change **dashboard is core even though every card on it is an extension**: it composes and
-  merges. "Review changes" moved behind the change-tab contract precisely because it is a bounded
-  git surface, not a composition.
+  merges — the server-drawn cards and the client-drawn widgets alike. "Review changes" moved
+  behind the change-tab contract precisely because it is a bounded git surface, not a
+  composition; notes moved behind the dashboard-widget contract precisely because a textarea's
+  client state is not a server-drawn card.
 - The **sidebar is core as a shell**; its entries (workspaces, changes, pages, windows) are
   data the server sends. The **change page is core as a shell** too: it composes the core's
   Dashboard with the change tabs its workspace's extensions contribute — the review extension's

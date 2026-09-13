@@ -45,6 +45,7 @@ Two ideas run through the model:
 | Surface | Extension field | What it does |
 |---|---|---|
 | Dashboard card | `cards` | A `Widget` per change, fetched on its own; optionally per-repository rows and actions. Effects requiring capabilities. |
+| Dashboard widget | `dashboardWidgets` | A client-drawn component on a change's dashboard. The client half exports `widget`, receiving the change and its workspace (below); for content with client state a server-drawn card cannot hold. |
 | Wizard step | `wizardSteps` | A step in "Create change". `phase: "issue"` runs before the change details (it prefills the id and branch); `phase: "repos"` runs after the repositories are picked. |
 | Lifecycle hooks | `events` | Before/after hooks on each change moment — `change:creating`/`change:created`, `change:completing`/`change:completed`, `change:cancelling`/`change:cancelled`. A before hook may transform a create or veto an operation; an after hook observes a committed change and never fails the operation (below). |
 | Data store | `ExtensionStore` capability | This extension's own entry in the change's `extensions` bag, and the files under `extensions/<name>/` in the change directory. The core stays the only writer of `change.json` (below). |
@@ -53,7 +54,7 @@ Two ideas run through the model:
 | Loose ends | `looseEnds` | What cancelling the change would leave behind — the open ticket, the open pull requests — asked when the cancel is confirmed. |
 | Window presenters | `windowPresenters` | How a tmux window is named and drawn. Pure functions of tmux data, global rather than per-workspace (below). |
 | Pages | `pages` | A page of the extension's own, served at `/{id}` and offered by the sidebar (below). |
-| Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard. The client half exports `tab`, a component receiving the change and its workspace (below); the review extension is the change-tab example, and the notes extension pairs a tab with the `ExtensionStore`. |
+| Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard. The client half exports `tab`, a component receiving the change and its workspace (below); the review extension is the change-tab example, and the notes extension pairs a widget with the `ExtensionStore`. |
 | Per-workspace settings | `workspaceSettings` | Configuration the extension declares per context, rendered by the settings page for every workspace that has the extension enabled (below). |
 | Global settings | `globalSettings` | Server-wide settings the extension declares, rendered by the settings page in a section per extension (below). |
 | PR description | `descriptionSections` | A heading part, joined with the others into the description's first line. |
@@ -169,9 +170,9 @@ the served chunk, under the same contract as steps (below).
 
 ## Change tabs
 
-A change's page is a row of tabs: the core's Dashboard (its widgets), and whatever the change's
-workspace's extensions contribute — the review extension's "Review changes" and the notes
-extension's "Notes" are the built-in examples. An extension
+A change's page is a row of tabs: the core's Dashboard, and whatever the change's
+workspace's extensions contribute — the review extension's "Review changes" is the built-in
+example. An extension
 declares its tabs (`{ id, title }`), and the page asks `GET /api/changes/:id/tabs` for them —
 exactly as the sidebar asks `/api/pages`, and the wizard `/api/wizard`. The tab exists for a
 change when the extension does in the change's workspace, and a disabled extension's tab is not
@@ -188,6 +189,22 @@ change it is about (`{ change, workspace? }`) — distinct from `page`, which re
 workspace. Built-ins sit in the page's registry; out-of-tree tabs load from the served chunk,
 under the same contract as steps and pages (below).
 
+## Dashboard widgets
+
+A change's dashboard holds two kinds of card: the server-drawn cards (`cards` above — a `Widget`
+per change, polled every 15 seconds) and the client-drawn widgets here. An extension declares
+its widgets (`{ id, title, wide? }`), and the page asks `GET /api/changes/:id/widgets` for
+them — the same question as tabs, one surface over. The widget exists for a change when the
+extension does in the change's workspace, and a disabled extension's widget is not offered, not
+an empty one.
+
+A widget is for content with client state a server-drawn card cannot hold: the notes
+textarea's debounce, its unsaved marker, never overwriting what is being typed. The content is
+the extension's client half exporting `widget`, a component receiving the same
+`{ change, workspace? }` a tab gets. Widgets carry no address — the page keys them by extension
+plus id — so two extensions may each draw one under the same id, and there are no reserved
+ids. Narrow widgets render after the narrow cards, wide ones after the wide cards.
+
 ## What an extension looks like
 
 A module whose default export **describes** the extension — a static value when everything is
@@ -199,7 +216,7 @@ down.
 ```
 src/extensions/my-extension/
 ├── index.ts      # the server half: the description, or a factory for it
-└── client.tsx    # the browser half, when the extension has a wizard step, a page or a change tab
+└── client.tsx    # the browser half, when the extension has a wizard step, a page, a change tab or a dashboard widget
 ```
 
 ```ts
@@ -253,8 +270,9 @@ and `setPayload(extension, data)`, which lands whatever the step picked on the c
 under the extension's own name, in the change's `extensions` bag. The core stores that bag and
 never looks inside; the extension owns its shape and reads it back through `change.extensions`.
 An extension that offers a page exports `page` from the same half instead — a component
-receiving the workspace the page is open on (below) — and one that adds a change tab exports
-`tab`, a component receiving the change (below).
+receiving the workspace the page is open on (below) — one that adds a change tab exports
+`tab`, a component receiving the change (below), and one that draws on the dashboard exports
+`widget`, receiving the change the same way (above).
 
 ```tsx
 // src/extensions/my-extension/client.tsx
@@ -264,7 +282,7 @@ export const step: StepComponent = ({ ctx }) => {
 ```
 
 A built-in registers its halves in two places — the loader (`src/extension-host/index.ts`) and, when
-it has a step, a page or a change tab, the page's client registry (`src/extension-host/client.tsx`).
+it has a step, a page, a change tab or a dashboard widget, the page's client registry (`src/extension-host/client.tsx`).
 An out-of-tree
 extension registers nowhere: it is discovered from the config and loaded through the same
 install path (below).
@@ -306,8 +324,8 @@ cannot bundle it — it was written after the page was built, or changes without
 server builds it at startup (Bun.build, react and its jsx runtimes external) into the XDG state
 directory and serves it at `GET /extensions/<name>/client.js`. The wizard's step host imports
 that URL at runtime when a step's extension has no static entry in the page's registry, and the
-page host does the same for a page — one chunk serves a step, a page or a change tab,
-whichever of `step`, `page` and `tab` the module exports.
+page host does the same for a page — one chunk serves a step, a page, a change tab or a
+dashboard widget, whichever of `step`, `page`, `tab` and `widget` the module exports.
 
 So that the served chunk and the page run one react — two reacts break hooks and context — the
 server also builds vendor chunks once from the app's own react entrypoints and serves them at
@@ -360,7 +378,7 @@ The capability exists wherever a committed change does — after-hooks, planned 
 cards, routes — and a `change:creating` hook has no directory yet, so it writes files in
 `change:created`.
 
-The **notes extension** is the worked example: its Notes tab reads and writes
+The **notes extension** is the worked example: its dashboard widget reads and writes
 `extensions/notes/notes.md` through the store, and no core route or card touches notes any more.
 A change whose notes predate the store still shows them, through one deliberately narrow read on
 the `Changes` capability: `readSidecar(change, name)` returns a legacy file from the change root

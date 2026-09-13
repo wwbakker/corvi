@@ -10,6 +10,7 @@ import {
   repoStatusOf,
   runCard,
   statusOne,
+  widgetsFor,
   wizardStepsFor,
 } from "./index.ts";
 import { clientChunkPath, chunkRoot } from "./clientChunks.ts";
@@ -59,6 +60,14 @@ export const extensionHostRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.succeed(json({ tabs: changeTabsFor(workspaceOf(c)) })),
       ),
+  },
+
+  // The client-drawn widgets this change's dashboard shows: the extensions' for its
+  // workspace, resolved the same way. A workspace without an extension has no widget for it,
+  // not an empty one.
+  "/api/changes/:id/widgets": {
+    GET: (req) =>
+      withChange(req.params.id, (c) => Effect.succeed(json({ widgets: widgetsFor(c) }))),
   },
 
   // Extension routes: whatever the extensions registered, under one namespace, with the same

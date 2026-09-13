@@ -181,9 +181,17 @@ export const reloadConfig = Effect.sync(() => reloadConfigSync());
 /** Refill the one config object in place. Sync, because every caller of the settings write is
  * synchronous today and the object identity must not change.
  *
+ * Keys the new file no longer has are removed first: the refill is Object.assign onto the one
+ * object, and assign alone would leave whatever the previous file carried — a legacy field the
+ * settings page emptied, say — readable for ever.
+ *
  * Sync sibling of reloadConfig, which the settings write path uses. */
 export function reloadConfigSync(): Config {
-  const reloaded = Object.assign(config, load());
+  const next = load();
+  for (const key of Object.keys(config)) {
+    if (!(key in next)) delete (config as Record<string, unknown>)[key];
+  }
+  const reloaded = Object.assign(config, next);
   migrator?.(reloaded.workspaces);
   return reloaded;
 }

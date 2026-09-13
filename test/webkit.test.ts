@@ -17,18 +17,23 @@ import { runSh, testRun, testTempDir } from "./helpers.ts";
  * complains about, and checks that the page rendered rather than crashed. What each page *does*
  * is tested elsewhere, without a browser.
  */
-// Skipped rather than failed where the engine has not been downloaded: `bunx playwright install
-// webkit` is a 100MB step, and the rest of the suite needs none of it.
+// Skipped rather than failed where the engine cannot run here: `bunx playwright install webkit`
+// is a 100MB step, the bundle is built against one distribution's libraries, and the rest of the
+// suite needs none of it. The probe is a real launch rather than the executable's existence — a
+// bundle that is downloaded but missing its host libraries fails at launch, and a red suite for
+// that says nothing about IWE. The browser it starts is the one the tests use.
+let browser: Browser;
 const usable = await (async (): Promise<boolean> => {
   try {
-    return await Bun.file(webkit.executablePath()).exists();
+    if (!(await Bun.file(webkit.executablePath()).exists())) return false;
+    browser = await webkit.launch();
+    return true;
   } catch {
     return false;
   }
 })();
 
 let tmp: string;
-let browser: Browser;
 let port: number;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-WEBKIT";
@@ -64,7 +69,6 @@ beforeAll(async () => {
     method: "POST",
     body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
   });
-  browser = await webkit.launch();
 });
 
 afterAll(async () => {
@@ -95,7 +99,6 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
     ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
     [`/changes/${id}`, ".widget"],
-    [`/changes/${id}/notes`, "textarea.notes"],
     [`/changes/${id}/review`, ".local-pane, .page"],
   ];
 
@@ -137,7 +140,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card in WebKi
   // margin it contributes changes the height of the heading — and the whole card — on every
   // keystroke. It must be smaller than the title and take no space of its own.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/notes`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".widget:has(textarea.notes)");
   await card.waitFor();
   const heading = card.locator("h3");
@@ -164,7 +167,7 @@ test.skipIf(!usable)("Home and End move to the line's edges in the notes", async
   // WebKit gives Home and End the whole note's edges, unlike the line semantics macOS text
   // views — and Cmd-Left / Cmd-Right — use. A long note is the wrong place to learn that.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/notes`, { waitUntil: "domcontentloaded" });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const notes = page.locator("textarea.notes");
   await notes.waitFor();
   await notes.fill("first line\nsecond line\nthird");

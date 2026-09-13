@@ -48,6 +48,25 @@ const tabsOf = async (id: string): Promise<{ id: string; title: string; extensio
   return ((await response.json()) as { tabs: { id: string; title: string; extension: string }[] }).tabs;
 };
 
+/** The widgets route, the same way: what the dashboard renders is what the server lists. */
+const widgetsOf = async (
+  id: string,
+): Promise<{ id: string; title: string; extension: string; wide?: boolean }[]> => {
+  const route = extensionHostRoutes["/api/changes/:id/widgets"] as unknown as {
+    GET: (req: Request, srv: unknown) => Promise<Response>;
+  };
+  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/widgets`), {
+    params: { id },
+  });
+  const response = await route.GET(req, undefined);
+  expect(response.status).toBe(200);
+  return (
+    (await response.json()) as {
+      widgets: { id: string; title: string; extension: string; wide?: boolean }[];
+    }
+  ).widgets;
+};
+
 test("the tabs route lists an extension's tab for the workspace that has it, and hides it otherwise", async () => {
   const ext = install({
     name: "test-change-tab",
@@ -72,6 +91,36 @@ test("the tabs route lists an extension's tab for the workspace that has it, and
     ]);
     // A workspace that dropped the extension has no tab for it, not an empty one.
     expect(await tabsOf(disabled.id)).toEqual([]);
+  } finally {
+    config.workspaces = saved;
+    loaded.splice(loaded.indexOf(ext), 1);
+  }
+});
+
+test("the widgets route lists an extension's widget for the workspace that has it, and hides it otherwise", async () => {
+  const ext = install({
+    name: "test-dashboard-widget",
+    title: "Test dashboard widget",
+    dashboardWidgets: [{ id: "notes", title: "Notes" }],
+  });
+  const saved = config.workspaces;
+  config.workspaces = [
+    { id: "with-widget", name: "With widget", extensions: ["test-dashboard-widget"] },
+    { id: "without-widget", name: "Without widget", extensions: [] },
+  ];
+  try {
+    const enabled = await runEffect(
+      createChange({ id: "PROJ-WIDGET-ON", repos: [repo], workspace: "with-widget" }),
+    );
+    const disabled = await runEffect(
+      createChange({ id: "PROJ-WIDGET-OFF", repos: [repo], workspace: "without-widget" }),
+    );
+
+    expect(await widgetsOf(enabled.id)).toEqual([
+      { id: "notes", title: "Notes", extension: "test-dashboard-widget" },
+    ]);
+    // A workspace that dropped the extension has no widget for it, not an empty one.
+    expect(await widgetsOf(disabled.id)).toEqual([]);
   } finally {
     config.workspaces = saved;
     loaded.splice(loaded.indexOf(ext), 1);

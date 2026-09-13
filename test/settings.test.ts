@@ -144,6 +144,21 @@ test("the file keeps what it had, including fields the core no longer names", as
   expect((config as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
 });
 
+test("a key the file no longer has does not survive a reload", async () => {
+  // The one config object is refilled with Object.assign, so a key the new file does not mention
+  // would stay readable from the previous file — a legacy field the page emptied, say. The
+  // reload must drop what the file dropped, or the settings page cannot undo a hand edit.
+  await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
+  reloadConfigSync();
+  expect((config as Config & { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
+    "Ready for release",
+  );
+
+  await Bun.write(file, JSON.stringify({}));
+  reloadConfigSync();
+  expect("jiraDoneTransition" in config).toBe(false);
+});
+
 test("a workspace-level legacy jira object survives a settings save", async () => {
   // A workspace written before the settings bag carried its own `jira` site object. The loader
   // passes the entry through untouched, and the page writes the workspace back as it read it.
