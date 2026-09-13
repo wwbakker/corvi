@@ -375,7 +375,7 @@ test("dashboard widgets follow the enablement, in load order, and duplicates coe
   const first = install({
     name: "test-widget-first",
     title: "First widget",
-    dashboardWidgets: [{ id: "notes", title: "First notes" }],
+    dashboardWidgets: [{ id: "notes", title: "First notes", column: "left" }],
   });
   const second = install({
     name: "test-widget-second",
@@ -384,7 +384,7 @@ test("dashboard widgets follow the enablement, in load order, and duplicates coe
     // them by extension plus id.
     dashboardWidgets: [
       { id: "notes", title: "Second notes" },
-      { id: "timeline", title: "Timeline", wide: true },
+      { id: "timeline", title: "Timeline" },
     ],
   });
   const saved = config.workspaces;
@@ -395,11 +395,11 @@ test("dashboard widgets follow the enablement, in load order, and duplicates coe
   try {
     const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
     const both = widgetsFor({ ...change, workspace: "both-widgets" });
-    // Load order, extension-keyed; the wide flag travels with the widget.
+    // Load order, extension-keyed; the column travels with the widget.
     expect(both).toEqual([
-      { id: "notes", title: "First notes", extension: "test-widget-first" },
+      { id: "notes", title: "First notes", extension: "test-widget-first", column: "left" },
       { id: "notes", title: "Second notes", extension: "test-widget-second" },
-      { id: "timeline", title: "Timeline", extension: "test-widget-second", wide: true },
+      { id: "timeline", title: "Timeline", extension: "test-widget-second" },
     ]);
 
     // A context without either extension has no widget to show, not an empty one.

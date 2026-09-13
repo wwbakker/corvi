@@ -455,21 +455,24 @@ export function ChangeView({
       )}
       {active.kind === "dashboard" && (
         <div className="widgets">
-          <div className="column">
+          {/* The left column is the change's documents: the plan and any widget that declares
+              itself one. The right holds the status — completion, the cards, the other widgets —
+              every card the full width of its column. An empty side is dropped rather than
+              given half the window by the grid. */}
+          <div className="column documents">
             {/* The plan is the change's own document: it stays visible once the work starts, and
                 is a read-only record once the change is over. */}
             {change && (
               <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
             )}
-            <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
-            {(infos ?? []).filter((i) => !i.wide).map(card)}
-            {/* Client-drawn widgets, after the server-drawn cards: textareas and other client
-                state a polled card cannot hold. Deliberately not keyed by generation — a
-                remount after a merge would drop in-flight typing. Nothing to hand a widget
-                before the change loads, so they wait for it; the cards do not. */}
+            {(infos ?? []).filter((i) => i.column === "left").map(card)}
+            {/* Client-drawn documents, after the plan: textareas and other client state a polled
+                card cannot hold. Deliberately not keyed by generation — a remount after a merge
+                would drop in-flight typing. Nothing to hand a widget before the change loads,
+                so they wait for it; the cards do not. */}
             {change &&
               (widgets ?? [])
-                .filter((w) => !w.wide)
+                .filter((w) => w.column === "left")
                 .map((w) => (
                   <WidgetHost
                     key={`${w.extension}:${w.id}`}
@@ -479,11 +482,12 @@ export function ChangeView({
                   />
                 ))}
           </div>
-          <div className="column">
-            {(infos ?? []).filter((i) => i.wide).map(card)}
+          <div className="column status">
+            <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
+            {(infos ?? []).filter((i) => i.column !== "left").map(card)}
             {change &&
               (widgets ?? [])
-                .filter((w) => w.wide)
+                .filter((w) => w.column !== "left")
                 .map((w) => (
                   <WidgetHost
                     key={`${w.extension}:${w.id}`}

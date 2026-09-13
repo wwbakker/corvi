@@ -63,7 +63,7 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
   try {
     const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", repos: [], createdAt: "" };
     expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
-      { id: "notes", title: "Notes", extension: "notes" },
+      { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);
     // A workspace that dropped notes has no widget for it, and /changes/:id/notes is the dashboard.
     expect(widgetsFor({ ...change, workspace: "without-notes" })).toEqual([]);

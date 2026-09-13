@@ -9,8 +9,10 @@ export type DashboardWidget = {
   id: string;
   /** What the widget's heading says, when the component does not draw its own. */
   title: string;
-  /** Ask for the wide column on a wide window, like a wide server card. */
-  wide?: boolean;
+  /** Which dashboard column the widget belongs to: the change's documents on the left, or the
+   * status widgets on the right (the default). A document is client state a server card cannot
+   * hold — a textarea's debounce and unsaved marker. */
+  column?: "left" | "right";
 };
 
 /** What a dashboard widget gets: the change it is about, and the workspace that change belongs

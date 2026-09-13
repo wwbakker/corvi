@@ -51,7 +51,7 @@ const tabsOf = async (id: string): Promise<{ id: string; title: string; extensio
 /** The widgets route, the same way: what the dashboard renders is what the server lists. */
 const widgetsOf = async (
   id: string,
-): Promise<{ id: string; title: string; extension: string; wide?: boolean }[]> => {
+): Promise<{ id: string; title: string; extension: string; column?: "left" | "right" }[]> => {
   const route = extensionHostRoutes["/api/changes/:id/widgets"] as unknown as {
     GET: (req: Request, srv: unknown) => Promise<Response>;
   };
@@ -62,7 +62,7 @@ const widgetsOf = async (
   expect(response.status).toBe(200);
   return (
     (await response.json()) as {
-      widgets: { id: string; title: string; extension: string; wide?: boolean }[];
+      widgets: { id: string; title: string; extension: string; column?: "left" | "right" }[];
     }
   ).widgets;
 };

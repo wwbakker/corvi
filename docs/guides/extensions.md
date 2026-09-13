@@ -200,7 +200,7 @@ under the same contract as steps and pages (below).
 
 A change's dashboard holds two kinds of card: the server-drawn cards (`cards` above — a `Widget`
 per change, polled every 15 seconds) and the client-drawn widgets here. An extension declares
-its widgets (`{ id, title, wide? }`), and the page asks `GET /api/changes/:id/widgets` for
+its widgets (`{ id, title, column? }`), and the page asks `GET /api/changes/:id/widgets` for
 them — the same question as tabs, one surface over. The widget exists for a change when the
 extension does in the change's workspace, and a disabled extension's widget is not offered, not
 an empty one.
@@ -210,7 +210,9 @@ textarea's debounce, its unsaved marker, never overwriting what is being typed. 
 the extension's client half exporting `widget`, a component receiving the same
 `{ change, workspace? }` a tab gets. Widgets carry no address — the page keys them by extension
 plus id — so two extensions may each draw one under the same id, and there are no reserved
-ids. Narrow widgets render after the narrow cards, wide ones after the wide cards.
+ids. A widget declaring `column: "left"` is a document and sits in the dashboard's left column
+beside the plan; everything else is status, in the right column. On a window narrower than
+1280px the two columns stack, documents first.
 
 ## What an extension looks like
 

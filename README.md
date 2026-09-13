@@ -248,8 +248,9 @@ The dashboard shows three widgets, in this order:
   monorepo. Runs are looked up on both the pull request merge ref and the branch: validation
   builds run on the former, CI-triggered pipelines (publishing a client, say) on the latter. `IWE_AZURE_RUNS` (default 3) caps the runs shown per pipeline.
 
-On a window of 1280px or more the component that asks for it (`wide: true`, currently CI) gets a
-column of its own beside the others; narrower windows stack everything.
+The dashboard's left column holds the change's documents — the plan, and Notes — while every
+status card sits to the right. On a window narrower than 1280px the two columns stack,
+documents first.
 
 ## The app
 

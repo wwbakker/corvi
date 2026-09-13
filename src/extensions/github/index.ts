@@ -127,7 +127,6 @@ export default {
   cards: [
     {
       title: "GitHub",
-      wide: true,
       repoStatus: (change, repo) => Effect.map(repoItem(change, repo), (item) => [item]),
       run: (change, action, repo) => runEffect(change, action, repo),
     },
