@@ -9,16 +9,10 @@ import type { Page } from "./Sidebar.tsx";
  *
  * The server does the detecting — it already reads `@agent` from tmux every tick — and says what
  * happened on the `notify` event. The page does the deciding, because only the page knows what is
- * on screen; and the host does the showing, because WKWebView has no notification API of its own.
+ * on screen; the host does the showing (the app's Electron window, src/domain/host.ts), because
+ * only it can raise the window and play the sound the notification setting asks for.
  */
-
-declare global {
-  interface Window {
-    /** The host's way back in: a notification click activates the window, then calls this to
-     * open the change and the tmux window it was about. Registered by `App` on mount. */
-    iwe: { openWindow: (change: string, windowId: string) => void };
-  }
-}
+import type { HostNotice, IweHost } from "../domain/host.ts";
 
 /** The server's `notify` payload: one window that has started wanting the user. */
 export type Notice = {
@@ -49,24 +43,22 @@ export const noticeText = (notice: Notice): { title: string; body: string } => (
   body: notice.note?.trim() || "waiting for you",
 });
 
-type Bridge = { postMessage: (message: unknown) => void };
-
 /** Whether this page has the keyboard. The terminal focuses its own iframe, and focusing a
  * frame still means the page around it is the one you are looking at. */
 const pageFocused = (): boolean =>
   document.hasFocus() || document.activeElement?.tagName === "IFRAME";
 
-const bridgeOf = (): Bridge | undefined =>
-  (window as unknown as { webkit?: { messageHandlers?: { iwe?: Bridge } } }).webkit
-    ?.messageHandlers?.iwe;
+/** The app window's bridge, when this page runs inside it (src/domain/host.ts). A real browser
+ * has none, and notifications fall back to the browser's own. */
+const hostOf = (): IweHost | undefined => (window as unknown as { iweHost?: IweHost }).iweHost;
 
-/** Show it where it can be shown. The host bridge is the app windows (WKWebView and WebKitGTK,
- * the same shape); the browser's Notification is for a page in a real browser; and no path is an
- * error, because the toast is always there. */
+/** Show it where it can be shown. The host bridge is the app windows (Electron, the same
+ * `window.iweHost` shape on both platforms); the browser's Notification is for a page in a real
+ * browser; and no path is an error, because the toast is always there. */
 function deliver(notice: Notice, text: { title: string; body: string }, onOpen: () => void): void {
-  const bridge = bridgeOf();
-  if (bridge) {
-    bridge.postMessage({
+  const host = hostOf();
+  if (host) {
+    const payload: HostNotice = {
       kind: "notify",
       id: `${notice.change}-${notice.window}`,
       title: text.title,
@@ -75,7 +67,8 @@ function deliver(notice: Notice, text: { title: string; body: string }, onOpen: 
       sound: notice.sound,
       change: notice.change,
       window: notice.window,
-    });
+    };
+    host.notify(payload);
     return;
   }
   if (typeof Notification === "undefined") return;

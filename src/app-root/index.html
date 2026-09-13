@@ -6,8 +6,8 @@
     <title>Integrated Work Environment</title>
     <!-- Installable from Safari (Add to Dock) and Chrome (Install page as app). -->
     <link rel="manifest" href="./manifest.webmanifest" />
-    <!-- Relative: the HTML bundler resolves and fingerprints these. The manifest is fetched at
-         runtime instead, so it keeps absolute paths served by the /icons route. -->
+    <!-- Relative: the build (src/app-root/client.ts) rewrites the script to the bundle it
+         makes, and the icons to the /icons route the server already serves. -->
     <link rel="icon" type="image/png" sizes="32x32" href="./icons/favicon-32.png" />
     <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
     <meta name="theme-color" content="#14161a" />

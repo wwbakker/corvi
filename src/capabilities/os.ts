@@ -1,3 +1,4 @@
+import { accessSync, constants } from "node:fs";
 import { cp, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
@@ -25,7 +26,16 @@ export const loopbackInterface = isMac ? "lo0" : "lo";
 /** Whether a command could actually run: is it on PATH right now? Synchronous, because the only
  * things asking are building a menu and can wait a microsecond; a stale answer would offer an
  * item that cannot work, so it is always asked fresh. */
-export const commandAvailable = (command: string): boolean => Bun.which(command) !== null;
+export const commandAvailable = (command: string): boolean =>
+  (process.env.PATH ?? "").split(":").some((dir) => {
+    if (!dir) return false;
+    try {
+      accessSync(join(dir, command), constants.X_OK);
+      return true;
+    } catch {
+      return false;
+    }
+  });
 
 /** The platform as one word, for whoever is told only once: the client reads it from
  * /api/workspaces and switches its key hints and shortcuts on it. */

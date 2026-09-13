@@ -13,6 +13,7 @@ import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../extension-host/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
+import type { IweHost } from "../domain/host.ts";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
@@ -201,15 +202,11 @@ function App(): JSX.Element {
   const openWindowRef = useRef(openWindow);
   openWindowRef.current = openWindow;
   useEffect(() => {
-    // The contract the host calls after the notification is clicked; the wrapper keeps the
-    // registered function from going stale as the view changes.
-    const api = {
-      openWindow: (change: string, windowId: string) => openWindowRef.current(change, windowId),
-    };
-    (window as unknown as { iwe?: typeof api }).iwe = api;
-    return () => {
-      delete (window as unknown as { iwe?: typeof api }).iwe;
-    };
+    // The contract the host calls after a notification is clicked; the wrapper keeps the
+    // registered function from going stale as the view changes. A real browser has no host, and
+    // nothing to register.
+    const host = (window as unknown as { iweHost?: IweHost }).iweHost;
+    host?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
   }, []);
 
   useEffect(() => {

@@ -11,6 +11,9 @@
  * That is not hypothetical. A copy made with `cp -R` keeps the identifier `dev.iwe.app`, and
  * `tell application id "dev.iwe.app" to quit` then goes to whichever bundle the system resolves:
  * quitting the test copy quit the real app instead, in the middle of somebody's work.
+ *
+ * The copy's own bundle name is also what keys its Chromium profile
+ * (scripts/app/electron/main.ts), so the two do not share storage either.
  */
 import { rm } from "node:fs/promises";
 import { join } from "node:path";

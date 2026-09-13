@@ -25,10 +25,13 @@ talked to over its own REST API, but `jira-cli` is still what configures it — 
 The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux ttyd`).
 `wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
 official Arch package, and every invocation IWE makes was verified to behave identically on Linux
-(`brew install worktrunk` on macOS; details and non-Arch installs in `docs/decisions/wt-on-linux.md`). For
-the app's own window, Linux additionally wants `webkit2gtk-4.1` and `python-gobject`
-(`sudo pacman -S --needed webkit2gtk-4.1 python-gobject` — standard on desktop installs), which
-the macOS app gets from the system it is already in.
+(`brew install worktrunk` on macOS; details and non-Arch installs in `docs/decisions/wt-on-linux.md`).
+
+The app's own window needs nothing extra on either platform: it is Electron, which `bun install`
+downloads with the rest of the dependencies (`docs/decisions/electron-host.md`), and the server
+inside it runs on Electron's own Node — so Bun is the toolchain for installing and developing
+IWE, not something an installed app needs at runtime (`docs/decisions/node-server.md`). The page
+itself is still a web page — any browser opens it.
 
 ## Run
 
@@ -38,12 +41,15 @@ bun run dev          # http://127.0.0.1:4000
 ```
 
 `dev` is `bun --watch`, which restarts the process, rather than `bun --hot`, which re-evaluates
-modules inside the running one. The difference matters here: `Bun.serve` takes its routes once,
+modules inside the running one. The difference matters here: the server takes its routes once,
 at startup, so under `--hot` a **newly added route never appears** — the request falls through to
 the app's own HTML and arrives as a perfectly good `200 text/html`. The page then tries to parse
 that as JSON and reports whatever the browser calls a parse error (Safari: "The string did not
 match the expected pattern"), which is a sentence about nothing. Restarting is cheap: the cache
 is on disk and the terminals belong to tmux, so both survive it.
+
+The page is built by esbuild (`src/app-root/client.ts`) and, in development, rebuilt when its
+sources change — editing the UI is a refresh, not a server restart.
 
 The browser now says so plainly instead — anything answering an `/api` call with a non-JSON body
 is reported as "the server has no /settings — it is probably running older code, restart it".
@@ -282,75 +288,76 @@ The two are separate things rather than two ways to start the same thing:
 | on a code change | restarts itself (`--watch`) | picks it up when you next launch it |
 | output | your terminal | macOS: `~/Library/Logs/iwe.log` · Linux: `~/.local/state/iwe/log` |
 
-On macOS it is AppKit and WebKit, in about two hundred lines of Swift (`scripts/app/IWE.swift`),
-compiled by `swiftc` at install time. Both frameworks are in the system, so this costs a compile
-and nothing at runtime: no Electron, no Rust, no second browser. Quitting the app stops the
-server it started; a server you started yourself, in a terminal, is left alone. The window is
-still only a view onto the same HTTP server any browser can open, which is the point — the app is
-a convenience, not the product.
+It is one Electron main process (`scripts/app/electron/main.ts`) on both platforms: the installer
+builds it into the app's bundle — a macOS `.app` that wraps Electron, or, on Linux, the desktop
+entry, icons and `iwe-app` launcher that runs it — and the window loads the same HTTP server any
+browser opens. Quitting the app stops the server it started; a server you started yourself, in a
+terminal, is left alone. The app is a convenience, not the product.
 
-What the native window buys over a Chrome `--app` window:
+What the window buys over a Chrome `--app` window:
 
-- **A dark title bar.** A plain `--app` window ignores the manifest's `theme_color`; this one is
-  `titlebarAppearsTransparent` over the page's own `#14161a`.
+- **A dark window from the first frame.** `backgroundColor` and a dark appearance, where a plain
+  `--app` window flashes white before the page paints.
 - **A Dock icon that means something**: it is there while IWE is running, and Quit stops it.
-- **cmd-t is ours.** Chrome keeps it for new tabs in a normal window; here it always reaches the
-  terminal.
+- **cmd-t is ours.** Chromium keeps it for new tabs in a browser; the app keeps no menu that could
+  take it from the page (the terminal's own chord, on Linux, lives in the page).
 - **Links leave.** Jira, GitHub and Azure DevOps open in your browser rather than replacing the
   page.
-- **The page's questions get asked.** A WKWebView draws no dialogs of its own and does not
-  complain either: `confirm()` returns `false` and `alert()` does nothing. Every confirmation in
-  IWE — cancelling a change, a removal that would lose commits, deleting a leftover — therefore
-  did nothing at all in the app, silently, while working in a browser. The window implements
-  `WKUIDelegate` and shows them as sheets.
+- **The page's questions get asked.** Chromium draws `alert`, `confirm` and `prompt`; the app
+  draws none of them itself, and every confirmation in IWE — cancelling a change, a removal that
+  would lose commits, deleting a leftover — behaves in the app exactly as it does in a browser.
 
-Two details that took a bug each:
+Two details that took a bug each, and survive from the hosts this replaced:
 
-- **It runs an interactive login shell** (`zsh -ilc`). A bundle launched from the Dock inherits
-  nothing, and `bun` and `JIRA_API_TOKEN` are exported from `~/.zshrc`, which a *non-interactive*
-  login shell does not read. `zsh -lc` looked right and failed with `command not found: bun`.
-- **The root lives in `Info.plist`**, not in the binary, so moving the repository is a reinstall
-  of a plist rather than a rebuild. The port is nobody's to configure: the window picks a free
-  one at launch.
+- **It runs an interactive login shell** (`zsh -ilc` on macOS, your `$SHELL` elsewhere). A bundle
+  launched from the Dock or a desktop entry inherits nothing, and `JIRA_API_TOKEN` and friends are
+  exported from `~/.zshrc`, which a *non-interactive* login shell does not read. The server
+  itself runs on Electron's own Node (`ELECTRON_RUN_AS_NODE`), so Bun is not part of running the
+  app (`docs/decisions/node-server.md`).
+- **The root lives in the bundle's `package.json`** (`iweRoot`), not in the binary, so moving the
+  repository is a reinstall rather than a rebuild. The port is nobody's to configure: the window
+  picks a free one at launch.
+
+Why Electron rather than the system's own web view: it is the same engine on both platforms, so
+the window is developed and tested where it runs, and the capabilities the old hosts hand-built —
+dialogs, notifications, microphone, links — are the engine's. It costs a Chromium in the bundle;
+the trade is recorded in [docs/decisions/electron-host.md](docs/decisions/electron-host.md).
 
 `app:install` **quits a running app and puts it back on the new build**: `open` on a running
 application only focuses it, so a rebuild would otherwise leave you looking at the previous one —
-a confusing ten minutes the first time it happens. It quits with an Apple Event rather than a
-signal, so the app stops the server it started instead of orphaning it, and it compiles to one
-side first, so a failed build leaves the app you have alone.
+a confusing ten minutes the first time it happens. On macOS it quits with an Apple Event rather
+than a signal, so the app stops the server it started instead of orphaning it, and it builds to
+one side first, so a failed build leaves the app you have alone.
 
 Failures land in `~/Library/Logs/iwe.log`, and a server that never answers leaves the window
 saying so rather than showing an empty page.
 
 ### On Linux
 
-The same `app:install` puts three things in your home directory: a **desktop entry**
+The same `app:install` puts four things in your home directory: a **desktop entry**
 (`~/.local/share/applications/iwe.desktop`), **icons** rendered from `assets/icon.svg` into
 `~/.local/share/icons/hicolor/<size>/apps/iwe.png` (skipped with a note if `rsvg-convert` is
-missing — the app works without one), and a **launcher**, `~/.local/bin/iwe-app`, with the
-repository written in: the same trade as `Info.plist`, so moving the repository is a reinstall,
-not a rebuild. The port appears nowhere in it — the window picks a fresh one at launch.
+missing — the app works without one), a **launcher**, `~/.local/bin/iwe-app`, with the repository
+written in (`iweRoot`'s counterpart: moving the repository is a reinstall, not a rebuild), and the
+built Electron window under `~/.local/share/iwe/app`. The port appears nowhere — the window picks
+a fresh one at launch.
 
-The window is WebKitGTK driven from Python through the bindings already on the machine, in about
-three hundred lines (`scripts/app/linux-window/iwe-window.py`) — no Electron, no Rust, no second
-browser, nothing compiled. The page's own `#14161a` behind it from the first frame, the page's
-title in the title bar, `confirm()` and friends drawn as real dialogs, links to Jira, GitHub and
-Azure DevOps handed to your browser, and the microphone granted through the window — the gap that
-made a voice extension fail silently inside the macOS view, closed by asking the permission
-deliberately for our own origin. Without the WebKitGTK bindings the launcher falls back to your
-installed Chromium's `--app` mode.
+The window is the same Electron main as on macOS, so the dark first frame, dialogs, links to
+Jira, GitHub and Azure DevOps, the microphone and notifications all come from Chromium rather
+than from a second Python implementation (`docs/decisions/electron-host.md`). Without an Electron
+binary in the checkout the launcher falls back to your installed Chromium's `--app` mode.
 
 Lifecycle: clicking the icon (or running `iwe-app`) opens the window, which then manages the
-server exactly the way the macOS app does: it starts one of its own — on a fresh port, picked at
-launch, through your login shell so `bun` and `JIRA_API_TOKEN` come from your rc file — and
-**closing the window stops the server it started**. Terminals are tmux's and survive that, which
-is the same promise a restart of the server has always made. The window records the pid of the
-server it started in `~/.local/state/iwe/iwe-app-<port>.pid`, so `iwe-app stop` can still stop a
-server left behind by a window that died harder than it could clean up after; it checks each pid
-is still an IWE server and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without the
-WebKitGTK bindings the launcher falls back to the browser's app mode, where the server is
-started detached and outlives the tab — a browser window cannot clean up after anything.
-`app:uninstall` removes the entry, launcher and icons and leaves the logs alone.
+server: it starts one of its own — on a fresh port, picked at launch, through your login shell so
+`bun` and `JIRA_API_TOKEN` come from your rc file — and **closing the window stops the server it
+started**. Terminals are tmux's and survive that, which is the same promise a restart of the
+server has always made. The window records the pid of the server it started in
+`~/.local/state/iwe/iwe-app-<port>.pid`, so `iwe-app stop` can still stop a server left behind by
+a window that died harder than it could clean up after; it checks each pid is still an IWE server
+and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without Electron the launcher
+falls back to the browser's app mode, where the server is started detached and outlives the tab —
+a browser window cannot clean up after anything. `app:uninstall` removes the entry, launcher,
+icons and built window and leaves the logs alone.
 
 ## Installing it as an app
 
@@ -549,42 +556,30 @@ Each page keeps its own URL, so a deep link opens exactly what you linked to.
 ## Looking at the UI
 
 ```bash
-bunx playwright install webkit chromium   # once
-bun run shot                              # WebKit, into shots/
-IWE_ENGINE=chromium bun run shot
+bunx playwright install chromium   # once (webkit too, only for the other-engine run)
+bun run shot                       # Chromium, into shots/
+IWE_ENGINE=webkit bun run shot
 ```
 
 Walks home → wizard → each step against `IWE_URL` (default `http://127.0.0.1:4000`) and reports
 any console errors. Faster than describing a layout bug in prose.
 
-**WebKit by default, because that is what the app is.** The macOS window is a WKWebView — Safari's
-engine — and the Linux window is WebKitGTK, the same engine family (`docs/decisions/linux-native-window.md`),
-while development happens in Chrome, and everything that has escaped to being reported
-lived in that gap:
-
-- A route the server did not have came back as the app's own HTML with a `200`, and WebKit words
-  the failed parse as *"The string did not match the expected pattern"* — a sentence about
-  nothing, in a browser that was not being tested.
-- `window.confirm` is not implemented by a WKWebView unless the app implements `WKUIDelegate`, and
-  an unimplemented `confirm()` returns `false`. Every destructive action sits behind one, so
-  cancelling a change silently did nothing — in the app only.
-
-`test/webkit.test.ts` opens every route in WebKit, saves the settings page, and fails on anything
-the engine complains about. It skips itself when the engine is not there or cannot start — a
-100MB download, and on a non-Ubuntu host the libraries its bundle links are the wrong versions —
-since nothing else in the suite needs it. `bun run test:webkit` runs it in Playwright's own image
-when the skip is not what you want. It earned its place immediately: it found the
-dashboard firing a readiness check that answered `400` when there is no GitHub remote, which the
-page swallowed — the menu item was disabled with nothing to say. That is now a reason like any
-other ("cannot complete: …"), which is what the reasons list is for.
+**Chromium by default, because that is what the app is**: the window is Electron, and Electron is
+Chromium (`docs/decisions/electron-host.md`). WebKit stays a variable away, because the page is a
+web page first and Safari still opens it; `test/pages.test.ts` runs the page suite in Chromium by
+default and takes `IWE_ENGINE=webkit` for that check.
+and it still catches what Chromium tolerates (a missing route once came back as the app's own HTML
+with a `200`, which WebKit words as *"The string did not match the expected pattern"*).
 
 ```bash
 bun run app:permissions   # what this terminal may do to the app's own window
 ```
 
 ```bash
-bun run app:sandbox 4090 --open              # a copy that cannot be mistaken for yours
-bun run app:drive "PROJ-123" Actions "Cancel change" OK
+bun run app:run                             # the window, straight from the checkout
+bun run app:drive                           # open it with Playwright and report what it did
+bun run app:drive --shot --notify           # ... with a screenshot and a notification check
+bun run app:sandbox 4090 --open             # a copy that cannot be mistaken for yours
 ```
 
 **Never test against the installed app.** `app:sandbox` makes a copy with its own bundle
@@ -592,32 +587,18 @@ identifier, its own name and its own port, pointed at whatever scratch server yo
 made with `cp -R` keeps the identifier `dev.iwe.app`, and `tell application id "dev.iwe.app" to
 quit` then goes to whichever bundle the system resolves — which is how quitting a test copy quit
 the real app instead, in the middle of somebody's work. Everything that addresses a bundle now
-addresses a **path**, which is exactly one app, and the window title says which copy you are
-looking at.
+addresses a **path**, which is exactly one app.
 
-Clicks the app's own window by the names a screen reader reads out — the sheets it draws because
-a WKWebView draws none, its menu bar, its Dock icon. Playwright drives the page far better and
-cannot see any of that. Three things had to be true before it worked, and each of them looked
-like something else:
+`app:drive` opens the app's window through Playwright's Electron driver, so the window itself —
+not just the page — can be checked without a human describing it: it reports the title, the URL
+the window loaded, whether the host bridge is there, and any console errors, and it can take a
+screenshot and exercise the host's notification path. It replaces the AppleScript that walked the
+Swift app's accessibility tree; it needs no Accessibility permission, and it runs on Linux too.
 
-- **The web area is invisible to assistive clients until the app opts in.** WKWebView keeps the
-  page's accessibility tree to itself, so the window had one anonymous group where its buttons
-  should be. `NSApp.setAccessibilityEnabled(true)` publishes it — which also means VoiceOver can
-  read IWE.
-- **A menu item that has just been clicked no longer exists**, so asking it what it was called
-  throws `Invalid index` — reported as the click having failed, when it is the click having
-  worked. Name it before clicking it.
-- **JXA hands back lazy references** into a tree that is re-rendering underneath, so a walk fails
-  halfway through for reasons unrelated to what it was looking for. Every access is guarded, and
-  a sheet already on screen is reported rather than walked past: a modal sheet makes every step
-  say "NOT FOUND" for a reason that has nothing to do with what was asked for.
-
-The page can be driven by Playwright, but the app around it — title bar, Dock icon, confirm
-sheets, menus — can only be checked by looking at the real thing, and macOS gates that per
-application. Without any permission the window *list* is still readable, which is enough to prove
-a sheet opened (that is how the `confirm()` fix was verified). Screen recording adds screenshots;
-accessibility adds clicking and reading labels. The check reports which of the two your terminal
-has and how to grant the rest.
+The page is driven by Playwright (`bun run shot` and the suite); the parts that are not the page —
+the title bar, the Dock icon, a notification banner — can only be checked by looking at the real
+thing, and macOS gates screenshots and clicking behind permissions granted per application.
+`bun run app:permissions` reports where those stand.
 
 ## Jira over its own API
 
@@ -1364,22 +1345,20 @@ Terminals tab in Chromium, types `pwd > out.txt` into the frame and reads the fi
 checks `ctrl-b c` reaches tmux, mouse mode is on, and that asking twice reuses one ttyd. It skips
 itself when `ttyd` or `tmux` is missing rather than failing.
 
-## Testing in WebKit
+## The page tests
 
-`test/webkit.test.ts` is the engine the app ships — the macOS window is a WKWebView, the Linux
-window is WebKitGTK — and catches what Chrome tolerates. Playwright's WebKit bundle is built for
-Ubuntu 24.04, so on a host whose icu/libxml2/flite are different versions it cannot start and the
-file skips rather than fails. To run it anyway, `bun run test:webkit` builds
-[`Containerfile.webkit`](Containerfile.webkit) — Playwright's own image, which has the bundle and
-every library it links, with Bun added — and runs the file in it under rootless podman:
+`test/pages.test.ts` opens every route, round-trips the settings page and pins the notes card's
+layout — in Chromium, because that is the engine the app renders in (the window is Electron,
+docs/decisions/electron-host.md). `IWE_ENGINE=webkit bun test test/pages.test.ts` runs the same
+file in Playwright's WebKit where its bundle starts (natively on macOS; on Linux only where its
+Ubuntu-built libraries match), which is the browser-side check for Safari; it skips rather than
+fails when the chosen engine cannot launch.
 
-```bash
-sudo pacman -S podman fuse-overlayfs slirp4netns   # once
-bun run test:webkit
-```
-
-The checkout is mounted, and `node_modules` lives in a named volume, so the modules installed for
-the host are never replaced by the container's.
+The route sweep earned its place when the app was WebKit: it found the dashboard firing a
+readiness check that answered `400` when there is no GitHub remote, which the page swallowed —
+the menu item was disabled with nothing to say. That is now a reason like any other ("cannot
+complete: …"). The podman harness that forced a WebKit run (`Containerfile.webkit`,
+`bun run test:webkit`) is gone with the app's WebKitGTK dependency.
 
 ## Layout
 
@@ -1484,8 +1463,9 @@ The map, grouped by layer:
 
     pi/agent-state.ts           pi extension: publishes working/waiting to tmux
     scripts/extension.ts        installs/removes that extension
-    scripts/app.ts              macOS: builds ~/Applications/IWE.app; Linux: installs the app
+    scripts/app.ts              installs the app: macOS .app, or Linux entry + launcher
+    scripts/app/mac.ts          the macOS install: builds ~/Applications/IWE.app with packager
     scripts/app/linux.ts        the Linux install: desktop entry, icons, iwe-app launcher
-    scripts/app/linux-window/   the Linux window: WebKitGTK via PyGObject
-    scripts/app/IWE.swift       the macOS window: WebKit, and the server inside it
+    scripts/app/electron/       the window: main.ts and preload.ts, built into main.cjs by build.ts
+    scripts/app/run.ts drive.ts app:run (from the checkout) and app:drive (Playwright)
     test/                       the suite; test/terminal.test.ts drives a real ttyd and tmux

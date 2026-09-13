@@ -1,7 +1,7 @@
-import type { ServerWebSocket } from "bun";
 import { Effect } from "effect";
 import { loadCache, saveCache } from "./capabilities/cache.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
+import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { buildClientChunks } from "./extension-host/clientChunks.ts";
 import { extensionHostRoutes } from "./extension-host/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
@@ -33,25 +33,12 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = Bun.serve({
+const server = await serve<Bridge>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env.IWE_PORT ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
-  // The event stream is quiet by nature, and Bun closes an idle connection after ten seconds —
-  // which the browser survives by reconnecting, noisily, six times a minute, for ever. The
-  // stream sends a heartbeat as well; this is the belt to that pair of braces.
-  idleTimeout: 120,
-  development: process.env.NODE_ENV !== "production",
-  // Typed here rather than on Bun.serve: naming the socket's data type there would take the
-  // route handlers' own inference with it.
-  websocket: {
-    open: (ws) => bridge.open(ws as unknown as ServerWebSocket<Bridge>),
-    message: (ws, message) => bridge.message(ws as unknown as ServerWebSocket<Bridge>, message),
-    close: (ws) => bridge.close(ws as unknown as ServerWebSocket<Bridge>),
-  },
-
   // One table per domain, each guarded as it is defined; composed here, where the server is.
   routes: {
     ...appRootRoutes,
@@ -62,6 +49,12 @@ const server = Bun.serve({
     ...settingsRoutes,
     ...terminalsRoutes,
     ...workspaceRoutes,
+  },
+  websocket: {
+    open: (ws: ServerWebSocket<Bridge>) => bridge.open(ws),
+    message: (ws: ServerWebSocket<Bridge>, message: string | Uint8Array) =>
+      bridge.message(ws, message),
+    close: (ws: ServerWebSocket<Bridge>) => bridge.close(ws),
   },
 });
 
@@ -78,7 +71,7 @@ console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers rest
       `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
     );
     console.error(
-      "usually dependencies: run `bun install`. For the full error: bun build src/app-root/index.html --outdir /tmp/iwe-check --production",
+      "usually dependencies: run `bun install` in the checkout. The esbuild error is above — the app writes it to its own log.",
     );
     process.exit(1);
   }

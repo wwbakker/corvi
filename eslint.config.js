@@ -148,11 +148,11 @@ export default tseslint.config(
     },
   },
   {
-    // The page's composition root: everything here is browser code except `routes.ts`, the
-    // server half that serves the icons and the fallback — it is server code by design, so the
-    // browser boundary skips it.
+    // The page's composition root: everything here is browser code except `routes.ts` and
+    // `client.ts` — the server halves that build the page and serve it (icons, assets and the
+    // fallback) — so the browser boundary skips them.
     files: ["src/app-root/**/*.{ts,tsx}"],
-    ignores: ["src/app-root/routes.ts"],
+    ignores: ["src/app-root/routes.ts", "src/app-root/client.ts"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },

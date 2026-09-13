@@ -2,6 +2,10 @@
 
 > **Kind:** decision · **Status:** accepted
 
+*The hosts named below (WKWebView, WebKitGTK) were replaced by one Electron window; the behavior
+decided here is unchanged, and the bridge it rides is now the preload's `window.iweHost`
+(see [`electron-host.md`](electron-host.md) and [`node-server.md`](node-server.md)).*
+
 IWE notifies you when a terminal window wants your attention — an agent that has stopped and is
 waiting for you, and (later, out of scope) a generic process going idle. The implementation plan
 and phase-by-phase detail are in

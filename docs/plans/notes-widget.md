@@ -71,7 +71,7 @@ existing unmount effect.
   `GET /api/changes/:id/widgets` route through the real guarded handler.
 - `test/outOfTreeExtensions.test.ts`: the fixture client exports `widget` too,
   and the chunk assertion covers all four surfaces.
-- `test/webkit.test.ts`: the notes assertions run against the dashboard URL
+- `test/pages.test.ts`: the notes assertions run against the dashboard URL
   (`/changes/${id}` showing `textarea.notes`), not the gone tab URL.
 
 ## Docs

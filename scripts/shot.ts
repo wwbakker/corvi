@@ -1,31 +1,25 @@
 /** Screenshots the running app so the UI can be inspected without a human describing it.
  *
- *   bun run shot                    # WebKit, against http://127.0.0.1:4000
- *   IWE_ENGINE=chromium bun run shot
+ *   bun run shot                    # Chromium, against http://127.0.0.1:4000
+ *   IWE_ENGINE=webkit bun run shot
  *   IWE_URL=... bun run shot
  *
- * Writes to shots/. Requires `bunx playwright install webkit chromium` once.
+ * Writes to shots/. Requires `bunx playwright install chromium` once (webkit too, only for the
+ * other-engine run).
  *
- * WebKit by default because that is what the app is: the macOS window is a WKWebView, and the
- * Linux window chose WebKitGTK over QtWebEngine and a Chromium --app window
- * (docs/decisions/linux-native-window.md) — WebKit either way. Chromium is a variable away for when the
- * difference is what you are looking at, or for testing against the Chromium --app fallback
- * window; IWE_ENGINE overrides everything. */
+ * Chromium by default because that is what the app is: the window is Electron, and Electron is
+ * Chromium (docs/decisions/electron-host.md). WebKit is a variable away for checking the page in
+ * another browser — the page is a web page first, and browsers remain a first-class view. */
 import { mkdir } from "node:fs/promises";
-import { isLinux, isMac } from "../src/capabilities/os.ts";
 import { chromium, webkit } from "playwright";
 
 const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";
 
-/** The engine of the app's own window, per platform: WKWebView on macOS, WebKitGTK on Linux.
- * Playwright's `webkit` is that engine family on both. */
-const windowEngine = (): "webkit" | "chromium" => {
-  if (isMac || isLinux) return "webkit";
-  return "webkit"; // no app on other platforms; WebKit is still the interesting difference
-};
+/** The engine of the app's own window: Chromium, via Electron. `IWE_ENGINE` overrides it. */
+const windowEngine = (): "webkit" | "chromium" => "chromium";
 
 const engineName = process.env.IWE_ENGINE ?? windowEngine();
-const engine = engineName === "chromium" ? chromium : webkit;
+const engine = engineName === "webkit" ? webkit : chromium;
 await mkdir("shots", { recursive: true });
 
 const browser = await engine.launch();

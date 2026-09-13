@@ -1,5 +1,7 @@
 import { Duration, Effect, Either, Option } from "effect";
+import { spawn as childSpawn } from "node:child_process";
 import { homedir } from "node:os";
+import { Readable } from "node:stream";
 import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
 import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "../domain/config.ts";
@@ -66,24 +68,41 @@ const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
 /** The one gate every CLI call passes through. */
 const gate = Effect.runSync(Effect.makeSemaphore(LIMIT));
 
+/** A child's output as text. Reading by iteration rather than `Readable.toWeb`: a command that
+ * cannot start destroys its pipes, and the web-stream adapter throws when asked to wrap one. */
+const text = async (stream: Readable | null): Promise<string> => {
+  if (!stream) return "";
+  const chunks: Buffer[] = [];
+  try {
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string));
+    }
+  } catch {
+    // Whatever arrived before the pipe died is what there is.
+  }
+  return Buffer.concat(chunks).toString("utf8");
+};
+
 const spawn = (
   cmd: readonly string[],
   cwd: string | undefined,
   env: Record<string, string>,
 ): Effect.Effect<Result, CliError> =>
   Effect.gen(function* () {
-    const started = process.env.IWE_TRACE ? Bun.nanoseconds() : 0;
+    const started = process.env.IWE_TRACE ? Number(process.hrtime.bigint()) : 0;
     const spawned = yield* Effect.either(
       Effect.try({
-        try: () =>
+        try: () => {
+          const [tool, ...args] = cmd;
+          if (tool === undefined) throw new Error("empty command");
           // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
           // Empty outside a request.
-          Bun.spawn([...cmd], {
+          return childSpawn(tool, args, {
             cwd,
             env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
-            stdout: "pipe",
-            stderr: "pipe",
-          }),
+            stdio: ["ignore", "pipe", "pipe"],
+          });
+        },
         catch: (e) => (e instanceof Error ? e.message : String(e)),
       }),
     );
@@ -94,10 +113,24 @@ const spawn = (
       return { code: 127, stdout: "", stderr: spawned.left };
     }
     const proc = spawned.right;
+    // A command that cannot start — not on PATH, no execute permission, a working directory
+    // that is gone — emits `error` rather than exiting, and an unhandled one would take the
+    // server down. 127 is what a shell says for "command not found", and every caller already
+    // knows what to do with a non-zero code; the message travels as stderr.
+    let spawnError = "";
+    const closed = new Promise<number>((resolve) => {
+      proc.once("error", (error) => {
+        spawnError = error.message;
+        resolve(127);
+      });
+      proc.once("close", (code) => resolve(code ?? 1));
+    });
     const read = Effect.all([
-      Effect.promise(() => new Response(proc.stdout).text()),
-      Effect.promise(() => new Response(proc.stderr).text()),
-      Effect.promise(() => proc.exited),
+      Effect.promise(() => text(proc.stdout)),
+      Effect.promise(() => text(proc.stderr)),
+      // `close`, not `exit`: it waits for the output streams too, so nothing is read after the
+      // answer has been returned.
+      Effect.promise(() => closed),
     ]);
     // A timed-out `git` that keeps running is a leak, not a timeout: whatever interrupted the
     // read — a deadline or a shutdown — kills the child first. The hook sits on the read
@@ -115,16 +148,17 @@ const spawn = (
       : read.pipe(killHook);
     const [stdout, stderr, code] = yield* guarded;
     if (started) {
-      const usage = proc.resourceUsage();
       const key = traceKey(cmd);
       const seen = trace.get(key) ?? { calls: 0, cpu: 0, wall: 0 };
       trace.set(key, {
         calls: seen.calls + 1,
-        cpu: seen.cpu + (usage ? Number(usage.cpuTime.user + usage.cpuTime.system) / 1000 : 0),
-        wall: seen.wall + (Bun.nanoseconds() - started) / 1e6,
+        // Node cannot read a child's CPU the way Bun could; the wall time is what the numbers
+        // were read for (where a refresh spends its waits).
+        cpu: seen.cpu,
+        wall: seen.wall + (Number(process.hrtime.bigint()) - started) / 1e6,
       });
     }
-    return { code, stdout: stripAnsi(stdout), stderr: stripAnsi(stderr) };
+    return { code, stdout: stripAnsi(stdout), stderr: stripAnsi([stderr, spawnError].filter(Boolean).join("\n")) };
   });
 
 /** One CLI call with the environment given explicitly, instead of read from the request

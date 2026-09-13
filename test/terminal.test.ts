@@ -3,8 +3,6 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, testRun, testTempDir } from "./helpers.ts";
-import { isLinux } from "../src/capabilities/os.ts";
-import { terminalPath } from "../src/terminals/server/index.ts";
 
 /**
  * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only
@@ -34,18 +32,19 @@ async function tmux(...args: string[]): Promise<string> {
 }
 
 const have = async (tool: string): Promise<boolean> => (await runSh(["which", tool])).code === 0;
-const usable = (await have("ttyd")) && (await have("tmux"));
-
-/** The renderer is a performance decision, not a detail. This machine's WebKitGTK can only take
- * the software-composited path (accelerated compositing presents canvas updates a frame late),
- * and in that path ttyd's WebGL default and 2D canvas fallback peg a core on ordinary terminal
- * output — the whole app then lags by hundreds of milliseconds. xterm's DOM renderer damages
- * only the changed text. macOS keeps WebGL, where the compositor is correct and cheap. */
-test("the terminal asks for the renderer its engine can afford", () => {
-  const path = terminalPath("PROJ-TERM");
-  if (isLinux) expect(path).toBe("/terminal/PROJ-TERM/?rendererType=dom");
-  else expect(path).toBe("/terminal/PROJ-TERM/");
-});
+/** Playwright downloads its browsers separately (`bunx playwright install chromium`, README),
+ * and launching one that is not there throws in the `beforeAll` below — which bun reports as a
+ * single unnamed failure, with every terminal test silently gone. A missing browser is the same
+ * kind of missing tool as a missing ttyd: skip, as this file's own docstring promises. The path
+ * can also be unanswerable, which is just as good a reason to skip. */
+const haveBrowser = await (async (): Promise<boolean> => {
+  try {
+    return await Bun.file(chromium.executablePath()).exists();
+  } catch {
+    return false;
+  }
+})();
+const usable = (await have("ttyd")) && (await have("tmux")) && haveBrowser;
 
 let tmp: string;
 let browser: Browser;
@@ -357,13 +356,17 @@ test.skipIf(!usable)("a window tab dragged onto another takes its place", async 
 
 test.skipIf(!usable)("a window that starts waiting is announced, and the notice opens it", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  // Stand in for the app's host: the page posts to window.webkit.messageHandlers.iwe in
-  // WKWebView and WebKitGTK alike.
+  // Stand in for the app's host: the real window exposes `window.iweHost` from its preload
+  // (scripts/app/electron/preload.ts), a browser has none, so the test installs the same shape
+  // and keeps the open-window callback the page registers on mount.
   await page.addInitScript(() => {
     const store: unknown[] = [];
     (window as unknown as { __notices: unknown[] }).__notices = store;
-    (window as unknown as { webkit: unknown }).webkit = {
-      messageHandlers: { iwe: { postMessage: (message: unknown) => store.push(message) } },
+    (window as unknown as { iweHost: unknown }).iweHost = {
+      notify: (message: unknown) => store.push(message),
+      onOpenWindow: (callback: (change: string, window: string) => void) => {
+        (window as unknown as { __openWindow: unknown }).__openWindow = callback;
+      },
     };
   });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}`);
@@ -409,8 +412,11 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   // the window by its id against the live list, so a reorder after the notice is harmless.
   await page.evaluate(
     ([change, windowId]) => {
-      // `window` here is the page's, not the window id beside it.
-      window.iwe.openWindow(change!, windowId!);
+      // What the host does on a click: call the callback the page registered on mount.
+      (window as unknown as { __openWindow: (c: string, w: string) => void }).__openWindow(
+        change!,
+        windowId!,
+      );
     },
     [id, windowId] as const,
   );

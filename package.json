@@ -3,40 +3,47 @@
   "module": "src/server.ts",
   "type": "module",
   "private": true,
+  "trustedDependencies": [
+    "electron"
+  ],
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "NODE_ENV=production bun src/server.ts",
-    "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
-    "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" bun test --coverage --timeout 30000",
+    "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
+    "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/iwe-test-state\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
-    "test:webkit": "bun scripts/test-webkit.ts",
     "typecheck": "tsc --noEmit",
     "outline": "bun scripts/outline.ts",
     "lint": "eslint .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
-    "perf": "bun scripts/perf.ts",
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
     "extension:uninstall": "bun scripts/extension.ts uninstall",
     "app:install": "bun scripts/app.ts install",
     "app:uninstall": "bun scripts/app.ts uninstall",
+    "app:run": "bun scripts/app.ts run",
     "app:permissions": "bun scripts/permissions.ts",
-    "app:drive": "osascript -l JavaScript scripts/drive.js",
+    "app:drive": "bun scripts/drive.ts",
     "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
     "effect": "^3.22.2",
+    "esbuild": "^0.28.2",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@effect/language-service": "^0.87.2",
+    "@electron/packager": "20.3.0",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "@types/ws": "^8.18.1",
+    "electron": "44.3.0",
     "eslint": "^10.10.0",
     "playwright": "^1.63.0",
     "typescript-eslint": "^8.70.0"

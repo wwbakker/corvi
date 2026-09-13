@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { file as fileHandle } from "../../capabilities/files.ts";
 
 /**
  * Talking to Jira Cloud directly, over its own REST API.
@@ -64,7 +65,7 @@ export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
     if (known) return known;
     const asking = Effect.runSync(
       Effect.cached(
-        Effect.orDie(Effect.tryPromise(() => Bun.file(path).text())).pipe(
+        Effect.orDie(Effect.tryPromise(() => fileHandle(path).text())).pipe(
           Effect.map(parseJiraConfig),
           Effect.catchAllDefect(() => Effect.succeed({})),
         ),

@@ -40,7 +40,7 @@ export const browse = (
       (e) =>
         Effect.gen(function* () {
           const path = relative ? `${relative}/${e.name}` : e.name;
-          // A clone has .git as a directory, a worktree as a file: stat covers both, Bun.file does not.
+          // A clone has .git as a directory, a worktree as a file: stat covers both, file() does not.
           const isRepo = yield* fs(() =>
             stat(join(dir, e.name, ".git")).then(
               () => true,

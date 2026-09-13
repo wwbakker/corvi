@@ -14,6 +14,7 @@ import {
   wizardStepsFor,
 } from "./index.ts";
 import { clientChunkPath, chunkRoot } from "./clientChunks.ts";
+import { fileResponse } from "../capabilities/files.ts";
 import { guard } from "../capabilities/web.ts";
 import { isFinished } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
@@ -159,10 +160,10 @@ export const extensionHostRoutes = guard({
   // imported by the page at runtime (src/extension-host/client.tsx). Built-ins are in the page's
   // own bundle instead; an unknown name has no chunk and answers 404.
   "/extensions/:name/client.js": async (req) => {
-    const file = Bun.file(clientChunkPath(req.params.name));
-    return (await file.exists())
-      ? new Response(file, { headers: { "content-type": "text/javascript" } })
-      : new Response("no such extension client", { status: 404 });
+    const response = await fileResponse(clientChunkPath(req.params.name), {
+      "content-type": "text/javascript",
+    });
+    return response ?? new Response("no such extension client", { status: 404 });
   },
 
   // The react vendor chunks the page's import map points the out-of-tree clients at, built
@@ -170,9 +171,9 @@ export const extensionHostRoutes = guard({
   // same build the page runs (two reacts break hooks and context).
   "/vendor/:file": async (req) => {
     // basename: the parameter must not walk out of the vendor directory.
-    const file = Bun.file(join(chunkRoot, "vendor", basename(req.params.file)));
-    return (await file.exists())
-      ? new Response(file, { headers: { "content-type": "text/javascript" } })
-      : new Response("no such chunk", { status: 404 });
+    const response = await fileResponse(join(chunkRoot, "vendor", basename(req.params.file)), {
+      "content-type": "text/javascript",
+    });
+    return response ?? new Response("no such chunk", { status: 404 });
   },
 });

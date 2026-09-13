@@ -36,10 +36,14 @@ unanchored pattern matching a session name kills the server and every window in 
 
 ## The app and this checkout
 
-`~/Applications/Integrated Work Environment.app` runs `bun src/server.ts` from the checkout
-recorded in its `Info.plist` (`IWERoot`), with `NODE_ENV=production`, on a fresh port per launch,
-and stops it on quit. It does not watch files: source edits need a relaunch. `bun run app:install`
-is only needed when `scripts/app/IWE.swift` itself changes.
+`~/Applications/Integrated Work Environment.app` (on Linux the `iwe-app` launcher) runs the
+Electron window in `scripts/app/electron/`, which starts `src/server.ts` on Electron's own Node
+(`ELECTRON_RUN_AS_NODE`) from the checkout recorded in the bundle's `package.json` (`iweRoot`),
+with `NODE_ENV=production`, on a fresh port per launch, and stops it on quit. It does not watch
+files: source edits need a relaunch.
+`bun run app:install` is only needed when the host itself changes (`scripts/app/electron/`,
+`scripts/app/mac.ts`, `scripts/app/linux.ts`) — server and page edits are picked up by the next
+launch, because the server runs from this checkout.
 
 ## Documentation
 

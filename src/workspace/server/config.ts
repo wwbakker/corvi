@@ -25,7 +25,7 @@ const defaults: Pick<Config, "changesRoot" | "reposRoot"> = {
  * Reconciling the synchronous startup read with Effect: the read and decode are built as an
  * Effect so the file boundary has exactly one implementation, but it is run with
  * `Effect.runSync` at startup — config is needed before the first request, this is one small
- * local file, and an async dance here would only move the await into Bun.serve's first request.
+ * local file, and an async dance here would only move the await into the server's first request.
  * Everything async (the settings page's write path) composes the same Effect.
  */
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>

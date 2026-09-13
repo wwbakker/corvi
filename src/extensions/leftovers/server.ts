@@ -5,6 +5,7 @@ import { root, ARCHIVE, changeDir } from "../../change/server/index.ts";
 import { Shell, type Result, type Workspace } from "../../extension-host/api.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
+import { file } from "../../capabilities/files.ts";
 import type { Leftover } from "./shared.ts";
 
 /**
@@ -50,7 +51,7 @@ const gitKind = (path: string): Effect.Effect<"worktree" | "repository" | undefi
 /** The repository a worktree belongs to, read from the `gitdir:` line git leaves in it. */
 const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
   Effect.map(
-    Effect.promise(() => Bun.file(join(worktree, ".git")).text().catch(() => "")),
+    Effect.promise(() => file(join(worktree, ".git")).text().catch(() => "")),
     (text) => {
       const gitdir = /^gitdir:\s*(.+)$/m.exec(text)?.[1]?.trim();
       // .../<repo>/.git/worktrees/<name> — the repository is what comes before /.git/.
@@ -60,7 +61,7 @@ const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
 
 /** Whether this directory is still a change's own: those are never leftovers. */
 const isChange = (name: string): Effect.Effect<boolean> =>
-  Effect.promise(() => Bun.file(join(changeDir(name), "change.json")).exists());
+  Effect.promise(() => file(join(changeDir(name), "change.json")).exists());
 
 export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> = Effect.gen(
   function* () {

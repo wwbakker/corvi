@@ -8,7 +8,7 @@
  * injected into ttyd's page sends the CSI u sequence for those keys instead — and a small style
  * takes away xterm's empty scrollbar, which its own stylesheet keeps for good (withPageFixes).
  */
-import type { Server, ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "../../capabilities/serve.ts";
 import { isNewWindowKey, type Platform } from "../model.ts";
 
 /** ttyd's own protocol: a client frame is one byte of command, then the payload. */

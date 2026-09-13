@@ -2,10 +2,11 @@
 
 > **Kind:** guide · **Status:** active
 
-IWE is one Bun process that serves an HTTP API and a React page, talks to the vendors' own CLIs
-(`git`, `gh`, `az`, `jira`, `tmux`, `ttyd`), and keeps its only state in one directory per
-change (`~/changes/<id>/`). Everything else is read live and cached in
-[`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
+IWE is one server process — Electron's Node in the app, Bun while developing
+([`../decisions/node-server.md`](../decisions/node-server.md)) — that serves an HTTP API and a
+React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `jira`, `tmux`, `ttyd`), and keeps
+its only state in one directory per change (`~/changes/<id>/`). Everything else is read live and
+cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 
 ## Layers
 
@@ -37,7 +38,8 @@ src/
                        (Workspace and the resolved Config as well as the ConfigFile shape),
                        settings.ts (the extension-declared setting shapes)
   capabilities/        the substrate everything stands on: effect/ (errors, http, run, support,
-                       tags), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher and the
+                       tags), serve.ts (the node:http route server), files.ts (file reads and
+                       writes), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher and the
                        stream's routes), web.ts, os.ts
   extension-host/      the extension contract and its machinery: api.ts (and api/*.ts),
                        registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
@@ -198,7 +200,7 @@ not), so the promise above is enforced rather than conventional.
 
 ## Running it
 
-`bun run dev` serves on `127.0.0.1:4000`; the app runs `bun src/server.ts` from the checkout in
-its `Info.plist`. See the README for the product-level description and
-[`../decisions/linux-native-window.md`](../decisions/linux-native-window.md) for how the native
-window is hosted.
+`bun run dev` serves on `127.0.0.1:4000`; the app runs `src/server.ts` on Electron's Node, from
+the checkout recorded in its bundle (`iweRoot` in the app's `package.json`). See the README for
+the product-level description and [`../decisions/electron-host.md`](../decisions/electron-host.md)
+for how the window is hosted.

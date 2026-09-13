@@ -1,6 +1,9 @@
 # The native Linux window
 
-> **Kind:** decision · **Status:** accepted
+> **Kind:** decision · **Status:** superseded · **Superseded by:** [electron-host.md](electron-host.md)
+
+*The app's window is one Electron host on both platforms now. The reasoning below is kept as the
+record of what was chosen before it, not rewritten.*
 
 The macOS app (`scripts/app/IWE.swift`) is a Swift/WKWebView wrapper around the
 bundled HTTP server: system libraries, compiled at install time, no Electron,

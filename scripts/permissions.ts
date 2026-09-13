@@ -3,11 +3,9 @@
  *
  *   bun run app:permissions
  *
- * Playwright can drive the page in a browser engine, which is most of what matters — but the app
- * is a native window around it, and the parts that are not the page (the title bar, the Dock
- * icon, a confirm sheet, a menu item) can only be checked by looking at the real thing. macOS
- * gates both of those behind permissions granted per application, so this reports where they
- * stand rather than failing mysteriously later.
+ * Playwright can drive the page — and now the app's window too (`bun run app:drive` opens it
+ * over CDP, which needs none of this). What still needs the grants is everything that is not the
+ * page: a screenshot of the window to look at its title bar or Dock icon, and clicking them.
  *
  * Screen recording gets you a screenshot; accessibility gets you clicks and window titles. What
  * they cover, in the order they are worth having:

@@ -20,6 +20,7 @@ import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
 import { Clock, Deferred, Effect, Exit, pipe } from "effect";
 import { fs } from "./effect/support.ts";
+import { file, write } from "./files.ts";
 
 type Entry = {
   /** When the value was produced. */
@@ -136,7 +137,7 @@ const RESTORE_MAX_AGE = 6 * 60 * 60_000;
 export const loadCache: Effect.Effect<number> = Effect.gen(function* () {
   type Stored = Record<string, { at: number; value: unknown }>;
   const stored = yield* pipe(
-    fs<Stored>(() => Bun.file(cacheFile()).json()),
+    fs<Stored>(() => file(cacheFile()).json()),
     // A missing or unreadable cache file is a cold cache, not an error.
     Effect.catchAllDefect(() => Effect.succeed(null as Stored | null)),
   );
@@ -161,5 +162,5 @@ export const saveCache: Effect.Effect<void> = Effect.gen(function* () {
     plain[key] = { at: entry.at, value: entry.value };
   }
   yield* fs(() => mkdir(join(cacheFile(), ".."), { recursive: true }).then(() => undefined));
-  yield* fs(() => Bun.write(cacheFile(), JSON.stringify(plain)).then(() => undefined));
+  yield* fs(() => write(cacheFile(), JSON.stringify(plain)).then(() => undefined));
 });

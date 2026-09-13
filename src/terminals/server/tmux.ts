@@ -1,10 +1,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { openSync, closeSync } from "node:fs";
+import { createConnection, createServer } from "node:net";
 import { join } from "node:path";
 import { Deferred, Duration, Effect, Exit } from "effect";
-import { isLinux, isMac, loopbackInterface, commandAvailable } from "../../capabilities/os.ts";
+import { isMac, loopbackInterface, commandAvailable } from "../../capabilities/os.ts";
 import { sh, shOrThrow, type Result } from "../../capabilities/shell.ts";
 import { CliError } from "../../capabilities/effect/errors.ts";
+import { file, write } from "../../capabilities/files.ts";
 import {
   formatFor,
   paneOptions,
@@ -63,7 +65,7 @@ const notePath = (id: string, dir: string): string => join(dir, "terminal.json")
 const noteOf: (id: string, dir: string) => Effect.Effect<Running | undefined> = (id, dir) =>
   Effect.map(
     // A missing or malformed note is no note at all: what `.catch(() => undefined)` did.
-    Effect.promise(() => Bun.file(notePath(id, dir)).json().catch(() => undefined)),
+    Effect.promise(() => file(notePath(id, dir)).json<Partial<Running>>().catch(() => undefined)),
     (note) =>
       note && typeof note.pid === "number" && typeof note.port === "number"
         ? (note as Running)
@@ -81,11 +83,16 @@ const adopt = (id: string, dir: string): Effect.Effect<Running | undefined> =>
   });
 
 /** A free port, asked of the operating system rather than guessed. */
-function freePort(): number {
-  const server = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
-  const port = server.port;
-  server.stop(true);
-  return port;
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const address = probe.address();
+      const port = typeof address === "object" && address ? address.port : 0;
+      probe.close(() => (port > 0 ? resolve(port) : reject(new Error("no free port"))));
+    });
+  });
 }
 
 const alive = (pid: number): boolean => {
@@ -101,16 +108,11 @@ const alive = (pid: number): boolean => {
  * so the page can reach into the frame — to focus it, and to fix up keys the browser cannot
  * encode by itself.
  *
- * On Linux the frame carries ttyd's `rendererType=dom` override. This machine's WebKitGTK
- * (NVIDIA/Wayland) needs accelerated compositing off — with it on, canvas updates are presented
- * a frame late. In that software path the canvas and WebGL renderers are ruinously expensive:
- * a full-size terminal with a status line repainting a dozen times a second held the WebProcess
- * main thread at ~70% of a core (plus ~20% in the UI process), and the whole app felt it as
- * roughly half a second between a keystroke or a hover and the screen. xterm's DOM renderer
- * damages only the changed text, so the same terminal sits at ~6% and the UI stays responsive.
- * macOS keeps WebGL, where the compositor presents it correctly. */
-export const terminalPath = (id: string): string =>
-  `/terminal/${encodeURIComponent(id)}/${isLinux ? "?rendererType=dom" : ""}`;
+ * The engine that needed ttyd's `rendererType=dom` was WebKitGTK under forced software
+ * compositing — the window this app used to be on Linux. The app is Chromium now
+ * (docs/decisions/electron-host.md), which composites in hardware here, so the frame keeps
+ * ttyd's default renderer (WebGL/canvas, on both app platforms). */
+export const terminalPath = (id: string): string => `/terminal/${encodeURIComponent(id)}/`;
 
 /** The port ttyd serves a change's session on, starting or adopting it as needed.
  *
@@ -202,7 +204,7 @@ const start = (id: string, dir: string): Effect.Effect<Running, CliError> =>
     // the session — every window and every shell in it — instead of the stale process serving it.
     yield* shResult(["pkill", "-f", `^ttyd .*new-session -A -s ${sessionName(id)}`]);
 
-    const port = freePort();
+    const port = yield* Effect.promise(() => freePort());
     // Detached so a server reload does not take your shells with it. Its output goes to a log
     // rather than /dev/null: when a terminal comes up blank, ttyd's own words are the fastest
     // way to find out why.
@@ -307,7 +309,7 @@ const start = (id: string, dir: string): Effect.Effect<Running, CliError> =>
     });
     const found = { port, pid: child.pid!, at: Date.now() };
     yield* Effect.tryPromise({
-      try: () => Bun.write(notePath(id, dir), JSON.stringify(found) + "\n").then(() => undefined),
+      try: () => write(notePath(id, dir), JSON.stringify(found) + "\n"),
       catch: (e) => cliError("ttyd", "ttyd", e instanceof Error ? e.message : String(e), 1),
     });
     return found;
@@ -325,20 +327,17 @@ const missingTool = (tool: string): CliError => {
  * of its own to a question that simple. */
 const accepts = (port: number): Effect.Effect<boolean> =>
   Effect.promise(() =>
-    Bun.connect({
-      hostname: "127.0.0.1",
-      port,
-      socket: {
-        open: (s) => {
-          s.end();
-        },
-        data() {},
-        error() {},
-      },
-    }).then(
-      () => true,
-      () => false,
-    ),
+    new Promise<boolean>((resolve) => {
+      const socket = createConnection({ host: "127.0.0.1", port });
+      socket.once("connect", () => {
+        socket.end();
+        resolve(true);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        resolve(false);
+      });
+    }),
   );
 
 /** ttyd needs a moment to bind. Returning before it does hands the browser a URL that refuses

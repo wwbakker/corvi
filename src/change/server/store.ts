@@ -7,6 +7,7 @@ import { PLAN_FILE } from "../../domain/change.ts";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
+import { file, write } from "../../capabilities/files.ts";
 import { config } from "../../workspace/server/index.ts";
 
 /** Root of the per-change directories. Override with IWE_ROOT (tests do). */
@@ -21,7 +22,7 @@ export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
 /** The Effect API. Failures go through the typed taxonomy
  * (docs/guides/effect-conventions.md), each carrying a human-readable message. */
 
-const fileExists = (path: string): Effect.Effect<boolean> => fs(() => Bun.file(path).exists());
+const fileExists = (path: string): Effect.Effect<boolean> => fs(() => file(path).exists());
 
 /** The change-root files the change module writes for itself. `Changes.readSidecar` refuses
  * these names, so the capability's migration read cannot be turned on the core's own record or
@@ -70,7 +71,7 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return null;
-    const text = yield* Effect.tryPromise(() => Bun.file(join(dir, "change.json")).text()).pipe(
+    const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(
       Effect.orDie,
     );
     return yield* decodeChange(text, dir);
@@ -80,7 +81,7 @@ export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
-    yield* fs(() => Bun.write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
+    yield* fs(() => write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
   });
 
 /** A file beside change.json — notes, completion progress — which therefore travels into the
@@ -90,7 +91,7 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
     if (!dir) return "";
-    return yield* fs(() => Bun.file(join(dir, name)).text()).pipe(
+    return yield* fs(() => file(join(dir, name)).text()).pipe(
       Effect.catchAllDefect(() => Effect.succeed("")),
     );
   });
@@ -100,7 +101,7 @@ export const writeSidecar = (id: string, name: string, text: string): Effect.Eff
   Effect.gen(function* () {
     const dir = (yield* existingDir(id)) ?? changeDir(id);
     yield* fs(() => mkdir(dir, { recursive: true }));
-    yield* fs(() => Bun.write(join(dir, name), text));
+    yield* fs(() => write(join(dir, name), text));
   });
 
 /** Where one extension's files live inside a change: `extensions/<name>/`, resolved through
@@ -153,7 +154,7 @@ export const readExtensionFile = (
     if (!(yield* fileExists(target))) {
       return yield* new NotFoundError({ message: `no such file: ${name}/${path}` });
     }
-    return yield* fs(() => Bun.file(target).text());
+    return yield* fs(() => file(target).text());
   });
 
 /** Write one file of an extension's own store, creating its directory on demand. */
@@ -167,7 +168,7 @@ export const writeExtensionFile = (
     const base = yield* extensionDir(change, name);
     const target = yield* confinedPath(base, path);
     yield* fs(() => mkdir(dirname(target), { recursive: true }));
-    yield* fs(() => Bun.write(target, text));
+    yield* fs(() => write(target, text));
   });
 
 /** Replace one extension's entry in the change's `extensions` bag and write change.json once.
@@ -241,7 +242,7 @@ export const writeWtConfig = (id: string): Effect.Effect<string> =>
     if (!(yield* fileExists(path))) {
       const dir = changeDir(id).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
       yield* fs(() => mkdir(changeDir(id), { recursive: true }));
-      yield* fs(() => Bun.write(path, `worktree-path = "${dir}/{{ repo }}"\n`));
+      yield* fs(() => write(path, `worktree-path = "${dir}/{{ repo }}"\n`));
     }
     return path;
   });

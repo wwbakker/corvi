@@ -1,32 +1,31 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 import { runSh, testRun, testTempDir } from "./helpers.ts";
 
 /**
- * Every page, in the engine the app actually uses.
+ * Every page, in the engine the app renders in.
  *
- * The macOS app is a WKWebView, which is Safari's engine, and the development server is looked at
- * in Chrome. That gap is where WebKit reports what Chrome tolerates: a missing route comes back as
- * HTML and WebKit calls it "The string did not match the expected pattern", and `confirm()` —
- * which a WKWebView does not implement unless the app does — silently returns false, so cancelling
- * a change quietly does nothing. Loading the pages here catches both.
+ * The app's window is Electron, and Electron is Chromium, so Chromium is the default here — it
+ * is also the engine `bun run shot` drives, and the one every browser check in this repository
+ * agrees on. `IWE_ENGINE=webkit` runs the same file in WebKit where Playwright's bundle starts
+ * (on macOS natively; on Linux only where its Ubuntu-built libraries match), which is the
+ * browser-side check for Safari. Skipped rather than failed where the chosen engine cannot
+ * launch: a red suite for a missing browser says nothing about IWE.
  *
- * This is a smoke test, deliberately: it opens every route, fails on anything the engine
- * complains about, and checks that the page rendered rather than crashed. What each page *does*
- * is tested elsewhere, without a browser.
+ * This is a smoke test with three teeth: it opens every route and fails on anything the engine
+ * complains about; it round-trips the settings page through the real file; and it pins the
+ * notes card's layout while its unsaved marker comes and goes. What each page *does* is tested
+ * elsewhere, without a browser.
  */
-// Skipped rather than failed where the engine cannot run here: `bunx playwright install webkit`
-// is a 100MB step, the bundle is built against one distribution's libraries, and the rest of the
-// suite needs none of it. The probe is a real launch rather than the executable's existence — a
-// bundle that is downloaded but missing its host libraries fails at launch, and a red suite for
-// that says nothing about IWE. The browser it starts is the one the tests use.
 let browser: Browser;
+const engineName = process.env.IWE_ENGINE === "webkit" ? "webkit" : "chromium";
 const usable = await (async (): Promise<boolean> => {
   try {
-    if (!(await Bun.file(webkit.executablePath()).exists())) return false;
-    browser = await webkit.launch();
+    const engine = engineName === "webkit" ? webkit : chromium;
+    if (!(await Bun.file(engine.executablePath()).exists())) return false;
+    browser = await engine.launch();
     return true;
   } catch {
     return false;
@@ -36,11 +35,11 @@ const usable = await (async (): Promise<boolean> => {
 let tmp: string;
 let port: number;
 let server: ReturnType<typeof Bun.spawn>;
-const id = "PROJ-WEBKIT";
+const id = "PROJ-PAGES";
 
 beforeAll(async () => {
   if (!usable) return;
-  tmp = await testTempDir("webkit");
+  tmp = await testTempDir("pages");
   port = 4500 + Math.floor(Math.random() * 200);
   const repo = join(tmp, "example-api");
   await runSh(["git", "init", "-b", "main", repo]);
@@ -57,6 +56,8 @@ beforeAll(async () => {
       // A config file of its own: the settings page reads and writes a real one, and it must not
       // be yours.
       IWE_CONFIG: join(tmp, "config.json"),
+      // The built page goes here too, not into the running app's state directory.
+      XDG_STATE_HOME: join(tmp, "state"),
     },
     stdout: "ignore",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
@@ -92,14 +93,14 @@ async function open(path: string, ready: string): Promise<string[]> {
   return complaints;
 }
 
-test.skipIf(!usable)("every page renders in WebKit without the engine complaining", async () => {
+test.skipIf(!usable)("every page renders without the engine complaining", async () => {
   const pages: [string, string][] = [
-    ["/", ".change-cards"],
+    ["/", ".change-card"],
     ["/new", ".wizard"],
     ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
     [`/changes/${id}`, ".widget"],
-    [`/changes/${id}/review`, ".local-pane, .page"],
+    [`/changes/${id}/review`, ".local"],
   ];
 
   const complaints: string[] = [];
@@ -107,7 +108,7 @@ test.skipIf(!usable)("every page renders in WebKit without the engine complainin
   expect(complaints).toEqual([]);
 }, 120_000);
 
-test.skipIf(!usable)("the settings page reads and writes in WebKit", async () => {
+test.skipIf(!usable)("the settings page reads and writes", async () => {
   // The page whose failure mode is a sentence about nothing: /api/settings answering with the
   // app's own HTML, parsed as JSON.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -135,7 +136,7 @@ test.skipIf(!usable)("the settings page reads and writes in WebKit", async () =>
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
 }, 60_000);
 
-test.skipIf(!usable)("the unsaved marker does not resize the notes card in WebKit", async () => {
+test.skipIf(!usable)("the unsaved marker does not resize the notes card", async () => {
   // The marker sits in the heading's flex line and comes and goes as you type, so any size or
   // margin it contributes changes the height of the heading — and the whole card — on every
   // keystroke. It must be smaller than the title and take no space of its own.
@@ -162,28 +163,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card in WebKi
   expect(sizes.marker).toBeLessThan(sizes.title);
   await page.close();
 }, 30_000);
-
-test.skipIf(!usable)("Home and End move to the line's edges in the notes", async () => {
-  // WebKit gives Home and End the whole note's edges, unlike the line semantics macOS text
-  // views — and Cmd-Left / Cmd-Right — use. A long note is the wrong place to learn that.
-  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
-  const notes = page.locator("textarea.notes");
-  await notes.waitFor();
-  await notes.fill("first line\nsecond line\nthird");
-  await page.evaluate(() => {
-    (document.querySelector("textarea.notes") as HTMLTextAreaElement).setSelectionRange(15, 15);
-  });
-
-  // The caret is in "second line": Home to its start (after the first newline), End past it.
-  await page.keyboard.press("Home");
-  expect(await notes.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBe(11);
-  await page.keyboard.press("End");
-  expect(await notes.evaluate((el) => (el as HTMLTextAreaElement).selectionStart)).toBe(22);
-  await page.close();
-}, 30_000);
-
-test.skipIf(!usable)("the documents sit left of the status cards in WebKit", async () => {
+test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   // The dashboard's two regions: the change's documents (the plan, notes) on the left, the
   // status cards on the right. At this width both are present, so the grid has two columns and
   // the status region starts where the documents end.
@@ -202,4 +182,3 @@ test.skipIf(!usable)("the documents sit left of the status cards in WebKit", asy
   expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
   await page.close();
 }, 30_000);
-

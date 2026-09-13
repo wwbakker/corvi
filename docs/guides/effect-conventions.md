@@ -85,6 +85,6 @@ override. No tag lookup may fail outside a request scope.
 bun run typecheck && bun run lint && bun test
 ```
 
-Green means: typecheck passes, lint passes, and `bun test` shows **only** the known
-`test/webkit.test.ts` failure (Playwright WebKit cannot launch here). Workers never run
+Green means: typecheck passes, lint passes, and `bun test` is green (the WebKit page run, if
+chosen, skips itself where its bundle cannot launch). Workers never run
 `git commit`; the coordinator commits.
