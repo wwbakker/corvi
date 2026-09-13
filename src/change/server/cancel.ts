@@ -79,7 +79,7 @@ export const cancelChange = (
     const loose = yield* looseEnds(change);
 
     for (const repo of change.repos) yield* removeWorktree(change, repo);
-    yield* stopTerminal(change.id, changeDir(change.id));
+    yield* stopTerminal(change.id);
 
     // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
     // nobody has seen and removes one that has nothing on it, and only the first is a loose end.

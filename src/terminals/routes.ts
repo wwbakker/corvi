@@ -3,7 +3,6 @@ import { changeDir, readChange } from "../change/server/index.ts";
 import { ideationPromptFor } from "../change/server/index.ts";
 import { BadRequestError } from "../capabilities/effect/errors.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { platformName } from "../capabilities/os.ts";
 import { guard } from "../capabilities/web.ts";
 import {
   allWindows,
@@ -13,46 +12,47 @@ import {
   newWindow,
   pastePrompt,
   selectWindow,
-  terminalGone,
-  terminalPath,
-  terminalPort,
+  terminalSocketPath,
 } from "./server/index.ts";
-import { keysScript, proxyToTtyd, type Bridge } from "./server/proxy.ts";
+import { openSession, terminalUnavailable, type TerminalSocket, type TerminalSession } from "./server/session.ts";
 import { bodyOf, json, withChange } from "../capabilities/web.ts";
 
-/** ttyd's page and its socket, served from here: see src/terminals/server/proxy.ts for why. */
-const portForChange = (id: string): Promise<number | undefined> =>
+/** The change's directory, or undefined when it cannot have a terminal: it does not exist, or
+ * it has moved to the archive. The check lives here, where the change is read. */
+const terminalDir = (id: string): Promise<string | undefined> =>
   Effect.runPromise(
     Effect.gen(function* () {
       const change = yield* readChange(id);
-      return change && !change.completedAt
-        ? yield* terminalPort(change.id, changeDir(change.id))
-        : undefined;
+      return change && !change.completedAt ? changeDir(change.id) : undefined;
     }),
   );
 
 export const terminalsRoutes = guard({
-  // The key-encoding shim the terminal page loads: it turns a keystroke into the CSI u sequence
-  // tmux needs, and it has to know which machine's conventions to follow.
-  "/terminal-keys.js": () =>
-    new Response(keysScript(platformName), {
-      headers: { "content-type": "text/javascript" },
-    }),
-
-  // ttyd, served from here so the page and the terminal share an origin. Both the page and
-  // its WebSocket come through this one route.
-  "/terminal/:id/*": async (req, srv) => {
+  // The terminal's socket: one pty per connection, attached to the change's tmux session. The
+  // session is started before the upgrade, so a failure — a missing tmux, a Bun server, which
+  // never delivers pty output — comes back as an HTTP answer the pane can show rather than a
+  // socket that opens and stays silent.
+  "/api/changes/:id/terminal/socket": async (req, srv) => {
     const id = decodeURIComponent(req.params.id);
-    const port = await portForChange(id);
-    if (!port) return new Response("no terminal for this change", { status: 404 });
-    if (req.headers.get("upgrade") === "websocket") {
-      const data: Bridge = { queue: [], port };
-      return srv.upgrade(req, { data: data as never })
-        ? undefined
-        : new Response("upgrade failed", { status: 400 });
+    const dir = await terminalDir(id);
+    if (!dir) return new Response("no terminal for this change", { status: 404 });
+    const query = new URL(req.url).searchParams;
+    // The page fits its terminal before connecting, so this is the size the shell starts at;
+    // a missing or malformed pair falls back to the classic 80x24.
+    const cols = Number(query.get("cols") ?? 80);
+    const rows = Number(query.get("rows") ?? 24);
+    let session: TerminalSession;
+    try {
+      session = openSession(id, dir, { cols: cols || 80, rows: rows || 24 });
+    } catch (e) {
+      // The client reads `{ error }` (src/app-root/api.ts); this is the one failure that never
+      // becomes a typed taxonomy error, so it is shaped here.
+      return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
-    const rest = new URL(req.url).pathname.slice(`/terminal/${req.params.id}/`.length);
-    return proxyToTtyd(req, port, rest);
+    const data: TerminalSocket = { session };
+    if (srv.upgrade(req, { data: data as never })) return undefined;
+    session.kill(); // the upgrade never happened: nothing else will close the pty
+    return new Response("upgrade failed", { status: 400 });
   },
 
   // Every change's terminals, in one call: the navigation column lists them all, and asking
@@ -68,25 +68,23 @@ export const terminalsRoutes = guard({
       ),
   },
 
-  // The change's terminal: a tmux session in the change directory, served by ttyd. Starting
-  // it is what asking for the URL does.
+  // The change's terminal: where its socket is, and whether the change may have one. The pane
+  // asks for this when a terminal is opened; the connection itself is what starts the session.
   "/api/changes/:id/terminal": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          // The terminal cannot start in a directory that has moved to the archive: the state
-          // forbids it, and the check lives here, where the change is read.
           if (c.completedAt) {
             return yield* new BadRequestError({
               message: "this change is completed: its terminal is gone",
             });
           }
-          // starts or adopts it, so the frame has something to load
-          yield* terminalPort(c.id, changeDir(c.id));
-          // And whether what it starts or adopts still has a session behind it: a ttyd whose
-          // tmux server is gone is a dead frame, and the page should say so.
-          const state = yield* terminalGone(c.id, changeDir(c.id));
-          return json({ url: terminalPath(c.id), ...state });
+          // The reason a terminal cannot start (the wrong runtime, no tmux) is an answer to
+          // this question, so the pane can say it instead of opening a socket that never comes
+          // up.
+          const unavailable = terminalUnavailable();
+          if (unavailable) return json({ error: unavailable }, 500);
+          return json({ url: terminalSocketPath(c.id) });
         }),
       ),
   },

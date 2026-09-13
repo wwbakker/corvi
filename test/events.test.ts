@@ -33,7 +33,7 @@ beforeAll(async () => {
     IWE_CONFIG: join(tmp, "config.json"),
   };
   delete (env as Record<string, string | undefined>).TMUX;
-  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env,
     stdout: "ignore",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",

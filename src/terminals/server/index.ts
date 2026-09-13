@@ -1,13 +1,11 @@
 /**
- * The terminal module's public face: the tmux/ttyd session handling (`tmux.ts`) and the
+ * The terminal module's public face: the tmux session handling (`tmux.ts`) and the
  * presented-window shape (`presenter.ts`).
  *
- * The proxy leaf (`proxy.ts`) is deliberately **not** re-exported here. It is the HTTP boundary
- * — the ttyd page and socket bridge — and importing it would drag its client-side key script
- * (and the browser half it comes from) into every server consumer of `stopTerminal` or
- * `listWindows`. The files that speak HTTP directly (`terminals/routes.ts`,
- * `app-root/routes.ts`, `server.ts`, `capabilities/web.ts`) import `./proxy.ts` as a leaf
- * instead.
+ * The pty bridge (`session.ts`) is deliberately **not** re-exported here. It is the socket
+ * boundary, and importing it would drag node-pty into every server consumer of `stopTerminal`
+ * or `listWindows`. The files that speak the socket directly (`terminals/routes.ts`,
+ * `server.ts`) import `./session.ts` as a leaf instead.
  *
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
  * path is involved, the change directory its caller computed. There is no import of the change
@@ -15,10 +13,7 @@
  */
 export {
   sessionName,
-  logPath,
-  terminalPath,
-  terminalPort,
-  terminalGone,
+  terminalSocketPath,
   stopTerminal,
   listWindows,
   allWindows,

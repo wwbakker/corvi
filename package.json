@@ -3,12 +3,16 @@
   "module": "src/server.ts",
   "type": "module",
   "private": true,
+  "engines": {
+    "node": ">=24"
+  },
   "trustedDependencies": [
-    "electron"
+    "electron",
+    "node-pty"
   ],
   "scripts": {
-    "dev": "bun --watch src/server.ts",
-    "start": "NODE_ENV=production bun src/server.ts",
+    "dev": "node --watch src/server.ts",
+    "start": "NODE_ENV=production node src/server.ts",
     "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/iwe-test-state\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
@@ -28,8 +32,12 @@
     "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/addon-webgl": "^0.19.0",
+    "@xterm/xterm": "^6.0.0",
     "effect": "^3.22.2",
     "esbuild": "^0.28.2",
+    "node-pty": "^1.1.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "ws": "^8.21.3"

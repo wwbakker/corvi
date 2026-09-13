@@ -34,6 +34,7 @@ Every doc starts with a status header:
 | [`decisions/effect-migration.md`](decisions/effect-migration.md) | Server-side `src/` is Effect, behaviour-preserving |
 | [`decisions/electron-host.md`](decisions/electron-host.md) | Electron replaces the Swift and Python windows; one host, one engine |
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
+| [`decisions/node-pty-terminal.md`](decisions/node-pty-terminal.md) | node-pty + xterm.js replace ttyd; the dev server runs on Node too |
 | [`decisions/linux-native-window.md`](decisions/linux-native-window.md) | WebKitGTK + PyGObject for the Linux window (superseded by electron-host.md) |
 | [`decisions/wt-on-linux.md`](decisions/wt-on-linux.md) | `wt` is Worktrunk; no Linux-specific work needed |
 | [`decisions/notifications.md`](decisions/notifications.md) | When a window needs you: suppression, sound, text, batching |

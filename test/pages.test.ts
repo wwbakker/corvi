@@ -47,7 +47,7 @@ beforeAll(async () => {
   await runSh(["git", "add", "."], repo);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
-  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     env: {
       ...process.env,
       IWE_ROOT: join(tmp, "changes"),

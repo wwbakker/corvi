@@ -10,7 +10,7 @@ import { dashboardRoutes } from "./dashboard/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
-import { bridge, type Bridge } from "./terminals/server/proxy.ts";
+import { terminalSockets, type TerminalSocket } from "./terminals/server/session.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
@@ -33,7 +33,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = await serve<Bridge>({
+const server = await serve<TerminalSocket>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env.IWE_PORT ?? 4000),
@@ -51,10 +51,10 @@ const server = await serve<Bridge>({
     ...workspaceRoutes,
   },
   websocket: {
-    open: (ws: ServerWebSocket<Bridge>) => bridge.open(ws),
-    message: (ws: ServerWebSocket<Bridge>, message: string | Uint8Array) =>
-      bridge.message(ws, message),
-    close: (ws: ServerWebSocket<Bridge>) => bridge.close(ws),
+    open: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.open(ws),
+    message: (ws: ServerWebSocket<TerminalSocket>, message: string | Uint8Array) =>
+      terminalSockets.message(ws, message),
+    close: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.close(ws),
   },
 });
 

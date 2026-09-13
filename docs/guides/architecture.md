@@ -2,9 +2,11 @@
 
 > **Kind:** guide · **Status:** active
 
-IWE is one server process — Electron's Node in the app, Bun while developing
-([`../decisions/node-server.md`](../decisions/node-server.md)) — that serves an HTTP API and a
-React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `jira`, `tmux`, `ttyd`), and keeps
+IWE is one server process — Electron's Node in the app and in development (`bun run dev` starts
+it with `node --watch`; [`../decisions/node-server.md`](../decisions/node-server.md),
+[`../decisions/node-pty-terminal.md`](../decisions/node-pty-terminal.md)) — that serves an HTTP
+API and a
+React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `jira`, `tmux`), and keeps
 its only state in one directory per change (`~/changes/<id>/`). Everything else is read live and
 cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 
@@ -12,8 +14,8 @@ cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 
 ```
 src/
-  server.ts            Bun.serve: composes the modules' route tables, /api/ext/:name/* dispatch,
-                       SSE, ttyd ws-proxy
+  server.ts            node:http: composes the modules' route tables, /api/ext/:name/* dispatch,
+                       SSE, the terminal socket
   change/              the change module: model.ts (the edit rule the halves share), server/
                        (schema, store, create, start, complete, cancel, titles, description,
                        plan, index.ts), routes.ts (its HTTP table). No UI.
@@ -23,10 +25,10 @@ src/
   change-page/         the change shell: client/ (ChangeView.tsx, changeTabs.ts, PlanCard.tsx)
                        composes the dashboard, the extension tabs and the terminal; owns no data
   wizard/              /new: Wizard.tsx, and index.ts (the face)
-  terminals/           the terminal module: model.ts (the new-window key the pane and the
-                       injected ttyd script share), server/ (tmux sessions, ttyd spawn, the ws
-                       bridge, the presenter merge), client/ (the terminal pane, tabs, cheat
-                       sheet), routes.ts (the ttyd proxy, the key script and the window API)
+  terminals/           the terminal module: model.ts (the new-window key and the CSI-u sequences
+                       page and server share), server/ (tmux sessions and windows, the pty and
+                       its socket bridge, the presenter merge), client/ (the terminal pane,
+                       tabs, cheat sheet), routes.ts (the terminal socket and the window API)
   workspace/           the workspace module: model.ts (Entry, the repository-browser row),
                        server/ (config loader, file schema, workspace resolution, repository
                        browser), client/ (the switcher, WorkspaceCard, RepoBrowser),
@@ -97,7 +99,7 @@ read their halves through the contract's `Changes` capability.
 A thing is core only if it meets at least one of these:
 
 1. **It owns persisted state or an external session.** The `change.json` and `config.json`
-   schemas, archive semantics, the change directory, tmux/ttyd sessions.
+   schemas, archive semantics, the change directory, tmux sessions and the ptys attached to them.
 2. **It defines vocabulary that crosses a boundary** — server↔browser or core↔extensions. The
    `Change` DTO, `Widget`/`SummaryFact`, completion steps, the error taxonomy.
 3. **It is a trust or capability boundary.** `Shell`, `Workspace`, `ExtensionStore`, the origin
@@ -116,10 +118,11 @@ The consequences are worth stating because they settle arguments:
   data the server sends. The **change page is core as a shell** too: it composes the core's
   Dashboard with the change tabs its workspace's extensions contribute — the review extension's
   "Review changes" among them — and resolves a tab id nobody offers back to the dashboard.
-- **Terminal presentation is extensible; tmux and ttyd themselves are core furniture.**
+- **Terminal presentation is extensible; tmux itself, and the pty that attaches it, are core
+  furniture.**
 - The **git worktree engine is core.** Extensions act on changes; they do not create them.
 
-Deliberately not core: tmux/ttyd internals, the git engine, and any native functionality. The
+Deliberately not core: tmux internals, node-pty, the git engine, and any native functionality. The
 native hosts provide capabilities (`notify`, dialogs, external links, window lifecycle), which
 extensions consume; no module ships per-platform code. A client-side `Host` capability would
 follow the server's `Shell`/`Workspace` pattern when it lands.
@@ -166,9 +169,9 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   components are otherwise imported file-to-file, since a barrel of components would pull every
   one into the page bundle. The deliberate exceptions are leaves a second module needs by value,
   and their reasons are three, not one: `extension-host/registry.ts` and `change/server/store.ts`
-  break cycles by depending on state rather than on a half; `terminals/server/proxy.ts` is the
-  terminal's HTTP boundary, imported directly by the files that speak HTTP so the barrel does
-  not drag the ttyd page script into every server consumer; and
+  break cycles by depending on state rather than on a half; `terminals/server/session.ts` is the
+  terminal's socket boundary, imported directly by the files that speak the socket so the barrel
+  does not drag node-pty into every server consumer; and
   `settings/server/legacySettings.ts` is the one statement of the settings precedence chain,
   shared by the workspace config loader and the azure-devops extension's settings read (see
   [style.md](style.md), rule 7).

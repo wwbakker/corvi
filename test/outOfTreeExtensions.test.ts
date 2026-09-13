@@ -141,7 +141,7 @@ test("the server serves the built client chunk and the react vendor chunks", asy
   // override above proved the env path; this proves the file path.
   const configFile = join(tmp, "boot-config.json");
   await writeFile(configFile, JSON.stringify({ extensionPaths: [extensionDir] }));
-  const server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  const server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     cwd: repoRoot,
     env: {
       ...process.env,

@@ -1,3 +1,5 @@
+@import "@xterm/xterm/css/xterm.css";
+
 :root {
   /* The page is dark, and says so: without this, WebKitGTK paints native control faces —
      the select's button, checkboxes, the option list — in the light appearance, a white box,
@@ -1258,7 +1260,7 @@ textarea.plan {
   gap: 0;
 }
 
-.page.terminal-page .terminal iframe {
+.page.terminal-page .terminal-screen {
   border: 0;
   border-radius: 0;
 }
@@ -1274,12 +1276,27 @@ textarea.plan {
   min-height: 320px;
 }
 
-.terminal iframe {
+.terminal-screen {
   flex: 1;
+  min-height: 0;
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #0d1117;
+  overflow: hidden;
+}
+
+/* xterm draws its own layers; the container only has to keep them inside the frame. */
+.terminal-screen .xterm {
+  height: 100%;
+}
+
+/* xterm's stylesheet keeps `overflow-y: scroll` on the viewport whatever the scrollback is: on
+   a machine that shows scrollbars always, that is a pale empty bar down the right of the
+   terminal, and the fit addon reserves its width. tmux owns scrolling (mouse on) and the
+   scrollback is 0, so there is nothing here to scroll. */
+.terminal-screen .xterm .xterm-viewport {
+  overflow-y: hidden;
 }
 
 /* The shells are gone but the frame is not: said plainly, so a broken terminal is not mistaken

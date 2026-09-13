@@ -66,5 +66,5 @@ macOS signing/notarization is out of scope, as it was before.
   Dock, the title bar, the microphone's usage-description prompt, or notification clicks there.
   Notifications on macOS are accepted as best-effort.
 - The server moved to Electron's Node in the same change ([`node-server.md`](node-server.md)):
-  the app no longer needs Bun on PATH. Still parked: IPC instead of HTTP, and `node-pty` +
-  xterm.js replacing ttyd; the plan carries the merits/detractions for each.
+  the app no longer needs Bun on PATH. Still parked: IPC instead of HTTP. The node-pty/xterm.js
+  follow-up is in [`node-pty-terminal.md`](node-pty-terminal.md); tmux stays either way.

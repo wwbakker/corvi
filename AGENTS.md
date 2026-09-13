@@ -2,7 +2,7 @@
 
 ## Ending test processes: use `bun run test:clean`
 
-`bun test` starts real servers, ttyd terminals and whole tmux servers, and an aborted or timed-out
+`bun test` starts real servers and whole tmux servers, and an aborted or timed-out
 run can leave them behind. To end leftovers:
 
 ```sh
@@ -12,27 +12,26 @@ bun run test:clean --prune    # end it, and remove the leftover $TMPDIR/iwe-* pa
 ```
 
 Never `pkill` or `kill` by port, by process name, or by "it looked like a leftover". Doing that
-once destroyed the running `IWE.app`'s server, its ttyd, and a four-window tmux session — from the
-outside they are indistinguishable from test strays by name, port and interface.
+once destroyed the running `IWE.app`'s server and a four-window tmux session — from the outside
+they are indistinguishable from test strays by name and command line.
 
 Ownership is decidable, because only tests carry these:
 
-- test ttyds and test tmux servers serve change directories and sockets under `$TMPDIR/iwe-*`;
-  the app's ttyds serve `~/changes/...` and your tmux listens on the default socket
-  (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default` on Linux);
-- test bun servers pass `--iwe-test-run` on the command line; `src/server.ts` ignores argv.
+- test tmux servers listen on sockets under `$TMPDIR/iwe-*`; your tmux listens on the default
+  socket (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default` on Linux);
+- test servers run on Node and pass `--iwe-test-run` on the command line; `src/server.ts`
+  ignores argv. The app's server (`electron src/server.ts`) and a plain dev server carry no
+  marker.
 
 `bun run test` runs the kill pass when it exits (an `EXIT` trap), so strays do not accumulate
 between runs.
 
-A test that starts a server must spawn it as `["bun", "src/server.ts", "--iwe-test-run"]`; the
+A test that starts a server must spawn it as `["node", "src/server.ts", "--iwe-test-run"]`; the
 marker is what makes the server (and, on aborted runs, everything under it) findable.
 `test/clean.test.ts` fails if one is missing.
 
-If a pattern must be used anyway — `pkill -f` in code, say — anchor it to the executable and the
-exact session. A tmux server's own command line is `tmux new-session -A -s <session> ...`, so an
-unanchored pattern matching a session name kills the server and every window in it
-(`src/terminal.ts` has the anchored form, and `test/terminal.test.ts` has the regression test).
+Whatever the process, ownership is what decides: the marker for a server, the socket path for
+tmux. Nothing else in this repository may end a process.
 
 ## The app and this checkout
 

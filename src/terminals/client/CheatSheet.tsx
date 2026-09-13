@@ -19,24 +19,25 @@ const KEYS: [string, string][] = [
 ];
 
 /**
- * Copying out of a terminal in a browser. The mouse belongs to tmux, and who a drag's selection
- * belongs to differs by platform: on macOS tmux keeps it and option hands it to the browser, so
- * the Mac clipboard is reached with ⌥ and ⌘. On Linux the browser owns a plain drag already and
- * the terminal takes Ctrl+Shift chords; middle-click pastes the primary selection. tmux's
- * buffers are separate from either clipboard on both.
+ * Copying out of a terminal in a browser. The mouse belongs to tmux (mouse mode is on), so a
+ * plain drag is tmux's selection and the browser's is a modifier away: option on macOS, shift
+ * on Linux — the modifier xterm.js honours on each platform. What puts it on the system
+ * clipboard differs too: macOS routes ⌘C through the app's Edit menu, while on Linux the page
+ * takes the Ctrl+Shift chords (Ctrl+C belongs to the shell, and there is no menu). Middle-click
+ * pastes the primary selection. tmux's buffers are separate from either clipboard on both.
  */
 const COPYING_MAC: [string, string][] = [
   ["⌥-drag, then ⌘C", "select and copy to the Mac clipboard"],
   ["⌥-double-click", "select a word · ⌥-triple-click selects the line"],
   ["⌘V", "paste from the Mac clipboard"],
-  ["drag (no shift)", "tmux's own selection, into a tmux buffer"],
+  ["drag (no option)", "tmux's own selection, into a tmux buffer"],
   ["ctrl-b ]", "paste the tmux buffer"],
 ];
 
 const COPYING_LINUX: [string, string][] = [
-  ["drag", "selects — the selection is the browser's, no modifier needed"],
+  ["Shift+drag", "select into the browser's selection — a plain drag is tmux's"],
   ["Ctrl+Shift+C", "copy the selection"],
-  ["Ctrl+Shift+V", "paste the clipboard"],
+  ["Ctrl+Shift+V", "paste the clipboard (Ctrl+V also pastes)"],
   ["middle-click", "paste the primary selection, whatever was highlighted last"],
   ["ctrl-b ]", "paste the tmux buffer — a separate thing from the system clipboard"],
 ];
