@@ -15,8 +15,8 @@ Two cards, not one tree. `github` contributes `repository > pull request > check
 (`extension-host/api/cards.ts`) rules out a shared tree, and no cross-extension import or new
 composition surface is added to get one back.
 
-The merge ref still works: `azure-devops` looks up the pull request number through the shared
-cached `prSummary` (`vendors/github.ts`), the same query the GitHub card makes. The
+The merge ref still works: `azure-devops` looks up the pull request number through
+`prNumberOf` (`vendors/github.ts`, one cached `prSummary` serving both cards). The
 `fallbackChecks` inversion (`count === 0 → checkItems`) dies with the split: github always
 shows its checks, azure returns `[]` (no row) when it finds no definitions.
 

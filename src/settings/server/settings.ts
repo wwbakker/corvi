@@ -15,7 +15,7 @@ import {
   WorkspaceId,
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../extension-host/index.ts";
-import { migrateExtensionSettings } from "../../extension-host/migrate.ts";
+import { migrateExtensionSettings, migrateFileSettings } from "../../extension-host/migrate.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import { invalidate } from "../../capabilities/cache.ts";
@@ -42,7 +42,7 @@ export const settingsViewSync = (): SettingsView => {
   const file = readFileSync();
   // The file is handed over migrated, so the page edits — and writes back — the shape the
   // extensions read today, never the retired names the migration folds away.
-  if (file.workspaces) migrateExtensionSettings(file.workspaces);
+  migrateFileSettings(file);
   return {
     path: configPath(),
     file,

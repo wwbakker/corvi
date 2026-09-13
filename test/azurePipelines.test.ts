@@ -12,8 +12,7 @@ import {
   versionOf,
   type Run,
 } from "../src/extensions/azure-devops/pipelines.ts";
-import { azDefaults, azFor, resetAzDefaults, type Az } from "../src/extensions/azure-devops/azure.ts";
-import { resetVersions } from "../src/extensions/azure-devops/pipelines.ts";
+import { azDefaults, azFor, type Az } from "../src/extensions/azure-devops/azure.ts";
 import type { Change } from "../src/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../src/domain/widget.ts";
 import { clearCache } from "../src/capabilities/cache.ts";
@@ -21,12 +20,9 @@ import { config } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
- * test starts from a cold one so a key one test warmed cannot answer for another. The version
- * memo and the `az devops configure` memo are process-wide as well, so those reset too. */
+ * test starts from a cold one so a key one test warmed cannot answer for another. */
 beforeEach(() => {
   clearCache();
-  resetVersions();
-  resetAzDefaults();
 });
 
 const az = (key = "test"): Az => ({
@@ -320,7 +316,7 @@ test("versionOf finds the version in the newest log that printed one, and rememb
   const run = runRow(700003, "completed", "succeeded", 77);
   expect(await runWithShell(shell, versionOf(run, "proj"))).toBe("20260818.7");
 
-  // A finished run's logs never change, so the second lookup is answered from memory.
+  // A finished run's logs never change, so the second lookup is answered from the cache.
   const calls = shell.calls.length;
   expect(await runWithShell(shell, versionOf(run, "proj"))).toBe("20260818.7");
   expect(shell.calls.length).toBe(calls);

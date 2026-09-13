@@ -23,8 +23,7 @@ import {
   versionsFor,
   type Buildable,
 } from "../src/extensions/azure-devops/server.ts";
-import { resetVersions } from "../src/extensions/azure-devops/pipelines.ts";
-import { resetAzDefaults } from "../src/extensions/azure-devops/azure.ts";
+
 
 /** Whether this process has written the run's pid-file yet. */
 let announced = false;
@@ -228,4 +227,4 @@ export const runDeploy = (
   ...args: Parameters<typeof deploy>
 ): Promise<{ runId: number; url?: string }> => runEffect(deploy(...args));
 
-export { resetVersions, resetAzDefaults };
+

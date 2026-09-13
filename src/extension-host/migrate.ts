@@ -1,5 +1,5 @@
 import { loaded } from "./registry.ts";
-import type { Workspace } from "../domain/config.ts";
+import type { ConfigFile, Workspace } from "../domain/config.ts";
 
 /**
  * Normalize the workspaces' extension settings against what is loaded, in place.
@@ -24,7 +24,23 @@ import type { Workspace } from "../domain/config.ts";
  *
  * The loaded names are read from the registry, not passed in: this module sits beside it, and
  * the callers (the host, the settings write) already import from here.
+ *
+ * The whole file, not just the workspaces: the top-level `extensionSettings.deployments` bag
+ * moves to `extensionSettings.azure-devops` alongside the per-workspace ones, so the settings
+ * read hands the page one shape to edit and write back.
  */
+export function migrateFileSettings(file: ConfigFile): ConfigFile {
+  if (file.extensionSettings?.["deployments"] !== undefined) {
+    const { ["deployments"]: legacy, ...rest } = file.extensionSettings;
+    file.extensionSettings = {
+      ...rest,
+      "azure-devops": { ...legacy, ...file.extensionSettings["azure-devops"] },
+    };
+  }
+  if (file.workspaces) migrateExtensionSettings(file.workspaces);
+  return file;
+}
+
 export function migrateExtensionSettings(workspaces: Workspace[]): Workspace[] {
   const all = loaded.map((e) => e.name);
   for (const workspace of workspaces) {

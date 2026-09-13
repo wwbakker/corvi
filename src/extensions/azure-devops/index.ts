@@ -5,7 +5,8 @@ import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Settings, Shell, Workspace, type Extension, type SummaryContribution } from "../../extension-host/api.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
-import { activeRuns, pipelineItems, prNumberOf } from "./pipelines.ts";
+import { prNumberOf } from "../../vendors/github.ts";
+import { activeRuns, pipelineItems } from "./pipelines.ts";
 import { AZURE_ENV } from "./legacy.ts";
 import { DEPLOY_ENVIRONMENTS_ENV } from "./deploySettings.ts";
 

@@ -247,3 +247,33 @@ test("the extensions' own settings round-trip, strings and string lists", async 
     "azure-devops": { environments: ["dev", "accept"] },
   });
 });
+
+test("the settings read migrates the retired names before the page edits them", async () => {
+  // A hand-edited file still naming `ci` and `deployments`: the read folds them into the
+  // extensions' own settings, so the page edits — and writes back — today's shape, never
+  // the retired names.
+  await Bun.write(
+    file,
+    JSON.stringify({
+      extensionSettings: { deployments: { organization: "bag-org" } },
+      workspaces: [
+        { id: "old", name: "Old", extensions: ["ci", "git"] },
+        { id: "no-pipes", name: "No pipelines", azure: false },
+      ],
+    }),
+  );
+  reloadConfigSync();
+
+  const view = settingsViewSync();
+  const written = view.file.workspaces ?? [];
+  expect(written.find((w) => w.id === "old")?.extensions).toEqual([
+    "github",
+    "azure-devops",
+    "git",
+  ]);
+  expect(written.find((w) => w.id === "no-pipes")?.extensions).not.toContain("azure-devops");
+  expect(view.file.extensionSettings?.["azure-devops"]).toMatchObject({
+    organization: "bag-org",
+  });
+  expect(view.file.extensionSettings).not.toHaveProperty("deployments");
+});

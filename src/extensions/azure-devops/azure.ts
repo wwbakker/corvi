@@ -77,7 +77,6 @@ const globalAzure = (
  * Azure CLI stays the single place this is configured. Shared per process through the cache,
  * keyed without a workspace: every workspace falls back to the same CLI configuration. Tests
  * reset it with `clearCache`, like every other cached answer. */
-export const resetAzDefaults = (): void => {};
 
 /** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so

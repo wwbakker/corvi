@@ -4,7 +4,6 @@ import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Settings, Shell, Workspace } from "../../extension-host/api.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import type { Result } from "../../capabilities/shell.ts";
-import { prSummary } from "../../vendors/github.ts";
 import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
@@ -333,31 +332,23 @@ const logLines = (
       : [];
   });
 
-/** A finished run's logs never change, so a version is looked up once and kept. Sharing it
- * across requests needs no capability: the answer is a pure function of the run. */
-const versions = new Map<number, string | undefined>();
-
+/** A finished run's logs never change, so a version is looked up once and kept — in the
+ * shared cache, under the run id, rather than a module-local memo: the answer is a pure
+ * function of the run, and the cache's single-flight refresh already shares it. Tests reset
+ * it with `clearCache`, like every other cached answer. */
 export const versionOf = (
   run: Run,
   project: string,
-): Effect.Effect<string | undefined, never, Shell | Workspace> =>
+): Effect.Effect<string | undefined, never, Shell | Workspace | Cache> =>
   Effect.suspend(() => {
     // Only successful builds produced an artifact worth naming.
     if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
-    if (versions.has(run.id)) return Effect.succeed(versions.get(run.id));
-
     const pipelineId = run.definition?.id;
-    return Effect.gen(function* () {
-      const version = pipelineId ? yield* findVersion(project, pipelineId, run.id) : undefined;
-      versions.set(run.id, version);
-      return version;
-    });
+    if (pipelineId === undefined) return Effect.succeed(undefined);
+    return Effect.flatMap(Cache, (cache) =>
+      cache.swr(`az:version:${run.id}`, 24 * 60 * 60_000, findVersion(project, pipelineId, run.id)),
+    );
   });
-
-/** Clear the memoised version lookups, for tests that script the logs per case. */
-export const resetVersions = (): void => {
-  versions.clear();
-};
 
 const findVersion = (
   project: string,
@@ -502,16 +493,4 @@ export const pipelineItems = (
 
     return { items, count };
   });
-
-/** The pull request number this change's branch has in `repo`, through the shared cached
- * lookup the GitHub card makes: pipelines run on the PR merge ref once a PR exists, so the two
- * are looked up together. A lookup that fails is no pull request, not an error. */
-export const prNumberOf = (
-  change: { id: string; branch: string; repos: string[]; workspace?: string; createdAt: string },
-  repo: string,
-): Effect.Effect<number | undefined, never, Shell | Workspace | Cache | Changes> =>
-  Effect.map(
-    Effect.orElseSucceed(prSummary(change, repo), () => undefined),
-    (summary) => summary?.number,
-  );
 

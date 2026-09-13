@@ -22,11 +22,8 @@ import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from ".
  * Card/extension stubs, so no `az`, `gh` or `git` process is ever started.
  */
 
-beforeEach(async () => {
+beforeEach(() => {
   clearCache();
-  const { resetAzDefaults, resetVersions } = await import("./helpers.ts");
-  resetAzDefaults();
-  resetVersions();
 });
 
 const change = (over: Partial<Change> = {}): Change => ({
@@ -336,9 +333,7 @@ test("the github summary names open comments and takes the checks' verdict", asy
 });
 
 test("the azure-devops summary counts active pipelines, in the singular and plural", async () => {
-  const { resetAzDefaults } = await import("./helpers.ts");
   const { clearCache } = await import("../src/capabilities/cache.ts");
-  const { resetVersions } = await import("../src/extensions/azure-devops/pipelines.ts");
   const one = await runWithShell(
     summaryShell(1, 0),
     azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
@@ -350,8 +345,6 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
   // The `az devops configure` answer and the branch answers are shared per workspace: a
   // second summary in the same process asks again rather than reading the first one's.
   clearCache();
-  resetVersions();
-  resetAzDefaults();
   const two = await runWithShell(
     summaryShell(2, 0),
     azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),

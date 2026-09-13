@@ -310,7 +310,19 @@ const readDetails = (
  * The pull request of this repository as the overview needs it: its number, and how many review
  * threads are still open. A merged or closed pull request is waiting for nobody, so it reports
  * none. Failures are not errors here — the overview says nothing rather than a red card.
+ *
+ * The number alone is what the azure-devops extension needs for the merge ref, through
+ * `prNumberOf` below: one cached lookup serves both cards.
  */
+export const prNumberOf = (
+  change: Change,
+  repo: string,
+): Effect.Effect<number | undefined, never, Changes> =>
+  Effect.map(
+    Effect.orElseSucceed(prSummary(change, repo), () => undefined),
+    (summary) => summary?.number,
+  );
+
 export const prSummary = (
   change: Change,
   repo: string,
