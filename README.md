@@ -784,7 +784,8 @@ tmux display -p '#{@agent_status}'   # what the pane you are in says about itsel
 ```
 
 A symlink rather than a copy, so editing it here is editing the installed one and `/reload` in pi
-picks it up; the script refuses to touch anything at that path it did not put there.
+picks it up; the script repoints whatever symlink is there, so installing from another branch or
+worktree moves it, but leaves a real file at that path alone.
 
 A pane option rather than the terminal title, because the title is shared: pi rewrites it
 whenever the session name changes — right after a run, when it names the session from your first
