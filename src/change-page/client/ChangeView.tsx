@@ -4,6 +4,8 @@ import {
   patch,
   post,
   CHANGE_STATES,
+  IDEATION,
+  isIdeation,
   type ApiError,
   type ChangeState,
   type Change,
@@ -28,6 +30,7 @@ import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
+import { PlanCard } from "./PlanCard.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../extension-host/client.tsx";
 
 /** Branch names start with the change id, which the crumb already shows: drop the repetition. */
@@ -92,6 +95,7 @@ export function ChangeView({
   const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${id}:widgets`);
   const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
   const [completing, setCompleting] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -106,6 +110,9 @@ export function ChangeView({
   const [draft, setDraft] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
   const [generation, setGeneration] = useState(0);
+  // Whether this change is still an idea: its state is set by creation and left by starting, so
+  // the select shows the one word and the actions carry the transition.
+  const idea = change ? isIdeation(change) : false;
 
   useEffect(() => {
     if (page === "terminals") setTerminalOpened(true);
@@ -189,6 +196,25 @@ export function ChangeView({
   };
 
   /**
+   * Start an idea's work: the state moves to In Progress, and the server's start hooks create
+   * the checkouts and move the ticket. The terminal stays where it is — the change directory and
+   * its pi session are unchanged, so the conversation continues.
+   */
+  const startWork = (): void => {
+    setStarting(true);
+    setError(null);
+    post<{ change: Change; provision: ProvisionResult[] }>(`/changes/${id}/start`, {})
+      .then(({ change: updated, provision }) => {
+        setChange(updated);
+        setGeneration((g) => g + 1);
+        setAfter(provision);
+        onChanged();
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setStarting(false));
+  };
+
+  /**
    * Abandon the change: the worktrees and the terminal go, and everything anyone else can see —
    * branches, pull requests, the ticket — is left alone and listed back to you.
    */
@@ -196,8 +222,10 @@ export function ChangeView({
     if (
       !force &&
       !window.confirm(
-        `Cancel ${id}? The worktrees and the terminal go. The branches, pull requests and the ` +
-          `ticket are left alone — you will be told what is left.`,
+        idea
+          ? `Discard ${id}? It is archived as cancelled. Nothing was created for it.`
+          : `Cancel ${id}? The worktrees and the terminal go. The branches, pull requests and the ` +
+              `ticket are left alone — you will be told what is left.`,
       )
     ) {
       return;
@@ -232,24 +260,42 @@ export function ChangeView({
       .finally(() => setCancelling(false));
   };
 
-  // The two ways a change ends are last, and apart: everything above them is reversible.
-  const changeActions: Action[] = [
-    { label: "Copy PR description", onSelect: copyDescription },
-    {
-      label: completing ? "Completing…" : "Complete change",
-      separated: true,
-      disabled: completing || !completion?.ready,
-      // Every repository must be approved or already merged.
-      title: completion?.reasons.join("\n") || undefined,
-      onSelect: complete,
-    },
-    {
-      label: cancelling ? "Cancelling…" : "Cancel change",
-      disabled: cancelling || completing,
-      title: "Abandon this change: the worktrees go, nothing is merged",
-      onSelect: () => cancel(),
-    },
-  ];
+  // The two ways a change ends are last, and apart: everything above them is reversible. An idea
+  // has a third: starting the work, which is the only way out of `Ideation` and the reason it is
+  // an action rather than one of the select's words.
+  const changeActions: Action[] = idea
+    ? [
+        {
+          label: starting ? "Starting…" : "Start work",
+          disabled: starting,
+          title: "Leave Ideation: create the worktrees and move the ticket",
+          onSelect: startWork,
+        },
+        {
+          label: cancelling ? "Discarding…" : "Discard idea",
+          separated: true,
+          disabled: cancelling || starting,
+          title: "Archive this idea as cancelled; nothing was created",
+          onSelect: () => cancel(),
+        },
+      ]
+    : [
+        { label: "Copy PR description", onSelect: copyDescription },
+        {
+          label: completing ? "Completing…" : "Complete change",
+          separated: true,
+          disabled: completing || !completion?.ready,
+          // Every repository must be approved or already merged.
+          title: completion?.reasons.join("\n") || undefined,
+          onSelect: complete,
+        },
+        {
+          label: cancelling ? "Cancelling…" : "Cancel change",
+          disabled: cancelling || completing,
+          title: "Abandon this change: the worktrees go, nothing is merged",
+          onSelect: () => cancel(),
+        },
+      ];
 
   // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
   // — a tab that has gone, a typo — resolves to the dashboard, so the page still renders.
@@ -328,6 +374,9 @@ export function ChangeView({
         <select
           className={stateClass(change.state)}
           value={change.state ?? "In Progress"}
+          // An idea's state is not yours to pick: starting the work is what leaves it, and that
+          // does more than a word (see the actions).
+          disabled={idea}
           // Your own view of where the change stands; completing it sets "Completed".
           onChange={(e) =>
             patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
@@ -338,15 +387,24 @@ export function ChangeView({
               .catch((err: Error) => setError(err.message))
           }
         >
-          {/* Only the states you are in, not the ones a change ends in: picking "Completed"
-              from a list would set the word without merging anything, removing a worktree or
-              archiving the change — a label that lies. Ending a change is Complete or Cancel,
-              which do the work. A change that has already ended still shows its own state,
-              because a select cannot display what it does not offer. */}
-          {CHANGE_STATES.filter((s) => !isFinished({ ...change, state: s })).map((s) => (
-            <option key={s}>{s}</option>
-          ))}
-          {isFinished(change) && <option>{change.state}</option>}
+          {/* An idea shows its one state. A started change offers the states you are in, not the
+              ones a change ends in, and not `Ideation` — there is no going back over a branch
+              that now exists. Picking "Completed" from a list would set the word without merging
+              anything, removing a worktree or archiving the change — a label that lies. Ending a
+              change is Complete or Cancel, which do the work. A change that has already ended
+              still shows its own state, because a select cannot display what it does not offer. */}
+          {idea ? (
+            <option>{IDEATION}</option>
+          ) : (
+            <>
+              {CHANGE_STATES.filter(
+                (s) => !isFinished({ ...change, state: s }) && s !== IDEATION,
+              ).map((s) => (
+                <option key={s}>{s}</option>
+              ))}
+              {isFinished(change) && <option>{change.state}</option>}
+            </>
+          )}
         </select>
       )}
       {change && isFinished(change) ? (
@@ -398,6 +456,11 @@ export function ChangeView({
       {active.kind === "dashboard" && (
         <div className="widgets">
           <div className="column">
+            {/* The plan is the change's own document: it stays visible once the work starts, and
+                is a read-only record once the change is over. */}
+            {change && (
+              <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
+            )}
             <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
             {(infos ?? []).filter((i) => !i.wide).map(card)}
             {/* Client-drawn widgets, after the server-drawn cards: textareas and other client

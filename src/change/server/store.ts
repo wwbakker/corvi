@@ -3,6 +3,7 @@ import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
+import { PLAN_FILE } from "../../domain/change.ts";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -29,6 +30,7 @@ export const CORE_SIDECARS: ReadonlySet<string> = new Set([
   "change.json",
   "wt.toml",
   "completion.json",
+  PLAN_FILE,
 ]);
 
 /** Active directory if it exists, otherwise the archived one. */

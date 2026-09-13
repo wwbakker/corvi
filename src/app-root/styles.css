@@ -17,6 +17,9 @@
   --accent: #316dca;
   /* Change state "Blocked": distinct from amber (in progress) and blue (awaiting review). */
   --purple: #a371f7;
+  /* Change state "Ideation": a teal, apart from the working states — an idea is a question,
+     not a job, and should not read as one of the attention colours. */
+  --ideation: #4cc2c4;
 }
 
 * {
@@ -155,6 +158,10 @@ a {
 
 .sidebar .entry.change.state-blocked {
   border-left-color: var(--purple);
+}
+
+.sidebar .entry.change.state-ideation {
+  border-left-color: var(--ideation);
 }
 
 .sidebar .entry.change.state-awaiting-review {
@@ -307,6 +314,10 @@ body.resizing {
 
 .sidebar .dot.state-blocked {
   background: var(--purple);
+}
+
+.sidebar .dot.state-ideation {
+  background: var(--ideation);
 }
 
 .sidebar .dot.state-awaiting-review {
@@ -950,6 +961,10 @@ dialog.wide {
   color: var(--purple);
 }
 
+.state-ideation {
+  color: var(--ideation);
+}
+
 .state-in-progress {
   color: var(--pending);
 }
@@ -969,6 +984,10 @@ dialog.wide {
 
 select.state-blocked {
   border-color: var(--purple);
+}
+
+select.state-ideation {
+  border-color: var(--ideation);
 }
 
 select.state-in-progress {
@@ -1041,7 +1060,8 @@ button.create:hover:not(:disabled) {
   margin-bottom: 12px;
 }
 
-textarea.notes {
+textarea.notes,
+textarea.plan {
   width: 100%;
   font: inherit;
   color: var(--text);
@@ -1050,6 +1070,16 @@ textarea.notes {
   border-radius: 6px;
   padding: 8px;
   resize: vertical;
+}
+
+/* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than
+   the entries, because it says which kind of thing follows rather than being one. */
+.sidebar .group-label {
+  margin: 10px 0 2px 12px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
 }
 
 /* Two views of one change, under its header. */
@@ -1497,6 +1527,10 @@ dialog progress {
 
 .badge.state-blocked {
   border-color: var(--purple);
+}
+
+.badge.state-ideation {
+  border-color: var(--ideation);
 }
 
 .badge.state-in-progress {

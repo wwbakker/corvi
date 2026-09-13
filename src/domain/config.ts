@@ -39,6 +39,20 @@ export type Workspace = {
  * has not configured any gets this one. */
 export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
 
+/**
+ * What IWE tells an agent when you brief it about an idea: the plan path and the rule for the
+ * phase, so a machine that has configured nothing still gets something useful. Editable in the
+ * settings, where an empty field means this.
+ *
+ * `{id}`, `{title}`, `{plan}` and `{state}` are filled from the change (see
+ * `ideationPromptFor`). Kept as one line here and wrapped by the settings page when written.
+ */
+export const DEFAULT_IDEATION_PROMPT =
+  "You are helping me refine an idea before any work starts. The idea is \"{title}\" ({id}); " +
+  "its plan is {plan}. Read the plan and the code, then help me sharpen the plan. While the " +
+  "change is in Ideation, {plan} is the only file you should write — do not modify any repository. " +
+  "Ask questions, propose options, and update the plan when we agree.";
+
 /** File-based config, read once at startup. Environment variables still win, so tests and
  * one-off runs need no file. */
 export type Config = {
@@ -52,6 +66,10 @@ export type Config = {
   /** Whether a notification plays the system sound; the settings page's one notification
    * decision so far. */
   notificationSound: boolean;
+  /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
+   * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means
+   * `DEFAULT_IDEATION_PROMPT`. */
+  ideationPrompt: string;
   /** The contexts you switch between. Never empty: when nothing is configured, the default
    * workspace stands in. */
   workspaces: Workspace[];
@@ -82,6 +100,8 @@ export type ConfigFile = {
   reposRoot?: string;
   reposStart?: string;
   notificationSound?: boolean;
+  /** The prompt that briefs an agent about an idea; see `Config.ideationPrompt`. */
+  ideationPrompt?: string;
   /** The contexts you switch between, as the file holds them. Decoded with the per-item
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];

@@ -6,16 +6,21 @@ import {
   completionOf,
   createChange,
   listChanges,
+  PLAN_FILE,
   prDescription,
   progressOf,
+  readSidecar,
   refreshTitles,
+  startChange,
   writeChange,
+  writeSidecar,
 } from "../change/server/index.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
+import { BadRequestError } from "../capabilities/effect/errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { Workspace } from "../capabilities/effect/tags.ts";
 import { announce } from "../capabilities/bus.ts";
-import { applyCreatingHooks, provision } from "../extension-host/index.ts";
+import { applyCreatingHooks, provision, startWork } from "../extension-host/index.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
@@ -29,11 +34,18 @@ export const changeRoutes = guard({
     POST: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0];
+          const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0] & {
+            plan?: string;
+          };
           // The creating hooks transform the draft; the core then re-runs every invariant in
           // createChange before anything is written.
           const draft = yield* applyCreatingHooks(body);
           const change = yield* createChange({ ...body, ...draft });
+          // The plan the wizard collected, written as the change's own document. It is a file,
+          // not a field of the draft: the agent and the dashboard edit the same file afterwards.
+          if (typeof body.plan === "string" && body.plan) {
+            yield* writeSidecar(change.id, PLAN_FILE, body.plan);
+          }
           const provisioned = yield* Effect.provideService(
             provision(change),
             Workspace,
@@ -52,6 +64,25 @@ export const changeRoutes = guard({
     GET: () => runRoute(Effect.map(refreshTitles(), json)),
   },
 
+  // Starting an idea's work: the state moves to In Progress, then the start hooks create the
+  // checkouts and move the ticket. Written first, like creation, so a failing component leaves
+  // something to fix rather than nothing.
+  "/api/changes/:id/start": {
+    POST: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          const started = yield* startChange(c);
+          const provisioned = yield* Effect.provideService(
+            startWork(started),
+            Workspace,
+            workspaceOf(started),
+          );
+          yield* Effect.sync(() => announce("changes"));
+          return json({ change: started, provision: provisioned });
+        }),
+      ),
+  },
+
   "/api/changes/:id": {
     // Just the change: instant, no CLI calls, so the header renders immediately.
     GET: (req) => withChange(req.params.id, (c) => Effect.succeed(json(c))),
@@ -65,6 +96,33 @@ export const changeRoutes = guard({
           yield* writeChange(updated);
           yield* Effect.sync(() => announce("changes"));
           return json(updated);
+        }),
+      ),
+  },
+
+  // An idea's plan: the text the wizard collected and the file the agent edits. A sidecar, so it
+  // travels into the archive with the change. Read and written as text rather than through the
+  // change record: it is a document, not a field.
+  "/api/changes/:id/plan": {
+    GET: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.map(readSidecar(c.id, PLAN_FILE), (text) => json({ text })),
+      ),
+    PUT: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.gen(function* () {
+          // A finished change's plan is a record: the card is read-only, and this is where that
+          // is true rather than merely displayed.
+          if (c.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is finished: its plan is read-only",
+            });
+          }
+          const body = (yield* bodyOrEmpty(req)) as { text?: string };
+          const text = typeof body.text === "string" ? body.text : "";
+          yield* writeSidecar(c.id, PLAN_FILE, text);
+          yield* Effect.sync(() => announce("changes"));
+          return json({ text });
         }),
       ),
   },

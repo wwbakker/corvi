@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change, type Created, type Selection } from "../app-root/api.ts";
+import { slugFor } from "../domain/change.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo } from "../extension-host/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
@@ -30,11 +31,17 @@ export function Wizard({
   const [step, setStep] = useState(0);
   const [id, setId] = useState("");
   const [branch, setBranch] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [repos, setRepos] = useState<Selection[]>([]);
   const [ticket, setTicket] = useState<string>();
   const [payloads, setPayloads] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Whether the id and branch are still following the title, or have been set by hand (or by a
+  // picked issue). Once either is yours, typing in the title leaves it alone.
+  const [idTouched, setIdTouched] = useState(false);
+  const [branchTouched, setBranchTouched] = useState(false);
 
   // The change's context. The switcher's choice wins while it names one; "All work" hands the
   // decision to the wizard, which keeps its own — defaulting to the first context, which is
@@ -59,7 +66,7 @@ export function Wizard({
 
   const issueSteps = (steps ?? []).filter((s) => s.phase === "issue");
   const repoSteps = (steps ?? []).filter((s) => s.phase === "repos");
-  const titles = [...issueSteps.map((s) => s.title), "Change", "Repositories", ...repoSteps.map((s) => s.title)];
+  const titles = [...issueSteps.map((s) => s.title), "Idea", "Repositories", ...repoSteps.map((s) => s.title)];
   const changeStep = issueSteps.length;
   const reposStep = changeStep + 1;
 
@@ -70,12 +77,34 @@ export function Wizard({
   const changeRepo = (path: string, patch: Partial<Selection>): void =>
     setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
 
+  // The title is the source: the id and the branch follow it, until you edit either by hand —
+  // after which they are yours. A picked issue claims both (setDraft below).
+  const editTitle = (value: string): void => {
+    setTitle(value);
+    if (!idTouched) setId(slugFor(value));
+    if (!branchTouched) setBranch(slugFor(value));
+  };
+  const editId = (value: string): void => {
+    setIdTouched(true);
+    setId(value);
+    if (!branchTouched) setBranch(value);
+  };
+  const editBranch = (value: string): void => {
+    setBranchTouched(true);
+    setBranch(value);
+  };
+
   const create = (): void => {
     setBusy(true);
     setError(null);
     post<Created>("/changes", {
       id,
       branch,
+      title: title.trim() || undefined,
+      // The wizard makes an idea: the work (branch, worktree, ticket) starts later, from its page.
+      state: "Ideation",
+      // The starting text of PLAN.md, then the agent's and yours to shape.
+      plan: description,
       workspace: chosen,
       repos: repos.map((r) => r.path),
       direct: repos.filter((r) => r.direct).map((r) => r.path),
@@ -95,8 +124,14 @@ export function Wizard({
     workspace: chosen,
     draft: { id, branch },
     setDraft: (patch) => {
-      if (patch.id !== undefined) setId(patch.id);
-      if (patch.branch !== undefined) setBranch(patch.branch);
+      if (patch.id !== undefined) {
+        setIdTouched(true);
+        setId(patch.id);
+      }
+      if (patch.branch !== undefined) {
+        setBranchTouched(true);
+        setBranch(patch.branch);
+      }
     },
     repos,
     ticket,
@@ -114,7 +149,7 @@ export function Wizard({
   return (
     <div className="wizard">
       <header>
-        <h2>New change</h2>
+        <h2>New idea</h2>
       </header>
 
       <nav className="steps">
@@ -129,14 +164,14 @@ export function Wizard({
         )}
         <span className="spacer" />
         {/* Creating is possible from any step once the required fields are set: only the change
-            id is required, the branch defaults to it and repositories can be added later. */}
+            id is required — repositories can be added now or after the work starts, and the plan
+            can be empty. */}
         <button
           className="primary"
-          disabled={!id.trim() || repos.length === 0 || busy}
-          title={repos.length === 0 ? "select at least one repository" : undefined}
+          disabled={!id.trim() || busy}
           onClick={create}
         >
-          {busy ? "Creating…" : "Create change"}
+          {busy ? "Creating…" : "Create idea"}
         </button>
         <button onClick={onCancel}>Cancel</button>
       </nav>
@@ -169,15 +204,37 @@ export function Wizard({
                 </small>
               </label>
               <label>
+                Title
+                <input
+                  value={title}
+                  onChange={(e) => editTitle(e.target.value)}
+                  placeholder="What this idea is about"
+                />
+                <small>The id and branch below follow it until you edit them.</small>
+              </label>
+              <label>
+                Description
+                <textarea
+                  rows={6}
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="The starting plan. Stored as PLAN.md, for you and the agent to shape."
+                />
+              </label>
+              <label>
                 Change id
-                <input value={id} onChange={(e) => setId(e.target.value)} placeholder="e.g. PROJ-123" />
+                <input
+                  value={id}
+                  onChange={(e) => editId(e.target.value)}
+                  placeholder="e.g. PROJ-123"
+                />
                 <small>Used as the directory name under the changes root.</small>
               </label>
               <label>
-                Branch
+                Branch name
                 <input
                   value={branch}
-                  onChange={(e) => setBranch(e.target.value)}
+                  onChange={(e) => editBranch(e.target.value)}
                   placeholder={id || "defaults to the change id"}
                 />
               </label>

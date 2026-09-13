@@ -14,13 +14,13 @@ src/
   server.ts            Bun.serve: composes the modules' route tables, /api/ext/:name/* dispatch,
                        SSE, ttyd ws-proxy
   change/              the change module: model.ts (the edit rule the halves share), server/
-                       (schema, store, create, complete, cancel, titles, description,
-                       index.ts), routes.ts (its HTTP table). No UI.
+                       (schema, store, create, start, complete, cancel, titles, description,
+                       plan, index.ts), routes.ts (its HTTP table). No UI.
   dashboard/           the dashboard tab: server/ (summary.ts composes change, terminal and the
                        host; index.ts is the face), client/ (WidgetCard, WidgetRows,
                        PerRepoCard, CompletionCard, EditReposDialog), routes.ts (the summary route)
-  change-page/         the change shell: client/ (ChangeView.tsx, changeTabs.ts) composes the
-                       dashboard, the extension tabs and the terminal; owns no data
+  change-page/         the change shell: client/ (ChangeView.tsx, changeTabs.ts, PlanCard.tsx)
+                       composes the dashboard, the extension tabs and the terminal; owns no data
   wizard/              /new: Wizard.tsx, and index.ts (the face)
   terminals/           the terminal module: model.ts (the new-window key the pane and the
                        injected ttyd script share), server/ (tmux sessions, ttyd spawn, the ws

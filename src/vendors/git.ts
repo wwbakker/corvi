@@ -2,6 +2,7 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
 import type { Change } from "../domain/change.ts";
+import { isIdeation } from "../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
 import { shOrThrow } from "../capabilities/shell.ts";
 import { config } from "../workspace/server/index.ts";
@@ -9,7 +10,7 @@ import { copyTooling } from "../capabilities/os.ts";
 import { writeChange, writeWtConfig, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
 import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
-import { fs, shSoft } from "../capabilities/effect/support.ts";
+import { fs, messageOf, shSoft } from "../capabilities/effect/support.ts";
 
 /**
  * One worktree, as the dashboard reads it.
@@ -148,6 +149,17 @@ export function describe(entry: WtEntry): { detail: string; state: WidgetState }
 
 export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
+    // An idea's repositories are only linked for reading: no branch is switched and no worktree
+    // exists, so the row says that instead of offering to create one. Checked before `direct`,
+    // since which mode the work will use is a decision for the start, not for the idea.
+    if (isIdeation(change)) {
+      return {
+        label: basename(repo),
+        detail: `linked for browsing · ${repo}`,
+        state: "none",
+        menu: openMenu(repo),
+      };
+    }
     if (isDirect(change, repo)) return yield* directItem(change, repo);
     const label = basename(repo);
     const entry = yield* entryFor(change, repo);
@@ -289,6 +301,30 @@ export const isDirty = (repo: string): Effect.Effect<boolean> =>
   Effect.map(shSoft(["git", "status", "--porcelain"], repo), (r) => r.stdout !== "");
 
 /**
+ * Link a repository into the change directory so an idea can browse it, without touching the
+ * checkout: no branch is switched and no worktree is registered, so nothing about the repository
+ * changes. This is what the `change:created` hook does while a change is an idea; starting the
+ * work replaces the link with a real checkout (worktree or in place).
+ *
+ * A path that is already there is the state this wanted: a link, or a checkout left by an earlier
+ * start. A failure is logged and not fatal — the change is already written, and an idea whose
+ * repository could not be linked is still an idea — but it is not swallowed, so a permission
+ * problem does not read as success.
+ */
+export const browseRepo = (change: Change, repo: string): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const path = linkPath(change, repo);
+    if (yield* fs(() => lstat(path).then(() => true, () => false))) return;
+    yield* fs(() => symlink(repo, path)).pipe(
+      Effect.catchAllDefect((e) =>
+        Effect.sync(() =>
+          console.error(`could not link ${repo} into ${changeDir(change.id)}:`, messageOf(e)),
+        ),
+      ),
+    );
+  });
+
+/**
  * Work in the repository itself: link it from the change directory and put its checkout on the
  * change's branch, freshly branched off the remote default like a worktree would be.
  *
@@ -298,9 +334,7 @@ export const isDirty = (repo: string): Effect.Effect<boolean> =>
  */
 const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    yield* fs(() => symlink(repo, linkPath(change, repo))).pipe(
-      Effect.catchAllDefect(() => Effect.void), // already linked
-    );
+    yield* browseRepo(change, repo);
     if ((yield* currentBranch(repo)) === change.branch) return;
     if (yield* isDirty(repo)) return; // reported by the widget; the user decides what to do
     const exists =
@@ -321,11 +355,17 @@ const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError>
     );
   });
 
-/** Stop using a repository in place: the link goes, the checkout stays exactly as it is. */
-const unlinkInPlace = (change: Change, repo: string): Effect.Effect<void> =>
+/** Remove a repository's link from the change directory — the browse link an idea carries, or
+ * the in-place link a working change does. The repository's own checkout stays exactly as it is;
+ * only IWE's pointer to it goes. Used before replacing a browse link with a worktree, and when
+ * stopping in-place work. */
+export const unlinkRepo = (change: Change, repo: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const path = linkPath(change, repo);
-    if (yield* fs(() => lstat(path).then(() => true, () => false))) yield* fs(() => unlink(path));
+    // Only a symlink is IWE's link to remove. A real worktree directory at this path is not ours
+    // to unlink — removing that is `removeWorktree`'s git command.
+    const linked = yield* fs(() => lstat(path).then((s) => s.isSymbolicLink(), () => false));
+    if (linked) yield* fs(() => unlink(path));
   });
 
 /** How a repository used in place stands: which branch it is on, and whether it needs a hand. */
@@ -409,6 +449,14 @@ const carryTooling = (repo: string, change: Change): Effect.Effect<void> =>
         Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
     );
   });
+
+/**
+ * Give a repository its presence for the change's state: an idea is linked for browsing, a
+ * started change gets its real checkout. The one place that decision is made, so creation, a
+ * repository added later and the row's action cannot disagree about what a change is.
+ */
+export const provisionOrBrowse = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+  isIdeation(change) ? browseRepo(change, repo) : provisionRepo(change, repo);
 
 /** Work a removal would throw away: uncommitted changes cannot be recovered at all, unpushed
  * commits survive in the reflog but not anywhere anyone else can see. */
@@ -523,7 +571,7 @@ export const setRepos = (
       base: Object.keys(bases).length ? bases : undefined,
     };
     yield* writeChange(updated);
-    for (const repo of added) yield* provisionRepo(updated, repo);
+    for (const repo of added) yield* provisionOrBrowse(updated, repo);
     return { _tag: "Done", change: updated };
   });
 
@@ -537,8 +585,12 @@ export const removeWorktree = (
   repo: string,
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* unlinkInPlace(change, repo);
-    if (!(yield* checkoutFor(change, repo))) return;
+    if (isDirect(change, repo)) return yield* unlinkRepo(change, repo);
+    if (!(yield* checkoutFor(change, repo))) {
+      // No worktree to remove — but an idea's repository still has a browse link to drop, or the
+      // archived directory keeps a dangling symlink to it.
+      return yield* unlinkRepo(change, repo);
+    }
     yield* shOrThrow(
       yield* wt(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
     );
@@ -554,7 +606,7 @@ export const gitRun = (
     if (!repo) {
       return yield* new BadRequestError({ message: "repo required" });
     }
-    if (action === "add") return yield* provisionRepo(change, repo);
+    if (action === "add") return yield* provisionOrBrowse(change, repo);
 
     // Opening: the worktree when there is one, the repository itself when it is used in place.
     const opener = openers.find((o) => o.id === action);

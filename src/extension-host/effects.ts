@@ -50,13 +50,15 @@ const asWorkspaceById = <A, E>(
 
 const afterHooksFor = (
   ext: LoadedExtension,
-  event: "change:created" | "change:completed" | "change:cancelled",
+  event: "change:created" | "change:started" | "change:completed" | "change:cancelled",
 ): ChangeAfterHook[] =>
   event === "change:created"
     ? ext.changeCreated
-    : event === "change:completed"
-      ? ext.changeCompleted
-      : ext.changeCancelled;
+    : event === "change:started"
+      ? ext.changeStarted
+      : event === "change:completed"
+        ? ext.changeCompleted
+        : ext.changeCancelled;
 
 const beforeHooksFor = (
   ext: LoadedExtension,
@@ -113,7 +115,7 @@ export type ProvisionResult = { integration: string; ok: boolean; error?: string
  * later hooks — they would build on a half-done job — but never the extensions after it.
  */
 const runAfter = (
-  event: "change:created" | "change:completed" | "change:cancelled",
+  event: "change:created" | "change:started" | "change:completed" | "change:cancelled",
   change: Change,
 ): Effect.Effect<ProvisionResult[]> =>
   Effect.gen(function* () {
@@ -134,6 +136,12 @@ const runAfter = (
 /** Run the `change:created` hooks for a freshly created change. */
 export const provision = (change: Change): Effect.Effect<ProvisionResult[]> =>
   runAfter("change:created", change);
+
+/** Run the `change:started` hooks for an idea whose work has begun: the git extension creates
+ * each checkout here, and a vendor tracking the ticket moves it. The state is already written, so
+ * a failure is reported under its extension's name rather than undoing the start. */
+export const startWork = (change: Change): Effect.Effect<ProvisionResult[]> =>
+  runAfter("change:started", change);
 
 /** Run the after-hooks for a completed or cancelled change: always after change.json is written
  * and the change is archived, and never able to fail the operation. The results are reported

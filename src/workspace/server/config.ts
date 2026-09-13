@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
+import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
 import { TOOLING } from "../../capabilities/os.ts";
@@ -108,6 +108,7 @@ function load(): Config {
       }),
     ),
     notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
+    ideationPrompt: resolveSetting({ file: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

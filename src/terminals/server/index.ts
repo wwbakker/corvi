@@ -26,6 +26,8 @@ export {
   newWindow,
   selectWindow,
   moveWindow,
+  ensureSession,
+  pastePrompt,
 } from "./tmux.ts";
 
 export { presentWindow, type PresentedWindow } from "./presenter.ts";

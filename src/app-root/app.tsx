@@ -1,7 +1,7 @@
 import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type Change, type ProvisionResult } from "./api.ts";
-import { byWorkOrder, isFinished } from "../domain/change.ts";
+import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { moment } from "./moment.ts";
@@ -34,10 +34,13 @@ function Home({
   onOpen: (id: string) => void;
   onNew: () => void;
 }): JSX.Element {
-  // Two lists, because they are read for different reasons: what is going on, and what happened.
-  // The active ones in work order — what you can get on with, then what is with somebody else,
-  // then what is stuck — newest first within each.
-  const active = (changes ?? []).filter((c) => !isFinished(c)).sort(byWorkOrder);
+  // Three lists, because they are read for different reasons: what is still an idea, what is
+  // going on, and what happened. Ideas first — they are the newest thing and the thing you have
+  // not started — then the active ones in work order, newest first within each.
+  const ideas = (changes ?? []).filter(isIdeation).sort(byWorkOrder);
+  const active = (changes ?? [])
+    .filter((c) => !isFinished(c) && !isIdeation(c))
+    .sort(byWorkOrder);
   const finished = (changes ?? [])
     .filter(isFinished)
     .sort((a, b) => (b.completedAt ?? "").localeCompare(a.completedAt ?? ""));
@@ -48,13 +51,25 @@ function Home({
         <h2>Changes</h2>
         <span className="spacer" />
         <button className="create" onClick={onNew}>
-          New change
+          New idea
         </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
 
-      <h2 className="section">Active changes</h2>
+      {/* Ideas have their own block above the work: they are a different kind of thing — a
+          question, not a job — and reading them as rows among the active changes buries them. */}
+      <h2 className="section">Ideas</h2>
       {!changes && !error && <p className="hint">loading…</p>}
+      {changes && ideas.length === 0 && (
+        <p className="hint">no ideas yet — start one with a title and a plan</p>
+      )}
+      <div className="change-cards">
+        {ideas.map((c) => (
+          <ChangeCard key={c.id} change={c} onOpen={() => onOpen(c.id)} />
+        ))}
+      </div>
+
+      <h2 className="section">Active changes</h2>
       {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
       <div className="change-cards">
         {active.map((c) => (

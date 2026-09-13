@@ -5,7 +5,7 @@ import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
 import type { ExtensionSetting } from "../../extension-host/api.ts";
-import { CheckField, Field, ListEditor, type KnownExtension } from "./SettingsFields.tsx";
+import { CheckField, Field, ListEditor, TextArea, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 
 /**
@@ -102,6 +102,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
       .filter((extension) => extension.globalSettings.length)
       .map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
     { id: "notifications", label: "Notifications" },
+    { id: "ideation", label: "Ideation" },
     { id: "workspaces", label: "Workspaces" },
   ];
   // An extension can be unloaded between saves; fall back to the first tab rather than to an
@@ -241,6 +242,18 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             checked={draft.notificationSound ?? effective.notificationSound}
             // Checked is the default, so only the decision to silence is written down.
             onChange={(sound) => set({ notificationSound: sound ? undefined : false })}
+          />
+        </div>
+      )}
+
+      {active === "ideation" && (
+        <div className="form wide">
+          <TextArea
+            label="Briefing for an agent"
+            hint="Pasted into a change's terminal by the button on an idea. {id}, {title}, {plan} and {state} are filled from the change; clearing this returns to the built-in default."
+            value={draft.ideationPrompt}
+            placeholder={effective.ideationPrompt}
+            onChange={(ideationPrompt) => set({ ideationPrompt })}
           />
         </div>
       )}
