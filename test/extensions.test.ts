@@ -291,8 +291,8 @@ test("a workspace that names no extensions has them all", () => {
 });
 
 test("a workspace that names its extensions gets exactly those, in registration order", () => {
-  const enabled = extensionsFor(ws({ extensions: ["ci", "github-issues"] })).map((e) => e.name);
-  expect(enabled).toEqual(["ci", "github-issues"]);
+  const enabled = extensionsFor(ws({ extensions: ["github", "github-issues"] })).map((e) => e.name);
+  expect(enabled).toEqual(["github", "github-issues"]);
   // An empty list means none: an extension cannot sneak back in.
   expect(extensionsFor(ws({ extensions: [] }))).toEqual([]);
   // A name nothing loaded answers for is simply not there.
@@ -314,13 +314,13 @@ test("the wizard's steps follow the phases and the enablement", () => {
 });
 
 test("an extension's page is offered only in a context that has it", () => {
-  const withBoth = pagesFor(ws({ extensions: ["deployments", "leftovers"] }));
+  const withBoth = pagesFor(ws({ extensions: ["azure-devops", "leftovers"] }));
   expect(withBoth.map((p) => [p.extension, p.id])).toEqual([
-    ["deployments", "deployments"],
+    ["azure-devops", "azure-devops"],
     ["leftovers", "leftovers"],
   ]);
   // A context that dropped leftovers has no Leftovers entry, not an empty one.
-  const withoutLeftovers = pagesFor(ws({ extensions: ["deployments"] }));
+  const withoutLeftovers = pagesFor(ws({ extensions: ["azure-devops"] }));
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
 

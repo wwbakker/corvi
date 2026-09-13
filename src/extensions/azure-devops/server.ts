@@ -1,21 +1,14 @@
 import { Effect, Schema } from "effect";
 import type { WidgetState } from "../../domain/widget.ts";
-import { swr, invalidate } from "../../capabilities/cache.ts";
-import {
-  azFor,
-  azureEnabled,
-  buildUrl,
-  versionOf,
-  expectedDuration,
-  type Az,
-  type Definition,
-} from "../../vendors/azure.ts";
-import { workspaceById } from "../../workspace/server/index.ts";
-import { deploySettings } from "./deploySettings.ts";
+import { Cache, Settings, Shell, Workspace } from "../../extension-host/api.ts";
+import { cliJson } from "../../capabilities/effect/support.ts";
+import type { Result } from "../../capabilities/shell.ts";
+import { azFor, type Az } from "./azure.ts";
+import { deploySettings, type DeploySettings } from "./deploySettings.ts";
+import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
 import { autoDeployedApp } from "./deployConventions.ts";
 import { ago } from "../../domain/time.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
-import { cliJson, shSoft } from "../../capabilities/effect/support.ts";
 
 /**
  * What is deployed where.
@@ -27,6 +20,11 @@ import { cliJson, shSoft } from "../../capabilities/effect/support.ts";
  * Nothing is stored. A deploy run carries the version and the environment it was given
  * (`templateParameters`), so the last succeeded run per environment *is* the current state, and
  * Azure DevOps is the one keeping it. Our own record would only be a cache of that.
+ *
+ * Everything runs through the contract: `Workspace` for whose Azure DevOps this is, `Settings`
+ * for the deployment conventions, `Shell` for `az`, `Cache` for the answers. The extension is
+ * enabled per workspace, so a context without it never starts an `az` process: there is no
+ * separate "this context has no pipelines" flag to check.
  */
 export type Deployed = {
   environment: string;
@@ -98,16 +96,41 @@ export type Buildable = {
    * not something you can pick — there is no version yet to deploy. */
   running?: boolean;
   startedAt?: string;
-  /** The recent average for this pipeline, for the same progress bar the CI widget draws. */
+  /** The recent average for this pipeline, for the same progress bar the GitHub card draws. */
   expectedMs?: number;
 };
 
+type Capabilities = Shell | Workspace | Cache | Settings;
+
+/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
+const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace> =>
+  Effect.gen(function* () {
+    const shell = yield* Shell;
+    return yield* shell.run(cmd).pipe(
+      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+    );
+  });
+
+const cached = <A>(
+  key: string,
+  ttlMs: number,
+  work: Effect.Effect<A, never, Shell | Workspace>,
+): Effect.Effect<A, never, Capabilities> =>
+  Effect.flatMap(Cache, (cache) => cache.swr(key, ttlMs, work));
+
+const invalidateCache = (prefix: string): Effect.Effect<void, never, Cache> =>
+  Effect.flatMap(Cache, (cache) => cache.invalidate(prefix));
+
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
-const allPipelines = (az: Az): Effect.Effect<Definition[]> =>
-  swr(`az:${az.key}:pipelines`, 5 * 60_000,
+const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> =>
+  cached(
+    `az:${az.key}:pipelines`,
+    5 * 60_000,
     Effect.gen(function* () {
-      const r = yield* shSoft(["az", "pipelines", "list", ...az.args, "-o", "json"]);
+      const r = yield* shResult(["az", "pipelines", "list", ...az.args, "-o", "json"]);
       return r.code === 0
         ? yield* cliJson(
           Schema.Array(
@@ -116,14 +139,17 @@ const allPipelines = (az: Az): Effect.Effect<Definition[]> =>
           [] as Definition[],
         )(r.stdout)
         : [];
-    }));
+    }),
+  );
 
 /** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
  * triggered should appear on the next look. */
-const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
-  swr(`az:${az.key}:deploys:${pipelineId}`, 15_000,
+const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[], never, Capabilities> =>
+  cached(
+    `az:${az.key}:deploys:${pipelineId}`,
+    15_000,
     Effect.gen(function* () {
-      const r = yield* shSoft([
+      const r = yield* shResult([
         "az",
         "pipelines",
         "runs",
@@ -137,20 +163,20 @@ const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[]> =>
         "json",
       ]);
       return r.code === 0 ? yield* cliJson(RunsSchema, [] as Run[])(r.stdout) : [];
-    }));
+    }),
+  );
 
 /** `build-example-service` → `deploy-example-service`, and the service name in between. */
-// Pure and synchronous: nothing for an Effect to wrap.
-export const serviceName = (deployPipeline: string): string => {
-  const [, deploy] = deploySettings().pipeline;
+export const serviceName = (
+  deployPipeline: string,
+  settings: DeploySettings,
+): string => {
+  const [, deploy] = settings.pipeline;
   return deployPipeline.startsWith(deploy) ? deployPipeline.slice(deploy.length) : deployPipeline;
 };
 
-// Pure and synchronous: nothing for an Effect to wrap.
-export const buildPipelineName = (service: string): string =>
-  `${deploySettings().pipeline[0]}${service}`;
-
-// Pure and synchronous: nothing for an Effect to wrap.
+export const buildPipelineName = (service: string, settings: DeploySettings): string =>
+  `${settings.pipeline[0]}${service}`;
 
 /**
  * The version a deploy run was given.
@@ -160,9 +186,11 @@ export const buildPipelineName = (service: string): string =>
  * that, the only other parameter there is. A deploy run takes the environment and the thing to
  * deploy; when those are the only two, which is which is not a guess.
  */
-// Pure and synchronous: nothing for an Effect to wrap.
-export function versionIn(parameters: Record<string, string> | null | undefined): string | undefined {
-  const { versionParameter, environmentParameter } = deploySettings();
+export function versionIn(
+  parameters: Record<string, string> | null | undefined,
+  settings: DeploySettings,
+): string | undefined {
+  const { versionParameter, environmentParameter } = settings;
   const params = parameters ?? {};
   if (params[versionParameter]) return params[versionParameter];
   const others = Object.entries(params).filter(([key]) => key !== environmentParameter);
@@ -176,9 +204,13 @@ export function versionIn(parameters: Record<string, string> | null | undefined)
  * environment — a failed deploy is news, and hiding it behind the last success would say the
  * environment is fine when somebody is looking at a red pipeline.
  */
-// Pure and synchronous: nothing for an Effect to wrap.
-export function latestFor(runs: Run[], environment: string): Deployed {
-  const { environmentParameter } = deploySettings();
+export function latestFor(
+  runs: Run[],
+  environment: string,
+  settings: DeploySettings,
+  az: Az,
+): Deployed {
+  const { environmentParameter } = settings;
   const mine = runs
     .filter((r) => (r.templateParameters ?? {})[environmentParameter] === environment)
     .sort((a, b) => b.id - a.id);
@@ -186,7 +218,7 @@ export function latestFor(runs: Run[], environment: string): Deployed {
   const newest = mine[0];
   if (!newest) return { environment, state: "none", detail: "never deployed" };
 
-  const version = versionIn(newest.templateParameters);
+  const version = versionIn(newest.templateParameters, settings);
   const running = newest.status !== "completed";
   const failed = !running && newest.result !== "succeeded";
   // A failed deploy leaves the previous version running, so say which one that is.
@@ -194,7 +226,7 @@ export function latestFor(runs: Run[], environment: string): Deployed {
 
   return {
     environment,
-    version: failed ? versionIn(holding?.templateParameters) : version,
+    version: failed ? versionIn(holding?.templateParameters, settings) : version,
     at: running ? (newest.startTime ?? undefined) : (newest.finishTime ?? undefined),
     state: running ? "pending" : failed ? "error" : "ok",
     detail: running
@@ -202,17 +234,20 @@ export function latestFor(runs: Run[], environment: string): Deployed {
       : failed
         ? `${version ?? "?"} failed ${ago(newest.finishTime)}`
         : ago(newest.finishTime),
-    url: buildUrl(newest.id),
+    url: buildUrl(newest.id, az),
   };
 }
 
-/** Every service that has a deploy pipeline, and what each of its environments holds. */
-export const deployments = (
-  workspaceId?: string,
-): Effect.Effect<{ services: Service[]; error?: string }> =>
+/** Every service that has a deploy pipeline, and what each of its environments holds. The
+ * workspace arrives through the `Workspace` capability — the dispatcher provides it from the
+ * request's `workspace` parameter. */
+export const deployments = (): Effect.Effect<
+  { services: Service[]; error?: string },
+  never,
+  Capabilities
+> =>
   Effect.gen(function* () {
-    const workspace = workspaceById(workspaceId);
-    if (!azureEnabled(workspace)) return { services: [] }; // this context has no pipelines at all
+    const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     if (!az.project) {
       return { services: [], error: "no Azure DevOps project configured — run `az devops configure`" };
@@ -221,7 +256,8 @@ export const deployments = (
     const pipelines = yield* allPipelines(az);
     if (pipelines.length === 0) return { services: [], error: "no pipelines found — is `az` logged in?" };
 
-    const [, deployPrefix] = deploySettings().pipeline;
+    const settings = yield* deploySettings();
+    const [, deployPrefix] = settings.pipeline;
     const byName = new Map(pipelines.map((p) => [p.name, p]));
     const deployPipelines = pipelines
       .filter((p) => p.name.startsWith(deployPrefix))
@@ -231,14 +267,14 @@ export const deployments = (
       deployPipelines,
       (pipeline) =>
         Effect.gen(function* () {
-          const name = serviceName(pipeline.name);
-          const build = byName.get(buildPipelineName(name));
+          const name = serviceName(pipeline.name, settings);
+          const build = byName.get(buildPipelineName(name, settings));
           const runs = yield* runsOf(az, pipeline.id);
           return {
             name,
             pipeline: { id: pipeline.id, name: pipeline.name },
             build: build && { id: build.id, name: build.name },
-            environments: deploySettings().environments.map((e) => latestFor(runs, e)),
+            environments: settings.environments.map((e) => latestFor(runs, e, settings, az)),
           } satisfies Service;
         }),
       // Unbounded on purpose: one query per deploy pipeline, all independent.
@@ -247,13 +283,12 @@ export const deployments = (
     return { services };
   });
 
-
 /** Recent successful builds of a service, with the version each produced.
  *
  * The version is scraped from the build's own logs — Azure records it nowhere else — which is
- * the same lookup the CI card makes, cached per run since a finished build's logs never change.
- * Five is enough: deploying something older than that is a rollback, and a rollback should be
- * deliberate enough to type.
+ * the same lookup the azure-devops card makes, cached per run since a finished build's logs
+ * never change. Five is enough: deploying something older than that is a rollback, and a
+ * rollback should be deliberate enough to type.
  *
  * `*-app` services are the exception: they have no build pipeline to scrape, only a deploy
  * pipeline that builds and deploys straight to the first environment. What it deployed there is
@@ -262,21 +297,19 @@ export const deployments = (
  */
 export const versionsFor = (
   service: string,
-  workspaceId?: string,
   howMany = 5,
-): Effect.Effect<Buildable[]> =>
+): Effect.Effect<Buildable[], never, Capabilities> =>
   Effect.gen(function* () {
-    const workspace = workspaceById(workspaceId);
-    if (!azureEnabled(workspace)) return [];
+    const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     const project = az.project;
     const pipelines = yield* allPipelines(az);
-    const deploy = pipelines.find((p) => p.name === deployPipelineName(service));
+    const settings = yield* deploySettings();
+    const deploy = pipelines.find((p) => p.name === deployPipelineName(service, settings));
 
     if (autoDeployedApp(service)) {
       if (!deploy) return [];
       const runs = yield* runsOf(az, deploy.id);
-      const settings = deploySettings();
       const [accept] = settings.environments;
       const stillDeploying = runs.some(
         (r) =>
@@ -284,10 +317,10 @@ export const versionsFor = (
           (r.templateParameters ?? {})[settings.environmentParameter] === accept,
       );
       const expectedMs = stillDeploying ? yield* expectedDuration(az, deploy.id) : undefined;
-      return acceptedVersions(runs, az, expectedMs, howMany);
+      return acceptedVersions(runs, az, settings, expectedMs, howMany);
     }
 
-    const build = pipelines.find((p) => p.name === buildPipelineName(service));
+    const build = pipelines.find((p) => p.name === buildPipelineName(service, settings));
     if (!build || !project) return [];
 
     const [runs, deployRuns] = yield* Effect.all([
@@ -334,8 +367,8 @@ export const versionsFor = (
         url: buildUrl(run.id, az),
         // Where it already is: deploying what is already there is usually a mistake, and saying so
         // costs nothing.
-        deployedTo: deploySettings().environments.filter(
-          (e) => latestFor(deployRuns, e).version === version,
+        deployedTo: settings.environments.filter(
+          (e) => latestFor(deployRuns, e, settings, az).version === version,
         ),
       }));
 
@@ -349,19 +382,15 @@ export const versionsFor = (
  * A run still deploying counts too, and with a real version rather than a placeholder: unlike a
  * build, a deploy run is given its version as a parameter before it starts, so there is nothing
  * to wait for. It still cannot be promoted anywhere until it succeeds, which its own state says.
- *
- * Pure and synchronous on purpose: the one thing that would need `az` — the expected duration —
- * is computed once by the caller and handed in, so this can be tested with plain arrays and
- * without a CLI in reach.
  */
-// Pure and synchronous: nothing for an Effect to wrap.
 export function acceptedVersions(
   runs: Run[],
   az: Az,
+  settings: DeploySettings,
   expectedMs: number | undefined,
   howMany: number,
 ): Buildable[] {
-  const { environments, environmentParameter } = deploySettings();
+  const { environments, environmentParameter } = settings;
   const [accept] = environments;
   const mine = runs
     .filter((r) => (r.templateParameters ?? {})[environmentParameter] === accept)
@@ -370,7 +399,7 @@ export function acceptedVersions(
   const seen = new Set<string>();
   const entries: Buildable[] = [];
   for (const run of mine) {
-    const version = versionIn(run.templateParameters);
+    const version = versionIn(run.templateParameters, settings);
     if (!version || seen.has(version)) continue;
     seen.add(version);
     const running = run.status !== "completed";
@@ -403,12 +432,12 @@ export const branchOf = (ref: string | undefined): string => {
 };
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export const deployPipelineName = (service: string): string =>
-  `${deploySettings().pipeline[1]}${service}`;
+export const deployPipelineName = (service: string, settings: DeploySettings): string =>
+  `${settings.pipeline[1]}${service}`;
 
 /** The parameter this pipeline calls the version, learnt from what it was given last time. */
-function versionParameterOf(runs: Run[]): string {
-  const { versionParameter, environmentParameter } = deploySettings();
+function versionParameterOf(runs: Run[], settings: DeploySettings): string {
+  const { versionParameter, environmentParameter } = settings;
   for (const run of runs) {
     const params = run.templateParameters ?? {};
     if (params[versionParameter]) return versionParameter;
@@ -431,20 +460,20 @@ export const deploy = (
   service: string,
   version: string,
   environment: string,
-  workspaceId?: string,
-): Effect.Effect<{ runId: number; url?: string }, BadRequestError> =>
+): Effect.Effect<{ runId: number; url?: string }, BadRequestError, Capabilities> =>
   Effect.gen(function* () {
-    const { environments, environmentParameter } = deploySettings();
+    const settings = yield* deploySettings();
+    const { environments, environmentParameter } = settings;
     if (!environments.includes(environment)) {
       return yield* new BadRequestError({ message: `unknown environment: ${environment}` });
     }
-    const workspace = workspaceById(workspaceId);
-    if (!azureEnabled(workspace)) {
-      return yield* new BadRequestError({ message: `${workspace.name} has no pipelines` });
-    }
+    const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
+    if (!az.project) {
+      return yield* new BadRequestError({ message: "no Azure DevOps project configured — run `az devops configure`" });
+    }
     const pipelines = yield* allPipelines(az);
-    const pipeline = pipelines.find((p) => p.name === deployPipelineName(service));
+    const pipeline = pipelines.find((p) => p.name === deployPipelineName(service, settings));
     if (!pipeline) {
       return yield* new BadRequestError({ message: `no deploy pipeline for ${service}` });
     }
@@ -453,7 +482,7 @@ export const deploy = (
     const index = environments.indexOf(environment);
     if (index > 0) {
       const previous = environments[index - 1]!;
-      const holds = latestFor(runs, previous);
+      const holds = latestFor(runs, previous, settings, az);
       if (holds.version !== version || holds.state !== "ok") {
         return yield* new BadRequestError({
           message:
@@ -462,14 +491,14 @@ export const deploy = (
       }
     }
 
-    const started = yield* shSoft([
+    const started = yield* shResult([
       "az",
       "pipelines",
       "run",
       "--id",
       String(pipeline.id),
       "--parameters",
-      `${versionParameterOf(runs)}=${version}`,
+      `${versionParameterOf(runs, settings)}=${version}`,
       `${environmentParameter}=${environment}`,
       ...az.args,
       "-o",
@@ -491,7 +520,6 @@ export const deploy = (
       });
     }
     // The page asks Azure again on its next tick; forget what we knew a moment ago.
-    invalidate(`az:${az.key}:deploys:${pipeline.id}`);
+    yield* invalidateCache(`az:${az.key}:deploys:${pipeline.id}`);
     return { runId: run.id, url: buildUrl(run.id, az) };
   });
-

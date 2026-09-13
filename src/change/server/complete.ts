@@ -3,6 +3,7 @@ import { Effect, Either } from "effect";
 import type { Change, CompletionProgress, CompletionStep } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
 import { mergeReadiness, mergePr } from "../../vendors/github.ts";
+import type { Changes } from "../../extension-host/api/capabilities.ts";
 import { removeWorktree, unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import {
   archiveChange,
@@ -59,7 +60,7 @@ export function verdict(
 const completionOfRepo = (
   change: Change,
   repo: string,
-): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError> =>
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes> =>
   Effect.gen(function* () {
     return {
       repo,
@@ -68,7 +69,7 @@ const completionOfRepo = (
     };
   });
 
-export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError> =>
+export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError, Changes> =>
   Effect.map(
     Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
       // Unbounded concurrency is deliberate: these per-repo lookups are independent.
@@ -140,7 +141,7 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  */
 export const completeChange = (
   change: Change,
-): Effect.Effect<{ change: Change; notes: string[]; after: ProvisionResult[] }, IweError> =>
+): Effect.Effect<{ change: Change; notes: string[]; after: ProvisionResult[] }, IweError, Changes> =>
   Effect.gen(function* () {
     // Written before the checking starts, which is itself slow: a page that just asked for this
     // should see something immediately, and this is also the record that a completion is running.
@@ -193,8 +194,8 @@ export const completeChange = (
     /** Run one step, recording it before and after. A failure stops the completion where it is. */
     const step = (
       id: string,
-      work: Effect.Effect<string | undefined, CliError | BadRequestError>,
-    ): Effect.Effect<void, CliError | BadRequestError> =>
+      work: Effect.Effect<string | undefined, CliError | BadRequestError, Changes>,
+    ): Effect.Effect<void, CliError | BadRequestError, Changes> =>
       Effect.gen(function* () {
         const found = progress.steps.find((s) => s.id === id);
         if (!found) return;

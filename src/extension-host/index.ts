@@ -1,5 +1,7 @@
 import { loadAll, loadDiscovered } from "./discover.ts";
 import { loaded } from "./registry.ts";
+import { migrateExtensionSettings } from "./migrate.ts";
+import { config, setMigrator } from "../workspace/server/index.ts";
 
 /**
  * The extension host's public face: loads the built-in extensions, then the out-of-tree ones,
@@ -24,16 +26,16 @@ import { loaded } from "./registry.ts";
  */
 
 // The built-ins, in dashboard order: the agents' furniture first (it is what names windows
-// everywhere), then local changes, then CI, then the ticket cards. Each is a module whose
-// default export describes it — a static value, or a factory for one. Deployments and
-// leftovers own no card — their pages are offered beside the list, not on it — and review owns
-// a change tab rather than a card, so the three come last and do not disturb the cards' order.
+// everywhere), then local changes, then the pull requests and pipelines, then the ticket cards.
+// Each is a module whose default export describes it — a static value, or a factory for one.
+// The Azure DevOps page is offered beside the list, not on it — and review owns a change tab
+// rather than a card, so the two come last with leftovers and do not disturb the cards' order.
 import agentsExtension from "../extensions/agents/index.ts";
 import gitExtension from "../extensions/git/index.ts";
-import ciExtension from "../extensions/ci/index.ts";
+import githubExtension from "../extensions/github/index.ts";
 import jiraExtension from "../extensions/jira/index.ts";
 import githubIssuesExtension from "../extensions/github-issues/index.ts";
-import deploymentsExtension from "../extensions/deployments/index.ts";
+import azureDevopsExtension from "../extensions/azure-devops/index.ts";
 import leftoversExtension from "../extensions/leftovers/index.ts";
 import reviewExtension from "../extensions/review/index.ts";
 import notesExtension from "../extensions/notes/index.ts";
@@ -45,15 +47,21 @@ import notesExtension from "../extensions/notes/index.ts";
 await loadAll([
   agentsExtension,
   gitExtension,
-  ciExtension,
+  githubExtension,
   jiraExtension,
   githubIssuesExtension,
-  deploymentsExtension,
+  azureDevopsExtension,
   leftoversExtension,
   reviewExtension,
   notesExtension,
 ]);
 await loadDiscovered();
+
+// The retired names fold into the extensions' own settings, in memory: hand-edited files
+// land normalized without a settings save. The config calls back here on every refill, so a
+// settings write migrates too (src/settings/server/settings.ts migrates before writing).
+setMigrator(migrateExtensionSettings);
+migrateExtensionSettings(config.workspaces);
 
 // The public surface: every symbol the rest of the server imports from here, whichever module
 // implements it (or from ./registry.ts, which src/terminals/server/presenter.ts reads directly).

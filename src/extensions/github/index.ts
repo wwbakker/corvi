@@ -3,48 +3,37 @@ import { Effect } from "effect";
 import { worst } from "../../domain/widget.ts";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { activeRuns, pipelineItems } from "../../vendors/azure.ts";
-import { createPr, prItem, prSummary } from "../../vendors/github.ts";
+import { Cache, Changes, Shell, Workspace } from "../../extension-host/api.ts";
+import { prItem, prSummary, createPr } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
 import type { Extension, SummaryContribution } from "../../extension-host/api.ts";
 
 /**
- * Pull requests and the pipelines they trigger, per repository: one question ("is this change
- * green?") answered in one card, rather than split across two vendors.
+ * Pull requests and the checks they report, per repository: whether this change is green, from
+ * GitHub's side.
+ *
+ * The tree is `repository > pull request > checks`: the pull request row carries the review
+ * state, and its children are the checks the pull request itself reports — GitHub Actions, Azure
+ * Pipelines in any project, Cypress, whatever the repository has bolted on. Azure DevOps
+ * pipelines in the configured project are the azure-devops extension's own rows on its own
+ * card; the two cards read side by side rather than in one tree.
  */
 
-/** repository > pull request > pipeline > runs, as one collapsible tree per repository. */
+/** repository > pull request > checks, as one collapsible tree per repository. */
 const repoItem = (
   change: Change,
   repo: string,
-): Effect.Effect<{ item: WidgetItem; prs: number; runs: number }> =>
+): Effect.Effect<WidgetItem, BadRequestError, Changes | Shell | Workspace | Cache> =>
   Effect.gen(function* () {
     const { number, item: pr } = yield* prItem(change, repo);
-    // Pipelines run on the PR merge ref once a PR exists, so the two are looked up together.
-    const { items: azure, count } = yield* pipelineItems(change, repo, number);
-    // Nothing found in Azure DevOps does not mean nothing ran: a repository can be built by
-    // GitHub Actions, or by pipelines in another Azure project than the configured one. The pull
-    // request itself knows about all of them, so fall back to what it reports.
-    const pipelines =
-      count === 0 && number ? yield* fallbackChecks(change, repo, number, azure) : azure;
+    const checks = number ? yield* checkItems(change, repo, number) : [];
     const item: WidgetItem = {
       label: basename(repo),
-      state: worstItem([pr, ...pipelines]),
-      children: [{ ...pr, children: pipelines }],
+      state: worstItem([pr, ...checks]),
+      children: [{ ...pr, children: checks.length ? checks : undefined }],
     };
-    return { item, prs: number ? 1 : 0, runs: count };
-  });
-
-const fallbackChecks = (
-  change: Change,
-  repo: string,
-  number: number,
-  azure: WidgetItem[],
-): Effect.Effect<WidgetItem[]> =>
-  Effect.gen(function* () {
-    const checks = yield* checkItems(change, repo, number);
-    return checks.length ? checks : azure;
+    return item;
   });
 
 /** The item-level variant of domain/widget.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
@@ -60,53 +49,43 @@ const worstItem = (items: WidgetItem[]): WidgetState =>
           ? "ok"
           : "none";
 
-/** The CI card's action runner. */
+/** The GitHub card's action runner. */
 const runEffect = (
   change: Change,
   action: string,
   repo?: string,
-): Effect.Effect<void, BadRequestError | CliError> =>
+): Effect.Effect<void, BadRequestError | CliError, Changes | Shell | Workspace | Cache> =>
   Effect.gen(function* () {
     if (action !== "create") {
-      return yield* new BadRequestError({ message: `unknown ci action: ${action}` });
+      return yield* new BadRequestError({ message: `unknown github action: ${action}` });
     }
     if (!repo) return yield* new BadRequestError({ message: "repo required" });
     yield* createPr(change, repo);
   });
 
 /**
- * The facts the change's overview card shows beyond its terminals: how many pipelines are in
- * flight and how many review comments wait, per repository in parallel. The pull request is
- * asked only for its open threads and its checks — the cached queries the dashboard already
- * makes — so the summary stays as cheap as the card it feeds. A repository's vendors being
- * down is the contributor's own failure, which the host swallows: the card loses the facts,
- * not the request.
+ * The facts the change's overview card shows beyond its terminals: how many review comments
+ * wait, per repository in parallel. The pull request is asked only for its open threads and its
+ * checks — the cached queries the dashboard already makes — so the summary stays as cheap as
+ * the card it feeds. A repository's vendor being down is the contributor's own failure, which
+ * the host swallows: the card loses the facts, not the request.
  */
 const summaryContribution = (
   change: Change,
-): Effect.Effect<SummaryContribution, unknown> =>
+): Effect.Effect<SummaryContribution, unknown, Changes | Shell | Workspace | Cache> =>
   Effect.gen(function* () {
     const perRepo = yield* Effect.forEach(
       change.repos,
       (repo) =>
         Effect.gen(function* () {
-          const { number, unresolved, checks } = yield* prSummary(change, repo);
-          return { pipelines: yield* activeRuns(change, repo, number), unresolved, checks };
+          const { unresolved, checks } = yield* prSummary(change, repo);
+          return { unresolved, checks };
         }),
       { concurrency: "unbounded" },
     );
-    const pipelines = perRepo.reduce((n, r) => n + r.pipelines, 0);
     const unresolved = perRepo.reduce((n, r) => n + r.unresolved, 0);
     return {
       facts: [
-        {
-          id: "pipelines",
-          label:
-            pipelines > 0
-              ? `${pipelines} pipeline${pipelines === 1 ? "" : "s"} active`
-              : "pipelines idle",
-          state: pipelines > 0 ? "pending" : "none",
-        },
         // Nothing at all when every thread is resolved: an empty inbox needs no line.
         ...(unresolved > 0
           ? [{
@@ -116,12 +95,7 @@ const summaryContribution = (
             }]
           : []),
       ],
-      // A pipeline in flight is a build running, whatever the pull request's checks say about
-      // the last one.
-      state: worst([
-        ...perRepo.map((r) => r.checks),
-        ...(perRepo.some((r) => r.pipelines > 0) ? (["pending"] as WidgetState[]) : []),
-      ]),
+      state: worst(perRepo.map((r) => r.checks)),
     };
   });
 
@@ -130,7 +104,9 @@ const summaryContribution = (
  * repository in parallel and in repository order. A repository with no pull request, or no
  * network, is not a loose end worth failing a cancellation over, so each lookup is best effort.
  */
-const prLooseEnds = (change: Change): Effect.Effect<string[]> =>
+const prLooseEnds = (
+  change: Change,
+): Effect.Effect<string[], never, Changes | Shell | Workspace | Cache> =>
   Effect.map(
     Effect.forEach(
       change.repos,
@@ -145,14 +121,14 @@ const prLooseEnds = (change: Change): Effect.Effect<string[]> =>
   );
 
 export default {
-  name: "ci",
-  title: "CI",
+  name: "github",
+  title: "GitHub",
 
   cards: [
     {
-      title: "CI",
+      title: "GitHub",
       wide: true,
-      repoStatus: (change, repo) => Effect.map(repoItem(change, repo), ({ item }) => [item]),
+      repoStatus: (change, repo) => Effect.map(repoItem(change, repo), (item) => [item]),
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],

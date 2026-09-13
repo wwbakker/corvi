@@ -78,8 +78,8 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
     changesRoot: join(tmp, "changes"),
     worktreeCopy: [".idea"],
     workspaces: [
-      { id: "client", name: "Client", azure: false, extensionSettings: { jira: { project: "PROJ" } } },
-      { id: "own", name: "My own", extensions: ["ci", "git"] },
+      { id: "client", name: "Client", extensionSettings: { jira: { project: "PROJ" } } },
+      { id: "own", name: "My own", extensions: ["github", "git"] },
     ],
   };
   await runEffect(writeSettings(next));
@@ -90,8 +90,7 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(config.workspaces.map((w) => w.id)).toEqual(["client", "own"]);
   // The shapes the page wrote land on the object every module reads, untouched.
   expect(config.workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
-  expect(config.workspaces[0]!.azure).toBe(false);
-  expect(config.workspaces[1]!.extensions).toEqual(["ci", "git"]);
+  expect(config.workspaces[1]!.extensions).toEqual(["github", "git"]);
 
   expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.
@@ -207,14 +206,14 @@ test("the extensions' own settings round-trip, strings and string lists", async 
   await runEffect(writeSettings({
     extensionSettings: {
       jira: { assignee: "me@example.com" },
-      deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
+      "azure-devops": { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
     },
   }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.extensionSettings).toEqual({
     jira: { assignee: "me@example.com" },
-    deployments: { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
+    "azure-devops": { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
   });
   // The core carries the bag without looking inside: the object every module holds by
   // reference has it, untouched.
@@ -225,11 +224,11 @@ test("the extensions' own settings round-trip, strings and string lists", async 
   await runEffect(writeSettings({
     extensionSettings: {
       jira: { assignee: "" },
-      deployments: { environments: ["dev", "accept"] },
+      "azure-devops": { environments: ["dev", "accept"] },
     },
   }));
   const again = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(again.extensionSettings).toEqual({
-    deployments: { environments: ["dev", "accept"] },
+    "azure-devops": { environments: ["dev", "accept"] },
   });
 });

@@ -16,12 +16,12 @@ export {
   readFileSync,
   reloadConfig,
   reloadConfigSync,
+  setMigrator,
 } from "./config.ts";
 
 export {
   ConfigFile,
   Resolved,
-  AzureDeploy,
   WorkspaceId,
   DirectoryName,
   EnvVarName,

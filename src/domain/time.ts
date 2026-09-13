@@ -1,6 +1,6 @@
 /** How long ago, in the words the pages use: "just now", "12m ago", "3h ago", "2d ago".
  *
- * Shared rather than written twice: the deployments page bakes it into a line of its own ("2h
+ * Shared rather than written twice: the Azure DevOps page bakes it into a line of its own ("2h
  * ago", "20260911.3 failed 2h ago") and a widget row shows it beside a build, and two answers to
  * one question drift. */
 export const ago = (iso?: string | null): string => {

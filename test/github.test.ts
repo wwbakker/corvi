@@ -138,17 +138,20 @@ const ghShell = (opts: GhShellOptions): FakeShell => {
 };
 
 /** Run a core github.ts effect with a fake Shell, capturing a failure instead of rejecting. */
-const runEither = <A, E>(
+const runEither = <A, E, R>(
   shell: FakeShell,
-  effect: Effect.Effect<A, E, never>,
+  effect: Effect.Effect<A, E, R>,
 ): Promise<Either.Either<A, E>> =>
   Effect.runPromise(
     Effect.either(
       Effect.provide(
-        effect,
+        effect as Effect.Effect<A, E, never>,
         Layer.mergeAll(
           Layer.succeed(Shell, shell),
           Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+          CacheLive,
+          SettingsLive,
+          ChangesLive,
         ),
       ),
     ),

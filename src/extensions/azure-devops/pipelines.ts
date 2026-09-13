@@ -1,13 +1,11 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
-import { worst } from "../domain/widget.ts";
-import type { Change } from "../domain/change.ts";
-import type { WidgetItem, WidgetState } from "../domain/widget.ts";
-import { swr } from "../capabilities/cache.ts";
-import type { Workspace } from "../domain/config.ts";
-import { config, extensionEnabled, workspaceOf } from "../workspace/server/index.ts";
-import { bagString, resolveSetting } from "../settings/server/legacySettings.ts";
-import { cliJson, shSoft } from "../capabilities/effect/support.ts";
+import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
+import { Cache, Changes, Settings, Shell, Workspace } from "../../extension-host/api.ts";
+import { cliJson } from "../../capabilities/effect/support.ts";
+import type { Result } from "../../capabilities/shell.ts";
+import { prSummary } from "../../vendors/github.ts";
+import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
   id: number;
@@ -51,99 +49,28 @@ const historySize = (): string => process.env.IWE_AZURE_HISTORY ?? "10";
 /** Runs shown per pipeline. The newest is what you look at; the rest are history. */
 const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
 
-/** Organisation and project default to whatever `az devops configure` already holds, so the
- * Azure CLI stays the single place this is configured. */
-let defaults: { organization?: string; project?: string } | null = null;
+/** The environment variables the extension's declared settings name, so the settings page's
+ * lock and the settings read cannot drift apart. */
+export const AZURE_HISTORY_ENV = "IWE_AZURE_HISTORY";
+export const AZURE_RUNS_ENV = "IWE_AZURE_RUNS";
 
-/** Whether this workspace has Azure DevOps at all: only the legacy `azure: false` — "this
- * context has no pipelines" — says no. This is the predicate the CI facts use, so a workspace
- * that enabled ci without the deployments page still shows its pipeline runs. */
-export const azureConfigured = (workspace: Workspace): boolean => workspace.azure !== false;
-
-/** Whether the deployments extension's surface is enabled for this workspace: the extension must
- * be present (an absent extensions list means all of them), and the legacy `azure: false` —
- * "this context has no pipelines" — still says no. */
-export const azureEnabled = (workspace: Workspace): boolean =>
-  extensionEnabled(workspace, "deployments") && azureConfigured(workspace);
-
-/** The organisation and project every workspace falls back to: the deployments extension's
- * global settings bag, then the legacy flat field (which resolves IWE_AZURE_ORG /
- * IWE_AZURE_PROJECT), then whatever `az devops configure` holds (azDefaults below). */
-const globalAzure = (): { organization: string; project: string } => ({
-  organization: resolveSetting({
-    bag: bagString(config.extensionSettings?.deployments, "organization"),
-    fallback: config.azureOrganization,
-  }),
-  project: resolveSetting({
-    bag: bagString(config.extensionSettings?.deployments, "project"),
-    fallback: config.azureProject,
-  }),
-});
-
-/** Azure DevOps for this workspace, the whole precedence chain in one place: the per-workspace
- * settings bag (`workspace.extensionSettings.deployments`, what the settings page writes), then
- * the legacy `workspace.azure` object, then the global settings bag, then the legacy flat field,
- * and finally whatever `az devops configure` holds — which `azFor` reaches when this answers
- * empty. The legacy fields stay readable; nothing rewrites them. */
-export function azureOf(workspace: Workspace): { organization: string; project: string } {
-  const legacy = workspace.azure === false ? undefined : workspace.azure;
-  const own = workspace.extensionSettings?.deployments;
-  const global = globalAzure();
-  const field = (key: "organization" | "project", fallback: string): string =>
-    resolveSetting({ bag: bagString(own, key) ?? legacy?.[key], fallback });
-  return {
-    organization: field("organization", global.organization),
-    project: field("project", global.project),
-  };
-}
-
-export const azDefaults = (): Effect.Effect<{ organization?: string; project?: string }> =>
-  Effect.suspend(() => {
-    if (defaults) return Effect.succeed(defaults);
-    return Effect.gen(function* () {
-      const r = yield* shSoft(["az", "devops", "configure", "-l"]);
-      const read = (key: string): string | undefined =>
-        new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
-      const global = globalAzure();
-      defaults = {
-        // The configuration chain's end: the deployments settings (bag, then the legacy flat
-        // field, which resolves the environment variable), then what the CLI itself holds.
-        organization: global.organization || read("organization"),
-        project: global.project || read("project"),
-      };
-      return defaults;
-    });
-  });
-
-/**
- * Which Azure DevOps this workspace means, and how to say so on a command line.
- *
- * `az` has one configured default organisation and project, which is fine until a second client
- * turns up. A workspace that names its own gets them passed explicitly; one that does not falls
- * back to `az devops configure`.
- *
- * The key namespaces the cache: two organisations answering the same question differently is
- * exactly the bug this prevents.
- */
-export type Az = { key: string; args: string[]; organization?: string; project?: string };
-
-export const azFor = (workspace: Workspace): Effect.Effect<Az> =>
+/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
+const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const own = azureOf(workspace);
-    const fallback = yield* azDefaults();
-    const organization = own.organization || fallback.organization;
-    const project = own.project || fallback.project;
-    return {
-      key: workspace.id,
-      args: [
-        ...(organization ? ["--organization", organization] : []),
-        ...(project ? ["--project", project] : []),
-      ],
-      organization,
-      project,
-    };
+    const shell = yield* Shell;
+    return yield* shell.run(cmd).pipe(
+      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+    );
   });
 
+const cached = <A>(
+  key: string,
+  ttlMs: number,
+  work: Effect.Effect<A, never, Shell | Workspace | Cache>,
+): Effect.Effect<A, never, Shell | Workspace | Cache> =>
+  Effect.flatMap(Cache, (cache) => cache.swr(key, ttlMs, work));
 
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -180,7 +107,7 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
  * One call per distinct question, however many rows ask it: every repository of a change asks
  * Azure DevOps about the same branch at the same moment, and `az` costs a few hundred
  * milliseconds of CPU per invocation — it is a Python program, started afresh each time. The
- * sharing and the staleness both live in src/capabilities/cache.ts.
+ * sharing and the staleness both live in the contract's `Cache` capability.
  */
 
 /** Pipelines are moved between folders about never; runs happen while you watch. Both are
@@ -188,10 +115,15 @@ export const folderFor = (repo: string): string => `\\${basename(repo)}`;
 const DEFINITIONS_TTL = 5 * 60_000;
 const RUNS_TTL = 10_000;
 
-const listDefinitions = (az: Az, repo: string): Effect.Effect<Definition[]> =>
-  swr(`az:${az.key}:definitions:${folderFor(repo)}`, DEFINITIONS_TTL,
+const listDefinitions = (
+  az: Az,
+  repo: string,
+): Effect.Effect<Definition[], never, Shell | Workspace | Cache> =>
+  cached(
+    `az:${az.key}:definitions:${folderFor(repo)}`,
+    DEFINITIONS_TTL,
     Effect.gen(function* () {
-      const r = yield* shSoft([
+      const r = yield* shResult([
         "az",
         "pipelines",
         "list",
@@ -202,28 +134,36 @@ const listDefinitions = (az: Az, repo: string): Effect.Effect<Definition[]> =>
         "json",
       ]);
       return r.code === 0 ? yield* cliJson(DefinitionsSchema, [] as Definition[])(r.stdout) : [];
-    }));
+    }),
+  );
 
-const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: string }> =>
+const runsFor = (
+  az: Az,
+  refs: string[],
+): Effect.Effect<{ runs: Run[]; error?: string }, never, Shell | Workspace | Cache> =>
   Effect.gen(function* () {
     // One query per ref; grouping per pipeline happens here rather than in a query per pipeline.
     // The branch ref is the same for every repository of a change, so this is asked six times at
     // once and answered once.
     const results = yield* Effect.all(
       refs.map((ref) =>
-        swr(`az:${az.key}:runs:${ref}`, RUNS_TTL, shSoft([
-          "az",
-          "pipelines",
-          "runs",
-          "list",
-          "--branch",
-          ref,
-          "--top",
-          "50",
-          ...az.args,
-          "-o",
-          "json",
-        ])),
+        cached(
+          `az:${az.key}:runs:${ref}`,
+          RUNS_TTL,
+          shResult([
+            "az",
+            "pipelines",
+            "runs",
+            "list",
+            "--branch",
+            ref,
+            "--top",
+            "50",
+            ...az.args,
+            "-o",
+            "json",
+          ]),
+        )
       ),
       // Unbounded: the shared CLI semaphore caps how many of these run at once.
       { concurrency: "unbounded" },
@@ -245,10 +185,13 @@ const runsFor = (az: Az, refs: string[]): Effect.Effect<{ runs: Run[]; error?: s
  * the overview needs. Both queries behind it are the cached ones the dashboard uses, so asking
  * for it costs nothing extra while a change is open, and it skips durations, logs and versions.
  */
-export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Effect<number> =>
+export const activeRuns = (
+  change: { branch: string; workspace?: string },
+  repo: string,
+  pr?: number,
+): Effect.Effect<number, never, Shell | Workspace | Cache | Settings> =>
   Effect.gen(function* () {
-    const workspace = workspaceOf(change);
-    if (!azureConfigured(workspace)) return 0; // a context without pipelines has none running
+    const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     const [definitions, { runs, error }] = yield* Effect.all([
       listDefinitions(az, repo),
@@ -261,7 +204,6 @@ export const activeRuns = (change: Change, repo: string, pr?: number): Effect.Ef
       return r.status !== "completed" && id !== undefined && mine.has(id);
     }).length;
   });
-
 
 /** Mean duration of the last finished runs of a pipeline, across branches. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -277,10 +219,15 @@ export function averageDuration(runs: Run[]): number | undefined {
   return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
 }
 
-export const expectedDuration = (az: Az, definitionId: number): Effect.Effect<number | undefined> =>
-  swr(`az:${az.key}:duration:${definitionId}`, DEFINITIONS_TTL,
+export const expectedDuration = (
+  az: Az,
+  definitionId: number,
+): Effect.Effect<number | undefined, never, Shell | Workspace | Cache> =>
+  cached(
+    `az:${az.key}:duration:${definitionId}`,
+    DEFINITIONS_TTL,
     Effect.gen(function* () {
-      const r = yield* shSoft([
+      const r = yield* shResult([
         "az",
         "pipelines",
         "runs",
@@ -297,8 +244,8 @@ export const expectedDuration = (az: Az, definitionId: number): Effect.Effect<nu
       return r.code === 0
         ? averageDuration(yield* cliJson(RunsSchema, [] as Run[])(r.stdout))
         : undefined;
-    }));
-
+    }),
+  );
 
 /** The artifact version a build produced, as printed by the pipelines themselves. */
 const VERSION_PATTERNS = [
@@ -321,9 +268,13 @@ export function versionInLines(lines: string[]): string | undefined {
 }
 
 /** Log ids of a run, newest step last. */
-const logIds = (project: string, pipelineId: number, runId: number): Effect.Effect<number[]> =>
+const logIds = (
+  project: string,
+  pipelineId: number,
+  runId: number,
+): Effect.Effect<number[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shSoft([
+    const r = yield* shResult([
       "az",
       "devops",
       "invoke",
@@ -348,9 +299,13 @@ const logIds = (project: string, pipelineId: number, runId: number): Effect.Effe
     return parsed.logs?.map((l) => l.id) ?? [];
   });
 
-const logLines = (project: string, runId: number, logId: number): Effect.Effect<string[]> =>
+const logLines = (
+  project: string,
+  runId: number,
+  logId: number,
+): Effect.Effect<string[], never, Shell | Workspace> =>
   Effect.gen(function* () {
-    const r = yield* shSoft([
+    const r = yield* shResult([
       "az",
       "devops",
       "invoke",
@@ -378,13 +333,17 @@ const logLines = (project: string, runId: number, logId: number): Effect.Effect<
       : [];
   });
 
-/** A finished run's logs never change, so a version is looked up once and kept. */
+/** A finished run's logs never change, so a version is looked up once and kept. Sharing it
+ * across requests needs no capability: the answer is a pure function of the run. */
 const versions = new Map<number, string | undefined>();
 
-export const versionOf = (run: Run, project: string): Effect.Effect<string | undefined> =>
+export const versionOf = (
+  run: Run,
+  project: string,
+): Effect.Effect<string | undefined, never, Shell | Workspace> =>
   Effect.suspend(() => {
     // Only successful builds produced an artifact worth naming.
-    if (run.status !== "completed" || run.result !== "succeeded") return Effect.sync(() => undefined);
+    if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
     if (versions.has(run.id)) return Effect.succeed(versions.get(run.id));
 
     const pipelineId = run.definition?.id;
@@ -395,15 +354,19 @@ export const versionOf = (run: Run, project: string): Effect.Effect<string | und
     });
   });
 
+/** Clear the memoised version lookups, for tests that script the logs per case. */
+export const resetVersions = (): void => {
+  versions.clear();
+};
 
 const findVersion = (
   project: string,
   pipelineId: number,
   runId: number,
-): Effect.Effect<string | undefined> =>
+): Effect.Effect<string | undefined, never, Shell | Workspace> =>
   Effect.gen(function* () {
     // Publishing happens at the end of a build, so the last steps are searched first: in practice
-    // the version turns up in the first batch. ponytail: batches of 5, widen if it ever drags.
+    // the version turns up in the first batch.
     const ids = (yield* logIds(project, pipelineId, runId)).sort((a, b) => b - a);
     for (let i = 0; i < ids.length; i += 5) {
       const batch = yield* Effect.all(
@@ -423,8 +386,8 @@ const findVersion = (
 
 /** Where a run can be looked at in Azure DevOps. Undefined when we do not know the
  * organisation or project, which is the same condition that makes everything else here empty. */
-export function buildUrl(id: number, az?: Az): string | undefined {
-  const { organization, project } = az ?? defaults ?? {};
+export function buildUrl(id: number, az: Az): string | undefined {
+  const { organization, project } = az;
   return organization && project
     ? `${organization}/${encodeURIComponent(project)}/_build/results?buildId=${id}`
     : undefined;
@@ -432,17 +395,16 @@ export function buildUrl(id: number, az?: Az): string | undefined {
 
 // Pure and synchronous: nothing for an Effect to wrap.
 
-/** One row per pipeline of this repository, with its runs for this ref as children. */
+/** One row per pipeline of this repository, with its runs for this ref as children. An empty
+ * answer is no row at all rather than a row saying so: a repository built by GitHub Actions, or
+ * by pipelines in another project, has nothing here to show. */
 export const pipelineItems = (
-  change: Change,
+  change: { branch: string; workspace?: string },
   repo: string,
   pr?: number,
-): Effect.Effect<{ items: WidgetItem[]; count: number }> =>
+): Effect.Effect<{ items: WidgetItem[]; count: number }, never, Shell | Workspace | Cache | Settings> =>
   Effect.gen(function* () {
-    const workspace = workspaceOf(change);
-    // A context without pipelines is not an empty list of them, it is silence: the card shows the
-    // pull request and nothing else, and no `az` process is started.
-    if (!azureConfigured(workspace)) return { items: [], count: 0 };
+    const workspace = yield* Workspace;
     const az = yield* azFor(workspace);
     const refs = refsFor(change.branch, pr);
     const [definitions, { runs, error }] = yield* Effect.all([
@@ -538,13 +500,18 @@ export const pipelineItems = (
       { concurrency: "unbounded" },
     );
 
-    if (items.length === 0) {
-      items.push({
-        label: "pipelines",
-        detail: `none in ${folderFor(repo)}`,
-        state: "none",
-      });
-    }
     return { items, count };
   });
+
+/** The pull request number this change's branch has in `repo`, through the shared cached
+ * lookup the GitHub card makes: pipelines run on the PR merge ref once a PR exists, so the two
+ * are looked up together. A lookup that fails is no pull request, not an error. */
+export const prNumberOf = (
+  change: { id: string; branch: string; repos: string[]; workspace?: string; createdAt: string },
+  repo: string,
+): Effect.Effect<number | undefined, never, Shell | Workspace | Cache | Changes> =>
+  Effect.map(
+    Effect.orElseSucceed(prSummary(change, repo), () => undefined),
+    (summary) => summary?.number,
+  );
 

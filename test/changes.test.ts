@@ -511,19 +511,23 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...config };
   const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
-  const { azureEnabled, azureOf } = await import("../src/vendors/azure.ts");
+  const { azureOf } = await import("../src/extensions/azure-devops/azure.ts");
   const { extensionsFor, loaded } = await import("../src/extension-host/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
-  // one names its extensions explicitly — enablement is the list, not a vendor flag — and keeps
-  // `azure: false` for the pipelines it has none of.
+  // one names its extensions explicitly — enablement is the list, not a vendor flag.
   (config as { workspaces: unknown }).workspaces = [
-    { id: "client", name: "Acme", azure: { organization: "https://dev.azure.com/one", project: "A" } },
+    {
+      id: "client",
+      name: "Acme",
+      extensionSettings: {
+        "azure-devops": { organization: "https://dev.azure.com/one", project: "A" },
+      },
+    },
     {
       id: "personal",
       name: "Personal",
-      azure: false,
-      extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "deployments"),
+      extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "azure-devops"),
     },
   ];
 
@@ -532,22 +536,19 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   const old = { id: "OLD-1" } as never; // no workspace: it belongs to the first one
 
   // A personal project has no ticket, and being asked about one is noise and a CLI call: the
-  // jira extension is not there at all. The CI card is pull requests as well as pipelines, so
-  // it stays either way.
+  // jira extension is not there at all. The GitHub card stays either way.
   expect(extensionsFor(workspaceOf(client)).some((e) => e.name === "jira")).toBe(true);
   expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "jira")).toBe(false);
-  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "ci")).toBe(true);
-  // Enablement is the list: naming extensions without deployments means no pipelines, whatever
-  // the legacy workspace.azure says. `extensionEnabled` is the generic rule azureEnabled builds on.
-  expect(extensionEnabled(workspaceOf(personal), "deployments")).toBe(false);
-  expect(extensionEnabled(workspaceOf(personal), "ci")).toBe(true);
-  expect(azureEnabled(workspaceOf(personal))).toBe(false);
-  expect(azureEnabled(workspaceOf(client))).toBe(true);
+  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "github")).toBe(true);
+  // Enablement is the list: naming extensions without azure-devops means no pipelines.
+  expect(extensionEnabled(workspaceOf(personal), "azure-devops")).toBe(false);
+  expect(extensionEnabled(workspaceOf(personal), "github")).toBe(true);
+  expect(extensionEnabled(workspaceOf(client), "azure-devops")).toBe(true);
 
-  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Jira's
-  // site comes from the extension's own per-workspace settings; a workspace with none of them
-  // uses whatever jira-cli itself has configured.
-  expect(azureOf(workspaceOf(client)).organization).toBe("https://dev.azure.com/one");
+  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Both
+  // come from the extensions' own per-workspace settings; a workspace with none of them uses
+  // whatever the CLIs themselves have configured.
+  expect(azureOf(workspaceOf(client), config).organization).toBe("https://dev.azure.com/one");
   expect(siteFor("personal")).toEqual({});
   expect(siteFor("client")).toEqual({});
 

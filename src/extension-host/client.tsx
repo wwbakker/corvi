@@ -51,7 +51,7 @@ export type ClientModule = { step?: StepComponent; page?: PageComponent; tab?: T
 export const clients: Record<string, () => Promise<ClientModule>> = {
   jira: () => import("../extensions/jira/client.tsx"),
   "github-issues": () => import("../extensions/github-issues/client.tsx"),
-  deployments: () => import("../extensions/deployments/client.tsx"),
+  "azure-devops": () => import("../extensions/azure-devops/client.tsx"),
   leftovers: () => import("../extensions/leftovers/client.tsx"),
   review: () => import("../extensions/review/client.tsx"),
   notes: () => import("../extensions/notes/client.tsx"),

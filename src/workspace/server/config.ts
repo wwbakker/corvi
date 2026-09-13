@@ -72,9 +72,16 @@ function load(): Config {
   return {
     // The file's unknown keys ride along into the resolved config: every boundary that decodes a
     // file keeps the keys it does not know about, and an extension's legacy fallback (the jira
-    // extension's `legacy.ts`) reads a field the core used to own from here. Every known field
-    // below overrides its raw counterpart.
+    // extension's `legacy.ts`, the azure-devops extension's `legacy.ts`) reads a field the core
+    // used to own from here. Every known field below overrides its raw counterpart — and the
+    // retired top-level keys are deleted after spreading, so `in` checks and `Object.keys`
+    // cannot mistake a legacy field for a live one.
     ...file,
+    ...({ azureOrganization: undefined, azureProject: undefined, azureDeploy: undefined } as {
+      azureOrganization?: undefined;
+      azureProject?: undefined;
+      azureDeploy?: undefined;
+    }),
     changesRoot: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.changesRoot,
@@ -117,42 +124,6 @@ function load(): Config {
           .filter(Boolean),
     }),
     extensionPaths: extensionPathsFrom(file),
-    azureOrganization: resolveSetting({
-      env: ENV_OVERRIDES.azureOrganization,
-      file: file.azureOrganization,
-      fallback: "",
-    }),
-    azureProject: resolveSetting({
-      env: ENV_OVERRIDES.azureProject,
-      file: file.azureProject,
-      fallback: "",
-    }),
-    azureDeploy: {
-      pipeline: resolveSetting<readonly [string, string]>({
-        file: file.azureDeploy?.pipeline,
-        fallback: ["build-", "deploy-"],
-      }),
-      versionParameter: resolveSetting({
-        file: file.azureDeploy?.versionParameter,
-        fallback: "dockerTag",
-      }),
-      environmentParameter: resolveSetting({
-        file: file.azureDeploy?.environmentParameter,
-        fallback: "environment",
-      }),
-      environments: resolveSetting({
-        env: ENV_OVERRIDES["azureDeploy.environments"],
-        file: file.azureDeploy?.environments,
-        fallback: ["accept", "production"],
-        parse: (raw) =>
-          raw === ""
-            ? undefined
-            : raw
-                .split(",")
-                .map((e) => e.trim())
-                .filter(Boolean),
-      }),
-    },
   };
 }
 
@@ -184,8 +155,24 @@ function extensionPathsFrom(file: ConfigFile): string[] {
  * Deliberately one object that is refilled rather than replaced: every module imports this by
  * reference, and a settings page that only took effect after a restart would be a settings page
  * nobody trusts.
+ *
+ * The retired extension names fold into the extensions' own settings here rather than in the
+ * extension host: the config owns the workspaces, and importing the host from the config would
+ * close a module cycle (the host reads the config to discover out-of-tree extensions). The
+ * migration lives in src/extension-host/migrate.ts and is injected by setMigrator, which the
+ * host calls once its registry — the source of the loaded names — exists.
  */
 export const config: Config = load();
+
+/** The workspace migration the host injects once its registry exists. Unset in tests that
+ * import the config without the host: no migration then, only the file as written. */
+let migrator: ((workspaces: Config["workspaces"]) => void) | undefined;
+
+export const setMigrator = (
+  migrate: ((workspaces: Config["workspaces"]) => void) | undefined,
+): void => {
+  migrator = migrate;
+}
 
 /** The same refill as an Effect, for the settings page's Effect write path. The object is
  * mutated in place (Object.assign) — modules hold it by reference. */
@@ -196,5 +183,7 @@ export const reloadConfig = Effect.sync(() => reloadConfigSync());
  *
  * Sync sibling of reloadConfig, which the settings write path uses. */
 export function reloadConfigSync(): Config {
-  return Object.assign(config, load());
+  const reloaded = Object.assign(config, load());
+  migrator?.(reloaded.workspaces);
+  return reloaded;
 }

@@ -8,21 +8,26 @@ import type { Capabilities, Card } from "../src/extension-host/api.ts";
 import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
 import { install, loaded } from "../src/extension-host/registry.ts";
 import { provision, repoStatusOf, runCard, statusOne } from "../src/extension-host/effects.ts";
-import ciExtension from "../src/extensions/ci/index.ts";
-import deploymentsExtension from "../src/extensions/deployments/index.ts";
+import githubExtension from "../src/extensions/github/index.ts";
+import azureDevopsExtension from "../src/extensions/azure-devops/index.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Result } from "../src/capabilities/shell.ts";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
 
 /**
- * The cards' server half: the CI tree the dashboard draws, the deployments routes its page
- * fetches, and the orchestration that runs a contributed effect. Everything here is driven
- * through the fake Shell (test/helpers.ts) or through in-memory Card/extension stubs, so no
- * `az`, `gh` or `git` process is ever started.
+ * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
+ * azure-devops routes its page fetches, and the orchestration that runs a contributed effect.
+ * Everything here is driven through the fake Shell (test/helpers.ts) or through in-memory
+ * Card/extension stubs, so no `az`, `gh` or `git` process is ever started.
  */
 
-beforeEach(() => clearCache());
+beforeEach(async () => {
+  clearCache();
+  const { resetAzDefaults, resetVersions } = await import("./helpers.ts");
+  resetAzDefaults();
+  resetVersions();
+});
 
 const change = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-1",
@@ -47,9 +52,10 @@ const shellFor = (
   return shell;
 };
 
-// --- ci: the per-repository tree, the summary and the loose ends ---------------------------
+// --- github: the per-repository tree, the summary and the loose ends -----------------------
 
-const ci = ciExtension.cards[0]!;
+const github = githubExtension.cards[0]!;
+const azure = azureDevopsExtension.cards[0]!;
 const orderRepo = "/repos/example-api";
 const orderWt = "/worktrees/example-api";
 const branch = "PROJ-1-thing";
@@ -81,7 +87,38 @@ const checkedOut = (line: string): string | undefined => {
   return undefined;
 };
 
-test("the ci card draws repository > pull request > pipeline > run", async () => {
+test("the github card draws repository > pull request > checks", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    const checked = checkedOut(line);
+    if (checked !== undefined) return checked;
+    if (line.startsWith("gh pr list --head")) return prJson(5);
+    if (line.startsWith("gh api graphql")) {
+      return JSON.stringify({
+        data: { viewer: { login: "me" }, repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
+      });
+    }
+    if (line.startsWith("gh pr checks 5 ")) {
+      return JSON.stringify([{ name: "build", state: "SUCCESS", bucket: "pass", link: "u1" }]);
+    }
+    return undefined;
+  });
+
+  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  expect(items).toHaveLength(1);
+  const repoRow = items[0]!;
+  expect(repoRow.label).toBe("example-api");
+  expect(repoRow.state).toBe("ok");
+
+  const prRow = repoRow.children![0]!;
+  expect(prRow.label).toBe("#5 Fix 5");
+  expect(prRow.state).toBe("ok");
+  expect(prRow.detail).toBe("ready to merge");
+  expect(prRow.children!.map((c) => c.label)).toEqual(["build"]);
+  expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr checks 5 "))).toBe(true);
+});
+
+test("the azure-devops card draws repository > pipeline > run", async () => {
   const run = {
     id: 100,
     buildNumber: "100",
@@ -111,19 +148,14 @@ test("the ci card draws repository > pull request > pipeline > run", async () =>
     return undefined;
   });
 
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
   expect(items).toHaveLength(1);
   const repoRow = items[0]!;
   expect(repoRow.label).toBe("example-api");
-  // One red run decides the repository's dot even while the pull request itself is green.
+  // One red run decides the repository's dot.
   expect(repoRow.state).toBe("error");
 
-  const prRow = repoRow.children![0]!;
-  expect(prRow.label).toBe("#5 Fix 5");
-  expect(prRow.state).toBe("ok");
-  expect(prRow.detail).toBe("ready to merge");
-
-  const pipeline = prRow.children![0]!;
+  const pipeline = repoRow.children![0]!;
   expect(pipeline.label).toBe("build-example-api");
   expect(pipeline.state).toBe("error");
   expect(pipeline.children![0]).toMatchObject({
@@ -166,8 +198,8 @@ test("a finished build carries the moment to read, a running one counts in its b
     return undefined;
   });
 
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
-  const runs = items[0]!.children![0]!.children![0]!.children!;
+  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const runs = items[0]!.children![0]!.children!;
   // Newest first, and only the finished one carries a moment to read: a running build's age is its
   // progress bar, which counts from the same start time.
   expect(runs.map((r) => [r.label, r.at, r.progress?.startedAt])).toEqual([
@@ -176,7 +208,7 @@ test("a finished build carries the moment to read, a running one counts in its b
   ]);
 });
 
-test("the ci card falls back to GitHub's checks when Azure has no pipeline for the repository", async () => {
+test("the azure-devops card answers empty when it found no pipelines", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
     const checked = checkedOut(line);
@@ -188,42 +220,13 @@ test("the ci card falls back to GitHub's checks when Azure has no pipeline for t
       });
     }
     if (line.startsWith("az pipelines list ")) return "[]";
-    if (line.startsWith("gh pr checks 5 ")) {
-      return JSON.stringify([{ name: "build", state: "SUCCESS", bucket: "pass", link: "u1" }]);
-    }
     return undefined;
   });
 
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
-  const prRow = items[0]!.children![0]!;
-  // Nothing in Azure does not mean nothing ran: the pull request's own checks fill the gap.
-  expect(prRow.children!.map((c) => c.label)).toEqual(["build"]);
-  expect(items[0]!.state).toBe("ok");
-  expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr checks 5 "))).toBe(true);
-});
-
-test("the ci card says 'no pipelines' rather than nothing when neither vendor reports one", async () => {
-  const shell = fakeShell((cmd) => {
-    const line = cmd.join(" ");
-    const checked = checkedOut(line);
-    if (checked !== undefined) return checked;
-    if (line.startsWith("gh pr list --head")) return prJson(5);
-    if (line.startsWith("gh api graphql")) {
-      return JSON.stringify({
-        data: { viewer: { login: "me" }, repository: { pullRequest: { reviewThreads: { nodes: [] } } } },
-      });
-    }
-    if (line.startsWith("az pipelines list ")) return "[]";
-    if (line.startsWith("gh pr checks 5 ")) return "[]";
-    return undefined;
-  });
-
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
-  const pipelines = items[0]!.children![0]!.children!;
-  expect(pipelines).toHaveLength(1);
-  expect(pipelines[0]!.label).toBe("pipelines");
-  expect(pipelines[0]!.detail).toContain("none in");
-  expect(pipelines[0]!.state).toBe("none");
+  // A repository built by GitHub Actions, or by pipelines in another project, has nothing here
+  // to show: the GitHub card carries the checks, and this card stays silent.
+  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  expect(items).toEqual([]);
 });
 
 test("a repository with no worktree reads as no worktree, not as a failed lookup", async () => {
@@ -231,11 +234,10 @@ test("a repository with no worktree reads as no worktree, not as a failed lookup
     const line = cmd.join(" ");
     // No worktree line at all: the change has never touched this repository.
     if (line === "git worktree list --porcelain") return "";
-    if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
 
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "pull request", detail: "no worktree", state: "none" });
   expect(items[0]!.state).toBe("none");
@@ -247,34 +249,33 @@ test("a pushed branch with no pull request offers to create one", async () => {
     const checked = checkedOut(line);
     if (checked !== undefined) return checked;
     if (line.startsWith("gh pr list --head")) return "[]";
-    if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
 
-  const items = await runWithShell(shell, ci.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "no pull request", detail: "not pushed yet", state: "none" });
   expect(prRow.actions).toEqual([{ id: "create", label: "Push & create PR", arg: orderRepo }]);
 });
 
-test("the ci create action pushes and opens the pull request", async () => {
+test("the github create action pushes and opens the pull request", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
     return checkedOut(line) ?? undefined;
   });
 
-  await runWithShell(shell, ci.run!(change({ repos: [orderRepo] }), "create", orderRepo));
+  await runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "create", orderRepo));
   const lines = shell.calls.map((c) => c.cmd.join(" "));
   expect(lines).toContain(`git push -u origin ${branch}`);
   expect(lines).toContain("gh pr create --fill");
 });
 
-test("the ci card refuses an action it does not know, and create without a repository", async () => {
+test("the github card refuses an action it does not know, and create without a repository", async () => {
   const shell = fakeShell();
   await expect(
-    runWithShell(shell, ci.run!(change({ repos: [orderRepo] }), "bogus", orderRepo)),
-  ).rejects.toThrow("unknown ci action: bogus");
-  await expect(runWithShell(shell, ci.run!(change({ repos: [orderRepo] }), "create", undefined))).rejects.toThrow(
+    runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "bogus", orderRepo)),
+  ).rejects.toThrow("unknown github action: bogus");
+  await expect(runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "create", undefined))).rejects.toThrow(
     "repo required",
   );
   expect(shell.calls).toEqual([]);
@@ -322,50 +323,70 @@ const summaryShell = (active: number, unresolved: number): FakeShell =>
     return undefined;
   });
 
-test("the summary counts active pipelines and open comments, in the singular", async () => {
-  const shell = summaryShell(1, 1);
+test("the github summary names open comments and takes the checks' verdict", async () => {
+  const shell = summaryShell(0, 1);
   const summary = await runWithShell(
     shell,
-    ciExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    githubExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
   );
   expect(summary.facts).toEqual([
-    { id: "pipelines", label: "1 pipeline active", state: "pending" },
     { id: "unresolved", label: "1 unresolved comment", state: "warn" },
   ]);
-  // A pipeline in flight is pending whatever the last checks said.
-  expect(summary.state).toBe("pending");
-});
-
-test("the summary says the plural when more than one is in flight", async () => {
-  const summary = await runWithShell(
-    summaryShell(2, 2),
-    ciExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
-  );
-  expect(summary.facts.map((f) => f.label)).toEqual(["2 pipelines active", "2 unresolved comments"]);
-});
-
-test("a resolved inbox and idle pipelines contribute one fact, and the checks decide the verdict", async () => {
-  const summary = await runWithShell(
-    summaryShell(0, 0),
-    ciExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
-  );
-  expect(summary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
   expect(summary.state).toBe("ok");
+});
+
+test("the azure-devops summary counts active pipelines, in the singular and plural", async () => {
+  const { resetAzDefaults } = await import("./helpers.ts");
+  const { clearCache } = await import("../src/capabilities/cache.ts");
+  const { resetVersions } = await import("../src/extensions/azure-devops/pipelines.ts");
+  const one = await runWithShell(
+    summaryShell(1, 0),
+    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+  );
+  expect(one.facts).toEqual([{ id: "pipelines", label: "1 pipeline active", state: "pending" }]);
+  // A pipeline in flight is pending whatever the last checks said.
+  expect(one.state).toBe("pending");
+
+  // The `az devops configure` answer and the branch answers are shared per workspace: a
+  // second summary in the same process asks again rather than reading the first one's.
+  clearCache();
+  resetVersions();
+  resetAzDefaults();
+  const two = await runWithShell(
+    summaryShell(2, 0),
+    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+  );
+  expect(two.facts.map((f) => f.label)).toEqual(["2 pipelines active"]);
+});
+
+test("an idle inbox and idle pipelines contribute nothing but the idle line", async () => {
+  const githubSummary = await runWithShell(
+    summaryShell(0, 0),
+    githubExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+  );
+  expect(githubSummary.facts).toEqual([]);
+  expect(githubSummary.state).toBe("ok");
+
+  const azureSummary = await runWithShell(
+    summaryShell(0, 0),
+    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+  );
+  expect(azureSummary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
+  expect(azureSummary.state).toBeUndefined();
 });
 
 test("a vendor being down loses the facts, not the summary", async () => {
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
     if (line === "git worktree list --porcelain") return "";
-    if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
   const summary = await runWithShell(
     shell,
-    ciExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
   );
   expect(summary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
-  expect(summary.state).toBe("none");
+  expect(summary.state).toBeUndefined();
 });
 
 test("loose ends name each open pull request, and a failed lookup contributes nothing", async () => {
@@ -385,45 +406,47 @@ test("loose ends name each open pull request, and a failed lookup contributes no
       if (cwd === brokenWt) return { code: 1, stderr: "no network" };
       return "[]";
     }
-    if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
 
   const ends = await runWithShell(
     shell,
-    ciExtension.looseEnds[0]!.looseEnds(change({ repos: [orderRepo, brokenRepo, goneRepo] })),
+    githubExtension.looseEnds[0]!.looseEnds(change({ repos: [orderRepo, brokenRepo, goneRepo] })),
   );
   // One line per repository that has a pull request; a down vendor and a missing worktree are
   // not loose ends worth failing a cancellation over.
   expect(ends).toEqual(["example-api #5 is still open"]);
 });
 
-// --- deployments: the routes' body validation and workspace routing -------------------------
+// --- azure-devops: the routes' body validation and workspace routing ----------------------
 
-const deploymentsRoutes = deploymentsExtension.routes;
-const servicesRoute = deploymentsRoutes.find((r) => r.path === "/services")!;
-const versionsRoute = deploymentsRoutes.find((r) => r.path === "/services/:service/versions")!;
-const deployRoute = deploymentsRoutes.find((r) => r.path === "/services/:service/deploy")!;
+const azureRoutes = azureDevopsExtension.routes;
+const servicesRoute = azureRoutes.find((r) => r.path === "/services")!;
+const versionsRoute = azureRoutes.find((r) => r.path === "/services/:service/versions")!;
+const deployRoute = azureRoutes.find((r) => r.path === "/services/:service/deploy")!;
 
 /** Everything an extension effect may require, with the scripted Shell in place of the live one
  * — the same layer github.test.ts builds, because a route handler is typed as requiring the whole
- * capability union even when this route only shells out. */
-const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
+ * capability union even when this route only shells out. The workspace travels with the layer:
+ * the dispatcher provides it from the request's `workspace` parameter, so the test names the
+ * workspace the handler should run as. */
+const extLayer = (shell: FakeShell, workspaceId?: string): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     Layer.succeed(Shell, shell),
     CacheLive,
     SettingsLive,
     BusLive,
     ChangesLive,
-    Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+    Layer.succeed(WorkspaceTag, workspaceById(workspaceId)),
     extensionStoreLayer("test"),
   );
 
 const runRoute = <A, E>(
   shell: FakeShell,
   effect: Effect.Effect<A, E, Capabilities>,
+  workspaceId?: string,
 ): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell))));
+  Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell, workspaceId))));
 
 /** The config is one refilled object every module holds: swap the workspaces for the body of a
  * test, and put them back so no other test inherits them. */
@@ -442,52 +465,23 @@ const jsonOf = async <A>(result: Either.Either<Response, A>): Promise<unknown> =
   return result.right.json();
 };
 
-test("the services route returns nothing, and runs no CLI, for a context without pipelines", async () => {
-  const shell = fakeShell();
-  const result = await withWorkspaces([{ id: "no-azure", name: "No pipelines", azure: false }], () =>
-    runRoute(
-      shell,
-      servicesRoute.handler(
-        new Request("http://localhost/api/ext/deployments/services?workspace=no-azure"),
-        {},
-      ),
-    ),
-  );
-  expect(await jsonOf(result)).toEqual({ services: [] });
-  expect(shell.calls).toEqual([]);
-});
-
-test("an absent workspace parameter means the first context", async () => {
-  const shell = fakeShell();
-  const result = await withWorkspaces(
-    [
-      { id: "first", name: "First", azure: false },
-      { id: "second", name: "Second" },
-    ],
-    () =>
-      runRoute(
-        shell,
-        servicesRoute.handler(new Request("http://localhost/api/ext/deployments/services"), {}),
-      ),
-  );
-  expect(await jsonOf(result)).toEqual({ services: [] });
-  expect(shell.calls).toEqual([]);
-});
-
-test("the routes ask Azure DevOps as the workspace the request names", async () => {
+test("the services route answers for a workspace that enabled azure-devops", async () => {
   const shell = fakeShell();
   const workspace: Workspace = {
     id: "acme",
     name: "Acme",
-    azure: { organization: "https://dev.azure.com/acme", project: "acme-proj" },
+    extensionSettings: {
+      "azure-devops": { organization: "https://dev.azure.com/acme", project: "acme-proj" },
+    },
   };
   const result = await withWorkspaces([workspace], () =>
     runRoute(
       shell,
       servicesRoute.handler(
-        new Request("http://localhost/api/ext/deployments/services?workspace=acme"),
+        new Request("http://localhost/api/ext/azure-devops/services?workspace=acme"),
         {},
       ),
+      "acme",
     ),
   );
   expect(await jsonOf(result)).toEqual({
@@ -499,6 +493,33 @@ test("the routes ask Azure DevOps as the workspace the request names", async () 
   const asks = shell.calls.map((c) => c.cmd.join(" "));
   expect(asks.some((line) => line.includes("--organization https://dev.azure.com/acme"))).toBe(true);
   expect(asks.some((line) => line.includes("--project acme-proj"))).toBe(true);
+});
+
+test("an absent workspace parameter means the first context", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line.startsWith("az pipelines list ")) return "[]";
+    return undefined;
+  });
+  const result = await withWorkspaces(
+    [
+      { id: "first", name: "First" },
+      { id: "second", name: "Second" },
+    ],
+    () =>
+      runRoute(
+        shell,
+        servicesRoute.handler(new Request("http://localhost/api/ext/azure-devops/services"), {}),
+        "first",
+      ),
+  );
+  // No workspace parameter means the request runs as the first workspace; the route answers
+  // whatever Azure says there rather than refusing for lack of a named context.
+  expect(await jsonOf(result)).toEqual({
+    services: [],
+    error: "no pipelines found — is `az` logged in?",
+  });
 });
 
 test("the versions route reads the deploy runs of a *-app service", async () => {
@@ -527,7 +548,7 @@ test("the versions route reads the deploy runs of a *-app service", async () => 
   const result = await runRoute(
     shell,
     versionsRoute.handler(
-      new Request("http://localhost/api/ext/deployments/services/example-app/versions"),
+      new Request("http://localhost/api/ext/azure-devops/services/example-app/versions"),
       { service: "example-app" },
     ),
   );
@@ -536,28 +557,11 @@ test("the versions route reads the deploy runs of a *-app service", async () => 
   ]);
 });
 
-test("the versions route returns nothing, and runs no CLI, for a context without pipelines", async () => {
-  const shell = fakeShell();
-  const result = await withWorkspaces([{ id: "no-azure", name: "No pipelines", azure: false }], () =>
-    runRoute(
-      shell,
-      versionsRoute.handler(
-        new Request(
-          "http://localhost/api/ext/deployments/services/example-service/versions?workspace=no-azure",
-        ),
-        { service: "example-service" },
-      ),
-    ),
-  );
-  expect(await jsonOf(result)).toEqual([]);
-  expect(shell.calls).toEqual([]);
-});
-
 test("the deploy route refuses a body that is not JSON", async () => {
   const result = await runRoute(
     fakeShell(),
     deployRoute.handler(
-      new Request("http://localhost/api/ext/deployments/services/example-api/deploy", {
+      new Request("http://localhost/api/ext/azure-devops/services/example-api/deploy", {
         method: "POST",
         body: "not json",
       }),
@@ -576,7 +580,7 @@ test("the deploy route refuses a body missing the version or the environment, or
     runRoute(
       fakeShell(),
       deployRoute.handler(
-        new Request("http://localhost/api/ext/deployments/services/example-api/deploy", {
+        new Request("http://localhost/api/ext/azure-devops/services/example-api/deploy", {
           method: "POST",
           body: JSON.stringify(body),
           headers: { "content-type": "application/json" },
@@ -598,11 +602,17 @@ test("the deploy route refuses a body missing the version or the environment, or
 });
 
 test("the deploy route passes a complete body to the promotion-guarded deploy", async () => {
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    if (line === "az devops configure -l") return "organization = https://dev.azure.com/org\nproject = proj";
+    if (line.startsWith("az pipelines list ")) return "[]";
+    return undefined;
+  });
   const call = (body: unknown): Promise<Either.Either<Response, unknown>> =>
     runRoute(
-      fakeShell(),
+      shell,
       deployRoute.handler(
-        new Request("http://localhost/api/ext/deployments/services/example-api/deploy", {
+        new Request("http://localhost/api/ext/azure-devops/services/example-api/deploy", {
           method: "POST",
           body: JSON.stringify(body),
           headers: { "content-type": "application/json" },

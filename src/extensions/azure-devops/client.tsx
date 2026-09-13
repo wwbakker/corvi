@@ -31,7 +31,7 @@ export type Service = {
  * The state shown is Azure DevOps's own: a deploy run records the version and the environment
  * it was given, and the newest run per environment is the truth about that environment.
  */
-export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Element {
+export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Element {
   const [services, setServices] = useState<Service[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -44,7 +44,7 @@ export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Elem
   useEffect(() => {
     const load = (): Promise<void> =>
       api<{ services: Service[]; error?: string }>(
-        `/ext/deployments/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        `/ext/azure-devops/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
       )
         .then((r) => {
           setServices(r.services);
@@ -63,7 +63,7 @@ export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Elem
   return (
     <div className="page">
       <header>
-        <h2>Deployments</h2>
+        <h2>Azure DevOps</h2>
       </header>
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
@@ -167,4 +167,4 @@ export function DeploymentsPage({ workspace }: { workspace?: string }): JSX.Elem
 }
 
 /** The page, as the page's PageHost renders it. */
-export const page: PageComponent = DeploymentsPage;
+export const page: PageComponent = AzureDevopsPage;

@@ -45,8 +45,8 @@ src/
                        client-side registry and the extension UI contract), index.ts, routes.ts
                        (wizard, pages, ext dispatch, card/tab endpoints, extension client and
                        vendor chunks)
-  vendors/             vendor CLI wrappers (git, github, azure, stacks)
-  extensions/          the built-ins (agents, git, ci, jira, github-issues, deployments,
+  vendors/             vendor CLI wrappers (git, github, stacks)
+  extensions/          the built-ins (agents, git, github, jira, github-issues, azure-devops,
                        leftovers, review, notes)
   app-root/            the browser shell and runtime: index.html, styles, the app router, the
                        sidebar, the data hooks, the fetch client and notifications, and the
@@ -60,34 +60,35 @@ workspace — with a filtered list. See [`extensions.md`](extensions.md) for the
 
 ## Where a feature's code lives
 
-The rule, applied in `deployments` and `ci`, so a feature is not a scavenger hunt across four
+The rule, applied in `azure-devops` and `github`, so a feature is not a scavenger hunt across four
 directories:
 
 - **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
-  implementation and client half. `deployments/server.ts` and `ci/checks.ts` are colocated
-  this way, and so are `review/server.ts` (the git surface) and its `client.tsx`, and
-  `notes/server.ts` (the `ExtensionStore` surface) and its `client.tsx`.
-- **`src/vendors/`** — vendor clients genuinely shared by more than one feature: `azure.ts`
-  (deployments + ci), `github.ts` (the core's `complete`/`description` + ci) and `git.ts` (the
-  core + the git extension).
+  implementation and client half. `azure-devops/server.ts`, `azure-devops/pipelines.ts` and
+  `github/checks.ts` are colocated this way, and so are `review/server.ts` (the git surface)
+  and its `client.tsx`, and `notes/server.ts` (the `ExtensionStore` surface) and its `client.tsx`.
+- **`src/vendors/`** — vendor clients genuinely shared by more than one feature: `github.ts`
+  (the core's `complete`/`description` + the github and azure-devops extensions) and `git.ts`
+  (the core + the git extension).
 - **`src/capabilities/`** — the substrate, not a feature: the Effect runtime
   plumbing and the capabilities (`shell`, `cache`, `bus`, `web`, `os`) every module runs on.
 - **top-level `src/*.ts`** — `server.ts`, the composition root.
 
-A feature's pure vocabulary and its settings live with it: `deployments/deployConventions.ts` is
-needed by both that extension's server and browser halves, and
-`deployments/deploySettings.ts` is the extension's own read of the settings it declares, so both
-sit beside them.
+A feature's pure vocabulary and its settings live with it: `azure-devops/deployConventions.ts`
+is needed by both that extension's server and browser halves, and
+`azure-devops/deploySettings.ts` is the extension's own read of the settings it declares, so
+both sit beside them. The extension's `azure.ts` holds the organisation-and-project chain
+(`azureOf`); its `pipelines.ts` holds the per-change pipeline facts (`pipelineItems`,
+`activeRuns`).
 
-The vendor layer owns what is a vendor's: `src/vendors/azure.ts` holds the
-organisation-and-project chain (`azureOf`) and the enablement predicates — `azureConfigured`,
-the legacy fact the CI facts use, and `azureEnabled`, the deployments page's extension-gated
-rule — so `src/workspace/server/workspaces.ts` names no vendor — it only answers
-`extensionEnabled`, the generic enablement every surface uses.
+`src/workspace/server/workspaces.ts` names no vendor — it only answers `extensionEnabled`,
+the generic enablement every surface uses.
 
 Git cannot be colocated while `src/vendors/git.ts` is shared by the core and the git
 extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
-scope.
+scope. `src/vendors/github.ts` stays shared for the same reason: the core's `complete` and
+`description` read the pull request through it, and the github and azure-devops extensions
+read their halves through the contract's `Changes` capability.
 
 ## What stays core
 
@@ -131,11 +132,12 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   its `Bridge` type import from `terminals/server/proxy.ts` is type-only and likewise
   carried over) and `bus.ts` (the watcher reads changes, windows and the notification
   setting). Injecting the watcher's sources is a named follow-up, not done here.
-- **`vendors/`** imports `domain` and `capabilities`, plus two carried-over exceptions:
-  `git.ts` (the worktree engine) reads the change store leaves and the workspace config, and
-  `azure.ts` reads the workspace resolution and the settings precedence chain. The former is
-  why git cannot be colocated (see [../plans/archive/refactor-plan.md](../plans/archive/refactor-plan.md)
-  item 5); the latter predates this layout identically.
+- **`vendors/`** imports `domain` and `capabilities`, plus one carried-over
+  exception: `git.ts` (the worktree engine) reads the change store leaves and the workspace
+  config. That is why git cannot be colocated (see [../plans/archive/refactor-plan.md](../plans/archive/refactor-plan.md)
+  item 5). `github.ts` additionally reads the contract's `Changes` capability for the checkout
+  lookup, so the github and azure-devops extensions reach the worktree without importing the
+  store.
 - **`extension-host/`** imports `domain`, `capabilities` and the documented first-party leaves
   (the change store, `vendors/git`, the workspace config, the settings precedence chain).
 - **A feature module** (`change`, `dashboard`, `change-page`, `wizard`, `terminals`,
@@ -164,7 +166,7 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   terminal's HTTP boundary, imported directly by the files that speak HTTP so the barrel does
   not drag the ttyd page script into every server consumer; and
   `settings/server/legacySettings.ts` is the one statement of the settings precedence chain,
-  shared by the workspace config loader and the top-level deployments settings (see
+  shared by the workspace config loader and the azure-devops extension's settings read (see
   [style.md](style.md), rule 7).
 - **Composition lives in the module that composes.** `dashboard` depends on `terminals` and the
   host, so `change/server` does not have to, and no cycle forms.
@@ -176,10 +178,12 @@ follow the server's `Shell`/`Workspace` pattern when it lands.
   are first-party** and may reach into core modules and `vendors` today; new built-in
   code uses the contract plus `domain` (and `vendors` when it needs a shared
   vendor client), so the privilege shrinks by default. The documented first-party exceptions are
-  the leftovers page's read of the changes root, the deployments settings' read of `config`, and
-  the jira legacy shim's read of `settings/server/legacySettings.ts`
-  (see [extensions.md](extensions.md), "Scope, honestly stated"). There is no stability promise
-  for out-of-tree extensions yet.
+  the leftovers page's read of the changes root, the azure-devops settings' read of the config
+  file for its legacy fallback, and the jira legacy shim's read of
+  `settings/server/legacySettings.ts` (see [extensions.md](extensions.md), "Scope, honestly
+  stated"). There is no stability promise for out-of-tree extensions yet. The github and
+  azure-devops extensions already run their `az`/`gh` calls through the contract's `Shell`,
+  `Cache`, `Settings` and `Changes` capabilities.
 - **`server.ts`** is the HTTP composition root: it imports the modules' route tables, the host
   and the capabilities bootstrap (cache, client chunks). **HTTP** is the only client/server
   boundary — no shared runtime state crosses it.

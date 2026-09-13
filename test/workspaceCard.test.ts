@@ -6,13 +6,13 @@ import type { KnownExtension } from "../src/settings/client/SettingsFields.tsx";
 import type { Workspace } from "../src/domain/config.ts";
 
 /**
- * The workspace card renders whatever the extensions declare and nothing vendor-specific: the
- * azure controls are gone, and organisation and project come from the deployments extension's
- * own `workspaceSettings` like every other per-workspace field.
+ * The workspace card renders whatever the extensions declare and nothing vendor-specific:
+ * organisation and project come from the azure-devops extension's own `workspaceSettings`
+ * like every other per-workspace field.
  */
-const deployments: KnownExtension = {
-  name: "deployments",
-  title: "Deployments",
+const azureDevops: KnownExtension = {
+  name: "azure-devops",
+  title: "Azure DevOps",
   workspaceSettings: [
     { key: "organization", label: "Organisation", placeholder: "the global setting" },
     { key: "project", label: "Project", placeholder: "the global setting" },
@@ -27,8 +27,8 @@ const render = (workspace: Workspace, extensions: KnownExtension[]): string =>
 
 test("the workspace card renders a declared per-workspace setting generically", () => {
   const html = render(
-    { id: "client", name: "Client", extensionSettings: { deployments: { organization: "acme" } } },
-    [deployments],
+    { id: "client", name: "Client", extensionSettings: { "azure-devops": { organization: "acme" } } },
+    [azureDevops],
   );
   expect(html).toContain("Organisation");
   expect(html).toContain("Project");
@@ -37,37 +37,25 @@ test("the workspace card renders a declared per-workspace setting generically", 
 });
 
 test("the workspace card has no azure section left", () => {
-  const html = render({ id: "client", name: "Client" }, [deployments]);
+  const html = render({ id: "client", name: "Client" }, [azureDevops]);
   // The generic fields are there, but the vendor toggle and its dedicated controls are gone.
   expect(html).toContain("Organisation");
   expect(html).not.toContain("This context has Azure DevOps");
 });
 
 test("a disabled extension's per-workspace settings are not rendered", () => {
-  const html = render({ id: "client", name: "Client", extensions: ["ci"] }, [deployments]);
+  const html = render({ id: "client", name: "Client", extensions: ["github"] }, [azureDevops]);
   expect(html).not.toContain("Organisation");
 });
 
-test("switching Deployments on clears the legacy azure:false", () => {
-  const workspace: Workspace = { id: "client", name: "Client", extensions: ["ci"], azure: false };
-
-  // The switch that turns deployments on also clears the legacy fact: the card preserves keys it
-  // does not know, so the field would otherwise keep winning for ever.
-  expect(enablementPatch(workspace, ["ci", "deployments"])).toEqual({
-    extensions: ["ci", "deployments"],
-    azure: undefined,
+test("enablementPatch writes the extensions list", () => {
+  const workspace: Workspace = { id: "client", name: "Client", extensions: ["github"] };
+  expect(enablementPatch(workspace, ["github", "azure-devops"])).toEqual({
+    extensions: ["github", "azure-devops"],
   });
-  // All-on is the absent list, and that turns deployments on too.
-  expect(enablementPatch(workspace, undefined)).toEqual({ extensions: undefined, azure: undefined });
-  // The cleared field leaves the written file, since JSON drops an undefined property.
-  const written = { ...workspace, ...enablementPatch(workspace, ["ci", "deployments"]) };
-  expect("azure" in (JSON.parse(JSON.stringify(written)) as object)).toBe(false);
-
-  // Turning deployments off, or leaving it off, keeps the legacy fact as it was.
-  expect(enablementPatch(workspace, ["ci"])).toEqual({ extensions: ["ci"] });
+  expect(enablementPatch(workspace, ["github"])).toEqual({ extensions: ["github"] });
   expect(enablementPatch(workspace, [])).toEqual({ extensions: [] });
-  // A workspace that never carried the legacy field is unchanged by the extra rule.
-  expect(enablementPatch({ id: "c", name: "C" }, ["deployments"])).toEqual({
-    extensions: ["deployments"],
+  expect(enablementPatch({ id: "c", name: "C" }, ["azure-devops"])).toEqual({
+    extensions: ["azure-devops"],
   });
 });

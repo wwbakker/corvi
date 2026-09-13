@@ -1,9 +1,9 @@
 import { Effect, Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { checkoutFor } from "../../vendors/git.ts";
-import { swr } from "../../capabilities/cache.ts";
-import { cliJson, shSoft } from "../../capabilities/effect/support.ts";
+import { Cache, Changes, Shell, Workspace } from "../../extension-host/api.ts";
+import { cliJson } from "../../capabilities/effect/support.ts";
+import type { Result } from "../../capabilities/shell.ts";
 
 export type Check = {
   name: string;
@@ -33,9 +33,23 @@ const checkState = (bucket: string): WidgetState =>
     | WidgetState
     | undefined ?? "none";
 
+/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+ * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
+ * everything downstream branches on `code`. */
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result, never, Shell | Workspace> =>
+  Effect.gen(function* () {
+    const shell = yield* Shell;
+    return yield* shell.run(cmd, { cwd }).pipe(
+      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+    );
+  });
+
+/** The change's checkout of `repo`, read through the contract's `Changes` store. */
+const worktreeOf = (change: Change, repo: string): Effect.Effect<string | undefined, never, Changes> =>
+  Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+
 /**
- * The checks of a pull request, as the tree shows them when Azure DevOps has nothing to say about
- * this repository: its pipelines live in another project, or it is built by GitHub Actions.
+ * The checks of a pull request, as the tree shows them.
  *
  * Names like `owner.pipeline (CI App @scope/one-app)` are grouped by the part before
  * the bracket, so thirty jobs of one build read as one row you can open.
@@ -44,25 +58,30 @@ export const checkItems = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<WidgetItem[]> =>
-  swr(`gh:checks:${repo}:${number}`, 15_000,
-    Effect.gen(function* () {
-      const worktree = (yield* checkoutFor(change, repo)) ?? repo;
-      // Non-zero means "something is failing or pending", which is a result, not an error.
-      const r = yield* shSoft(
-        [
-          "gh",
-          "pr",
-          "checks",
-          String(number),
-          "--json",
-          "name,state,bucket,link,startedAt,completedAt",
-        ],
-        worktree,
-      );
-      return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
-    }));
-
+): Effect.Effect<WidgetItem[], never, Changes | Shell | Workspace | Cache> =>
+  Effect.gen(function* () {
+    const cache = yield* Cache;
+    return yield* cache.swr(
+      `gh:checks:${repo}:${number}`,
+      15_000,
+      Effect.gen(function* () {
+        const worktree = (yield* worktreeOf(change, repo)) ?? repo;
+        // Non-zero means "something is failing or pending", which is a result, not an error.
+        const r = yield* shResult(
+          [
+            "gh",
+            "pr",
+            "checks",
+            String(number),
+            "--json",
+            "name,state,bucket,link,startedAt,completedAt",
+          ],
+          worktree,
+        );
+        return groupChecks(yield* cliJson(ChecksSchema, [] as Check[])(r.stdout));
+      }),
+    );
+  });
 
 /** Grouped by the part of the name before the bracket, so thirty jobs of one build read as one
  * row you can open. */
