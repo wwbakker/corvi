@@ -35,6 +35,16 @@ Ownership is decidable, because only tests carry these:
 `bun run test` runs the kill pass when it exits (an `EXIT` trap), so strays do not accumulate
 between runs.
 
+A lone `bun test test/foo.test.ts` mints its own run token. A hand-set `IWE_TEST_RUN` must be two
+lowercase base36 words joined by a dot (`<base36>.<base36>`, what the suite's `date +%s.$$`
+produces): that is the shape the cleaner reads back out of paths and command lines, and
+`testRun()` refuses anything else before it can name a server the cleaner would have to leave
+alone.
+
+Do not name your own files or directories under `$TMPDIR` with an `iwe-` prefix — an `iwe-*`
+entry no run names is a stray, and `test:clean --prune` removes it (a `/tmp/iwe-notes.log` reads
+as a run named `notes.log`).
+
 A test that starts a server must spawn it as `["node", "src/server.ts", "--iwe-test-run"]`; the
 marker is what makes the server (and, on aborted runs, everything under it) findable.
 `test/clean.test.ts` fails if one is missing.

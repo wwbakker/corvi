@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { readdir } from "node:fs/promises";
-import { isTestCommand, isTestSocket, tokenFromPath, tokenOf } from "../scripts/clean-test.ts";
+import { isRunToken, isTestCommand, isTestSocket, tokenFromPath, tokenOf } from "../scripts/clean-test.ts";
 
 /**
  * `bun run test:clean` decides by command line and socket path alone, because that is all a
@@ -47,6 +47,23 @@ test("a label that looks like a token is not one: the dot is the tell", () => {
   expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-term-abc/changes/PROJ")).toBeUndefined();
   expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-abc.def-term-x/changes/PROJ")).toBe("abc.def");
   expect(tokenFromPath("/private/tmp/tmux-501/default")).toBeUndefined();
+});
+
+test("a run token is two base36 words in full; a longer word is not a token", () => {
+  // What `bun run test` mints (`date +%s.$$`) and what a lone test file mints (test/helpers.ts).
+  expect(isRunToken("1789425651.393504")).toBe(true);
+  expect(isRunToken("m9k3x1.a1b2c3")).toBe(true);
+  // A hand-set token the cleaner cannot read: no dot, uppercase, or an extra word.
+  expect(isRunToken("clipA")).toBe(false);
+  expect(isRunToken("abc")).toBe(false);
+  expect(isRunToken("abc.defG")).toBe(false);
+  expect(isRunToken("abc.def.ghi")).toBe(false);
+  // The command parser reads a token out of a longer line, but only up to its end: `abc.defG` is
+  // not run `abc.def`, so its resources stay unattributed rather than being ended for the wrong
+  // run. test/helpers.ts refuses such a token before it can name anything.
+  expect(tokenOf("node src/server.ts --iwe-test-run=abc.defG")).toBeUndefined();
+  expect(tokenOf("node src/server.ts --iwe-test-run=abc.def")).toBe("abc.def");
+  expect(tokenOf("node src/server.ts --iwe-test-run=abc.def --loud")).toBe("abc.def");
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {
