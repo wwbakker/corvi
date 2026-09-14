@@ -1114,12 +1114,21 @@ textarea.plan {
 
 /* The terminal page: this change's windows where its title bar would be, and the terminal
    filling everything under them. `.content.flush` gives back the padding that normally frames
-   a page, so both run to the edges of the window. */
+   a page, so both run to the edges of the window.
+
+   The height is the viewport's, not the content's: xterm's canvas is as tall as its last fit,
+   and with a content-sized page that canvas is the floor of the document — the page can grow
+   with it but never shrink again, so a shorter window scrolls instead of re-fitting the
+   terminal. A definite height here lets the flex chain shrink, which is what the fit addon
+   observes. `overflow: hidden` keeps a canvas that is briefly taller than its pane from hanging
+   a page scrollbar while the fit catches up. */
 .content.flush {
   padding: 0;
   display: flex;
   flex-direction: column;
   min-height: 0;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .page.terminal-page {
