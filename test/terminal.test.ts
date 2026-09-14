@@ -712,25 +712,60 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
 
-  // A known line at the top of the screen.
+  // The pty attaches when the page's socket opens, and the attach is what starts tmux and sets
+  // the session options; until then there is no server to ask. Wait for that client rather than
+  // guessing a duration (the terminal test above is the same pattern for the shell).
+  const attached = async (): Promise<boolean> =>
+    (await tmux("list-clients", "-t", session)).includes(session);
+  for (let i = 0; i < 50 && !(await attached()); i++) await Bun.sleep(200);
+  expect(await attached()).toBe(true);
+  await Bun.sleep(1000); // the shell's own startup, before it can read a command
+
+  // IWE asks tmux for the clipboard explicitly; the page only has a clipboard to write into
+  // because tmux sends its copies as OSC 52 (tmux.ts, and the addon in TerminalPane).
+  expect(await tmux("show-options", "-s", "set-clipboard")).toBe("set-clipboard on");
+
+  // A known line at the top of the screen. The status line is hidden so the pane fills the
+  // grid: the drag below starts in the pane's first cell whatever the user's ~/.tmux.conf does
+  // with the status bar.
+  await tmux("set-option", "-t", session, "status", "off");
   await page.keyboard.type("clear; echo COPY-MARKER-42\n");
   await Bun.sleep(800);
 
-  // A modifier-drag across the whole screen, because mouse mode is on: a plain drag is tmux's
-  // selection. Which modifier is xterm.js's (SelectionService.shouldForceSelection): shift
-  // everywhere but macOS, where it is option — the same chord the cheat sheet gives, and the only
-  // one a Mac has. The whole screen rather than a few rows, because tmux's status line sits
-  // wherever the user's ~/.tmux.conf puts it (top or bottom) and a pixel offset lands a row off;
-  // all this needs is the marker inside the selection.
-  const forceSelection = platformName === "mac" ? "Alt" : "Shift";
   const screen = (await page.locator(".terminal-screen .xterm-screen").boundingBox())!;
+  const clipboard = (): Promise<string> => page.evaluate(() => navigator.clipboard.readText());
+  const dragAcrossScreen = async (): Promise<void> => {
+    await page.mouse.move(screen.x + 1, screen.y + 1);
+    await page.mouse.down();
+    await page.mouse.move(screen.x + screen.width - 2, screen.y + screen.height - 2, { steps: 8 });
+    await page.mouse.up();
+  };
+  // The write comes back through tmux (mouseup, the pty, the page), so the read has to wait for
+  // that round trip rather than race it.
+  const markerSoon = async (): Promise<string> => {
+    let text = "";
+    for (let i = 0; i < 25 && !text.includes("MARKER-42"); i++) {
+      text = await clipboard();
+      if (!text.includes("MARKER-42")) await Bun.sleep(200);
+    }
+    return text;
+  };
+
+  // A plain drag is tmux's selection (mouse mode is on) and now lands on the system clipboard by
+  // itself: tmux sends it as OSC 52, which the page's addon writes. No chord, no buffer step.
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  await dragAcrossScreen();
+  expect(await markerSoon()).toContain("MARKER-42");
+
+  // The browser's own selection is still a modifier away, because mouse mode is on. Which
+  // modifier is xterm.js's (SelectionService.shouldForceSelection): shift everywhere but macOS,
+  // where it is option — the same chord the cheat sheet gives, and the only one a Mac has. All
+  // this needs is the marker inside the selection.
+  await page.evaluate(() => navigator.clipboard.writeText(""));
+  const forceSelection = platformName === "mac" ? "Alt" : "Shift";
   await page.keyboard.down(forceSelection);
-  await page.mouse.move(screen.x + 1, screen.y + 1);
-  await page.mouse.down();
-  await page.mouse.move(screen.x + screen.width - 2, screen.y + screen.height - 2, { steps: 8 });
-  await page.mouse.up();
+  await dragAcrossScreen();
   await page.keyboard.up(forceSelection);
 
   await page.keyboard.press("Control+Shift+C");
@@ -754,6 +789,20 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
     await Bun.sleep(200);
   }
   expect(await Bun.file(pasted).text()).toBe("PASTED\n");
+
+  // Middle-click pastes the system clipboard too, not tmux's newest buffer: the page takes the
+  // mousedown before xterm can report it (TerminalPane).
+  const middle = join(tmp, "changes", id, "middle.txt");
+  await page.evaluate((path) => navigator.clipboard.writeText(`echo MIDDLE > ${path}`), middle);
+  await page.mouse.click(screen.x + 20, screen.y + 20, { button: "middle" });
+  // The clipboard read is asynchronous here too; Enter before it lands runs an empty line.
+  await Bun.sleep(400);
+  await page.keyboard.press("Enter");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(middle).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(middle).text()).toBe("MIDDLE\n");
   await page.close();
 }, 60_000);
 

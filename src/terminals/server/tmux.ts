@@ -92,6 +92,27 @@ export const attachCommand = (id: string, dir: string): string[] =>
     "-s",
     "extended-keys-format",
     "csi-u",
+    // tmux's own copies — a drag, a double click, an explicit copy command — go to the outer
+    // terminal as an OSC 52 sequence, which the page turns into a system-clipboard write
+    // (TerminalPane.tsx). A server option, like the extended-keys pair: tmux keeps one clipboard
+    // policy for every session it runs, ours included.
+    ";",
+    "set-option",
+    "-s",
+    "set-clipboard",
+    "on",
+    // A client whose terminfo has no `Ms` capability would get no OSC 52 from `set-clipboard`
+    // alone; terminal-features grants it by name. Guarded by what the client actually resolved,
+    // so the list cannot grow an entry per attach — this runs after `new-session -A`, where the
+    // client exists to ask. The pty's TERM (xterm-256color) is already covered by tmux's own
+    // defaults, so it only fires for a client those do not cover, and takes effect there from
+    // its next attach.
+    ";",
+    "if-shell",
+    "-F",
+    "#{m/r:clipboard,#{client_termfeatures}}",
+    "",
+    'set -as terminal-features ",*:clipboard"',
   ]);
 
 /** The Result-branching contract: the one failure `sh` can raise here is a timeout, which

@@ -2,7 +2,7 @@ import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runPidPath } from "../scripts/clean-test.ts";
+import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/extension-host/services.ts";
@@ -34,6 +34,16 @@ let announced = false;
  * one run's resources from another's, and a live run from a crashed one. */
 export const testRun = (): string => {
   const fromEnv = process.env.IWE_TEST_RUN;
+  // A hand-set token the cleaner cannot read would leave this run's servers and tmux sockets
+  // behind as unattributable (`--all`-only). Refuse it here, before anything starts, rather than
+  // leak them.
+  if (fromEnv !== undefined && fromEnv !== "" && !isRunToken(fromEnv)) {
+    throw new Error(
+      `IWE_TEST_RUN=${fromEnv} is not a run token: scripts/clean-test.ts reads tokens as ` +
+        "<base36>.<base36> (two lowercase words joined by a dot, what `date +%s.$$` produces). " +
+        "Leave it unset for a lone test file, or run the suite with `bun run test`.",
+    );
+  }
   const token =
     fromEnv !== undefined && fromEnv !== ""
       ? fromEnv

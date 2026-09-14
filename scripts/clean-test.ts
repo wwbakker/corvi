@@ -20,6 +20,10 @@
  *     and src/server.ts ignores. The app's server (`electron src/server.ts`) and a dev server
  *     (`node src/server.ts`) carry no marker.
  *
+ * The prefix is the whole rule: an entry under `$TMPDIR` named `iwe-*` that no live run names is
+ * a stray, and `--prune` removes it. Do not name your own scratch files `iwe-…` there — a
+ * `/tmp/iwe-notes.log` reads as a run named `notes.log`.
+ *
  * Which run, and whether that run is still alive, is the second question — the one that lets two
  * suites run at once. A run is named by a token, a `<base36>.<base36>` pair the dot keeps apart
  * from the human labels a temp dir also carries. Its resources carry the token too:
@@ -72,11 +76,18 @@ export const isTestSocket = (socket: string, roots: readonly string[]): boolean 
  * read as run `term`. */
 const TOKEN = "[0-9a-z]+\\.[0-9a-z]+";
 
+/** Whether a string is a run token in full. The parsers below match a token as a prefix, because
+ * they read it out of a longer path or command line; test/helpers.ts refuses a hand-set
+ * `IWE_TEST_RUN` that is not one, since the cleaner would otherwise leave that run's servers
+ * behind as unattributable. */
+export const isRunToken = (value: string): boolean => new RegExp(`^${TOKEN}$`).test(value);
+
 /** The token a test process carries, or undefined: a resource with no token is one this tool
  * cannot attribute to a run (the app's dev server, or a leftover from before tokens), and is
- * left alone unless `--all`. */
+ * left alone unless `--all`. The lookahead keeps a longer word from being read as a shorter
+ * token: `--iwe-test-run=abc.defG` is not run `abc.def`. */
 export const tokenOf = (command: string): string | undefined =>
-  new RegExp(`--iwe-test-run=(${TOKEN})`).exec(command)?.[1];
+  new RegExp(`--iwe-test-run=(${TOKEN})(?=\\s|$)`).exec(command)?.[1];
 
 /** The token a path carries, or undefined: a resource with no token is one this tool cannot
  * attribute to a run (the app's, or a leftover from before tokens), and is left alone unless

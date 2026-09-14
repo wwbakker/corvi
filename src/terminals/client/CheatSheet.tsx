@@ -19,27 +19,29 @@ const KEYS: [string, string][] = [
 ];
 
 /**
- * Copying out of a terminal in a browser. The mouse belongs to tmux (mouse mode is on), so a
- * plain drag is tmux's selection and the browser's is a modifier away: option on macOS, shift
- * on Linux — the modifier xterm.js honours on each platform. What puts it on the system
- * clipboard differs too: macOS routes ⌘C through the app's Edit menu, while on Linux the page
- * takes the Ctrl+Shift chords (Ctrl+C belongs to the shell, and there is no menu). Middle-click
- * pastes the primary selection. tmux's buffers are separate from either clipboard on both.
+ * Copying out of a terminal in a browser. The mouse belongs to tmux (mouse mode is on), but tmux
+ * hands its own copies to the page as OSC 52, so a plain drag — and a double or triple click —
+ * is on the system clipboard by itself. The browser's selection is still one modifier away
+ * (option on macOS, shift on Linux, the modifier xterm.js honours on each platform), and the
+ * page takes the copy chords: macOS routes ⌘C through the app's Edit menu, while on Linux there
+ * is no menu and Ctrl+C belongs to the shell, so it is the Ctrl+Shift pair. Middle-click pastes
+ * the system clipboard. tmux's buffers are separate from the clipboard on both.
  */
 const COPYING_MAC: [string, string][] = [
-  ["⌥-drag, then ⌘C", "select and copy to the Mac clipboard"],
-  ["⌥-double-click", "select a word · ⌥-triple-click selects the line"],
+  ["drag", "select and copy to the Mac clipboard"],
+  ["double-click / triple-click", "copy a word / a line to the clipboard"],
+  ["⌥-drag, then ⌘C", "select with xterm itself, then copy"],
   ["⌘V", "paste from the Mac clipboard"],
-  ["drag (no option)", "tmux's own selection, into a tmux buffer"],
-  ["ctrl-b ]", "paste the tmux buffer"],
+  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the clipboard"],
 ];
 
 const COPYING_LINUX: [string, string][] = [
-  ["Shift+drag", "select into the browser's selection — a plain drag is tmux's"],
-  ["Ctrl+Shift+C", "copy the selection"],
+  ["drag", "select and copy to the system clipboard"],
+  ["double-click / triple-click", "copy a word / a line to the clipboard"],
+  ["Shift+drag", "select with xterm itself; Ctrl+Shift+C copies it"],
   ["Ctrl+Shift+V", "paste the clipboard (Ctrl+V also pastes)"],
-  ["middle-click", "paste the primary selection, whatever was highlighted last"],
-  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the system clipboard"],
+  ["middle-click", "paste the system clipboard"],
+  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the clipboard"],
 ];
 
 const copying = (platform: Platform): [string, string][] =>
