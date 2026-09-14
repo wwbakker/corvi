@@ -1,5 +1,5 @@
 import { writeFileSync } from "node:fs";
-import { mkdtemp } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runPidPath } from "../scripts/clean-test.ts";
@@ -56,6 +56,40 @@ export const testRun = (): string => {
 export const testTempDir = async (label: string): Promise<string> => {
   const token = testRun();
   return mkdtemp(join(tmpdir(), `iwe-${token}-${label}-`));
+};
+
+/** `sun_path` is 104 bytes including the terminating NUL, so a path may be 103 characters. */
+const UNIX_SOCKET_PATH_MAX = 103;
+
+/** Where a test's private tmux server keeps its socket.
+ *
+ * Short because a unix socket path is capped at 103 characters, and macOS spends most of that
+ * before a test has named anything. `$TMPDIR` there is `/var/folders/<2>/<24>/T`, which tmux
+ * resolves to `/private/var/folders/...` — 56 characters on this machine — and tmux then appends
+ * `/tmux-<uid>/default`, 17 more. That leaves 29 for the directory the test hands it, and
+ * `testTempDir("term")` makes 32 of them (`iwe-<token>-term-XXXXXX`, with the 16-character token
+ * `bun run test` sets). tmux then starts no server at all — "File name too long" on the connect —
+ * and every terminal test fails against an empty pane with nothing to say why. On Linux `$TMPDIR`
+ * is `/tmp` and none of this is ever close.
+ *
+ * So the socket gets a directory of its own: the run token, which is what lets the cleaner
+ * attribute it, and one short word. No label and no random suffix — there is no room, and the
+ * token already tells two runs apart. The `iwe-` prefix stays, because a socket under a
+ * `$TMPDIR/iwe-*` directory is what makes the server a test's own (scripts/clean-test.ts). The
+ * length is checked rather than hoped for, since the failure is otherwise silent. */
+export const tmuxTempDir = async (): Promise<string> => {
+  const dir = join(tmpdir(), `iwe-${testRun()}-tmux`);
+  await mkdir(dir, { recursive: true });
+  // Resolved, because that is the path tmux puts on the socket: /var/folders/... is a symlink
+  // into /private/var/folders/.... The check assumes tmux's own `<tmpdir>/tmux-<uid>/default`.
+  const socket = join(await realpath(dir), `tmux-${process.getuid?.() ?? 0}`, "default");
+  if (socket.length > UNIX_SOCKET_PATH_MAX) {
+    throw new Error(
+      `the test's tmux socket path is ${socket.length} characters, over the ${UNIX_SOCKET_PATH_MAX} ` +
+        `a unix socket allows: ${socket}. Shorten the run token (IWE_TEST_RUN), or this directory's name.`,
+    );
+  }
+  return dir;
 };
 
 /**

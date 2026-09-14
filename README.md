@@ -22,8 +22,10 @@ fail are reported on the dashboard; the change itself is written first and alway
 `git`, `wt`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira is
 talked to over its own REST API, but `jira-cli` is still what configures it — see below.
 
-The terminal's pty is `node-pty`, installed with the rest of the dependencies; on Linux that is
-compiled at `bun install` (a C toolchain and python3), on macOS the shipped prebuild is used.
+The terminal's pty is `node-pty`, installed with the rest of the dependencies. Its prebuilt
+binaries cover macOS and Linux on x64 and arm64, so `bun install` needs neither a C toolchain nor
+python3; a platform they do not cover falls back to `node-gyp` and does. It is pinned to a `1.2.0`
+beta, for the reason in [`docs/decisions/node-pty-prebuild.md`](docs/decisions/node-pty-prebuild.md).
 
 The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux`).
 `wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an

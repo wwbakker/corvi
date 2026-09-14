@@ -2,7 +2,8 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { runSh, testRun, testTempDir } from "./helpers.ts";
+import { runSh, testRun, testTempDir, tmuxTempDir } from "./helpers.ts";
+import { platformName } from "../src/capabilities/os.ts";
 import { csiuFor } from "../src/terminals/model.ts";
 
 /**
@@ -28,7 +29,7 @@ async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T>
  * variable set after it started, so it is passed explicitly. */
 async function tmux(...args: string[]): Promise<string> {
   const proc = Bun.spawn(["tmux", ...args], {
-    env: { ...process.env, TMUX_TMPDIR: tmp },
+    env: { ...process.env, TMUX_TMPDIR: tmuxTmp },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -52,6 +53,9 @@ const haveBrowser = await (async (): Promise<boolean> => {
 const usable = (await have("tmux")) && haveBrowser;
 
 let tmp: string;
+/** The private tmux server's socket directory, which is not `tmp`: a unix socket path is capped
+ * at 103 characters and this directory has to fit inside that (test/helpers.ts explains). */
+let tmuxTmp: string;
 let browser: Browser;
 let port: number;
 let server: ReturnType<typeof Bun.spawn>;
@@ -77,13 +81,14 @@ const waitForServer = async (): Promise<void> => {
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("term");
+  tmuxTmp = await tmuxTempDir();
   // A tmux server of our own, so the test can change server options and kill everything
   // afterwards without touching the sessions you are working in. TMUX_TMPDIR alone does not do
   // that when the suite is run from inside tmux: $TMUX wins, and every tmux command here —
   // `kill-server` included — would reach the server you are working in. So it is deleted, not
   // just overridden.
   delete process.env.TMUX;
-  process.env.TMUX_TMPDIR = tmp;
+  process.env.TMUX_TMPDIR = tmuxTmp;
   port = 4300 + Math.floor(Math.random() * 200);
   server = startServer();
   // The repository is only needed because a change must have one; the terminal ignores it.
@@ -625,17 +630,20 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.keyboard.type("clear; echo COPY-MARKER-42\n");
   await Bun.sleep(800);
 
-  // Shift-drag: with mouse mode on a plain drag is tmux's selection, and xterm.js hands the
-  // selection to the browser only with the modifier. Across a few rows: tmux's status line sits
-  // wherever the user's ~/.tmux.conf puts it (top or bottom), and this only needs the marker in
-  // what is selected.
+  // A modifier-drag across the whole screen, because mouse mode is on: a plain drag is tmux's
+  // selection. Which modifier is xterm.js's (SelectionService.shouldForceSelection): shift
+  // everywhere but macOS, where it is option — the same chord the cheat sheet gives, and the only
+  // one a Mac has. The whole screen rather than a few rows, because tmux's status line sits
+  // wherever the user's ~/.tmux.conf puts it (top or bottom) and a pixel offset lands a row off;
+  // all this needs is the marker inside the selection.
+  const forceSelection = platformName === "mac" ? "Alt" : "Shift";
   const screen = (await page.locator(".terminal-screen .xterm-screen").boundingBox())!;
-  await page.keyboard.down("Shift");
-  await page.mouse.move(screen.x + 1, screen.y + 20);
+  await page.keyboard.down(forceSelection);
+  await page.mouse.move(screen.x + 1, screen.y + 1);
   await page.mouse.down();
-  await page.mouse.move(screen.x + 300, screen.y + 80, { steps: 6 });
+  await page.mouse.move(screen.x + screen.width - 2, screen.y + screen.height - 2, { steps: 8 });
   await page.mouse.up();
-  await page.keyboard.up("Shift");
+  await page.keyboard.up(forceSelection);
 
   await page.keyboard.press("Control+Shift+C");
   const copied = await page.evaluate(() => navigator.clipboard.readText());
