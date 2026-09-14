@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, testRun, testTempDir, tmuxTempDir } from "./helpers.ts";
@@ -28,7 +28,10 @@ async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T>
 /** tmux, on the private server this test runs: Bun.spawn does not pick up an environment
  * variable set after it started, so it is passed explicitly. */
 async function tmux(...args: string[]): Promise<string> {
-  const proc = Bun.spawn(["tmux", ...args], {
+  // Every call names this run's own socket with -S: the same one the server under test was given
+  // (IWE_TMUX_SOCKET, below). -S beats $TMUX, so even a forgotten `delete process.env.TMUX` could
+  // not point a kill-server at the server you are working in.
+  const proc = Bun.spawn(["tmux", "-S", testSocket, ...args], {
     env: { ...process.env, TMUX_TMPDIR: tmuxTmp },
     stdout: "pipe",
     stderr: "pipe",
@@ -56,6 +59,10 @@ let tmp: string;
 /** The private tmux server's socket directory, which is not `tmp`: a unix socket path is capped
  * at 103 characters and this directory has to fit inside that (test/helpers.ts explains). */
 let tmuxTmp: string;
+/** The socket file itself, handed to the server under test through IWE_TMUX_SOCKET and named
+ * explicitly by every tmux call here. Under the run's own temp dir: scripts/clean-test.ts
+ * decides ownership by exactly that. */
+let testSocket: string;
 let browser: Browser;
 let port: number;
 let server: ReturnType<typeof Bun.spawn>;
@@ -85,10 +92,14 @@ beforeAll(async () => {
   // A tmux server of our own, so the test can change server options and kill everything
   // afterwards without touching the sessions you are working in. TMUX_TMPDIR alone does not do
   // that when the suite is run from inside tmux: $TMUX wins, and every tmux command here —
-  // `kill-server` included — would reach the server you are working in. So it is deleted, not
-  // just overridden.
+  // `kill-server` included — would reach the server you are working in. So the socket is named
+  // explicitly (IWE_TMUX_SOCKET for the server, -S for this file's own calls), which beats $TMUX
+  // whatever it says; deleting it keeps the bare-tmux test below honest as well.
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmuxTmp;
+  testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "iwe");
+  await mkdir(join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`), { recursive: true });
+  process.env.IWE_TMUX_SOCKET = testSocket;
   port = 4300 + Math.floor(Math.random() * 200);
   server = startServer();
   // The repository is only needed because a change must have one; the terminal ignores it.
@@ -103,10 +114,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Other test files share this process: the socket this file gave the server must not shape
+  // their pinned argv (a complete-flow test asserts the exact tmux command, -L iwe and all).
+  delete process.env.IWE_TMUX_SOCKET;
   if (!usable) return;
   await browser?.close();
   server?.kill();
-  await tmux("kill-server"); // ours alone: TMUX_TMPDIR points at the temporary directory
+  await tmux("kill-server"); // ours alone: named by -S, the socket this file gave the server
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -334,6 +348,58 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   expect(after).not.toBe(before);
 
   await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
+  // The server runs on Electron's own Node with the launcher's variables in its environment
+  // (IWE_PORT, IWE_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
+  // server, which is exactly the leak). The pane's shells are the user's, so they must not see
+  // any of it — and they must see the change's context, which IWE adds on purpose
+  // (src/capabilities/env.ts).
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  // An absolute path, because the session's active window may be any window the tests above left
+  // behind, in whatever directory it had walked to.
+  const out = join(tmp, "changes", id, "pane-env.txt");
+  await page.keyboard.type(`env > ${out}\n`);
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(out).exists()) break;
+    await Bun.sleep(200);
+  }
+  const env = await Bun.file(out).text();
+  // Line-anchored: the suite's own `npm_lifecycle_script` ("export IWE_ROOT=\"$ROOT\" …") rides
+  // along in the environment, so a bare substring would false-positive on it.
+  const hasVar = (name: string): boolean =>
+    env.split("\n").some((line) => line.startsWith(`${name}=`));
+  expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
+  expect(hasVar("IWE_PORT")).toBe(false);
+  expect(hasVar("IWE_ROOT")).toBe(false);
+  expect(hasVar("IWE_CHANGE_ID")).toBe(true);
+  expect(env).toContain(`IWE_CHANGE_DIR=${join(tmp, "changes", id)}`);
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a bare tmux command cannot reach the change's session", async () => {
+  // IWE's sessions live on their own socket (IWE_TMUX_SOCKET, tmux.ts): a tmux command that
+  // forgets to name it resolves the way tmux always does — $TMUX, else $TMUX_TMPDIR/tmux-<uid>/
+  // default — and finds nothing of ours. This is what makes a careless kill-server from a probe,
+  // a script or an agent's stray test harmless to IWE's terminals.
+  const proc = Bun.spawn(["tmux", "ls"], {
+    env: { ...process.env, TMUX_TMPDIR: tmuxTmp }, // TMUX deleted in beforeAll
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+  ]);
+  expect(await proc.exited).not.toBe(0); // no server on the default socket of this run
+  expect(`${out}${err}`).not.toContain(session);
+  // The session is there for whoever names the socket, as the tests above do.
+  expect(await tmux("ls")).toContain(session);
 }, 60_000);
 
 test.skipIf(!usable)("the terminal page's bar is its windows, not the change's controls", async () => {

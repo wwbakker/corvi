@@ -5,6 +5,7 @@ import { Readable } from "node:stream";
 import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
 import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "../domain/config.ts";
+import { childEnv } from "./env.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
@@ -96,10 +97,12 @@ const spawn = (
           const [tool, ...args] = cmd;
           if (tool === undefined) throw new Error("empty command");
           // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
-          // Empty outside a request.
+          // Empty outside a request. The environment is the scrubbed server env with the
+          // workspace's variables on top (src/capabilities/env.ts) — always passed explicitly,
+          // since inheriting the parent's environment would be inheriting it unscrubbed.
           return childSpawn(tool, args, {
             cwd,
-            env: Object.keys(env).length ? { ...process.env, ...env } : undefined,
+            env: childEnv(process.env, env),
             stdio: ["ignore", "pipe", "pipe"],
           });
         },

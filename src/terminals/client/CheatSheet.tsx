@@ -94,7 +94,7 @@ export function CheatSheet({
       </table>
       <p className="hint">
         This tab is the tmux session <code>iwe-{changeId}</code>, started in the change directory.
-        Reach the same shells from any terminal with <code>tmux attach -t iwe-{changeId}</code>.
+        Reach the same shells from any terminal with <code>tmux -L iwe attach -t iwe-{changeId}</code>.
       </p>
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onClose}>
