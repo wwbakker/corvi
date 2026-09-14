@@ -13,7 +13,7 @@
   "scripts": {
     "dev": "node --watch src/server.ts",
     "start": "NODE_ENV=production node src/server.ts",
-    "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000",
+    "test": "IWE_TEST_RUN=\"${IWE_TEST_RUN:-$(date +%s).$$}\"; export IWE_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/iwe-$IWE_TEST_RUN-root-XXXXXX\"); export IWE_ROOT=\"$ROOT\" IWE_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$IWE_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000 --parallel",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; IWE_ROOT=\"${TMPDIR:-/tmp}/iwe-test-root\" IWE_CONFIG=\"${TMPDIR:-/tmp}/iwe-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/iwe-test-state\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",

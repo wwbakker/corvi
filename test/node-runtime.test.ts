@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { electronBinary } from "../scripts/app/electron/binary.ts";
-import { testRun, testTempDir } from "./helpers.ts";
+import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * The server, on the runtime the app uses.
@@ -29,26 +29,6 @@ let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
-/** Read the server's stdout until it says where it is listening, or the deadline passes. */
-async function waitForUrl(process: ReturnType<typeof Bun.spawn>): Promise<string> {
-  const reader = (process.stdout as ReadableStream<Uint8Array>).getReader();
-  const decoder = new TextDecoder();
-  let seen = "";
-  const line = (async (): Promise<string> => {
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) throw new Error(`the server exited before it was up:\n${seen}`);
-      seen += decoder.decode(value, { stream: true });
-      const found = /iwe on (http:\/\/127\.0\.0\.1:\d+\/)/.exec(seen);
-      if (found?.[1]) return found[1];
-    }
-  })();
-  const timeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`the server did not come up within 30s:\n${seen}`)), 30_000),
-  );
-  return await Promise.race([line, timeout]);
-}
-
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("node-runtime");
@@ -72,7 +52,9 @@ beforeAll(async () => {
     stderr: "pipe",
   });
   try {
-    url = await waitForUrl(server);
+    // Shared with the other server-spawning tests (test/helpers.ts). The trailing slash the
+    // server reports is dropped there, so it is restored for the page assertions below.
+    url = `${await waitForUrl(server)}/`;
   } catch (e) {
     const errors = await new Response(server.stderr as ReadableStream).text().catch(() => "");
     throw new Error(`${e instanceof Error ? e.message : String(e)}\n${errors}`);
