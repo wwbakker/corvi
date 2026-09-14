@@ -18,7 +18,10 @@ they are indistinguishable from test strays by name and command line.
 Ownership is decidable, because only tests carry these:
 
 - test tmux servers listen on sockets under `$TMPDIR/iwe-*`; your tmux listens on the default
-  socket (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default` on Linux);
+  socket (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default` on Linux). Those
+  directories are short on purpose: a unix socket path is capped at 103 characters, and macOS's
+  `$TMPDIR` spends most of it before the run token is added — over the cap, tmux starts no server
+  at all and the terminal tests fail with nothing to say why (test/helpers.ts, `tmuxTempDir`);
 - test servers run on Node and pass `--iwe-test-run` on the command line; `src/server.ts`
   ignores argv. The app's server (`electron src/server.ts`) and a plain dev server carry no
   marker.

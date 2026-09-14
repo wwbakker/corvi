@@ -31,6 +31,11 @@ test("a run is named by the token its resources carry", () => {
   expect(tokenFromPath("/private/var/folders/tp/xyz/T/iwe-1a2b.3c4d-term-abc/tmux-501/default")).toBe(
     "1a2b.3c4d",
   );
+  // The tmux socket's own directory, short and unlabelled: a unix socket path is capped at 103
+  // characters and macOS's `$TMPDIR` is long (test/helpers.ts, `tmuxTempDir`).
+  expect(tokenFromPath("/private/var/folders/tp/xyz/T/iwe-1a2b.3c4d-tmux/tmux-501/default")).toBe(
+    "1a2b.3c4d",
+  );
   // A resource with no token is one this tool cannot attribute to a run: an old run, or the
   // app's own. It is listed, and only --all ends it.
   expect(tokenOf("node src/server.ts --iwe-test-run")).toBeUndefined();
