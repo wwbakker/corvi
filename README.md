@@ -815,14 +815,16 @@ extended-keys is off. Modified Enter keys may not work."*
 Shift-Tab has always worked because it *does* have a legacy encoding (`ESC [Z`), which is the
 difference between the two keys.
 
-Copying out: the mouse belongs to tmux while mouse mode is on, so a plain drag is tmux's own
-selection, which lands in a tmux buffer (`ctrl-b ]` pastes it). The browser's selection is one
-modifier away: **option**-drag on macOS, **shift**-drag on Linux — the modifier xterm.js honours
-on each platform, and the terminal turns on `macOptionClickForcesSelection` for the Mac one. On
-macOS the browser's own shortcut copies it (**⌘C**; the app's Edit menu routes it, as AppKit
-did). On Linux there is no menu to route a clipboard shortcut and Ctrl+C belongs to the shell,
-so the page takes **Ctrl+Shift+C / Ctrl+Shift+V** (Ctrl+V also pastes; middle-click pastes
-the primary selection); the cheat sheet button lists the keys for the platform you are on.
+Copying out: the mouse belongs to tmux while mouse mode is on, and tmux hands its own copies to
+the page as an OSC 52 sequence, which the terminal writes to the system clipboard — so a plain
+drag (and a **double-click** for a word, a triple-click for a line) is all it takes; the tmux
+buffer is separate (`ctrl-b ]` still pastes it). The browser's selection is one modifier away:
+**option**-drag on macOS, **shift**-drag on Linux — the modifier xterm.js honours on each
+platform, and the terminal turns on `macOptionClickForcesSelection` for the Mac one. On macOS
+the browser's own shortcut copies that selection (**⌘C**; the app's Edit menu routes it, as
+AppKit did). On Linux there is no menu to route a clipboard shortcut and Ctrl+C belongs to the
+shell, so the page takes **Ctrl+Shift+C / Ctrl+Shift+V**, and **middle-click** pastes the
+clipboard too; the cheat sheet button lists the keys for the platform you are on.
 
 A terminal that comes up blank: the session is reachable from a normal terminal
 (`tmux -L iwe attach -t iwe-<change id>` — the sessions live on IWE's own socket, so the command
@@ -1354,9 +1356,10 @@ would otherwise create a `PROJ-1` there.
 
 `test/terminal.test.ts` drives the real thing: it starts a server on a temporary root, opens the
 Terminals tab in Chromium, types `pwd > out.txt` into the xterm.js pane and reads the file back,
-then checks `ctrl-b c` reaches tmux, mouse mode is on, that a second page keeps the session, and
-that the shells survive a server restart. It skips itself when `tmux` or Playwright's Chromium is
-missing rather than failing.
+then checks `ctrl-b c` reaches tmux, mouse mode is on, that tmux's own copy and the page's
+chords reach the system clipboard, that a second page keeps the session, and that the shells
+survive a server restart. It skips itself when `tmux` or Playwright's Chromium is missing rather
+than failing.
 
 ## The page tests
 

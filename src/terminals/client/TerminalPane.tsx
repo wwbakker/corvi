@@ -8,6 +8,11 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Terminal } from "@xterm/xterm";
+import {
+  BrowserClipboardProvider,
+  ClipboardAddon,
+  type ClipboardSelectionType,
+} from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "../model.ts";
@@ -27,6 +32,21 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
   const text = await navigator.clipboard.readText().catch(() => "");
   if (text) term.paste(text);
 };
+
+/** The provider the clipboard addon writes through. tmux sends its copies with the selection
+ * field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as the clipboard; the addon
+ * passes that through and the base provider would ignore it. A failure — a denied permission, a
+ * clipboard that will not answer — is swallowed the way `copySelection` swallows its own: the
+ * selection is still on screen, and the addon's promise goes back into xterm's parser, so the
+ * input pipeline must not break. */
+class QuietClipboardProvider extends BrowserClipboardProvider {
+  override writeText(selection: ClipboardSelectionType, text: string): Promise<void> {
+    // Only the system clipboard exists here; an empty selection and `c` both mean it. (`p`, the
+    // primary selection, has no web API and is left alone.)
+    if ((selection as string) !== "" && (selection as string) !== "c") return Promise.resolve();
+    return navigator.clipboard.writeText(text).catch(() => undefined);
+  }
+}
 
 /**
  * The change's terminal: a pty attached to the change's tmux session, rendered by xterm.js in
@@ -98,13 +118,18 @@ export function TerminalPane({
       scrollback: 0,
       fontSize: 13,
       theme: { background: "#0d1117", foreground: "#e6edf3" },
-      // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
-      // browser. Option-drag hands it back to xterm for the system clipboard; the option only
-      // exists on macOS, where it is the only way to select text.
+      // With tmux's mouse mode on, the mouse belongs to tmux and a plain drag never reaches
+      // xterm: it is tmux's selection, which lands on the system clipboard on its own (the
+      // addon loaded below). Option-drag hands it back to xterm for xterm's own selection, the
+      // only way to get one on macOS.
       macOptionClickForcesSelection: platform === "mac",
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
+    // tmux sends its own copies — a drag, a double click, an explicit copy — to the terminal as
+    // an OSC 52 sequence; xterm ignores it without this addon, which writes the system clipboard
+    // (the tmux side is `set-clipboard on` in tmux.ts).
+    term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     term.open(element);
     try {
       // Chromium composites hardware-accelerated (the reason for the Electron host); where it
@@ -197,6 +222,25 @@ export function TerminalPane({
     });
     observer.observe(element);
     return () => observer.disconnect();
+  }, []);
+
+  // Middle-click pastes the system clipboard, the way a Linux terminal does. With mouse mode on
+  // xterm would report the click to tmux, whose MouseDown2Pane pastes tmux's own buffer instead;
+  // capture on the host stops the event before xterm's listener on the inner element.
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const onDown = (e: MouseEvent): void => {
+      if (e.button !== 1) return;
+      e.preventDefault(); // no autoscroll, and no native paste
+      e.stopPropagation();
+      const term = terminal.current;
+      if (!term) return;
+      term.focus();
+      void pasteClipboard(term);
+    };
+    element.addEventListener("mousedown", onDown, true);
+    return () => element.removeEventListener("mousedown", onDown, true);
   }, []);
 
   // The keys xterm cannot encode are sent by the page itself, and the clipboard chords are the

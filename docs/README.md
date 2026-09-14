@@ -36,6 +36,7 @@ Every doc starts with a status header:
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
 | [`decisions/node-pty-terminal.md`](decisions/node-pty-terminal.md) | node-pty + xterm.js replace ttyd; the dev server runs on Node too |
 | [`decisions/tmux-socket.md`](decisions/tmux-socket.md) | IWE's terminals live on their own tmux socket, named by one builder; every tmux command names its socket |
+| [`decisions/terminal-clipboard.md`](decisions/terminal-clipboard.md) | tmux's own copies reach the system clipboard; the page handles OSC 52, middle-click pastes it |
 | [`decisions/node-pty-prebuild.md`](decisions/node-pty-prebuild.md) | node-pty is pinned to the 1.2.0 beta: 1.1.0's macOS prebuild ships a spawn-helper without the execute bit |
 | [`decisions/linux-native-window.md`](decisions/linux-native-window.md) | WebKitGTK + PyGObject for the Linux window (superseded by electron-host.md) |
 | [`decisions/wt-on-linux.md`](decisions/wt-on-linux.md) | `wt` is Worktrunk; no Linux-specific work needed |
