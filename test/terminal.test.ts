@@ -3,11 +3,16 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, testRun, testTempDir } from "./helpers.ts";
+import { csiuFor } from "../src/terminals/model.ts";
 
 /**
- * The terminal is process plumbing — ttyd spawned, tmux attached, both cleaned up — so the only
- * test worth having drives the real thing through a real browser. It is skipped where the tools
- * are missing rather than failing, since the rest of IWE works fine without them.
+ * The terminal is process plumbing — a pty running tmux, spawned and cleaned up — so the only
+ * test worth having drives the real thing through a real browser. The server runs on Node here,
+ * as it does in the app: Bun never delivers pty output (docs/decisions/node-pty-terminal.md).
+ * The browser is what draws it, so a test without one would not test the terminal at all.
+ *
+ * It is skipped where the tools are missing rather than failing, since the rest of IWE works
+ * fine without them.
  */
 /** Poll until a value is what it should be: the strip refreshes on its own timer. */
 async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T> {
@@ -35,7 +40,7 @@ const have = async (tool: string): Promise<boolean> => (await runSh(["which", to
 /** Playwright downloads its browsers separately (`bunx playwright install chromium`, README),
  * and launching one that is not there throws in the `beforeAll` below — which bun reports as a
  * single unnamed failure, with every terminal test silently gone. A missing browser is the same
- * kind of missing tool as a missing ttyd: skip, as this file's own docstring promises. The path
+ * kind of missing tool as a missing tmux: skip, as this file's own docstring promises. The path
  * can also be unanswerable, which is just as good a reason to skip. */
 const haveBrowser = await (async (): Promise<boolean> => {
   try {
@@ -44,7 +49,7 @@ const haveBrowser = await (async (): Promise<boolean> => {
     return false;
   }
 })();
-const usable = (await have("ttyd")) && (await have("tmux")) && haveBrowser;
+const usable = (await have("tmux")) && haveBrowser;
 
 let tmp: string;
 let browser: Browser;
@@ -52,6 +57,22 @@ let port: number;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const session = `iwe-${id}`;
+
+/** Start the server the app would start: `src/server.ts` on Node. */
+const startServer = (): ReturnType<typeof Bun.spawn> =>
+  Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+    env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
+    stdout: "ignore",
+    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
+  });
+
+const waitForServer = async (): Promise<void> => {
+  for (let i = 0; i < 60; i++) {
+    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) return;
+    await Bun.sleep(100);
+  }
+  throw new Error("the server did not come up");
+};
 
 beforeAll(async () => {
   if (!usable) return;
@@ -64,18 +85,11 @@ beforeAll(async () => {
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmp;
   port = 4300 + Math.floor(Math.random() * 200);
-  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
-    stdout: "ignore",
-    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
-  });
+  server = startServer();
   // The repository is only needed because a change must have one; the terminal ignores it.
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
-  for (let i = 0; i < 40; i++) {
-    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) break;
-    await Bun.sleep(100);
-  }
+  await waitForServer();
   await fetch(`http://127.0.0.1:${port}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id, repos: [repo] }),
@@ -87,30 +101,115 @@ afterAll(async () => {
   if (!usable) return;
   await browser?.close();
   server?.kill();
-  await runSh(["pkill", "-f", `new-session -A -s ${session}`]);
   await tmux("kill-server"); // ours alone: TMUX_TMPDIR points at the temporary directory
   await rm(tmp, { recursive: true, force: true });
 });
 
+test("the keys a terminal cannot encode are sent as CSI u", () => {
+  const key = (
+    over: Partial<{ key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean }>,
+  ): Parameters<typeof csiuFor>[0] => ({
+    key: "Enter",
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    ...over,
+  });
+  expect(csiuFor(key({ shiftKey: true }))).toBe("\u001b[13;2u");
+  expect(csiuFor(key({ ctrlKey: true }))).toBe("\u001b[13;5u");
+  expect(csiuFor(key({ shiftKey: true, ctrlKey: true }))).toBe("\u001b[13;6u");
+  // Plain Enter, alt-Enter and the command key are xterm's, which encodes those correctly.
+  expect(csiuFor(key({}))).toBeUndefined();
+  expect(csiuFor(key({ altKey: true }))).toBeUndefined();
+  expect(csiuFor(key({ metaKey: true, shiftKey: true }))).toBeUndefined();
+  expect(csiuFor(key({ key: "a", shiftKey: true }))).toBeUndefined();
+});
+
+test("a Bun server says it has no terminal rather than opening a silent socket", async () => {
+  // The suite runs under Bun, which is exactly the runtime where node-pty never delivers data;
+  // this is the guard that turns that into a message instead of an empty pane.
+  const { terminalUnavailable } = await import("../src/terminals/server/session.ts");
+  expect(terminalUnavailable()).toContain("needs Node");
+});
+
 test.skipIf(!usable)("a terminal outlives the server that started it", async () => {
-  const before = await (await fetch(`http://127.0.0.1:${port}/api/changes/${id}/terminal`)).json();
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  // Something that only lives in the shell itself, so the test can tell a surviving shell from
+  // a fresh one that happens to have the same windows.
+  await page.keyboard.type("export IWE_SURVIVED=yes\n");
+  await Bun.sleep(500);
 
   // Restart, as happens constantly while working on IWE itself.
   server.kill();
   await Bun.sleep(500);
-  server = Bun.spawn(["bun", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  for (let i = 0; i < 60; i++) {
-    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) break;
-    await Bun.sleep(100);
-  }
+  server = startServer();
+  await waitForServer();
 
-  // The same ttyd, so the page keeps working and the shells keep running.
-  const after = await (await fetch(`http://127.0.0.1:${port}/api/changes/${id}/terminal`)).json();
-  expect(after).toEqual(before);
+  // The session, and the shell in it, belong to tmux; the new server's pty attaches to them.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  await page.keyboard.type("echo $IWE_SURVIVED > survived.txt\n");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "changes", id, "survived.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "changes", id, "survived.txt")).text()).toBe("yes\n");
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("another change's terminal is another pty", async () => {
+  // Navigating from one change's terminal to another's must not keep the first change's pty:
+  // the shells are separate sessions, and a command typed in the second must land there.
+  const second = "PROJ-TERM-2";
+  const repo = join(tmp, "repo2");
+  await runSh(["git", "init", "-b", "main", repo]);
+  const created = await fetch(`http://127.0.0.1:${port}/api/changes`, {
+    method: "POST",
+    body: JSON.stringify({ id: second, repos: [repo] }),
+  });
+  expect(created.ok).toBe(true);
+
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${second}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  await page.keyboard.type("pwd > second.txt\n");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "changes", second, "second.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "changes", second, "second.txt")).text()).toBe(
+    `${join(tmp, "changes", second)}\n`,
+  );
+
+  // The first change's terminal, without a reload: the sidebar lists every change's windows, and
+  // clicking one is the client-side navigation that must retire the second change's pty.
+  const firstEntry = page.locator(".sidebar .change-entry").filter({ hasText: new RegExp(`${id}(?!-)`) }).first();
+  await firstEntry.locator(".entry.window").first().click();
+  await page.waitForURL(`**/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  await page.keyboard.type("pwd > back.txt\n");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "changes", id, "back.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "changes", id, "back.txt")).text()).toBe(
+    `${join(tmp, "changes", id)}\n`,
+  );
+  // The second change's session is not needed again, and leaving it would put its windows in
+  // the sidebar counts the tests after this one make.
+  await tmux("kill-session", "-t", `iwe-${second}`);
+  await page.close();
 }, 60_000);
 
 test.skipIf(!usable)("the terminal tab runs a shell in the change directory", async () => {
@@ -118,12 +217,8 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   // Straight to the terminal page: the navigation column has no "Terminals" button, because
   // "the terminals" is not something to look at — a window is.
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
-  await page.waitForSelector(".terminal iframe");
-
-  // The terminal is ttyd's to draw; what the shell did is read from the shell's own output file.
-  const term = page.frameLocator(".terminal iframe").locator("body");
-  await term.waitFor({ state: "visible", timeout: 15_000 });
-  await term.click();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
 
   // tmux only starts when the browser connects, and the shell only prompts after that.
   const started = async (): Promise<boolean> => (await tmux("ls")).includes(session);
@@ -219,10 +314,19 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   }
   expect(await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()).toBe(true);
 
-  // Asking twice reuses the same ttyd instead of leaving one behind per visit.
-  const first = await (await fetch(`http://127.0.0.1:${port}/api/changes/${id}/terminal`)).json();
-  const again = await (await fetch(`http://127.0.0.1:${port}/api/changes/${id}/terminal`)).json();
-  expect(again).toEqual(first);
+  // The pty follows the pane: a resized window re-fits xterm and tells the pty, so tmux's client
+  // size follows instead of leaving a strip of the terminal unused.
+  const clientSize = async (): Promise<string> =>
+    (await tmux("list-clients", "-t", session, "-F", "#{client_width}x#{client_height}"))
+      .split("\n")[0] ?? "";
+  const before = await clientSize();
+  await page.setViewportSize({ width: 1000, height: 700 });
+  let after = before;
+  for (let i = 0; i < 50 && after === before; i++) {
+    await Bun.sleep(200);
+    after = await clientSize();
+  }
+  expect(after).not.toBe(before);
 
   await page.close();
 }, 60_000);
@@ -230,7 +334,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 test.skipIf(!usable)("the terminal page's bar is its windows, not the change's controls", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
-  await page.waitForSelector(".terminal iframe");
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
 
   // The change's own controls — id, name, state, actions — are the dashboard's: they say
   // nothing while a shell has the keyboard, and the windows are what you switch between.
@@ -280,7 +384,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // on the right — half the column's own left padding — and none below.
   const [inner, box, barBox, currentBox, sidebar] = await Promise.all([
     page.evaluate(() => [window.innerWidth, window.innerHeight] as const),
-    page.locator(".terminal iframe").boundingBox(),
+    page.locator(".terminal-screen").boundingBox(),
     bar.boundingBox(),
     currentTab.boundingBox(),
     page.locator(".sidebar").boundingBox(),
@@ -318,7 +422,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // And a window tab from here opens that terminal, rather than selecting a window you cannot
   // see: on the dashboard the tab is the way in.
   await page.locator(".window-bar .window-tab:not(.new):not(.overview)").first().click();
-  await page.waitForSelector(".terminal iframe");
+  await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
   await page.close();
 }, 60_000);
@@ -326,7 +430,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
 test.skipIf(!usable)("a window tab dragged onto another takes its place", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
-  await page.waitForSelector(".terminal iframe");
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await tabs.first().waitFor();
   expect(await tabs.count()).toBeGreaterThanOrEqual(2);
@@ -420,16 +524,12 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
     },
     [id, windowId] as const,
   );
-  await page.waitForSelector(".terminal iframe");
+  await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
 
   // Looking straight at it is the one silent case. Working long enough for the watcher to see
   // it, then waiting again: the host hears nothing this time.
-  expect(
-    await page.evaluate(
-      () => document.hasFocus() || document.activeElement?.tagName === "IFRAME",
-    ),
-  ).toBe(true);
+  expect(await page.evaluate(() => document.hasFocus())).toBe(true);
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
   await page.waitForTimeout(2500);
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "waiting");
@@ -442,29 +542,27 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   await page.close();
 }, 60_000);
 
-test.skipIf(!usable)("a dead ttyd is replaced without taking the session with it", async () => {
-  // A ttyd can die while its session lives: a crash, a lost note, or someone deleting the
-  // process. Starting a replacement must attach to that session, not end it. The cleanup that
-  // clears a stale ttyd must not match the tmux server's own command line as well: that would
-  // take the server, and with it every window, leaving a fresh one-window session in its place.
+test.skipIf(!usable)("closing the page detaches the pty but keeps the session", async () => {
+  // A pty dies with its socket, the way one dies when its page is closed — and the session, and
+  // everything running in it, must not be taken with it. The next connection attaches to the
+  // same windows.
   await tmux("set-option", "-g", "destroy-unattached", "off"); // a developer's tmux.conf must not decide this
-  await tmux("new-window", "-t", session, "-d"); // more than one window, so a lost session is unmistakable
+  await tmux("new-window", "-t", session, "-d"); // one more than the session already has
   const before = (await tmux("list-windows", "-t", session)).split("\n").length;
 
-  const note = (await Bun.file(join(tmp, "changes", id, "terminal.json")).json()) as { pid: number };
-  process.kill(note.pid);
-  for (let i = 0; i < 50; i++) {
-    try {
-      process.kill(note.pid, 0);
-      await Bun.sleep(100);
-    } catch {
-      break;
-    }
-  }
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await Bun.sleep(500); // the pty attached
+  await page.close();
+  await Bun.sleep(500);
 
-  // Asking again starts a fresh ttyd, which must find the session and attach to it.
-  await fetch(`http://127.0.0.1:${port}/api/changes/${id}/terminal`);
+  // A fresh connection finds the session and its windows, not a fresh session.
+  const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await again.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(before);
+  await again.close();
 }, 60_000);
 
 test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own", async () => {
@@ -472,49 +570,94 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
   // the fit addon reserves the scrollbar's width when there is scrollback to scroll. On a machine
   // that shows scrollbars always, the two together are a pale empty bar down the right of the
   // terminal and a grid a couple of columns narrower than the frame. tmux owns scrolling (mouse
-  // mode), so the terminal is started with no scrollback and the injected style takes the bar
-  // itself away.
+  // mode), so the terminal is started with no scrollback and the stylesheet takes the bar itself
+  // away.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
-  const screen = page.frameLocator(".terminal iframe").locator(".xterm-screen");
+  const screen = page.locator(".terminal-screen .xterm-screen");
   await screen.waitFor({ timeout: 15_000 });
 
-  // The options arrive over the socket after the first fit, so the scrollback may still be the
-  // default for a moment.
-  const shape = (): Promise<{
-    scrollback: number;
-    overflowY: string;
-    cellWidth: number;
-    rightGap: number;
-    padding: number;
-  }> =>
-    screen.evaluate((el) => {
-      const doc = el.ownerDocument;
-      const term = (doc.defaultView as unknown as {
-        term: { cols: number; options: { scrollback: number } };
-      }).term;
-      const viewport = doc.querySelector(".xterm-viewport") as HTMLElement;
-      const root = doc.querySelector(".xterm") as HTMLElement;
-      const box = el.getBoundingClientRect();
-      return {
-        scrollback: term.options.scrollback,
-        overflowY: getComputedStyle(viewport).overflowY,
-        cellWidth: box.width / term.cols,
-        rightGap: viewport.getBoundingClientRect().right - box.right,
-        padding: parseFloat(getComputedStyle(root).paddingRight),
-      };
-    });
-  let facts = await shape();
-  for (let i = 0; i < 25 && facts.scrollback !== 0; i++) {
-    await Bun.sleep(200);
-    facts = await shape();
-  }
-
-  expect(facts.scrollback).toBe(0);
-  expect(facts.overflowY).toBe("hidden");
+  // One character cell, from the two sides: the pane's own column count, and the grid's width.
+  const cols = Number(
+    (await tmux("list-clients", "-t", session, "-F", "#{client_width}")).split("\n")[0],
+  );
+  const box = (await screen.boundingBox())!;
+  const { overflowY, rightGap } = await screen.evaluate((el) => {
+    const viewport = el.ownerDocument.querySelector(".xterm-viewport") as HTMLElement;
+    return {
+      overflowY: getComputedStyle(viewport).overflowY,
+      rightGap: viewport.getBoundingClientRect().right - el.getBoundingClientRect().right,
+    };
+  });
+  expect(overflowY).toBe("hidden");
   // The grid may be short by less than one cell — columns are whole characters — but no more.
   // A scrollbar is a good deal wider than one cell, which is the strip this catches.
-  expect(facts.rightGap).toBeLessThan(facts.padding + facts.cellWidth);
+  expect(rightGap).toBeLessThan(box.width / cols);
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", async () => {
+  // tmux draws its own menu into the terminal grid when mouse mode reports a right click; the
+  // browser does not know that happened, and shows its own on top unless told not to.
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  const prevented = await page.locator(".terminal-screen").evaluate((el) =>
+    !el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
+  );
+  expect(prevented).toBe(true);
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("the page copies and pastes through the system clipboard", async () => {
+  // ttyd's page owned these chords; with xterm.js in the page they are ours. The browser
+  // permission is granted here the way the app grants it (scripts/app/electron/main.ts).
+  const page = await browser.newPage({
+    viewport: { width: 1200, height: 800 },
+    permissions: ["clipboard-read", "clipboard-write"],
+  });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+
+  // A known line at the top of the screen.
+  await page.keyboard.type("clear; echo COPY-MARKER-42\n");
+  await Bun.sleep(800);
+
+  // Shift-drag: with mouse mode on a plain drag is tmux's selection, and xterm.js hands the
+  // selection to the browser only with the modifier. Across a few rows: tmux's status line sits
+  // wherever the user's ~/.tmux.conf puts it (top or bottom), and this only needs the marker in
+  // what is selected.
+  const screen = (await page.locator(".terminal-screen .xterm-screen").boundingBox())!;
+  await page.keyboard.down("Shift");
+  await page.mouse.move(screen.x + 1, screen.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(screen.x + 300, screen.y + 80, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up("Shift");
+
+  await page.keyboard.press("Control+Shift+C");
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  // The first cell depends on where the drag's pixel lands in a character cell; the marker in
+  // the clipboard is what this is about.
+  expect(copied).toContain("MARKER-42");
+
+  // And back in: the chord pastes the clipboard into the shell's editor, where Enter runs it.
+  // An absolute path, because the session's active window may be any window the tests above
+  // left behind, in whatever directory it had walked to.
+  const pasted = join(tmp, "changes", id, "pasted.txt");
+  await page.evaluate((path) => navigator.clipboard.writeText(`echo PASTED > ${path}`), pasted);
+  await page.locator(".terminal-screen").click();
+  await page.keyboard.press("Control+Shift+V");
+  // The clipboard read is asynchronous; Enter before it lands would execute an empty line.
+  await Bun.sleep(400);
+  await page.keyboard.press("Enter");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(pasted).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(pasted).text()).toBe("PASTED\n");
   await page.close();
 }, 60_000);
 
@@ -522,7 +665,7 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // It takes the private tmux server down with it, so nothing that needs tmux may follow.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
-  await page.waitForSelector(".terminal iframe");
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect(await page.locator(".terminal-gone").count()).toBe(0);
 
   // The pane waits five seconds after its window list empties before calling the session gone,
@@ -532,7 +675,7 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   await page.clock.install();
 
   // The server goes away under the open terminal, the way a killed tmux server does: the page
-  // has to say so rather than leave a dead frame that looks merely slow.
+  // has to say so rather than leave a dead pane that looks merely slow.
   await tmux("kill-server");
   // Wait on the page's own state, not on the clock: the window list emptying is what starts the
   // timer, and that is a fact about the server (its watcher has seen the session die), not a
@@ -542,68 +685,16 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   await page.clock.runFor(5000);
   expect(await until(() => page.locator(".terminal-gone").count(), 1)).toBe(1);
 
-  // And it is said again when the tab is reopened: the server answers with the stale ttyd and the
-  // pid to stop. That report has a grace — a ttyd whose note is younger than five seconds is not
-  // judged, so a terminal that is merely starting is not called dead — and the test before this
-  // one restarts the ttyd. Age the note past the grace so the reopen tests the report, not the
-  // birth.
-  const note = join(tmp, "changes", id, "terminal.json");
-  const running = JSON.parse(await Bun.file(note).text()) as { at?: number };
-  await Bun.write(note, `${JSON.stringify({ ...running, at: Date.now() - 60_000 })}\n`);
-
+  // Reopening the tab starts a fresh session, which is what `new-session -A` would have done
+  // anyway; the banner is about the loss, not a request to clean anything up.
   await page.reload();
-  await page.waitForSelector(".terminal iframe");
-  expect(await until(() => page.locator(".terminal-gone").count(), 1)).toBe(1);
-  expect(await page.locator(".terminal-gone code").first().innerText()).toContain("kill ");
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  let fresh = false;
+  for (let i = 0; i < 50 && !fresh; i++) {
+    fresh = (await tmux("ls")).includes(session);
+    if (!fresh) await Bun.sleep(200);
+  }
+  expect(fresh).toBe(true);
+  expect(await until(() => page.locator(".terminal-gone").count(), 0)).toBe(0);
   await page.close();
 }, 60_000);
-
-test.skipIf(!usable)("the page sends CSI u for the keys a terminal cannot encode", async () => {
-  // The script is what IWE owns; tmux's forwarding of those sequences is tmux's business, and
-  // is governed by `extended-keys`. A stub socket makes the bytes visible without a shell.
-  const page = await browser.newPage();
-  // From our own origin, as the terminal page is: the server refuses requests another site made,
-  // and a fixture on about:blank is another site. Loading it there passed until that was true.
-  await page.addInitScript(() => {
-    (window as unknown as { __sent: string[] }).__sent = [];
-    // A socket the script can capture, standing in for the one ttyd opens.
-    window.WebSocket = class {
-      readyState = 1;
-      send(frame: ArrayBuffer): void {
-        (window as unknown as { __sent: string[] }).__sent.push(new TextDecoder().decode(frame));
-      }
-    } as unknown as typeof WebSocket;
-  });
-  await page.goto(`http://127.0.0.1:${port}/`);
-  await page.evaluate(() => document.body.insertAdjacentHTML("beforeend", '<textarea id="t"></textarea>'));
-  await page.addScriptTag({ url: "/terminal-keys.js" });
-  const frames = await page.evaluate(() => {
-    new WebSocket("ws://127.0.0.1:1/never"); // the script keeps a reference to it
-    const press = (init: KeyboardEventInit): boolean =>
-      document
-        .getElementById("t")!
-        .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, ...init }));
-    press({ shiftKey: true });
-    press({ ctrlKey: true });
-    press({ shiftKey: true, ctrlKey: true });
-    press({}); // plain Enter is left to the terminal, which encodes it correctly
-    press({ altKey: true }); // as is alt-Enter
-    return (window as unknown as { __sent: string[] }).__sent;
-  });
-  // "0" is ttyd's input command; then the CSI u sequence: 13 is Enter, then the modifier.
-  expect(frames).toEqual(["0\u001b[13;2u", "0\u001b[13;5u", "0\u001b[13;6u"]);
-  await page.close();
-}, 30_000);
-
-test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", async () => {
-  // tmux draws its own menu into the terminal grid when mouse mode reports a right click; the
-  // browser does not know that happened, and shows its own on top unless told not to.
-  const page = await browser.newPage();
-  await page.goto(`http://127.0.0.1:${port}/`);
-  await page.addScriptTag({ url: "/terminal-keys.js" });
-  const prevented = await page.evaluate(
-    () => !window.dispatchEvent(new MouseEvent("contextmenu", { cancelable: true })),
-  );
-  expect(prevented).toBe(true);
-  await page.close();
-});

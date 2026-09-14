@@ -54,43 +54,33 @@ export function useWindows(): {
 }
 
 /**
- * The ttyd instance of the change you are looking at.
+ * Where the change you are looking at opens its terminal socket.
  *
- * Asked for only when a terminal is actually opened: asking on arrival would start a ttyd — and,
- * as soon as the page connected, a tmux session — for every change you so much as looked at,
- * which is not what opening a dashboard means. A change needs no terminal at all some days.
+ * Asked for only when a terminal is actually opened: the URL is the server's, and asking on
+ * arrival is a request for every change you so much as looked at, which is not what opening a
+ * dashboard means. A change needs no terminal at all some days.
  */
 export function useTerminal(
   id: string | null,
   archived: boolean,
   wanted: boolean,
-): { url: string | null; error: string | null; gone: boolean; pid: number | undefined } {
+): { url: string | null; error: string | null } {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // A terminal on record can outlive its tmux session: the server says so when the URL is asked
-  // for, and the page says that rather than showing a dead frame as if it were a slow one.
-  const [gone, setGone] = useState(false);
-  const [pid, setPid] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     setUrl(null);
     setError(null);
-    setGone(false);
-    setPid(undefined);
   }, [id]);
 
   useEffect(() => {
     if (!id || archived || !wanted) return;
-    api<{ url: string; gone?: boolean; pid?: number }>(`/changes/${id}/terminal`)
-      .then((r) => {
-        setUrl(r.url);
-        setGone(r.gone ?? false);
-        setPid(r.pid);
-      })
+    api<{ url: string }>(`/changes/${id}/terminal`)
+      .then((r) => setUrl(r.url))
       .catch((e: Error) => setError(e.message));
   }, [id, archived, wanted]);
 
-  return { url, error, gone, pid };
+  return { url, error };
 }
 
 /** Every change: the navigation column lists the active ones and the overview lists them all.

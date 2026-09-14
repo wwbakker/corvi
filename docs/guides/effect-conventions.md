@@ -13,7 +13,7 @@ The rulings behind these rules are recorded in
 
 Server-side `src/` only. Excluded, deliberately:
 
-- `src/terminals/server/proxy.ts` — the WebSocket bridge stays as-is; it is proxy plumbing, not logic.
+- `src/terminals/server/session.ts` — the pty bridge stays as-is; it speaks events, not logic.
 - `src/app-root/**`, a module's `client/**`, an extension's `client.tsx` and the host's browser
   contract (`src/extension-host/client.tsx`) — the React UI never sees Effect.
 - `src/capabilities/web.ts` — the sync guard stays as-is.

@@ -468,7 +468,14 @@ const run = async (): Promise<void> => {
   // loopback origin, and a request from anywhere else gets nothing.
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
     const origin = details.requestingUrl || webContents.getURL();
-    callback(permission === "media" && isOursUrl(origin));
+    // Media is the microphone. The terminal's copy and paste chords go through the page's
+    // clipboard API (there is no Linux menu to route them, and Ctrl/Cmd+C belongs to the
+    // shell), so the page needs both clipboard permissions. Everything else stays denied.
+    const allowed =
+      permission === "media" ||
+      permission === "clipboard-read" ||
+      permission === "clipboard-sanitized-write";
+    callback(allowed && isOursUrl(origin));
   });
 
   ipcMain.handle("iwe:notify", (event, body) => {

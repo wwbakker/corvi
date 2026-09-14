@@ -51,3 +51,5 @@ PATH.
   field stays at zero.
 - Self-contained installs — server and client built into the app bundle — remain possible, not
   done: this decision is about the runtime, not packaging.
+- Superseded in part by [`node-pty-terminal.md`](node-pty-terminal.md): the server runs on Node
+  in development too, because the terminal's pty library delivers nothing under Bun.

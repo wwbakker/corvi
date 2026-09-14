@@ -19,10 +19,13 @@ fail are reported on the dashboard; the change itself is written first and alway
 
 ## Requirements
 
-`git`, `wt`, `gh` and `az` for the integrations; `tmux` and `ttyd` for the Terminals tab. Jira is
+`git`, `wt`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira is
 talked to over its own REST API, but `jira-cli` is still what configures it — see below.
 
-The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux ttyd`).
+The terminal's pty is `node-pty`, installed with the rest of the dependencies; on Linux that is
+compiled at `bun install` (a C toolchain and python3), on macOS the shipped prebuild is used.
+
+The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux`).
 `wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
 official Arch package, and every invocation IWE makes was verified to behave identically on Linux
 (`brew install worktrunk` on macOS; details and non-Arch installs in `docs/decisions/wt-on-linux.md`).
@@ -31,7 +34,10 @@ The app's own window needs nothing extra on either platform: it is Electron, whi
 downloads with the rest of the dependencies (`docs/decisions/electron-host.md`), and the server
 inside it runs on Electron's own Node — so Bun is the toolchain for installing and developing
 IWE, not something an installed app needs at runtime (`docs/decisions/node-server.md`). The page
-itself is still a web page — any browser opens it.
+itself is still a web page — any browser opens it. Developing needs Node 24+ as well: `bun run
+dev` starts the server with `node --watch`, and `bun test` spawns its servers with `node`,
+because the terminal's pty library delivers nothing under Bun
+(`docs/decisions/node-pty-terminal.md`).
 
 ## Run
 
@@ -40,8 +46,8 @@ bun install
 bun run dev          # http://127.0.0.1:4000
 ```
 
-`dev` is `bun --watch`, which restarts the process, rather than `bun --hot`, which re-evaluates
-modules inside the running one. The difference matters here: the server takes its routes once,
+`dev` is `node --watch` (Node 24+): a restart rather than a re-evaluation of modules inside the
+running process. The difference matters here: the server takes its routes once,
 at startup, so under `--hot` a **newly added route never appears** — the request falls through to
 the app's own HTML and arrives as a perfectly good `200 text/html`. The page then tries to parse
 that as JSON and reports whatever the browser calls a parse error (Safari: "The string did not
@@ -540,9 +546,9 @@ A terminal's icon is green while its window runs something and grey while it sit
 has not got would be more noise than help. On a change whose session has not started, it opens the
 terminal — which starts one, with the window you were asking for.
 
-**Opening a change starts nothing.** ttyd is asked for when a terminal is opened, not when the
-dashboard is: asking on arrival left a ttyd — and, once the page connected, a tmux session —
-behind for every change you so much as looked at. A change needs no terminal at all some days.
+**Opening a change starts nothing.** A terminal connects when it is opened, not when the
+dashboard is: connecting on arrival left a tmux session — and a pty — behind for every change
+you so much as looked at. A change needs no terminal at all some days.
 The cost is that the first terminal of a change takes a moment to appear, which is the honest
 price of not starting one behind your back.
 
@@ -728,16 +734,15 @@ Failing to copy is never fatal — the worktree is what was asked for.
 ## Terminals
 
 Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
-change directory, served into the page by [ttyd](https://github.com/tsl0922/ttyd)
-(`brew install ttyd`; on Linux the distro package, e.g. `sudo pacman -S ttyd`).
+change directory, attached by a pty in the server (`node-pty`) and drawn by xterm.js in the page
+itself.
 
-A terminal outlives the server: ttyd is detached, its pid and port are written to
-`terminal.json` in the change directory, and the next start adopts it if it is still answering.
-Restarting IWE — which is constant while working on IWE itself — therefore costs you nothing, and
-the page keeps working straight through it. Completing a change is what ends a terminal for good.
+A terminal outlives the server: tmux owns the session and the pty is only one of its clients, so
+restarting IWE — which is constant while working on IWE itself — detaches and re-attaches without
+costing you a shell. Completing a change is what ends a terminal for good.
 
-ttyd is started when a terminal is opened, and not before: a dashboard you glanced at should not
-leave a process behind. The dashboard cards are unmounted while a terminal is in front —
+The connection is made when a terminal is opened, and not before: a dashboard you glanced at
+should not leave a session behind. The dashboard cards are unmounted while a terminal is in front —
 otherwise their per-repository calls, which occupy every connection the browser allows per
 origin, starve the window list's polling. Returning to the dashboard repaints from the cache and
 refreshes.
@@ -794,15 +799,13 @@ Windows and panes are yours to make with the usual tmux keys — the **tmux chea
 beside the page title lists them — which is also the answer to "how do I get more than one terminal":
 tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
-yourself keep your own settings — a change needs no terminal at all
-some days and three in one repository on others, so IWE opens none for you. The session is the
-shows, and the shells survive an IWE restart because tmux owns them, not us. ttyd listens on
-loopback only (`lo0` on macOS, `lo` on Linux).
+yourself keep your own settings. A change needs no terminal at all some days and three in one
+repository on others, so IWE opens none for you: opening the terminal is what starts the session.
 
 **Shift-Enter and Ctrl-Enter.** A browser terminal cannot encode these by itself: xterm.js sends a
 carriage return for Enter whatever modifier is held — there is no legacy encoding for a modified
-Enter, and it implements neither of the modern ones. So IWE serves ttyd from its own origin, and
-injects a small script that sends the CSI u sequence instead (`ESC [13;2u` for shift, `;5` for
+Enter, and it implements neither of the modern ones. So the page sends the CSI u sequence
+itself instead (`ESC [13;2u` for shift, `;5` for
 ctrl, `;6` for both). tmux is started with `extended-keys on`, which passes those through to
 applications that ask for them — which is what an application means when it says *"tmux
 extended-keys is off. Modified Enter keys may not work."*
@@ -810,20 +813,21 @@ extended-keys is off. Modified Enter keys may not work."*
 Shift-Tab has always worked because it *does* have a legacy encoding (`ESC [Z`), which is the
 difference between the two keys.
 
-Copying out: the mouse belongs to tmux while mouse mode is on, so hold **option** while dragging
-to get the browser's own selection, then ⌘C. (Option, not shift: that is the modifier xterm.js
-honours on macOS, and only because ttyd is started with `macOptionClickForcesSelection=true`.) A
-drag without it is tmux's selection, which lands in a tmux buffer (`ctrl-b ]` pastes it) and not in the Mac clipboard — this build of ttyd has no
-OSC 52 support, so tmux cannot reach the system clipboard by itself. On Linux the browser owns a
-plain drag already, and the terminal takes **Ctrl+Shift+C / Ctrl+Shift+V** (middle-click pastes
+Copying out: the mouse belongs to tmux while mouse mode is on, so a plain drag is tmux's own
+selection, which lands in a tmux buffer (`ctrl-b ]` pastes it). The browser's selection is one
+modifier away: **option**-drag on macOS, **shift**-drag on Linux — the modifier xterm.js honours
+on each platform, and the terminal turns on `macOptionClickForcesSelection` for the Mac one. On
+macOS the browser's own shortcut copies it (**⌘C**; the app's Edit menu routes it, as AppKit
+did). On Linux there is no menu to route a clipboard shortcut and Ctrl+C belongs to the shell,
+so the page takes **Ctrl+Shift+C / Ctrl+Shift+V** (Ctrl+V also pastes; middle-click pastes
 the primary selection); the cheat sheet button lists the keys for the platform you are on.
 
-A terminal that comes up blank: ttyd logs to `/tmp/iwe-ttyd-<change id>.log`, and the session is
-reachable from a normal terminal, which tells you quickly whether the problem is tmux or the
+A terminal that comes up blank: the session is reachable from a normal terminal
+(`tmux attach -t iwe-<change id>`), which tells you quickly whether the problem is tmux or the
 browser. After changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
 
-Completing a change kills its session and ttyd, since the change directory moves into the archive
-underneath it.
+Completing a change kills its session and the ptys attached to it, since the change directory
+moves into the archive underneath it.
 
 ## Review changes
 
@@ -1341,9 +1345,10 @@ would otherwise create a `PROJ-1` there.
 ## Testing the terminal
 
 `test/terminal.test.ts` drives the real thing: it starts a server on a temporary root, opens the
-Terminals tab in Chromium, types `pwd > out.txt` into the frame and reads the file back, then
-checks `ctrl-b c` reaches tmux, mouse mode is on, and that asking twice reuses one ttyd. It skips
-itself when `ttyd` or `tmux` is missing rather than failing.
+Terminals tab in Chromium, types `pwd > out.txt` into the xterm.js pane and reads the file back,
+then checks `ctrl-b c` reaches tmux, mouse mode is on, that a second page keeps the session, and
+that the shells survive a server restart. It skips itself when `tmux` or Playwright's Chromium is
+missing rather than failing.
 
 ## The page tests
 
@@ -1369,7 +1374,7 @@ choice was made, and `docs/plans/` holds active work only.
 
 The map, grouped by layer:
 
-    src/server.ts             Bun.serve: /api/*, /api/ext/:name/* dispatch, SSE, ttyd ws-proxy
+    src/server.ts             node:http: /api/*, /api/ext/:name/* dispatch, SSE, the terminal socket
 
     src/capabilities/         the substrate everything stands on
       effect/                 errors (the taxonomy) · http→status · runRoute · Workspace tag ·
@@ -1403,11 +1408,11 @@ The map, grouped by layer:
       client/                 ChangeView.tsx, changeTabs.ts
     src/wizard/               /new: Wizard.tsx, index.ts (the face)
     src/terminals/            the terminal module: sessions without change knowledge
-      server/                 tmux.ts (sessions, ttyd spawn), proxy.ts (ttyd through our
-                              origin, the key-fixing script), presenter.ts (the window merge and
-                              the core's defaults), index.ts (the public face)
+      server/                 tmux.ts (sessions and windows), session.ts (the pty and the
+                              socket bridge), presenter.ts (the window merge and the core's
+                              defaults), index.ts (the public face)
       client/                 TerminalPane.tsx, WindowTabs.tsx, CheatSheet.tsx
-      routes.ts               the ttyd proxy, the key script and the window API
+      routes.ts               the terminal socket, the windows and the prompt API
     src/workspace/            the workspace module: contexts, config and the repository browser
       server/                 config.ts (config file + env overrides), schema.ts (the config file
                               schema), workspaces.ts (which context a change belongs to),
@@ -1468,4 +1473,4 @@ The map, grouped by layer:
     scripts/app/linux.ts        the Linux install: desktop entry, icons, iwe-app launcher
     scripts/app/electron/       the window: main.ts and preload.ts, built into main.cjs by build.ts
     scripts/app/run.ts drive.ts app:run (from the checkout) and app:drive (Playwright)
-    test/                       the suite; test/terminal.test.ts drives a real ttyd and tmux
+    test/                       the suite; test/terminal.test.ts drives a real pty and tmux

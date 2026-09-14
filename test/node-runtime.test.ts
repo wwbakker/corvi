@@ -8,9 +8,9 @@ import { testRun, testTempDir } from "./helpers.ts";
 /**
  * The server, on the runtime the app uses.
  *
- * The suite runs the server under Bun — fast, and the way the repository is developed — but the
- * app runs it under Electron's Node (docs/decisions/node-server.md). This is the one test that
- * proves the difference does not matter: the same `src/server.ts`, booted with
+ * The suite runs the server on Node, but the app runs it under Electron's own Node
+ * (docs/decisions/node-server.md). This is the one test that proves the app's binary can do it
+ * for real: the same `src/server.ts`, booted with
  * `ELECTRON_RUN_AS_NODE=1` (Node's type stripping runs the TypeScript), serving its page — which
  * means esbuild built it inside that process — and answering an API call.
  *

@@ -8,24 +8,23 @@
  *   bun run test:clean --prune          # ...and remove the temp dirs and pid-files it ended
  *   bun run test:clean --verbose        # also say so when there is nothing
  *
- * Tests start real things — bun servers, ttyd servers, whole tmux servers — and an aborted run
- * leaves them behind. Killing those by port or by process name is how a live IWE.app server and
- * its ttyd were once destroyed: from the outside they look exactly like test leftovers. So
- * ownership here is decided only by things a test's processes carry and the app's never do:
+ * Tests start real things — servers on Node, whole tmux servers — and an aborted run leaves them
+ * behind. Killing those by port or by process name is how a live IWE.app server was once
+ * destroyed: from the outside they look exactly like test leftovers. So ownership here is
+ * decided only by things a test's processes carry and the app's never do:
  *
- *   - a ttyd is a test's when the change directory in its command line is under `$TMPDIR/iwe-*`
- *     (the temp dirs the tests create; the app's ttyds serve `~/changes/...`);
  *   - a tmux server is a test's when its socket is under a `$TMPDIR/iwe-*` directory (the tests
  *     point TMUX_TMPDIR there; yours is the default socket);
- *   - a bun server is a test's when its command line carries `--iwe-test-run`, which the tests
- *     pass and src/server.ts ignores.
+ *   - a server is a test's when its command line carries `--iwe-test-run`, which the tests pass
+ *     and src/server.ts ignores. The app's server (`electron src/server.ts`) and a dev server
+ *     (`node src/server.ts`) carry no marker.
  *
  * Which run, and whether that run is still alive, is the second question — the one that lets two
  * suites run at once. A run is named by a token, a `<base36>.<base36>` pair the dot keeps apart
  * from the human labels a temp dir also carries. Its resources carry the token too:
  *
  *   - the server in `--iwe-test-run=<token>`;
- *   - the ttyd's change directory, and the tmux socket, under `<tmpdir>/iwe-<token>-...`;
+ *   - the tmux socket, under `<tmpdir>/iwe-<token>-...`;
  *   - and the run itself in `<tmpdir>/iwe-<token>.pid`, written by `testRun()` (test/helpers.ts)
  *     and holding its pid for as long as it lives.
  *
@@ -58,13 +57,10 @@ const underTestRoot = (path: string, roots: readonly string[]): boolean => {
   return roots.some((root) => candidate.startsWith(`${normalize(root)}/iwe-`));
 };
 
-/** Whether a command line belongs to a test run. Pure and exported, so test/clean.test.ts can
- * pin the two shapes this must never confuse: a test's ttyd and the app's own. */
-export const isTestCommand = (command: string, roots: readonly string[]): boolean => {
-  if (command.includes("--iwe-test-run")) return true;
-  const changeDir = /(?:^|\s)-c\s+(\S+)/.exec(command)?.[1];
-  return changeDir !== undefined && underTestRoot(changeDir, roots);
-};
+/** Whether a command line belongs to a test run: only the marker every test server carries.
+ * Pure and exported, so test/clean.test.ts can pin the shapes this must never confuse: a test's
+ * server, the app's (`electron src/server.ts`), and a dev server (`node src/server.ts`). */
+export const isTestCommand = (command: string): boolean => command.includes("--iwe-test-run");
 
 /** Whether a tmux socket belongs to a test run. */
 export const isTestSocket = (socket: string, roots: readonly string[]): boolean =>
@@ -75,11 +71,11 @@ export const isTestSocket = (socket: string, roots: readonly string[]): boolean 
  * read as run `term`. */
 const TOKEN = "[0-9a-z]+\\.[0-9a-z]+";
 
-/** The token a test process carries: a server says it outright; a ttyd carries it in the change
- * directory it serves. */
+/** The token a test process carries, or undefined: a resource with no token is one this tool
+ * cannot attribute to a run (the app's dev server, or a leftover from before tokens), and is
+ * left alone unless `--all`. */
 export const tokenOf = (command: string): string | undefined =>
-  new RegExp(`--iwe-test-run=(${TOKEN})`).exec(command)?.[1] ??
-  tokenFromPath(/(?:^|\s)-c\s+(\S+)/.exec(command)?.[1] ?? "");
+  new RegExp(`--iwe-test-run=(${TOKEN})`).exec(command)?.[1];
 
 /** The token a path carries, or undefined: a resource with no token is one this tool cannot
  * attribute to a run (the app's, or a leftover from before tokens), and is left alone unless
@@ -142,18 +138,18 @@ const liveToken = (token: string, roots: readonly string[]): boolean => {
   return false;
 };
 
-/** The only processes this tool is ever allowed to end: ttyd and the test's bun server. tmux
+/** The only processes this tool is ever allowed to end: the runtimes a test server can be. tmux
  * servers are ended through their own socket (known to be a test's) rather than by pid, so the
  * pattern here need not know a tmux server from a tmux client. */
 const isKillable = (command: string): boolean =>
-  command.startsWith("ttyd ") || /(?:^|\/)bun(?: |$).*src\/server\.ts/.test(command);
+  /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
 /** What the report lists as left alone: the things this tool could plausibly have ended and did
- * not — server and terminal processes. tmux is deliberately absent: it is only ever ended
- * through a socket proven to be a test's, so a tmux process in this list would be noise at best
- * and the test server just killed at worst. */
+ * not — a server. tmux is deliberately absent: it is only ever ended through a socket proven to
+ * be a test's, so a tmux process in this list would be noise at best and the test server just
+ * killed at worst. */
 const looksLikeApp = (command: string): boolean =>
-  command.startsWith("ttyd ") || /(?:^|\/)bun(?: |$).*src\/server\.ts/.test(command);
+  /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
 const alive = (pid: number): boolean => {
   try {
@@ -201,7 +197,7 @@ const main = async (): Promise<void> => {
   }
 
   const roots = await testRoots();
-  const procs = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command, roots));
+  const procs = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command));
   const sockets = await testSockets(roots);
 
   /** How a resource is judged: `chosen` (ended, or listed as such), `live` (a suite in progress),
@@ -242,7 +238,7 @@ const main = async (): Promise<void> => {
   for (const socket of sockets) {
     console.log(`  tmux server on ${socket} ${note(tokenFromPath(socket))}`);
   }
-  const untouched = (await processes()).filter((p) => looksLikeApp(p.command) && !isTestCommand(p.command, roots));
+  const untouched = (await processes()).filter((p) => looksLikeApp(p.command) && !isTestCommand(p.command));
   if (untouched.length) {
     console.log(`${untouched.length} server/terminal process(es) left alone (not test-owned):`);
     for (const p of untouched) console.log(`  ${p.pid} ${p.command.slice(0, 120)}`);
@@ -273,7 +269,7 @@ const main = async (): Promise<void> => {
   if (prune) {
     // Untokened leftovers are only safe to remove when nothing test-owned survived: a run too old
     // to name itself cannot be asked whether it is still using its directories.
-    const stillRunning = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command, roots));
+    const stillRunning = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command));
     const covers = (token: string): boolean => all || run === token || !liveToken(token, roots);
     const removed = await pruneLeftovers(roots, covers, all || stillRunning.length === 0);
     if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);

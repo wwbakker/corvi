@@ -1,11 +1,39 @@
-import { type JSX, useEffect, useRef, useState } from "react";
-import { isNewWindowKey, type Platform } from "../model.ts";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type JSX,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { Terminal } from "@xterm/xterm";
+import { FitAddon } from "@xterm/addon-fit";
+import { WebglAddon } from "@xterm/addon-webgl";
+import { csiuFor, isNewWindowKey, type Platform } from "../model.ts";
+
+/** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
+ * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
+ * Shift the way every Linux terminal does, and a browser fires no paste shortcut for
+ * Ctrl+Shift+V. Failures — a denied permission, a clipboard that will not answer — are silent:
+ * the selection is still on screen. */
+const copySelection = async (term: Terminal): Promise<void> => {
+  const selection = term.getSelection();
+  if (!selection) return;
+  await navigator.clipboard.writeText(selection).catch(() => undefined);
+};
+
+const pasteClipboard = async (term: Terminal): Promise<void> => {
+  const text = await navigator.clipboard.readText().catch(() => "");
+  if (text) term.paste(text);
+};
 
 /**
- * The change's terminal: a tmux session in the change directory, rendered by ttyd.
+ * The change's terminal: a pty attached to the change's tmux session, rendered by xterm.js in
+ * the page itself.
  *
  * Which window you are in, and how to get to another, is the navigation column's job. This is
- * the frame, the focus, and the new-window chord.
+ * the terminal, the focus, and the new-window chord.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.
@@ -17,30 +45,33 @@ export function TerminalPane({
   visible,
   platform,
   onNewWindow,
-  gone,
-  pid,
   windows,
 }: {
   changeId: string;
   url: string | null;
   error: string | null;
-  /** Whether this is the page in front: what to focus, and when the new-window chord belongs
-   * to us. */
+  /** Whether this is the page in front: what to focus, when to connect, and when the
+   * new-window chord belongs to us. */
   visible: boolean;
   /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
-   * same test the injected shim applies, from terminals/model.ts). */
+   * same test the server's own key handling applies, from terminals/model.ts). */
   platform: Platform;
   onNewWindow: () => void;
-  /** The ttyd on record has outlived its tmux session, as the server said when the URL was
-   * asked for. */
-  gone: boolean;
-  /** That ttyd's pid, for the message that says how to start over. */
-  pid?: number;
   /** How many windows this change's session has: none while one is starting, and none forever
    * once it is gone. */
   windows: number;
 }): JSX.Element {
-  const frame = useRef<HTMLIFrameElement>(null);
+  const host = useRef<HTMLDivElement>(null);
+  const terminal = useRef<Terminal | null>(null);
+  const fitAddon = useRef<FitAddon | null>(null);
+  const socket = useRef<WebSocket | null>(null);
+  /** The URL the open socket belongs to: a different change needs a different pty. */
+  const openedFor = useRef<string | null>(null);
+  /** A resize that arrives while the socket is still connecting: sent as soon as it opens. */
+  const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
+  /** Bumped when the terminal instance is recreated, so the socket effect reconnects after its
+   * cleanup closed the old connection (a platform change, if one ever comes). */
+  const [generation, setGeneration] = useState(0);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
   // a killed tmux server does. The window list going empty and staying empty is what that looks
@@ -54,18 +85,150 @@ export function TerminalPane({
     const timer = setTimeout(() => setLostWhileOpen(true), 5000);
     return () => clearTimeout(timer);
   }, [visible, windows]);
-  const lost = gone || lostWhileOpen;
 
-  // Opening it should be enough to start typing. Same-origin, so the terminal's own input can
-  // be focused rather than just the frame around it.
+  // The xterm instance, once: it owns the screen for as long as the pane is mounted. The
+  // session behind it is the socket's (below), so hiding the pane keeps the shells running.
   useEffect(() => {
-    if (!visible) return;
-    const inner = frame.current?.contentDocument;
-    (inner?.querySelector("textarea") ?? frame.current?.contentWindow)?.focus();
-  }, [visible, url]);
+    const element = host.current;
+    if (!element) return;
+    const term = new Terminal({
+      // tmux owns scrolling (mouse on), and it repaints in place rather than scrolling the outer
+      // terminal: xterm's own scrollback is never what you scroll, and the scrollbar would only
+      // be an empty bar down the right edge.
+      scrollback: 0,
+      fontSize: 13,
+      theme: { background: "#0d1117", foreground: "#e6edf3" },
+      // With tmux's mouse mode on, the mouse belongs to tmux and dragging never reaches the
+      // browser. Option-drag hands it back to xterm for the system clipboard; the option only
+      // exists on macOS, where it is the only way to select text.
+      macOptionClickForcesSelection: platform === "mac",
+    });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(element);
+    try {
+      // Chromium composites hardware-accelerated (the reason for the Electron host); where it
+      // cannot, xterm's own renderer takes over rather than leaving a dead canvas.
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      // no WebGL: the default renderer is correct, only busier
+    }
+    // Input goes out through whatever socket is open, so a reconnected pane keeps typing.
+    const input = term.onData((chunk) => {
+      const ws = socket.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(chunk));
+    });
+    terminal.current = term;
+    fitAddon.current = fit;
+    setGeneration((n) => n + 1);
+    return () => {
+      input.dispose();
+      socket.current?.close();
+      socket.current = null;
+      openedFor.current = null;
+      pendingResize.current = null;
+      term.dispose();
+      terminal.current = null;
+      fitAddon.current = null;
+    };
+  }, [platform]);
 
-  // The new-window chord, from the page itself and from inside the terminal, which is where the
-  // keyboard usually is; the frame cannot open a window, so it forwards the key as a message.
+  // One socket, when the terminal is first shown and the URL is known. The fit happens before
+  // the connect: the first size the shell sees is the right one, so switching to the terminal
+  // is not a resize every full-screen program has to redraw for.
+  useLayoutEffect(() => {
+    // Another change's URL (or none yet): the open pty belongs to the old change.
+    if (socket.current && openedFor.current !== url) {
+      socket.current.close();
+      socket.current = null;
+    }
+    if (!url || !visible) return;
+    const term = terminal.current;
+    const fit = fitAddon.current;
+    if (!term || !fit || !host.current) return;
+    if (socket.current) return;
+    fit.fit();
+    const scheme = location.protocol === "https:" ? "wss:" : "ws:";
+    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}`);
+    ws.onmessage = (event: MessageEvent) => {
+      // Output only: the server never sends a control frame.
+      if (typeof event.data === "string") term.write(event.data);
+    };
+    // A resize that happened while this socket was connecting was queued; the shell starts at
+    // the size it now has.
+    ws.onopen = () => {
+      if (!pendingResize.current) return;
+      ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
+      pendingResize.current = null;
+    };
+    // A socket that closes (its session died, the server restarted) is forgotten, so hiding and
+    // showing the pane again reconnects to a fresh pty.
+    ws.onclose = () => {
+      if (socket.current === ws) socket.current = null;
+      pendingResize.current = null;
+    };
+    socket.current = ws;
+    openedFor.current = url;
+    // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
+    // the tmux client attached, which is what leaves the shells running.
+  }, [url, visible, generation]);
+
+  // A shown or resized pane re-fits, and tells the pty. Before paint, so the grid and the shell
+  // agree by the time the frame is visible.
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const observer = new ResizeObserver(() => {
+      const term = terminal.current;
+      const fit = fitAddon.current;
+      if (!term || !fit) return;
+      if (element.clientWidth === 0 || element.clientHeight === 0) return; // hidden: nothing to fit
+      const before = { cols: term.cols, rows: term.rows };
+      fit.fit();
+      if (term.cols === before.cols && term.rows === before.rows) return;
+      const ws = socket.current;
+      if (!ws) return;
+      const size = { cols: term.cols, rows: term.rows };
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", ...size }));
+      // Still connecting: remember it, and onopen sends it before the shell can be typed into.
+      else if (ws.readyState === WebSocket.CONNECTING) pendingResize.current = size;
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  // The keys xterm cannot encode are sent by the page itself, and the clipboard chords are the
+  // page's too. Capture phase, ahead of xterm's own textarea handler, which would send a plain
+  // carriage return for the one and a control byte for the other.
+  useEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const onKey = (e: KeyboardEvent): void => {
+      const term = terminal.current;
+      if (!term) return;
+      // Swallowed even when there is nothing to copy or paste: a Shift chord must never turn
+      // into the control byte it would be without the Shift.
+      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.code === "KeyC" || e.code === "KeyV")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.code === "KeyC") void copySelection(term);
+        else void pasteClipboard(term);
+        return;
+      }
+      const sequence = csiuFor(e);
+      if (!sequence) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      term.input(sequence);
+    };
+    element.addEventListener("keydown", onKey, true);
+    return () => element.removeEventListener("keydown", onKey, true);
+  }, []);
+
+  // The new-window chord, from the page and from inside the terminal, which is where the
+  // keyboard usually is.
   useEffect(() => {
     if (!visible) return;
     const key = (e: KeyboardEvent): void => {
@@ -73,47 +236,40 @@ export function TerminalPane({
       e.preventDefault();
       onNewWindow();
     };
-    const message = (e: MessageEvent): void => {
-      if (e.origin === location.origin && (e.data as { iwe?: string })?.iwe === "new-window")
-        onNewWindow();
-    };
     window.addEventListener("keydown", key);
-    window.addEventListener("message", message);
-    return () => {
-      window.removeEventListener("keydown", key);
-      window.removeEventListener("message", message);
-    };
+    return () => window.removeEventListener("keydown", key);
   }, [visible, onNewWindow, platform]);
 
-  if (error) {
-    return (
-      <div className="error-banner">
-        {error}
-        {error.includes("ENOENT") &&
-          (platform === "mac"
-            ? " — is ttyd installed? brew install ttyd"
-            : " — is ttyd installed? (Arch: sudo pacman -S ttyd)")} (
-        ttyd's own log: <code>/tmp/iwe-ttyd-{changeId}.log</code>)
-      </div>
-    );
-  }
-  if (!url) return <p className="hint">starting terminal…</p>;
+  // Opening it should be enough to start typing.
+  useEffect(() => {
+    if (visible) terminal.current?.focus();
+  }, [visible, url]);
+
+  const onContextMenu = useCallback((e: ReactMouseEvent): void => {
+    // A right click is tmux's: with mouse mode on, the pty reports it to the pane and tmux draws
+    // its own menu in the grid. The browser does not know that happened and would show its own
+    // over it regardless — there is nothing in a terminal to Inspect Element on, so it is
+    // switched off rather than merely out of the way.
+    e.preventDefault();
+  }, []);
+
   return (
     <div className="terminal">
-      {lost && (
+      {lostWhileOpen && (
         <div className="terminal-gone">
           The tmux session for this change is gone: the shells in it, and anything that was
-          running in them, are lost.
-          {pid !== undefined && (
-            <>
-              {" "}
-              The terminal server is still running as pid {pid}. Stop it — <code>kill {pid}</code>{" "}
-              — and reopen this tab to start a fresh session.
-            </>
-          )}
+          running in them, are lost. Reload this page to start a fresh session.
         </div>
       )}
-      <iframe ref={frame} src={url} title={`terminal for ${changeId}`} />
+      {error && <div className="error-banner">{error}</div>}
+      {!url && !error && <p className="hint">starting terminal…</p>}
+      <div
+        ref={host}
+        className="terminal-screen"
+        hidden={!url}
+        onContextMenu={onContextMenu}
+        title={`terminal for ${changeId}`}
+      />
     </div>
   );
 }

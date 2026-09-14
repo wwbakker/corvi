@@ -476,8 +476,9 @@ as `[]`, and readers
   the privilege. There is no stability promise for them yet. The github and azure-devops
   extensions already run their `az`/`gh` calls through the contract's `Shell`, `Cache`,
   `Settings` and `Changes` capabilities.
-- What remains core is what everything else stands on: **tmux and ttyd session handling
-  themselves** (what surrounds them — names, icons, status — is the extensible part), the **git
+- What remains core is what everything else stands on: **tmux sessions, the pty that attaches
+  them, and the socket bridge between pty and page** (what surrounds them — names, icons,
+  status — is the extensible part), the **git
   worktree engine**, the **change lifecycle** (create, complete, cancel), and the **page
   shell**. The Azure DevOps page, the overview's summary, cancelling's loose ends and the
   terminal presentation have all moved behind the surfaces above.

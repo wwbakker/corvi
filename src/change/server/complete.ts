@@ -273,7 +273,7 @@ export const completeChange = (
     // The terminal sits in a directory that is about to move into the archive.
     yield* step(
       "terminal",
-      Effect.map(stopTerminal(change.id, changeDir(change.id)), () => undefined),
+      Effect.map(stopTerminal(change.id), () => undefined),
     );
 
     const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };

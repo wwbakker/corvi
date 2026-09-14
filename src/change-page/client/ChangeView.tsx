@@ -62,10 +62,6 @@ export function ChangeView({
   terminal: {
     url: string | null;
     error: string | null;
-    /** The ttyd on record has outlived its tmux session: the shells are gone. */
-    gone: boolean;
-    /** That ttyd's pid, for the message that says how to start over. */
-    pid?: number;
     create: () => void;
   };
   /** This change's tmux windows: what the terminal page's tabs are. */
@@ -521,8 +517,6 @@ export function ChangeView({
             visible={active.kind === "terminals"}
             platform={platform}
             onNewWindow={terminal.create}
-            gone={terminal.gone}
-            pid={terminal.pid}
             windows={windows.length}
           />
         </div>

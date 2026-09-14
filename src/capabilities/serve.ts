@@ -18,7 +18,7 @@ import { pipeline } from "node:stream/promises";
 import { WebSocketServer, type RawData, type WebSocket as WsSocket } from "ws";
 
 /** A live connection, with the per-connection data the route's upgrade attached to it — the
- * shape `Bun.serve`'s `ServerWebSocket<T>` had, so the ttyd proxy's `ws.data` still answers. */
+ * shape `Bun.serve`'s `ServerWebSocket<T>` had, so the terminal socket's `ws.data` answers. */
 export type ServerWebSocket<Data> = WsSocket & { data: Data };
 
 /** What a handler's second argument offers: the one upgrade call the terminal proxy makes. */
@@ -224,7 +224,8 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   });
 
   // The upgrade is routed before the handshake, exactly as Bun routed it: the terminal route
-  // resolves the change's ttyd port (an await, so the socket stays open) and then upgrades.
+  // resolves the change and starts its pty (an await, so the socket stays open) and then
+  // upgrades.
   server.on("upgrade", (req, socket, head) => {
     // Node types the upgrade socket as a Duplex; it is a net.Socket, which is what the
     // handshake and the raw non-upgrade answer both need.

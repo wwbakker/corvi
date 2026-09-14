@@ -18,11 +18,6 @@ export const isMac = process.platform === "darwin";
 /** Linux. Anything else (Windows) is unsupported and gets neither platform's favours. */
 export const isLinux = process.platform === "linux";
 
-/** The loopback interface's name, which differs where it need not: macOS calls it lo0, Linux lo.
- * ttyd's `--interface` takes a name rather than an address, and binding the terminal to loopback
- * keeps a shell off the network. */
-export const loopbackInterface = isMac ? "lo0" : "lo";
-
 /** Whether a command could actually run: is it on PATH right now? Synchronous, because the only
  * things asking are building a menu and can wait a microsecond; a stale answer would offer an
  * item that cannot work, so it is always asked fresh. */

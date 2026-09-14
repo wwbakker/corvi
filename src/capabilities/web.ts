@@ -1,5 +1,5 @@
 import type { Serve } from "bun";
-import type { Bridge } from "../terminals/server/proxy.ts";
+import type { TerminalSocket } from "../terminals/server/session.ts";
 import { Effect } from "effect";
 import { readChange } from "../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "./effect/errors.ts";
@@ -43,8 +43,8 @@ export function sameSite(req: Request): boolean {
  * passing the routes through a plainer type would take `req.params` with it.
  */
 export function guard<R extends string>(
-  routes: Serve.RoutesWithUpgrade<Bridge, R>,
-): Serve.RoutesWithUpgrade<Bridge, R> {
+  routes: Serve.RoutesWithUpgrade<TerminalSocket, R>,
+): Serve.RoutesWithUpgrade<TerminalSocket, R> {
   const forbidden = (): Response => new Response("not for another site", { status: 403 });
   const wrap =
     (handler: (req: never, srv: never) => unknown) =>
@@ -74,7 +74,7 @@ export function guard<R extends string>(
       guarded[path] = value;
     }
   }
-  return guarded as Serve.RoutesWithUpgrade<Bridge, R>;
+  return guarded as Serve.RoutesWithUpgrade<TerminalSocket, R>;
 }
 
 // --- Request helpers ----------------------------------------------------------
