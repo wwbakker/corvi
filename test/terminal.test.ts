@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { runSh, testRun, testTempDir, tmuxTempDir } from "./helpers.ts";
+import { runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl } from "./helpers.ts";
 import { platformName } from "../src/capabilities/os.ts";
 import { csiuFor } from "../src/terminals/model.ts";
 
@@ -64,25 +64,26 @@ let tmuxTmp: string;
  * decides ownership by exactly that. */
 let testSocket: string;
 let browser: Browser;
-let port: number;
+let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const session = `iwe-${id}`;
 
-/** Start the server the app would start: `src/server.ts` on Node. */
-const startServer = (): ReturnType<typeof Bun.spawn> =>
-  Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: { ...process.env, IWE_ROOT: join(tmp, "changes"), IWE_PORT: String(port) },
-    stdout: "ignore",
+/** Start the server the app would start: `src/server.ts` on Node. Port 0: the OS picks a free
+ * one, so parallel workers never collide; readiness is the server's own `iwe on <url>` line.
+ * IWE_TMUX_SOCKET is added after the scrub in serverEnv — serverEnv removes every IWE_*
+ * variable (it would otherwise leak another file's socket), then the test's own socket is set
+ * deliberately. */
+const startServer = async (): Promise<void> => {
+  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+    // TMUX_TMPDIR is the short socket dir, not tmp: the same value this file's own tmux
+    // calls use. The server itself resolves its socket through IWE_TMUX_SOCKET below (a
+    // path, so -S), never through TMUX_TMPDIR — this is for the pane shells it spawns.
+    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp }), IWE_TMUX_SOCKET: testSocket },
+    stdout: "pipe",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
   });
-
-const waitForServer = async (): Promise<void> => {
-  for (let i = 0; i < 60; i++) {
-    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) return;
-    await Bun.sleep(100);
-  }
-  throw new Error("the server did not come up");
+  url = await waitForUrl(server);
 };
 
 beforeAll(async () => {
@@ -100,13 +101,11 @@ beforeAll(async () => {
   testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "iwe");
   await mkdir(join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`), { recursive: true });
   process.env.IWE_TMUX_SOCKET = testSocket;
-  port = 4300 + Math.floor(Math.random() * 200);
-  server = startServer();
+  await startServer();
   // The repository is only needed because a change must have one; the terminal ignores it.
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
-  await waitForServer();
-  await fetch(`http://127.0.0.1:${port}/api/changes`, {
+  await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id, repos: [repo] }),
   });
@@ -154,7 +153,7 @@ test("a Bun server says it has no terminal rather than opening a silent socket",
 
 test.skipIf(!usable)("a terminal outlives the server that started it", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
@@ -166,11 +165,12 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   // Restart, as happens constantly while working on IWE itself.
   server.kill();
   await Bun.sleep(500);
-  server = startServer();
-  await waitForServer();
+  await startServer();
 
   // The session, and the shell in it, belong to tmux; the new server's pty attaches to them.
-  await page.reload();
+  // A fresh navigation, not a reload: the restarted server listens on a new port (port 0),
+  // so the old URL is gone with the old server.
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
@@ -189,14 +189,14 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   const second = "PROJ-TERM-2";
   const repo = join(tmp, "repo2");
   await runSh(["git", "init", "-b", "main", repo]);
-  const created = await fetch(`http://127.0.0.1:${port}/api/changes`, {
+  const created = await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id: second, repos: [repo] }),
   });
   expect(created.ok).toBe(true);
 
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${second}/terminals`);
+  await page.goto(`${url}/changes/${second}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
@@ -235,7 +235,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   // Straight to the terminal page: the navigation column has no "Terminals" button, because
   // "the terminals" is not something to look at — a window is.
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
 
@@ -379,7 +379,7 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   // any of it — and they must see the change's context, which IWE adds on purpose
   // (src/capabilities/env.ts).
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
@@ -426,7 +426,7 @@ test.skipIf(!usable)("a bare tmux command cannot reach the change's session", as
 
 test.skipIf(!usable)("the terminal page's bar is its windows, not the change's controls", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
 
   // The change's own controls — id, name, state, actions — are the dashboard's: they say
@@ -522,7 +522,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
 
 test.skipIf(!usable)("a window tab dragged onto another takes its place", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await tabs.first().waitFor();
@@ -566,7 +566,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
       },
     };
   });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`);
+  await page.goto(`${url}/changes/${id}`);
   await page.waitForSelector(".widget");
   // Let the watcher start. The notice is an edge into "waiting", and the server only reports an
   // edge it watched happen: a window it first sees already waiting seeds the picture and says
@@ -582,7 +582,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
 
   /** The windows the server reports for this change: the presented read the watcher diffs. */
   const presented = async (): Promise<{ attention?: boolean }[]> =>
-    (await fetch(`http://127.0.0.1:${port}/api/terminals`).then((r) => r.json()))[id] ?? [];
+    (await fetch(`${url}/api/terminals`).then((r) => r.json()))[id] ?? [];
   expect(
     await until(async () => (await presented()).some((w) => w.attention === false), true),
   ).toBe(true);
@@ -644,7 +644,7 @@ test.skipIf(!usable)("closing the page detaches the pty but keeps the session", 
   const before = (await tmux("list-windows", "-t", session)).split("\n").length;
 
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await Bun.sleep(500); // the pty attached
   await page.close();
@@ -652,7 +652,7 @@ test.skipIf(!usable)("closing the page detaches the pty but keeps the session", 
 
   // A fresh connection finds the session and its windows, not a fresh session.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await again.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(before);
   await again.close();
@@ -666,7 +666,7 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
   // mode), so the terminal is started with no scrollback and the stylesheet takes the bar itself
   // away.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   const screen = page.locator(".terminal-screen .xterm-screen");
   await screen.waitFor({ timeout: 15_000 });
 
@@ -693,7 +693,7 @@ test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", 
   // tmux draws its own menu into the terminal grid when mouse mode reports a right click; the
   // browser does not know that happened, and shows its own on top unless told not to.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   const prevented = await page.locator(".terminal-screen").evaluate((el) =>
     !el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })),
@@ -709,7 +709,7 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
     viewport: { width: 1200, height: 800 },
     permissions: ["clipboard-read", "clipboard-write"],
   });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
@@ -760,7 +760,7 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
 test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // It takes the private tmux server down with it, so nothing that needs tmux may follow.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect(await page.locator(".terminal-gone").count()).toBe(0);
 

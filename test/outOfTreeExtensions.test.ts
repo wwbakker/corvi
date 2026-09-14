@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { testRun, testTempDir } from "./helpers.ts";
+import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import {
   extensionModulePaths,
   loadDiscovered,
@@ -136,44 +136,34 @@ test("the environment override wins over the file, tilde-expanded and deduplicat
 });
 
 test("the server serves the built client chunk and the react vendor chunks", async () => {
-  const port = 4700 + Math.floor(Math.random() * 200);
   // A config file of its own, naming the extension through the file path this time — the
   // override above proved the env path; this proves the file path.
   const configFile = join(tmp, "boot-config.json");
   await writeFile(configFile, JSON.stringify({ extensionPaths: [extensionDir] }));
+  // Port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
+  // server's own `iwe on <url>` line.
   const server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
     cwd: repoRoot,
-    env: {
-      ...process.env,
+    env: serverEnv(tmp, {
       IWE_EXTENSION_PATHS: "", // the file's list, not the inherited override
-      IWE_PORT: String(port),
-      IWE_ROOT: join(tmp, "changes"),
       IWE_REPOS_ROOT: tmp,
       IWE_CONFIG: configFile,
-    },
-    stdout: "ignore",
+    }),
+    stdout: "pipe",
     stderr: "ignore",
   });
   try {
-    let up = false;
-    for (let i = 0; i < 150; i++) {
-      if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) {
-        up = true;
-        break;
-      }
-      await Bun.sleep(100);
-    }
-    expect(up).toBe(true);
+    const url = await waitForUrl(server);
 
     // The wizard knows the step (the file-configured extension was loaded by this boot).
-    const wizard = (await fetch(`http://127.0.0.1:${port}/api/wizard`).then((r) => r.json())) as {
+    const wizard = (await fetch(`${url}/api/wizard`).then((r) => r.json())) as {
       steps: { extension: string }[];
     };
     expect(wizard.steps.map((s) => s.extension)).toContain(NAME);
 
     // The server-built client chunk: javascript, and each contract export — a step, a page, a
     // tab and a widget — survives the build, so one served chunk serves any of the four surfaces.
-    const client = await fetch(`http://127.0.0.1:${port}/extensions/${NAME}/client.js`);
+    const client = await fetch(`${url}/extensions/${NAME}/client.js`);
     expect(client.status).toBe(200);
     expect(client.headers.get("content-type")).toContain("text/javascript");
     const chunk = await client.text();
@@ -185,14 +175,14 @@ test("the server serves the built client chunk and the react vendor chunks", asy
     // The vendor chunks the import map points the chunk's react specifiers at: the app's own
     // react, served for the page and the out-of-tree chunk to share.
     for (const file of ["react.js", "react-dom.js", "react-jsx-runtime.js", "react-dom-client.js"]) {
-      const vendor = await fetch(`http://127.0.0.1:${port}/vendor/${file}`);
+      const vendor = await fetch(`${url}/vendor/${file}`);
       expect(vendor.status).toBe(200);
       expect(vendor.headers.get("content-type")).toContain("text/javascript");
       expect((await vendor.text()).length).toBeGreaterThan(0);
     }
 
     // An extension nobody loaded has no chunk: 404, not something that looks like javascript.
-    const missing = await fetch(`http://127.0.0.1:${port}/extensions/nobody/client.js`);
+    const missing = await fetch(`${url}/extensions/nobody/client.js`);
     expect(missing.status).toBe(404);
   } finally {
     server.kill();

@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { runSh, testRun, testTempDir } from "./helpers.ts";
+import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * Every page, in the engine the app renders in.
@@ -33,40 +33,29 @@ const usable = await (async (): Promise<boolean> => {
 })();
 
 let tmp: string;
-let port: number;
+let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-PAGES";
 
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("pages");
-  port = 4500 + Math.floor(Math.random() * 200);
   const repo = join(tmp, "example-api");
   await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "example-api\n");
   await runSh(["git", "add", "."], repo);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
+  // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
+  // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
+  // server's own `iwe on <url>` line.
   server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: {
-      ...process.env,
-      IWE_ROOT: join(tmp, "changes"),
-      IWE_REPOS_ROOT: tmp,
-      IWE_PORT: String(port),
-      // A config file of its own: the settings page reads and writes a real one, and it must not
-      // be yours.
-      IWE_CONFIG: join(tmp, "config.json"),
-      // The built page goes here too, not into the running app's state directory.
-      XDG_STATE_HOME: join(tmp, "state"),
-    },
-    stdout: "ignore",
+    env: serverEnv(tmp, { IWE_REPOS_ROOT: tmp }),
+    stdout: "pipe",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
   });
-  for (let i = 0; i < 60; i++) {
-    if ((await fetch(`http://127.0.0.1:${port}/api/changes`).catch(() => null))?.ok) break;
-    await Bun.sleep(100);
-  }
-  await fetch(`http://127.0.0.1:${port}/api/changes`, {
+  url = await waitForUrl(server);
+  await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
   });
@@ -86,7 +75,7 @@ async function open(path: string, ready: string): Promise<string[]> {
   page.on("pageerror", (e) => complaints.push(`${path}: ${e.message}`));
   page.on("console", (m) => m.type() === "error" && complaints.push(`${path}: ${m.text()}`));
   // Not networkidle: the pages poll, so there is no idle moment to wait for.
-  await page.goto(`http://127.0.0.1:${port}${path}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}${path}`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(ready, { timeout: 15_000 });
   await page.waitForTimeout(500); // long enough for the first round of requests to come back
   await page.close();
@@ -112,7 +101,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   // The page whose failure mode is a sentence about nothing: /api/settings answering with the
   // app's own HTML, parsed as JSON.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/settings`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector("nav.tabs");
   expect(await page.locator(".error-banner").count()).toBe(0);
 
@@ -128,7 +117,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
   await page.close();
 
-  const written = (await fetch(`http://127.0.0.1:${port}/api/settings`).then((r) => r.json())) as {
+  const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
     file: { extensionSettings?: { jira?: { doneTransition?: string } } };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
@@ -141,7 +130,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
   // margin it contributes changes the height of the heading — and the whole card — on every
   // keystroke. It must be smaller than the title and take no space of its own.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".widget:has(textarea.notes)");
   await card.waitFor();
   const heading = card.locator("h3");
@@ -168,7 +157,7 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   // status cards on the right. At this width both are present, so the grid has two columns and
   // the status region starts where the documents end.
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`http://127.0.0.1:${port}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const documents = page.locator(".column.documents");
   await documents.locator("textarea.plan").waitFor();
   await documents.locator("textarea.notes").waitFor();

@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { runSh, testRun, testTempDir } from "./helpers.ts";
+import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -12,36 +12,25 @@ import { runSh, testRun, testTempDir } from "./helpers.ts";
  * watcher that keeps running after the last page has gone.
  */
 let tmp: string;
-let port: number;
 let server: ReturnType<typeof Bun.spawn>;
 let url: string;
 
 beforeAll(async () => {
   tmp = await testTempDir("events");
-  port = 4700 + Math.floor(Math.random() * 200);
-  url = `http://127.0.0.1:${port}`;
-  const env = {
-    ...process.env,
-    // A tmux of its own, or none. The host's default socket carries the app's own `iwe-*`
-    // sessions, and the watcher would read their windows and say `windows` in the middle of a
-    // test — a terminal that is none of this test's business. Its own TMUX_TMPDIR, with the
-    // inherited TMUX removed, leaves `tmux list-windows` nothing to find. The directory must
-    // exist: tmux ignores a TMUX_TMPDIR it cannot enter and falls back to the default socket.
-    TMUX_TMPDIR: tmp,
-    IWE_ROOT: join(tmp, "changes"),
-    IWE_PORT: String(port),
-    IWE_CONFIG: join(tmp, "config.json"),
-  };
-  delete (env as Record<string, string | undefined>).TMUX;
+  // A tmux of its own, or none. The host's default socket carries the app's own `iwe-*`
+  // sessions, and the watcher would read their windows and say `windows` in the middle of a
+  // test — a terminal that is none of this test's business. Its own TMUX_TMPDIR, with the
+  // inherited TMUX removed, leaves `tmux list-windows` nothing to find. The directory must
+  // exist: tmux ignores a TMUX_TMPDIR it cannot enter and falls back to the default socket.
+  // Both come from serverEnv, which also gives the server port 0: the OS picks a free one,
+  // so parallel workers never land on the same port, and readiness is the server's own
+  // `iwe on <url>` line rather than a poll.
   server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env,
-    stdout: "ignore",
+    env: serverEnv(tmp),
+    stdout: "pipe",
     stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
   });
-  for (let i = 0; i < 60; i++) {
-    if ((await fetch(`${url}/api/changes`).catch(() => null))?.ok) break;
-    await Bun.sleep(100);
-  }
+  url = await waitForUrl(server);
 });
 
 afterAll(async () => {

@@ -58,6 +58,70 @@ export const testTempDir = async (label: string): Promise<string> => {
   return mkdtemp(join(tmpdir(), `iwe-${token}-${label}-`));
 };
 
+/** Environment for a spawned test server: the OS picks the port (`IWE_PORT=0`), and every
+ * path is the file's own tmp dir, so parallel workers share nothing — not the changes, the
+ * config, the built page, the cache file, or the tmux socket. `TMUX` is removed rather than
+ * overridden: inside a tmux session it wins over `TMUX_TMPDIR`, and every tmux command the
+ * server runs — `kill-server` included — would reach the session you are working in.
+ * `IWE_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
+ * sandboxes (docs/decisions/tmux-socket.md), so an inherited one would join this server to a
+ * foreign tmux server instead of the per-file socket above. A file that wants its own socket
+ * sets it deliberately after the scrub, as terminal.test.ts does. */
+export const serverEnv = (
+  tmp: string,
+  extra: Record<string, string> = {},
+): Record<string, string | undefined> => {
+  const env: Record<string, string | undefined> = {
+    ...process.env,
+    IWE_ROOT: join(tmp, "changes"),
+    IWE_CONFIG: join(tmp, "config.json"),
+    XDG_STATE_HOME: join(tmp, "state"),
+    IWE_CACHE: join(tmp, "cache.json"),
+    TMUX_TMPDIR: tmp,
+    IWE_PORT: "0",
+    ...extra,
+  };
+  delete env.TMUX;
+  delete env.IWE_TMUX_SOCKET;
+  return env;
+};
+
+/** Read a spawned server's stdout until it says where it is listening (`iwe on <url>`,
+ * src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
+ * own line rather than a poll: a random port picked here once landed on a busy one, and then
+ * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
+ * server exits first, or says nothing within a minute. */
+export const waitForUrl = async (
+  proc: ReturnType<typeof Bun.spawn>,
+  timeoutMs = 60_000,
+): Promise<string> => {
+  const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let seen = "";
+  const failure = proc.exited.then((): string => {
+    throw new Error(`the server exited before it was up:\n${seen}`);
+  });
+  // The race below observes the outcome; this silences the loser path, which would otherwise
+  // reject unhandled when the server is killed at the end of a passing test.
+  failure.catch(() => undefined);
+  const line = (async (): Promise<string> => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the server exited before it was up:\n${seen}`);
+      seen += decoder.decode(value, { stream: true });
+      const found = /iwe on (http:\/\/127\.0\.0\.1:\d+\/)/.exec(seen);
+      if (found?.[1]) return found[1].replace(/\/$/, "");
+    }
+  })();
+  const timeout = new Promise<string>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`the server did not come up within ${timeoutMs}ms:\n${seen}`)),
+      timeoutMs,
+    ),
+  );
+  return await Promise.race([line, failure, timeout]);
+};
+
 /** `sun_path` is 104 bytes including the terminating NUL, so a path may be 103 characters. */
 const UNIX_SOCKET_PATH_MAX = 103;
 
