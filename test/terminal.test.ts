@@ -334,18 +334,40 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   expect(await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()).toBe(true);
 
   // The pty follows the pane: a resized window re-fits xterm and tells the pty, so tmux's client
-  // size follows instead of leaving a strip of the terminal unused.
-  const clientSize = async (): Promise<string> =>
-    (await tmux("list-clients", "-t", session, "-F", "#{client_width}x#{client_height}"))
-      .split("\n")[0] ?? "";
+  // size follows instead of leaving a strip of the terminal unused. Height counts as much as
+  // width: the xterm canvas is the height of its last fit, and a content-sized terminal page
+  // makes that canvas the floor of the document — the page grows with it and then cannot shrink,
+  // so a shorter window scrolls and the shell keeps its old size. The height assertions below are
+  // what a width-only check let pass (wide and short is not the same as smaller).
+  const clientSize = async (): Promise<{ width: number; height: number }> => {
+    const [size = ""] = (
+      await tmux("list-clients", "-t", session, "-F", "#{client_width}x#{client_height}")
+    ).split("\n");
+    const [width, height] = size.split("x");
+    return { width: Number(width), height: Number(height) };
+  };
+  const clientWhen = async (
+    want: (size: { width: number; height: number }) => boolean,
+  ): Promise<{ width: number; height: number }> => {
+    let size = await clientSize();
+    for (let i = 0; i < 50 && !want(size); i++) {
+      await Bun.sleep(200);
+      size = await clientSize();
+    }
+    return size;
+  };
   const before = await clientSize();
   await page.setViewportSize({ width: 1000, height: 700 });
-  let after = before;
-  for (let i = 0; i < 50 && after === before; i++) {
-    await Bun.sleep(200);
-    after = await clientSize();
-  }
-  expect(after).not.toBe(before);
+  const smaller = await clientWhen((s) => s.width < before.width && s.height < before.height);
+  expect(smaller.width).toBeLessThan(before.width);
+  expect(smaller.height).toBeLessThan(before.height);
+  // The page fits the window: a taller terminal than the window is what put a scrollbar on the
+  // page, and the terminal is only able to shrink because the page can.
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  // And back up: the pane is not a ratchet that only remembers its largest size.
+  await page.setViewportSize({ width: 1200, height: 900 });
+  const bigger = await clientWhen((s) => s.height > before.height);
+  expect(bigger.height).toBeGreaterThan(before.height);
 
   await page.close();
 }, 60_000);
