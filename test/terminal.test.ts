@@ -336,6 +336,38 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.close();
 }, 60_000);
 
+test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
+  // The server runs on Electron's own Node with the launcher's variables in its environment
+  // (IWE_PORT, IWE_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
+  // server, which is exactly the leak). The pane's shells are the user's, so they must not see
+  // any of it — and they must see the change's context, which IWE adds on purpose
+  // (src/capabilities/env.ts).
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await Bun.sleep(1000);
+  // An absolute path, because the session's active window may be any window the tests above left
+  // behind, in whatever directory it had walked to.
+  const out = join(tmp, "changes", id, "pane-env.txt");
+  await page.keyboard.type(`env > ${out}\n`);
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(out).exists()) break;
+    await Bun.sleep(200);
+  }
+  const env = await Bun.file(out).text();
+  // Line-anchored: the suite's own `npm_lifecycle_script` ("export IWE_ROOT=\"$ROOT\" …") rides
+  // along in the environment, so a bare substring would false-positive on it.
+  const hasVar = (name: string): boolean =>
+    env.split("\n").some((line) => line.startsWith(`${name}=`));
+  expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
+  expect(hasVar("IWE_PORT")).toBe(false);
+  expect(hasVar("IWE_ROOT")).toBe(false);
+  expect(hasVar("IWE_CHANGE_ID")).toBe(true);
+  expect(env).toContain(`IWE_CHANGE_DIR=${join(tmp, "changes", id)}`);
+  await page.close();
+}, 60_000);
+
 test.skipIf(!usable)("the terminal page's bar is its windows, not the change's controls", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`http://127.0.0.1:${port}/changes/${id}/terminals`);
