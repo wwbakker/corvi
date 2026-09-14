@@ -114,10 +114,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Other test files share this process: the socket this file gave the server must not shape
+  // their pinned argv (a complete-flow test asserts the exact tmux command, -L iwe and all).
+  delete process.env.IWE_TMUX_SOCKET;
   if (!usable) return;
   await browser?.close();
   server?.kill();
-  await tmux("kill-server"); // ours alone: TMUX_TMPDIR points at the temporary directory
+  await tmux("kill-server"); // ours alone: named by -S, the socket this file gave the server
   await rm(tmp, { recursive: true, force: true });
 });
 
