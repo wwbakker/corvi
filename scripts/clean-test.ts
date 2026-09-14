@@ -14,7 +14,8 @@
  * decided only by things a test's processes carry and the app's never do:
  *
  *   - a tmux server is a test's when its socket is under a `$TMPDIR/iwe-*` directory (the tests
- *     point TMUX_TMPDIR there; yours is the default socket);
+ *     name it explicitly with -S and give it to the server as IWE_TMUX_SOCKET; IWE's own
+ *     terminals live on the `iwe` socket, and anything else on the default socket is yours);
  *   - a server is a test's when its command line carries `--iwe-test-run`, which the tests pass
  *     and src/server.ts ignores. The app's server (`electron src/server.ts`) and a dev server
  *     (`node src/server.ts`) carry no marker.

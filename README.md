@@ -736,8 +736,8 @@ Failing to copy is never fatal — the worktree is what was asked for.
 ## Terminals
 
 Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
-change directory, attached by a pty in the server (`node-pty`) and drawn by xterm.js in the page
-itself.
+change directory on IWE's own tmux socket (`-L iwe`), attached by a pty in the server
+(`node-pty`) and drawn by xterm.js in the page itself.
 
 A terminal outlives the server: tmux owns the session and the pty is only one of its clients, so
 restarting IWE — which is constant while working on IWE itself — detaches and re-attaches without
@@ -825,8 +825,14 @@ so the page takes **Ctrl+Shift+C / Ctrl+Shift+V** (Ctrl+V also pastes; middle-cl
 the primary selection); the cheat sheet button lists the keys for the platform you are on.
 
 A terminal that comes up blank: the session is reachable from a normal terminal
-(`tmux attach -t iwe-<change id>`), which tells you quickly whether the problem is tmux or the
-browser. After changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
+(`tmux -L iwe attach -t iwe-<change id>` — the sessions live on IWE's own socket, so the command
+has to name it), which tells you quickly whether the problem is tmux or the browser. After
+changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
+
+The socket is also what keeps a stray `tmux` command from reaching IWE: a bare `tmux` — from a
+script, a probe, a test run — resolves to the default socket and finds none of these sessions.
+Inside a pane, though, `$TMUX` still names IWE's server, so a `tmux kill-server` typed there ends
+every IWE terminal; outside a pane it finds nothing.
 
 Completing a change kills its session and the ptys attached to it, since the change directory
 moves into the archive underneath it.

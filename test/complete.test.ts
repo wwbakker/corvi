@@ -330,7 +330,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain(`gh pr merge 7 --squash`);
   expect(asked.some((line) => line.startsWith("wt --config"))).toBe(true);
-  expect(asked).toContain(`tmux kill-session -t iwe-${change.id}`);
+  expect(asked).toContain(`tmux -L iwe kill-session -t iwe-${change.id}`);
 });
 
 test("completeChange: a failing change:completing hook vetoes before any merge", async () => {

@@ -13,14 +13,32 @@ import {
  * A terminal for a change: one tmux session, started in the change directory.
  *
  * tmux owns the session, not us. Windows and panes are yours to make with the usual keys, the
- * shells survive an IWE restart, and `tmux attach -t iwe-<id>` from any terminal reaches the
- * same session as the browser does.
+ * shells survive an IWE restart, and `tmux -L iwe attach -t iwe-<id>` from any terminal reaches
+ * the same session as the browser does — the socket is IWE's own (tmuxCmd below), so the command
+ * has to name it.
  *
  * This file is the tmux half: how a client attaches, what the windows are, and the cleanup.
  * The pty that runs the attach command belongs to `session.ts`, so this module stays a set of
  * CLI calls and pure presentation.
  */
 export const sessionName = (id: string): string => `iwe-${id}`;
+
+/** The tmux socket IWE's sessions live on: a bare name becomes `-L <name>` (the socket file
+ * `tmux-<uid>/<name>` under `$TMUX_TMPDIR` or /tmp), a path becomes `-S <path>`. Overridable so a
+ * test run or a sandbox copy can name its own — the tests pass the same value to their own tmux
+ * calls through the same variable. */
+const socket = (): string => process.env.IWE_TMUX_SOCKET || "iwe";
+
+/** Every tmux command IWE runs goes through here: the socket is part of the command, not
+ * something each caller has to remember. `-L` and `-S` beat `$TMUX` (verified: with `$TMUX` set,
+ * `tmux -L x ls` still asks the x socket), so the app cannot be rerouted by whatever shell it was
+ * started from — and a bare `tmux` typed anywhere outside a pane can no longer reach these
+ * sessions at all. */
+const tmuxCmd = (args: string[]): string[] => [
+  "tmux",
+  ...(socket().includes("/") ? ["-S", socket()] : ["-L", socket()]),
+  ...args,
+];
 
 /** Where the page opens the terminal's socket, on the server's own origin. The pane appends its
  * size as query parameters; every connection is one tmux client (session.ts). */
@@ -30,51 +48,51 @@ export const terminalSocketPath = (id: string): string =>
 /** The argv a pty attaches the change's session with: create it if it is not there, then the
  * options the session runs under. One place owns these, so the pty only has to know how to run
  * a command in a pseudoterminal. */
-export const attachCommand = (id: string, dir: string): string[] => [
-  "tmux",
-  "new-session",
-  "-A", // attach if it exists, create if it does not
-  "-s",
-  sessionName(id),
-  "-c",
-  dir,
-  // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
-  // session with -t, so tmux sessions you started yourself keep your own settings.
-  ";",
-  "set-option",
-  "-t",
-  sessionName(id),
-  "mouse",
-  "on",
-  // Windows that produced output since you last looked at them are flagged, which is what the
-  // strip above the terminal draws a dot for.
-  ";",
-  "set-option",
-  "-t",
-  sessionName(id),
-  "monitor-activity",
-  "on",
-  // The flag is the point; the message across the status bar is not.
-  ";",
-  "set-option",
-  "-t",
-  sessionName(id),
-  "visual-activity",
-  "off",
-  // Modified Enter and friends only reach an application when tmux is willing to forward them,
-  // in the encoding the page sends (CSI u). A server option: tmux keeps one set of these for
-  // every session it runs, ours included.
-  ";",
-  "set-option",
-  "-s",
-  "extended-keys",
-  "on",
-  ";",
-  "set-option",
-  "-s",
-  "extended-keys-format",
-  "csi-u",
-];
+export const attachCommand = (id: string, dir: string): string[] =>
+  tmuxCmd([
+    "new-session",
+    "-A", // attach if it exists, create if it does not
+    "-s",
+    sessionName(id),
+    "-c",
+    dir,
+    // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
+    // session with -t, so tmux sessions you started yourself keep your own settings.
+    ";",
+    "set-option",
+    "-t",
+    sessionName(id),
+    "mouse",
+    "on",
+    // Windows that produced output since you last looked at them are flagged, which is what the
+    // strip above the terminal draws a dot for.
+    ";",
+    "set-option",
+    "-t",
+    sessionName(id),
+    "monitor-activity",
+    "on",
+    // The flag is the point; the message across the status bar is not.
+    ";",
+    "set-option",
+    "-t",
+    sessionName(id),
+    "visual-activity",
+    "off",
+    // Modified Enter and friends only reach an application when tmux is willing to forward them,
+    // in the encoding the page sends (CSI u). A server option: tmux keeps one set of these for
+    // every session it runs, ours included.
+    ";",
+    "set-option",
+    "-s",
+    "extended-keys",
+    "on",
+    ";",
+    "set-option",
+    "-s",
+    "extended-keys-format",
+    "csi-u",
+  ]);
 
 /** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
@@ -90,7 +108,7 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
  * The ptys attached to the session are the server's children, and they exit when the session
  * they are attached to is destroyed — so ending the session is the whole cleanup. */
 export const stopTerminal = (id: string): Effect.Effect<void> =>
-  shResult(["tmux", "kill-session", "-t", sessionName(id)]).pipe(Effect.asVoid);
+  shResult(tmuxCmd(["kill-session", "-t", sessionName(id)])).pipe(Effect.asVoid);
 
 /* Terminals are deliberately left running when the server stops: restarting IWE while you work on
  * it is constant, and losing the shells every time is not worth the tidiness. tmux owns them, so
@@ -102,7 +120,7 @@ export const stopTerminal = (id: string): Effect.Effect<void> =>
 export const listWindows = (id: string): Effect.Effect<PresentedWindow[], CliError> =>
   Effect.gen(function* () {
     const options = paneOptions();
-    const r = yield* sh(["tmux", "list-windows", "-t", sessionName(id), "-F", formatFor(options)]);
+    const r = yield* sh(tmuxCmd(["list-windows", "-t", sessionName(id), "-F", formatFor(options)]));
     if (r.code !== 0) return []; // no session yet: the terminal was never opened
     return r.stdout
       .split("\n")
@@ -125,13 +143,14 @@ export const changeOfSession = (session: string): string | undefined =>
 export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, CliError> =>
   Effect.gen(function* () {
     const options = paneOptions();
-    const r = yield* sh([
-      "tmux",
-      "list-windows",
-      "-a",
-      "-F",
-      `#{session_name}\t${formatFor(options)}`,
-    ]);
+    const r = yield* sh(
+      tmuxCmd([
+        "list-windows",
+        "-a",
+        "-F",
+        `#{session_name}\t${formatFor(options)}`,
+      ]),
+    );
     if (r.code !== 0) return {}; // no server running: nobody has opened a terminal yet
     const byChange: Record<string, PresentedWindow[]> = {};
     for (const line of r.stdout.split("\n").filter(Boolean)) {
@@ -150,20 +169,15 @@ export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, C
  */
 export const newWindow = (id: string, dir: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    const here = yield* sh([
-      "tmux",
-      "new-window",
-      "-t",
-      sessionName(id),
-      "-c",
-      "#{pane_current_path}",
-    ]);
+    const here = yield* sh(
+      tmuxCmd(["new-window", "-t", sessionName(id), "-c", "#{pane_current_path}"]),
+    );
     if (here.code === 0) return;
-    yield* shOrThrow(["tmux", "new-window", "-t", sessionName(id), "-c", dir]);
+    yield* shOrThrow(tmuxCmd(["new-window", "-t", sessionName(id), "-c", dir]));
   });
 
 export const selectWindow = (id: string, index: number): Effect.Effect<void, CliError> =>
-  shOrThrow(["tmux", "select-window", "-t", `${sessionName(id)}:${index}`]).pipe(Effect.asVoid);
+  shOrThrow(tmuxCmd(["select-window", "-t", `${sessionName(id)}:${index}`])).pipe(Effect.asVoid);
 
 /**
  * Make sure the change's tmux session exists, so something can be written into it before a
@@ -176,9 +190,26 @@ export const selectWindow = (id: string, index: number): Effect.Effect<void, Cli
  */
 export const ensureSession = (id: string, dir: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    const has = yield* sh(["tmux", "has-session", "-t", sessionName(id)]);
+    const has = yield* sh(tmuxCmd(["has-session", "-t", sessionName(id)]));
     if (has.code === 0) return;
-    yield* shOrThrow(["tmux", "new-session", "-d", "-s", sessionName(id), "-c", dir]);
+    // -e sets the *session* environment at creation, so the shell in the first window starts with
+    // the change's context — the same one a pty-created session inherits from its client
+    // (session.ts, src/capabilities/env.ts). Without it, a session created here would keep this
+    // server process's environment and no change context for every pane it ever grows.
+    yield* shOrThrow(
+      tmuxCmd([
+        "new-session",
+        "-d",
+        "-s",
+        sessionName(id),
+        "-c",
+        dir,
+        "-e",
+        `IWE_CHANGE_ID=${id}`,
+        "-e",
+        `IWE_CHANGE_DIR=${dir}`,
+      ]),
+    );
   });
 
 /**
@@ -197,9 +228,9 @@ export const pastePrompt = (id: string, text: string): Effect.Effect<void, CliEr
   Effect.gen(function* () {
     const buffer = `iwe-prompt-${id}`;
     // `--` so a prompt that begins with a dash is data, not an option.
-    yield* shOrThrow(["tmux", "set-buffer", "-b", buffer, "--", text]);
-    yield* shOrThrow(["tmux", "paste-buffer", "-p", "-b", buffer, "-t", sessionName(id)]);
-    yield* shOrThrow(["tmux", "delete-buffer", "-b", buffer]);
+    yield* shOrThrow(tmuxCmd(["set-buffer", "-b", buffer, "--", text]));
+    yield* shOrThrow(tmuxCmd(["paste-buffer", "-p", "-b", buffer, "-t", sessionName(id)]));
+    yield* shOrThrow(tmuxCmd(["delete-buffer", "-b", buffer]));
   });
 
 /**
@@ -211,27 +242,23 @@ export const pastePrompt = (id: string, text: string): Effect.Effect<void, CliEr
 export const moveWindow = (id: string, from: number, to: number): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (from === to) return;
-    const listed = yield* shOrThrow([
-      "tmux",
-      "list-windows",
-      "-t",
-      sessionName(id),
-      "-F",
-      "#{window_index}",
-    ]);
+    const listed = yield* shOrThrow(
+      tmuxCmd(["list-windows", "-t", sessionName(id), "-F", "#{window_index}"]),
+    );
     const indexes = listed.split("\n").filter(Boolean).map(Number);
     const start = indexes.indexOf(from);
     const end = indexes.indexOf(to);
     if (start === -1 || end === -1) return; // a window that has gone since the drag began
     const step = start < end ? 1 : -1;
     for (let i = start; i !== end; i += step) {
-      yield* shOrThrow([
-        "tmux",
-        "swap-window",
-        "-s",
-        `${sessionName(id)}:${indexes[i]}`,
-        "-t",
-        `${sessionName(id)}:${indexes[i + step]}`,
-      ]);
+      yield* shOrThrow(
+        tmuxCmd([
+          "swap-window",
+          "-s",
+          `${sessionName(id)}:${indexes[i]}`,
+          "-t",
+          `${sessionName(id)}:${indexes[i + step]}`,
+        ]),
+      );
     }
   });

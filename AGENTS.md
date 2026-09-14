@@ -17,8 +17,12 @@ they are indistinguishable from test strays by name and command line.
 
 Ownership is decidable, because only tests carry these:
 
-- test tmux servers listen on sockets under `$TMPDIR/iwe-*`; your tmux listens on the default
-  socket (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default` on Linux). Those
+- test tmux servers listen on sockets under `$TMPDIR/iwe-*`, named explicitly: every tmux call in
+  the tests passes `-S <socket>`, and the server under test gets the same path as
+  `IWE_TMUX_SOCKET` (src/terminals/server/tmux.ts). IWE's own terminals live on the `iwe` socket
+  (`$TMPDIR/tmux-<uid>/iwe`, or the default socket for sessions made before that change); yours
+  is the default socket (`/private/tmp/tmux-<uid>/default` on macOS, `/tmp/tmux-<uid>/default`
+  on Linux) — a bare `tmux` command from a test or a probe reaches nothing of IWE's. Those
   directories are short on purpose: a unix socket path is capped at 103 characters, and macOS's
   `$TMPDIR` spends most of it before the run token is added — over the cap, tmux starts no server
   at all and the terminal tests fail with nothing to say why (test/helpers.ts, `tmuxTempDir`);
