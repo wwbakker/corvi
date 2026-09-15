@@ -152,6 +152,24 @@ channels (`Effect<A, E, R>`), which is what makes the outline normally enough.
 - **Tell:** opening `store.ts` to find out what `change/server/index.ts` promises, or a module
   whose only readable description is its implementation.
 
+## 11. Colours are named in one place
+
+Every colour the page uses is a token in `:root` (`src/app-root/styles.css`) — three surfaces, four
+foregrounds, the accents, and the tones derived from them. A rule that wants something between two
+of those mixes a token toward another (`color-mix(in srgb, var(--surface) 94%, var(--text))`) at
+`:root`, once, and reads the result by name. A hex in a rule is the tell that a tone was invented at
+the call site; the pair that follows is the same shade drifting in two directions.
+
+- **Right:** `background: var(--surface)`, and for a control's face `background: var(--raise)`.
+- **Right:** a new *level* of surface is a conversation about the palette, not a new hex — there are
+  three, and adding a fourth is a decision (see `docs/decisions/window-titlebar.md` for why the
+  navigation column and the window's own rows share one).
+- **Tell:** `#262b33` (or any other literal, and any `rgb(`) outside the `:root` block, and two
+  rules with slightly different shades of the same idea.
+
+The one colour outside that block is xterm's background (`src/terminals/client/TerminalPane.tsx`),
+which reads `--well` from the sheet rather than repeating it.
+
 ## Checklist for a change
 
 - Does anything new read ambient state? If yes, pass it through the type instead.
@@ -161,3 +179,4 @@ channels (`Effect<A, E, R>`), which is what makes the outline normally enough.
 - Did you throw, or return a shape the caller must probe? Fail with the taxonomy.
 - Did you copy a helper? Put it where both callers already import from.
 - Is there a second name for a thing that already has one? Use the existing name.
+- Did you reach for a colour? Use the token, or add the derivation to `:root` where the others are.

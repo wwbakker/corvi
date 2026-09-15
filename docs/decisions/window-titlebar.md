@@ -27,9 +27,11 @@ full-height columns, and each column's top gains a row of the same height: the s
 workspace switcher beside the lights, the content's *is* the page header. Nothing about the
 sidebar's width or its `height: 100vh` has to change, and the full-width bar above both columns —
 `titleBarStyle: "hidden"` plus one row spanning the window — was rejected for exactly that cost.
+Both columns are the same `--surface` tone with no line between them, so the top of the window reads
+as one piece of chrome rather than two panels meeting (the palette is `docs/guides/style.md` §11).
 
 **The page's first row is the strip, on every page.** `.page > header` (and the wizard's) becomes
-one `--titlebar-height` row, full-bleed, in the panel colour: "Changes" with its New idea button,
+one `--titlebar-height` row, full-bleed, in the `--surface` tone: "Changes" with its New idea button,
 "Settings" with Save, the change's name with its terminals beside it. An extension page's own header
 serves as its strip when it has one; the sidebar's band is the drag area on every page regardless,
 so the extension contract does not change.

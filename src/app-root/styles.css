@@ -1,27 +1,53 @@
 @import "@xterm/xterm/css/xterm.css";
 
+/* The page's colours, and the only place a colour is written down: a rule that wants something
+   between two of these mixes here (see docs/guides/style.md). */
 :root {
   /* The page is dark, and says so: without this, WebKitGTK paints native control faces —
      the select's button, checkboxes, the option list — in the light appearance, a white box,
      even where the rules below set a dark background. Chromium happens to follow the author
      background there; WebKit follows the scheme. */
   color-scheme: dark;
-  --bg: #14161a;
-  --panel: #1c1f25;
-  --line: #2b3038;
+
+  /* Three surfaces, and only three: the window, what sits on it, and what is cut into it. The
+     navigation column and the window's own rows are the same level — one surface across the top
+     of the window, down to where the content begins. */
+  --bg: #14161a;      /* level 0: the window and the page */
+  --surface: #1c1f25; /* level 1: cards, the chrome rows, menus, dialogs, the navigation column */
+  --well: #0d1117;    /* level -1: what you type into or read raw — fields, the terminal */
+
+  /* What is written on them. */
   --text: #dfe3ea;
   --muted: #8b93a1;
-  --ok: #3fb950;
-  --pending: #d29922;
-  --error: #f85149;
-  --none: #565f6c;
-  --warn: #d29922;
+  --faint: #565f6c;   /* nothing there: a disabled control, "no builds", a cancelled change */
+  --on-accent: #ffffff;
+
+  /* The accents: the app's own, and the states a change reports. */
   --accent: #316dca;
-  /* Change state "Blocked": distinct from amber (in progress) and blue (awaiting review). */
-  --purple: #a371f7;
-  /* Change state "Ideation": a teal, apart from the working states — an idea is a question,
-     not a job, and should not read as one of the attention colours. */
-  --ideation: #4cc2c4;
+  --info: #6cb6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --purple: #a371f7;  /* Blocked: apart from the amber of a change in progress and the blue of one
+                         awaiting review. */
+  --ideation: #4cc2c4;/* Ideation: a question, not a job, and it should not read as one of the
+                         attention colours. */
+  /* A diff is read at a glance, so its two directions are their own lighter pair rather than
+     --ok and --error at a size that turns them grey. */
+  --diff-add: #7ee787;
+  --diff-del: #ffa198;
+
+  /* Edges, and the tones derived rather than named: a rule that wants something between two
+     surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
+     one where it was — a control's face has to be visible on a card. */
+  --line: #2b3038;
+  --raise: color-mix(in srgb, var(--surface) 94%, var(--text));   /* a control's face, a hovered row */
+  --hover: color-mix(in srgb, var(--surface) 89%, var(--text));   /* and that control hovered */
+  --selection: color-mix(in srgb, var(--accent) 35%, transparent);/* the row or tab you are on */
+  --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent);      /* a notice, a diff's added line */
+  --error-wash: color-mix(in srgb, var(--error) 15%, transparent);/* a failure, a removed line */
+  --scrim: rgb(0 0 0 / 0.5);                                      /* behind a dialog */
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 
 * {
@@ -39,7 +65,7 @@ button,
 select {
   font: inherit;
   color: var(--text);
-  background: #262b33;
+  background: var(--raise);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 10px;
@@ -48,7 +74,7 @@ select {
 
 button:hover:not(:disabled),
 select:hover {
-  background: #31373f;
+  background: var(--hover);
 }
 
 button:disabled {
@@ -60,7 +86,7 @@ button:disabled {
 input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
@@ -73,7 +99,7 @@ input[type="checkbox"] {
 }
 
 a {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* The navigation column and the page beside it, from the top of the window down. */
@@ -98,8 +124,9 @@ a {
   flex-direction: column;
   gap: 2px;
   padding: 16px 8px 24px;
-  background: #171a1f;
-  border-right: 1px solid var(--line);
+  /* The same surface as the window's own rows, and no line between them: the column and the chrome
+     across the top are one piece of the window (the palette in docs/guides/style.md). */
+  background: var(--surface);
   /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
   position: sticky;
   top: 0;
@@ -125,11 +152,11 @@ a {
 }
 
 .sidebar .entry:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .sidebar .entry.current {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 /* The changes, and the terminals: children of the entry above them. */
@@ -150,12 +177,12 @@ a {
 .sidebar .entry.change {
   display: block;
   padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--none);
+  border-left: 3px solid var(--faint);
   border-radius: 0 6px 6px 0;
 }
 
 .sidebar .entry.change.state-in-progress {
-  border-left-color: var(--pending);
+  border-left-color: var(--warn);
 }
 
 .sidebar .entry.change.state-blocked {
@@ -167,11 +194,11 @@ a {
 }
 
 .sidebar .entry.change.state-awaiting-review {
-  border-left-color: #6cb6ff;
+  border-left-color: var(--info);
 }
 
 .sidebar .entry.change.state-cancelled {
-  border-left-color: var(--none);
+  border-left-color: var(--faint);
 }
 
 .state-completed {
@@ -210,7 +237,7 @@ a {
 }
 
 .state-idle {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .state-ok {
@@ -218,7 +245,7 @@ a {
 }
 
 .state-pending {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .state-error {
@@ -230,7 +257,7 @@ a {
 }
 
 .state-none {
-  color: var(--none);
+  color: var(--faint);
 }
 
 /* The edge is the handle: a few pixels wide, the full height, and it lights up when aimed at. */
@@ -299,13 +326,13 @@ body.resizing {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pending);
+  background: var(--warn);
   margin-left: auto;
 }
 
 /* A change's dot carries its state, in the colours the rest of the app uses for it. */
 .sidebar .dot.state-in-progress {
-  background: var(--pending);
+  background: var(--warn);
 }
 
 .sidebar .dot.state-blocked {
@@ -317,11 +344,11 @@ body.resizing {
 }
 
 .sidebar .dot.state-awaiting-review {
-  background: #6cb6ff;
+  background: var(--info);
 }
 
 .sidebar .dot.state-cancelled {
-  background: var(--none);
+  background: var(--faint);
 }
 
 .state-completed {
@@ -387,7 +414,7 @@ body.resizing {
 
 .page header h2 input.subject {
   border: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--surface);
   color: var(--text);
   min-width: 220px;
 }
@@ -406,7 +433,7 @@ body.resizing {
   z-index: 2;
   height: var(--titlebar-height);
   margin-bottom: 16px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 
@@ -468,7 +495,7 @@ body.resizing {
 .table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
@@ -501,11 +528,11 @@ body.resizing {
 }
 
 .table tbody tr:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .table tbody tr.selected {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 .filters {
@@ -528,12 +555,12 @@ body.resizing {
 
 .step.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--selection);
 }
 
 button.primary:not(:disabled) {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 .form {
@@ -574,7 +601,7 @@ button.primary:not(:disabled) {
   align-items: center;
   gap: 8px;
   justify-content: space-between;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 10px;
@@ -609,7 +636,7 @@ button.primary:not(:disabled) {
 }
 
 .widget {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
@@ -683,7 +710,7 @@ button.primary:not(:disabled) {
   height: 10px;
   border-radius: 50%;
   flex: none;
-  background: var(--none);
+  background: var(--faint);
 }
 
 .dot.ok {
@@ -691,7 +718,7 @@ button.primary:not(:disabled) {
 }
 
 .dot.pending {
-  background: var(--pending);
+  background: var(--warn);
 }
 
 .dot.error {
@@ -703,7 +730,7 @@ button.primary:not(:disabled) {
 }
 
 .error-banner {
-  background: #3a1d1d;
+  background: var(--error-wash);
   border: 1px solid var(--error);
   border-radius: 6px;
   padding: 8px 10px;
@@ -712,7 +739,7 @@ button.primary:not(:disabled) {
 
 /* Sprint group headers */
 .table tr.group th {
-  background: #232830;
+  background: var(--raise);
   cursor: pointer;
   padding: 6px 12px;
   color: var(--text);
@@ -728,7 +755,7 @@ button.primary:not(:disabled) {
 
 /* New issue dialog */
 dialog {
-  background: var(--panel);
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -737,7 +764,7 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgb(0 0 0 / 0.5);
+  background: var(--scrim);
 }
 
 dialog h3 {
@@ -754,7 +781,7 @@ dialog label {
 dialog textarea {
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
@@ -803,7 +830,7 @@ dialog textarea.message {
 }
 
 .commit-files .commit-file:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .commit-files .commit-file .name {
@@ -838,7 +865,7 @@ dialog textarea.message {
 }
 
 .browser {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
@@ -892,7 +919,7 @@ dialog textarea.message {
 }
 
 .entries li button.dir:hover {
-  background: #262b33;
+  background: var(--raise);
 }
 
 .browser .filter {
@@ -952,14 +979,14 @@ dialog textarea.message {
   width: 140px;
   height: 6px;
   border-radius: 3px;
-  background: #2b3038;
+  background: var(--line);
   overflow: hidden;
 }
 
 .progress .fill {
   display: block;
   height: 100%;
-  background: var(--pending);
+  background: var(--warn);
   transition: width 1s linear;
 }
 
@@ -1015,16 +1042,16 @@ dialog.wide {
 }
 
 .state-in-progress {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .state-awaiting-review {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* Abandoned: grey, because it is neither good news nor bad, only over. */
 .state-cancelled {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .state-completed {
@@ -1040,15 +1067,15 @@ select.state-ideation {
 }
 
 select.state-in-progress {
-  border-color: var(--pending);
+  border-color: var(--warn);
 }
 
 select.state-awaiting-review {
-  border-color: #6cb6ff;
+  border-color: var(--info);
 }
 
 select.state-cancelled {
-  border-color: var(--none);
+  border-color: var(--faint);
 }
 
 .state-completed {
@@ -1078,10 +1105,10 @@ button.create:hover:not(:disabled) {
   display: grid;
   min-width: 220px;
   padding: 4px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: var(--shadow);
 }
 
 .menu-items button {
@@ -1098,11 +1125,11 @@ button.create:hover:not(:disabled) {
 }
 
 .menu-items button:hover:not(:disabled) {
-  background: #262b33;
+  background: var(--raise);
 }
 
 .notice {
-  background: #16281a;
+  background: var(--ok-wash);
   border: 1px solid var(--ok);
   border-radius: 6px;
   padding: 8px 10px;
@@ -1114,7 +1141,7 @@ textarea.plan {
   width: 100%;
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
@@ -1146,7 +1173,7 @@ textarea.plan {
   /* The first tab's text lands where the change's name does above it: the tab's own padding is the
      rest of the way to the page's 24px. */
   padding-inline: 18px;
-  background: var(--panel);
+  background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
 
@@ -1215,7 +1242,7 @@ textarea.plan {
   align-items: stretch;
   gap: 8px;
   border-bottom: 0;
-  background: var(--panel);
+  background: var(--surface);
 }
 
 /* The key reference is the terminal's own, not a control of the page's: the size of the tabs
@@ -1270,23 +1297,23 @@ textarea.plan {
 }
 
 .window-tab .state-idle {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .window-tab:hover:not(.current) {
-  background: #232830;
+  background: var(--raise);
   color: var(--text);
 }
 
 .window-tab.current {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-  color: #fff;
+  background: var(--selection);
+  color: var(--on-accent);
 }
 
 /* The label goes white with the fill; the state icon keeps its colour, exactly as it does on
    the column's selected window — a working agent is green wherever it is shown. */
 .window-tab.current .label {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -1295,7 +1322,7 @@ textarea.plan {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pending);
+  background: var(--warn);
 }
 
 /* The tab a drag is carrying fades; the one it would land on is outlined. The overview and
@@ -1350,7 +1377,7 @@ textarea.plan {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #0d1117;
+  background: var(--well);
   overflow: hidden;
 }
 
@@ -1372,8 +1399,8 @@ textarea.plan {
 .terminal-gone {
   flex: none;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--pending) 14%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--pending) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
   border-radius: 8px;
   color: var(--text);
   font-size: 13px;
@@ -1448,7 +1475,7 @@ button.dots {
 
 button.dots:hover:not(:disabled) {
   color: var(--text);
-  background: #262b33;
+  background: var(--raise);
 }
 
 /* What completing a change is doing, while it does it. ".steps" is the wizard's, and a flex row. */
@@ -1516,7 +1543,7 @@ dialog progress {
 }
 
 .progress-steps li.running .mark {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .progress-steps li.failed,
@@ -1545,7 +1572,7 @@ dialog progress {
 }
 
 .change-card {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1625,15 +1652,15 @@ dialog progress {
 }
 
 .badge.state-in-progress {
-  border-color: var(--pending);
+  border-color: var(--warn);
 }
 
 .badge.state-awaiting-review {
-  border-color: #6cb6ff;
+  border-color: var(--info);
 }
 
 .badge.state-cancelled {
-  border-color: var(--none);
+  border-color: var(--faint);
 }
 
 .state-completed {
@@ -1686,7 +1713,7 @@ dialog progress {
 
 .local .files,
 .local .diff-pane {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px;
@@ -1735,11 +1762,11 @@ dialog progress {
 }
 
 .local .file:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .local .file.selected {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 /* git's own letter, coloured by what it means. */
@@ -1747,7 +1774,7 @@ dialog progress {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   width: 12px;
-  color: var(--pending); /* modified */
+  color: var(--warn); /* modified */
 }
 
 .local .file .mark.add {
@@ -1760,7 +1787,7 @@ dialog progress {
 }
 
 .local .file .mark.move {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* A row is one line: the name in full if it fits, the directory giving way first, and the
@@ -1818,17 +1845,17 @@ dialog progress {
 }
 
 .diff .line.add {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
-  color: #7ee787;
+  background: var(--ok-wash);
+  color: var(--diff-add);
 }
 
 .diff .line.del {
-  background: color-mix(in srgb, var(--error) 18%, transparent);
-  color: #ffa198;
+  background: var(--error-wash);
+  color: var(--diff-del);
 }
 
 .diff .line.hunk {
-  color: #6cb6ff;
+  color: var(--info);
   margin-top: 6px;
 }
 
@@ -1870,7 +1897,7 @@ dialog progress {
 /* Environments holding different versions: production behind acceptance is the normal case and
    the one worth spotting. */
 .table.deployments tr.differs td:first-child {
-  border-left: 3px solid var(--pending);
+  border-left: 3px solid var(--warn);
   padding-left: 9px;
 }
 
@@ -1913,12 +1940,12 @@ dialog .pick {
 }
 
 dialog .pick:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 dialog .pick.current {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--selection);
 }
 
 /* Still building: shown so it does not look like it fell off the list, but not a choice — there
@@ -1993,7 +2020,7 @@ button.danger:disabled {
 
 .sidebar button.workspace:hover {
   color: var(--text);
-  background: #232830;
+  background: var(--raise);
 }
 
 /* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
@@ -2098,7 +2125,7 @@ button.danger:disabled {
 .settings .workspace-card {
   display: grid;
   gap: 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
@@ -2176,11 +2203,11 @@ button.danger:disabled {
   gap: 2px;
   max-width: 360px;
   padding: 10px 30px 10px 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.4);
+  box-shadow: var(--shadow);
   cursor: pointer;
   text-align: left;
 }

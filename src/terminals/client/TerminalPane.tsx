@@ -33,6 +33,11 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
   if (text) term.paste(text);
 };
 
+/** The surface the sheet and xterm have to agree on: the terminal's background is `--well`
+ * (src/app-root/styles.css), and a second copy of the colour here is a copy that drifts. */
+const wellTone = (): string =>
+  getComputedStyle(document.documentElement).getPropertyValue("--well").trim();
+
 /** The provider the clipboard addon writes through. tmux sends its copies with the selection
  * field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as the clipboard; the addon
  * passes that through and the base provider would ignore it. A failure — a denied permission, a
@@ -117,7 +122,10 @@ export function TerminalPane({
       // be an empty bar down the right edge.
       scrollback: 0,
       fontSize: 13,
-      theme: { background: "#0d1117", foreground: "#e6edf3" },
+      // The terminal is the deepest surface the app has, and the sheet owns it: xterm takes the
+      // background from the same `--well` token (src/app-root/styles.css) rather than a second copy
+      // of the colour here, which is the kind of pair that drifts.
+      theme: { background: wellTone(), foreground: "#e6edf3" },
       // With tmux's mouse mode on, the mouse belongs to tmux and a plain drag never reaches
       // xterm: it is tmux's selection, which lands on the system clipboard on its own (the
       // addon loaded below). Option-drag hands it back to xterm for xterm's own selection, the
