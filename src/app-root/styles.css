@@ -124,8 +124,8 @@ a {
   flex-direction: column;
   gap: 2px;
   padding: 16px 8px 24px;
-  /* The same surface as the window's own rows, and no line between them: the column and the chrome
-     across the top are one piece of the window (the palette in docs/guides/style.md). */
+  /* The same surface as the window's own rows, which is why the line down its edge starts below
+     them rather than beside them (the rule after this one, and docs/guides/style.md). */
   background: var(--surface);
   /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
   position: sticky;
@@ -136,6 +136,22 @@ a {
      sideways and hang a scrollbar along the bottom. */
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* The column's line — and the window's own row has none: the navigation column and that row are one
+   surface, so a line between them would draw the very seam the palette is there to avoid. Below
+   that row the column meets the page, or the terminal, and the line is what makes the boundary
+   read. Drawn rather than a border, because a border cannot start partway down its own edge. */
+.sidebar::after {
+  content: "";
+  position: absolute;
+  top: var(--titlebar-height);
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  /* The resize handle is on the same edge: the line is not something to aim at. */
+  pointer-events: none;
 }
 
 .sidebar .entry {

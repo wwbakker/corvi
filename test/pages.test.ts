@@ -287,6 +287,18 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
   expect(await region(".sidebar > .band")).toBe("drag");
 
+  // The column's line begins below that row rather than beside it: the band and the column are one
+  // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
+  // (a pseudo-element) rather than a border, because a border cannot start partway down its edge.
+  const column = page.locator(".sidebar");
+  expect(await column.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe("0px");
+  expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe(
+    `${TITLE_BAR_HEIGHT}px`,
+  );
+  expect(
+    await column.evaluate((el) => getComputedStyle(el, "::after").backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+
   // The switcher's list opens inside the window rather than past its edge, and the click reaches the
   // control at all: the row it sits in is the region you drag the window by.
   await switcher.click();
