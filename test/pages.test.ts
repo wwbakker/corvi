@@ -278,11 +278,14 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(await strip.locator("button.subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
-  // The column keeps the lights clear, and is wide enough for the switcher beside them.
+  // The switcher is a compact pill at the column's right edge: about half the width the heading took,
+  // and clear of the lights by being on the far side of the column from them.
   const switcher = page.locator(".sidebar button.workspace");
   const switcherBox = await switcher.boundingBox();
   const sidebar = await page.locator(".sidebar").boundingBox();
   if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
+  expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
+  expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
   expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
   expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
   expect(await region(".sidebar > .band")).toBe("drag");

@@ -2034,6 +2034,30 @@ button.danger:disabled {
   font-weight: 600;
 }
 
+/* The switcher is a control in the column's first row rather than the heading it was: a compact pill
+   at the column's right edge, about half the width it had when it spanned the column. The row is the
+   window's own in the app (below) and the column's own elsewhere; in both, the menu opens from the
+   box this sits in and is anchored to its right edge, so the pill's right edge is what keeps the list
+   inside the window. */
+.sidebar > .band {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sidebar > .band .menu {
+  margin-bottom: 0;
+}
+
+.sidebar > .band button.workspace {
+  width: auto;
+  border-bottom: 0;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
 .sidebar button.workspace:hover {
   color: var(--text);
   background: var(--raise);
@@ -2051,29 +2075,11 @@ button.danger:disabled {
   position: sticky;
   top: 0;
   z-index: 1;
-  display: flex;
-  /* A column rather than a row, so the menu stretches to the column's width as it does in a
-     browser. The dropdown is anchored to the menu's right edge, and a shrink-wrapped menu box puts
-     half of it outside the window. */
-  flex-direction: column;
-  justify-content: center;
   flex: none;
   height: var(--titlebar-height);
   /* Measured from the column's own gutter, not from the window's edge. */
   padding-left: max(0px, calc(var(--traffic-inset) - 8px));
   background: inherit;
-}
-
-/* A control beside the lights rather than the full-width heading it is in a browser, where it is
-   the column's first row: no rule under it, and no room made below it. */
-.hosted .sidebar > .band .menu {
-  margin-bottom: 0;
-}
-
-.hosted .sidebar > .band button.workspace {
-  border-bottom: 0;
-  border-radius: 6px;
-  padding: 4px 8px;
 }
 
 /* Settings: one long form, in the same sections the config file has. */
