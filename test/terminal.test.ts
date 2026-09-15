@@ -305,8 +305,9 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   expect(await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo")).toBe("repo");
 
   // A new window starts where the current one is, not back at the change: the second window
-  // walked into the repository above, so this one starts there too.
-  await page.locator(".sidebar .new-window").click();
+  // walked into the repository above, so this one starts there too. The strip's own new tab is the
+  // way to ask for one; the navigation column lists the windows there are and no more.
+  await page.locator(".window-tab.new").click();
   expect(await until(() => strip.count(), 3)).toBe(3);
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(3);
   expect(await until(async () => (await strip.allInnerTexts())[2]?.trim(), "repo")).toBe("repo");
@@ -323,8 +324,8 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await Bun.sleep(500);
   expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe(baseIndex);
 
-  // Clicking a window must not take the keyboard with it: you click a window to type in it.
-  await page.locator(".sidebar .new-window").click();
+  // Clicking a tab must not take the keyboard with it: you click one to type in the window it opens.
+  await page.locator(".window-tab.new").click();
   await Bun.sleep(1000);
   await page.keyboard.type("pwd > typed-after-click.txt\n");
   for (let i = 0; i < 30; i++) {
@@ -429,10 +430,14 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
 
-  // The change's own controls — id, name, state, actions — are the dashboard's: they say
-  // nothing while a shell has the keyboard, and the windows are what you switch between.
-  expect(await page.locator("header h2").count()).toBe(0);
+  // The change's name is in the row — this is the window's title bar in the app — and of the
+  // change's own controls that is all of them: the state and the actions are the change's row on
+  // its other views, since they say nothing while a shell has the keyboard, and the windows are
+  // what you switch between.
+  expect((await page.locator(".page.terminal-page .change-bar h2").innerText()).trim()).not.toBe("");
   expect(await page.locator("header select").count()).toBe(0);
+  expect(await page.locator("header .menu").count()).toBe(0);
+  expect(await page.locator(".change-tabs").count()).toBe(0);
 
   // The first tab is the change's overview, not a window: the terminal page is not a one-way
   // door. Then a tab per tmux window, and the key reference on the right.
@@ -446,7 +451,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The current window's tab is marked the way the column marks its own: filled, white text and
   // icon, rounded only at the top, and sitting on the terminal rather than above a gap or line.
   const currentTab = page.locator(".window-tab.current");
-  const bar = page.locator(".terminal-bar");
+  const bar = page.locator(".page.terminal-page .change-bar");
   expect(await currentTab.count()).toBe(1);
   const marked = await currentTab.evaluate((el) => {
     const style = getComputedStyle(el);
@@ -489,32 +494,51 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(inner[0] - (box!.x + box!.width)).toBeLessThanOrEqual(6);
   expect(box!.y + box!.height).toBeGreaterThanOrEqual(inner[1] - 1);
 
-  // And the overview tab goes back to the page the change is about — where the same strip is
-  // waiting at the very top, above the change's header, with the overview tab where you are.
+  // The change's name sits in the middle of that row: the row stretches its tabs to the full height,
+  // and the name is not one of them — off-centre here is the name at the top of the row.
+  const nameOnTerminal = await page
+    .locator(".page.terminal-page .change-bar .subject")
+    .boundingBox();
+  if (!nameOnTerminal) throw new Error("the change's name did not lay out");
+  expect(
+    Math.abs(nameOnTerminal.y + nameOnTerminal.height / 2 - (barBox!.y + barBox!.height / 2)),
+  ).toBeLessThanOrEqual(1);
+
+  // And the overview tab goes back to the page the change is about — where the same row is waiting
+  // at the very top, with the overview tab where you are and the same terminals beside the name.
   await allTabs.first().click();
   await page.waitForSelector(".widget");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}`);
-  expect(await page.locator(".window-bar .window-tab.overview.current").count()).toBe(1);
-  expect(await page.locator(".window-bar .window-tab:not(.new):not(.overview)").count()).toBe(
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+  expect(await page.locator(".change-bar .window-tab:not(.new):not(.overview)").count()).toBe(
     windows,
   );
-  const [topBar, titleBar, columnBox] = await Promise.all([
-    page.locator(".window-bar").boundingBox(),
-    page.locator("header").boundingBox(),
+  const [titleBar, tabsRow, columnBox] = await Promise.all([
+    page.locator(".change-bar").boundingBox(),
+    page.locator(".change-tabs").boundingBox(),
     page.locator(".sidebar").boundingBox(),
   ]);
   const viewport = await page.evaluate(() => [window.innerWidth, window.innerHeight] as const);
-  // Above the title, and against the top, the column and the right edge of the content area
-  // rather than under the page's own padding — the terminal bar's position, on a page that
-  // keeps its padding.
-  expect(topBar!.y).toBeLessThan(titleBar!.y);
-  expect(topBar!.y).toBe(0);
-  expect(Math.abs(topBar!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
-  expect(Math.abs(topBar!.x + topBar!.width - viewport[0])).toBeLessThanOrEqual(1);
+  // The change's own row is the page's first row — the window's title bar in the app, and the same
+  // one the terminal page showed — with the tabs row right under it: both against the top, the
+  // column and the right edge of the content area rather than under the page's own padding
+  // (docs/decisions/window-titlebar.md).
+  expect(titleBar!.y).toBe(0);
+  expect(Math.abs(titleBar!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
+  expect(Math.abs(titleBar!.x + titleBar!.width - viewport[0])).toBeLessThanOrEqual(1);
+  expect(Math.abs(tabsRow!.y - (titleBar!.y + titleBar!.height))).toBeLessThanOrEqual(1);
+  expect(Math.abs(tabsRow!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
+  expect(Math.abs(tabsRow!.x + tabsRow!.width - viewport[0])).toBeLessThanOrEqual(1);
+
+  // The name is in the same place it was on the terminal page: same row, same vertical position, so
+  // switching between a change's two views does not move the thing the window is named after.
+  const nameOnDashboard = await page.locator(".change-bar .subject").boundingBox();
+  if (!nameOnDashboard) throw new Error("the change's name did not lay out");
+  expect(Math.abs(nameOnDashboard.y - nameOnTerminal.y)).toBeLessThanOrEqual(1);
 
   // And a window tab from here opens that terminal, rather than selecting a window you cannot
   // see: on the dashboard the tab is the way in.
-  await page.locator(".window-bar .window-tab:not(.new):not(.overview)").first().click();
+  await page.locator(".change-bar .window-tab:not(.new):not(.overview)").first().click();
   await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
   await page.close();

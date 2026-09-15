@@ -1,8 +1,9 @@
 /**
  * The IWE window, in Electron.
  *
- * A real application: a Dock icon you can quit, a window whose title bar matches the page, and
- * the server inside it. Electron replaces the two hand-written hosts — Swift and WKWebView on
+ * A real application: a Dock icon you can quit, a window with no title bar of its own — the page's
+ * first row is one (docs/decisions/window-titlebar.md) — and the server inside it. Electron
+ * replaces the two hand-written hosts — Swift and WKWebView on
  * macOS, Python and WebKitGTK on Linux (docs/decisions/linux-native-window.md, superseded by
  * docs/decisions/electron-host.md) — with one main process, so the window behaves the same
  * everywhere and the page runs in the engine it is developed and tested against.
@@ -35,6 +36,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSyn
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { TRAFFIC_LIGHTS } from "../../../src/domain/chrome.ts";
 import type { HostNotice } from "../../../src/domain/host.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
@@ -397,6 +399,12 @@ const createWindow = (): BrowserWindow => {
     show: false,
     backgroundColor: BACKGROUND,
     title: DEFAULT_TITLE,
+    // No title bar of the platform's: the page's first row is the window's (src/domain/chrome.ts,
+    // src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
+    // them. Linux is left as it is — its compositor draws no decorations for this app to remove.
+    ...(isMac
+      ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }
+      : {}),
     webPreferences: {
       // `app.getAppPath()`, not `__dirname`: the bundler (scripts/app/electron/build.ts) writes
       // the source directory into __dirname at build time, and the app does not run from there.

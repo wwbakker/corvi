@@ -273,10 +273,12 @@ bun run app:install      # macOS: ~/Applications/Integrated Work Environment.app
 bun run app:uninstall    # Linux: desktop entry, icons and the iwe-app launcher
 ```
 
-A real application: an icon the app grid knows, a window whose title bar is the same colour as the
-page, and the server inside it. Clicking it **starts the app's own server — on a fresh port,
-picked at launch** — shows "Starting IWE…" on the page's own background while it waits, then loads
-the app.
+A real application: an icon the app grid knows, a window whose title bar is the page's own first
+row — no band of the system's above it. On the change pages that row is the change's name with its
+terminals beside it, and the row under it is the change's own tabs with its state and its actions;
+both stay put while the page scrolls (`docs/decisions/window-titlebar.md`) — and the server inside
+it. Clicking it **starts the app's own server — on a fresh port, picked at launch** — shows
+"Starting IWE…" on the page's own background while it waits, then loads the app.
 
 **The app always runs the production build, on a fresh port.** `bun run dev` keeps 4000. A shared
 port would let the window attach to whatever is listening there: a dev server left running from
@@ -505,14 +507,10 @@ about a change, the change says which workspace it belongs to and nothing has to
 One column, down the left, from the top of the window:
 
     Changes                          the overview
-    ┃ PROJ-1240                  ▶     the changes still going; picking one opens its dashboard
-    ┃ Wait for the security review…
-        >_ example-web - (gradle)   its terminals, under the change they belong to
-    ┃ PROJ-1234                  ▶
-    ┃ Anonymise customer names…
-        >_ PROJ-1234
+    ┃ Wait for the security review…  ▶     the changes still going; picking one opens its dashboard
+    ┃ Anonymise customer names…       ▶
+        >_ PROJ-1234                  its terminals, under the change they belong to
         >_ example-web - (pi working)
-        >_ new                       another terminal, where the current one is
 
     Dashboard | Review changes       tabs on the change itself
 
@@ -783,8 +781,10 @@ seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops it
 dies, so a crashed agent leaves nothing stale behind. The option is read from each window's
 **active pane**, so an agent left in the inactive half of a split is not seen.
 
-A dot marks a window whose output arrived while you were looking elsewhere, and `+` — or
-**cmd-t** (`ctrl-alt-t` on Linux, where the meta key is unreliable) — opens another.
+A dot marks a window whose output arrived while you were looking elsewhere, and the strip's **new**
+tab — or **cmd-t** (`ctrl-alt-t` on Linux, where the meta key is unreliable) — opens another. The
+navigation column lists the windows a change has and nothing else: adding one is the strip's, right
+there beside the ones you already have.
 
 A new window starts **where the current one is**, not back in the change directory: a new tab is
 almost always "the same place, another thing", and `#{pane_current_path}` is what tmux's own
@@ -794,7 +794,7 @@ page around the frame. In a browser tab Chrome keeps cmd-t for itself; installed
 reaches us — on Linux the chord is ctrl-alt-t for the same reason, and it works in a browser tab
 too. The keyboard stays in the terminal throughout: the navigation column's entries refuse
 the focus a mousedown would give them, and opening a terminal focuses it, so you can type straight
-away. tmux stays the source of truth — the column calls `list-windows`, `new-window` and
+away. tmux stays the source of truth — the page calls `list-windows`, `new-window` and
 `select-window`, so the keys keep working and a session attached from a terminal stays in step.
 
 Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
@@ -978,11 +978,11 @@ in **one** `jira` query and writes back what changed. A Jira that answers nothin
 unauthenticated, ticket deleted — leaves the stored name alone rather than falling back to a
 branch nobody recognises, and an archived change keeps its name for good.
 
-**The name is editable**: click it in the change's header and type. A ticket's summary is written
-for whoever files tickets, and it is not always what the work is to you. Renaming sets
-`titleEdited`, and a change with that set is not asked about again — its ticket is left out of
-the query entirely, so nothing overwrites your words later. Clearing the field hands the name
-back to Jira.
+**The name is editable**: rename it from the Actions menu in the change's own row — the name is not
+a button, because the row it is in is the window's title bar in the app and you drag the window by
+it. Type over it and it stops being refreshed from Jira. Renaming sets `titleEdited`, and a change
+with that set is not asked about again — its ticket is left out of the query entirely, so nothing
+overwrites your words later. Clearing the field hands the name back to Jira.
 
 **Active changes** are cards, one per change and the full width of the page, in two rows: **what
 it is** — the id and the ticket's summary, which read as one sentence — and underneath, **how it

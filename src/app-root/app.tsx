@@ -1,4 +1,4 @@
-import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
+import { type CSSProperties, type JSX, StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
@@ -13,7 +13,8 @@ import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../extension-host/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
-import type { IweHost } from "../domain/host.ts";
+import { hostOf } from "./host.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
@@ -205,8 +206,7 @@ function App(): JSX.Element {
     // The contract the host calls after a notification is clicked; the wrapper keeps the
     // registered function from going stale as the view changes. A real browser has no host, and
     // nothing to register.
-    const host = (window as unknown as { iweHost?: IweHost }).iweHost;
-    host?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
+    hostOf()?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
   }, []);
 
   useEffect(() => {
@@ -224,8 +224,25 @@ function App(): JSX.Element {
     setViewState(viewOf(window.location.pathname, pages));
   }, [pages]);
 
+  // What the OS calls this window: the change's name, where Mission Control, the Dock menu and
+  // the task switcher read it. The page draws no title of its own — its first row is the
+  // change's — so this is the one place the window says what it is showing. index.html's title
+  // is what it says on the pages that are about no change.
+  useEffect(() => {
+    document.title = change?.title ?? change?.branch ?? "Integrated Work Environment";
+  }, [change]);
+
+  // The window's own chrome, where there is a window: the height of the page's first row, and the
+  // traffic lights macOS keeps in it (src/domain/chrome.ts). A browser has neither, so the row is
+  // an ordinary one and nothing is laid out around it.
+  const bridge = hostOf();
+  const chrome = {
+    "--titlebar-height": `${TITLE_BAR_HEIGHT}px`,
+    "--traffic-inset": bridge?.platform === "darwin" ? `${TRAFFIC_LIGHTS.inset}px` : "0px",
+  } as CSSProperties;
+
   return (
-    <div className="app">
+    <div className={bridge ? "app hosted" : "app"} style={chrome}>
       <Notifier
         change={selected}
         page={view.name === "change" ? view.page : "dashboard"}
@@ -251,19 +268,9 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
-        // Key hints are the server's platform's business: it is that machine's shell the
-        // terminal runs in.
-        platform={platform}
         onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
         onSelectWindow={(id, index) => {
           terminals.select(id, index);
-          setWantsTerminal(true);
-          setView({ name: "change", id, page: "terminals" });
-        }}
-        onNewWindow={(id) => {
-          // A change whose session has not started yet has nothing to add a window to: opening
-          // its terminal starts one, with the window you were asking for.
-          if ((terminals.windows[id] ?? []).length > 0) void terminals.create(id);
           setWantsTerminal(true);
           setView({ name: "change", id, page: "terminals" });
         }}

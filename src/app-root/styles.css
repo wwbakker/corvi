@@ -144,9 +144,9 @@ a {
   margin-bottom: 8px;
 }
 
-/* A change is two lines: what it is and how it is doing, then what it is about. The bar down
-   the left is its state — a colour along the whole row reads from further away than a dot, and
-   leaves the icons to say what the tools are doing. */
+/* A change is one line: its name, and how the tools are doing. The bar down the left is its
+   state — a colour along the whole row reads from further away than a dot, and leaves the icons to
+   say what the tools are doing. */
 .sidebar .entry.change {
   display: block;
   padding: 6px 10px 6px 12px;
@@ -184,17 +184,16 @@ a {
   gap: 8px;
 }
 
-.sidebar .entry.change .id {
-  font-weight: 600;
-  color: var(--text);
-}
-
+/* The change's name, in the place the id used to hold: an entry says one thing now, and the branch
+   that starts with the id is its tooltip. It keeps full-strength text — it is what you pick a
+   change by — and truncates rather than widening the column, which is what the `min-width` below
+   lets a flex child do. */
 .sidebar .entry.change .subject {
-  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  color: var(--text);
 }
 
 /* The state icons: the shape says which thing, the colour says how it is doing. */
@@ -295,11 +294,6 @@ body.resizing {
   font-size: 12px;
 }
 
-.sidebar .new-window {
-  gap: 8px;
-  color: var(--muted);
-}
-
 /* Output arrived in a window you were not looking at. */
 .sidebar .bell {
   width: 6px;
@@ -362,47 +356,94 @@ body.resizing {
   }
 }
 
-/* What the page is about, beside what you can do to it. */
+/* What the page is about, beside what you can do to it. It has to be allowed to shrink below its
+   content, because the change's name truncates rather than wrapping the title bar taller, and its
+   contents are centred: the row is taller than they are, and on the terminal page — whose row
+   stretches its tabs to fill it — this is what keeps the name in the middle of it rather than at
+   its top. */
 .page header h2,
 .wizard header h2 {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   margin: 0;
+  min-width: 0;
   font-size: 20px;
 }
 
-/* The change's name, which you can rewrite: a button until you click it, an input after. */
+/* The change's name, which is text: this row is part of what you move the window by, and a button
+   in it would be a hole in the drag region. Renaming is an action in the menu below, and the name it
+   switches to is an input — one thing you can click, in the row that is not chrome. */
 .page header h2 .subject {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 3px 8px;
-  text-align: left;
-}
-
-.page header h2 button.subject:hover {
-  border-color: var(--line);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--text);
+  padding: 3px 8px;
 }
 
 .page header h2 input.subject {
-  border-color: var(--line);
+  border: 1px solid var(--line);
   background: var(--panel);
   color: var(--text);
-  min-width: 320px;
+  min-width: 220px;
 }
 
+/* The page's first row is also the window's title bar in the app (src/domain/chrome.ts): one height
+   everywhere, so it lines up with the column beside it and no row of tabs can make it taller than
+   its neighbours. The panel colour is what says chrome rather than content, and it stays put while
+   the page scrolls under it — as the change's own row does, just below. */
 .page header,
 .wizard header {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--titlebar-height);
   margin-bottom: 16px;
-  min-height: 34px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Edge to edge, because it is the window's chrome: the content's own padding comes back on the row,
+   so it reaches the top and the sides of the window — a drag area that stops 24px short is a drag
+   area you miss. The terminal page is already flush: it has no padding to give back. */
+.content:not(.flush) .page > header,
+.content:not(.flush) .wizard > header {
+  margin: -16px -24px 16px;
+  padding-inline: 24px;
+}
+
+/* The change's pages put their own row directly under this one, so the two are flush: the sticky
+   offsets are then the row heights themselves, with no gap for content to scroll through. */
+.content:not(.flush) .page > header.change-bar {
+  margin-bottom: 0;
+}
+
+/* In the app window the row is chrome as well as a page header: dragging it moves the window.
+   Everything you can click in it stays a control — the rename button, the state select, the window
+   tabs (whose own drag reorders them) and the workspace switcher. A browser has neither the drag
+   nor lights to lay out around. */
+.hosted .page > header,
+.hosted .wizard > header,
+.hosted .sidebar > .band {
+  -webkit-app-region: drag;
+}
+
+.hosted .page > header button,
+.hosted .page > header select,
+.hosted .page > header input,
+.hosted .page > header a,
+.hosted .wizard > header button,
+.hosted .wizard > header select,
+.hosted .wizard > header input,
+.hosted .sidebar > .band button {
+  -webkit-app-region: no-drag;
 }
 
 .page h2 {
@@ -1090,6 +1131,30 @@ textarea.plan {
   color: var(--muted);
 }
 
+/* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
+   sticky, right under the window's row — the two together are the page's chrome, and the content
+   scrolls under them rather than past them. The tabs inside keep their own dress, without the line
+   they carry in a page that has no row above them. */
+.change-tabs {
+  position: sticky;
+  top: var(--titlebar-height);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -24px 16px;
+  /* The first tab's text lands where the change's name does above it: the tab's own padding is the
+     rest of the way to the page's 24px. */
+  padding-inline: 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.change-tabs .tabs {
+  border-bottom: 0;
+  margin-bottom: 0;
+}
+
 /* Two views of one change, under its header. */
 .tabs {
   display: flex;
@@ -1138,10 +1203,11 @@ textarea.plan {
   flex-direction: column;
 }
 
-.page.terminal-page .terminal-bar {
+.page.terminal-page .change-bar {
   flex: none;
   margin: 0;
-  padding: 0 10px;
+  /* The name starts where the dashboard's does: the page's own padding, then the title's. */
+  padding: 0 10px 0 24px;
   /* No minimum and no bottom border: the bar is exactly as tall as its tabs, and they sit on
      the terminal rather than above a line. The tabs stretch to that height; the cheat sheet,
      sized to match them below, is then flush too. */
@@ -1152,24 +1218,16 @@ textarea.plan {
   background: var(--panel);
 }
 
-/* The key reference is furniture in the strip, not an action of the page: the size of the tabs
+/* The key reference is the terminal's own, not a control of the page's: the size of the tabs
    beside it, so neither makes the strip taller than the other. */
-.page.terminal-page .terminal-bar button:not(.window-tab) {
+.page.terminal-page .change-bar button:not(.window-tab) {
+  align-self: center;
   padding: 3px 8px;
   font-size: 12px;
 }
 
-/* The same strip on the dashboard, at the very top and edge to edge like the terminal page's
-   bar: `.content`'s own padding is given back with margins, so the rest of the page below keeps
-   it. The border underneath is where the terminal page has the terminal. */
-.window-bar {
-  display: flex;
-  align-items: stretch;
-  margin: -16px -24px 16px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
+/* The change's name is the same one the dashboard shows, in the same place, so the row does not
+   move when you switch between a change's two views. */
 
 /* A session's windows as tabs: the current one in the same dress as the column's selected
    terminal — accent fill, white text — and the rest quiet. Scrollable, so a session with more
@@ -1280,8 +1338,9 @@ textarea.plan {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Everything around it: the page header and its own padding above and below. */
-  height: calc(100vh - 120px);
+  /* Everything around it: the page's first row — the strip, which is the window's title bar in the
+     app — the tabs under it, and the page's own padding above and below. */
+  height: calc(100vh - var(--titlebar-height) - 70px);
   min-height: 320px;
 }
 
@@ -1620,8 +1679,9 @@ dialog progress {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
   gap: 12px;
-  /* Everything around it: the page header, the tabs, and the page's own padding. */
-  height: calc(100vh - 170px);
+  /* Everything around it: the strip (the window's title bar in the app), the change's window tabs
+     and its own tabs, and the page's own padding. */
+  height: calc(100vh - var(--titlebar-height) - 120px);
 }
 
 .local .files,
@@ -1934,6 +1994,43 @@ button.danger:disabled {
 .sidebar button.workspace:hover {
   color: var(--text);
   background: #232830;
+}
+
+/* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
+   their right, and the row is what you drag the window by. It stays put while the column scrolls,
+   because the lights do. Nothing here applies in a browser, where the row is only the switcher's
+   wrapper and the column has no buttons to clear (src/domain/chrome.ts). */
+.hosted .sidebar {
+  padding-top: 0;
+}
+
+.hosted .sidebar > .band {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  /* A column rather than a row, so the menu stretches to the column's width as it does in a
+     browser. The dropdown is anchored to the menu's right edge, and a shrink-wrapped menu box puts
+     half of it outside the window. */
+  flex-direction: column;
+  justify-content: center;
+  flex: none;
+  height: var(--titlebar-height);
+  /* Measured from the column's own gutter, not from the window's edge. */
+  padding-left: max(0px, calc(var(--traffic-inset) - 8px));
+  background: inherit;
+}
+
+/* A control beside the lights rather than the full-width heading it is in a browser, where it is
+   the column's first row: no rule under it, and no room made below it. */
+.hosted .sidebar > .band .menu {
+  margin-bottom: 0;
+}
+
+.hosted .sidebar > .band button.workspace {
+  border-bottom: 0;
+  border-radius: 6px;
+  padding: 4px 8px;
 }
 
 /* Settings: one long form, in the same sections the config file has. */
