@@ -98,6 +98,9 @@ export function ChangeView({
   // opened and only hidden afterwards.
   const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
   const [cheatSheet, setCheatSheet] = useState(false);
+  // Bumped when the cheat sheet closes: it is a modal dialog, so the browser moves the focus into it
+  // and nothing puts it back (src/terminals/client/TerminalPane.tsx).
+  const [focusRequest, setFocusRequest] = useState(0);
   // The change's name, while you are typing a new one. null when you are not.
   const [draft, setDraft] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
@@ -343,7 +346,15 @@ export function ChangeView({
       {/* The window's title bar: the change's name, a tab per terminal, and — on the terminal page
           — the key reference. The same row on both of a change's pages. */}
       {changeHeader}
-      <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
+      <CheatSheet
+        changeId={id}
+        open={cheatSheet}
+        onClose={() => {
+          setCheatSheet(false);
+          setFocusRequest((n) => n + 1);
+        }}
+        platform={platform}
+      />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {/* Creation's observer failures, shown once where the create was started. */}
@@ -519,6 +530,7 @@ export function ChangeView({
             url={terminal.url}
             error={terminal.error}
             visible={active.kind === "terminals"}
+            focusRequest={focusRequest}
             platform={platform}
             onNewWindow={terminal.create}
             windows={windows.length}

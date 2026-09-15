@@ -334,6 +334,19 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   }
   expect(await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()).toBe(true);
 
+  // And closing the cheat sheet hands the keyboard back: it is a modal dialog, so the browser moved
+  // the focus into it, and a terminal you have to click before typing is a terminal clicked twice.
+  await page.getByRole("button", { name: "tmux cheat sheet" }).click();
+  await page.locator("dialog[open]").waitFor();
+  await page.getByRole("button", { name: "Close" }).click();
+  await page.locator("dialog[open]").waitFor({ state: "detached" });
+  await page.keyboard.type("pwd > typed-after-sheet.txt\n");
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "changes", id, "typed-after-sheet.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "changes", id, "typed-after-sheet.txt")).exists()).toBe(true);
+
   // The pty follows the pane: a resized window re-fits xterm and tells the pty, so tmux's client
   // size follows instead of leaving a strip of the terminal unused. Height counts as much as
   // width: the xterm canvas is the height of its last fit, and a content-sized terminal page
@@ -441,6 +454,9 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(await page.locator("header select").count()).toBe(0);
   expect(await page.locator("header .menu").count()).toBe(0);
   expect(await page.locator(".change-tabs").count()).toBe(0);
+  // And the screen carries no tooltip: the window's row says which change's terminal it is, and a
+  // floating "terminal for …" over the grid is in the way of reading it.
+  expect(await page.locator(".terminal-screen").getAttribute("title")).toBeNull();
 
   // The first tab is the change's overview, not a window: the terminal page is not a one-way
   // door. Then a tab per tmux window, and the key reference on the right.

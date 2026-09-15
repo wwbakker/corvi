@@ -68,6 +68,7 @@ export function TerminalPane({
   url,
   error,
   visible,
+  focusRequest,
   platform,
   onNewWindow,
   windows,
@@ -78,6 +79,10 @@ export function TerminalPane({
   /** Whether this is the page in front: what to focus, when to connect, and when the
    * new-window chord belongs to us. */
   visible: boolean;
+  /** A counter the page bumps when something that took the keyboard — the cheat sheet — has closed:
+   * nothing in here would put the focus back by itself, and a terminal you have to click before
+   * typing is a terminal you have clicked twice. */
+  focusRequest?: number;
   /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
    * same test the server's own key handling applies, from terminals/model.ts). */
   platform: Platform;
@@ -292,10 +297,11 @@ export function TerminalPane({
     return () => window.removeEventListener("keydown", key);
   }, [visible, onNewWindow, platform]);
 
-  // Opening it should be enough to start typing.
+  // Opening it should be enough to start typing — and so should closing anything that took the
+  // keyboard away, which is what `focusRequest` counts.
   useEffect(() => {
     if (visible) terminal.current?.focus();
-  }, [visible, url]);
+  }, [visible, url, focusRequest]);
 
   const onContextMenu = useCallback((e: ReactMouseEvent): void => {
     // A right click is tmux's: with mouse mode on, the pty reports it to the pane and tmux draws
@@ -315,13 +321,9 @@ export function TerminalPane({
       )}
       {error && <div className="error-banner">{error}</div>}
       {!url && !error && <p className="hint">starting terminal…</p>}
-      <div
-        ref={host}
-        className="terminal-screen"
-        hidden={!url}
-        onContextMenu={onContextMenu}
-        title={`terminal for ${changeId}`}
-      />
+      {/* No tooltip: the window's own row already says which change's terminal this is, and a
+          floating "terminal for …" over the grid is in the way of reading it. */}
+      <div ref={host} className="terminal-screen" hidden={!url} onContextMenu={onContextMenu} />
     </div>
   );
 }
