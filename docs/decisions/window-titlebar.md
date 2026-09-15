@@ -31,23 +31,29 @@ Both columns are the same `--surface` tone with no line between them, so the top
 as one piece of chrome rather than two panels meeting (the palette is `docs/guides/style.md` §11).
 
 **The page's first row is the strip, on every page.** `.page > header` (and the wizard's) becomes
-one `--titlebar-height` row, full-bleed, in the `--surface` tone: "Changes" with its New idea button,
-"Settings" with Save, the change's name with its terminals beside it. An extension page's own header
-serves as its strip when it has one; the sidebar's band is the drag area on every page regardless,
-so the extension contract does not change.
+one `--titlebar-height` row, full-bleed, in the `--surface` tone: "Changes" with its **New** button,
+"Settings" with Save, and on a change its terminals as tabs. An extension page's own header serves as
+its strip when it has one; the sidebar's band is the drag area on every page regardless, so the
+extension contract does not change.
 
-**A change has a second row, and both stay put.** Under the name and the terminals is the row the
-change already had: its own views as tabs, and — at their height, on the right — its state and its
-actions. It is full-bleed and sticky like the row above it, at `--titlebar-height` below it, so the
-page scrolls under its chrome instead of taking it away. The state and the actions belong to the
-change rather than to any one of its views, which is why they sit in the row that says which view
-you are in, and why the terminal page — which has no such row — does not carry them at all.
+**A change's row says nothing about the change.** The window's own row is the terminals — a tab per
+window, which is also the way back to its overview — and the key reference on the terminal page. The
+change's name is the navigation column's entry (and the window's title, `document.title`), not a label
+in the window's chrome: the name was the one thing in that row nobody could act on, and the column
+already carries it beside the entry that opens it.
 
-**Renaming is an action, not the name.** The name used to be a button you clicked to edit. In the
-window's own row a button is a hole in the region you drag the window by, so the name is text and
-"Rename change" is the first entry in the Actions menu below; picking it turns the name into an
-input in place, which is the same edit it always was. The row keeps the whole of its width for
-moving the window.
+**A change has a second row, and both stay put.** Under it is the row the change already had: its
+own views as tabs, and — at their height, on the right — its state and its actions. It is full-bleed
+and sticky like the row above it, at `--titlebar-height` below it, so the page scrolls under its
+chrome instead of taking it away. The state and the actions belong to the change rather than to any
+one of its views, which is why they sit in the row that says which view you are in, and why the
+terminal page — which has no such row — does not carry them at all.
+
+**Renaming is an action, not the name.** The name used to be a button you clicked to edit; in the
+window's own row a button is a hole in the region you drag the window by, so "Rename change" became
+the first entry in the Actions menu. Picking it opens a field for the name in the change's own row,
+beside the state it already carries — the same edit it always was, in the row that is not chrome and
+not a drag region.
 
 **Drag regions, with the controls kept out of them.** The band and the 
 strip are `-webkit-app-region: drag`; every `button`, `select`, `input` and `a` inside them is

@@ -33,10 +33,6 @@ import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.t
 import { PlanCard } from "./PlanCard.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../extension-host/client.tsx";
 
-/** Branch names start with the change id, which the crumb already shows: drop the repetition. */
-const branchLabel = (id: string, branch: string): string =>
-  branch.startsWith(`${id}-`) ? branch.slice(id.length + 1) : branch;
-
 export function ChangeView({
   id,
   page,
@@ -325,46 +321,12 @@ export function ChangeView({
     />
   );
 
-  /** The page's first row: the change's name, and then a tab per terminal. It is the window's title
-   * bar in the app, which is why both of a change's pages have the same one, down to the name — the
-   * change's state and actions belong to the change rather than to one of its views, and sit in the
-   * row below (docs/decisions/window-titlebar.md). */
+  /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
+   * reference. The change's name is deliberately not here: the navigation column carries it, and the
+   * row is the window's, so both of a change's pages still begin the same way
+   * (docs/decisions/window-titlebar.md). */
   const changeHeader = (
     <header className="change-bar">
-      {change && (
-        <h2>
-          {draft === null ? (
-            // Plain text, not a button: this row is what you move the window by, so a control in it
-            // would be a hole in the drag region. Renaming is an action in the menu below.
-            <span className="subject">{change.title ?? branchLabel(id, change.branch)}</span>
-          ) : (
-            <input
-              className="subject"
-              autoFocus
-              value={draft}
-              placeholder="what this change is about"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setDraft(null);
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              onBlur={() => {
-                const next = draft.trim();
-                setDraft(null);
-                if (next === (change.title ?? "")) return;
-                // A name the ticket suggested is not a fact: renaming it stops it being refreshed
-                // from Jira, and clearing it hands the name back.
-                patch<Change>(`/changes/${id}`, { title: next })
-                  .then((updated) => {
-                    setChange(updated);
-                    onChanged();
-                  })
-                  .catch((err: Error) => setError(err.message));
-              }}
-            />
-          )}
-        </h2>
-      )}
       {windowTabs}
       <span className="spacer" />
       {/* The key reference is the terminal's: on the dashboard the row below carries the change's
@@ -411,6 +373,34 @@ export function ChangeView({
           <span className="spacer" />
           {change && (
             <>
+              {/* The name is typed here, in the row the menu that asks for it lives in: the window's
+                  own row says nothing about the change (docs/decisions/window-titlebar.md). */}
+              {draft !== null && (
+                <input
+                  className="subject"
+                  autoFocus
+                  value={draft}
+                  placeholder="what this change is about"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setDraft(null);
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  onBlur={() => {
+                    const next = draft.trim();
+                    setDraft(null);
+                    if (next === (change.title ?? "")) return;
+                    // A name the ticket suggested is not a fact: renaming it stops it being
+                    // refreshed from Jira, and clearing it hands the name back.
+                    patch<Change>(`/changes/${id}`, { title: next })
+                      .then((updated) => {
+                        setChange(updated);
+                        onChanged();
+                      })
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                />
+              )}
               <select
                 className={stateClass(change.state)}
                 value={change.state ?? "In Progress"}

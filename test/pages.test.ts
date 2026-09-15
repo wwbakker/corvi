@@ -174,10 +174,10 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
 }, 30_000);
 
 test.skipIf(!usable)("the change's own row is the page's first, and it stays there", async () => {
-  // The change's name and its terminals are the window's title bar in the app, which is the page's
-  // first row whether or not a host is there (docs/decisions/window-titlebar.md): full-bleed, and one
-  // height everywhere so it lines up with the column beside it. The change's id is not in it — a
-  // change's name is its ticket's summary, and the id is what the sidebar's tooltip carries.
+  // The terminals are the window's title bar in the app, which is the page's first row whether or not
+  // a host is there (docs/decisions/window-titlebar.md): full-bleed, and one height everywhere so it
+  // lines up with the column beside it. The change's own name is not in it — the column's entry says
+  // it, and so does the window's title.
   await fetch(`${url}/api/changes/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ title: "Anonymise customer names" }),
@@ -185,10 +185,13 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const strip = page.locator(".change-bar");
-  await strip.locator(".subject").waitFor();
+  await strip.locator(".window-tab.overview").waitFor();
 
-  expect((await strip.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
-  expect((await strip.innerText()).includes(id)).toBe(false);
+  expect(await strip.locator(".subject").count()).toBe(0);
+  // The name went to the window's title (src/app-root/app.tsx), which the OS window switcher reads:
+  // it arrives with the change's record rather than with the page, so it is waited for.
+  await page.waitForFunction(() => document.title === "Anonymise customer names");
+  expect(await page.title()).toBe("Anonymise customer names");
   // The terminals are tabs in that same row, not a row of their own.
   expect(await strip.locator(".window-tab.overview").count()).toBe(1);
 
@@ -224,25 +227,6 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   );
   expect(await page.locator(".sidebar .entry.change").first().getAttribute("title")).toContain(id);
 
-  // A long name truncates instead of pushing the terminals out of the row, which is what the same
-  // row means for a ticket whose summary is a sentence.
-  await fetch(`${url}/api/changes/${id}`, {
-    method: "PATCH",
-    body: JSON.stringify({
-      title: "Anonymise customer names on the acceptance environment".repeat(3),
-    }),
-  });
-  await page.reload({ waitUntil: "domcontentloaded" });
-  const overview = page.locator(".change-bar .window-tab.overview");
-  await overview.waitFor();
-  const [nameBox, tabBox, rowBox] = await Promise.all([
-    strip.locator(".subject").boundingBox(),
-    overview.boundingBox(),
-    strip.boundingBox(),
-  ]);
-  if (!nameBox || !tabBox || !rowBox) throw new Error("the row did not lay out");
-  expect(tabBox.x).toBeGreaterThanOrEqual(nameBox.x + nameBox.width);
-  expect(tabBox.x + tabBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width + 1);
   await page.close();
 }, 30_000);
 
@@ -262,7 +246,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const strip = page.locator(".change-bar");
-  await strip.locator(".subject").waitFor();
+  await strip.locator(".window-tab.overview").waitFor();
   const region = (sel: string): Promise<string> =>
     page
       .locator(sel)
@@ -271,11 +255,10 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
       .then((value) => value.trim());
 
   expect(await region(".change-bar")).toBe("drag");
-  // The name is text in that region — it drags the window like the rest of the row — and renaming is
-  // an action in the menu, in the row below, outside the region. The terminals' tabs stay controls:
-  // their own drag reorders them.
-  expect(await strip.locator(".subject").evaluate((el) => el.tagName)).toBe("SPAN");
-  expect(await strip.locator("button.subject").count()).toBe(0);
+  // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
+  // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
+  // which is not part of the drag region at all (docs/decisions/window-titlebar.md).
+  expect(await strip.locator(".subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
   // The switcher is a compact pill at the column's right edge: about half the width the heading took,
@@ -313,17 +296,16 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
-  // The name is text in the row you drag the window by, so renaming lives in the menu below it
-  // (docs/decisions/window-titlebar.md). Picking it turns the name into an input in place, and the
-  // name it is given is what the sidebar shows afterwards.
+  // Renaming is an action in the change's own row (docs/decisions/window-titlebar.md): the menu's
+  // Rename change opens a field beside the state and the actions, and what it is given is what the
+  // column's entry and the window's title say afterwards.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-  const strip = page.locator(".change-bar");
-  await strip.locator(".subject").waitFor();
+  await page.locator(".change-bar .window-tab.overview").waitFor();
 
   await page.locator(".change-tabs button", { hasText: "Actions" }).click();
   await page.getByRole("button", { name: "Rename change" }).click();
-  const input = strip.locator("input.subject");
+  const input = page.locator(".change-tabs input.subject");
   await input.waitFor();
   await input.fill("A name of my own");
   await input.press("Enter");
@@ -331,6 +313,23 @@ test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
   await page
     .locator(".sidebar .entry.change .subject", { hasText: "A name of my own" })
     .waitFor();
-  expect((await strip.locator("span.subject").innerText()).trim()).toBe("A name of my own");
+  expect(await page.title()).toBe("A name of my own");
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("New starts an idea from the column or the overview", async () => {
+  // One control in two places: the overview's header has it, and so does the column beside the
+  // Changes entry — from there it is one click from anywhere in the app. Both say the same word and
+  // open the same wizard.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-card");
+
+  expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
+  expect((await page.locator(".sidebar .changes-row .create").innerText()).trim()).toBe("New");
+
+  await page.locator(".sidebar .changes-row .create").click();
+  await page.waitForSelector(".wizard");
+  expect(new URL(page.url()).pathname).toBe("/new");
   await page.close();
 }, 30_000);

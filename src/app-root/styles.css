@@ -325,6 +325,25 @@ body.resizing {
   color: var(--muted);
 }
 
+/* The overview entry and the way to start one, side by side: the overview's own green button,
+   sized to the column it now sits in. */
+.sidebar .changes-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar .changes-row .entry {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar .changes-row .create {
+  flex: none;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
 .sidebar .list {
   display: flex;
   flex-direction: column;
@@ -414,25 +433,12 @@ body.resizing {
   font-size: 20px;
 }
 
-/* The change's name, which is text: this row is part of what you move the window by, and a button
-   in it would be a hole in the drag region. Renaming is an action in the menu below, and the name it
-   switches to is an input — one thing you can click, in the row that is not chrome. */
-.page header h2 .subject {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-  padding: 3px 8px;
-}
-
-.page header h2 input.subject {
-  border: 1px solid var(--line);
-  background: var(--surface);
-  color: var(--text);
+/* The field the change's name is typed into: the menu's "Rename change" opens it in the row that
+   carries the change's controls, because the window's own row says nothing about the change
+   (docs/decisions/window-titlebar.md). */
+.change-tabs input.subject {
   min-width: 220px;
+  max-width: 100%;
 }
 
 /* The page's first row is also the window's title bar in the app (src/domain/chrome.ts): one height

@@ -52,8 +52,8 @@ function Home({
       <header>
         <h2>Changes</h2>
         <span className="spacer" />
-        <button className="create" onClick={onNew}>
-          New idea
+        <button className="create" title="start a new idea" onClick={onNew}>
+          New
         </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
@@ -258,6 +258,7 @@ function App(): JSX.Element {
         page={view.name === "change" ? view.page : "dashboard"}
         windows={terminals.windows}
         onHome={() => setView({ name: "home" })}
+        onNew={() => setView({ name: "new" })}
         // The server's pages, offered as they are: which extensions exist here is not the
         // page's to know.
         pages={pages}

@@ -430,11 +430,14 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
 
-  // The change's name is in the row — this is the window's title bar in the app — and of the
-  // change's own controls that is all of them: the state and the actions are the change's row on
-  // its other views, since they say nothing while a shell has the keyboard, and the windows are
-  // what you switch between.
-  expect((await page.locator(".page.terminal-page .change-bar h2").innerText()).trim()).not.toBe("");
+  // The row is the windows' and the key reference's, and of the change itself it says nothing: the
+  // name is the column's entry, and the state and the actions are its other views' — they say
+  // nothing while a shell has the keyboard, which is why the windows are what you switch between.
+  expect(
+    await page
+      .locator(".page.terminal-page .change-bar h2, .page.terminal-page .change-bar .subject")
+      .count(),
+  ).toBe(0);
   expect(await page.locator("header select").count()).toBe(0);
   expect(await page.locator("header .menu").count()).toBe(0);
   expect(await page.locator(".change-tabs").count()).toBe(0);
@@ -494,16 +497,6 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(inner[0] - (box!.x + box!.width)).toBeLessThanOrEqual(6);
   expect(box!.y + box!.height).toBeGreaterThanOrEqual(inner[1] - 1);
 
-  // The change's name sits in the middle of that row: the row stretches its tabs to the full height,
-  // and the name is not one of them — off-centre here is the name at the top of the row.
-  const nameOnTerminal = await page
-    .locator(".page.terminal-page .change-bar .subject")
-    .boundingBox();
-  if (!nameOnTerminal) throw new Error("the change's name did not lay out");
-  expect(
-    Math.abs(nameOnTerminal.y + nameOnTerminal.height / 2 - (barBox!.y + barBox!.height / 2)),
-  ).toBeLessThanOrEqual(1);
-
   // And the overview tab goes back to the page the change is about — where the same row is waiting
   // at the very top, with the overview tab where you are and the same terminals beside the name.
   await allTabs.first().click();
@@ -530,11 +523,10 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(Math.abs(tabsRow!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
   expect(Math.abs(tabsRow!.x + tabsRow!.width - viewport[0])).toBeLessThanOrEqual(1);
 
-  // The name is in the same place it was on the terminal page: same row, same vertical position, so
-  // switching between a change's two views does not move the thing the window is named after.
-  const nameOnDashboard = await page.locator(".change-bar .subject").boundingBox();
-  if (!nameOnDashboard) throw new Error("the change's name did not lay out");
-  expect(Math.abs(nameOnDashboard.y - nameOnTerminal.y)).toBeLessThanOrEqual(1);
+  // The two pages' rows are the same row — same height, held at the top — and neither carries the
+  // change's name (docs/decisions/window-titlebar.md).
+  expect(await page.locator(".change-bar .subject").count()).toBe(0);
+  expect(Math.abs(titleBar!.height - barBox!.height)).toBeLessThanOrEqual(1);
 
   // And a window tab from here opens that terminal, rather than selecting a window you cannot
   // see: on the dashboard the tab is the way in.

@@ -150,10 +150,10 @@ config file it wrote, and the rest is HTTP.
 
 ## Creating an idea
 
-"New idea" opens a wizard whose steps are its extensions', in phases — the issue steps first
-(they prefill the idea), then the idea details, then the repositories, then steps that want
-the repositories. Which steps a context has is resolved per workspace; an extension that is not
-enabled there has no step, not an empty one.
+**New** — the same button the column has, beside `Changes` — opens a wizard whose steps are its
+extensions', in phases — the issue steps first (they prefill the idea), then the idea details, then
+the repositories, then steps that want the repositories. Which steps a context has is resolved per
+workspace; an extension that is not enabled there has no step, not an empty one.
 
 1. **Jira** — a table of every issue in the open sprints plus the un-sprinted backlog, grouped
    by sprint (collapsible), sorted by assignee, then status, then key, and filterable by
@@ -506,7 +506,7 @@ about a change, the change says which workspace it belongs to and nothing has to
 
 One column, down the left, from the top of the window:
 
-    Changes                          the overview
+    Changes  New                     the overview, and starting one beside it
     ┃ Wait for the security review…  ▶     the changes still going; picking one opens its dashboard
     ┃ Anonymise customer names…       ▶
         >_ PROJ-1234                  its terminals, under the change they belong to
@@ -978,11 +978,11 @@ in **one** `jira` query and writes back what changed. A Jira that answers nothin
 unauthenticated, ticket deleted — leaves the stored name alone rather than falling back to a
 branch nobody recognises, and an archived change keeps its name for good.
 
-**The name is editable**: rename it from the Actions menu in the change's own row — the name is not
-a button, because the row it is in is the window's title bar in the app and you drag the window by
-it. Type over it and it stops being refreshed from Jira. Renaming sets `titleEdited`, and a change
-with that set is not asked about again — its ticket is left out of the query entirely, so nothing
-overwrites your words later. Clearing the field hands the name back to Jira.
+**The name is editable**: rename it from the Actions menu in the change's own row, which opens a
+field for it beside the state. It is not in the window's own row, which says nothing about the
+change at all. Type over it and it stops being refreshed from Jira. Renaming sets `titleEdited`,
+and a change with that set is not asked about again — its ticket is left out of the query entirely,
+so nothing overwrites your words later. Clearing the field hands the name back to Jira.
 
 **Active changes** are cards, one per change and the full width of the page, in two rows: **what
 it is** — the id and the ticket's summary, which read as one sentence — and underneath, **how it
