@@ -119,19 +119,32 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
 
   // The window's own section, whose one setting so far is the right-click menu: taking it away is
   // the decision that gets written down, since a menu is the default.
+  const box = page.getByLabel("Right-click menu");
   await page.locator(".tabs .tab", { hasText: "Window" }).click();
-  await page.getByLabel("Right-click menu").uncheck();
+  await box.uncheck();
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+  expect(await box.isChecked()).toBe(false);
+
+  // And putting it back clears the decision, so the default applies again. The box reads the
+  // decision or the default — never the effective value, which *is* the file's value, and which
+  // made "off" the only state you could reach.
+  await box.check();
+  expect(await box.isChecked()).toBe(true);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+  expect(await box.isChecked()).toBe(true);
   await page.close();
 
   const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
     file: { extensionSettings?: { jira?: { doneTransition?: string } }; contextMenu?: boolean };
+    effective: { contextMenu: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
   // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
-  expect(written.file.contextMenu).toBe(false);
+  expect(written.file.contextMenu).toBe(true);
+  expect(written.effective.contextMenu).toBe(true);
 }, 60_000);
 
 test.skipIf(!usable)("the unsaved marker does not resize the notes card", async () => {

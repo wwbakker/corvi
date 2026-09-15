@@ -19,6 +19,12 @@ import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
  * anyway as its placeholder, so the difference between a default and a decision stays visible.
  * And a setting an environment variable is overriding is locked, with the variable named: the
  * variable wins, so an editable box would be a lie.
+ *
+ * A third is the write's own: the server merges what it is given over the file it already has, so a
+ * field left out of the request keeps whatever the file said. Clearing is therefore always a
+ * *value* — an empty string, a `false` — and never "nothing", because JSON drops a key whose value
+ * is `undefined` and the merge then keeps the old answer. That is why the checkboxes write the flag
+ * itself instead of an `undefined` meaning "the default". 
  */
 
 /** The draft as the page holds it: the file's contents, edited. */
@@ -240,9 +246,11 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
           <CheckField
             label="Right-click menu"
             hint="The browser's own menu over the page: copy, paste, and — in a checkout — the inspector. Off leaves right-click to the page, which is what a browser would then not show either. The terminal is unaffected: its menu is tmux's."
-            checked={draft.contextMenu ?? effective.contextMenu}
-            // Shown is the default, so only the decision to take it away is written down.
-            onChange={(on) => set({ contextMenu: on ? undefined : false })}
+            // Shown is the default, so an absent key reads as on, and the flag is written as it is
+            // (see the note at the top of this file: an `undefined` would be dropped by JSON and the
+            // merge would keep the old answer).
+            checked={draft.contextMenu ?? true}
+            onChange={(on) => set({ contextMenu: on })}
           />
         </div>
       )}
@@ -252,9 +260,10 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
           <CheckField
             label="Play a sound"
             hint="When a window starts waiting for you. Whether a notification appears at all is the app's own permission, in System Settings."
-            checked={draft.notificationSound ?? effective.notificationSound}
-            // Checked is the default, so only the decision to silence is written down.
-            onChange={(sound) => set({ notificationSound: sound ? undefined : false })}
+            // The same trap as the right-click menu above, and the same fix: the flag is written,
+            // never an `undefined` that JSON drops.
+            checked={draft.notificationSound ?? true}
+            onChange={(sound) => set({ notificationSound: sound })}
           />
         </div>
       )}
