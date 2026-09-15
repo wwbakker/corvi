@@ -333,3 +333,27 @@ test.skipIf(!usable)("New starts an idea from the column or the overview", async
   expect(new URL(page.url()).pathname).toBe("/new");
   await page.close();
 }, 30_000);
+
+test.skipIf(!usable)("the overview stays current while one of its own tabs is showing", async () => {
+  // Two levels, two rows: the window's row says which surface — the change's own views or one of its
+  // terminals — and the row under it says which of those views. So the Overview tab is current for
+  // every one of them, not only for the dashboard, and it is still the way back to it.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+
+  const review = page.locator(".change-tabs .tab", { hasText: "Review changes" });
+  await review.click();
+  await page.waitForURL(`**/changes/${id}/review`);
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe(
+    "Review changes",
+  );
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+
+  await page.locator(".change-bar .window-tab.overview").click();
+  await page.waitForURL(`**/changes/${id}`);
+  await page.locator(".column.documents").waitFor();
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+  await page.close();
+}, 30_000);

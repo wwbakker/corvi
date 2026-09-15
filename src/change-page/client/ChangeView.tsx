@@ -309,9 +309,10 @@ export function ChangeView({
 
   const windowTabs = (
     <WindowTabs
-      // The resolved id, not the raw segment: an unknown segment renders the dashboard, and
-      // its Overview tab should read as current there too.
-      page={activeId}
+      // Which surface is on screen, not which of the change's tabs: this row is the change's views
+      // against its terminals, and the row below says which of those views. An unknown segment
+      // resolves to the dashboard, which is one of them.
+      page={active.kind}
       windows={windows}
       platform={platform}
       onSelectWindow={onSelectWindow}
