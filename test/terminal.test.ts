@@ -707,6 +707,11 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
     };
   });
   expect(overflowY).toBe("hidden");
+  // xterm's own stylesheet is part of the page's (src/app-root/styles.css imports it, and the build
+  // inlines it). It is the one thing the measurements above cannot see: without it the screen is not
+  // positioned and the terminal draws over nothing — an empty page — while every box here still
+  // measures correctly. `position: relative` on the screen is xterm's rule, not ours.
+  expect(await screen.evaluate((el) => getComputedStyle(el).position)).toBe("relative");
   // The grid may be short by less than one cell — columns are whole characters — but no more.
   // A scrollbar is a good deal wider than one cell, which is the strip this catches.
   expect(rightGap).toBeLessThan(box.width / cols);
