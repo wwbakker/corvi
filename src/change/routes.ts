@@ -16,9 +16,11 @@ import {
   writeSidecar,
 } from "../change/server/index.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { BadRequestError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, type IweError } from "../capabilities/effect/errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { Workspace } from "../capabilities/effect/tags.ts";
+import type { Change } from "../domain/change.ts";
+import type { Changes } from "../extension-host/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
 import { applyCreatingHooks, provision, startWork } from "../extension-host/index.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
@@ -180,15 +182,42 @@ export const changeRoutes = guard({
   "/api/changes/:id/complete": {
     // Whether it could be completed, for the menu item. A readiness check that cannot be made
     // — no GitHub remote, `gh` not logged in — is a reason it is not ready rather than a failed
-    // request: swallowing the error would disable the item with nothing to say, the least
-    // useful of the three possible outcomes.
+    // request: swallowing the error would leave the tooltip with nothing to say, the least
+    // useful of the three possible outcomes. The client polls this and the click path makes the
+    // same live check; that one forgets the cached reads and fetches first, this one does not.
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.catchAll(
           Effect.map(completionOf(c), json),
-          (e) => Effect.succeed(json({ ready: false, reasons: [messageOf(e)], toMerge: [] })),
+          (e) =>
+            Effect.succeed(
+              json({ ready: false, reasons: [messageOf(e)], tagged: [], toMerge: [] }),
+            ),
         ),
       ),
-    POST: (req) => withChange(req.params.id, (c) => Effect.map(completeChange(c), json)),
+    // The readiness check lives in `completeChange`: a change that is not ready and not forced
+    // comes back as a refusal, which is a 409 carrying the tagged reasons so the dialog renders
+    // server truth rather than the poll. One check per request, fetches included.
+    POST: (req) =>
+      withChange(req.params.id, (c) =>
+        Effect.flatMap(
+          bodyOrEmpty(req),
+          (body) => completePost(c, body as { force?: boolean }),
+        ),
+      ),
   },
 });
+
+/** The completion POST's work, apart from the request plumbing: run the completion, map a
+ * `NotReady` verdict to the 409 the override dialog reads. Exported so a test can run it with a
+ * scripted Shell, which `withChange`'s Promise shape does not allow. */
+export const completePost = (
+  change: Change,
+  body: { force?: boolean },
+): Effect.Effect<Response, IweError, Changes> =>
+  Effect.gen(function* () {
+    const outcome = yield* completeChange(change, body.force === true);
+    return outcome._tag === "NotReady"
+      ? json(outcome.refusal, 409)
+      : json({ change: outcome.change, notes: outcome.notes, after: outcome.after });
+  });

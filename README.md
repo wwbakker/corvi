@@ -1123,7 +1123,9 @@ claimed either way.
 The protections are a repository removal's, because it is the same act: **uncommitted work
 refuses outright** (it exists nowhere else, and no dialog makes it recoverable), and **commits
 that were never pushed ask once** (the branch survives, so they are recoverable — by someone who
-knows the branch is there). The change is archived as `Cancelled`, and stays readable: what was
+knows the branch is there). The asking happens in a dialog rather than a `window.confirm`:
+the first click opens it, confirming runs it, and a 409 naming the repositories fills in the
+one acknowledge. The change is archived as `Cancelled`, and stays readable: what was
 abandoned is worth being able to look up.
 
 ### After it ends
@@ -1181,9 +1183,10 @@ it stopped. Because it is on disk rather than in the page, a completion that fai
 afterwards — from a page opened later, or after a restart — and `Try again` picks up what is
 left, since a merge that already happened is no longer outstanding.
 
-The first thing recorded is the readiness check itself, before it runs — it is slow, and a page
-that just asked for a completion should see something at once. A refusal ("not approved yet") is
-recorded there too, rather than only in the page that asked.
+The readiness check runs before anything is written: a change that is not ready is a dialog (or,
+forced, an error), not a completion that started and stopped, so no journal is written for it.
+Once it will run, the check step is recorded first — it is slow, and a page that just asked for a
+completion should see something at once.
 
 The card stays for completions that finished, so an archived change still shows what was done and
 when. A change that was never completed has no card. A completed change does not start a terminal: doing so would write into a directory
@@ -1194,18 +1197,35 @@ history) is not a second change.
 `Complete change` on a dashboard squash-merges every outstanding pull request and moves the Jira
 issue to `jiraDoneTransition` (default `Done`), then records `completedAt` in `change.json`.
 
-It refuses unless **every** repository is either already merged by hand or has an approved,
-conflict-free, non-draft pull request — a change lands as a whole or not at all. Hovering the
-disabled button lists what blocks it, one line per repository, and the check runs server-side
-too, so the refusal is not just a disabled button. Merges run sequentially: if one fails, the ones after it have not happened.
+The button is always available; the requirements are checked when you click it, against
+freshly fetched refs. Ready completes as above. A review only blocks when the repository
+requires one: `REVIEW_REQUIRED` (a required review is outstanding) and `CHANGES_REQUESTED` (a
+reviewer asked for changes) refuse, while no review decision at all means the repository
+requires none, and the pull request merges as it stands. Not ready opens a dialog listing each
+unmet requirement, one acknowledge each: completing anyway skips what is unmerged (pull requests
+that are not merged stay unmerged, unpushed commits stay on the branch) and records the
+overrides in `completion.json` and the **Completing** card. Uncommitted work and an idea
+refuse outright, even with force — the first exists nowhere else, the second is left by
+starting, not by completing. Merges run sequentially: if one fails, the ones after it have
+not happened.
+
+A branch whose content already landed in main — merged through a pull request created
+elsewhere, or pushed straight to it — reads as merged without a pull request here: either
+main contains the branch outright, or it holds patch-identical copies of every commit (what
+a squash merge leaves behind). Only when there is no open pull request asserting "under
+review"; an open one still gates, overridable through the dialog.
 
 Squash is the only merge method both repositories allow, and they delete the remote branch
 themselves. Once the merges succeed the local worktrees hold nothing the remote does not, so they
 are removed and the change directory is moved to `~/changes/archive/<id>/`. Archived changes are
 still read, written and listed exactly like active ones.
 
-Completion is therefore also refused when a worktree has uncommitted changes or unpushed commits,
-even if the pull request is approved: removing it would throw that work away.
+Completion is therefore also refused when a worktree has uncommitted changes, even if the
+pull request is approved: removing it would throw that work away. Unpushed commits ask
+instead — the branch survives the worktree removal, so they are recoverable by someone who
+knows the branch is there — through the same per-requirement dialog. Hovering the menu item
+shows the last poll's verdict; the click re-checks, so the hover is orientation, not the
+decision.
 
 ## Routing
 

@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Change, CompletionStep } from "../src/domain/change.ts";
+import type { ApiError } from "../src/app-root/api.ts";
 import {
   completeChange,
   completionOf,
@@ -13,8 +14,9 @@ import {
 import { changeDir, createChange, readChange, writeSidecar } from "../src/change/server/index.ts";
 import { config } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
-import { fakeShell, runEffect, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
+import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
 import { install, loaded } from "../src/extension-host/registry.ts";
+import { contentInMain } from "../src/vendors/git.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
@@ -47,7 +49,7 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
   const blocked = (reason: string) => ({ ready: false, reason }) as const;
 
   // An empty change is ready and has nothing to merge.
-  expect(verdict([])).toEqual({ ready: true, reasons: [], toMerge: [] });
+  expect(verdict([])).toEqual({ ready: true, reasons: [], tagged: [], toMerge: [] });
 
   // Ready pull requests are queued in order, including the ones already merged by hand.
   expect(
@@ -59,6 +61,7 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
   ).toEqual({
     ready: true,
     reasons: [],
+    tagged: [],
     toMerge: [
       { repo: "/r/b", number: 2 },
       { repo: "/r/c", number: 3 },
@@ -66,15 +69,29 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
   });
 
   // A blocked repository names itself; unsafe work is said beside the readiness reason, and a
-  // bare repository name has no directory part to strip.
+  // bare repository name has no directory part to strip. Readiness and unpushed commits are
+  // forceable; uncommitted work is hard — it exists nowhere else.
   expect(
     verdict([
-      { repo: "a", readiness: blocked("a: not approved"), unsafe: { text: "uncommitted changes" } },
-      { repo: "/parent/b", readiness: approved(3), unsafe: { text: "2 unpushed commit(s)" } },
+      {
+        repo: "a",
+        readiness: blocked("a: not approved"),
+        unsafe: { kind: "dirty", text: "uncommitted changes" },
+      },
+      {
+        repo: "/parent/b",
+        readiness: approved(3),
+        unsafe: { kind: "unpushed", text: "2 unpushed commit(s)" },
+      },
     ]),
   ).toEqual({
     ready: false,
     reasons: ["a: not approved", "a: uncommitted changes", "b: 2 unpushed commit(s)"],
+    tagged: [
+      { text: "a: not approved", kind: "forceable" },
+      { text: "a: uncommitted changes", kind: "hard" },
+      { text: "b: 2 unpushed commit(s)", kind: "forceable" },
+    ],
     toMerge: [{ repo: "/parent/b", number: 3 }],
   });
 });
@@ -83,7 +100,7 @@ test("stepsFor: merges first, then the contributed steps, then the core teardown
   const step = (id: string): CompletionStep => ({ id, label: id, state: "waiting" });
   const plan = stepsFor(
     changeWith({ repos: ["/parent/myrepo"] }),
-    { ready: true, reasons: [], toMerge: [{ repo: "/parent/myrepo", number: 7 }] },
+    { ready: true, reasons: [], tagged: [], toMerge: [{ repo: "/parent/myrepo", number: 7 }] },
     [step("jira"), step("close-issue")],
   );
 
@@ -101,7 +118,7 @@ test("stepsFor: merges first, then the contributed steps, then the core teardown
 });
 
 test("stepsFor: a change with nothing to merge still plans the teardown", () => {
-  const plan = stepsFor(changeWith(), { ready: true, reasons: [], toMerge: [] }, []);
+  const plan = stepsFor(changeWith(), { ready: true, reasons: [], tagged: [], toMerge: [] }, []);
   expect(plan.map((s) => s.id)).toEqual(["worktrees", "terminal", "archive"]);
 });
 
@@ -113,7 +130,7 @@ test("stepsFor: the change's own extensions plan their steps when none are passe
   try {
     const plan = stepsFor(
       changeWith({ extensions: { jira: { key: "PROJ-9" } } }),
-      { ready: true, reasons: [], toMerge: [] },
+      { ready: true, reasons: [], tagged: [], toMerge: [] },
     );
     expect(plan.map((s) => s.id)).toEqual(["jira", "worktrees", "terminal", "archive"]);
     expect(plan[0]!.label).toContain("PROJ-9");
@@ -176,6 +193,13 @@ type CompletionShellOptions = {
   pr?: Record<string, unknown> | null;
   /** The working tree status that decides whether a removal would lose work. */
   status?: string;
+  /** The remote's default branch, for the integrated-content check. */
+  remoteDefault?: string;
+  /** Commits main does not have, for the integrated-content check; absent means the
+   * lookup fails, so the check reads "not proven". */
+  beyond?: number;
+  /** `git cherry` output lines, for the squash-merge content check. */
+  cherry?: string[];
   /** How `gh pr merge` answers. */
   merge?: { code: number; stderr?: string };
 };
@@ -189,13 +213,20 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
       return opts.worktree ? worktreeAt(opts.worktree, opts.branch ?? "") : "";
     }
     if (line === "git status --porcelain=v2 --branch") return opts.status ?? "";
-    if (line === "git remote") return "";
+    if (line === "git remote") return "origin";
+    if (line === "git symbolic-ref --quiet --short refs/remotes/origin/HEAD") {
+      return opts.remoteDefault ?? "origin/main";
+    }
     if (line.startsWith("git rev-parse --abbrev-ref --symbolic-full-name")) return "";
+    if (line.startsWith("git rev-list --count")) {
+      return opts.beyond === undefined ? { code: 128, stderr: "unknown revision" } : String(opts.beyond);
+    }
+    if (line.startsWith("git cherry ")) return (opts.cherry ?? []).join("\n");
     if (line.startsWith("gh pr list")) return JSON.stringify(opts.pr ? [opts.pr] : []);
     if (line.startsWith("gh repo view")) return "";
     if (line.startsWith("gh pr merge")) return opts.merge ?? { code: 0 };
     if (line.startsWith("wt --config")) return "";
-    if (line.startsWith("tmux kill-session")) return "";
+    if (line.startsWith("tmux ")) return "";
     return undefined;
   });
 
@@ -210,6 +241,7 @@ test("completionOf: a live look at one repository becomes the change's verdict",
   expect(await runWithShell(shell, completionOf(change))).toEqual({
     ready: true,
     reasons: [],
+    tagged: [],
     toMerge: [{ repo, number: 7 }],
   });
 });
@@ -225,6 +257,7 @@ test("completionOf: a pull request merged by hand leaves nothing to merge", asyn
   expect(await runWithShell(shell, completionOf(change))).toEqual({
     ready: true,
     reasons: [],
+    tagged: [],
     toMerge: [],
   });
 });
@@ -235,6 +268,7 @@ test("completionOf: no worktree and no pull request each block, and say which", 
   expect(await runWithShell(completionShell({}), completionOf(first))).toEqual({
     ready: false,
     reasons: [`${basename(noWorktree)}: no worktree`],
+    tagged: [{ text: `${basename(noWorktree)}: no worktree`, kind: "forceable" }],
     toMerge: [],
   });
 
@@ -248,6 +282,7 @@ test("completionOf: no worktree and no pull request each block, and say which", 
   ).toEqual({
     ready: false,
     reasons: [`${basename(noPr)}: no pull request`],
+    tagged: [{ text: `${basename(noPr)}: no pull request`, kind: "forceable" }],
     toMerge: [],
   });
 });
@@ -307,6 +342,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
     pr: approved(7),
   });
   const result = await runWithShell(shell, completeChange(change));
+  if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
 
   expect(result.notes).toEqual([]);
   expect(result.change.state).toBe("Completed");
@@ -361,4 +397,518 @@ test("completeChange: a failing change:completing hook vetoes before any merge",
   const journal = (await runEffect(progressOf(change.id)))!;
   expect(journal.steps[0]).toMatchObject({ id: "check", state: "failed", detail: "hold" });
   expect(journal.finishedAt).toBeTruthy();
+});
+
+test("contentInMain: contained, cherry-equivalent, and missing content", async () => {
+  const repo = join(tmp, "content-repo");
+  // Nothing beyond main: contained outright, no cherry needed.
+  expect(
+    await runWithShell(
+      completionShell({ beyond: 0 }),
+      contentInMain(repo, "PROJ-x", "origin/main"),
+    ),
+  ).toBe(true);
+
+  // Commits beyond main, but every one patch-identical upstream: a squash merge.
+  expect(
+    await runWithShell(
+      completionShell({ beyond: 2, cherry: ["- abc123 first", "- def456 second"] }),
+      contentInMain(repo, "PROJ-x", "origin/main"),
+    ),
+  ).toBe(true);
+
+  // One commit with no upstream twin: genuinely unmerged.
+  expect(
+    await runWithShell(
+      completionShell({ beyond: 2, cherry: ["- abc123 first", "+ def456 second"] }),
+      contentInMain(repo, "PROJ-x", "origin/main"),
+    ),
+  ).toBe(false);
+
+  // No base to compare with: unproven, not an error.
+  expect(await runWithShell(completionShell({}), contentInMain(repo, "PROJ-x", undefined))).toBe(
+    false,
+  );
+});
+
+test("completionOf: a branch whose content is in main reads as merged without a PR", async () => {
+  const repo = join(tmp, "integrated-repo");
+  const change = changeWith({ repos: [repo], branch: "PROJ-integrated" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-integrated"),
+    branch: change.branch,
+    pr: null,
+    beyond: 0,
+  });
+  expect(await runWithShell(shell, completionOf(change))).toEqual({
+    ready: true,
+    reasons: [],
+    tagged: [],
+    toMerge: [],
+  });
+});
+
+test("completionOf: a closed PR whose content landed elsewhere reads as merged", async () => {
+  const repo = join(tmp, "closed-repo");
+  const change = changeWith({ repos: [repo], branch: "PROJ-closed" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-closed"),
+    branch: change.branch,
+    pr: { ...approved(7), state: "CLOSED" },
+    beyond: 1,
+    cherry: ["- abc123 landed as a squash"],
+  });
+  expect(await runWithShell(shell, completionOf(change))).toEqual({
+    ready: true,
+    reasons: [],
+    tagged: [],
+    toMerge: [],
+  });
+});
+
+test("completionOf: an open unapproved PR still gates on an integrated branch", async () => {
+  const repo = join(tmp, "open-repo");
+  const change = changeWith({ repos: [repo], branch: "PROJ-open" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-open"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
+    beyond: 0,
+  });
+  const result = await runWithShell(shell, completionOf(change));
+  expect(result.ready).toBe(false);
+  expect(result.reasons).toEqual([`${basename(repo)}: not approved (review required)`]);
+  expect(result.tagged).toEqual([
+    { text: `${basename(repo)}: not approved (review required)`, kind: "forceable" },
+  ]);
+});
+
+test("completionOf: fresh fetches before reading, so a just-merged branch is seen", async () => {
+  const repo = join(tmp, "fresh-repo");
+  const change = changeWith({ repos: [repo], branch: "PROJ-fresh" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-fresh"),
+    branch: change.branch,
+    pr: null,
+    beyond: 0,
+  });
+  const result = await runWithShell(shell, completionOf(change, true));
+  expect(result.ready).toBe(true);
+  const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
+  expect(asked).toContain("git fetch --quiet origin");
+});
+
+test("completionOf: a pull request that needs no review is ready to merge", async () => {
+  const repo = join(tmp, "noreview-ready-repo");
+  const change = changeWith({ repos: [repo], branch: "PROJ-noreview" });
+  const shell = completionShell({
+    worktree: join(tmp, "wt-noreview-ready"),
+    branch: change.branch,
+    // No review decision at all: the repository requires none, so it is queued to merge.
+    pr: { ...approved(7), reviewDecision: null },
+  });
+  expect(await runWithShell(shell, completionOf(change))).toEqual({
+    ready: true,
+    reasons: [],
+    tagged: [],
+    toMerge: [{ repo, number: 7 }],
+  });
+});
+
+test("completeChange: a pull request that needs no review completes and is merged", async () => {
+  const repo = join(tmp, "noreview-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-NOREVIEW", branch: "PROJ-NOREVIEW", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-noreview"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: null },
+  });
+  const result = await runWithShell(shell, completeChange(change));
+  if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
+
+  expect(result.change.state).toBe("Completed");
+  expect(result.notes).toEqual([]);
+  // Merged, not skipped: no override was needed for a review nobody required.
+  const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
+  expect(asked).toContain("gh pr merge 7 --squash");
+});
+
+test("completeChange: force completes despite an unapproved PR, and journals the override", async () => {
+  const repo = join(tmp, "force-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-FORCE", branch: "PROJ-FORCE", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-force"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
+  });
+  const result = await runWithShell(shell, completeChange(change, true));
+  if (result._tag !== "Done") throw new Error(`expected a completion, got ${result._tag}`);
+
+  expect(result.change.state).toBe("Completed");
+  // The unapproved PR is skipped, not merged: nothing mergeable, nothing queued.
+  expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
+  expect(result.notes).toEqual([
+    `completed with overrides: ${basename(repo)}: not approved (review required)`,
+  ]);
+  const journal = (await runEffect(progressOf(change.id)))!;
+  expect(journal.forced).toBe(true);
+  expect(journal.overridden).toEqual([`${basename(repo)}: not approved (review required)`]);
+});
+
+test("completeChange: without force an unready change is a refusal, and nothing is written", async () => {
+  const repo = join(tmp, "refuse-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-REFUSE", branch: "PROJ-REFUSE", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-refuse"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
+  });
+  const outcome = await runWithShell(shell, completeChange(change));
+  expect(outcome._tag).toBe("NotReady");
+  if (outcome._tag !== "NotReady") throw new Error("expected a refusal");
+  expect(outcome.refusal.reasons).toEqual([
+    { text: `${basename(repo)}: not approved (review required)`, kind: "forceable" },
+  ]);
+  // A refusal is a dialog, not a completion that started and stopped: no journal for it, and the
+  // change is untouched.
+  expect(await runEffect(progressOf(change.id))).toBeNull();
+  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+});
+
+test("completeChange: force still refuses uncommitted work", async () => {
+  const repo = join(tmp, "dirty-force-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-DIRTYFORCE", branch: "PROJ-DIRTYFORCE", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-dirtyforce"),
+    branch: change.branch,
+    pr: approved(7),
+    status: "? half-done.txt\n",
+  });
+  await expect(runWithShell(shell, completeChange(change, true))).rejects.toThrow(
+    /uncommitted changes/,
+  );
+  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+});
+
+test("completeChange: force still refuses an idea", async () => {
+  const idea = await runEffect(createChange({ id: "PROJ-FORCEIDEA", state: "Ideation" }));
+  await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
+  expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
+});
+
+test("completeChange: force does not waive a change:completing veto", async () => {
+  const repo = join(tmp, "force-veto-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-FORCEVETO", branch: "PROJ-FORCEVETO", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-forceveto"),
+    branch: change.branch,
+    pr: approved(7),
+  });
+  const saved = loaded.splice(0, loaded.length);
+  install({
+    name: "veto-force-complete",
+    title: "Veto",
+    events: { "change:completing": [() => Effect.fail(new TestError({ message: "hold" }))] },
+  });
+  try {
+    await expect(runWithShell(shell, completeChange(change, true))).rejects.toThrow("hold");
+  } finally {
+    loaded.splice(0, loaded.length, ...saved);
+  }
+  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+});
+
+test("CompleteAnywayDialog: every reason needs its own acknowledge", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { CompleteAnywayDialog, canCompleteAnyway } = await import(
+    "../src/change-page/client/CompleteAnywayDialog.tsx"
+  );
+  const refusal = {
+    reasons: [
+      { text: "orders: no pull request", kind: "forceable" as const },
+      { text: "api: 2 unpushed commit(s)", kind: "forceable" as const },
+    ],
+    toMerge: [],
+  };
+  const html = renderToStaticMarkup(
+    createElement(CompleteAnywayDialog, {
+      changeId: "PROJ-x",
+      refusal,
+      busy: false,
+      onComplete: () => {},
+      onClose: () => {},
+    }),
+  );
+  // Both reasons listed, each with its own checkbox.
+  expect(html).toContain("orders: no pull request");
+  expect(html).toContain("api: 2 unpushed commit(s)");
+  expect(html.match(/type="checkbox"/g)?.length).toBe(2);
+  expect(html).toContain("Complete anyway");
+  // The gating itself: one acknowledge is not all, and a hard reason never is.
+  expect(canCompleteAnyway(refusal.reasons, [false, false])).toBe(false);
+  expect(canCompleteAnyway(refusal.reasons, [true, false])).toBe(false);
+  expect(canCompleteAnyway(refusal.reasons, [true, true])).toBe(true);
+  expect(
+    canCompleteAnyway([{ text: "orders: uncommitted changes", kind: "hard" as const }], [true]),
+  ).toBe(false);
+});
+
+test("CompleteAnywayDialog: hard reasons offer no override button", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { CompleteAnywayDialog } = await import(
+    "../src/change-page/client/CompleteAnywayDialog.tsx"
+  );
+  const html = renderToStaticMarkup(
+    createElement(CompleteAnywayDialog, {
+      changeId: "PROJ-x",
+      refusal: {
+        reasons: [{ text: "orders: uncommitted changes", kind: "hard" as const }],
+        toMerge: [],
+      },
+      busy: false,
+      onComplete: () => {},
+      onClose: () => {},
+    }),
+  );
+  expect(html).toContain("cannot be overridden");
+  expect(html).not.toContain("Complete anyway");
+});
+
+test("CompleteAnywayDialog: says which pull requests will still be merged", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { CompleteAnywayDialog } = await import(
+    "../src/change-page/client/CompleteAnywayDialog.tsx"
+  );
+  const html = renderToStaticMarkup(
+    createElement(CompleteAnywayDialog, {
+      changeId: "PROJ-x",
+      refusal: {
+        reasons: [{ text: "orders: no pull request", kind: "forceable" as const }],
+        // Merges that are ready still happen, even though the change is forced: the dialog says
+        // so rather than letting "not merged stay unmerged" read as every repository.
+        toMerge: [{ repo: "/repos/orders", number: 7 }],
+      },
+      busy: false,
+      onComplete: () => {},
+      onClose: () => {},
+    }),
+  );
+  expect(html).toContain("will still be merged");
+  expect(html).toContain("#7 orders");
+});
+
+test("CancelDialog: the confirm waits for the acknowledge the server names", async () => {
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { CancelDialog } = await import("../src/change-page/client/CancelDialog.tsx");
+  const render = (props: {
+    needsForce: string[];
+    acked: boolean;
+    idea?: boolean;
+  }): string =>
+    renderToStaticMarkup(
+      createElement(CancelDialog, {
+        changeId: "PROJ-x",
+        idea: props.idea ?? false,
+        needsForce: props.needsForce,
+        acked: props.acked,
+        busy: false,
+        onAck: () => {},
+        onConfirm: () => {},
+        onClose: () => {},
+      }),
+    );
+
+  // Unpushed commits named and not acknowledged: the only disabled control is the confirm.
+  const warned = render({ needsForce: ["orders"], acked: false });
+  expect(warned).toContain("orders: commits that were never pushed");
+  expect(warned.match(/disabled=""/g)?.length).toBe(1);
+  // Acknowledged: nothing is disabled, so confirming can go ahead.
+  expect(render({ needsForce: ["orders"], acked: true })).not.toContain("disabled");
+  // Nothing to warn about: the confirm is available without an acknowledge.
+  expect(render({ needsForce: [], acked: false })).not.toContain("disabled");
+  // An idea is discarded, not cancelled.
+  expect(render({ needsForce: [], acked: false, idea: true })).toContain("Discard");
+});
+
+test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
+  const { overrideNote } = await import("../src/dashboard/client/CompletionCard.tsx");
+  const step = { id: "check", label: "check", state: "done" as const };
+
+  // Finished and forced: the note names what was overridden.
+  expect(
+    overrideNote({
+      startedAt: "t",
+      finishedAt: "t",
+      forced: true,
+      overridden: ["orders: no pull request"],
+      steps: [step],
+    }),
+  ).toBe("Completed with overrides: orders: no pull request.");
+  // Stopped: the check step's detail carries the reasons; "completed" would be false.
+  expect(
+    overrideNote({
+      startedAt: "t",
+      forced: true,
+      overridden: ["orders: no pull request"],
+      error: "cannot complete",
+      steps: [step],
+    }),
+  ).toBeUndefined();
+  // Not forced, or nothing overridden: no note at all.
+  expect(
+    overrideNote({ startedAt: "t", finishedAt: "t", overridden: ["x"], steps: [step] }),
+  ).toBeUndefined();
+  expect(
+    overrideNote({ startedAt: "t", finishedAt: "t", forced: true, steps: [step] }),
+  ).toBeUndefined();
+});
+
+test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog", async () => {
+  const { completionRefusal, cancelNeedsForce } = await import(
+    "../src/change-page/client/refusals.ts"
+  );
+  const apiError = (status: number, body: unknown): ApiError =>
+    Object.assign(new Error("boom"), { status, body }) as ApiError;
+
+  expect(
+    completionRefusal(
+      apiError(409, {
+        reasons: [{ text: "orders: no pull request", kind: "forceable" }],
+        toMerge: [{ repo: "/repos/orders", number: 7 }],
+      }),
+    ),
+  ).toEqual({
+    reasons: [{ text: "orders: no pull request", kind: "forceable" }],
+    toMerge: [{ repo: "/repos/orders", number: 7 }],
+  });
+  // A 409 without a toMerge still opens the dialog, with nothing to merge.
+  expect(completionRefusal(apiError(409, { reasons: [{ text: "x", kind: "hard" }] }))).toEqual({
+    reasons: [{ text: "x", kind: "hard" }],
+    toMerge: [],
+  });
+  // No reasons, or not a 409: banner news, not a dialog.
+  expect(completionRefusal(apiError(409, { reasons: [] }))).toBeUndefined();
+  expect(
+    completionRefusal(apiError(400, { reasons: [{ text: "x", kind: "hard" }] })),
+  ).toBeUndefined();
+
+  expect(cancelNeedsForce(apiError(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
+  expect(cancelNeedsForce(apiError(409, { needsForce: [] }))).toBeUndefined();
+  expect(cancelNeedsForce(apiError(400, { needsForce: ["orders"] }))).toBeUndefined();
+});
+
+test("retryBody: a retry keeps the forced mode the journal recorded", async () => {
+  const { retryBody } = await import("../src/dashboard/client/CompletionCard.tsx");
+  expect(retryBody(null)).toEqual({});
+  expect(retryBody({ startedAt: "t", forced: true, steps: [] })).toEqual({ force: true });
+  expect(retryBody({ startedAt: "t", forced: false, steps: [] })).toEqual({});
+});
+
+test("completeChange: the readiness check runs once per call", async () => {
+  const repo = join(tmp, "once-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-ONCE", branch: "PROJ-ONCE", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-once"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
+  });
+  const outcome = await runWithShell(shell, completeChange(change));
+  expect(outcome._tag).toBe("NotReady");
+  const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
+  // One readiness check, and one fresh fetch: `completeChange` owns the check now, so the route
+  // no longer repeats it.
+  expect(asked.filter((line) => line.startsWith("gh pr list"))).toHaveLength(1);
+  expect(asked.filter((line) => line === "git fetch --quiet origin")).toHaveLength(1);
+});
+
+test("the complete route answers a 409 with the tagged reasons, and force still refuses an idea", async () => {
+  const { changeRoutes } = await import("../src/change/routes.ts");
+  const idea = await runEffect(createChange({ id: "PROJ-ROUTEIDEA", state: "Ideation" }));
+  const route = changeRoutes["/api/changes/:id/complete"] as unknown as {
+    POST: (req: Request, srv: unknown) => Promise<Response>;
+  };
+  const call = (body: unknown): Promise<Response> =>
+    route.POST(
+      Object.assign(
+        new Request(`http://127.0.0.1:4000/api/changes/${idea.id}/complete`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+        { params: { id: idea.id } },
+      ),
+      undefined,
+    );
+
+  // Without force: the structured refusal the dialog renders, from server truth.
+  const refused = await call({});
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toEqual({
+    reasons: [{ text: "still an idea: start the work before completing it", kind: "hard" }],
+    toMerge: [],
+  });
+
+  // With force the 409 is skipped, and the hard refusal stands as a failure — the change is
+  // untouched, still an idea.
+  const forced = await call({ force: true });
+  expect(forced.status).toBe(400);
+  expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
+});
+
+test("the complete route drives readiness through the scripted CLI", async () => {
+  const { withChangeEffect } = await import("../src/capabilities/web.ts");
+  const { completePost } = await import("../src/change/routes.ts");
+  const repo = join(tmp, "route-cli-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-ROUTECLI", branch: "PROJ-ROUTECLI", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-routecli"),
+    branch: change.branch,
+    pr: { ...approved(7), reviewDecision: "REVIEW_REQUIRED" },
+  });
+
+  // Without force: the route's own error mapping turns the refusal into a 409 whose body is the
+  // tagged reasons — the dialog's input, produced from a scripted CLI, all the way through
+  // `withChange` (disk read, workspace, Services).
+  const refused = await runRouteWithShell(
+    shell,
+    withChangeEffect(change.id, (c) => completePost(c, {})),
+  );
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toEqual({
+    reasons: [{ text: `${basename(repo)}: not approved (review required)`, kind: "forceable" }],
+    toMerge: [],
+  });
+
+  // With force: the reasons are waived, the unapproved PR is skipped rather than merged, and the
+  // completion runs to the archive with the override recorded.
+  const forced = await runRouteWithShell(
+    shell,
+    withChangeEffect(change.id, (c) => completePost(c, { force: true })),
+  );
+  expect(forced.status).toBe(200);
+  const body = (await forced.json()) as { change: Change; notes: string[] };
+  expect(body.change.state).toBe("Completed");
+  expect(body.notes).toEqual([
+    `completed with overrides: ${basename(repo)}: not approved (review required)`,
+  ]);
+  expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(
+    false,
+  );
 });

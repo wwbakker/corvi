@@ -39,6 +39,8 @@ export {
   stepsFor,
   verdict,
   type Completion,
+  type CompletionReason,
+  type CompletionRefusal,
 } from "./complete.ts";
 
 export { cancelChange, looseEnds, type Cancelled, type NeedsForce } from "./cancel.ts";

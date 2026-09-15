@@ -177,7 +177,34 @@ export type CompletionProgress = {
   steps: CompletionStep[];
   /** Set when a step failed; the change is left as that step found it. */
   error?: string;
+  /** This completion waived its readiness check: the page acknowledged each reason away. */
+  forced?: boolean;
+  /** The forceable reasons the waiver covered, in the words the dialog showed. */
+  overridden?: string[];
 };
+
+/** One unmet requirement of a change's completion, tagged so the page knows whether to offer an
+ * override dialog or a plain refusal. `forceable` reasons can be acknowledged away; `hard` ones
+ * (uncommitted work, still an idea) refuse outright, even with force. */
+export type CompletionReason = { text: string; kind: "forceable" | "hard" };
+
+/** Whether a change can be completed right now: what still blocks it, tagged, and which pull
+ * requests are still to merge. Lives here rather than in the server's completion module because
+ * the page reads it too and must not pull the server's modules in. */
+export type Completion = {
+  /** Every repository is either merged already or has an approved pull request. */
+  ready: boolean;
+  /** Why not, one line per repository that blocks completion. */
+  reasons: string[];
+  /** The same reasons, tagged for the override dialog. Parallel to `reasons`. */
+  tagged: CompletionReason[];
+  /** Pull requests still to merge, empty when everything was merged by hand. */
+  toMerge: { repo: string; number: number }[];
+};
+
+/** A completion's refusal, in the shape the override dialog renders: the tagged reasons plus
+ * what is still mergeable, so the dialog lists server truth rather than the poll. */
+export type CompletionRefusal = { reasons: CompletionReason[]; toMerge: Completion["toMerge"] };
 
 /** What a change's card and its entry in the navigation column say beyond the change itself:
  * the facts its extensions contribute, and the worst verdict among them for the navigation's

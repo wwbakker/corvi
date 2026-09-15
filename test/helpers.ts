@@ -12,6 +12,7 @@ import { sh, type Result } from "../src/capabilities/shell.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
 import { CacheLive, ChangesLive, SettingsLive } from "../src/extension-host/services.ts";
 import type { CliError } from "../src/capabilities/effect/errors.ts";
+import { toResponse } from "../src/capabilities/effect/http.ts";
 import { swr } from "../src/capabilities/cache.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
@@ -263,6 +264,29 @@ export const runWithShell = <A, E, R>(
   Effect.runPromise(
     Effect.provide(
       effect as Effect.Effect<A, E, never>,
+      Layer.mergeAll(
+        Layer.succeed(Shell, shell),
+        Layer.succeed(WorkspaceTag, workspaceById(undefined)),
+        CacheLive,
+        SettingsLive,
+        ChangesLive,
+      ),
+    ),
+  );
+
+/** A route effect run with a scripted Shell, mapped to a Response exactly as the server maps it
+ * (`runRoute`'s error handling), so a route's readiness path can be exercised without the real
+ * CLI. Pair with `withChangeEffect` for the request plumbing. */
+export const runRouteWithShell = (
+  shell: FakeShell,
+  effect: Effect.Effect<Response, unknown>,
+): Promise<Response> =>
+  Effect.runPromise(
+    Effect.provide(
+      effect.pipe(
+        Effect.catchAll((error) => Effect.succeed(toResponse(error))),
+        Effect.catchAllDefect((defect) => Effect.succeed(toResponse(defect))),
+      ),
       Layer.mergeAll(
         Layer.succeed(Shell, shell),
         Layer.succeed(WorkspaceTag, workspaceById(undefined)),

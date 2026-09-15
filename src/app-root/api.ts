@@ -1,8 +1,26 @@
 import { CHANGE_STATES, IDEATION, isIdeation, type Change, type ChangeState } from "../domain/change.ts";
+import type {
+  Completion,
+  CompletionProgress,
+  CompletionReason,
+  CompletionRefusal,
+  CompletionStep,
+} from "../domain/change.ts";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
 import type { Entry } from "../workspace/model.ts";
 
-export type { Change, ChangeState, Widget, WidgetItem, Entry };
+export type {
+  Change,
+  ChangeState,
+  Completion,
+  CompletionProgress,
+  CompletionReason,
+  CompletionRefusal,
+  CompletionStep,
+  Widget,
+  WidgetItem,
+  Entry,
+};
 export { CHANGE_STATES, IDEATION, isIdeation };
 export type Listing = { root: string; path: string; entries: Entry[] };
 export type CardInfo = {
@@ -25,7 +43,6 @@ export type Selection = { path: string; direct: boolean; base?: string };
 
 export type Branches = { branches: string[]; default?: string };
 
-export type Completion = { ready: boolean; reasons: string[]; toMerge: { repo: string; number: number }[] };
 export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };
 

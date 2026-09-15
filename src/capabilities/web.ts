@@ -111,13 +111,19 @@ export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
 export const withChange = (
   id: string,
   effect: (change: Change) => Effect.Effect<Response, unknown, Changes>,
-): Promise<Response> =>
-  runRoute(
-    Effect.flatMap(readChange(id), (change) => {
-      if (!change) return Effect.fail(new NotFoundError({ message: `no such change: ${id}` }));
-      return Effect.provideService(effect(change), Workspace, workspaceOf(change));
-    }).pipe(Effect.provide(ChangesLive)),
-  );
+): Promise<Response> => runRoute(withChangeEffect(id, effect));
+
+/** `withChange`'s effect, kept apart from running it: a test provides its own Shell layer and
+ * runs it through the same error mapping (`runRoute`), so a route is exercised with a scripted
+ * CLI instead of the real one. */
+export const withChangeEffect = (
+  id: string,
+  effect: (change: Change) => Effect.Effect<Response, unknown, Changes>,
+): Effect.Effect<Response, unknown> =>
+  Effect.flatMap(readChange(id), (change) => {
+    if (!change) return Effect.fail(new NotFoundError({ message: `no such change: ${id}` }));
+    return Effect.provideService(effect(change), Workspace, workspaceOf(change));
+  }).pipe(Effect.provide(ChangesLive));
 
 /** The same, for the requests that are not about a change: the browser says which context it is
  * in, because that is where the choice lives. */

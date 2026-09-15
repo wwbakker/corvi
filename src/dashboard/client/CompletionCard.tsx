@@ -1,19 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post, type Change } from "../../app-root/api.ts";
-
-export type CompletionStep = {
-  id: string;
-  label: string;
-  state: "waiting" | "running" | "done" | "failed";
-  detail?: string;
-};
-
-export type CompletionProgress = {
-  startedAt: string;
-  finishedAt?: string;
-  steps: CompletionStep[];
-  error?: string;
-};
+import type { Change, CompletionProgress, CompletionStep } from "../../app-root/api.ts";
+import { api, post } from "../../app-root/api.ts";
 
 const MARK: Record<CompletionStep["state"], string> = {
   waiting: "○",
@@ -21,6 +8,22 @@ const MARK: Record<CompletionStep["state"], string> = {
   done: "●",
   failed: "✕",
 };
+
+/** The note a finished forced completion carries: what it overrode. Undefined while it is still
+ * running or stopped — then "completed" would be false, and the check step's own detail is where
+ * the acknowledged reasons live. */
+// Pure and synchronous: nothing for an Effect to wrap.
+export function overrideNote(progress: CompletionProgress): string | undefined {
+  if (!progress.forced || progress.error || !progress.overridden?.length) return undefined;
+  return `Completed with overrides: ${progress.overridden.join("; ")}.`;
+}
+
+/** The body a retry sends: the forced mode the journal recorded, so a stopped forced completion
+ * is resumed the same way rather than re-asking the dialog for reasons already waived. */
+// Pure and synchronous: nothing for an Effect to wrap.
+export function retryBody(progress: CompletionProgress | null): { force?: true } {
+  return progress?.forced ? { force: true } : {};
+}
 
 /**
  * What completing a change is doing, or where it stopped. Read from disk rather than remembered
@@ -55,9 +58,11 @@ export function CompletionCard({
     return () => clearInterval(timer);
   }, [changeId, running]);
 
+  // A stopped forced completion stays forced: the reasons were waived once, and re-asking
+  // the dialog for them would un-waive nothing — the journal is where the mode lives.
   const retry = (): void => {
     setRetrying(true);
-    post<{ change: Change }>(`/changes/${changeId}/complete`, {})
+    post<{ change: Change }>(`/changes/${changeId}/complete`, retryBody(progress))
       .then(({ change }) => onFinished(change))
       .catch(() => {}) // the failure lands in the progress itself, which is where it belongs
       .finally(() => setRetrying(false));
@@ -67,6 +72,7 @@ export function CompletionCard({
   // its record, including the ones that went perfectly.
   if (!progress) return null;
   const done = progress.steps.filter((s) => s.state === "done").length;
+  const overrides = overrideNote(progress);
 
   return (
     <section
@@ -92,6 +98,7 @@ export function CompletionCard({
           </li>
         ))}
       </ul>
+      {overrides && <p className="hint">{overrides}</p>}
       {progress.error && (
         <p className="hint">
           Everything before this step is done; running it again picks up what is left.{" "}

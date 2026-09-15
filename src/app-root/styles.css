@@ -816,6 +816,22 @@ dialog textarea {
   gap: 8px;
 }
 
+/* The override dialog's per-requirement acknowledges: one line each, checkbox first. */
+.override-reasons {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.override-reasons label {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  margin-bottom: 0;
+}
+
 /* Committing: the message, then what goes in it. */
 dialog textarea.message {
   width: 100%;

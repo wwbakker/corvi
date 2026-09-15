@@ -1,9 +1,16 @@
 import { basename } from "node:path";
 import { Effect, Either } from "effect";
-import type { Change, CompletionProgress, CompletionStep } from "../../domain/change.ts";
+import type {
+  Change,
+  Completion,
+  CompletionProgress,
+  CompletionReason,
+  CompletionRefusal,
+  CompletionStep,
+} from "../../domain/change.ts";
 import { isIdeation } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
-import { mergeReadiness, mergePr } from "../../vendors/github.ts";
+import { mergeReadiness, mergePr, refreshReadiness, forgetPrs } from "../../vendors/github.ts";
 import type { Changes } from "../../extension-host/api/capabilities.ts";
 import { removeWorktree, unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import {
@@ -31,61 +38,91 @@ import {
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
 
-export type Completion = {
-  /** Every repository is either merged already or has an approved pull request. */
-  ready: boolean;
-  /** Why not, one line per repository that blocks completion. */
-  reasons: string[];
-  /** Pull requests still to merge, empty when everything was merged by hand. */
-  toMerge: { repo: string; number: number }[];
-};
+// The page reads the same completion types; they live in the domain so both halves agree.
+export type { Completion, CompletionReason, CompletionRefusal };
+
+/** What a completion request produced: it ran to the end, or it was not ready and the page must
+ * acknowledge why first. An unmet hard reason (an idea, uncommitted work) is neither — it fails,
+ * because no acknowledgement can make it go away. */
+export type CompletionResult =
+  | { _tag: "Done"; change: Change; notes: string[]; after: ProvisionResult[] }
+  | { _tag: "NotReady"; refusal: CompletionRefusal };
 
 /** Turn per-repository readiness into one verdict: a change completes as a whole or not at all. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function verdict(
-  results: { repo: string; readiness: MergeReadiness; unsafe?: { text: string } }[],
+  results: { repo: string; readiness: MergeReadiness; unsafe?: Unsafe }[],
 ): Completion {
-  const reasons = results.flatMap(({ repo, readiness, unsafe }) => [
-    ...(readiness.ready ? [] : [readiness.reason]),
+  const tagged: CompletionReason[] = results.flatMap(({ repo, readiness, unsafe }) => [
+    ...(readiness.ready ? [] : [{ text: readiness.reason, kind: "forceable" as const }]),
     // Completing removes worktrees, so anything the remote never saw would be lost.
-    ...(unsafe ? [`${repo.split("/").pop()}: ${unsafe.text}`] : []),
+    // Unpushed commits survive on the branch and can be acknowledged away; uncommitted
+    // work exists nowhere else and refuses outright, even with force.
+    ...(unsafe
+      ? [{
+        text: `${repo.split("/").pop()}: ${unsafe.text}`,
+        kind: (unsafe.kind === "dirty" ? "hard" : "forceable") as CompletionReason["kind"],
+      }]
+      : []),
   ]);
   const toMerge = results.flatMap(({ repo, readiness }) =>
     readiness.ready && !readiness.merged ? [{ repo, number: readiness.number }] : [],
   );
-  return { ready: reasons.length === 0, reasons, toMerge };
+  return {
+    ready: tagged.length === 0,
+    reasons: tagged.map((r) => r.text),
+    tagged,
+    toMerge,
+  };
 }
 
 /** One repository's readiness, checked live: the two lookups per repository run sequentially,
- * and the repositories in parallel. */
+ * and the repositories in parallel. `fresh` fetches before reading, for the click path — the
+ * branch may have merged upstream seconds ago, and the poll's verdict would still say
+ * otherwise. */
 const completionOfRepo = (
   change: Change,
   repo: string,
+  fresh: boolean,
 ): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes> =>
   Effect.gen(function* () {
     return {
       repo,
-      readiness: yield* mergeReadiness(change, repo),
+      readiness: yield* (fresh ? refreshReadiness : mergeReadiness)(change, repo),
       unsafe: yield* unsafeToRemove(change, repo),
     };
   });
 
-export const completionOf = (change: Change): Effect.Effect<Completion, CliError | BadRequestError, Changes> =>
+export const completionOf = (
+  change: Change,
+  fresh = false,
+): Effect.Effect<Completion, CliError | BadRequestError, Changes> =>
   // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
-  // lookups, which would find nothing and cost a call per repository.
+  // lookups, which would find nothing and cost a call per repository. Hard: starting the work
+  // is the only way out of Ideation, and no override waives it.
   isIdeation(change)
     ? Effect.succeed({
         ready: false,
         reasons: ["still an idea: start the work before completing it"],
+        tagged: [{
+          text: "still an idea: start the work before completing it",
+          kind: "hard" as const,
+        }],
         toMerge: [],
       })
-    : Effect.map(
-        Effect.forEach(change.repos, (repo) => completionOfRepo(change, repo), {
+    : Effect.gen(function* () {
+        // Forget the cached pull-request reads once for the change, before any repository is
+        // asked: an action just made them wrong, and the dialog must not list what has already
+        // resolved. Per-change, not per-repository, so a click path pays for it once.
+        if (fresh) yield* forgetPrs(change);
+        const results = yield* Effect.forEach(
+          change.repos,
+          (repo) => completionOfRepo(change, repo, fresh),
           // Unbounded concurrency is deliberate: these per-repo lookups are independent.
-          concurrency: "unbounded",
-        }),
-        verdict,
-      );
+          { concurrency: "unbounded" },
+        );
+        return verdict(results);
+      });
 
 const PROGRESS = "completion.json";
 
@@ -141,8 +178,12 @@ const plannedContributions = (change: Change): CompletionStep[] =>
     .filter((s): s is CompletionStep => Boolean(s));
 
 /**
- * Merge every outstanding pull request and close the ticket. Refuses unless all repositories are
- * approved or already merged, so a change never lands half-way across repositories.
+ * Merge every outstanding pull request and close the ticket. Checks readiness fresh first: a
+ * change that is not ready comes back as `NotReady` for the page to acknowledge (`force` waives
+ * every forceable reason — unmerged PRs, unpushed commits — after the page made each one
+ * explicit). A hard reason — an idea, uncommitted work — fails even with force, because no
+ * acknowledgement makes it go away; an extension veto is discovered after the check and likewise
+ * fails. The waived reasons are journaled and reported as notes.
  *
  * Every step is written to disk as it starts and as it finishes, so a completion that stops half
  * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
@@ -150,32 +191,43 @@ const plannedContributions = (change: Change): CompletionStep[] =>
  */
 export const completeChange = (
   change: Change,
-): Effect.Effect<{ change: Change; notes: string[]; after: ProvisionResult[] }, IweError, Changes> =>
+  force = false,
+): Effect.Effect<CompletionResult, IweError, Changes> =>
   Effect.gen(function* () {
-    // The one transition out of `Ideation` is starting the work; completing an idea would archive
-    // it as landed with no checkouts and no ticket moved. Refused before anything is written.
-    if (isIdeation(change)) {
+    // Fresh, and before anything is written: a decision about whether to start is not a completion
+    // that started and stopped. `completionOf` also answers for an idea without the CLI lookups.
+    const completion = yield* completionOf(change, true);
+    const overridden = completion.tagged.filter((r) => r.kind === "forceable").map((r) => r.text);
+    const hard = completion.tagged.filter((r) => r.kind === "hard").map((r) => r.text);
+    if (!completion.ready && !force) {
+      return {
+        _tag: "NotReady" as const,
+        refusal: { reasons: completion.tagged, toMerge: completion.toMerge },
+      };
+    }
+    // Forced, but something no waiver reaches is unmet — an idea, uncommitted work. An error,
+    // not a refusal: acknowledging reasons cannot make these go away.
+    if (!completion.ready && hard.length > 0) {
       return yield* new BadRequestError({
-        message: `${change.id} is still an idea: start the work before completing it`,
+        message: `cannot complete: ${completion.reasons.join("; ")}`,
       });
     }
-    // Written before the checking starts, which is itself slow: a page that just asked for this
-    // should see something immediately, and this is also the record that a completion is running.
+    // Written now that it will run: the record that a completion is in progress. Forced from the
+    // start, so a retry reads the mode from the journal rather than the request.
     const progress: CompletionProgress = {
       startedAt: new Date().toISOString(),
+      ...(force ? { forced: true as const } : {}),
       steps: [{ id: "check", label: "check every pull request is ready", state: "running" }],
     };
     yield* save(change.id, progress);
-
-    const completion = yield* completionOf(change);
     const checked = progress.steps[0]!;
-    if (!completion.ready) {
-      checked.state = "failed";
-      checked.detail = completion.reasons.join("; ");
-      progress.error = `cannot complete: ${completion.reasons.join("; ")}`;
-      progress.finishedAt = new Date().toISOString();
-      yield* save(change.id, progress);
-      return yield* new BadRequestError({ message: progress.error });
+    const notes: string[] =
+      force && overridden.length > 0
+        ? [`completed with overrides: ${overridden.join("; ")}`]
+        : [];
+    if (force && overridden.length > 0) {
+      progress.overridden = overridden;
+      checked.detail = `overridden: ${overridden.join("; ")}`;
     }
     // The before-hooks run now, with readiness proven and nothing irreversible done: a veto here
     // leaves the change exactly as it was. These see the change, not a draft — there is nothing
@@ -204,8 +256,6 @@ export const completeChange = (
         Boolean(c.planned));
     progress.steps = [checked, ...stepsFor(change, completion, contributions.map((c) => c.planned))];
     yield* save(change.id, progress);
-
-    const notes: string[] = [];
 
     /** Run one step, recording it before and after. A failure stops the completion where it is. */
     const step = (
@@ -293,5 +343,5 @@ export const completeChange = (
     // The after-hooks observe a change that is already committed and archived. Their failures are
     // reported under each extension's name and never fail the completion.
     const after = yield* afterChange("change:completed", completed);
-    return { change: completed, notes, after };
+    return { _tag: "Done" as const, change: completed, notes, after };
   });

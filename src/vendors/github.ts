@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { Effect, Either, Schema } from "effect";
 import type { Change } from "../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../domain/widget.ts";
-import { baseFor, remoteDefaultBranch } from "./git.ts";
+import { baseFor, contentInMain, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, type Result } from "../capabilities/shell.ts";
 import { Changes } from "../extension-host/api/capabilities.ts";
@@ -42,6 +42,27 @@ type Pr = {
   statusCheckRollup: { conclusion?: string; state?: string }[] | null;
 };
 
+/** What a pull request's review state means for merging. GitHub sets `REVIEW_REQUIRED` only
+ * while a review the repository requires is still outstanding, and leaves `reviewDecision`
+ * null when no review is required at all — so the absence of a decision is the signal that
+ * nothing is waiting on one. `CHANGES_REQUESTED` is a decision too: a reviewer asked for
+ * changes, and that blocks whether or not the repository requires an approval. */
+export type ReviewState = "approved" | "changes-requested" | "required" | "none";
+
+// Pure and synchronous: nothing for an Effect to wrap.
+export function reviewState(pr: { reviewDecision?: string | null }): ReviewState {
+  switch (pr.reviewDecision) {
+    case "APPROVED":
+      return "approved";
+    case "CHANGES_REQUESTED":
+      return "changes-requested";
+    case "REVIEW_REQUIRED":
+      return "required";
+    default:
+      return "none";
+  }
+}
+
 /** What the pull request is waiting for. Unresolved threads do not hide the review decision:
  * "approved with comments still open" is a real and interesting state. */
 // Pure and synchronous: nothing for an Effect to wrap.
@@ -58,14 +79,17 @@ export function readiness(
   });
 
   if (pr.mergeable === "CONFLICTING") return say("conflicts", "error");
-  switch (pr.reviewDecision) {
-    case "APPROVED":
+  switch (reviewState(pr)) {
+    case "approved":
       // Approved, but open threads mean it is not simply ready: say approved, not ready to merge.
       return comments ? say("approved") : say("ready to merge", "ok");
-    case "CHANGES_REQUESTED":
+    case "changes-requested":
       return say("changes requested", "warn");
-    default:
+    case "required":
       return say("review required");
+    case "none":
+      // No review is required: nothing is pending. A draft still reads as one separately.
+      return say("no review required");
   }
 }
 
@@ -402,6 +426,26 @@ export type MergeReadiness =
   | { ready: true; merged: false; number: number }
   | { ready: false; reason: string };
 
+/** Forget this change's cached pull-request reads: an action just made them wrong. Called once
+ * per click path, before the fresh readiness check, so the dialog and the page that follows it
+ * are not painting the state that was just superseded. */
+export const forgetPrs = (change: Change): Effect.Effect<void> =>
+  Effect.sync(() => invalidate(`gh:pr:${change.id}:`));
+
+/** A readiness check against freshly fetched refs: the branch may have merged upstream
+ * seconds ago, and the local remote-tracking refs would still say otherwise. Fetches first,
+ * then reads live — `mergeReadiness` never reads the shared cache — so the override dialog
+ * only lists requirements that are genuinely unmet. The polled check is the same live read
+ * without the fetch; there is no cached verdict for either to fall back on. */
+export const refreshReadiness = (
+  change: Change,
+  repo: string,
+): Effect.Effect<MergeReadiness, BadRequestError, Changes> =>
+  Effect.gen(function* () {
+    yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
+    return yield* mergeReadiness(change, repo);
+  });
+
 /** Live, never cached: a pull request that was approved ninety seconds ago is not a merge. */
 export const mergeReadiness = (
   change: Change,
@@ -412,12 +456,28 @@ export const mergeReadiness = (
     const found = yield* prQuery(change, repo);
     if (!found) return { ready: false, reason: `${name}: no worktree` };
     const pr = found.prs[0];
-    if (!pr) return { ready: false, reason: `${name}: no pull request` };
-    if (pr.state === "MERGED") return { ready: true, merged: true };
-    if (pr.state === "CLOSED") return { ready: false, reason: `${name}: pull request is closed` };
+    if (pr?.state === "MERGED") return { ready: true, merged: true };
+    // No pull request, or one that was closed without merging: the work may still have
+    // landed — merged through a PR created elsewhere, or pushed straight to main. When
+    // every commit on the branch is already in main there is nothing left to merge, so the
+    // repository reads as merged rather than blocked. An open PR asserts "under review"
+    // and still gates, even on an integrated branch.
+    if (!pr || pr.state === "CLOSED") {
+      const base = yield* baseFor(change, repo);
+      if (yield* contentInMain(repo, change.branch, base)) {
+        return { ready: true, merged: true };
+      }
+      return {
+        ready: false,
+        reason: pr ? `${name}: pull request is closed` : `${name}: no pull request`,
+      };
+    }
     if (pr.isDraft) return { ready: false, reason: `${name}: pull request is a draft` };
     if (pr.mergeable === "CONFLICTING") return { ready: false, reason: `${name}: conflicts` };
-    if (pr.reviewDecision !== "APPROVED") {
+    // Only an outstanding required review, or one that asked for changes, blocks. No decision
+    // at all means the repository requires no review, so there is nothing left to wait for.
+    const review = reviewState(pr);
+    if (review === "required" || review === "changes-requested") {
       const decision = (pr.reviewDecision ?? "review required").toLowerCase().replace(/_/g, " ");
       return { ready: false, reason: `${name}: not approved (${decision})` };
     }

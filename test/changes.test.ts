@@ -212,24 +212,20 @@ test("a completed change is listed once, even when its directory is left behind"
 });
 
 
-test("a completion records itself before it starts checking anything", async () => {
+test("a completion is only journaled once it will run", async () => {
   const { completeChange, progressOf } = await import("../src/change/server/index.ts");
   const change = await runEffect(createChange({ id: "PROJ-EARLY", repos: [repo] }));
 
   // Nothing yet: a change that was never completed has no record at all.
   expect(await runEffect(progressOf(change.id))).toBeNull();
 
-  // The repository has no remote, so the readiness check refuses. That refusal is recorded too,
-  // so a page opened later still sees it.
-  expect(runEffect(completeChange(change))).rejects.toThrow(/cannot complete/);
-  await Bun.sleep(2000);
-  const failed = (await runEffect(progressOf(change.id)))!;
-  expect(failed.startedAt).toBeTruthy();
-  expect(failed.steps[0]).toMatchObject({ id: "check", state: "failed" });
-  expect(failed.steps[0]!.detail).toContain("no worktree");
-  expect(failed.error).toContain("cannot complete");
-  expect(failed.finishedAt).toBeTruthy();
-}, 20_000);
+  // The repository has no remote, so the readiness check refuses. A refusal is a dialog, not a
+  // completion that started and stopped: nothing is journaled for it, and the change is untouched.
+  const outcome = await runEffect(completeChange(change));
+  expect(outcome._tag).toBe("NotReady");
+  expect(await runEffect(progressOf(change.id))).toBeNull();
+  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+});
 
 test("the overview counts windows that are running something, not windows", async () => {
   // Busy is a presented fact now: the merge in terminals/server/presenter.ts says which windows

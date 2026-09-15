@@ -463,6 +463,12 @@ test("mergeReadiness names every reason a pull request is not ready", async () =
     ready: false,
     reason: "mr-changes: not approved (changes requested)",
   });
+  // No review decision: the repository requires no review, so the pull request can merge as is.
+  await check("mr-noreview", { prs: [pr({ reviewDecision: null })] }, {
+    ready: true,
+    merged: false,
+    number: 7,
+  });
   await check("mr-approved", { prs: [pr()] }, { ready: true, merged: false, number: 7 });
 });
 
@@ -993,4 +999,69 @@ test("the POST route refuses a missing repository, a blank title and an unreadab
     postIssues.handler(new Request("http://x/issues", { method: "POST", body: "not json" })),
   );
   expect(Either.isLeft(junk) && junk.left._tag).toBe("BadRequestError");
+});
+
+test("mergeReadiness: content in main reads as merged without a PR", async () => {
+  const check = async (
+    name: string,
+    opts: Omit<GhShellOptions, "repo">,
+    expected: MergeReadiness,
+  ): Promise<void> => {
+    const repo = `/repos/${name}`;
+    const shell = ghShell({ repo, ...opts });
+    expect(await runWithShell(shell, mergeReadiness(change(), repo))).toEqual(expected);
+  };
+
+  // Contained outright: no PR, nothing beyond main.
+  await check(
+    "mr-integrated",
+    { prs: [], gh: (line) => (line.startsWith("git rev-list --count") ? "0" : undefined) },
+    { ready: true, merged: true },
+  );
+  // Squash-merged content: commits beyond main, but every one patch-identical upstream.
+  await check(
+    "mr-squashed",
+    {
+      prs: [],
+      gh: (line) =>
+        line.startsWith("git rev-list --count")
+          ? "2"
+          : line.startsWith("git cherry ")
+            ? "- abc123 first\n- def456 second"
+            : undefined,
+    },
+    { ready: true, merged: true },
+  );
+  // Genuinely unmerged: one commit with no upstream twin.
+  await check(
+    "mr-diverged",
+    {
+      prs: [],
+      gh: (line) =>
+        line.startsWith("git rev-list --count")
+          ? "2"
+          : line.startsWith("git cherry ")
+            ? "- abc123 first\n+ def456 second"
+            : undefined,
+    },
+    { ready: false, reason: "mr-diverged: no pull request" },
+  );
+  // A closed PR whose content landed elsewhere reads as merged too.
+  await check(
+    "mr-closed-landed",
+    {
+      prs: [pr({ state: "CLOSED" })],
+      gh: (line) => (line.startsWith("git rev-list --count") ? "0" : undefined),
+    },
+    { ready: true, merged: true },
+  );
+  // An open PR asserts "under review" and still gates, even on an integrated branch.
+  await check(
+    "mr-open-integrated",
+    {
+      prs: [pr({ reviewDecision: "REVIEW_REQUIRED" })],
+      gh: (line) => (line.startsWith("git rev-list --count") ? "0" : undefined),
+    },
+    { ready: false, reason: "mr-open-integrated: not approved (review required)" },
+  );
 });

@@ -86,6 +86,46 @@ export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]
   };
 }
 
+/** Whether every commit on `branch` beyond `base` is patch-identical to a copy upstream — what
+ * a squash merge leaves behind, whose commits are never ancestors of main. `git cherry` marks
+ * each commit `+` (missing upstream) or `-` (patch-identical copy upstream), so all `-` means
+ * the content landed. Assumes the branch has commits beyond `base`; `contentInMain` establishes
+ * that. A non-zero exit or unparseable output is "not proven", not an error — this only ever
+ * adds a ready path, so doubt reads as blocked. */
+const cherryInMain = (
+  repo: string,
+  branch: string,
+  base: string,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const cherry = yield* shSoft(["git", "cherry", base, branch], repo);
+    if (cherry.code !== 0) return false;
+    const marks = cherry.stdout.split("\n").filter(Boolean);
+    return marks.length > 0 && marks.every((line) => line.startsWith("- "));
+  });
+
+/** Whether every commit on `branch` is already in the remote's default branch: either
+ * main contains the branch outright, or it contains patch-identical copies of every commit —
+ * what a squash merge leaves behind, whose commits are never ancestors of main. Local refs
+ * only, so callers that need the truth fetch first; routed through `sh` like the rest, so a
+ * test scripts it like any other command. `base` is the same one `entryFor` compares
+ * against: a change stacked on another one's branch is measured against that, not main. */
+export const contentInMain = (
+  repo: string,
+  branch: string,
+  base: string | undefined,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    if (!base) return false;
+    // Nothing beyond main: the branch is contained outright, no cherry needed. An empty or
+    // unparseable count is "not proven", not zero — `Number("")` is 0, which would read
+    // every failed lookup as merged.
+    const raw = (yield* shSoft(["git", "rev-list", "--count", `${base}..${branch}`], repo)).stdout.trim();
+    if (!/^\d+$/.test(raw)) return false;
+    if (Number(raw) === 0) return true;
+    return yield* cherryInMain(repo, branch, base);
+  });
+
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
  * about it. Undefined when the change has no worktree there. */
 export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
@@ -102,11 +142,18 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | 
     ]);
     const tree = parseStatus(status.stdout);
     // Whether main already has everything on this branch, which is how a merged change is spotted.
-    const beyond = base
-      ? Number(
-        (yield* shSoft(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout,
-      )
-      : NaN;
+    // An empty or unparseable count is unknown, not zero: `Number("")` is 0, which would read
+    // a failed lookup as merged. Beyond rev-list containment, patch-identical content counts:
+    // a squash merge leaves commits main has the content of but not the ancestry of.
+    const raw = base
+      ? (yield* shSoft(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout.trim()
+      : "";
+    const beyond = /^\d+$/.test(raw) ? Number(raw) : NaN;
+    // The rev-list count is already in hand, so only the cherry half runs here; `contentInMain`
+    // would re-run the count.
+    const integrated =
+      beyond === 0 ||
+      (!Number.isNaN(beyond) && beyond > 0 && (yield* cherryInMain(repo, change.branch, base!)));
     return {
       branch: change.branch,
       path: found.path,
@@ -115,8 +162,9 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | 
         ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
         : null,
       // "diverged" for commits main does not have, which is what makes them worth warning about
-      // before a removal. Unknown (no remote to compare with) stays undefined.
-      main_state: Number.isNaN(beyond) ? undefined : beyond === 0 ? "integrated" : "diverged",
+      // before a removal. Unknown (no remote to compare with) stays undefined. Patch-identical
+      // content counts as integrated: a squash merge lands the content without the ancestry.
+      main_state: Number.isNaN(beyond) ? undefined : integrated ? "integrated" : "diverged",
       is_main: found.path === repo,
     };
   });
@@ -475,9 +523,16 @@ export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
   }
   // Commits ahead of the upstream, or commits on a branch that was never pushed at all. The
   // branch itself survives a removal while it is unmerged, but the worktree they were made in
-  // does not, and nothing else points at them: worth a question before going ahead.
+  // does not, and nothing else points at them: worth a question before going ahead. Content
+  // already in main is nothing to lose, pushed or not — the removal drops a copy, but only a
+  // *proven* "integrated" counts. An unknown main_state (no origin remote, a failed lookup) is
+  // not in main, so commits ahead of an upstream still warn.
   const ahead = entry.remote?.ahead ?? 0;
-  if (ahead > 0) return { kind: "unpushed", text: `${ahead} unpushed commit(s)` };
+  if (ahead > 0) {
+    return entry.main_state === "integrated"
+      ? undefined
+      : { kind: "unpushed", text: `${ahead} unpushed commit(s)` };
+  }
   if (!entry.remote?.branch && !inMain(entry.main_state)) {
     return { kind: "unpushed", text: "commits that were never pushed" };
   }

@@ -185,7 +185,15 @@ test("adding a repository to an idea links it rather than cutting a branch", asy
 
 test("an idea cannot be completed, only started", async () => {
   const idea = await runEffect(createChange({ id: "idea-complete", state: "Ideation" }));
-  await expect(runEffect(completeChange(idea))).rejects.toThrow(/still an idea/);
+  // No acknowledgement can make an idea completable: without force it is a structured refusal
+  // (the page's hard reason), and forcing it still fails.
+  const outcome = await runEffect(completeChange(idea));
+  expect(outcome._tag).toBe("NotReady");
+  if (outcome._tag !== "NotReady") throw new Error("expected a refusal");
+  expect(outcome.refusal.reasons).toEqual([
+    { text: "still an idea: start the work before completing it", kind: "hard" },
+  ]);
+  await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
 
   // The readiness check answers without a vendor call, so the button can explain itself.
   const completion = await runEffect(completionOf(idea));

@@ -12,6 +12,7 @@ import {
   type Cancelled,
   type Completed,
   type Completion,
+  type CompletionRefusal,
   type CardInfo,
   type ProvisionResult,
 } from "../../app-root/api.ts";
@@ -25,6 +26,9 @@ import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
 import type { Platform } from "../../terminals/model.ts";
 import { CompletionCard } from "../../dashboard/client/CompletionCard.tsx";
+import { CompleteAnywayDialog } from "./CompleteAnywayDialog.tsx";
+import { CancelDialog } from "./CancelDialog.tsx";
+import { cancelNeedsForce, completionRefusal } from "./refusals.ts";
 import { PerRepoCard } from "../../dashboard/client/PerRepoCard.tsx";
 import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
@@ -175,18 +179,32 @@ export function ChangeView({
       })
       .catch((e: Error) => setError(e.message));
 
-  const complete = (): void => {
+  // The refusal behind the override dialog: fresh, from the server, not the poll. Null when
+  // no dialog is open.
+  const [refusal, setRefusal] = useState<CompletionRefusal | null>(null);
+
+  // The button is always available; the requirements are checked on click. Ready completes
+  // as before; a refusal opens the override dialog instead of landing in the banner.
+  const complete = (force = false): void => {
     setCompleting(true);
     setError(null);
-    post<Completed>(`/changes/${id}/complete`, {})
+    post<Completed>(`/changes/${id}/complete`, { ...(force ? { force: true } : {}) })
       .then(({ change: updated, after }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         setAfter(after);
+        setRefusal(null);
       })
-      // Where it stopped is in the completion card, which reads it from disk; this is only for
-      // a refusal before anything started, such as a pull request that is not approved.
-      .catch((e: Error) => setError(e.message))
+      .catch((e: ApiError) => {
+        const refusal = completionRefusal(e);
+        if (refusal) {
+          setRefusal(refusal);
+          return;
+        }
+        // Where a started completion stopped is in the completion card, which reads it from
+        // disk; this is only for a refusal before anything started.
+        setError(e.message);
+      })
       .finally(() => setCompleting(false));
   };
 
@@ -209,20 +227,22 @@ export function ChangeView({
       .finally(() => setStarting(false));
   };
 
+  // The cancel dialog's state: null when closed, otherwise the unpushed-commits warning —
+  // empty until the server names the repositories, one acknowledge like the completion
+  // dialog's per-reason ones.
+  const [cancelWarning, setCancelWarning] = useState<string[] | null>(null);
+  const [cancelAcked, setCancelAcked] = useState(false);
+
   /**
    * Abandon the change: the worktrees and the terminal go, and everything anyone else can see —
-   * branches, pull requests, the ticket — is left alone and listed back to you.
+   * branches, pull requests, the ticket — is left alone and listed back to you. The first
+   * click opens the dialog; confirming there runs it, and a 409 naming unpushed commits
+   * fills in the warning instead of a `window.confirm`.
    */
   const cancel = (force = false): void => {
-    if (
-      !force &&
-      !window.confirm(
-        idea
-          ? `Discard ${id}? It is archived as cancelled. Nothing was created for it.`
-          : `Cancel ${id}? The worktrees and the terminal go. The branches, pull requests and the ` +
-              `ticket are left alone — you will be told what is left.`,
-      )
-    ) {
+    if (!force && cancelWarning === null) {
+      setCancelWarning([]);
+      setCancelAcked(false);
       return;
     }
     setCancelling(true);
@@ -233,23 +253,19 @@ export function ChangeView({
         setGeneration((g) => g + 1);
         onChanged();
         setAfter(after);
+        setCancelWarning(null);
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })
       .catch((e: ApiError) => {
-        const needsForce = (e.body as { needsForce?: string[] })?.needsForce;
+        const needsForce = cancelNeedsForce(e);
         // Commits nobody else has. The branch survives, so this is recoverable — by someone who
-        // knows the branch is there, which is worth one question.
-        if (needsForce?.length) {
-          if (
-            window.confirm(
-              `${needsForce.join(", ")}: commits that were never pushed. ` +
-                `The worktree goes, the branch is kept. Cancel anyway?`,
-            )
-          ) {
-            cancel(true);
-          }
+        // knows the branch is there, which is worth one question, asked in the dialog.
+        if (needsForce) {
+          setCancelWarning(needsForce);
+          setCancelAcked(false);
           return;
         }
+        setCancelWarning(null);
         setError(e.message);
       })
       .finally(() => setCancelling(false));
@@ -290,10 +306,13 @@ export function ChangeView({
           {
             label: completing ? "Completing…" : "Complete change",
             separated: true,
-            disabled: completing || !completion?.ready,
-            // Every repository must be approved or already merged.
-            title: completion?.reasons.join("\n") || undefined,
-            onSelect: complete,
+            disabled: completing,
+            // The last poll's verdict, for the hover: the click re-checks fresh, so this is
+            // orientation, not the decision.
+            title: completion?.ready
+              ? "Ready to complete"
+              : completion?.reasons.join("\n") || "Check whether the change is ready",
+            onSelect: () => complete(),
           },
           {
             label: cancelling ? "Cancelling…" : "Cancel change",
@@ -355,6 +374,27 @@ export function ChangeView({
         }}
         platform={platform}
       />
+      {refusal && (
+        <CompleteAnywayDialog
+          changeId={id}
+          refusal={refusal}
+          busy={completing}
+          onComplete={() => complete(true)}
+          onClose={() => setRefusal(null)}
+        />
+      )}
+      {cancelWarning !== null && (
+        <CancelDialog
+          changeId={id}
+          idea={idea}
+          needsForce={cancelWarning}
+          acked={cancelAcked}
+          busy={cancelling}
+          onAck={setCancelAcked}
+          onConfirm={() => cancel(cancelWarning.length > 0 && cancelAcked)}
+          onClose={() => setCancelWarning(null)}
+        />
+      )}
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {/* Creation's observer failures, shown once where the create was started. */}
