@@ -33,6 +33,7 @@ Every doc starts with a status header:
 | [`decisions/azure-devops-extension.md`](decisions/azure-devops-extension.md) | `ci` retires into `github` + `azure-devops`; `deployments` merges into `azure-devops` |
 | [`decisions/effect-migration.md`](decisions/effect-migration.md) | Server-side `src/` is Effect, behaviour-preserving |
 | [`decisions/electron-host.md`](decisions/electron-host.md) | Electron replaces the Swift and Python windows; one host, one engine |
+| [`decisions/host-context-menu.md`](decisions/host-context-menu.md) | The right-click menu: a setting, the host's menu in the app, the page's suppression in a browser |
 | [`decisions/window-titlebar.md`](decisions/window-titlebar.md) | The page's own first row is the window's title bar; the main process keeps only the traffic lights |
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
 | [`decisions/node-pty-terminal.md`](decisions/node-pty-terminal.md) | node-pty + xterm.js replace ttyd; the dev server runs on Node too |

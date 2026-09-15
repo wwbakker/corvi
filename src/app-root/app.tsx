@@ -1,6 +1,14 @@
-import { type CSSProperties, type JSX, StrictMode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type JSX,
+  StrictMode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
-import { type Change, type ProvisionResult } from "./api.ts";
+import { api, type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
@@ -14,7 +22,9 @@ import { PageHost } from "../extension-host/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
 import { hostOf } from "./host.ts";
+import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
+import type { SettingsView } from "../settings/model.ts";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
@@ -232,6 +242,19 @@ function App(): JSX.Element {
     document.title = change?.title ?? change?.branch ?? "Integrated Work Environment";
   }, [change]);
 
+  // The right-click menu is the host's to draw and the setting's to decide (src/app-root/contextMenu.ts).
+  // Read here rather than in the settings page, because the page has to behave by it either way.
+  const [contextMenu, setContextMenu] = useState(true);
+  const reloadSettings = useCallback((): void => {
+    api<SettingsView>("/settings")
+      .then((view) => setContextMenu(view.effective.contextMenu))
+      .catch(() => {
+        // A settings file that cannot be read leaves the default: a menu, like any browser.
+      });
+  }, []);
+  useEffect(reloadSettings, [reloadSettings]);
+  useContextMenu(contextMenu);
+
   // The window's own chrome, where there is a window: the height of the page's first row, and the
   // traffic lights macOS keeps in it (src/domain/chrome.ts). A browser has neither, so the row is
   // an ordinary one and nothing is laid out around it.
@@ -292,9 +315,11 @@ function App(): JSX.Element {
           <SettingsPage
             onSaved={() => {
               // A save may have toggled an extension's enablement, which the workspaces carry
-              // and the sidebar's pages answer to — both are asked again.
+              // and the sidebar's pages answer to — both are asked again — and it may have
+              // changed the right-click menu, which this shell behaves by.
               reloadWorkspaces();
               reloadPages();
+              reloadSettings();
             }}
           />
         )}

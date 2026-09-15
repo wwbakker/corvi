@@ -32,6 +32,10 @@ const host: IweHost = {
     // page's event handler, which is where it would be silently swallowed anyway.
     void ipcRenderer.invoke("iwe:notify", payload);
   },
+  setContextMenu: (enabled) => {
+    // Fire and forget: a menu the host draws is not something the page waits for.
+    ipcRenderer.send("iwe:context-menu", enabled);
+  },
   onOpenWindow: (callback) => {
     // Replace, never stack: a page that mounts twice (strict mode in development) must not make
     // one click open the change twice.

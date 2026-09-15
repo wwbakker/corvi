@@ -116,14 +116,22 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   await page.getByLabel("Transition on completing one").fill("Ready for release");
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+
+  // The window's own section, whose one setting so far is the right-click menu: taking it away is
+  // the decision that gets written down, since a menu is the default.
+  await page.locator(".tabs .tab", { hasText: "Window" }).click();
+  await page.getByLabel("Right-click menu").uncheck();
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForSelector(".hint.saved", { timeout: 10_000 });
   await page.close();
 
   const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
-    file: { extensionSettings?: { jira?: { doneTransition?: string } } };
+    file: { extensionSettings?: { jira?: { doneTransition?: string } }; contextMenu?: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
   // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
+  expect(written.file.contextMenu).toBe(false);
 }, 60_000);
 
 test.skipIf(!usable)("the unsaved marker does not resize the notes card", async () => {
@@ -237,11 +245,16 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   // driven through Electron, because the page's half of the contract is what is being checked — the
   // lights' pixels are the main process's, and only a real window has those.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // The bridge's whole contract, or the page is right to complain: a host missing a method makes a
+  // React tree that throws on mount, which shows up as a test that waits for a selector forever.
+  const complaints: string[] = [];
+  page.on("pageerror", (e) => complaints.push(e.message));
   await page.addInitScript(() => {
     (window as unknown as { iweHost?: unknown }).iweHost = {
       platform: "darwin",
       notify: () => {},
       onOpenWindow: () => {},
+      setContextMenu: () => {},
     };
   });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
@@ -293,6 +306,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   const viewport = await page.evaluate(() => window.innerWidth);
   expect(menu.x).toBeGreaterThanOrEqual(0);
   expect(menu.x + menu.width).toBeLessThanOrEqual(viewport);
+  expect(complaints).toEqual([]);
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
@@ -355,5 +369,47 @@ test.skipIf(!usable)("the overview stays current while one of its own tabs is sh
   await page.locator(".column.documents").waitFor();
   expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the right-click menu follows the setting", async () => {
+  // Two worlds, one setting (docs/decisions/host-context-menu.md). The host draws the menu in the
+  // app — Electron has none of Chromium's own — and here the page is what can be checked: with the
+  // setting off, a right-click the page does not handle is cancelled, which is what "no menu" means
+  // in a browser and what keeps the click from reaching the host at all.
+  const current = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
+    file: Record<string, unknown>;
+  };
+  const write = (contextMenu: boolean): Promise<unknown> =>
+    fetch(`${url}/api/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ ...current.file, contextMenu }),
+    });
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const rightClick = (): Promise<boolean> =>
+    page.evaluate(() => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+
+  // Shown is the default: the page leaves the menu to the browser.
+  await write(true);
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-bar");
+  expect(await rightClick()).toBe(false);
+
+  // Turned off, the page cancels it — after the setting has arrived, which is a fetch behind the
+  // first paint.
+  await write(false);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-bar");
+  let cancelled = false;
+  for (let i = 0; i < 40 && !cancelled; i++) {
+    cancelled = await rightClick();
+    if (!cancelled) await page.waitForTimeout(50);
+  }
+  expect(cancelled).toBe(true);
   await page.close();
 }, 30_000);

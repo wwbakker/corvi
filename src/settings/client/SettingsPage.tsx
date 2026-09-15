@@ -104,6 +104,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
     { id: "notifications", label: "Notifications" },
     { id: "ideation", label: "Ideation" },
     { id: "workspaces", label: "Workspaces" },
+    { id: "window", label: "Window" },
   ];
   // An extension can be unloaded between saves; fall back to the first tab rather than to an
   // empty page.
@@ -232,6 +233,18 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             )}
           </div>
         ) : null,
+      )}
+
+      {active === "window" && (
+        <div className="form">
+          <CheckField
+            label="Right-click menu"
+            hint="The browser's own menu over the page: copy, paste, and — in a checkout — the inspector. Off leaves right-click to the page, which is what a browser would then not show either. The terminal is unaffected: its menu is tmux's."
+            checked={draft.contextMenu ?? effective.contextMenu}
+            // Shown is the default, so only the decision to take it away is written down.
+            onChange={(on) => set({ contextMenu: on ? undefined : false })}
+          />
+        </div>
       )}
 
       {active === "notifications" && (

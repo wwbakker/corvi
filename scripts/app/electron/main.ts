@@ -356,6 +356,43 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
   notice.show();
 };
 
+// --- The page's own right-click menu ------------------------------------------
+
+/** Whether the page's setting wants a browser menu on right-click. The setting is in the server's
+ * config, which this process does not read, so the page says so (`src/domain/host.ts`). Chromium's
+ * own menu is not Electron's to draw, so the host draws the handful of things a page needs. */
+let contextMenu = true;
+
+/** The menu for where the click landed: the editing roles over a field or a selection, the link out
+ * of the app, and the inspector while this runs from a checkout. Nothing to offer means no menu —
+ * which is also what a page that handled the click itself gets, since a right-click the page has
+ * cancelled never reaches here (the terminal's menu is tmux's, drawn in the grid). */
+const menuFor = (
+  win: BrowserWindow,
+  params: Electron.ContextMenuParams,
+): MenuItemConstructorOptions[] => {
+  const template: MenuItemConstructorOptions[] = [];
+  if (params.isEditable) {
+    template.push({ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" });
+  } else if (params.selectionText.trim()) {
+    template.push({ role: "copy" });
+  }
+  if (params.linkURL) {
+    template.push({
+      label: "Open link in browser",
+      click: () => void shell.openExternal(params.linkURL),
+    });
+  }
+  if (!app.isPackaged) {
+    if (template.length) template.push({ type: "separator" });
+    template.push({
+      label: "Inspect element",
+      click: () => win.webContents.inspectElement(params.x, params.y),
+    });
+  }
+  return template;
+};
+
 // --- The window ---------------------------------------------------------------
 
 const buildMenu = (): void => {
@@ -425,6 +462,13 @@ const createWindow = (): BrowserWindow => {
     event.preventDefault();
   });
 
+  // Right-click: the page's setting decides whether the menu appears at all.
+  win.webContents.on("context-menu", (_event, params) => {
+    if (!contextMenu) return;
+    const template = menuFor(win, params);
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
+  });
+
   if (process.env.IWE_WINDOW_DEBUG) {
     win.on("close", () => console.log("iwe: window close"));
     win.on("closed", () => console.log("iwe: window closed"));
@@ -484,6 +528,10 @@ const run = async (): Promise<void> => {
       permission === "clipboard-read" ||
       permission === "clipboard-sanitized-write";
     callback(allowed && isOursUrl(origin));
+  });
+
+  ipcMain.on("iwe:context-menu", (_event, enabled) => {
+    contextMenu = enabled === true;
   });
 
   ipcMain.handle("iwe:notify", (event, body) => {

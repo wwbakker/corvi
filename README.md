@@ -102,7 +102,10 @@ built-in one. Environment variables still win: `IWE_ROOT`, `IWE_REPOS_ROOT`, `IW
 ### The settings page
 
 Everything above is editable at `/settings`, last in the navigation column — the file stays the
-source of truth and stays hand-editable, the page just writes it. **Saving takes effect at once**:
+source of truth and stays hand-editable, the page just writes it. Its tabs are the locations, the
+worktrees, the extensions, the notification sound, the ideation prompt, the workspaces, and the
+window — whose one setting so far is the right-click menu: the browser's own, which the app's window
+draws for itself since Electron has none (docs/decisions/host-context-menu.md). **Saving takes effect at once**:
 the server refills the config object every module already imported rather than replacing it, so
 there is no restart and no "changes will apply next time".
 
@@ -797,8 +800,8 @@ the focus a mousedown would give them, and opening a terminal focuses it, so you
 away. tmux stays the source of truth — the page calls `list-windows`, `new-window` and
 `select-window`, so the keys keep working and a session attached from a terminal stays in step.
 
-Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button
-beside the page title lists them — which is also the answer to "how do I get more than one terminal":
+Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button in
+the terminal's own row lists them — which is also the answer to "how do I get more than one terminal":
 tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
 yourself keep your own settings. A change needs no terminal at all some days and three in one
