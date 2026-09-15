@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../src/domain/chrome.ts";
 
 /**
  * Every page, in the engine the app renders in.
@@ -115,14 +116,35 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   await page.getByLabel("Transition on completing one").fill("Ready for release");
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+
+  // The window's own section, whose one setting so far is the right-click menu: taking it away is
+  // the decision that gets written down, since a menu is the default.
+  const box = page.getByLabel("Right-click menu");
+  await page.locator(".tabs .tab", { hasText: "Window" }).click();
+  await box.uncheck();
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+  expect(await box.isChecked()).toBe(false);
+
+  // And putting it back clears the decision, so the default applies again. The box reads the
+  // decision or the default — never the effective value, which *is* the file's value, and which
+  // made "off" the only state you could reach.
+  await box.check();
+  expect(await box.isChecked()).toBe(true);
+  await page.getByRole("button", { name: "Save" }).click();
+  await page.waitForSelector(".hint.saved", { timeout: 10_000 });
+  expect(await box.isChecked()).toBe(true);
   await page.close();
 
   const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
-    file: { extensionSettings?: { jira?: { doneTransition?: string } } };
+    file: { extensionSettings?: { jira?: { doneTransition?: string } }; contextMenu?: boolean };
+    effective: { contextMenu: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
   // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
+  expect(written.file.contextMenu).toBe(true);
+  expect(written.effective.contextMenu).toBe(true);
 }, 60_000);
 
 test.skipIf(!usable)("the unsaved marker does not resize the notes card", async () => {
@@ -169,5 +191,238 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   const statusBox = await status.boundingBox();
   if (!docBox || !statusBox) throw new Error("the dashboard's columns did not lay out");
   expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the change's own row is the page's first, and it stays there", async () => {
+  // The terminals are the window's title bar in the app, which is the page's first row whether or not
+  // a host is there (docs/decisions/window-titlebar.md): full-bleed, and one height everywhere so it
+  // lines up with the column beside it. The change's own name is not in it — the column's entry says
+  // it, and so does the window's title.
+  await fetch(`${url}/api/changes/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title: "Anonymise customer names" }),
+  });
+  const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const strip = page.locator(".change-bar");
+  await strip.locator(".window-tab.overview").waitFor();
+
+  expect(await strip.locator(".subject").count()).toBe(0);
+  // The name went to the window's title (src/app-root/app.tsx), which the OS window switcher reads:
+  // it arrives with the change's record rather than with the page, so it is waited for.
+  await page.waitForFunction(() => document.title === "Anonymise customer names");
+  expect(await page.title()).toBe("Anonymise customer names");
+  // The terminals are tabs in that same row, not a row of their own.
+  expect(await strip.locator(".window-tab.overview").count()).toBe(1);
+
+  // Edge to edge: the row is as wide as the column it is in, because the page's padding is given
+  // back on it.
+  const stripBox = await strip.boundingBox();
+  const columnBox = await page.locator(".content").boundingBox();
+  if (!stripBox || !columnBox) throw new Error("the change's row did not lay out");
+  expect(Math.abs(stripBox.width - columnBox.width)).toBeLessThanOrEqual(1);
+  expect(Math.round(stripBox.height)).toBe(TITLE_BAR_HEIGHT);
+
+  // The change's own row — its views, its state and its actions — is the one under it.
+  const tabsRow = page.locator(".change-tabs");
+  await tabsRow.locator("select").waitFor();
+  expect(await tabsRow.locator(".tab").count()).toBeGreaterThan(0);
+
+  // Both stay put while the page scrolls: they are the window's chrome, not part of what you read.
+  await page.evaluate(() => window.scrollTo(0, 400));
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const [stoppedStrip, stoppedTabs] = await Promise.all([
+    strip.boundingBox(),
+    tabsRow.boundingBox(),
+  ]);
+  expect(stoppedStrip!.y).toBe(0);
+  expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
+
+  // The navigation column: one line per change, its name, and no id of its own. The branch — the id
+  // with a slug after it — is the entry's tooltip.
+  await page.locator(".sidebar .entry.change .subject").waitFor();
+  expect(await page.locator(".sidebar .entry.change .id").count()).toBe(0);
+  expect((await page.locator(".sidebar .entry.change .subject").innerText()).trim()).toBe(
+    "Anonymise customer names",
+  );
+  expect(await page.locator(".sidebar .entry.change").first().getAttribute("title")).toContain(id);
+
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
+  // The host bridge is what says the page is inside the app window (src/domain/host.ts), and only
+  // then is the first row chrome as well: what you drag the window by, and clear of the traffic
+  // lights the main process placed in it (docs/decisions/window-titlebar.md). Injected rather than
+  // driven through Electron, because the page's half of the contract is what is being checked — the
+  // lights' pixels are the main process's, and only a real window has those.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // The bridge's whole contract, or the page is right to complain: a host missing a method makes a
+  // React tree that throws on mount, which shows up as a test that waits for a selector forever.
+  const complaints: string[] = [];
+  page.on("pageerror", (e) => complaints.push(e.message));
+  await page.addInitScript(() => {
+    (window as unknown as { iweHost?: unknown }).iweHost = {
+      platform: "darwin",
+      notify: () => {},
+      onOpenWindow: () => {},
+      setContextMenu: () => {},
+    };
+  });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const strip = page.locator(".change-bar");
+  await strip.locator(".window-tab.overview").waitFor();
+  const region = (sel: string): Promise<string> =>
+    page
+      .locator(sel)
+      .first()
+      .evaluate((el) => getComputedStyle(el).getPropertyValue("-webkit-app-region"))
+      .then((value) => value.trim());
+
+  expect(await region(".change-bar")).toBe("drag");
+  // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
+  // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
+  // which is not part of the drag region at all (docs/decisions/window-titlebar.md).
+  expect(await strip.locator(".subject").count()).toBe(0);
+  expect(await region(".change-bar .window-tab")).toBe("no-drag");
+
+  // The switcher is a compact pill at the column's right edge: about half the width the heading took,
+  // and clear of the lights by being on the far side of the column from them.
+  const switcher = page.locator(".sidebar button.workspace");
+  const switcherBox = await switcher.boundingBox();
+  const sidebar = await page.locator(".sidebar").boundingBox();
+  if (!switcherBox || !sidebar) throw new Error("the sidebar did not lay out");
+  expect(sidebar.x + sidebar.width - (switcherBox.x + switcherBox.width)).toBeLessThanOrEqual(12);
+  expect(switcherBox.width).toBeLessThan(sidebar.width / 2);
+  expect(switcherBox.x).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset);
+  expect(sidebar.width).toBeGreaterThanOrEqual(TRAFFIC_LIGHTS.inset + 160);
+  expect(await region(".sidebar > .band")).toBe("drag");
+
+  // The column's line begins below that row rather than beside it: the band and the column are one
+  // surface, and a line between them would draw the seam the palette is there to avoid. It is drawn
+  // (a pseudo-element) rather than a border, because a border cannot start partway down its edge.
+  const column = page.locator(".sidebar");
+  expect(await column.evaluate((el) => getComputedStyle(el).borderRightWidth)).toBe("0px");
+  expect(await column.evaluate((el) => getComputedStyle(el, "::after").top)).toBe(
+    `${TITLE_BAR_HEIGHT}px`,
+  );
+  expect(
+    await column.evaluate((el) => getComputedStyle(el, "::after").backgroundColor),
+  ).not.toBe("rgba(0, 0, 0, 0)");
+
+  // The switcher's list opens inside the window rather than past its edge, and the click reaches the
+  // control at all: the row it sits in is the region you drag the window by.
+  await switcher.click();
+  const menu = await page.locator(".menu-items").boundingBox();
+  if (!menu) throw new Error("the workspace menu did not open");
+  const viewport = await page.evaluate(() => window.innerWidth);
+  expect(menu.x).toBeGreaterThanOrEqual(0);
+  expect(menu.x + menu.width).toBeLessThanOrEqual(viewport);
+  expect(complaints).toEqual([]);
+  await page.close();
+}, 30_000);
+test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
+  // Renaming is an action in the change's own row (docs/decisions/window-titlebar.md): the menu's
+  // Rename change opens a field beside the state and the actions, and what it is given is what the
+  // column's entry and the window's title say afterwards.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.locator(".change-bar .window-tab.overview").waitFor();
+
+  await page.locator(".change-tabs button", { hasText: "Actions" }).click();
+  await page.getByRole("button", { name: "Rename change" }).click();
+  const input = page.locator(".change-tabs input.subject");
+  await input.waitFor();
+  await input.fill("A name of my own");
+  await input.press("Enter");
+
+  await page
+    .locator(".sidebar .entry.change .subject", { hasText: "A name of my own" })
+    .waitFor();
+  expect(await page.title()).toBe("A name of my own");
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("New starts an idea from the column or the overview", async () => {
+  // One control in two places: the overview's header has it, and so does the column beside the
+  // Changes entry — from there it is one click from anywhere in the app. Both say the same word and
+  // open the same wizard.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-card");
+
+  expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
+  expect((await page.locator(".sidebar .changes-row .create").innerText()).trim()).toBe("New");
+
+  await page.locator(".sidebar .changes-row .create").click();
+  await page.waitForSelector(".wizard");
+  expect(new URL(page.url()).pathname).toBe("/new");
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the overview stays current while one of its own tabs is showing", async () => {
+  // Two levels, two rows: the window's row says which surface — the change's own views or one of its
+  // terminals — and the row under it says which of those views. So the Overview tab is current for
+  // every one of them, not only for the dashboard, and it is still the way back to it.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+
+  const review = page.locator(".change-tabs .tab", { hasText: "Review changes" });
+  await review.click();
+  await page.waitForURL(`**/changes/${id}/review`);
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe(
+    "Review changes",
+  );
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+
+  await page.locator(".change-bar .window-tab.overview").click();
+  await page.waitForURL(`**/changes/${id}`);
+  await page.locator(".column.documents").waitFor();
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
+  expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the right-click menu follows the setting", async () => {
+  // Two worlds, one setting (docs/decisions/host-context-menu.md). The host draws the menu in the
+  // app — Electron has none of Chromium's own — and here the page is what can be checked: with the
+  // setting off, a right-click the page does not handle is cancelled, which is what "no menu" means
+  // in a browser and what keeps the click from reaching the host at all.
+  const current = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
+    file: Record<string, unknown>;
+  };
+  const write = (contextMenu: boolean): Promise<unknown> =>
+    fetch(`${url}/api/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ ...current.file, contextMenu }),
+    });
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const rightClick = (): Promise<boolean> =>
+    page.evaluate(() => {
+      const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+      document.body.dispatchEvent(event);
+      return event.defaultPrevented;
+    });
+
+  // Shown is the default: the page leaves the menu to the browser.
+  await write(true);
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-bar");
+  expect(await rightClick()).toBe(false);
+
+  // Turned off, the page cancels it — after the setting has arrived, which is a fetch behind the
+  // first paint.
+  await write(false);
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-bar");
+  let cancelled = false;
+  for (let i = 0; i < 40 && !cancelled; i++) {
+    cancelled = await rightClick();
+    if (!cancelled) await page.waitForTimeout(50);
+  }
+  expect(cancelled).toBe(true);
   await page.close();
 }, 30_000);

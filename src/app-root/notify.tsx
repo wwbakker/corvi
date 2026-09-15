@@ -1,5 +1,6 @@
 import { type JSX, useCallback, useRef, useState } from "react";
 import { useServerEvent } from "./events.ts";
+import { hostOf } from "./host.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 import type { Page } from "./Sidebar.tsx";
 
@@ -12,7 +13,7 @@ import type { Page } from "./Sidebar.tsx";
  * on screen; the host does the showing (the app's Electron window, src/domain/host.ts), because
  * only it can raise the window and play the sound the notification setting asks for.
  */
-import type { HostNotice, IweHost } from "../domain/host.ts";
+import type { HostNotice } from "../domain/host.ts";
 
 /** The server's `notify` payload: one window that has started wanting the user. */
 export type Notice = {
@@ -48,11 +49,7 @@ export const noticeText = (notice: Notice): { title: string; body: string } => (
 const pageFocused = (): boolean =>
   document.hasFocus() || document.activeElement?.tagName === "IFRAME";
 
-/** The app window's bridge, when this page runs inside it (src/domain/host.ts). A real browser
- * has none, and notifications fall back to the browser's own. */
-const hostOf = (): IweHost | undefined => (window as unknown as { iweHost?: IweHost }).iweHost;
-
-/** Show it where it can be shown. The host bridge is the app windows (Electron, the same
+/** Show it where it can be shown. The host bridge is the app window (Electron, the same
  * `window.iweHost` shape on both platforms); the browser's Notification is for a page in a real
  * browser; and no path is an error, because the toast is always there. */
 function deliver(notice: Notice, text: { title: string; body: string }, onOpen: () => void): void {

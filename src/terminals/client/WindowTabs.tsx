@@ -17,8 +17,10 @@ export function WindowTabs({
   onMoveWindow,
   onOpenPage,
 }: {
-  /** Which of the change's pages is on screen: the dashboard and the terminal both show the
-   * strip, and the current tab differs between them. */
+  /** Which surface of the change is on screen: its own views — the dashboard, or one of the tabs it
+   * contributes — or one of its terminals. The strip is drawn on both, and the Overview tab stands
+   * for all of the former, so it stays current while any of them is showing rather than only for the
+   * dashboard. */
   page: Page;
   /** This change's tmux windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
@@ -83,7 +85,9 @@ export function WindowTabs({
       {/* The way back to what the change is doing. On the dashboard the tab is already where
           you are; in the terminal it is the way out. */}
       <button
-        className={page === "dashboard" ? "window-tab overview current" : "window-tab overview"}
+        // Any of the change's own views, not only the dashboard: the row under this one says which of
+        // them, and a terminal is the only thing here that is not one.
+        className={page === "terminals" ? "window-tab overview" : "window-tab overview current"}
         title="the change's overview"
         onClick={() => onOpenPage("dashboard")}
       >

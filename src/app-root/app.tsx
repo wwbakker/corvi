@@ -1,6 +1,14 @@
-import { type JSX, StrictMode, useEffect, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  type JSX,
+  StrictMode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import { createRoot } from "react-dom/client";
-import { type Change, type ProvisionResult } from "./api.ts";
+import { api, type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
@@ -13,7 +21,10 @@ import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../extension-host/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
-import type { IweHost } from "../domain/host.ts";
+import { hostOf } from "./host.ts";
+import { useContextMenu } from "./contextMenu.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
+import type { SettingsView } from "../settings/model.ts";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
@@ -51,8 +62,8 @@ function Home({
       <header>
         <h2>Changes</h2>
         <span className="spacer" />
-        <button className="create" onClick={onNew}>
-          New idea
+        <button className="create" title="start a new idea" onClick={onNew}>
+          New
         </button>
       </header>
       {error && <div className="error-banner">{error}</div>}
@@ -205,8 +216,7 @@ function App(): JSX.Element {
     // The contract the host calls after a notification is clicked; the wrapper keeps the
     // registered function from going stale as the view changes. A real browser has no host, and
     // nothing to register.
-    const host = (window as unknown as { iweHost?: IweHost }).iweHost;
-    host?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
+    hostOf()?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
   }, []);
 
   useEffect(() => {
@@ -224,8 +234,38 @@ function App(): JSX.Element {
     setViewState(viewOf(window.location.pathname, pages));
   }, [pages]);
 
+  // What the OS calls this window: the change's name, where Mission Control, the Dock menu and
+  // the task switcher read it. The page draws no title of its own — its first row is the
+  // change's — so this is the one place the window says what it is showing. index.html's title
+  // is what it says on the pages that are about no change.
+  useEffect(() => {
+    document.title = change?.title ?? change?.branch ?? "Integrated Work Environment";
+  }, [change]);
+
+  // The right-click menu is the host's to draw and the setting's to decide (src/app-root/contextMenu.ts).
+  // Read here rather than in the settings page, because the page has to behave by it either way.
+  const [contextMenu, setContextMenu] = useState(true);
+  const reloadSettings = useCallback((): void => {
+    api<SettingsView>("/settings")
+      .then((view) => setContextMenu(view.effective.contextMenu))
+      .catch(() => {
+        // A settings file that cannot be read leaves the default: a menu, like any browser.
+      });
+  }, []);
+  useEffect(reloadSettings, [reloadSettings]);
+  useContextMenu(contextMenu);
+
+  // The window's own chrome, where there is a window: the height of the page's first row, and the
+  // traffic lights macOS keeps in it (src/domain/chrome.ts). A browser has neither, so the row is
+  // an ordinary one and nothing is laid out around it.
+  const bridge = hostOf();
+  const chrome = {
+    "--titlebar-height": `${TITLE_BAR_HEIGHT}px`,
+    "--traffic-inset": bridge?.platform === "darwin" ? `${TRAFFIC_LIGHTS.inset}px` : "0px",
+  } as CSSProperties;
+
   return (
-    <div className="app">
+    <div className={bridge ? "app hosted" : "app"} style={chrome}>
       <Notifier
         change={selected}
         page={view.name === "change" ? view.page : "dashboard"}
@@ -241,6 +281,7 @@ function App(): JSX.Element {
         page={view.name === "change" ? view.page : "dashboard"}
         windows={terminals.windows}
         onHome={() => setView({ name: "home" })}
+        onNew={() => setView({ name: "new" })}
         // The server's pages, offered as they are: which extensions exist here is not the
         // page's to know.
         pages={pages}
@@ -251,19 +292,9 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
-        // Key hints are the server's platform's business: it is that machine's shell the
-        // terminal runs in.
-        platform={platform}
         onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
         onSelectWindow={(id, index) => {
           terminals.select(id, index);
-          setWantsTerminal(true);
-          setView({ name: "change", id, page: "terminals" });
-        }}
-        onNewWindow={(id) => {
-          // A change whose session has not started yet has nothing to add a window to: opening
-          // its terminal starts one, with the window you were asking for.
-          if ((terminals.windows[id] ?? []).length > 0) void terminals.create(id);
           setWantsTerminal(true);
           setView({ name: "change", id, page: "terminals" });
         }}
@@ -284,9 +315,11 @@ function App(): JSX.Element {
           <SettingsPage
             onSaved={() => {
               // A save may have toggled an extension's enablement, which the workspaces carry
-              // and the sidebar's pages answer to — both are asked again.
+              // and the sidebar's pages answer to — both are asked again — and it may have
+              // changed the right-click menu, which this shell behaves by.
               reloadWorkspaces();
               reloadPages();
+              reloadSettings();
             }}
           />
         )}

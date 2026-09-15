@@ -1,27 +1,53 @@
 @import "@xterm/xterm/css/xterm.css";
 
+/* The page's colours, and the only place a colour is written down: a rule that wants something
+   between two of these mixes here (see docs/guides/style.md). */
 :root {
   /* The page is dark, and says so: without this, WebKitGTK paints native control faces —
      the select's button, checkboxes, the option list — in the light appearance, a white box,
      even where the rules below set a dark background. Chromium happens to follow the author
      background there; WebKit follows the scheme. */
   color-scheme: dark;
-  --bg: #14161a;
-  --panel: #1c1f25;
-  --line: #2b3038;
+
+  /* Three surfaces, and only three: the window, what sits on it, and what is cut into it. The
+     navigation column and the window's own rows are the same level — one surface across the top
+     of the window, down to where the content begins. */
+  --bg: #14161a;      /* level 0: the window and the page */
+  --surface: #1c1f25; /* level 1: cards, the chrome rows, menus, dialogs, the navigation column */
+  --well: #0d1117;    /* level -1: what you type into or read raw — fields, the terminal */
+
+  /* What is written on them. */
   --text: #dfe3ea;
   --muted: #8b93a1;
-  --ok: #3fb950;
-  --pending: #d29922;
-  --error: #f85149;
-  --none: #565f6c;
-  --warn: #d29922;
+  --faint: #565f6c;   /* nothing there: a disabled control, "no builds", a cancelled change */
+  --on-accent: #ffffff;
+
+  /* The accents: the app's own, and the states a change reports. */
   --accent: #316dca;
-  /* Change state "Blocked": distinct from amber (in progress) and blue (awaiting review). */
-  --purple: #a371f7;
-  /* Change state "Ideation": a teal, apart from the working states — an idea is a question,
-     not a job, and should not read as one of the attention colours. */
-  --ideation: #4cc2c4;
+  --info: #6cb6ff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --error: #f85149;
+  --purple: #a371f7;  /* Blocked: apart from the amber of a change in progress and the blue of one
+                         awaiting review. */
+  --ideation: #4cc2c4;/* Ideation: a question, not a job, and it should not read as one of the
+                         attention colours. */
+  /* A diff is read at a glance, so its two directions are their own lighter pair rather than
+     --ok and --error at a size that turns them grey. */
+  --diff-add: #7ee787;
+  --diff-del: #ffa198;
+
+  /* Edges, and the tones derived rather than named: a rule that wants something between two
+     surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
+     one where it was — a control's face has to be visible on a card. */
+  --line: #2b3038;
+  --raise: color-mix(in srgb, var(--surface) 94%, var(--text));   /* a control's face, a hovered row */
+  --hover: color-mix(in srgb, var(--surface) 89%, var(--text));   /* and that control hovered */
+  --selection: color-mix(in srgb, var(--accent) 35%, transparent);/* the row or tab you are on */
+  --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent);      /* a notice, a diff's added line */
+  --error-wash: color-mix(in srgb, var(--error) 15%, transparent);/* a failure, a removed line */
+  --scrim: rgb(0 0 0 / 0.5);                                      /* behind a dialog */
+  --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
 
 * {
@@ -39,7 +65,7 @@ button,
 select {
   font: inherit;
   color: var(--text);
-  background: #262b33;
+  background: var(--raise);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 5px 10px;
@@ -48,7 +74,7 @@ select {
 
 button:hover:not(:disabled),
 select:hover {
-  background: #31373f;
+  background: var(--hover);
 }
 
 button:disabled {
@@ -60,7 +86,7 @@ button:disabled {
 input:not([type="checkbox"]):not([type="radio"]) {
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
@@ -73,7 +99,7 @@ input[type="checkbox"] {
 }
 
 a {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* The navigation column and the page beside it, from the top of the window down. */
@@ -98,8 +124,9 @@ a {
   flex-direction: column;
   gap: 2px;
   padding: 16px 8px 24px;
-  background: #171a1f;
-  border-right: 1px solid var(--line);
+  /* The same surface as the window's own rows, which is why the line down its edge starts below
+     them rather than beside them (the rule after this one, and docs/guides/style.md). */
+  background: var(--surface);
   /* Stays put while the page scrolls: it is where you are, not part of what you are reading. */
   position: sticky;
   top: 0;
@@ -109,6 +136,22 @@ a {
      sideways and hang a scrollbar along the bottom. */
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+/* The column's line — and the window's own row has none: the navigation column and that row are one
+   surface, so a line between them would draw the very seam the palette is there to avoid. Below
+   that row the column meets the page, or the terminal, and the line is what makes the boundary
+   read. Drawn rather than a border, because a border cannot start partway down its own edge. */
+.sidebar::after {
+  content: "";
+  position: absolute;
+  top: var(--titlebar-height);
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line);
+  /* The resize handle is on the same edge: the line is not something to aim at. */
+  pointer-events: none;
 }
 
 .sidebar .entry {
@@ -125,11 +168,11 @@ a {
 }
 
 .sidebar .entry:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .sidebar .entry.current {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 /* The changes, and the terminals: children of the entry above them. */
@@ -144,18 +187,18 @@ a {
   margin-bottom: 8px;
 }
 
-/* A change is two lines: what it is and how it is doing, then what it is about. The bar down
-   the left is its state — a colour along the whole row reads from further away than a dot, and
-   leaves the icons to say what the tools are doing. */
+/* A change is one line: its name, and how the tools are doing. The bar down the left is its
+   state — a colour along the whole row reads from further away than a dot, and leaves the icons to
+   say what the tools are doing. */
 .sidebar .entry.change {
   display: block;
   padding: 6px 10px 6px 12px;
-  border-left: 3px solid var(--none);
+  border-left: 3px solid var(--faint);
   border-radius: 0 6px 6px 0;
 }
 
 .sidebar .entry.change.state-in-progress {
-  border-left-color: var(--pending);
+  border-left-color: var(--warn);
 }
 
 .sidebar .entry.change.state-blocked {
@@ -167,11 +210,11 @@ a {
 }
 
 .sidebar .entry.change.state-awaiting-review {
-  border-left-color: #6cb6ff;
+  border-left-color: var(--info);
 }
 
 .sidebar .entry.change.state-cancelled {
-  border-left-color: var(--none);
+  border-left-color: var(--faint);
 }
 
 .state-completed {
@@ -184,17 +227,16 @@ a {
   gap: 8px;
 }
 
-.sidebar .entry.change .id {
-  font-weight: 600;
-  color: var(--text);
-}
-
+/* The change's name, in the place the id used to hold: an entry says one thing now, and the branch
+   that starts with the id is its tooltip. It keeps full-strength text — it is what you pick a
+   change by — and truncates rather than widening the column, which is what the `min-width` below
+   lets a flex child do. */
 .sidebar .entry.change .subject {
-  display: block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  color: var(--text);
 }
 
 /* The state icons: the shape says which thing, the colour says how it is doing. */
@@ -211,7 +253,7 @@ a {
 }
 
 .state-idle {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .state-ok {
@@ -219,7 +261,7 @@ a {
 }
 
 .state-pending {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .state-error {
@@ -231,7 +273,7 @@ a {
 }
 
 .state-none {
-  color: var(--none);
+  color: var(--faint);
 }
 
 /* The edge is the handle: a few pixels wide, the full height, and it lights up when aimed at. */
@@ -283,6 +325,25 @@ body.resizing {
   color: var(--muted);
 }
 
+/* The overview entry and the way to start one, side by side: the overview's own green button,
+   sized to the column it now sits in. */
+.sidebar .changes-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sidebar .changes-row .entry {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar .changes-row .create {
+  flex: none;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
 .sidebar .list {
   display: flex;
   flex-direction: column;
@@ -295,23 +356,18 @@ body.resizing {
   font-size: 12px;
 }
 
-.sidebar .new-window {
-  gap: 8px;
-  color: var(--muted);
-}
-
 /* Output arrived in a window you were not looking at. */
 .sidebar .bell {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pending);
+  background: var(--warn);
   margin-left: auto;
 }
 
 /* A change's dot carries its state, in the colours the rest of the app uses for it. */
 .sidebar .dot.state-in-progress {
-  background: var(--pending);
+  background: var(--warn);
 }
 
 .sidebar .dot.state-blocked {
@@ -323,11 +379,11 @@ body.resizing {
 }
 
 .sidebar .dot.state-awaiting-review {
-  background: #6cb6ff;
+  background: var(--info);
 }
 
 .sidebar .dot.state-cancelled {
-  background: var(--none);
+  background: var(--faint);
 }
 
 .state-completed {
@@ -362,47 +418,81 @@ body.resizing {
   }
 }
 
-/* What the page is about, beside what you can do to it. */
+/* What the page is about, beside what you can do to it. It has to be allowed to shrink below its
+   content, because the change's name truncates rather than wrapping the title bar taller, and its
+   contents are centred: the row is taller than they are, and on the terminal page — whose row
+   stretches its tabs to fill it — this is what keeps the name in the middle of it rather than at
+   its top. */
 .page header h2,
 .wizard header h2 {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   margin: 0;
+  min-width: 0;
   font-size: 20px;
 }
 
-/* The change's name, which you can rewrite: a button until you click it, an input after. */
-.page header h2 .subject {
-  font-size: 14px;
-  font-weight: 400;
-  color: var(--muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 3px 8px;
-  text-align: left;
+/* The field the change's name is typed into: the menu's "Rename change" opens it in the row that
+   carries the change's controls, because the window's own row says nothing about the change
+   (docs/decisions/window-titlebar.md). */
+.change-tabs input.subject {
+  min-width: 220px;
+  max-width: 100%;
 }
 
-.page header h2 button.subject:hover {
-  border-color: var(--line);
-  color: var(--text);
-}
-
-.page header h2 input.subject {
-  border-color: var(--line);
-  background: var(--panel);
-  color: var(--text);
-  min-width: 320px;
-}
-
+/* The page's first row is also the window's title bar in the app (src/domain/chrome.ts): one height
+   everywhere, so it lines up with the column beside it and no row of tabs can make it taller than
+   its neighbours. The panel colour is what says chrome rather than content, and it stays put while
+   the page scrolls under it — as the change's own row does, just below. */
 .page header,
 .wizard header {
   display: flex;
   align-items: center;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--titlebar-height);
   margin-bottom: 16px;
-  min-height: 34px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+/* Edge to edge, because it is the window's chrome: the content's own padding comes back on the row,
+   so it reaches the top and the sides of the window — a drag area that stops 24px short is a drag
+   area you miss. The terminal page is already flush: it has no padding to give back. */
+.content:not(.flush) .page > header,
+.content:not(.flush) .wizard > header {
+  margin: -16px -24px 16px;
+  padding-inline: 24px;
+}
+
+/* The change's pages put their own row directly under this one, so the two are flush: the sticky
+   offsets are then the row heights themselves, with no gap for content to scroll through. */
+.content:not(.flush) .page > header.change-bar {
+  margin-bottom: 0;
+}
+
+/* In the app window the row is chrome as well as a page header: dragging it moves the window.
+   Everything you can click in it stays a control — the rename button, the state select, the window
+   tabs (whose own drag reorders them) and the workspace switcher. A browser has neither the drag
+   nor lights to lay out around. */
+.hosted .page > header,
+.hosted .wizard > header,
+.hosted .sidebar > .band {
+  -webkit-app-region: drag;
+}
+
+.hosted .page > header button,
+.hosted .page > header select,
+.hosted .page > header input,
+.hosted .page > header a,
+.hosted .wizard > header button,
+.hosted .wizard > header select,
+.hosted .wizard > header input,
+.hosted .sidebar > .band button {
+  -webkit-app-region: no-drag;
 }
 
 .page h2 {
@@ -427,7 +517,7 @@ body.resizing {
 .table {
   width: 100%;
   border-collapse: collapse;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
@@ -460,11 +550,11 @@ body.resizing {
 }
 
 .table tbody tr:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .table tbody tr.selected {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 .filters {
@@ -487,12 +577,12 @@ body.resizing {
 
 .step.active {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: var(--selection);
 }
 
 button.primary:not(:disabled) {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 .form {
@@ -533,7 +623,7 @@ button.primary:not(:disabled) {
   align-items: center;
   gap: 8px;
   justify-content: space-between;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 10px;
@@ -568,7 +658,7 @@ button.primary:not(:disabled) {
 }
 
 .widget {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
@@ -642,7 +732,7 @@ button.primary:not(:disabled) {
   height: 10px;
   border-radius: 50%;
   flex: none;
-  background: var(--none);
+  background: var(--faint);
 }
 
 .dot.ok {
@@ -650,7 +740,7 @@ button.primary:not(:disabled) {
 }
 
 .dot.pending {
-  background: var(--pending);
+  background: var(--warn);
 }
 
 .dot.error {
@@ -662,7 +752,7 @@ button.primary:not(:disabled) {
 }
 
 .error-banner {
-  background: #3a1d1d;
+  background: var(--error-wash);
   border: 1px solid var(--error);
   border-radius: 6px;
   padding: 8px 10px;
@@ -671,7 +761,7 @@ button.primary:not(:disabled) {
 
 /* Sprint group headers */
 .table tr.group th {
-  background: #232830;
+  background: var(--raise);
   cursor: pointer;
   padding: 6px 12px;
   color: var(--text);
@@ -687,7 +777,7 @@ button.primary:not(:disabled) {
 
 /* New issue dialog */
 dialog {
-  background: var(--panel);
+  background: var(--surface);
   color: var(--text);
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -696,7 +786,7 @@ dialog {
 }
 
 dialog::backdrop {
-  background: rgb(0 0 0 / 0.5);
+  background: var(--scrim);
 }
 
 dialog h3 {
@@ -713,7 +803,7 @@ dialog label {
 dialog textarea {
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 6px 8px;
@@ -762,7 +852,7 @@ dialog textarea.message {
 }
 
 .commit-files .commit-file:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .commit-files .commit-file .name {
@@ -797,7 +887,7 @@ dialog textarea.message {
 }
 
 .browser {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 12px;
@@ -851,7 +941,7 @@ dialog textarea.message {
 }
 
 .entries li button.dir:hover {
-  background: #262b33;
+  background: var(--raise);
 }
 
 .browser .filter {
@@ -911,14 +1001,14 @@ dialog textarea.message {
   width: 140px;
   height: 6px;
   border-radius: 3px;
-  background: #2b3038;
+  background: var(--line);
   overflow: hidden;
 }
 
 .progress .fill {
   display: block;
   height: 100%;
-  background: var(--pending);
+  background: var(--warn);
   transition: width 1s linear;
 }
 
@@ -974,16 +1064,16 @@ dialog.wide {
 }
 
 .state-in-progress {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .state-awaiting-review {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* Abandoned: grey, because it is neither good news nor bad, only over. */
 .state-cancelled {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .state-completed {
@@ -999,15 +1089,15 @@ select.state-ideation {
 }
 
 select.state-in-progress {
-  border-color: var(--pending);
+  border-color: var(--warn);
 }
 
 select.state-awaiting-review {
-  border-color: #6cb6ff;
+  border-color: var(--info);
 }
 
 select.state-cancelled {
-  border-color: var(--none);
+  border-color: var(--faint);
 }
 
 .state-completed {
@@ -1037,10 +1127,10 @@ button.create:hover:not(:disabled) {
   display: grid;
   min-width: 220px;
   padding: 4px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4);
+  box-shadow: var(--shadow);
 }
 
 .menu-items button {
@@ -1057,11 +1147,11 @@ button.create:hover:not(:disabled) {
 }
 
 .menu-items button:hover:not(:disabled) {
-  background: #262b33;
+  background: var(--raise);
 }
 
 .notice {
-  background: #16281a;
+  background: var(--ok-wash);
   border: 1px solid var(--ok);
   border-radius: 6px;
   padding: 8px 10px;
@@ -1073,7 +1163,7 @@ textarea.plan {
   width: 100%;
   font: inherit;
   color: var(--text);
-  background: #12151a;
+  background: var(--well);
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 8px;
@@ -1088,6 +1178,30 @@ textarea.plan {
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted);
+}
+
+/* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
+   sticky, right under the window's row — the two together are the page's chrome, and the content
+   scrolls under them rather than past them. The tabs inside keep their own dress, without the line
+   they carry in a page that has no row above them. */
+.change-tabs {
+  position: sticky;
+  top: var(--titlebar-height);
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 -24px 16px;
+  /* The first tab's text lands where the change's name does above it: the tab's own padding is the
+     rest of the way to the page's 24px. */
+  padding-inline: 18px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.change-tabs .tabs {
+  border-bottom: 0;
+  margin-bottom: 0;
 }
 
 /* Two views of one change, under its header. */
@@ -1138,10 +1252,11 @@ textarea.plan {
   flex-direction: column;
 }
 
-.page.terminal-page .terminal-bar {
+.page.terminal-page .change-bar {
   flex: none;
   margin: 0;
-  padding: 0 10px;
+  /* The name starts where the dashboard's does: the page's own padding, then the title's. */
+  padding: 0 10px 0 24px;
   /* No minimum and no bottom border: the bar is exactly as tall as its tabs, and they sit on
      the terminal rather than above a line. The tabs stretch to that height; the cheat sheet,
      sized to match them below, is then flush too. */
@@ -1149,27 +1264,19 @@ textarea.plan {
   align-items: stretch;
   gap: 8px;
   border-bottom: 0;
-  background: var(--panel);
+  background: var(--surface);
 }
 
-/* The key reference is furniture in the strip, not an action of the page: the size of the tabs
+/* The key reference is the terminal's own, not a control of the page's: the size of the tabs
    beside it, so neither makes the strip taller than the other. */
-.page.terminal-page .terminal-bar button:not(.window-tab) {
+.page.terminal-page .change-bar button:not(.window-tab) {
+  align-self: center;
   padding: 3px 8px;
   font-size: 12px;
 }
 
-/* The same strip on the dashboard, at the very top and edge to edge like the terminal page's
-   bar: `.content`'s own padding is given back with margins, so the rest of the page below keeps
-   it. The border underneath is where the terminal page has the terminal. */
-.window-bar {
-  display: flex;
-  align-items: stretch;
-  margin: -16px -24px 16px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
+/* The change's name is the same one the dashboard shows, in the same place, so the row does not
+   move when you switch between a change's two views. */
 
 /* A session's windows as tabs: the current one in the same dress as the column's selected
    terminal — accent fill, white text — and the rest quiet. Scrollable, so a session with more
@@ -1212,23 +1319,23 @@ textarea.plan {
 }
 
 .window-tab .state-idle {
-  color: var(--none);
+  color: var(--faint);
 }
 
 .window-tab:hover:not(.current) {
-  background: #232830;
+  background: var(--raise);
   color: var(--text);
 }
 
 .window-tab.current {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
-  color: #fff;
+  background: var(--selection);
+  color: var(--on-accent);
 }
 
 /* The label goes white with the fill; the state icon keeps its colour, exactly as it does on
    the column's selected window — a working agent is green wherever it is shown. */
 .window-tab.current .label {
-  color: #fff;
+  color: var(--on-accent);
 }
 
 /* Output arrived in a window you were not looking at. */
@@ -1237,7 +1344,7 @@ textarea.plan {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--pending);
+  background: var(--warn);
 }
 
 /* The tab a drag is carrying fades; the one it would land on is outlined. The overview and
@@ -1280,8 +1387,9 @@ textarea.plan {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* Everything around it: the page header and its own padding above and below. */
-  height: calc(100vh - 120px);
+  /* Everything around it: the page's first row — the strip, which is the window's title bar in the
+     app — the tabs under it, and the page's own padding above and below. */
+  height: calc(100vh - var(--titlebar-height) - 70px);
   min-height: 320px;
 }
 
@@ -1291,7 +1399,7 @@ textarea.plan {
   width: 100%;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: #0d1117;
+  background: var(--well);
   overflow: hidden;
 }
 
@@ -1313,8 +1421,8 @@ textarea.plan {
 .terminal-gone {
   flex: none;
   padding: 8px 12px;
-  background: color-mix(in srgb, var(--pending) 14%, var(--panel));
-  border: 1px solid color-mix(in srgb, var(--pending) 45%, var(--line));
+  background: color-mix(in srgb, var(--warn) 14%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
   border-radius: 8px;
   color: var(--text);
   font-size: 13px;
@@ -1389,7 +1497,7 @@ button.dots {
 
 button.dots:hover:not(:disabled) {
   color: var(--text);
-  background: #262b33;
+  background: var(--raise);
 }
 
 /* What completing a change is doing, while it does it. ".steps" is the wizard's, and a flex row. */
@@ -1457,7 +1565,7 @@ dialog progress {
 }
 
 .progress-steps li.running .mark {
-  color: var(--pending);
+  color: var(--warn);
 }
 
 .progress-steps li.failed,
@@ -1486,7 +1594,7 @@ dialog progress {
 }
 
 .change-card {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 12px 14px;
@@ -1566,15 +1674,15 @@ dialog progress {
 }
 
 .badge.state-in-progress {
-  border-color: var(--pending);
+  border-color: var(--warn);
 }
 
 .badge.state-awaiting-review {
-  border-color: #6cb6ff;
+  border-color: var(--info);
 }
 
 .badge.state-cancelled {
-  border-color: var(--none);
+  border-color: var(--faint);
 }
 
 .state-completed {
@@ -1620,13 +1728,14 @@ dialog progress {
   display: grid;
   grid-template-columns: minmax(280px, 380px) 1fr;
   gap: 12px;
-  /* Everything around it: the page header, the tabs, and the page's own padding. */
-  height: calc(100vh - 170px);
+  /* Everything around it: the strip (the window's title bar in the app), the change's window tabs
+     and its own tabs, and the page's own padding. */
+  height: calc(100vh - var(--titlebar-height) - 120px);
 }
 
 .local .files,
 .local .diff-pane {
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px;
@@ -1675,11 +1784,11 @@ dialog progress {
 }
 
 .local .file:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 .local .file.selected {
-  background: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: var(--selection);
 }
 
 /* git's own letter, coloured by what it means. */
@@ -1687,7 +1796,7 @@ dialog progress {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
   width: 12px;
-  color: var(--pending); /* modified */
+  color: var(--warn); /* modified */
 }
 
 .local .file .mark.add {
@@ -1700,7 +1809,7 @@ dialog progress {
 }
 
 .local .file .mark.move {
-  color: #6cb6ff;
+  color: var(--info);
 }
 
 /* A row is one line: the name in full if it fits, the directory giving way first, and the
@@ -1758,17 +1867,17 @@ dialog progress {
 }
 
 .diff .line.add {
-  background: color-mix(in srgb, var(--ok) 18%, transparent);
-  color: #7ee787;
+  background: var(--ok-wash);
+  color: var(--diff-add);
 }
 
 .diff .line.del {
-  background: color-mix(in srgb, var(--error) 18%, transparent);
-  color: #ffa198;
+  background: var(--error-wash);
+  color: var(--diff-del);
 }
 
 .diff .line.hunk {
-  color: #6cb6ff;
+  color: var(--info);
   margin-top: 6px;
 }
 
@@ -1810,7 +1919,7 @@ dialog progress {
 /* Environments holding different versions: production behind acceptance is the normal case and
    the one worth spotting. */
 .table.deployments tr.differs td:first-child {
-  border-left: 3px solid var(--pending);
+  border-left: 3px solid var(--warn);
   padding-left: 9px;
 }
 
@@ -1853,12 +1962,12 @@ dialog .pick {
 }
 
 dialog .pick:hover {
-  background: #232830;
+  background: var(--raise);
 }
 
 dialog .pick.current {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--selection);
 }
 
 /* Still building: shown so it does not look like it fell off the list, but not a choice — there
@@ -1931,9 +2040,52 @@ button.danger:disabled {
   font-weight: 600;
 }
 
+/* The switcher is a control in the column's first row rather than the heading it was: a compact pill
+   at the column's right edge, about half the width it had when it spanned the column. The row is the
+   window's own in the app (below) and the column's own elsewhere; in both, the menu opens from the
+   box this sits in and is anchored to its right edge, so the pill's right edge is what keeps the list
+   inside the window. */
+.sidebar > .band {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.sidebar > .band .menu {
+  margin-bottom: 0;
+}
+
+.sidebar > .band button.workspace {
+  width: auto;
+  border-bottom: 0;
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
 .sidebar button.workspace:hover {
   color: var(--text);
-  background: #232830;
+  background: var(--raise);
+}
+
+/* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
+   their right, and the row is what you drag the window by. It stays put while the column scrolls,
+   because the lights do. Nothing here applies in a browser, where the row is only the switcher's
+   wrapper and the column has no buttons to clear (src/domain/chrome.ts). */
+.hosted .sidebar {
+  padding-top: 0;
+}
+
+.hosted .sidebar > .band {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  flex: none;
+  height: var(--titlebar-height);
+  /* Measured from the column's own gutter, not from the window's edge. */
+  padding-left: max(0px, calc(var(--traffic-inset) - 8px));
+  background: inherit;
 }
 
 /* Settings: one long form, in the same sections the config file has. */
@@ -2001,7 +2153,7 @@ button.danger:disabled {
 .settings .workspace-card {
   display: grid;
   gap: 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 14px 16px;
@@ -2079,11 +2231,11 @@ button.danger:disabled {
   gap: 2px;
   max-width: 360px;
   padding: 10px 30px 10px 12px;
-  background: var(--panel);
+  background: var(--surface);
   border: 1px solid var(--line);
   border-left: 3px solid var(--accent);
   border-radius: 8px;
-  box-shadow: 0 8px 28px rgb(0 0 0 / 0.4);
+  box-shadow: var(--shadow);
   cursor: pointer;
   text-align: left;
 }

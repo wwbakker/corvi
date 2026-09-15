@@ -66,6 +66,10 @@ export type Config = {
   /** Whether a notification plays the system sound; the settings page's one notification
    * decision so far. */
   notificationSound: boolean;
+  /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
+   * app window because Electron has none of its own. A page that handles its own right-click (the
+   * terminal, whose menu is tmux's) is untouched either way. See docs/decisions/host-context-menu.md. */
+  contextMenu: boolean;
   /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
    * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means
    * `DEFAULT_IDEATION_PROMPT`. */
@@ -100,6 +104,9 @@ export type ConfigFile = {
   reposRoot?: string;
   reposStart?: string;
   notificationSound?: boolean;
+  /** Whether right-clicking shows the browser's own menu; see `Config.contextMenu`. An absent value
+   * means yes. */
+  contextMenu?: boolean;
   /** The prompt that briefs an agent about an idea; see `Config.ideationPrompt`. */
   ideationPrompt?: string;
   /** The contexts you switch between, as the file holds them. Decoded with the per-item

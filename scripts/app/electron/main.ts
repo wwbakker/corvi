@@ -1,8 +1,9 @@
 /**
  * The IWE window, in Electron.
  *
- * A real application: a Dock icon you can quit, a window whose title bar matches the page, and
- * the server inside it. Electron replaces the two hand-written hosts — Swift and WKWebView on
+ * A real application: a Dock icon you can quit, a window with no title bar of its own — the page's
+ * first row is one (docs/decisions/window-titlebar.md) — and the server inside it. Electron
+ * replaces the two hand-written hosts — Swift and WKWebView on
  * macOS, Python and WebKitGTK on Linux (docs/decisions/linux-native-window.md, superseded by
  * docs/decisions/electron-host.md) — with one main process, so the window behaves the same
  * everywhere and the page runs in the engine it is developed and tested against.
@@ -35,6 +36,7 @@ import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSyn
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { TRAFFIC_LIGHTS } from "../../../src/domain/chrome.ts";
 import type { HostNotice } from "../../../src/domain/host.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
@@ -354,6 +356,43 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
   notice.show();
 };
 
+// --- The page's own right-click menu ------------------------------------------
+
+/** Whether the page's setting wants a browser menu on right-click. The setting is in the server's
+ * config, which this process does not read, so the page says so (`src/domain/host.ts`). Chromium's
+ * own menu is not Electron's to draw, so the host draws the handful of things a page needs. */
+let contextMenu = true;
+
+/** The menu for where the click landed: the editing roles over a field or a selection, the link out
+ * of the app, and the inspector while this runs from a checkout. Nothing to offer means no menu —
+ * which is also what a page that handled the click itself gets, since a right-click the page has
+ * cancelled never reaches here (the terminal's menu is tmux's, drawn in the grid). */
+const menuFor = (
+  win: BrowserWindow,
+  params: Electron.ContextMenuParams,
+): MenuItemConstructorOptions[] => {
+  const template: MenuItemConstructorOptions[] = [];
+  if (params.isEditable) {
+    template.push({ role: "cut" }, { role: "copy" }, { role: "paste" }, { role: "selectAll" });
+  } else if (params.selectionText.trim()) {
+    template.push({ role: "copy" });
+  }
+  if (params.linkURL) {
+    template.push({
+      label: "Open link in browser",
+      click: () => void shell.openExternal(params.linkURL),
+    });
+  }
+  if (!app.isPackaged) {
+    if (template.length) template.push({ type: "separator" });
+    template.push({
+      label: "Inspect element",
+      click: () => win.webContents.inspectElement(params.x, params.y),
+    });
+  }
+  return template;
+};
+
 // --- The window ---------------------------------------------------------------
 
 const buildMenu = (): void => {
@@ -397,6 +436,12 @@ const createWindow = (): BrowserWindow => {
     show: false,
     backgroundColor: BACKGROUND,
     title: DEFAULT_TITLE,
+    // No title bar of the platform's: the page's first row is the window's (src/domain/chrome.ts,
+    // src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
+    // them. Linux is left as it is — its compositor draws no decorations for this app to remove.
+    ...(isMac
+      ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }
+      : {}),
     webPreferences: {
       // `app.getAppPath()`, not `__dirname`: the bundler (scripts/app/electron/build.ts) writes
       // the source directory into __dirname at build time, and the app does not run from there.
@@ -415,6 +460,13 @@ const createWindow = (): BrowserWindow => {
   win.webContents.on("will-prevent-unload", (event) => {
     if (process.env.IWE_WINDOW_DEBUG) console.log("iwe: the page tried to prevent unload; allowing it");
     event.preventDefault();
+  });
+
+  // Right-click: the page's setting decides whether the menu appears at all.
+  win.webContents.on("context-menu", (_event, params) => {
+    if (!contextMenu) return;
+    const template = menuFor(win, params);
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
   });
 
   if (process.env.IWE_WINDOW_DEBUG) {
@@ -476,6 +528,10 @@ const run = async (): Promise<void> => {
       permission === "clipboard-read" ||
       permission === "clipboard-sanitized-write";
     callback(allowed && isOursUrl(origin));
+  });
+
+  ipcMain.on("iwe:context-menu", (_event, enabled) => {
+    contextMenu = enabled === true;
   });
 
   ipcMain.handle("iwe:notify", (event, body) => {

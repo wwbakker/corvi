@@ -3,11 +3,12 @@ import { api, type Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
 import { byWorkOrder, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
+import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
-import type { Platform } from "../terminals/model.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
+import { hostOf } from "./host.ts";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens; terminals is
  * the core's own, and any other id is a tab an extension contributed — the id is the last
@@ -21,9 +22,16 @@ const WIDTH_KEY = "iwe:sidebar-width";
 const MIN = 160;
 const MAX = 480;
 
+/** The app window's first row starts with the traffic lights on macOS (src/domain/chrome.ts), and
+ * the switcher sits to their right: there the column cannot be narrower than the space they take
+ * plus a switcher you can read. Truncating that control is not a narrower column, it is a broken
+ * one. A browser has no lights and keeps the column's own minimum. */
+const minWidth = (): number =>
+  hostOf()?.platform === "darwin" ? MIN + TRAFFIC_LIGHTS.inset : MIN;
+
 const storedWidth = (): number => {
   const stored = Number(getPref(WIDTH_KEY));
-  return stored >= MIN && stored <= MAX ? stored : 220;
+  return stored >= minWidth() && stored <= MAX ? stored : Math.max(220, minWidth());
 };
 
 const CI_WORDS: Record<string, string> = {
@@ -62,6 +70,7 @@ export function Sidebar({
   page,
   windows,
   onHome,
+  onNew,
   pages,
   onPage,
   extPage,
@@ -69,8 +78,6 @@ export function Sidebar({
   settings,
   onOpenChange,
   onSelectWindow,
-  onNewWindow,
-  platform,
 }: {
   /** Every change of the chosen workspace; the list below "Changes" shows the ones still going. */
   changes: Change[] | undefined;
@@ -83,6 +90,9 @@ export function Sidebar({
   /** Every change's tmux windows, keyed by change: the terminals sit under their own change. */
   windows: Record<string, TerminalWindow[]>;
   onHome: () => void;
+  /** Start an idea: the same button the overview's header has, beside the entry it belongs to, so
+   * there is one from anywhere in the app. */
+  onNew: () => void;
   /** The pages the server says this context has, under Changes: one entry per page. */
   pages: { id: string; title: string }[];
   onPage: (id: string) => void;
@@ -93,9 +103,6 @@ export function Sidebar({
   settings: boolean;
   onOpenChange: (id: string) => void;
   onSelectWindow: (id: string, index: number) => void;
-  onNewWindow: (id: string) => void;
-  /** The server's platform: which chord the new-window hint names. */
-  platform: Platform;
 }): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
   // the newest of each at the top. The overview list is sorted the same way.
@@ -133,7 +140,7 @@ export function Sidebar({
     const move = (e: MouseEvent): void => {
       if (!dragging.current) return;
       e.preventDefault(); // otherwise the drag selects the text it passes over
-      setWidth(Math.min(MAX, Math.max(MIN, e.clientX)));
+      setWidth(Math.min(MAX, Math.max(minWidth(), e.clientX)));
     };
     const up = (): void => {
       if (!dragging.current) return;
@@ -149,8 +156,10 @@ export function Sidebar({
     };
   }, [width]);
 
-  /** One change in the column, with its terminals and the new-window button. Shared by the two
-   * blocks — ideas, and the work they become — so a change looks the same in both. */
+  /** One change in the column, with its terminals under it. Shared by the two blocks — ideas, and
+   * the work they become — so a change looks the same in both. Adding a terminal is the window
+   * tabs' job (src/terminals/client/WindowTabs.tsx): the column is for going to the ones there
+   * are, and it says nothing about windows a change has not got. */
   const entry = (c: Change): JSX.Element => {
     const mine = windows[c.id] ?? [];
     const selected = c.id === current?.id;
@@ -162,16 +171,16 @@ export function Sidebar({
         <button
           // The bar down the left is the change's own state, in the usual colours.
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
-          title={c.title ?? c.branch}
+          title={c.branch}
           onClick={() => onOpenChange(c.id)}
         >
-          {/* What it is and how it is doing on the first line, what it is about on the
-              second: the id is what you scan for, the summary is what you read. */}
+          {/* One line: the change's name, and how it is doing. The branch is the tooltip above,
+              which is where the id has gone — it is what the branch starts with, and the row has
+              room for one of the two. */}
           <span className="top">
-            <span className="id">{c.id}</span>
+            <span className="subject">{c.title ?? c.branch}</span>
             <Icons summary={summaries[c.id]} />
           </span>
-          <span className="subject">{c.title ?? c.branch}</span>
         </button>
 
         {/* The change's terminals, under the change they belong to. The server says what
@@ -200,54 +209,47 @@ export function Sidebar({
             )}
           </button>
         ))}
-
-        {/* Only where you are working: every change offering a terminal it has not got
-            would be more noise than help. */}
-        {selected && (
-          <button
-            className="entry sub new-window"
-            // meta is Super on Linux, which the window manager owns: the Linux hint names
-            // the binding that reliably reaches the page.
-            title={
-              platform === "mac"
-                ? "new terminal here (cmd-t, or ctrl-b c)"
-                : "new terminal here (ctrl-alt-t, or ctrl-b c)"
-            }
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onNewWindow(c.id)}
-          >
-            <TerminalIcon title="new terminal" />
-            <span className="label">new</span>
-          </button>
-        )}
       </div>
     );
   };
 
   return (
     <nav className="sidebar" style={{ width }}>
-      {/* Which client's world this is. Everything below is what that context contains, so it
-          belongs above everything rather than beside it. Always shown, even with one
-          workspace: which context you are in should be visible, not implied. */}
-      <ActionsMenu
-        className="workspace"
-        label={`${workspaces.find((w) => w.id === chosen)?.name ?? "All work"} ▾`}
-        actions={[
-          ...workspaces.map((w) => ({
-            label: w.name,
-            disabled: w.id === chosen,
-            onSelect: () => onChooseWorkspace(w.id),
-          })),
-          { label: "All work", separated: true, disabled: chosen === ALL, onSelect: () => onChooseWorkspace(ALL) },
-        ]}
-      />
+      {/* The window's own top row: on macOS the traffic lights sit here, and in the app window it
+          is what you drag the window by (src/domain/chrome.ts). The switcher moves up into it so
+          the column's first row lines up with the page's strip beside it. A browser has no lights
+          and nothing to drag, and the row is where the switcher has always been. */}
+      <div className="band">
+        {/* Which client's world this is. Everything below is what that context contains, so it
+            belongs above everything rather than beside it. Always shown, even with one
+            workspace: which context you are in should be visible, not implied. */}
+        <ActionsMenu
+          className="workspace"
+          label={`${workspaces.find((w) => w.id === chosen)?.name ?? "All work"} ▾`}
+          actions={[
+            ...workspaces.map((w) => ({
+              label: w.name,
+              disabled: w.id === chosen,
+              onSelect: () => onChooseWorkspace(w.id),
+            })),
+            { label: "All work", separated: true, disabled: chosen === ALL, onSelect: () => onChooseWorkspace(ALL) },
+          ]}
+        />
+      </div>
 
-      <button
-        className={current || extPage || settings ? "entry" : "entry current"}
-        onClick={onHome}
-      >
-        Changes
-      </button>
+      {/* The overview, and the way to start one: the button is the overview's own, here where the
+          list of changes begins. */}
+      <div className="changes-row">
+        <button
+          className={current || extPage || settings ? "entry" : "entry current"}
+          onClick={onHome}
+        >
+          Changes
+        </button>
+        <button className="create" title="start a new idea" onClick={onNew}>
+          New
+        </button>
+      </div>
       <div className="list">
         {/* Ideas first, under their own heading: they are the newest thing and the one thing you
             have not started. The work they become follows in attention order. */}

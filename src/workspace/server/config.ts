@@ -108,6 +108,7 @@ function load(): Config {
       }),
     ),
     notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
+    contextMenu: resolveSetting({ file: file.contextMenu, fallback: true }),
     ideationPrompt: resolveSetting({ file: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.

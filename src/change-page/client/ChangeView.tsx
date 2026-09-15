@@ -33,10 +33,6 @@ import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.t
 import { PlanCard } from "./PlanCard.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../extension-host/client.tsx";
 
-/** Branch names start with the change id, which the crumb already shows: drop the repetition. */
-const branchLabel = (id: string, branch: string): string =>
-  branch.startsWith(`${id}-`) ? branch.slice(id.length + 1) : branch;
-
 export function ChangeView({
   id,
   page,
@@ -102,6 +98,9 @@ export function ChangeView({
   // opened and only hidden afterwards.
   const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
   const [cheatSheet, setCheatSheet] = useState(false);
+  // Bumped when the cheat sheet closes: it is a modal dialog, so the browser moves the focus into it
+  // and nothing puts it back (src/terminals/client/TerminalPane.tsx).
+  const [focusRequest, setFocusRequest] = useState(0);
   // The change's name, while you are typing a new one. null when you are not.
   const [draft, setDraft] = useState<string | null>(null);
   // Bumping this remounts the widgets, so they re-read the world after a merge.
@@ -256,42 +255,54 @@ export function ChangeView({
       .finally(() => setCancelling(false));
   };
 
+  // Renaming sits in the menu rather than on the name itself: the row the name is in is the
+  // window's title bar in the app, and a button there would be a hole in the region you drag the
+  // window by (docs/decisions/window-titlebar.md).
+  const rename: Action = {
+    label: "Rename change",
+    title: "A name of your own; the ticket's summary is only a suggestion",
+    onSelect: () => setDraft(change?.title ?? ""),
+  };
+
   // The two ways a change ends are last, and apart: everything above them is reversible. An idea
   // has a third: starting the work, which is the only way out of `Ideation` and the reason it is
   // an action rather than one of the select's words.
-  const changeActions: Action[] = idea
-    ? [
-        {
-          label: starting ? "Starting…" : "Start work",
-          disabled: starting,
-          title: "Leave Ideation: create the worktrees and move the ticket",
-          onSelect: startWork,
-        },
-        {
-          label: cancelling ? "Discarding…" : "Discard idea",
-          separated: true,
-          disabled: cancelling || starting,
-          title: "Archive this idea as cancelled; nothing was created",
-          onSelect: () => cancel(),
-        },
-      ]
-    : [
-        { label: "Copy PR description", onSelect: copyDescription },
-        {
-          label: completing ? "Completing…" : "Complete change",
-          separated: true,
-          disabled: completing || !completion?.ready,
-          // Every repository must be approved or already merged.
-          title: completion?.reasons.join("\n") || undefined,
-          onSelect: complete,
-        },
-        {
-          label: cancelling ? "Cancelling…" : "Cancel change",
-          disabled: cancelling || completing,
-          title: "Abandon this change: the worktrees go, nothing is merged",
-          onSelect: () => cancel(),
-        },
-      ];
+  const changeActions: Action[] = [
+    rename,
+    ...(idea
+      ? [
+          {
+            label: starting ? "Starting…" : "Start work",
+            disabled: starting,
+            title: "Leave Ideation: create the worktrees and move the ticket",
+            onSelect: startWork,
+          },
+          {
+            label: cancelling ? "Discarding…" : "Discard idea",
+            separated: true,
+            disabled: cancelling || starting,
+            title: "Archive this idea as cancelled; nothing was created",
+            onSelect: () => cancel(),
+          },
+        ]
+      : [
+          { label: "Copy PR description", onSelect: copyDescription },
+          {
+            label: completing ? "Completing…" : "Complete change",
+            separated: true,
+            disabled: completing || !completion?.ready,
+            // Every repository must be approved or already merged.
+            title: completion?.reasons.join("\n") || undefined,
+            onSelect: complete,
+          },
+          {
+            label: cancelling ? "Cancelling…" : "Cancel change",
+            disabled: cancelling || completing,
+            title: "Abandon this change: the worktrees go, nothing is merged",
+            onSelect: () => cancel(),
+          },
+        ]),
+  ];
 
   // The nav the page shows, and which of its tabs is current. A URL naming an id nobody offers
   // — a tab that has gone, a typo — resolves to the dashboard, so the page still renders.
@@ -301,9 +312,10 @@ export function ChangeView({
 
   const windowTabs = (
     <WindowTabs
-      // The resolved id, not the raw segment: an unknown segment renders the dashboard, and
-      // its Overview tab should read as current there too.
-      page={activeId}
+      // Which surface is on screen, not which of the change's tabs: this row is the change's views
+      // against its terminals, and the row below says which of those views. An unknown segment
+      // resolves to the dashboard, which is one of them.
+      page={active.kind}
       windows={windows}
       platform={platform}
       onSelectWindow={onSelectWindow}
@@ -313,115 +325,36 @@ export function ChangeView({
     />
   );
 
-  /** The terminal page's own bar: the windows, and the key reference. The change's id, name,
-   * state and actions are the dashboard's — while a shell has the keyboard they say nothing. */
-  const terminalBar = (
-    <header className="terminal-bar">
+  /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
+   * reference. The change's name is deliberately not here: the navigation column carries it, and the
+   * row is the window's, so both of a change's pages still begin the same way
+   * (docs/decisions/window-titlebar.md). */
+  const changeHeader = (
+    <header className="change-bar">
       {windowTabs}
       <span className="spacer" />
-      <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
-    </header>
-  );
-
-  const changeBar = (
-    <header>
-      {/* The one heading: where you are is in the navigation column, so this says what the
-          change is rather than how you got here. */}
-      <h2>
-        {id}
-        {change &&
-          (draft === null ? (
-            // A name that came from the ticket is a suggestion, not a fact: rename it here and
-            // it stops being refreshed from Jira. Clearing it hands it back.
-            <button
-              className="subject"
-              title="rename this change"
-              onClick={() => setDraft(change.title ?? "")}
-            >
-              {change.title ?? branchLabel(id, change.branch)}
-            </button>
-          ) : (
-            <input
-              className="subject"
-              autoFocus
-              value={draft}
-              placeholder="what this change is about"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setDraft(null);
-                if (e.key === "Enter") e.currentTarget.blur();
-              }}
-              onBlur={() => {
-                const next = draft.trim();
-                setDraft(null);
-                if (next === (change.title ?? "")) return;
-                patch<Change>(`/changes/${id}`, { title: next })
-                  .then((updated) => {
-                    setChange(updated);
-                    onChanged();
-                  })
-                  .catch((err: Error) => setError(err.message));
-              }}
-            />
-          ))}
-      </h2>
-      <span className="spacer" />
-      {change && (
-        <select
-          className={stateClass(change.state)}
-          value={change.state ?? "In Progress"}
-          // An idea's state is not yours to pick: starting the work is what leaves it, and that
-          // does more than a word (see the actions).
-          disabled={idea}
-          // Your own view of where the change stands; completing it sets "Completed".
-          onChange={(e) =>
-            patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
-              .then((updated) => {
-                setChange(updated);
-                onChanged(); // the navigation column and the overview list states too
-              })
-              .catch((err: Error) => setError(err.message))
-          }
-        >
-          {/* An idea shows its one state. A started change offers the states you are in, not the
-              ones a change ends in, and not `Ideation` — there is no going back over a branch
-              that now exists. Picking "Completed" from a list would set the word without merging
-              anything, removing a worktree or archiving the change — a label that lies. Ending a
-              change is Complete or Cancel, which do the work. A change that has already ended
-              still shows its own state, because a select cannot display what it does not offer. */}
-          {idea ? (
-            <option>{IDEATION}</option>
-          ) : (
-            <>
-              {CHANGE_STATES.filter(
-                (s) => !isFinished({ ...change, state: s }) && s !== IDEATION,
-              ).map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-              {isFinished(change) && <option>{change.state}</option>}
-            </>
-          )}
-        </select>
-      )}
-      {change && isFinished(change) ? (
-        // How it ended, not only that it did: a change that was abandoned is not one that
-        // landed, and the badge is the only place that says so on this page.
-        <span className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}>
-          {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
-        </span>
-      ) : (
-        <ActionsMenu actions={changeActions} />
+      {/* The key reference is the terminal's: on the dashboard the row below carries the change's
+          own tabs, state and actions instead. */}
+      {active.kind === "terminals" && (
+        <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
       )}
     </header>
   );
 
   return (
     <div className={active.kind === "terminals" ? "page terminal-page" : "page"}>
-      {/* The same strip at the very top of the dashboard too, above the change's header, so a
-          terminal window is one click from where the work is. */}
-      {active.kind === "dashboard" && <div className="window-bar">{windowTabs}</div>}
-      {active.kind === "terminals" ? terminalBar : changeBar}
-      <CheatSheet changeId={id} open={cheatSheet} onClose={() => setCheatSheet(false)} platform={platform} />
+      {/* The window's title bar: the change's name, a tab per terminal, and — on the terminal page
+          — the key reference. The same row on both of a change's pages. */}
+      {changeHeader}
+      <CheatSheet
+        changeId={id}
+        open={cheatSheet}
+        onClose={() => {
+          setCheatSheet(false);
+          setFocusRequest((n) => n + 1);
+        }}
+        platform={platform}
+      />
       {error && <div className="error-banner">{error}</div>}
       {notice && <div className="notice">{notice}</div>}
       {/* Creation's observer failures, shown once where the create was started. */}
@@ -433,21 +366,103 @@ export function ChangeView({
           calls hold every connection the browser allows per origin for seconds at a time, and
           the terminal's own polling would queue behind them. Coming back repaints from the
           cache and refreshes. */}
-      {/* The change's own views: what it is doing, what is in it, and whatever an extension
-          adds as a tab. The terminal is not one of them — it is reached from the navigation
-          column, and lives in its own page. */}
+      {/* The change's own views, and the change's state and actions at the tabs' height: they belong
+          to the change rather than to any one of its views, and the row that says which view you are
+          in is where they fit — under the window's row rather than in it. */}
       {active.kind !== "terminals" && (
-        <nav className="tabs">
-          {nav.map((tab) => (
-            <button
-              key={tab.id}
-              className={activeId === tab.id ? "tab current" : "tab"}
-              onClick={() => onOpenPage(tab.id)}
-            >
-              {tab.title}
-            </button>
-          ))}
-        </nav>
+        <div className="change-tabs">
+          <nav className="tabs">
+            {nav.map((tab) => (
+              <button
+                key={tab.id}
+                className={activeId === tab.id ? "tab current" : "tab"}
+                onClick={() => onOpenPage(tab.id)}
+              >
+                {tab.title}
+              </button>
+            ))}
+          </nav>
+          <span className="spacer" />
+          {change && (
+            <>
+              {/* The name is typed here, in the row the menu that asks for it lives in: the window's
+                  own row says nothing about the change (docs/decisions/window-titlebar.md). */}
+              {draft !== null && (
+                <input
+                  className="subject"
+                  autoFocus
+                  value={draft}
+                  placeholder="what this change is about"
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setDraft(null);
+                    if (e.key === "Enter") e.currentTarget.blur();
+                  }}
+                  onBlur={() => {
+                    const next = draft.trim();
+                    setDraft(null);
+                    if (next === (change.title ?? "")) return;
+                    // A name the ticket suggested is not a fact: renaming it stops it being
+                    // refreshed from Jira, and clearing it hands the name back.
+                    patch<Change>(`/changes/${id}`, { title: next })
+                      .then((updated) => {
+                        setChange(updated);
+                        onChanged();
+                      })
+                      .catch((err: Error) => setError(err.message));
+                  }}
+                />
+              )}
+              <select
+                className={stateClass(change.state)}
+                value={change.state ?? "In Progress"}
+                // An idea's state is not yours to pick: starting the work is what leaves it, and
+                // that does more than a word (see the actions).
+                disabled={idea}
+                // Your own view of where the change stands; completing it sets "Completed".
+                onChange={(e) =>
+                  patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
+                    .then((updated) => {
+                      setChange(updated);
+                      onChanged(); // the navigation column and the overview list states too
+                    })
+                    .catch((err: Error) => setError(err.message))
+                }
+              >
+                {/* An idea shows its one state. A started change offers the states you are in, not
+                    the ones a change ends in, and not `Ideation` — there is no going back over a
+                    branch that now exists. Picking "Completed" from a list would set the word
+                    without merging anything, removing a worktree or archiving the change — a label
+                    that lies. Ending a change is Complete or Cancel, which do the work. A change
+                    that has already ended still shows its own state, because a select cannot
+                    display what it does not offer. */}
+                {idea ? (
+                  <option>{IDEATION}</option>
+                ) : (
+                  <>
+                    {CHANGE_STATES.filter(
+                      (s) => !isFinished({ ...change, state: s }) && s !== IDEATION,
+                    ).map((s) => (
+                      <option key={s}>{s}</option>
+                    ))}
+                    {isFinished(change) && <option>{change.state}</option>}
+                  </>
+                )}
+              </select>
+              {isFinished(change) ? (
+                // How it ended, not only that it did: a change that was abandoned is not one that
+                // landed, and the badge is the only place that says so on this page.
+                <span
+                  className={`badge ${change.state === "Cancelled" ? stateClass(change.state) : "ok"}`}
+                >
+                  {(change.state ?? "Completed").toLowerCase()} {change.completedAt?.slice(0, 10)}
+                </span>
+              ) : (
+                <ActionsMenu actions={changeActions} />
+              )}
+            </>
+          )}
+        </div>
       )}
       {active.kind === "dashboard" && (
         <div className="widgets">
@@ -515,6 +530,7 @@ export function ChangeView({
             url={terminal.url}
             error={terminal.error}
             visible={active.kind === "terminals"}
+            focusRequest={focusRequest}
             platform={platform}
             onNewWindow={terminal.create}
             windows={windows.length}

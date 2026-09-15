@@ -31,11 +31,22 @@ export type HostNotice = {
   window: string;
 };
 
+/** The platforms the page's chrome has to tell apart: macOS keeps its traffic lights in the
+ * page's own top row, the others draw nothing there (src/domain/chrome.ts). */
+export type HostPlatform = "darwin" | "linux" | "win32";
+
 /** The app window's side of the contract, exposed to the page as `window.iweHost`. */
 export type IweHost = {
+  /** The window's platform, read synchronously: the page lays its chrome out before the first
+   * paint, and the server's own answer (the terminal's key hints) is a fetch later. */
+  platform: HostPlatform;
   /** Show a notification. The host decides how; today that is Electron's `Notification`. */
   notify: (payload: HostNotice) => void;
   /** Register the click-back, called after a notification click raises the window. The page
    * registers once, on mount, so its handler exists before any notice can arrive. */
   onOpenWindow: (callback: (change: string, window: string) => void) => void;
+  /** Whether right-clicking should show the browser's own menu. The setting lives in the server's
+   * config, which the host does not read, so the page it is showing says so — on mount and whenever
+   * it changes. */
+  setContextMenu: (enabled: boolean) => void;
 };
