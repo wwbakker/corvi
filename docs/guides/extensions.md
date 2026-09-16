@@ -316,8 +316,8 @@ An extension does not have to live in this repository. The config file gains a l
 
 Each path is a `.ts` module file, or a directory — a directory contributes its immediate `.ts`
 files plus any `*/index.ts`, in directory order. `~` is expanded and duplicates are ignored;
-`~/.config/iwe/extensions/` is searched in addition, when it exists, without being configured.
-The environment variable `IWE_EXTENSION_PATHS` (comma-separated) wins over the file — an empty
+`~/.config/corvi/extensions/` is searched in addition, when it exists, without being configured.
+The environment variable `CORVI_EXTENSION_PATHS` (comma-separated) wins over the file — an empty
 value counts as unset — and the settings page edits the file's list.
 
 After the built-ins load, each discovered module is imported from disk and its default export
@@ -494,3 +494,16 @@ See [`../plans/archive/extensions-plan.md`](../plans/archive/extensions-plan.md)
 [`../plans/archive/extensions-migration-plan.md`](../plans/archive/extensions-migration-plan.md)
 for the plans behind these surfaces, and [`architecture.md`](architecture.md) for the core
 structure they attach to.
+
+## Adding an integration
+
+Write an extension (this document): a module whose default export **describes** what it
+contributes — `cards`, `wizardSteps`, `routes`, `pages`, and the rest of the surfaces above. A
+card takes the same shape the integrations always had — `status(change)` for a whole widget or
+`repoStatus(change, repo)` to be fetched a repository at a time — and the UI renders whatever
+widgets come back; a card needs no frontend change. A wizard step is `wizardSteps` plus a React
+component in the extension's `client.tsx`, and `events["change:created"]` is the creation hook. A
+built-in is added to the loader in `src/extension-host/index.ts` and, when it has a step, a page
+or a change tab, to the client registry in `src/extension-host/client.tsx`; an out-of-tree one is
+added to `extensionPaths` in the config instead and registers nowhere.
+
