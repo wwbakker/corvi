@@ -24,7 +24,7 @@ import { TOOLING } from "../../capabilities/os.ts";
 /**
  * Reading and writing the settings file from the page.
  *
- * The file stays the source of truth — it is hand-editable, it is what the README documents, and
+ * The file stays the source of truth — it is hand-editable, it is what the manual documents, and
  * a settings page that kept its own copy would be a second one. This only writes it, and then
  * refills the object every module already imported, so a change takes effect on the next request
  * rather than on the next restart.

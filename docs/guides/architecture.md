@@ -224,6 +224,7 @@ not), so the promise above is enforced rather than conventional.
 ## Running it
 
 `bun run dev` serves on `127.0.0.1:4000`; the app runs `src/server.ts` on Electron's Node, from
-the checkout recorded in its bundle (`corviRoot` in the app's `package.json`). See the README for
-the product-level description and [`../decisions/electron-host.md`](../decisions/electron-host.md)
+the checkout recorded in its bundle (`corviRoot` in the app's `package.json`). See
+[`../manual/install.md`](../manual/install.md) for the product-level description and
+[`../decisions/electron-host.md`](../decisions/electron-host.md)
 for how the window is hosted.

@@ -12,7 +12,7 @@
  * app's server was given, `PATH`, `HOME`, the SSH agent — passes through untouched.
  *
  * `TMUX` and `TMUX_PANE` are deliberately kept: they are how a tool inside a pane addresses its
- * own server, and the product relies on that — the `@agent_status` writers the README documents,
+ * own server, and the product relies on that — the `@agent_status` writers the manual documents,
  * pi's busy-title extension, and any prompt that asks tmux where it is.
  *
  * The caller's additions are applied *after* the scrub, so a workspace can set any of these
