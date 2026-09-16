@@ -413,6 +413,13 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
   expect(hasVar("IWE_PORT")).toBe(false);
   expect(hasVar("IWE_ROOT")).toBe(false);
+  // A failing run prints what the pane got and what tmux thinks the session holds: enough to
+  // tell "the env was never set" from "the pane predates it".
+  if (!hasVar("IWE_CHANGE_ID")) {
+    console.log(
+      `pane env:\n${env}\nsession env:\n${await tmux("show-environment", "-t", session)}`,
+    );
+  }
   expect(hasVar("IWE_CHANGE_ID")).toBe(true);
   expect(env).toContain(`IWE_CHANGE_DIR=${join(tmp, "changes", id)}`);
   await page.close();

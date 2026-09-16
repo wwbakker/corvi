@@ -199,6 +199,10 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
     });
   // tmux's default name is the command, which says less than the directory does.
   expect(w({}).label).toBe("example-api");
+  // Any plain shell, not only zsh: a prompt is a place, not a program — bash and sh included,
+  // which is what a machine whose shell is not zsh used to get wrong.
+  expect(w({ command: "bash" }).label).toBe("example-api");
+  expect(w({ command: "sh" }).label).toBe("example-api");
   expect(w({}).attention).toBe(false);
   expect(w({}).id).toBe("@1");
   expect(w({ command: "vim" }).label).toBe("example-api - (vim)");
