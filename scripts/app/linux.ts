@@ -4,11 +4,11 @@
  *   bun run app:install
  *   bun run app:uninstall
  *
- * The window is the built Electron app in `$XDG_DATA_HOME/iwe/app` (scripts/app/electron),
+ * The window is the built Electron app in `$XDG_DATA_HOME/corvi/app` (scripts/app/electron),
  * launched with the checkout's own Electron. The window manages the server the same way it does
  * on macOS: it starts one of its own — on a fresh port, picked at launch, so what it starts is
  * always its own — and stops it again when the window closes. The pid-file the window writes
- * (one per port) is what `iwe-app stop` uses to clean up after a window that died harder than it
+ * (one per port) is what `corvi stop` uses to clean up after a window that died harder than it
  * could.
  *
  * Without an Electron binary in the checkout the launcher falls back to the browser's app mode:
@@ -20,26 +20,41 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { sh } from "../sh.ts";
 import { buildApp } from "./electron/build.ts";
+import { ID, PRODUCT, dataDir, stateDir } from "../../src/capabilities/identity.ts";
 
 /** What it is called in the app grid and in its own title bar. */
-const NAME = "Integrated Work Environment";
+const NAME = PRODUCT;
 /** The window's application id / WM_CLASS — Electron sets both from the app name (scripts/app/electron/main.ts),
  * and StartupWMClass must match. */
-const APP_ID = "iwe";
+const APP_ID = ID;
+/** The name an install from before the rename may still sit under, launcher and entry included. */
+const OLD_ID = "iwe";
 const root = resolve(".");
 
-const launcherPath = (): string => join(homedir(), ".local", "bin", "iwe-app");
-const entryPath = (): string => join(homedir(), ".local", "share", "applications", "iwe.desktop");
+const launcherPath = (): string => join(homedir(), ".local", "bin", ID);
+const entryPath = (): string => join(homedir(), ".local", "share", "applications", `${ID}.desktop`);
 /** Where the built Electron app lives; `$XDG_DATA_HOME` is where an installed program's own
  * files go, and reinstalling refreshes it. */
 const dataHome = (): string => process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
-const appDir = (): string => join(dataHome(), "iwe", "app");
-/** Where the server's output goes ($XDG_STATE_HOME/iwe), next to the pid-files. */
-const stateHome = (): string => process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state");
-const logDir = (): string => join(stateHome(), "iwe");
+const appDir = (): string => join(dataDir(), "app");
+/** Where the server's output goes ($XDG_STATE_HOME/corvi), next to the pid-files. */
+const logDir = (): string => stateDir();
 
 /** The hicolor sizes a PNG icon can fill; the theme scales the nearest one. */
 const ICON_SIZES = [16, 32, 48, 64, 128, 256, 512];
+
+const iconPath = (id: string, size: number): string =>
+  join(homedir(), ".local", "share", "icons", "hicolor", `${size}x${size}`, "apps", `${id}.png`);
+
+/** What an install from before the rename left behind: the launcher, the desktop entry, the
+ * built window and the icons under the old name. Both install and uninstall clear them, so
+ * nothing old lingers in the app grid or the Dock. */
+const removeOldInstall = async (): Promise<void> => {
+  await rm(join(homedir(), ".local", "bin", `${OLD_ID}-app`), { force: true });
+  await rm(join(homedir(), ".local", "share", "applications", `${OLD_ID}.desktop`), { force: true });
+  await rm(join(dataHome(), OLD_ID, "app"), { recursive: true, force: true });
+  for (const size of ICON_SIZES) await rm(iconPath(OLD_ID, size), { force: true });
+};
 
 /** Renders assets/icon.svg into the user's hicolor icons, one PNG per size. Skipped when
  * `rsvg-convert` is missing: an app with a missing icon still works, and refusing to install
@@ -57,7 +72,7 @@ async function icons(): Promise<boolean> {
       String(size),
       "assets/icon.svg",
       "-o",
-      join(dir, `${APP_ID}.png`),
+      iconPath(APP_ID, size),
     ]);
     if (r.code !== 0) {
       console.error(r.stderr || r.stdout);
@@ -69,17 +84,17 @@ async function icons(): Promise<boolean> {
   return true;
 }
 
-/** The launcher: installed to ~/.local/bin/iwe-app, with the repository it serves written in,
- * like `iweRoot` in the app's package.json on macOS — reinstall to point it somewhere else. The
+/** The launcher: installed to ~/.local/bin/corvi, with the repository it serves written in,
+ * like `corviRoot` in the app's package.json on macOS — reinstall to point it somewhere else. The
  * port is not written in anywhere: the window picks a fresh one at each launch, so the server
  * behind it is always one that window started. */
 const launcher = (): string => `#!/bin/sh
-# The IWE app on Linux: opens the window (an Electron app built from scripts/app/electron),
+# The Corvi app on Linux: opens the window (an Electron app built from scripts/app/electron),
 # which starts a server of its own — on a fresh port, picked at launch, so what it starts is
 # always its own — and stops it again when the window closes.
 #
-#   iwe-app          open the app
-#   iwe-app stop     stop the servers recorded in the pid-files: ones left
+#   corvi          open the app
+#   corvi stop     stop the servers recorded in the pid-files: ones left
 #                    behind only if a window died harder than it could clean
 #                    up after
 #
@@ -91,17 +106,17 @@ const launcher = (): string => `#!/bin/sh
 
 set -eu
 
-# IWE_APP_ROOT, not IWE_ROOT: the server reads IWE_ROOT as an override for its changes root
+# CORVI_APP_ROOT, not CORVI_ROOT: the server reads CORVI_ROOT as an override for its changes root
 # (where per-change directories live — tests set it for exactly that), and the window only
-# means "where the code to serve lives". Exporting IWE_ROOT here would make the app's own server
+# means "where the code to serve lives". Exporting CORVI_ROOT here would make the app's own server
 # scan this repository for changes: an empty overview, and a "Left behind" list offering Delete
 # on the worktree's own src/ and node_modules/. The window passes it nowhere — the server is
 # started with cd, and reads its changes root from the config file like any other run.
-ROOT="\${IWE_APP_ROOT:-${root}}"
-APP="\${XDG_DATA_HOME:-$HOME/.local/share}/iwe/app"
+ROOT="\${CORVI_APP_ROOT:-${root}}"
+APP="\${XDG_DATA_HOME:-$HOME/.local/share}/${APP_ID}/app"
 ELECTRON="$ROOT/node_modules/electron/dist/electron"
 STATE="\${XDG_STATE_HOME:-$HOME/.local/state}"
-LOG_DIR="$STATE/iwe"
+LOG_DIR="$STATE/${APP_ID}"
 LOG="$LOG_DIR/log"
 
 # A login shell, because a desktop entry inherits nothing and 'bun' and the
@@ -132,7 +147,7 @@ with socket.socket() as s:
     done
 }
 
-# The server a pid-file wrote down: still there, and actually an IWE server
+# The server a pid-file wrote down: still there, and actually a Corvi server
 # rather than whatever now owns that pid.
 ours() {
     [ -n "$1" ] && [ -d "/proc/$1" ] \\
@@ -143,7 +158,7 @@ stop_one() {
     PID=$(cat "$1" 2>/dev/null || true)
     if ! ours "$PID"; then
         rm -f "$1"
-        echo "not stopping: pid \${PID:-<none>} in $1 is not an IWE server (stale pid-file removed)"
+        echo "not stopping: pid \${PID:-<none>} in $1 is not a Corvi server (stale pid-file removed)"
         return
     fi
     kill "$PID"
@@ -162,7 +177,7 @@ stop_one() {
 # removed rather than reported forever.
 stop() {
     FOUND=0
-    for f in "$LOG_DIR"/iwe-app-*.pid; do
+    for f in "$LOG_DIR"/corvi-app-*.pid; do
         [ -f "$f" ] || continue
         FOUND=1
         stop_one "$f"
@@ -178,7 +193,7 @@ case "\${1:-start}" in
     start)
         ;;
     *)
-        echo "usage: iwe-app [start|stop]"
+        echo "usage: corvi [start|stop]"
         exit 64
         ;;
 esac
@@ -189,7 +204,7 @@ mkdir -p "$LOG_DIR"
 # and stops it again when it closes. It is told where the code lives through
 # the environment, which a desktop entry alone would not give it.
 if [ -x "$ELECTRON" ] && [ -f "$APP/main.cjs" ]; then
-    export IWE_APP_ROOT="$ROOT"
+    export CORVI_APP_ROOT="$ROOT"
     exec "$ELECTRON" "$APP"
 fi
 
@@ -209,9 +224,9 @@ free_port
 URL="http://127.0.0.1:$PORT/"
 : >> "$LOG"
 # 'exec' in the shell command makes the pid below the server's own pid, which
-# is what makes the pid-file and 'iwe-app stop' tell the truth.
-nohup "$SHELL_BIN" -ilc "cd '$ROOT' && IWE_PORT='$PORT' NODE_ENV=production exec $RUNNER src/server.ts" >> "$LOG" 2>&1 &
-echo $! > "$LOG_DIR/iwe-app-$PORT.pid"
+# is what makes the pid-file and 'corvi stop' tell the truth.
+nohup "$SHELL_BIN" -ilc "cd '$ROOT' && CORVI_PORT='$PORT' NODE_ENV=production exec $RUNNER src/server.ts" >> "$LOG" 2>&1 &
+echo $! > "$LOG_DIR/corvi-app-$PORT.pid"
 echo "starting the server on port $PORT — logs in $LOG"
 for _ in $(seq 1 100); do
     answers "$URL" && break
@@ -221,7 +236,7 @@ if ! answers "$URL"; then
     echo "the server did not start — see $LOG"
     exit 1
 fi
-echo "opening in $browser's app mode (run 'bun install' in $ROOT for the native window; the server keeps running after the tab closes — 'iwe-app stop' stops it)"
+echo "opening in $browser's app mode (run 'bun install' in $ROOT for the native window; the server keeps running after the tab closes — 'corvi stop' stops it)"
 exec "$browser" --app="$URL" --class=${APP_ID}
 `;
 
@@ -248,13 +263,14 @@ async function install(): Promise<void> {
   await writeFile(entryPath(), desktopEntry());
 
   const drawn = await icons();
+  await removeOldInstall();
 
   console.log(`installed: ${entryPath()}`);
   console.log(`  launcher: ${launcherPath()}`);
   console.log(`  window:   ${appDir()}`);
   console.log(`  serves:   ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
   if (!drawn) console.log("  no icon:  install librsvg for one (sudo pacman -S librsvg)");
-  console.log("  lifecycle: the window starts its own server and stops it again when it closes — 'iwe-app stop' cleans up after a window that died harder");
+  console.log("  lifecycle: the window starts its own server and stops it again when it closes — 'corvi stop' cleans up after a window that died harder");
   console.log("  the app may take a moment to appear in your launcher — the desktop database refreshes on its own");
 }
 
@@ -271,11 +287,9 @@ async function uninstall(): Promise<void> {
   await rm(launcherPath(), { force: true });
   await rm(appDir(), { recursive: true, force: true });
   for (const size of ICON_SIZES) {
-    await rm(
-      join(homedir(), ".local", "share", "icons", "hicolor", `${size}x${size}`, "apps", `${APP_ID}.png`),
-      { force: true },
-    );
+    await rm(iconPath(APP_ID, size), { force: true });
   }
+  await removeOldInstall();
   await sh(["gtk-update-icon-cache", "-f", "-t", join(homedir(), ".local", "share", "icons", "hicolor")]);
   // The log dir is left alone: it holds the server's output, which outlives the app.
   console.log(`removed: ${entry}`);

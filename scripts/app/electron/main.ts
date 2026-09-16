@@ -1,5 +1,5 @@
 /**
- * The IWE window, in Electron.
+ * The Corvi window, in Electron.
  *
  * A real application: a Dock icon you can quit, a window with no title bar of its own — the page's
  * first row is one (docs/decisions/window-titlebar.md) — and the server inside it. Electron
@@ -11,14 +11,14 @@
  * It is still only a window onto the same HTTP server any browser can open. The app picks a
  * fresh port at each launch, starts the server on it through the user's login shell, and stops
  * the server it started when it quits. A server somebody started themselves — a pinned
- * `IWE_PORT` answering, `bun run dev` on 4000 — is never touched. The server runs on Electron's
+ * `CORVI_PORT` answering, `bun run dev` on 4000 — is never touched. The server runs on Electron's
  * own Node (`ELECTRON_RUN_AS_NODE`), not on Bun the user has installed
  * (docs/decisions/node-server.md).
  *
  * Built by scripts/app/electron/build.ts into main.cjs/preload.cjs and run either from a packaged
  * bundle (scripts/app/mac.ts, scripts/app/linux.ts) or straight from the checkout
- * (`bun run app:run`). The checkout to serve is read from the app package.json's `iweRoot`, which
- * is why moving the repository is a reinstall rather than a rebuild.
+ * (`bun run app:run`). The checkout to serve is read from the app package.json's `corviRoot`,
+ * which is why moving the repository is a reinstall rather than a rebuild.
  */
 import {
   BrowserWindow,
@@ -38,12 +38,13 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { TRAFFIC_LIGHTS } from "../../../src/domain/chrome.ts";
 import type { HostNotice } from "../../../src/domain/host.ts";
+import { ID, PRODUCT, env, stateDir } from "../../../src/capabilities/identity.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
  * all one colour instead of a white flash. Same value as the hosts this replaced. */
 const BACKGROUND = "#14161a";
 /** What this copy is called in the Dock and the title bar until the page names itself. */
-const DEFAULT_TITLE = "Integrated Work Environment";
+const DEFAULT_TITLE = PRODUCT;
 /** The event sound canberra resolves through the user's sound theme — the Linux analogue of
  * macOS's default notification sound, which Electron plays itself. */
 const SOUND_EVENT = "message-new-instant";
@@ -52,50 +53,47 @@ const isMac = process.platform === "darwin";
 const isLinux = process.platform === "linux";
 
 /** Where the server's output and, on Linux, the pid-file go — the same files the launcher and
- * `iwe-app stop` use, so every writer agrees on one contract. */
-const stateDir = (): string =>
-  process.env.XDG_STATE_HOME
-    ? join(process.env.XDG_STATE_HOME, "iwe")
-    : join(homedir(), ".local", "state", "iwe");
-const logPath = (): string => (isMac ? join(homedir(), "Library", "Logs", "iwe.log") : join(stateDir(), "log"));
-const pidFile = (port: number): string => join(stateDir(), `iwe-app-${port}.pid`);
+ * `corvi stop` use, so every writer agrees on one contract. */
+const logPath = (): string =>
+  isMac ? join(homedir(), "Library", "Logs", `${ID}.log`) : join(stateDir(), "log");
+const pidFile = (port: number): string => join(stateDir(), `${ID}-app-${port}.pid`);
 
 /**
  * What this copy is called, as Electron found it before the rename below: a packaged bundle's
- * name (a sandbox copy is "IWE Sandbox", scripts/sandbox.ts) or the app package's. Captured
+ * name (a sandbox copy is "Corvi Sandbox", scripts/sandbox.ts) or the app package's. Captured
  * first because it keys the Chromium profile below.
  */
 const copyName = app.getName();
 /**
- * What this copy is called in the process. `iwe` rather than the product name so Wayland's
- * app_id and X11's WM_CLASS match `StartupWMClass=iwe` in the desktop entry
+ * What this copy is called in the process. `corvi` rather than the product name so Wayland's
+ * app_id and X11's WM_CLASS match `StartupWMClass=corvi` in the desktop entry
  * (scripts/app/linux.ts) — the same promise `GLib.set_prgname` + `Gdk.set_program_class` kept
  * for the Python window.
  */
-app.setName("iwe");
-if (isLinux) app.setDesktopName("iwe.desktop");
-// Chromium's profile (cache, localStorage, GPU state) has no business in `~/.config/iwe`, which
-// holds IWE's own config.json; give it a directory of its own. The copy's own name is in the
-// path, so a sandbox copy does not share the real app's profile — the same separation its bundle
-// identifier gives it for notifications and Apple Events. The page's state is per-origin, and
-// the origin changes with the fresh port, so nothing here needs to survive a launch.
+app.setName(ID);
+if (isLinux) app.setDesktopName(`${ID}.desktop`);
+// Chromium's profile (cache, localStorage, GPU state) has no business in `~/.config/corvi`,
+// which holds Corvi's own config.json; give it a directory of its own. The copy's own name is in
+// the path, so a sandbox copy does not share the real app's profile — the same separation its
+// bundle identifier gives it for notifications and Apple Events. The page's state is per-origin,
+// and the origin changes with the fresh port, so nothing here needs to survive a launch.
 {
-  const profile = copyName && copyName !== "iwe" ? `IWE Electron (${copyName})` : "IWE Electron";
+  const profile = copyName && copyName !== ID ? `${PRODUCT} Electron (${copyName})` : `${PRODUCT} Electron`;
   const userData = join(app.getPath("appData"), profile);
   mkdirSync(userData, { recursive: true });
   app.setPath("userData", userData);
 }
 
 /** The checkout to serve: the app bundle's package.json says where (written at install time,
- * like `IWERoot` in the Swift app's Info.plist); `IWE_APP_ROOT` overrides it for development. */
+ * like `IWERoot` in the Swift app's Info.plist); `CORVI_APP_ROOT` overrides it for development. */
 const root = (): string => {
-  const fromEnv = process.env.IWE_APP_ROOT?.trim();
+  const fromEnv = process.env[env("APP_ROOT")]?.trim();
   if (fromEnv) return fromEnv;
   try {
     const pkg = JSON.parse(readFileSync(join(app.getAppPath(), "package.json"), "utf8")) as {
-      iweRoot?: string;
+      corviRoot?: string;
     };
-    return pkg.iweRoot ?? "";
+    return pkg.corviRoot ?? "";
   } catch {
     return "";
   }
@@ -139,7 +137,7 @@ const which = (command: string): string | null => {
 };
 
 /**
- * How to play the notification sound on Linux, or null when nothing can. The daemons IWE is
+ * How to play the notification sound on Linux, or null when nothing can. The daemons Corvi is
  * likely to meet (quickshell, dunst, mako) play no sound themselves, so the setting only means
  * anything if the host plays it — canberra resolves the event through the user's sound theme,
  * paplay on the freedesktop theme's file is the fallback. macOS is not asked: its notification
@@ -171,7 +169,7 @@ const show = (win: BrowserWindow, message: string): void => {
 };
 
 /** Nothing is listening when the app opens, so this is only ever the readiness probe for a
- * server this app itself started (or one already answering on a pinned `IWE_PORT`). */
+ * server this app itself started (or one already answering on a pinned `CORVI_PORT`). */
 const answers = async (url: string): Promise<boolean> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 1000);
@@ -191,7 +189,7 @@ let server: ChildProcess | null = null;
 let serverPid: number | null = null;
 let stopping = false;
 
-/** The server a pid-file recorded is ours: still there, and actually an IWE server rather than
+/** The server a pid-file recorded is ours: still there, and actually a Corvi server rather than
  * whatever now owns that pid. macOS has no /proc; there, being alive is as much as this asks,
  * and the pid belongs to a process this window started in the first place. */
 const isOurPid = (pid: number): boolean => {
@@ -222,7 +220,7 @@ const alive = (pid: number): boolean => {
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Start the server this window owns, on the port it picked, and record its pid for
- * `iwe-app stop`. `exec` in the shell command makes the pid above the server's own pid, which is
+ * `corvi stop`. `exec` in the shell command makes the pid above the server's own pid, which is
  * what makes the pid-file tell the truth. */
 const startServer = (port: number, checkout: string): void => {
   mkdirSync(stateDir(), { recursive: true });
@@ -236,7 +234,7 @@ const startServer = (port: number, checkout: string): void => {
   // whole command, so the pid below is the server's own.
   const loginShell = process.env.SHELL || (isMac ? "/bin/zsh" : "/bin/bash");
   const run =
-    `exec env IWE_PORT='${port}' NODE_ENV=production ELECTRON_RUN_AS_NODE=1 ` +
+    `exec env ${env("PORT")}='${port}' NODE_ENV=production ELECTRON_RUN_AS_NODE=1 ` +
     `${shq(process.execPath)} src/server.ts`;
   const child = spawn(loginShell, ["-ilc", run], {
     cwd: checkout,
@@ -264,7 +262,7 @@ const signalGroup = (pid: number, signal: NodeJS.Signals): void => {
 
 /** Stop the server this window started, if it is still ours, and its pid-file. The pid-file
  * goes even when the server already died on its own — this window wrote it, so this window
- * removes it, rather than leaving `iwe-app stop` a file about nothing. */
+ * removes it, rather than leaving `corvi stop` a file about nothing. */
 const stopServer = async (): Promise<void> => {
   const pid = serverPid;
   if (pid === null) return;
@@ -313,7 +311,7 @@ const present = (win: BrowserWindow): void => {
  * in which case the message waits for `did-finish-load`; a click can also arrive before the page
  * has mounted its handler, which the preload's pending slot covers. */
 const openFromNotice = (win: BrowserWindow, change: string, window: string): void => {
-  const send = (): void => win.webContents.send("iwe:open-window", change, window);
+  const send = (): void => win.webContents.send(`${ID}:open-window`, change, window);
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
   else send();
 };
@@ -455,10 +453,10 @@ const createWindow = (): BrowserWindow => {
 
   // A page that asks to stay (a `beforeunload` handler) must not make the window's close
   // silently do nothing — Electron's default is to honour the page's cancel, and on Wayland the
-  // close request then simply has no visible effect. IWE has no unsaved form, and the hosts
+  // close request then simply has no visible effect. Corvi has no unsaved form, and the hosts
   // this replaced let the unload through; so does this.
   win.webContents.on("will-prevent-unload", (event) => {
-    if (process.env.IWE_WINDOW_DEBUG) console.log("iwe: the page tried to prevent unload; allowing it");
+    if (process.env[env("WINDOW_DEBUG")]) console.log(`${ID}: the page tried to prevent unload; allowing it`);
     event.preventDefault();
   });
 
@@ -469,10 +467,10 @@ const createWindow = (): BrowserWindow => {
     if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
   });
 
-  if (process.env.IWE_WINDOW_DEBUG) {
-    win.on("close", () => console.log("iwe: window close"));
-    win.on("closed", () => console.log("iwe: window closed"));
-    win.webContents.on("unresponsive", () => console.log("iwe: window unresponsive"));
+  if (process.env[env("WINDOW_DEBUG")]) {
+    win.on("close", () => console.log(`${ID}: window close`));
+    win.on("closed", () => console.log(`${ID}: window closed`));
+    win.webContents.on("unresponsive", () => console.log(`${ID}: window unresponsive`));
   }
   // The page's title becomes the window title while it is open; Chromium does that by itself.
 
@@ -488,15 +486,15 @@ const createWindow = (): BrowserWindow => {
     void shell.openExternal(url);
   });
 
-  if (process.env.IWE_WINDOW_DEBUG) {
-    // The page's console, where the host that was replaced put it when IWE_WINDOW_DEBUG was set.
+  if (process.env[env("WINDOW_DEBUG")]) {
+    // The page's console, where the host that was replaced put it when the variable was set.
     win.webContents.on("console-message", (...args: unknown[]) => {
       const first = args[0];
       const message =
         first && typeof first === "object" && "message" in first
           ? String((first as { message: unknown }).message)
           : String(args[2] ?? "");
-      console.log(`iwe: ${message}`);
+      console.log(`${ID}: ${message}`);
     });
   }
   return win;
@@ -512,7 +510,7 @@ const run = async (): Promise<void> => {
   buildMenu();
 
   const checkout = root();
-  const pinned = process.env.IWE_PORT ? Number(process.env.IWE_PORT) : 0;
+  const pinned = process.env[env("PORT")] ? Number(process.env[env("PORT")]) : 0;
   port = pinned > 0 ? pinned : await pickFreePort();
   const url = `http://127.0.0.1:${port}/`;
 
@@ -530,18 +528,18 @@ const run = async (): Promise<void> => {
     callback(allowed && isOursUrl(origin));
   });
 
-  ipcMain.on("iwe:context-menu", (_event, enabled) => {
+  ipcMain.on(`${ID}:context-menu`, (_event, enabled) => {
     contextMenu = enabled === true;
   });
 
-  ipcMain.handle("iwe:notify", (event, body) => {
+  ipcMain.handle(`${ID}:notify`, (event, body) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || !body || (body as HostNotice).kind !== "notify") return;
     notify(win, body as HostNotice);
   });
 
   const win = createWindow();
-  show(win, "Starting IWE…");
+  show(win, `Starting ${PRODUCT}…`);
 
   if (pinned > 0 && (await answers(url))) {
     // Only possible on a pinned port: somebody else's server is already here, and it is left
@@ -550,7 +548,7 @@ const run = async (): Promise<void> => {
     return;
   }
   if (!checkout || !existsSync(join(checkout, "src", "server.ts"))) {
-    show(win, "No IWE checkout to serve — reinstall the app from the repository.");
+    show(win, `No ${PRODUCT} checkout to serve — reinstall the app from the repository.`);
     return;
   }
   startServer(port, checkout);

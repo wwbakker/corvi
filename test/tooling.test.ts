@@ -6,7 +6,7 @@ import { copyTooling, rewritePaths, TOOLING } from "../src/capabilities/os.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**
- * A new worktree has none of the IDE's state, because none of it is in git. IWE copies it in
+ * A new worktree has none of the IDE's state, because none of it is in git. Corvi copies it in
  * rather than making you import the project again — and a copy with stale paths still in it is
  * worse than no copy at all: a build server pointed at the main checkout would build the wrong
  * code from the right-looking project.
@@ -24,7 +24,7 @@ async function checkout(path: string, ignores: string[]): Promise<void> {
 }
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-tooling-"));
+  tmp = await mkdtemp(join(tmpdir(), "corvi-tooling-"));
   repo = join(tmp, "example-api");
   tree = join(tmp, "PROJ-123", "example-api");
   await checkout(repo, [".idea/", ".bsp/"]);

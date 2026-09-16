@@ -14,32 +14,32 @@ import { runEffect } from "./helpers.ts";
  */
 let tmp: string;
 let file: string;
-const originalConfig = process.env.IWE_CONFIG;
-// Other test files point IWE_ROOT at their own temporary directory, and the environment beats
+const originalConfig = process.env.CORVI_CONFIG;
+// Other test files point CORVI_ROOT at their own temporary directory, and the environment beats
 // the file by design — with it set, a written changesRoot would correctly have no effect and
 // this file would be testing the override instead.
-const originalRoot = process.env.IWE_ROOT;
+const originalRoot = process.env.CORVI_ROOT;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-settings-"));
+  tmp = await mkdtemp(join(tmpdir(), "corvi-settings-"));
   file = join(tmp, "config.json");
-  process.env.IWE_CONFIG = file;
-  delete process.env.IWE_ROOT;
+  process.env.CORVI_CONFIG = file;
+  delete process.env.CORVI_ROOT;
   reloadConfigSync();
 });
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
-  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
-  else process.env.IWE_CONFIG = originalConfig;
-  if (originalRoot !== undefined) process.env.IWE_ROOT = originalRoot;
+  if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
+  else process.env.CORVI_CONFIG = originalConfig;
+  if (originalRoot !== undefined) process.env.CORVI_ROOT = originalRoot;
   // Other tests share this process, and a config left pointing at a deleted file is a test that
   // fails somewhere else for a reason nobody can see.
   reloadConfigSync();
 });
 
 afterEach(() => {
-  delete process.env.IWE_WORKTREE_COPY;
+  delete process.env.CORVI_WORKTREE_COPY;
 });
 
 test("what cannot be written", () => {
@@ -131,7 +131,7 @@ test("the file keeps what it had, including fields the core no longer names", as
   await runEffect(writeSettings({ notificationSound: false }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
-  // A key we do not know about was put there by hand, for a version of IWE that does.
+  // A key we do not know about was put there by hand, for a version of Corvi that does.
   expect(written.somethingNewer).toBe(1);
   // The write changed only what it meant to; the legacy jira fields survive intact.
   expect(written.jiraAssignee).toBe("me@example.com");
@@ -188,11 +188,11 @@ test("a workspace-level legacy jira object survives a settings save", async () =
 });
 
 test("a setting the environment overrides is reported as locked", async () => {
-  process.env.IWE_WORKTREE_COPY = ".idea";
+  process.env.CORVI_WORKTREE_COPY = ".idea";
   reloadConfigSync();
 
   const view = settingsViewSync();
-  expect(view.overridden.worktreeCopy).toBe("IWE_WORKTREE_COPY");
+  expect(view.overridden.worktreeCopy).toBe("CORVI_WORKTREE_COPY");
   expect(view.effective.worktreeCopy).toEqual([".idea"]);
   expect(view.path).toBe(file);
   // The default is offered back, so a page can undo a change to the list.
@@ -200,7 +200,7 @@ test("a setting the environment overrides is reported as locked", async () => {
 });
 
 test("an extension setting the environment overrides is reported as locked too", () => {
-  process.env.IWE_JIRA_ASSIGNEE = "me@example.com";
+  process.env.CORVI_JIRA_ASSIGNEE = "me@example.com";
   try {
     const view = settingsViewSync();
     // The jira extension's own declaration travels to the page, and the one field whose
@@ -211,9 +211,9 @@ test("an extension setting the environment overrides is reported as locked too",
       "startTransition",
       "doneTransition",
     ]);
-    expect(view.overriddenExtensions.jira).toEqual({ assignee: "IWE_JIRA_ASSIGNEE" });
+    expect(view.overriddenExtensions.jira).toEqual({ assignee: "CORVI_JIRA_ASSIGNEE" });
   } finally {
-    delete process.env.IWE_JIRA_ASSIGNEE;
+    delete process.env.CORVI_JIRA_ASSIGNEE;
   }
 });
 

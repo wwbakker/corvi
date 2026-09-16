@@ -7,7 +7,8 @@
  * The page keeps `openWindow` as the one navigation entry point (src/app-root/app.tsx).
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type { HostPlatform, IweHost } from "../../../src/domain/host.ts";
+import type { HostPlatform, CorviHost } from "../../../src/domain/host.ts";
+import { ID } from "../../../src/capabilities/identity.ts";
 
 // A click can arrive before the page has mounted its handler — a fresh launch, a reload — so the
 // click is held until a callback exists. The preload runs before the page's own scripts, which is
@@ -15,7 +16,7 @@ import type { HostPlatform, IweHost } from "../../../src/domain/host.ts";
 let open: ((change: string, window: string) => void) | null = null;
 let pending: [change: string, window: string] | null = null;
 
-ipcRenderer.on("iwe:open-window", (_event, change: string, window: string) => {
+ipcRenderer.on(`${ID}:open-window`, (_event, change: string, window: string) => {
   if (open) open(change, window);
   else pending = [change, window];
 });
@@ -25,16 +26,16 @@ ipcRenderer.on("iwe:open-window", (_event, change: string, window: string) => {
 const platform: HostPlatform =
   process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux";
 
-const host: IweHost = {
+const host: CorviHost = {
   platform,
   notify: (payload) => {
     // Fire and forget: a notification the main process fails to show must not reject into the
     // page's event handler, which is where it would be silently swallowed anyway.
-    void ipcRenderer.invoke("iwe:notify", payload);
+    void ipcRenderer.invoke(`${ID}:notify`, payload);
   },
   setContextMenu: (enabled) => {
     // Fire and forget: a menu the host draws is not something the page waits for.
-    ipcRenderer.send("iwe:context-menu", enabled);
+    ipcRenderer.send(`${ID}:context-menu`, enabled);
   },
   onOpenWindow: (callback) => {
     // Replace, never stack: a page that mounts twice (strict mode in development) must not make
@@ -48,4 +49,4 @@ const host: IweHost = {
   },
 };
 
-contextBridge.exposeInMainWorld("iweHost", host);
+contextBridge.exposeInMainWorld("corviHost", host);

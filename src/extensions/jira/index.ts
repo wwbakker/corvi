@@ -110,7 +110,7 @@ export default {
   // The server-wide settings this extension declares, shown on the settings page for every
   // workspace and stored under `extensionSettings.jira` — where globalOf reads them back, with
   // the core's legacy flat `jira*` fields (through legacy.ts) as the fallback. An environment
-  // variable keeps beating the page: the field shows locked when IWE_JIRA_* is set.
+  // variable keeps beating the page: the field shows locked when CORVI_JIRA_* is set.
   globalSettings: [
     { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: JIRA_ENV.assignee },
     { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: JIRA_ENV.startTransition },

@@ -405,12 +405,12 @@ const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError>
 
 /** Remove a repository's link from the change directory — the browse link an idea carries, or
  * the in-place link a working change does. The repository's own checkout stays exactly as it is;
- * only IWE's pointer to it goes. Used before replacing a browse link with a worktree, and when
+ * only Corvi's pointer to it goes. Used before replacing a browse link with a worktree, and when
  * stopping in-place work. */
 export const unlinkRepo = (change: Change, repo: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     const path = linkPath(change, repo);
-    // Only a symlink is IWE's link to remove. A real worktree directory at this path is not ours
+    // Only a symlink is Corvi's link to remove. A real worktree directory at this path is not ours
     // to unlink — removing that is `removeWorktree`'s git command.
     const linked = yield* fs(() => lstat(path).then((s) => s.isSymbolicLink(), () => false));
     if (linked) yield* fs(() => unlink(path));

@@ -10,7 +10,7 @@ import { AZURE_ENV, legacyOrgProjectOf, legacyWorkspaceOf } from "./legacy.ts";
  * The chain, stated once: the per-workspace settings bag (`extensionSettings.azure-devops`,
  * what the settings page writes) wins; when it is empty the legacy per-workspace `azure`
  * object answers (through legacy.ts); then the global settings bag; then the legacy flat
- * field, which carries the default and the environment resolution (IWE_AZURE_ORG and friends
+ * field, which carries the default and the environment resolution (CORVI_AZURE_ORG and friends
  * beat the file); and finally whatever `az devops configure` holds, reached through `azFor`
  * when this answers empty.
  */
@@ -67,7 +67,7 @@ export function azureOf(
 }
 
 /** The organisation and project every workspace falls back to: the global settings bag, then
- * the legacy flat field (which resolves IWE_AZURE_ORG / IWE_AZURE_PROJECT), then whatever `az
+ * the legacy flat field (which resolves CORVI_AZURE_ORG / CORVI_AZURE_PROJECT), then whatever `az
  * devops configure` holds (azDefaults below). */
 const globalAzure = (
   settings: Config,

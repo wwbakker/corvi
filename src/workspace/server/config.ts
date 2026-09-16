@@ -6,16 +6,18 @@ import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "../../d
 import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
 import { TOOLING } from "../../capabilities/os.ts";
+import { configDir, defaultArchiveRoot, defaultChangesRoot, env } from "../../capabilities/identity.ts";
 
 // Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>
-  process.env.IWE_CONFIG ?? join(homedir(), ".config", "iwe", "config.json");
+  process.env[env("CONFIG")] ?? join(configDir(), "config.json");
 
 export const expandTilde = (path: string): string =>
   path.startsWith("~") ? join(homedir(), path.slice(1)) : path;
 
-const defaults: Pick<Config, "changesRoot" | "reposRoot"> = {
-  changesRoot: join(homedir(), "changes"),
+const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "reposRoot"> = {
+  changesRoot: defaultChangesRoot(),
+  archiveRoot: defaultArchiveRoot(),
   reposRoot: join(homedir(), "Repos"),
 };
 
@@ -87,6 +89,13 @@ function load(): Config {
         env: ENV_OVERRIDES.changesRoot,
         file: file.changesRoot,
         fallback: defaults.changesRoot,
+      }),
+    ),
+    archiveRoot: resolvePath(
+      resolveSetting({
+        env: ENV_OVERRIDES.archiveRoot,
+        file: file.archiveRoot,
+        fallback: defaults.archiveRoot,
       }),
     ),
     reposRoot: resolvePath(

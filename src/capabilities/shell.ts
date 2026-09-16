@@ -6,6 +6,7 @@ import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
 import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "../domain/config.ts";
 import { childEnv } from "./env.ts";
+import { env } from "./identity.ts";
 
 /** Thin wrapper around child processes: integrations shell out to the vendors' own CLIs,
  * which means we inherit their auth (gh auth login, az login, ...) and store no secrets. */
@@ -14,7 +15,7 @@ export type Result = { code: number; stdout: string; stderr: string };
 /** CLIs colour their errors even when not on a TTY; those codes would end up in the UI. */
 const stripAnsi = (s: string): string => s.replace(/\u001b\[[0-9;]*m/g, "").trim();
 
-/** Calls, and what they cost, when IWE_TRACE is set. The dashboard's cost is almost entirely
+/** Calls, and what they cost, when CORVI_TRACE is set. The dashboard's cost is almost entirely
  * these processes, and which of them is expensive is not something to guess at. */
 export const trace = new Map<string, { calls: number; cpu: number; wall: number }>();
 
@@ -28,11 +29,11 @@ const toolOf = (cmd: readonly string[]): string => cmd[0] ?? "";
 
 /**
  * Seconds a CLI may run before it is killed. A hung `az` fails with a `CliError` naming the
- * command rather than hanging the server forever. `IWE_CLI_TIMEOUT=0` disables the timeout
+ * command rather than hanging the server forever. `CORVI_CLI_TIMEOUT=0` disables the timeout
  * entirely.
  */
 const timeoutSeconds = (): number => {
-  const raw = process.env.IWE_CLI_TIMEOUT;
+  const raw = process.env[env("CLI_TIMEOUT")];
   return raw === undefined ? 120 : Number(raw);
 };
 
@@ -64,7 +65,7 @@ export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, st
  * `az` alone is a few hundred milliseconds of CPU each. Queueing them costs nothing in wall
  * time on a laptop with fewer cores than that, and keeps the machine usable while it happens.
  */
-const LIMIT = Number(process.env.IWE_PARALLEL ?? 8);
+const LIMIT = Number(process.env[env("PARALLEL")] ?? 8);
 
 /** The one gate every CLI call passes through. */
 const gate = Effect.runSync(Effect.makeSemaphore(LIMIT));
@@ -87,10 +88,10 @@ const text = async (stream: Readable | null): Promise<string> => {
 const spawn = (
   cmd: readonly string[],
   cwd: string | undefined,
-  env: Record<string, string>,
+  variables: Record<string, string>,
 ): Effect.Effect<Result, CliError> =>
   Effect.gen(function* () {
-    const started = process.env.IWE_TRACE ? Number(process.hrtime.bigint()) : 0;
+    const started = process.env[env("TRACE")] ? Number(process.hrtime.bigint()) : 0;
     const spawned = yield* Effect.either(
       Effect.try({
         try: () => {
@@ -102,7 +103,7 @@ const spawn = (
           // since inheriting the parent's environment would be inheriting it unscrubbed.
           return childSpawn(tool, args, {
             cwd,
-            env: childEnv(process.env, env),
+            env: childEnv(process.env, variables),
             stdio: ["ignore", "pipe", "pipe"],
           });
         },
@@ -170,8 +171,8 @@ const spawn = (
 export const shWithEnv = (
   cmd: readonly string[],
   cwd: string | undefined,
-  env: Record<string, string>,
-): Effect.Effect<Result, CliError> => gate.withPermits(1)(spawn(cmd, cwd, env));
+  variables: Record<string, string>,
+): Effect.Effect<Result, CliError> => gate.withPermits(1)(spawn(cmd, cwd, variables));
 
 /** One CLI call, bounded by the shared semaphore: `withPermits` releases on failure and on
  * interruption, so a killed or timed-out call cannot strand the gate. Non-zero exit codes are a
@@ -197,8 +198,8 @@ export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, 
         ),
       );
     }
-    const env = envOf(Option.isSome(workspace) ? workspace.value : undefined);
-    return yield* gate.withPermits(1)(spawn(cmd, cwd, env));
+    const variables = envOf(Option.isSome(workspace) ? workspace.value : undefined);
+    return yield* gate.withPermits(1)(spawn(cmd, cwd, variables));
   });
 
 /** Run and throw on failure, for actions where the user should see what broke: the `CliError`

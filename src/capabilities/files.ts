@@ -10,8 +10,6 @@
  * every caller already treats that as "no file" where that is what it means.
  */
 import { readFile, rename, stat, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 export type FileHandle = {
   exists: () => Promise<boolean>;
@@ -41,11 +39,6 @@ export const writeAtomic = async (path: string, data: string | Uint8Array): Prom
   await writeFile(temp, data);
   await rename(temp, path);
 };
-
-/** Where IWE's writable state lives (`$XDG_STATE_HOME/iwe`): built chunks and pages, logs, pid
- * files. One definition, so the server, the client build and the installers cannot disagree. */
-export const stateDir = (): string =>
-  join(process.env.XDG_STATE_HOME ?? join(homedir(), ".local", "state"), "iwe");
 
 /** A file as an HTTP response, or null where there is none: the routes that serve a generated
  * or committed asset all want the same "404 unless it is there" behaviour. */

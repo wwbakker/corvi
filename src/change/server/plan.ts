@@ -6,9 +6,9 @@ import { changeDir } from "./store.ts";
 /**
  * The prompt that briefs an agent about an idea.
  *
- * Enforcement of "only PLAN.md may change while you are in Ideation" is not IWE's to attempt: pi
+ * Enforcement of "only PLAN.md may change while you are in Ideation" is not Corvi's to attempt: pi
  * runs with the user's own permissions and there is no sandbox here, and a symlinked repository
- * cannot be made read-only. So IWE states the rule instead of pretending to enforce it — the
+ * cannot be made read-only. So Corvi states the rule instead of pretending to enforce it — the
  * prompt is pasted into the change's terminal by the route, and its text (the rule included) is
  * the setting, so what the agent is told is yours to change.
  */

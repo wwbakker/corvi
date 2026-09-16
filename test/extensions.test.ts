@@ -33,22 +33,23 @@ import type { Change } from "../src/domain/change.ts";
  * A changes root of its own, because creating a change writes one.
  */
 let tmp: string;
-const originalConfig = process.env.IWE_CONFIG;
+const originalConfig = process.env.CORVI_CONFIG;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-extensions-"));
-  process.env.IWE_ROOT = tmp;
+  tmp = await mkdtemp(join(tmpdir(), "corvi-extensions-"));
+  process.env.CORVI_ROOT = tmp;
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "archive");
   // A config of its own: the changes root is not the only environment that leaks in. A
   // developer's own config — a workspace that names its extensions, say — would decide what
   // `looseEnds` and `extensionsFor` see, and this file is about the built-ins.
-  process.env.IWE_CONFIG = join(tmp, "config.json");
+  process.env.CORVI_CONFIG = join(tmp, "config.json");
   reloadConfigSync();
 });
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
-  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
-  else process.env.IWE_CONFIG = originalConfig;
+  if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
+  else process.env.CORVI_CONFIG = originalConfig;
   reloadConfigSync();
 });
 

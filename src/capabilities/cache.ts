@@ -15,8 +15,8 @@
  *   "no data".
  */
 
-import { homedir } from "node:os";
 import { join } from "node:path";
+import { cacheDir, env } from "./identity.ts";
 import { mkdir } from "node:fs/promises";
 import { Clock, Deferred, Effect, Exit, pipe } from "effect";
 import { fs } from "./effect/support.ts";
@@ -127,7 +127,7 @@ export function clearCache(): void {
  */
 
 const cacheFile = (): string =>
-  process.env.IWE_CACHE ?? join(homedir(), ".cache", "iwe", "state.json");
+  process.env[env("CACHE")] ?? join(cacheDir(), "state.json");
 
 /** Older than this and it is not worth restoring: a page painted from yesterday's builds is
  * worse than a page that waits. */

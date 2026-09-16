@@ -65,8 +65,9 @@ const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "
 
 beforeAll(async () => {
   // Resolved: on macOS the temporary directory is a symlink, and git reports where it lands.
-  tmp = await realpath(await mkdtemp(join(tmpdir(), "iwe-review-")));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await realpath(await mkdtemp(join(tmpdir(), "corvi-review-")));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
 });
 
 afterAll(async () => {

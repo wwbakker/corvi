@@ -16,7 +16,7 @@ const originalRoot = config.reposRoot;
 const originalStart = config.reposStart;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-browse-"));
+  tmp = await mkdtemp(join(tmpdir(), "corvi-browse-"));
   config.reposRoot = tmp;
 });
 

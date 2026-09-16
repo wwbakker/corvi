@@ -10,10 +10,10 @@ import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../src/domain/chrome.ts";
  *
  * The app's window is Electron, and Electron is Chromium, so Chromium is the default here — it
  * is also the engine `bun run shot` drives, and the one every browser check in this repository
- * agrees on. `IWE_ENGINE=webkit` runs the same file in WebKit where Playwright's bundle starts
+ * agrees on. `CORVI_ENGINE=webkit` runs the same file in WebKit where Playwright's bundle starts
  * (on macOS natively; on Linux only where its Ubuntu-built libraries match), which is the
  * browser-side check for Safari. Skipped rather than failed where the chosen engine cannot
- * launch: a red suite for a missing browser says nothing about IWE.
+ * launch: a red suite for a missing browser says nothing about Corvi.
  *
  * This is a smoke test with three teeth: it opens every route and fails on anything the engine
  * complains about; it round-trips the settings page through the real file; and it pins the
@@ -21,7 +21,7 @@ import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../src/domain/chrome.ts";
  * elsewhere, without a browser.
  */
 let browser: Browser;
-const engineName = process.env.IWE_ENGINE === "webkit" ? "webkit" : "chromium";
+const engineName = process.env.CORVI_ENGINE === "webkit" ? "webkit" : "chromium";
 const usable = await (async (): Promise<boolean> => {
   try {
     const engine = engineName === "webkit" ? webkit : chromium;
@@ -49,11 +49,11 @@ beforeAll(async () => {
 
   // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
-  // server's own `iwe on <url>` line.
-  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { IWE_REPOS_ROOT: tmp }),
+  // server's own `corvi on <url>` line.
+  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+    env: serverEnv(tmp, { CORVI_REPOS_ROOT: tmp }),
     stdout: "pipe",
-    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
+    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
   url = await waitForUrl(server);
   await fetch(`${url}/api/changes`, {
@@ -263,7 +263,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   const complaints: string[] = [];
   page.on("pageerror", (e) => complaints.push(e.message));
   await page.addInitScript(() => {
-    (window as unknown as { iweHost?: unknown }).iweHost = {
+    (window as unknown as { corviHost?: unknown }).corviHost = {
       platform: "darwin",
       notify: () => {},
       onOpenWindow: () => {},

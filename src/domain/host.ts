@@ -8,7 +8,7 @@
  * (src/app-root/notify.tsx), which is the same entry point a click uses.
  *
  * This file is the vocabulary both sides speak; the transport is the preload's
- * `contextBridge` (`window.iweHost`, scripts/app/electron/preload.ts), and nothing here runs.
+ * `contextBridge` (`window.corviHost`, scripts/app/electron/preload.ts), and nothing here runs.
  */
 
 /** One window that has started wanting the user, in the shape the host shows it. */
@@ -35,8 +35,8 @@ export type HostNotice = {
  * page's own top row, the others draw nothing there (src/domain/chrome.ts). */
 export type HostPlatform = "darwin" | "linux" | "win32";
 
-/** The app window's side of the contract, exposed to the page as `window.iweHost`. */
-export type IweHost = {
+/** The app window's side of the contract, exposed to the page as `window.corviHost`. */
+export type CorviHost = {
   /** The window's platform, read synchronously: the page lays its chrome out before the first
    * paint, and the server's own answer (the terminal's key hints) is a fetch later. */
   platform: HostPlatform;

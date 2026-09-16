@@ -1,7 +1,7 @@
 {
-  "name": "Integrated Work Environment",
-  "short_name": "IWE",
-  "description": "One dashboard for a change: Jira issue, worktrees, pull requests and pipelines.",
+  "name": "Corvi",
+  "short_name": "Corvi",
+  "description": "One dashboard for a change: tickets, worktrees, pull requests and pipelines.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

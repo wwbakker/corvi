@@ -40,7 +40,7 @@ export type Workspace = {
 export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
 
 /**
- * What IWE tells an agent when you brief it about an idea: the plan path and the rule for the
+ * What Corvi tells an agent when you brief it about an idea: the plan path and the rule for the
  * phase, so a machine that has configured nothing still gets something useful. Editable in the
  * settings, where an empty field means this.
  *
@@ -58,6 +58,10 @@ export const DEFAULT_IDEATION_PROMPT =
 export type Config = {
   /** Where per-change directories (worktrees, change.json) are created. */
   changesRoot: string;
+  /** Where completed changes are moved, so the changes root holds the work in flight. A
+   * setting of its own rather than a child of `changesRoot`: an archive can live on another
+   * disk, and listing the changes root never has to filter it out. */
+  archiveRoot: string;
   /** Base directory the repository browser starts from. */
   reposRoot: string;
   /** Directory the browser opens on, inside reposRoot. Going up to reposRoot stays possible;
@@ -82,7 +86,7 @@ export type Config = {
   worktreeCopy: string[];
   /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
    * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/extension-host/index.ts). `~` is
-   * expanded and duplicates dropped; ~/.config/iwe/extensions is searched in addition, when
+   * expanded and duplicates dropped; ~/.config/corvi/extensions is searched in addition, when
    * it exists. A change here needs a restart — extensions load once, at startup. */
   extensionPaths: string[];
   /** Settings the extensions declared, stored under their own name:
@@ -101,6 +105,7 @@ export type Config = {
  */
 export type ConfigFile = {
   changesRoot?: string;
+  archiveRoot?: string;
   reposRoot?: string;
   reposStart?: string;
   notificationSound?: boolean;

@@ -46,7 +46,7 @@ beforeAll(async () => {
     `export const step = () => null;\nexport const page = () => null;\nexport const tab = () => null;\nexport const widget = () => null;\n`,
   );
   // The env override is how a test — or a one-off run — points the loader somewhere else.
-  process.env.IWE_EXTENSION_PATHS = tmp;
+  process.env.CORVI_EXTENSION_PATHS = tmp;
   await loadDiscovered([extensionDir]);
 });
 
@@ -110,7 +110,7 @@ test("the environment override wins over the file, tilde-expanded and deduplicat
     // This file's beforeAll set the override in the test process itself; the child starts
     // from a clean slate and gets exactly the env the case under test names.
     const base = { ...process.env };
-    delete base.IWE_EXTENSION_PATHS;
+    delete base.CORVI_EXTENSION_PATHS;
     const proc = Bun.spawnSync({
       cmd: [
         "bun",
@@ -118,7 +118,7 @@ test("the environment override wins over the file, tilde-expanded and deduplicat
         `console.log(JSON.stringify((await import("${join(repoRoot, "src/workspace/server/config.ts")}")).config.extensionPaths))`,
       ],
       cwd: repoRoot,
-      env: { ...base, IWE_CONFIG: configFile, IWE_ROOT: join(tmp, "changes"), ...env },
+      env: { ...base, CORVI_CONFIG: configFile, CORVI_ROOT: join(tmp, "changes"), ...env },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -127,7 +127,7 @@ test("the environment override wins over the file, tilde-expanded and deduplicat
   };
 
   // The override wins over the file, duplicates are dropped, ~ is expanded.
-  expect(await run({ IWE_EXTENSION_PATHS: `/from-the-file,~/exts` })).toEqual([
+  expect(await run({ CORVI_EXTENSION_PATHS: `/from-the-file,~/exts` })).toEqual([
     "/from-the-file",
     join(homedir(), "exts"),
   ]);
@@ -141,13 +141,13 @@ test("the server serves the built client chunk and the react vendor chunks", asy
   const configFile = join(tmp, "boot-config.json");
   await writeFile(configFile, JSON.stringify({ extensionPaths: [extensionDir] }));
   // Port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
-  // server's own `iwe on <url>` line.
-  const server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  // server's own `corvi on <url>` line.
+  const server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
     cwd: repoRoot,
     env: serverEnv(tmp, {
-      IWE_EXTENSION_PATHS: "", // the file's list, not the inherited override
-      IWE_REPOS_ROOT: tmp,
-      IWE_CONFIG: configFile,
+      CORVI_EXTENSION_PATHS: "", // the file's list, not the inherited override
+      CORVI_REPOS_ROOT: tmp,
+      CORVI_CONFIG: configFile,
     }),
     stdout: "pipe",
     stderr: "ignore",

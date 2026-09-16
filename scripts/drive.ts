@@ -10,7 +10,7 @@
  * to click its sheets. It needs no Accessibility permission — Playwright
  * talks CDP, not the UI tree — and it works on Linux as well as macOS.
  *
- * Environment passes through (`IWE_ROOT`, `IWE_CONFIG`, `IWE_PORT`), so pointing it at a scratch
+ * Environment passes through (`CORVI_ROOT`, `CORVI_CONFIG`, `CORVI_PORT`), so pointing it at a scratch
  * server is one export away; the app builds to the same place `bun run app:run` uses.
  */
 import { existsSync } from "node:fs";
@@ -20,6 +20,7 @@ import { _electron } from "playwright";
 import { buildApp } from "./app/electron/build.ts";
 import { electronBinary } from "./app/electron/binary.ts";
 import { devAppDir } from "./app/run.ts";
+import { ID, env } from "../src/capabilities/identity.ts";
 
 const root = resolve(".");
 const dir = devAppDir();
@@ -34,7 +35,7 @@ if (!existsSync(electron)) {
 const app = await _electron.launch({
   executablePath: electron,
   args: [dir],
-  env: { ...process.env, IWE_APP_ROOT: root },
+  env: Object.assign({}, process.env, { [env("APP_ROOT")]: root }),
 });
 
 const errors: string[] = [];
@@ -50,23 +51,23 @@ page.on("dialog", (dialog) => {
   void dialog.dismiss();
 });
 
-// The window shows "Starting IWE…" until the server answers, then loads the page; the sidebar is
+// The window shows "Starting Corvi…" until the server answers, then loads the page; the sidebar is
 // the first thing that exists only there.
 await page.waitForSelector(".sidebar", { timeout: 30_000 });
 console.log(`window: ${await page.title()}`);
 console.log(`  url:  ${page.url()}`);
 console.log(
-  `  host: ${await page.evaluate(() => typeof (window as { iweHost?: unknown }).iweHost)}`,
+  `  host: ${await page.evaluate(() => typeof (window as { corviHost?: unknown }).corviHost)}`,
 );
 
 if (process.argv.includes("--notify")) {
   // Exercise the host path (the app's own notification, not the browser fallback) and give it a
   // moment to be shown by the desktop's notification daemon.
   await page.evaluate(() =>
-    (window as unknown as { iweHost: { notify: (payload: unknown) => void } }).iweHost.notify({
+    (window as unknown as { corviHost: { notify: (payload: unknown) => void } }).corviHost.notify({
       kind: "notify",
-      id: "iwe-drive",
-      title: "IWE drive",
+      id: `${ID}-drive`,
+      title: `${ID} drive`,
       subtitle: "notification check",
       body: "the host path works",
       sound: false,

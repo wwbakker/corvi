@@ -19,8 +19,9 @@ let tmp: string;
 let repo: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-leftovers-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-leftovers-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
   repo = join(tmp, "myrepo");
   await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "hi\n");
@@ -60,7 +61,7 @@ test("the extension lists directories left by finished changes, and only those",
   const names = leftovers.map((l) => l.name);
   expect(names).toContain("PROJ-DONE");
   expect(names).not.toContain(active.id); // an active change is not litter
-  expect(names).not.toContain("archive"); // nor is the archive itself
+  expect(names).not.toContain("archive"); // the archive lives in its own root, not here
   expect(leftovers.find((l) => l.name === "PROJ-DONE")?.entries).toEqual([
     { name: "target", directory: true },
   ]);

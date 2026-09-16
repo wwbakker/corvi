@@ -9,8 +9,8 @@ import type {
  *
  * The file is the hand-edited source of truth (see src/settings/server/settings.ts), so these schemas describe
  * *the file as it is written*: every key optional, because an absent value means "the default",
- * and unknown keys preserved on decode, because a key IWE does not know about was put there by
- * hand for a version of IWE that does and losing it silently would be rude.
+ * and unknown keys preserved on decode, because a key Corvi does not know about was put there by
+ * hand for a version of Corvi that does and losing it silently would be rude.
  *
  * The resolved shape (`src/domain/config.ts`'s `Config`) is described by `Resolved`, which is what the
  * rest of the program reads and what a future CLI `--json` or IPC surface would emit.
@@ -72,6 +72,8 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
  * `ConfigFile`. */
 export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
+  /** Where completed changes are moved; absent means `~/corvi/changes-archive`. */
+  archiveRoot: Schema.optional(Schema.String),
   reposRoot: Schema.optional(Schema.String),
   reposStart: Schema.optional(Schema.String),
   /** Whether a notification plays the system sound. Absent means yes. */
@@ -128,6 +130,7 @@ const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabular
  * them through its own legacy.ts, so they ride the preserve decode rather than this shape. */
 export const Resolved = Schema.Struct({
   changesRoot: Schema.String,
+  archiveRoot: Schema.String,
   reposRoot: Schema.String,
   reposStart: Schema.String,
   notificationSound: Schema.Boolean,

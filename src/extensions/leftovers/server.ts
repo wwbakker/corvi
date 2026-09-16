@@ -1,7 +1,7 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { root, ARCHIVE, changeDir } from "../../change/server/index.ts";
+import { root, changeDir } from "../../change/server/index.ts";
 import { Shell, type Result, type Workspace } from "../../extension-host/api.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -66,7 +66,7 @@ const isChange = (name: string): Effect.Effect<boolean> =>
 export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> = Effect.gen(
   function* () {
     const names = yield* Effect.promise(() => readdir(root(), { withFileTypes: true }).catch(() => []));
-    const candidates = names.filter((e) => e.isDirectory() && e.name !== ARCHIVE);
+    const candidates = names.filter((e) => e.isDirectory());
     const found = yield* Effect.forEach(
       candidates,
       (entry): Effect.Effect<Leftover | undefined, never, Shell | Workspace> =>
@@ -111,7 +111,7 @@ export const removeLeftover = (
     if (name !== "" && join(root(), name) !== path) {
       return yield* badRequest(`not a change directory: ${name}`);
     }
-    if (name === ARCHIVE || name.includes("/") || name.startsWith(".")) {
+    if (name.includes("/") || name.startsWith(".")) {
       return yield* badRequest(`not a change directory: ${name}`);
     }
     if (yield* isChange(name)) {

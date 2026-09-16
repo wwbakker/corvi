@@ -164,35 +164,35 @@ afterEach(() => {
 });
 
 test("a preference is read from among the other cookies, or is absent", () => {
-  expect(getPref("iwe:workspace")).toBeNull();
+  expect(getPref("corvi:workspace")).toBeNull();
 
-  cookie = "theme=dark; iwe:workspace=mine; other=1";
-  expect(getPref("iwe:workspace")).toBe("mine");
+  cookie = "theme=dark; corvi:workspace=mine; other=1";
+  expect(getPref("corvi:workspace")).toBe("mine");
   expect(getPref("other")).toBe("1");
 
   // The decoded value is what was stored, not the percent-encoded form.
-  cookie = "iwe:workspace=My%20Client%2Fteam";
-  expect(getPref("iwe:workspace")).toBe("My Client/team");
+  cookie = "corvi:workspace=My%20Client%2Fteam";
+  expect(getPref("corvi:workspace")).toBe("My Client/team");
 
   // A key that is a prefix of another cookie's name is not that cookie.
-  cookie = "iwe:workspace2=x";
-  expect(getPref("iwe:workspace")).toBeNull();
+  cookie = "corvi:workspace2=x";
+  expect(getPref("corvi:workspace")).toBeNull();
 });
 
 test("a preference is written with the attributes that survive a fresh port", () => {
-  setPref("iwe:workspace", "My Client");
+  setPref("corvi:workspace", "My Client");
   expect(cookie).toBe(
-    "iwe:workspace=My%20Client; max-age=315360000; path=/; SameSite=Lax",
+    "corvi:workspace=My%20Client; max-age=315360000; path=/; SameSite=Lax",
   );
 
   // The key is written as-is, the value is encoded.
-  setPref("iwe:workspace", "a/b&c=d");
-  expect(cookie.startsWith("iwe:workspace=a%2Fb%26c%3Dd;")).toBe(true);
+  setPref("corvi:workspace", "a/b&c=d");
+  expect(cookie.startsWith("corvi:workspace=a%2Fb%26c%3Dd;")).toBe(true);
 });
 
 test("a preference written and read back is the value that was set", () => {
-  setPref("iwe:workspace", "My Client / team");
-  expect(getPref("iwe:workspace")).toBe("My Client / team");
+  setPref("corvi:workspace", "My Client / team");
+  expect(getPref("corvi:workspace")).toBe("My Client / team");
 });
 
 // The API client is shared by every page, so its response handling is stubbed at `fetch` rather

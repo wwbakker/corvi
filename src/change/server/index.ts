@@ -10,7 +10,7 @@ export { applyPatch } from "../model.ts";
 
 export {
   root,
-  ARCHIVE,
+  archiveRoot,
   CORE_SIDECARS,
   changeDir,
   archiveDir,

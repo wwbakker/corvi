@@ -10,16 +10,16 @@ import { isRunToken, isTestCommand, isTestSocket, tokenFromPath, tokenOf } from 
 const roots = ["/var/folders/tp/xyz/T", "/private/var/folders/tp/xyz/T"];
 
 test("a test server names itself; the app's and a dev server do not", () => {
-  expect(isTestCommand("node src/server.ts --iwe-test-run")).toBe(true);
-  expect(isTestCommand("bun src/server.ts --iwe-test-run=1a2b.3c4d")).toBe(true);
+  expect(isTestCommand("node src/server.ts --corvi-test-run")).toBe(true);
+  expect(isTestCommand("bun src/server.ts --corvi-test-run=1a2b.3c4d")).toBe(true);
   expect(isTestCommand("node src/server.ts")).toBe(false);
   expect(isTestCommand("bun src/server.ts")).toBe(false);
   expect(isTestCommand("electron src/server.ts")).toBe(false);
-  expect(isTestCommand("/opt/iwe/dist/electron src/server.ts")).toBe(false);
+  expect(isTestCommand("/opt/corvi/dist/electron src/server.ts")).toBe(false);
 });
 
 test("tmux servers are told apart by their socket", () => {
-  expect(isTestSocket("/private/var/folders/tp/xyz/T/iwe-term-abc123/tmux-501/default", roots)).toBe(
+  expect(isTestSocket("/private/var/folders/tp/xyz/T/corvi-term-abc123/tmux-501/default", roots)).toBe(
     true,
   );
   // Yours: the default socket, however deep /private/tmp may look like a temp dir.
@@ -27,25 +27,25 @@ test("tmux servers are told apart by their socket", () => {
 });
 
 test("a run is named by the token its resources carry", () => {
-  expect(tokenOf("node src/server.ts --iwe-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
-  expect(tokenFromPath("/private/var/folders/tp/xyz/T/iwe-1a2b.3c4d-term-abc/tmux-501/default")).toBe(
+  expect(tokenOf("node src/server.ts --corvi-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
+  expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-term-abc/tmux-501/default")).toBe(
     "1a2b.3c4d",
   );
   // The tmux socket's own directory, short and unlabelled: a unix socket path is capped at 103
   // characters and macOS's `$TMPDIR` is long (test/helpers.ts, `tmuxTempDir`).
-  expect(tokenFromPath("/private/var/folders/tp/xyz/T/iwe-1a2b.3c4d-tmux/tmux-501/default")).toBe(
+  expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-tmux/tmux-501/default")).toBe(
     "1a2b.3c4d",
   );
   // A resource with no token is one this tool cannot attribute to a run: an old run, or the
   // app's own. It is listed, and only --all ends it.
-  expect(tokenOf("node src/server.ts --iwe-test-run")).toBeUndefined();
+  expect(tokenOf("node src/server.ts --corvi-test-run")).toBeUndefined();
   expect(tokenOf("node src/server.ts")).toBeUndefined();
-  expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-term-abc/changes/PROJ")).toBeUndefined();
+  expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-term-abc/changes/PROJ")).toBeUndefined();
 });
 
 test("a label that looks like a token is not one: the dot is the tell", () => {
-  expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-term-abc/changes/PROJ")).toBeUndefined();
-  expect(tokenFromPath("/var/folders/tp/xyz/T/iwe-abc.def-term-x/changes/PROJ")).toBe("abc.def");
+  expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-term-abc/changes/PROJ")).toBeUndefined();
+  expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-abc.def-term-x/changes/PROJ")).toBe("abc.def");
   expect(tokenFromPath("/private/tmp/tmux-501/default")).toBeUndefined();
 });
 
@@ -61,13 +61,13 @@ test("a run token is two base36 words in full; a longer word is not a token", ()
   // The command parser reads a token out of a longer line, but only up to its end: `abc.defG` is
   // not run `abc.def`, so its resources stay unattributed rather than being ended for the wrong
   // run. test/helpers.ts refuses such a token before it can name anything.
-  expect(tokenOf("node src/server.ts --iwe-test-run=abc.defG")).toBeUndefined();
-  expect(tokenOf("node src/server.ts --iwe-test-run=abc.def")).toBe("abc.def");
-  expect(tokenOf("node src/server.ts --iwe-test-run=abc.def --loud")).toBe("abc.def");
+  expect(tokenOf("node src/server.ts --corvi-test-run=abc.defG")).toBeUndefined();
+  expect(tokenOf("node src/server.ts --corvi-test-run=abc.def")).toBe("abc.def");
+  expect(tokenOf("node src/server.ts --corvi-test-run=abc.def --loud")).toBe("abc.def");
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {
-  // `bun run test:clean` finds a test server by --iwe-test-run. A new test that spawns one
+  // `bun run test:clean` finds a test server by --corvi-test-run. A new test that spawns one
   // without the marker would leave a process the cleaner reports as the app's and refuses to
   // touch — exactly the blind spot this tool exists to remove.
   for (const file of await readdir(import.meta.dir)) {
@@ -75,6 +75,6 @@ test("every test that starts a server marks it for the cleaner", async () => {
     const text = await Bun.file(new URL(file, import.meta.url)).text();
     const spawns = text.match(/\["(?:node|bun)", "src\/server\.ts"/g)?.length ?? 0;
     if (spawns === 0) continue;
-    expect(text.match(/--iwe-test-run/g)?.length ?? 0).toBeGreaterThanOrEqual(spawns);
+    expect(text.match(/--corvi-test-run/g)?.length ?? 0).toBeGreaterThanOrEqual(spawns);
   }
 });

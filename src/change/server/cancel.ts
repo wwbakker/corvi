@@ -18,7 +18,7 @@ import { shSoft } from "../../capabilities/effect/support.ts";
 /**
  * Abandoning a change: the opposite end of `complete.ts`.
  *
- * Cancelling takes back what IWE made — the worktrees and the terminal — and touches nothing
+ * Cancelling takes back what Corvi made — the worktrees and the terminal — and touches nothing
  * that anyone else can see. The branches stay (wt keeps an unmerged one), the pull requests stay
  * open, the ticket stays where it is. That is deliberate: cancelling is a decision about your own
  * desk, and closing somebody else's pull request or moving a ticket other people are watching is

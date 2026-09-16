@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef } from "react";
 import type { Platform } from "../model.ts";
 
 /** tmux keys worth knowing, since the terminal is a tmux session and nothing in the page hints
- * at that. Everything here is plain tmux: nothing IWE invented. */
+ * at that. Everything here is plain tmux: nothing Corvi invented. */
 const KEYS: [string, string][] = [
   ["ctrl-b c", "new window"],
   ["ctrl-b n / p", "next / previous window"],
@@ -95,8 +95,8 @@ export function CheatSheet({
         </tbody>
       </table>
       <p className="hint">
-        This tab is the tmux session <code>iwe-{changeId}</code>, started in the change directory.
-        Reach the same shells from any terminal with <code>tmux -L iwe attach -t iwe-{changeId}</code>.
+        This tab is the tmux session <code>corvi-{changeId}</code>, started in the change directory.
+        Reach the same shells from any terminal with <code>tmux -L corvi attach -t corvi-{changeId}</code>.
       </p>
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onClose}>

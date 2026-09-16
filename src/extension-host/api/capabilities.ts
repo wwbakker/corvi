@@ -17,17 +17,17 @@ export type { Result } from "../../capabilities/shell.ts";
 /** The answer cache: read-through with a TTL, one shared refresh per key, and prefix
  * invalidation for when an action has just made an answer wrong. The work's requirements
  * pass through untouched — the cache stores outcomes, not contexts. */
-export class Cache extends Context.Tag("iwe/Cache")<Cache, {
+export class Cache extends Context.Tag("corvi/Cache")<Cache, {
   swr<A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   invalidate(prefix: string): Effect.Effect<void>;
 }>() {}
 
 /** The settings in effect — the same refilled object every module holds, so a settings-page
  * save is visible without restart. Read-only by convention. */
-export class Settings extends Context.Tag("iwe/Settings")<Settings, Config>() {}
+export class Settings extends Context.Tag("corvi/Settings")<Settings, Config>() {}
 
 /** Say something changed, so open pages refetch through the event stream. */
-export class Bus extends Context.Tag("iwe/Bus")<Bus, {
+export class Bus extends Context.Tag("corvi/Bus")<Bus, {
   announce(event: "changes" | "windows"): Effect.Effect<void>;
 }>() {}
 
@@ -50,7 +50,7 @@ export type ExtensionStoreShape = {
  * provides the layer per contribution with the extension's name bound, so an effect names a
  * file (`notes.md`) rather than itself. `change.json`, `wt.toml` and the core's own sidecars are
  * not reachable through it; paths that escape the extension's directory are rejected. */
-export class ExtensionStore extends Context.Tag("iwe/ExtensionStore")<
+export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
   ExtensionStore,
   ExtensionStoreShape
 >() {}
@@ -59,7 +59,7 @@ export class ExtensionStore extends Context.Tag("iwe/ExtensionStore")<
  * the one read a migration needs. An extension can find a change and where its worktree is
  * without importing a module's server half. Deliberately read-only: there is no write, complete
  * or cancel. */
-export class Changes extends Context.Tag("iwe/Changes")<Changes, {
+export class Changes extends Context.Tag("corvi/Changes")<Changes, {
   /** The change with this id, or null when no change.json exists for it. */
   read(id: string): Effect.Effect<Change | null, DecodeError>;
   /** Where a change's checkout of `repo` is — its worktree, or the in-place repository — or

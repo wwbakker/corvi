@@ -30,8 +30,9 @@ import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
 let tmp: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-provision-"));
-  process.env.IWE_ROOT = tmp;
+  tmp = await mkdtemp(join(tmpdir(), "corvi-provision-"));
+  process.env.CORVI_ROOT = tmp;
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "archive");
 });
 
 afterAll(async () => {

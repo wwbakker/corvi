@@ -1,4 +1,5 @@
 import type { Config } from "../../domain/config.ts";
+import { env } from "../../capabilities/identity.ts";
 import { readFileSync } from "../../workspace/server/config.ts";
 import { resolveSetting } from "../../settings/server/legacySettings.ts";
 
@@ -26,9 +27,9 @@ const readLegacyFile = (): Record<string, unknown> | undefined => {
 /** The environment variables the extension's declared settings name, so the settings page's
  * lock and the fallback here cannot drift apart. */
 export const AZURE_ENV = {
-  organization: "IWE_AZURE_ORG",
-  project: "IWE_AZURE_PROJECT",
-  environments: "IWE_AZURE_ENVIRONMENTS",
+  organization: env("AZURE_ORG"),
+  project: env("AZURE_PROJECT"),
+  environments: env("AZURE_ENVIRONMENTS"),
 } as const;
 
 /** The legacy `azure: false` fact, or the per-workspace organisation/project overrides, when

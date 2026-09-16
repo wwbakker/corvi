@@ -26,8 +26,9 @@ import { contentInMain } from "../src/vendors/git.ts";
 let tmp: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-complete-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-complete-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
 });
 
 afterAll(async () => {
@@ -366,7 +367,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain(`gh pr merge 7 --squash`);
   expect(asked.some((line) => line.startsWith("wt --config"))).toBe(true);
-  expect(asked).toContain(`tmux -L iwe kill-session -t iwe-${change.id}`);
+  expect(asked).toContain(`tmux -L corvi kill-session -t corvi-${change.id}`);
 });
 
 test("completeChange: a failing change:completing hook vetoes before any merge", async () => {

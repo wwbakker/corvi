@@ -46,7 +46,7 @@ export const platformName = isMac ? "mac" : isLinux ? "linux" : "other";
  * to import it with. Copying those turns a two-minute reload into opening a project that is
  * already configured.
  *
- * None of this is IWE's state and none of it is in git — it is ignored, per-machine, and written
+ * None of this is Corvi's state and none of it is in git — it is ignored, per-machine, and written
  * by other programs. We copy it once, at creation, and never look at it again: the IDE owns it
  * from then on, and a worktree that already has some is left alone.
  *
@@ -117,7 +117,7 @@ const isText = (bytes: Buffer): boolean => !bytes.subarray(0, 8000).includes(0);
  *
  * An Effect, because the ignore check runs `git` and so reads the request's `Workspace` tag at
  * run time (src/capabilities/shell.ts): the caller (src/vendors/git.ts) runs it inside the request, so the
- * subprocess carries the workspace's environment like every other CLI IWE runs. Filesystem
+ * subprocess carries the workspace's environment like every other CLI Corvi runs. Filesystem
  * failures stay in the error channel, which the caller logs and keeps going — the worktree is
  * the thing that was asked for, and a change that failed to provision over a copy of `.idea`
  * would be a poor trade.

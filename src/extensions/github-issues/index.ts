@@ -9,7 +9,7 @@ import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.
 /**
  * Task boards for repositories that live on GitHub: issues picked in the wizard, followed on
  * the dashboard, closed when the change completes. Everything runs through `gh`, which holds
- * the credentials — IWE stores no secrets of its own.
+ * the credentials — Corvi stores no secrets of its own.
  *
  * Everything this extension asks of the machine goes through the `Shell` capability (so a
  * second client's `gh` is already the right one) and the `Cache` capability (so a dashboard of

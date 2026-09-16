@@ -9,15 +9,18 @@ import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write } from "../../capabilities/files.ts";
 import { config } from "../../workspace/server/index.ts";
+import { env } from "../../capabilities/identity.ts";
 
-/** Root of the per-change directories. Override with IWE_ROOT (tests do). */
-export const root = (): string => process.env.IWE_ROOT ?? config.changesRoot;
+/** Root of the per-change directories. Override with CORVI_ROOT (tests do). */
+export const root = (): string => process.env[env("ROOT")] ?? config.changesRoot;
 
-/** Completed changes move here, so the list stays the work in flight. */
-export const ARCHIVE = "archive";
+/** Where completed changes are moved. A root of its own — the archive can live outside the
+ * changes root, and listing the changes root never has to filter it out. Override with
+ * CORVI_ARCHIVE_ROOT (tests do). */
+export const archiveRoot = (): string => process.env[env("ARCHIVE_ROOT")] ?? config.archiveRoot;
 
 export const changeDir = (id: string): string => join(root(), id);
-export const archiveDir = (id: string): string => join(root(), ARCHIVE, id);
+export const archiveDir = (id: string): string => join(archiveRoot(), id);
 
 /** The Effect API. Failures go through the typed taxonomy
  * (docs/guides/effect-conventions.md), each carrying a human-readable message. */
@@ -198,7 +201,7 @@ export const setExtensionData = (
 export const archiveChange = (id: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!(yield* fileExists(changeFile(id)))) return; // already archived
-    yield* fs(() => mkdir(join(root(), ARCHIVE), { recursive: true }));
+    yield* fs(() => mkdir(archiveRoot(), { recursive: true }));
     yield* fs(() => rename(changeDir(id), archiveDir(id)));
   });
 
@@ -217,12 +220,12 @@ export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
     const [active, archived] = yield* Effect.all([
       directoriesIn(root()),
-      directoriesIn(join(root(), ARCHIVE)),
+      directoriesIn(archiveRoot()),
     ]);
     // A completed change can leave its directory behind — a terminal writing in it, a build
     // dropping target/ into it — while change.json has already moved to the archive. Both names
     // then resolve to the same change, and it must still be listed once.
-    const entries = [...new Set([...active.filter((name) => name !== ARCHIVE), ...archived])];
+    const entries = [...new Set([...active, ...archived])];
     const changes = yield* Effect.forEach(
       entries,
       (name) =>

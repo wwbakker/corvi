@@ -1,6 +1,6 @@
 /**
  * Agent state: publishes whether pi is working or waiting for you, why it is waiting, and what
- * the session is called, so anything outside the terminal can tell the difference — IWE's
+ * the session is called, so anything outside the terminal can tell the difference — Corvi's
  * window strip and its notifications, a tmux status line, another program.
  *
  * The state is a tmux pane option, `@agent_status`; the session's name is `@agent_session_name`;
@@ -17,7 +17,7 @@
  * seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
  * it when the pane dies, so a crashed agent leaves nothing stale behind.
  *
- * Install it with `bun run extension:install` in the IWE repository, which symlinks this file
+ * Install it with `bun run extension:install` in the Corvi repository, which symlinks this file
  * into `~/.pi/agent/extensions/`.
  */
 

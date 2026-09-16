@@ -9,7 +9,7 @@ import { file as fileHandle } from "../../capabilities/files.ts";
  *
  * Nothing new is configured: `jira-cli`'s config file already holds the site, the account and
  * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there.
- * Installing IWE on a new machine is `jira init` and an exported token.
+ * Installing Corvi on a new machine is `jira init` and an exported token.
  */
 export type JiraSetup = {
   /** e.g. https://example.atlassian.net */

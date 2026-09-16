@@ -15,7 +15,8 @@
 import { build } from "esbuild";
 import { cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
-import { fileResponse, stateDir, writeAtomic } from "../capabilities/files.ts";
+import { fileResponse, writeAtomic } from "../capabilities/files.ts";
+import { stateDir } from "../capabilities/identity.ts";
 
 /** Where the built page lives, beside the out-of-tree extension chunks. */
 export const clientDir = join(stateDir(), "client");
