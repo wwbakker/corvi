@@ -336,6 +336,11 @@ function App(): JSX.Element {
         )}
         {view.name === "change" && (
           <ChangeView
+            // Keyed by the change: its state — the cached reads, the notes and plan being typed,
+            // the widgets, the open terminal — belongs to one change. Reusing the instance across
+            // a switch is what let the previous change's notes stay on screen after its read
+            // came back, with nothing left to read them again (src/change-page/client/ChangeView.tsx).
+            key={view.id}
             id={view.id}
             page={view.page}
             platform={platform}

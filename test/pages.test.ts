@@ -37,6 +37,9 @@ let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-PAGES";
+/** A second change, for the page states that only differ once you leave one: the switch from one
+ * change to another is where a widget's state has to follow the change. */
+const other = "PROJ-PAGES-2";
 
 beforeAll(async () => {
   if (!usable) return;
@@ -56,10 +59,16 @@ beforeAll(async () => {
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
   url = await waitForUrl(server);
-  await fetch(`${url}/api/changes`, {
+  const first = await fetch(`${url}/api/changes`, {
     method: "POST",
     body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
   });
+  expect(first.ok).toBe(true);
+  const second = await fetch(`${url}/api/changes`, {
+    method: "POST",
+    body: JSON.stringify({ id: other, branch: `${other}-x`, repos: [repo] }),
+  });
+  expect(second.ok).toBe(true);
 });
 
 afterAll(async () => {
@@ -82,6 +91,13 @@ async function open(path: string, ready: string): Promise<string[]> {
   await page.close();
   return complaints;
 }
+
+/** Write one change's notes through the extension's own route, the way the card does. */
+const writeNotes = (change: string, text: string): Promise<Response> =>
+  fetch(`${url}/api/ext/notes/changes/${change}/notes`, {
+    method: "PUT",
+    body: JSON.stringify({ text }),
+  });
 
 test.skipIf(!usable)("every page renders without the engine complaining", async () => {
   const pages: [string, string][] = [
@@ -194,6 +210,78 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   await page.close();
 }, 30_000);
 
+test.skipIf(!usable)("switching changes shows the new change's notes, not the one just left", async () => {
+  // A change's notes are its own: the change you open must show them, not the ones you were
+  // typing into the change you left. The read is asynchronous, so this waits for what ends up
+  // on screen rather than for a single tick.
+  const left = "notes of the change you leave";
+  const opened = "notes of the change you open";
+  await writeNotes(id, left);
+  await writeNotes(other, opened);
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const notes = page.locator("textarea.notes");
+  await notes.waitFor();
+  /** The notes card's text, once it is what it should be; the load is asynchronous like every
+   * other, so this is the page's own answer after a bounded wait rather than immediately. */
+  const notesAre = async (want: string): Promise<string> => {
+    let shown = "";
+    for (let i = 0; i < 25; i++) {
+      shown = await notes.inputValue();
+      if (shown === want) break;
+      await Bun.sleep(200);
+    }
+    return shown;
+  };
+  expect(await notesAre(left)).toBe(left);
+
+  // Type into it, then switch before the debounced save has landed: the in-flight text must not
+  // be inherited by the change you open.
+  await notes.fill("typed into the change you leave");
+  await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
+  await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+  expect(await notesAre(opened)).toBe(opened);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("a read from the change you left does not land on the one you opened", async () => {
+  // The load is asynchronous, so a change's notes can still be on their way when you switch.
+  // The card that asked for them is the one that must take the answer: a response from the
+  // change you left, arriving after the new change's, would otherwise write its text into the
+  // notes you are now looking at — and nothing would read them again until the page remounts.
+  await writeNotes(id, "notes of the change you leave");
+  await writeNotes(other, "notes of the change you open");
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // Held back long enough that the switch happens while this read is in flight, which is the
+  // race: a slow read, not a wrong one.
+  await page.route(
+    (url) => url.pathname === `/api/ext/notes/changes/${id}/notes`,
+    async (route) => {
+      await Bun.sleep(1500);
+      await route.continue();
+    },
+  );
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.locator("textarea.notes").waitFor();
+  await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
+  await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+
+  // The change you opened answered first, and stays: the late answer is for a page that is gone.
+  const notes = page.locator("textarea.notes");
+  let shown = "";
+  for (let i = 0; i < 25; i++) {
+    shown = await notes.inputValue();
+    if (shown === "notes of the change you open") break;
+    await Bun.sleep(200);
+  }
+  expect(shown).toBe("notes of the change you open");
+  await Bun.sleep(2000); // past the held response
+  expect(await notes.inputValue()).toBe("notes of the change you open");
+  await page.close();
+}, 30_000);
+
 test.skipIf(!usable)("the change's own row is the page's first, and it stays there", async () => {
   // The terminals are the window's title bar in the app, which is the page's first row whether or not
   // a host is there (docs/decisions/window-titlebar.md): full-bleed, and one height everywhere so it
@@ -240,13 +328,13 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   expect(Math.abs(stoppedTabs!.y - TITLE_BAR_HEIGHT)).toBeLessThanOrEqual(1);
 
   // The navigation column: one line per change, its name, and no id of its own. The branch — the id
-  // with a slug after it — is the entry's tooltip.
-  await page.locator(".sidebar .entry.change .subject").waitFor();
-  expect(await page.locator(".sidebar .entry.change .id").count()).toBe(0);
-  expect((await page.locator(".sidebar .entry.change .subject").innerText()).trim()).toBe(
-    "Anonymise customer names",
-  );
-  expect(await page.locator(".sidebar .entry.change").first().getAttribute("title")).toContain(id);
+  // with a slug after it — is the entry's tooltip. Scoped to this change's own entry, since the
+  // column holds every change in the workspace (test/pages.test.ts's second one included).
+  const entry = page.locator(".sidebar .entry.change", { hasText: "Anonymise customer names" });
+  await entry.locator(".subject").waitFor();
+  expect(await entry.locator(".id").count()).toBe(0);
+  expect((await entry.locator(".subject").innerText()).trim()).toBe("Anonymise customer names");
+  expect(await entry.getAttribute("title")).toContain(id);
 
   await page.close();
 }, 30_000);
