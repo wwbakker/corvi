@@ -99,7 +99,7 @@ export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
   const said = merged(raw);
   const base = raw.named ? raw.name : raw.directory || raw.name;
   const what = said.running ?? raw.command;
-  const label = said.label ?? (what && what !== "zsh" && what !== base ? `${base} - (${what})` : base);
+  const label = said.label ?? (what && !SHELLS.includes(what) && what !== base ? `${base} - (${what})` : base);
   return {
     index: raw.index,
     id: raw.id,
