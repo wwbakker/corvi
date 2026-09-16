@@ -50,7 +50,7 @@ is reported as "the server has no /settings — it is probably running older cod
 ## The app
 
 ```bash
-bun run app:install      # macOS: ~/Applications/Integrated Work Environment.app
+bun run app:install      # macOS: ~/Applications/Corvi.app
 bun run app:uninstall    # Linux: desktop entry, icons and the corvi launcher
 ```
 
