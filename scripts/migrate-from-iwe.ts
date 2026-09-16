@@ -147,6 +147,17 @@ if (!moves.length && !sessionMoves.length) {
   process.exit(0);
 }
 
+// The shell may be sitting in a directory this run moves (the script itself is already loaded,
+// so it survives). Its cwd and everything running in it — an agent, a build — go stale, which is
+// easy to do by running this from a change's own worktree; say so before it happens.
+const here = process.cwd();
+if (here === oldRoot || here.startsWith(`${oldRoot}/`)) {
+  console.warn(
+    `warning: this shell is inside the changes root it moves (${here}); run the script from ` +
+      "outside it, so the shell's working directory does not go stale.",
+  );
+}
+
 for (const move of moves) console.log(`${apply ? "moving" : "would move"} ${move.from} -> ${move.to}`);
 for (const move of sessionMoves) console.log(`${apply ? "moving" : "would move"} ${move.from} -> ${move.to}`);
 if (!apply) {

@@ -14,9 +14,11 @@ const script = join(import.meta.dir, "..", "scripts", "migrate-from-iwe.ts");
 const runScript = (
   home: string,
   args: string[] = [],
+  cwd?: string,
 ): { exitCode: number; stdout: Buffer; stderr: Buffer } =>
   Bun.spawnSync({
     cmd: ["bun", script, "--home", home, ...args],
+    ...(cwd ? { cwd } : {}),
     env: { ...process.env, XDG_STATE_HOME: join(home, ".local", "state") },
     stdout: "pipe",
     stderr: "pipe",
@@ -153,6 +155,15 @@ test("a dry run moves nothing and says what it would", async () => {
   expect(await exists(join(home, ".config", "iwe", "config.json"))).toBe(true);
   expect(await exists(join(home, "corvi"))).toBe(false);
   expect(await exists(join(home, "changes", "PROJ-1"))).toBe(true);
+});
+
+test("a run from inside the changes root warns before moving it", async () => {
+  const { home } = await seed();
+  const result = runScript(home, [], join(home, "changes", "PROJ-1"));
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr.toString()).toContain("inside the changes root it moves");
+  expect(await exists(join(home, "corvi"))).toBe(false); // a dry run still moves nothing
 });
 
 test("a custom changesRoot is refused rather than guessed at", async () => {
