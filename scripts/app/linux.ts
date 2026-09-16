@@ -27,15 +27,12 @@ const NAME = PRODUCT;
 /** The window's application id / WM_CLASS — Electron sets both from the app name (scripts/app/electron/main.ts),
  * and StartupWMClass must match. */
 const APP_ID = ID;
-/** The name an install from before the rename may still sit under, launcher and entry included. */
-const OLD_ID = "iwe";
 const root = resolve(".");
 
 const launcherPath = (): string => join(homedir(), ".local", "bin", ID);
 const entryPath = (): string => join(homedir(), ".local", "share", "applications", `${ID}.desktop`);
 /** Where the built Electron app lives; `$XDG_DATA_HOME` is where an installed program's own
  * files go, and reinstalling refreshes it. */
-const dataHome = (): string => process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share");
 const appDir = (): string => join(dataDir(), "app");
 /** Where the server's output goes ($XDG_STATE_HOME/corvi), next to the pid-files. */
 const logDir = (): string => stateDir();
@@ -45,16 +42,6 @@ const ICON_SIZES = [16, 32, 48, 64, 128, 256, 512];
 
 const iconPath = (id: string, size: number): string =>
   join(homedir(), ".local", "share", "icons", "hicolor", `${size}x${size}`, "apps", `${id}.png`);
-
-/** What an install from before the rename left behind: the launcher, the desktop entry, the
- * built window and the icons under the old name. Both install and uninstall clear them, so
- * nothing old lingers in the app grid or the Dock. */
-const removeOldInstall = async (): Promise<void> => {
-  await rm(join(homedir(), ".local", "bin", `${OLD_ID}-app`), { force: true });
-  await rm(join(homedir(), ".local", "share", "applications", `${OLD_ID}.desktop`), { force: true });
-  await rm(join(dataHome(), OLD_ID, "app"), { recursive: true, force: true });
-  for (const size of ICON_SIZES) await rm(iconPath(OLD_ID, size), { force: true });
-};
 
 /** Renders assets/icon.svg into the user's hicolor icons, one PNG per size. Skipped when
  * `rsvg-convert` is missing: an app with a missing icon still works, and refusing to install
@@ -263,7 +250,6 @@ async function install(): Promise<void> {
   await writeFile(entryPath(), desktopEntry());
 
   const drawn = await icons();
-  await removeOldInstall();
 
   console.log(`installed: ${entryPath()}`);
   console.log(`  launcher: ${launcherPath()}`);
@@ -289,7 +275,6 @@ async function uninstall(): Promise<void> {
   for (const size of ICON_SIZES) {
     await rm(iconPath(APP_ID, size), { force: true });
   }
-  await removeOldInstall();
   await sh(["gtk-update-icon-cache", "-f", "-t", join(homedir(), ".local", "share", "icons", "hicolor")]);
   // The log dir is left alone: it holds the server's output, which outlives the app.
   console.log(`removed: ${entry}`);

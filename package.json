@@ -30,7 +30,6 @@
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
     "extension:uninstall": "bun scripts/extension.ts uninstall",
-    "migrate:iwe": "bun scripts/migrate-from-iwe.ts",
     "app:install": "bun scripts/app.ts install",
     "app:uninstall": "bun scripts/app.ts uninstall",
     "app:run": "bun scripts/app.ts run",

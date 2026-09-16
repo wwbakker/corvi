@@ -75,9 +75,6 @@ scripts/clean-test.ts       ends what a test run left behind, by ownership
 test/                       the suite; test/terminal.test.ts drives a real pty and tmux
 ```
 
-`scripts/migrate-from-iwe.ts` is the one-time move from the old names; it goes away once installs
-have moved.
-
 The extension host (`src/extension-host/index.ts`) loads built-ins and out-of-tree modules through
 the same install path and answers the core's one question — which extensions exist for this
 workspace — with a filtered list. See [`extensions.md`](extensions.md) for the contract.

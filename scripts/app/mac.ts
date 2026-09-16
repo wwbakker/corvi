@@ -22,12 +22,8 @@ import { buildApp } from "./electron/build.ts";
 import { ID, PRODUCT } from "../../src/capabilities/identity.ts";
 
 const NAME = PRODUCT;
-/** The bundle identifier macOS keys permissions, notifications and Apple Events by. Changing
- * it means macOS asks for the microphone again — a one-time cost of the rename. */
+/** The bundle identifier macOS keys permissions, notifications and Apple Events by. */
 const BUNDLE_ID = "nl.wwbakker.corvi";
-/** Bundle names an install may have left in ~/Applications; install and uninstall both remove
- * them, so they cannot sit in the Dock beside this one. */
-const OLD = ["IWE", "Integrated Work Environment"];
 const bundle = (): string => join(homedir(), "Applications", `${NAME}.app`);
 
 /** The Electron version this checkout depends on, read from the repository package.json. */
@@ -135,9 +131,6 @@ async function install(root: string): Promise<void> {
     await cp(builtApp, bundle(), { recursive: true, verbatimSymlinks: true });
     // Finder caches bundles by path and date; touching it makes the new icon appear now.
     await sh(["touch", bundle()]);
-    for (const old of OLD) {
-      await rm(join(homedir(), "Applications", `${old}.app`), { recursive: true, force: true });
-    }
 
     console.log(`installed: ${bundle()}`);
     console.log(`  serves:  ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
@@ -162,9 +155,6 @@ async function uninstall(): Promise<void> {
   // Quit before removing: a running app whose bundle vanishes is a confusing thing to leave.
   if (await running()) await quit();
   await rm(bundle(), { recursive: true, force: true });
-  for (const old of OLD) {
-    await rm(join(homedir(), "Applications", `${old}.app`), { recursive: true, force: true });
-  }
   console.log(`removed: ${bundle()}`);
 }
 

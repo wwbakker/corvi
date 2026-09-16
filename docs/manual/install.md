@@ -165,21 +165,3 @@ it keeps a readable 1200px column.
 `assets/icon.svg` (and `assets/icon-maskable.svg` for the padded, croppable variant); edit those
 and run `bun run icons` to regenerate `src/app-root/icons/*.png` with `rsvg-convert`
 (`brew install librsvg`). The generated PNGs are committed, so a clone serves them without it.
-
-## From an older install
-
-Before this release Corvi was called IWE: the environment variables were `IWE_*`, the config
-lived in `~/.config/iwe`, and changes in `~/changes`. Nothing is read from the old names any
-more, so an install from before the rename moves once:
-
-```bash
-bun run migrate:iwe              # what would move
-bun run migrate:iwe --apply      # move it
-```
-
-The script moves the config, cache and state directories; the changes root and its archive; the
-`wt.toml` worktree paths and the git worktrees that moved with them; and the pi sessions whose
-working directory was under the old root — their directory and the `cwd` in their header. Stop
-Corvi, its terminals and any agent working in a change before running it, and `bun run
-app:install` afterwards so the launcher, entry and icons are Corvi's. The script is temporary
-and will be deleted once installs have moved.

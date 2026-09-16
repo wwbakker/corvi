@@ -18,13 +18,12 @@ app (`Integrated Work Environment.app`, `dev.iwe.app`, `~/.local/bin/iwe-app`), 
 ## Decision
 
 **One clean break, no compatibility reads.** Every identifier is Corvi's now. Old names are not
-read, not aliased and not warned about; an install from before the rename moves once, with a
-temporary script (`scripts/migrate-from-iwe.ts`, `bun run migrate:iwe`, dry-run by default). The
-script moves the config, cache and state directories; the changes root with its archive; the
-`wt.toml` worktree paths; repairs the git worktrees that moved with it; and renames the pi
-sessions whose working directory was under the old root, header `cwd` included. A destination
-that exists aborts rather than merges, and a custom `changesRoot` is refused rather than guessed
-at. The script is deleted in a follow-up change once installs have moved.
+read, not aliased and not warned about. An install from before the rename moved once, with a
+temporary script that moved the config, cache and state directories; the changes root with its
+archive; the `wt.toml` worktree paths; repaired the git worktrees that moved with it; and
+renamed the pi sessions whose working directory was under the old root, header `cwd` included.
+It was run for the installs that needed it and deleted before this change landed, so the
+repository ships no migration code at all — there is nothing to run, and nothing to age.
 
 **The name lives in one place.** `src/capabilities/identity.ts` holds the product name, the slug,
 the `CORVI_` environment prefix and the XDG path defaults; every module derives its spelling from
@@ -53,8 +52,7 @@ rewriting them.
   keys those grants by changed.
 - **Terminals left on the old `-L iwe` socket are not adopted**: they stay reachable by hand
   until that tmux server dies, and new terminals start on `-L corvi`.
-- **One directory move is unavoidable for `~/changes`.** Whatever is running inside a change —
-  an agent, a terminal, a build — must be stopped first; the script says so, and repairs the
-  worktrees afterwards.
-- The migration script and its test are dead weight after the first installs move; removing them
-  is a follow-up change, not a permanent fixture.
+- **One directory move was unavoidable for `~/changes`.** Whatever is running inside a change —
+  an agent, a terminal, a build — had to be stopped first; the script did the git worktree
+  repair afterwards.
+- The migration script and its test are gone with the move; nothing temporary ships.

@@ -53,8 +53,8 @@ first run has the settings page at `/settings` for the paths and integrations, a
   the extension contract and the decisions behind the code.
 
 Corvi grew up as *IWE* (Integrated Work Environment). This release renames everything after it —
-environment variables, directories and the app itself; an install from before the rename moves
-with `bun run migrate:iwe` (see [the manual](docs/manual/install.md#from-an-older-install)).
+environment variables, directories and the app itself — and records why in
+[`docs/decisions/corvi-identifiers.md`](docs/decisions/corvi-identifiers.md).
 
 ## Development
 
