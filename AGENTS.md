@@ -19,12 +19,12 @@ Ownership is decidable, because only tests carry these:
 
 - test tmux servers listen on sockets under `$TMPDIR/iwe-*`, named explicitly: every tmux call in
   the tests passes `-S <socket>`, and the server under test gets the same path as
-  `IWE_TMUX_SOCKET` (src/terminals/server/tmux.ts). IWE's own terminals live on the `iwe` socket
+  `IWE_TMUX_SOCKET` (src/terminals/server/tmux.ts). Corvi's own terminals live on the `iwe` socket
   (`-L iwe`: `tmux-<uid>/iwe` under `$TMUX_TMPDIR` or /tmp — `/private/tmp/tmux-<uid>/iwe` on
   macOS — or whatever `IWE_TMUX_SOCKET` names; sessions made before that change are still on the
   default socket); the default socket (`/private/tmp/tmux-<uid>/default` on macOS,
   `/tmp/tmux-<uid>/default` on Linux) is yours — a bare `tmux` command from a test or a probe
-  reaches nothing of IWE's. Those directories are short on purpose: a unix socket path is capped
+  reaches nothing of Corvi's. Those directories are short on purpose: a unix socket path is capped
   at 103 characters, and macOS's `$TMPDIR` spends most of it before the run token is added — over
   the cap, tmux starts no server at all and the terminal tests fail with nothing to say why
   (test/helpers.ts, `tmuxTempDir`);

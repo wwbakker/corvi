@@ -2,7 +2,7 @@
 
 > **Kind:** guide · **Status:** active
 
-An extension is a piece of TypeScript that adds something to IWE — a dashboard card, a step in
+An extension is a piece of TypeScript that adds something to Corvi — a dashboard card, a step in
 the "Create change" wizard, a hook on the change lifecycle, a route, a source of titles for the
 overview, a page of its own. It is the shape pi's extensions have: a module whose default export
 **describes** what it contributes — a static value, or a factory returning one — so the host

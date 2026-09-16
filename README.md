@@ -1,14 +1,20 @@
-# Integrated Work Environment
+# Corvi
 
-A local dashboard for a *change*: the work spanning one or more repositories, plus the
-worktrees, pull requests, tickets and builds around it.
+[![CI](https://github.com/wwbakker/corvi/actions/workflows/ci.yml/badge.svg)](https://github.com/wwbakker/corvi/actions/workflows/ci.yml)
+
+**An agent-ready development environment for a change.** Corvi is a local dashboard for a
+*change*: the work spanning one or more repositories, plus the worktrees, pull requests, tickets
+and builds around it — and the terminals where you and your agents do the work.
 
 State lives in one directory per change (`~/changes/<id>/`, `~/changes/archive/<id>/` once
 completed), holding `change.json`, a `wt.toml` that points `wt` at that directory, the git
 worktrees themselves, and per-extension files under `extensions/<name>/` (the notes extension's
 `notes.md`, say). Everything else (PR status,
-ticket status, pipeline runs) is read live from the vendors' own CLIs, so this tool stores no
+ticket status, pipeline runs) is read live from the vendors' own CLIs, so Corvi stores no
 secrets and owns no copy of their data.
+
+Corvi grew up as *IWE* (Integrated Work Environment): a few environment variables (`IWE_*`),
+the config directory (`~/.config/iwe`) and the tmux socket still carry that earlier name.
 
 A change begins as an **idea**: a title, a plan (`PLAN.md`), and a conversation with an agent in
 the change's terminal — before any branch or worktree exists. Creating an idea touches nothing
@@ -29,13 +35,13 @@ beta, for the reason in [`docs/decisions/node-pty-prebuild.md`](docs/decisions/n
 
 The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux`).
 `wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
-official Arch package, and every invocation IWE makes was verified to behave identically on Linux
+official Arch package, and every invocation Corvi makes was verified to behave identically on Linux
 (`brew install worktrunk` on macOS; details and non-Arch installs in `docs/decisions/wt-on-linux.md`).
 
 The app's own window needs nothing extra on either platform: it is Electron, which `bun install`
 downloads with the rest of the dependencies (`docs/decisions/electron-host.md`), and the server
 inside it runs on Electron's own Node — so Bun is the toolchain for installing and developing
-IWE, not something an installed app needs at runtime (`docs/decisions/node-server.md`). The page
+Corvi, not something an installed app needs at runtime (`docs/decisions/node-server.md`). The page
 itself is still a web page — any browser opens it. Developing needs Node 24+ as well: `bun run
 dev` starts the server with `node --watch`, and `bun test` spawns its servers with `node`,
 because the terminal's pty library delivers nothing under Bun
@@ -117,7 +123,7 @@ Two conventions run through the page:
 - **A setting an environment variable is overriding is locked**, with the variable named next to
   it. The variable wins, so an editable box would be a lie.
 
-It writes by merging over what the file holds, so a key IWE does not know about — put there by
+It writes by merging over what the file holds, so a key Corvi does not know about — put there by
 hand, for a newer version — survives being saved by an older one. Validation lives on the server
 because the file can also be edited by hand: rules in the browser only would be rules that half
 the ways in ignore. It refuses a relative path, a duplicate or non-word workspace id, a nameless
@@ -281,7 +287,7 @@ row — no band of the system's above it. On the change pages that row is the ch
 terminals beside it, and the row under it is the change's own tabs with its state and its actions;
 both stay put while the page scrolls (`docs/decisions/window-titlebar.md`) — and the server inside
 it. Clicking it **starts the app's own server — on a fresh port, picked at launch** — shows
-"Starting IWE…" on the page's own background while it waits, then loads the app.
+"Starting Corvi…" on the page's own background while it waits, then loads the app.
 
 **The app always runs the production build, on a fresh port.** `bun run dev` keeps 4000. A shared
 port would let the window attach to whatever is listening there: a dev server left running from
@@ -295,7 +301,7 @@ The two are separate things rather than two ways to start the same thing:
 
 | | `bun run dev` | the app |
 | --- | --- | --- |
-| for | editing IWE | using IWE |
+| for | editing Corvi | using Corvi |
 | port | 4000 | fresh each launch |
 | build | rebuilt as you edit | built once, `NODE_ENV=production` |
 | on a code change | restarts itself (`--watch`) | picks it up when you next launch it |
@@ -311,13 +317,13 @@ What the window buys over a Chrome `--app` window:
 
 - **A dark window from the first frame.** `backgroundColor` and a dark appearance, where a plain
   `--app` window flashes white before the page paints.
-- **A Dock icon that means something**: it is there while IWE is running, and Quit stops it.
+- **A Dock icon that means something**: it is there while Corvi is running, and Quit stops it.
 - **cmd-t is ours.** Chromium keeps it for new tabs in a browser; the app keeps no menu that could
   take it from the page (the terminal's own chord, on Linux, lives in the page).
 - **Links leave.** Jira, GitHub and Azure DevOps open in your browser rather than replacing the
   page.
 - **The page's questions get asked.** Chromium draws `alert`, `confirm` and `prompt`; the app
-  draws none of them itself, and every confirmation in IWE — cancelling a change, a removal that
+  draws none of them itself, and every confirmation in Corvi — cancelling a change, a removal that
   would lose commits, deleting a leftover — behaves in the app exactly as it does in a browser.
 
 Two details that took a bug each, and survive from the hosts this replaced:
@@ -366,7 +372,7 @@ server: it starts one of its own — on a fresh port, picked at launch, through 
 started**. Terminals are tmux's and survive that, which is the same promise a restart of the
 server has always made. The window records the pid of the server it started in
 `~/.local/state/iwe/iwe-app-<port>.pid`, so `iwe-app stop` can still stop a server left behind by
-a window that died harder than it could clean up after; it checks each pid is still an IWE server
+a window that died harder than it could clean up after; it checks each pid is still an Corvi server
 and refuses anything else. Logs land in `~/.local/state/iwe/log`. Without Electron the launcher
 falls back to the browser's app mode, where the server is started detached and outlives the tab —
 a browser window cannot clean up after anything. `app:uninstall` removes the entry, launcher,
@@ -486,7 +492,7 @@ at once.
     { "jira": { "configFile": "~/.config/.jira/client.yml", "tokenEnv": "JIRA_TOKEN_CLIENT" } } }
 ```
 
-`env` is added to **every** CLI IWE runs for that workspace — `git`, `gh`, `az`, `tmux`, however
+`env` is added to **every** CLI Corvi runs for that workspace — `git`, `gh`, `az`, `tmux`, however
 deep the call — so two GitHub accounts or two Azure tenants stop fighting over one login. `~` is
 expanded, since these are paths and a shell would have done it.
 
@@ -691,7 +697,7 @@ your commits alone rather than both changes' together. GitHub retargets it to `m
 once the branch below merges — and since these repositories squash-merge, rebase afterwards with
 `git rebase --onto origin/main <branch-below> <your-branch>` rather than merging `main` in.
 
-When the branch below has a pull request of its own, IWE also registers the two as a **GitHub
+When the branch below has a pull request of its own, Corvi also registers the two as a **GitHub
 stack** (a public preview feature): the new pull request is appended to that stack, or a stack of
 the two is created. Reviewers then see the order of the work, and merging the bottom one carries
 the rest along. It is best effort — a repository without the preview feature, or a base branch
@@ -704,7 +710,7 @@ manageable, four is a research project every time the bottom one moves.
 
 A worktree is a checkout of the same repository, but to IntelliJ it is an unknown directory: no
 `.idea` means the project is imported from scratch, and no `.bsp` means there is no build server
-to import it with. So on creation IWE copies those directories over from the repository —
+to import it with. So on creation Corvi copies those directories over from the repository —
 `worktreeCopy` in the config, by default:
 
 ```
@@ -725,7 +731,7 @@ only a prefix — `example-api` must not be rewritten inside `example-api-client
 hypothetical: one repository here has a sibling's `bin` directory on the `PATH` in its
 `.scala-build/ide-envs.json`, and a naive replacement corrupts it.
 
-None of this is IWE's state and none of it is in git; it is ignored, per-machine, and written by
+None of this is Corvi's state and none of it is in git; it is ignored, per-machine, and written by
 other programs. It is copied once, at creation, and never touched again — a worktree that already
 has a `.idea` keeps it, since the IDE has owned it since. Build outputs (`target`, `node_modules`)
 are deliberately *not* copied: recreating them is a build, and a stale copy is worse than none.
@@ -737,11 +743,11 @@ Failing to copy is never fatal — the worktree is what was asked for.
 ## Terminals
 
 Each change has a **Terminals** tab: one tmux session named `iwe-<change id>`, started in the
-change directory on IWE's own tmux socket (`-L iwe`), attached by a pty in the server
+change directory on Corvi's own tmux socket (`-L iwe`), attached by a pty in the server
 (`node-pty`) and drawn by xterm.js in the page itself.
 
 A terminal outlives the server: tmux owns the session and the pty is only one of its clients, so
-restarting IWE — which is constant while working on IWE itself — detaches and re-attaches without
+restarting Corvi — which is constant while working on Corvi itself — detaches and re-attaches without
 costing you a shell. Completing a change is what ends a terminal for good.
 
 The connection is made when a terminal is opened, and not before: a dashboard you glanced at
@@ -802,10 +808,10 @@ away. tmux stays the source of truth — the page calls `list-windows`, `new-win
 
 Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button in
 the terminal's own row lists them — which is also the answer to "how do I get more than one terminal":
-tmux does that, IWE does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
+tmux does that, Corvi does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
 pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
 yourself keep your own settings. A change needs no terminal at all some days and three in one
-repository on others, so IWE opens none for you: opening the terminal is what starts the session.
+repository on others, so Corvi opens none for you: opening the terminal is what starts the session.
 
 **Shift-Enter and Ctrl-Enter.** A browser terminal cannot encode these by itself: xterm.js sends a
 carriage return for Enter whatever modifier is held — there is no legacy encoding for a modified
@@ -830,14 +836,14 @@ shell, so the page takes **Ctrl+Shift+C / Ctrl+Shift+V**, and **middle-click** p
 clipboard too; the cheat sheet button lists the keys for the platform you are on.
 
 A terminal that comes up blank: the session is reachable from a normal terminal
-(`tmux -L iwe attach -t iwe-<change id>` — the sessions live on IWE's own socket, so the command
+(`tmux -L iwe attach -t iwe-<change id>` — the sessions live on Corvi's own socket, so the command
 has to name it), which tells you quickly whether the problem is tmux or the browser. After
 changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
 
-The socket is also what keeps a stray `tmux` command from reaching IWE: a bare `tmux` — from a
+The socket is also what keeps a stray `tmux` command from reaching Corvi: a bare `tmux` — from a
 script, a probe, a test run — resolves to the default socket and finds none of these sessions.
-Inside a pane, though, `$TMUX` still names IWE's server, so a `tmux kill-server` typed there ends
-every IWE terminal; outside a pane it finds nothing.
+Inside a pane, though, `$TMUX` still names Corvi's server, so a `tmux kill-server` typed there ends
+every Corvi terminal; outside a pane it finds nothing.
 
 Completing a change kills its session and the ptys attached to it, since the change directory
 moves into the archive underneath it.
@@ -1023,7 +1029,7 @@ environment, and what each of them holds.
 **Not part of a change, deliberately.** You deploy a service's build to an environment, and which
 change produced that build is a separate question — often somebody else's. "What is on accept?"
 is asked before a release and during an incident, when there is no change open to ask it from.
-This is the first part of IWE that is not about a change, and it is the exception that earns it.
+This is the first part of Corvi that is not about a change, and it is the exception that earns it.
 
 **Nothing is stored.** A deploy run records the version and the environment it was given
 (`templateParameters`), so the newest run per environment *is* the state of that environment, and

@@ -2,7 +2,7 @@
 
 > **Kind:** guide · **Status:** active
 
-IWE is one server process — Electron's Node in the app and in development (`bun run dev` starts
+Corvi is one server process — Electron's Node in the app and in development (`bun run dev` starts
 it with `node --watch`; [`../decisions/node-server.md`](../decisions/node-server.md),
 [`../decisions/node-pty-terminal.md`](../decisions/node-pty-terminal.md)) — that serves an HTTP
 API and a

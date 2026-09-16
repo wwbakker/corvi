@@ -1,6 +1,6 @@
 # Documentation
 
-IWE's documentation is split by **how long it stays true**, so a reader (or an agent) can tell
+Corvi's documentation is split by **how long it stays true**, so a reader (or an agent) can tell
 at a glance what is authoritative and what is work in progress.
 
 - **[`guides/`](guides/)** — durable. How the system is put together and which way to do things.
@@ -37,7 +37,7 @@ Every doc starts with a status header:
 | [`decisions/window-titlebar.md`](decisions/window-titlebar.md) | The page's own first row is the window's title bar; the main process keeps only the traffic lights |
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
 | [`decisions/node-pty-terminal.md`](decisions/node-pty-terminal.md) | node-pty + xterm.js replace ttyd; the dev server runs on Node too |
-| [`decisions/tmux-socket.md`](decisions/tmux-socket.md) | IWE's terminals live on their own tmux socket, named by one builder; every tmux command names its socket |
+| [`decisions/tmux-socket.md`](decisions/tmux-socket.md) | Corvi's terminals live on their own tmux socket, named by one builder; every tmux command names its socket |
 | [`decisions/terminal-clipboard.md`](decisions/terminal-clipboard.md) | tmux's own copies reach the system clipboard; the page handles OSC 52, middle-click pastes it |
 | [`decisions/node-pty-prebuild.md`](decisions/node-pty-prebuild.md) | node-pty is pinned to the 1.2.0 beta: 1.1.0's macOS prebuild ships a spawn-helper without the execute bit |
 | [`decisions/linux-native-window.md`](decisions/linux-native-window.md) | WebKitGTK + PyGObject for the Linux window (superseded by electron-host.md) |
@@ -49,7 +49,6 @@ Every doc starts with a status header:
 
 | Document | Status |
 |---|---|
-| [`plans/module-layout.md`](plans/module-layout.md) | the `src/` tree follows the web app |
 | [`plans/notes-widget.md`](plans/notes-widget.md) | notes back on the dashboard as a client-drawn widget |
 | [`plans/archive/review-1.md`](plans/archive/review-1.md) | input to the refactor plan (now archived) |
 | [`plans/archive/review-2.md`](plans/archive/review-2.md) | input to the refactor plan (now archived) |
