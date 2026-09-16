@@ -166,6 +166,16 @@ test("a run from inside the changes root warns before moving it", async () => {
   expect(await exists(join(home, "corvi"))).toBe(false); // a dry run still moves nothing
 });
 
+test("an existing state directory is refused with the way out", async () => {
+  const { home } = await seed();
+  await mkdir(join(home, ".local", "state", "corvi", "client"), { recursive: true });
+  const result = runScript(home, ["--apply"]);
+
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr.toString()).toContain("remove it and run again");
+  expect(await exists(join(home, "changes", "PROJ-1"))).toBe(true); // nothing moved
+});
+
 test("a custom changesRoot is refused rather than guessed at", async () => {
   const { home } = await seed({ changesRoot: "~/somewhere/else" });
   const result = runScript(home, ["--apply"]);

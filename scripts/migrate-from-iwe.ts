@@ -79,9 +79,24 @@ if (oldRoot !== oldDefaultRoot) {
   );
 }
 
-/** Refuse a half-migrated or freshly used install: the script moves, it does not merge. */
-for (const destination of [newConfigDir, newCacheDir, newStateDir, newRoot, newArchive]) {
-  if (await exists(destination)) fail(`${destination} already exists`);
+/** Refuse a half-migrated or freshly used install: the script moves, it does not merge. The
+ * state and cache directories hold build output and cached answers, so their message says
+ * removal is the fix; the config and the change data are not this script's to discard. */
+const destinations: { path: string; regenerable: boolean }[] = [
+  { path: newConfigDir, regenerable: false },
+  { path: newCacheDir, regenerable: true },
+  { path: newStateDir, regenerable: true },
+  { path: newRoot, regenerable: false },
+  { path: newArchive, regenerable: false },
+];
+for (const { path, regenerable } of destinations) {
+  if (!(await exists(path))) continue;
+  fail(
+    `${path} already exists` +
+      (regenerable
+        ? " — it holds only build output and cached answers from a run of the new code; remove it and run again"
+        : " — the script moves rather than merges"),
+  );
 }
 
 type Move = { from: string; to: string; change?: string };
