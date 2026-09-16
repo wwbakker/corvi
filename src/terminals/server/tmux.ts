@@ -58,8 +58,12 @@ export const attachCommand = (id: string, dir: string): string[] =>
     dir,
     // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
     // session with -t, so tmux sessions you started yourself keep your own settings.
+    // -q on all of them: an option a tmux version does not know (extended-keys-format is
+    // tmux 3.5+; Ubuntu 24.04 ships 3.4) must not fail the client that is holding the attach
+    // open — a non-zero exit there detaches the pty, and the later options never run.
     ";",
     "set-option",
+    "-q",
     "-t",
     sessionName(id),
     "mouse",
@@ -68,6 +72,7 @@ export const attachCommand = (id: string, dir: string): string[] =>
     // strip above the terminal draws a dot for.
     ";",
     "set-option",
+    "-q",
     "-t",
     sessionName(id),
     "monitor-activity",
@@ -75,6 +80,7 @@ export const attachCommand = (id: string, dir: string): string[] =>
     // The flag is the point; the message across the status bar is not.
     ";",
     "set-option",
+    "-q",
     "-t",
     sessionName(id),
     "visual-activity",
@@ -84,11 +90,13 @@ export const attachCommand = (id: string, dir: string): string[] =>
     // every session it runs, ours included.
     ";",
     "set-option",
+    "-q",
     "-s",
     "extended-keys",
     "on",
     ";",
     "set-option",
+    "-q",
     "-s",
     "extended-keys-format",
     "csi-u",
@@ -98,6 +106,7 @@ export const attachCommand = (id: string, dir: string): string[] =>
     // policy for every session it runs, ours included.
     ";",
     "set-option",
+    "-q",
     "-s",
     "set-clipboard",
     "on",
@@ -112,7 +121,7 @@ export const attachCommand = (id: string, dir: string): string[] =>
     "-F",
     "#{m/r:clipboard,#{client_termfeatures}}",
     "",
-    'set -as terminal-features ",*:clipboard"',
+    'set -q -as terminal-features ",*:clipboard"',
   ]);
 
 /** The Result-branching contract: the one failure `sh` can raise here is a timeout, which
