@@ -659,6 +659,28 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
 
+  // Dismissing the notification the page draws itself — the toast, still up from the notice
+  // above — must not take the keyboard from the terminal it floats over: a terminal you have to
+  // click before typing is a terminal clicked twice. Typing is what proves it, because only the
+  // terminal's own input has the pty, and the shell is in the repo by now, so the markers are
+  // written by absolute path rather than by where the last test left it.
+  await page.locator(".terminal-screen").click();
+  await page.keyboard.type(`echo ready > ${join(tmp, "terminal-ready.txt")}\n`);
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "terminal-ready.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "terminal-ready.txt")).exists()).toBe(true);
+
+  await page.locator(".toast-close").click();
+  await page.locator(".toast").waitFor({ state: "detached" });
+  await page.keyboard.type(`echo typed > ${join(tmp, "typed-after-toast.txt")}\n`);
+  for (let i = 0; i < 30; i++) {
+    if (await Bun.file(join(tmp, "typed-after-toast.txt")).exists()) break;
+    await Bun.sleep(200);
+  }
+  expect(await Bun.file(join(tmp, "typed-after-toast.txt")).exists()).toBe(true);
+
   // Looking straight at it is the one silent case. Working long enough for the watcher to see
   // it, then waiting again: the host hears nothing this time.
   expect(await page.evaluate(() => document.hasFocus())).toBe(true);

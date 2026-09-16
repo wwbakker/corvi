@@ -144,6 +144,10 @@ export function Notifier({
       className="toast"
       role="button"
       tabIndex={0}
+      // Keeps the focus where it was: the toast floats over a terminal, and taking the keyboard
+      // away to dismiss it would leave a terminal you have to click before typing again. The
+      // same reason as the actions menu's button (src/app-root/ActionsMenu.tsx).
+      onMouseDown={(e) => e.preventDefault()}
       onClick={() => {
         onOpen(toast.change, toast.window);
         setToast(null);
