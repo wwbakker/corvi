@@ -63,7 +63,7 @@ const runEither = <A, E>(effect: Effect.Effect<A, E, never>): Promise<Either.Eit
 
 // --- Config fixtures --------------------------------------------------------------------------
 
-const dir = mkdtempSync(join(tmpdir(), "iwe-jira-flows-"));
+const dir = mkdtempSync(join(tmpdir(), "corvi-jira-flows-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
 
 /** The four values jira-cli's own config holds, with the trailing slash every path is joined
@@ -106,10 +106,10 @@ const ENV_KEYS = [
   "JIRA_API_TOKEN",
   "JIRA_CONFIG_FILE",
   "OTHER_JIRA_TOKEN",
-  "IWE_JIRA_SPRINT_STATES",
-  "IWE_JIRA_ISSUE_TYPES",
-  "IWE_JIRA_ISSUE_TYPE",
-  "IWE_JIRA_ASSIGNEE",
+  "CORVI_JIRA_SPRINT_STATES",
+  "CORVI_JIRA_ISSUE_TYPES",
+  "CORVI_JIRA_ISSUE_TYPE",
+  "CORVI_JIRA_ASSIGNEE",
 ] as const;
 
 const originalEnv = new Map<string, string | undefined>(ENV_KEYS.map((key) => [key, process.env[key]]));
@@ -448,7 +448,7 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
 
   // The environment variable still beats the legacy flat field, exactly as the resolved chain
   // did before the field left the core.
-  setEnv("IWE_JIRA_ASSIGNEE", "env@example.com");
+  setEnv("CORVI_JIRA_ASSIGNEE", "env@example.com");
   expect(globalOf(flat).assignee).toBe("env@example.com");
 });
 
@@ -470,7 +470,7 @@ test("issueFrom tolerates absent fields and trims the summary", () => {
 
 test("listSprints names the board's sprints and honours the state override", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  setEnv("IWE_JIRA_SPRINT_STATES", "active");
+  setEnv("CORVI_JIRA_SPRINT_STATES", "active");
   stubFetch((url) =>
     url.pathname === "/rest/agile/1.0/board/169/sprint"
       ? json({ values: [{ id: 1, name: "Sprint 1", state: "active" }] })

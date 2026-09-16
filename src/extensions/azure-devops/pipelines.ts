@@ -3,6 +3,7 @@ import { Effect, Schema } from "effect";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Settings, Shell, Workspace } from "../../extension-host/api.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
+import { env } from "../../capabilities/identity.ts";
 import type { Result } from "../../capabilities/shell.ts";
 import { azFor, type Az } from "./azure.ts";
 
@@ -43,15 +44,15 @@ const RunsSchema = Schema.Array(
 
 /** How many finished runs the duration estimate averages over. Branches differ, but the same
  * pipeline on the same agents is the best predictor available. */
-const historySize = (): string => process.env.IWE_AZURE_HISTORY ?? "10";
+const historySize = (): string => process.env[env("AZURE_HISTORY")] ?? "10";
 
 /** Runs shown per pipeline. The newest is what you look at; the rest are history. */
-const runsPerPipeline = (): number => Number(process.env.IWE_AZURE_RUNS ?? 3);
+const runsPerPipeline = (): number => Number(process.env[env("AZURE_RUNS")] ?? 3);
 
 /** The environment variables the extension's declared settings name, so the settings page's
  * lock and the settings read cannot drift apart. */
-export const AZURE_HISTORY_ENV = "IWE_AZURE_HISTORY";
-export const AZURE_RUNS_ENV = "IWE_AZURE_RUNS";
+export const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
+export const AZURE_RUNS_ENV = env("AZURE_RUNS");
 
 /** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so

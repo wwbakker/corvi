@@ -6,7 +6,7 @@ import { CHANGE_STATES, type Change as ChangeShape } from "../../domain/change.t
  *
  * Decode keeps unknown keys (`onExcessProperty: "preserve"` at the decode site): a change.json
  * carries whatever the code that wrote it put there, and rewriting it must not drop fields a
- * newer or older IWE version added.
+ * newer or older Corvi version added.
  */
 export const Change = Schema.Struct({
   /** Directory name under the changes root; also the default branch name. */

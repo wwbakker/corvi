@@ -14,8 +14,8 @@ import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
  * `ELECTRON_RUN_AS_NODE=1` (Node's type stripping runs the TypeScript), serving its page — which
  * means esbuild built it inside that process — and answering an API call.
  *
- * The port is the operating system's (`IWE_PORT=0`) and readiness is the server's own line
- * (`iwe on <url>`) rather than a guess: a random port picked here once landed on a busy one, and
+ * The port is the operating system's (`CORVI_PORT=0`) and readiness is the server's own line
+ * (`corvi on <url>`) rather than a guess: a random port picked here once landed on a busy one, and
  * then the test said only "connection refused".
  *
  * The binary is found the way the app finds it (scripts/app/electron/binary.ts), not at a
@@ -34,19 +34,19 @@ beforeAll(async () => {
   tmp = await testTempDir("node-runtime");
   const env = {
     ...process.env,
-    IWE_ROOT: join(tmp, "changes"),
-    IWE_CONFIG: join(tmp, "config.json"),
-    IWE_CACHE: join(tmp, "state.json"),
+    CORVI_ROOT: join(tmp, "changes"),
+    CORVI_CONFIG: join(tmp, "config.json"),
+    CORVI_CACHE: join(tmp, "state.json"),
     // The built page and chunks go here, not into the running app's state directory: a test run
     // beside the real app must not rebuild the files it is serving.
     XDG_STATE_HOME: join(tmp, "state"),
     // The OS picks; the readiness line reports what it picked.
-    IWE_PORT: "0",
+    CORVI_PORT: "0",
     // The one variable that turns Electron's binary into the Node that runs the server, which
     // is what the app's window does (scripts/app/electron/main.ts).
     ELECTRON_RUN_AS_NODE: "1",
   };
-  server = Bun.spawn([electron, "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  server = Bun.spawn([electron, "src/server.ts", `--corvi-test-run=${testRun()}`], {
     env,
     stdout: "pipe",
     stderr: "pipe",

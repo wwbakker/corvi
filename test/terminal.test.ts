@@ -12,7 +12,7 @@ import { csiuFor } from "../src/terminals/model.ts";
  * as it does in the app: Bun never delivers pty output (docs/decisions/node-pty-terminal.md).
  * The browser is what draws it, so a test without one would not test the terminal at all.
  *
- * It is skipped where the tools are missing rather than failing, since the rest of IWE works
+ * It is skipped where the tools are missing rather than failing, since the rest of Corvi works
  * fine without them.
  */
 /** Poll until a value is what it should be: the strip refreshes on its own timer. */
@@ -29,7 +29,7 @@ async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T>
  * variable set after it started, so it is passed explicitly. */
 async function tmux(...args: string[]): Promise<string> {
   // Every call names this run's own socket with -S: the same one the server under test was given
-  // (IWE_TMUX_SOCKET, below). -S beats $TMUX, so even a forgotten `delete process.env.TMUX` could
+  // (CORVI_TMUX_SOCKET, below). -S beats $TMUX, so even a forgotten `delete process.env.TMUX` could
   // not point a kill-server at the server you are working in.
   const proc = Bun.spawn(["tmux", "-S", testSocket, ...args], {
     env: { ...process.env, TMUX_TMPDIR: tmuxTmp },
@@ -59,7 +59,7 @@ let tmp: string;
 /** The private tmux server's socket directory, which is not `tmp`: a unix socket path is capped
  * at 103 characters and this directory has to fit inside that (test/helpers.ts explains). */
 let tmuxTmp: string;
-/** The socket file itself, handed to the server under test through IWE_TMUX_SOCKET and named
+/** The socket file itself, handed to the server under test through CORVI_TMUX_SOCKET and named
  * explicitly by every tmux call here. Under the run's own temp dir: scripts/clean-test.ts
  * decides ownership by exactly that. */
 let testSocket: string;
@@ -67,21 +67,21 @@ let browser: Browser;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
-const session = `iwe-${id}`;
+const session = `corvi-${id}`;
 
 /** Start the server the app would start: `src/server.ts` on Node. Port 0: the OS picks a free
- * one, so parallel workers never collide; readiness is the server's own `iwe on <url>` line.
- * IWE_TMUX_SOCKET is added after the scrub in serverEnv — serverEnv removes every IWE_*
+ * one, so parallel workers never collide; readiness is the server's own `corvi on <url>` line.
+ * CORVI_TMUX_SOCKET is added after the scrub in serverEnv — serverEnv removes every CORVI_*
  * variable (it would otherwise leak another file's socket), then the test's own socket is set
  * deliberately. */
 const startServer = async (): Promise<void> => {
-  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
     // TMUX_TMPDIR is the short socket dir, not tmp: the same value this file's own tmux
-    // calls use. The server itself resolves its socket through IWE_TMUX_SOCKET below (a
+    // calls use. The server itself resolves its socket through CORVI_TMUX_SOCKET below (a
     // path, so -S), never through TMUX_TMPDIR — this is for the pane shells it spawns.
-    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp }), IWE_TMUX_SOCKET: testSocket },
+    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp }), CORVI_TMUX_SOCKET: testSocket },
     stdout: "pipe",
-    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
+    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
   url = await waitForUrl(server);
 };
@@ -94,13 +94,13 @@ beforeAll(async () => {
   // afterwards without touching the sessions you are working in. TMUX_TMPDIR alone does not do
   // that when the suite is run from inside tmux: $TMUX wins, and every tmux command here —
   // `kill-server` included — would reach the server you are working in. So the socket is named
-  // explicitly (IWE_TMUX_SOCKET for the server, -S for this file's own calls), which beats $TMUX
+  // explicitly (CORVI_TMUX_SOCKET for the server, -S for this file's own calls), which beats $TMUX
   // whatever it says; deleting it keeps the bare-tmux test below honest as well.
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmuxTmp;
-  testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "iwe");
+  testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "corvi");
   await mkdir(join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`), { recursive: true });
-  process.env.IWE_TMUX_SOCKET = testSocket;
+  process.env.CORVI_TMUX_SOCKET = testSocket;
   await startServer();
   // The repository is only needed because a change must have one; the terminal ignores it.
   const repo = join(tmp, "repo");
@@ -114,8 +114,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   // Other test files share this process: the socket this file gave the server must not shape
-  // their pinned argv (a complete-flow test asserts the exact tmux command, -L iwe and all).
-  delete process.env.IWE_TMUX_SOCKET;
+  // their pinned argv (a complete-flow test asserts the exact tmux command, -L corvi and all).
+  delete process.env.CORVI_TMUX_SOCKET;
   if (!usable) return;
   await browser?.close();
   server?.kill();
@@ -159,10 +159,10 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await Bun.sleep(1000);
   // Something that only lives in the shell itself, so the test can tell a surviving shell from
   // a fresh one that happens to have the same windows.
-  await page.keyboard.type("export IWE_SURVIVED=yes\n");
+  await page.keyboard.type("export CORVI_SURVIVED=yes\n");
   await Bun.sleep(500);
 
-  // Restart, as happens constantly while working on IWE itself.
+  // Restart, as happens constantly while working on Corvi itself.
   server.kill();
   await Bun.sleep(500);
   await startServer();
@@ -174,7 +174,7 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
-  await page.keyboard.type("echo $IWE_SURVIVED > survived.txt\n");
+  await page.keyboard.type("echo $CORVI_SURVIVED > survived.txt\n");
   for (let i = 0; i < 30; i++) {
     if (await Bun.file(join(tmp, "changes", id, "survived.txt")).exists()) break;
     await Bun.sleep(200);
@@ -227,7 +227,7 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   );
   // The second change's session is not needed again, and leaving it would put its windows in
   // the sidebar counts the tests after this one make.
-  await tmux("kill-session", "-t", `iwe-${second}`);
+  await tmux("kill-session", "-t", `corvi-${second}`);
   await page.close();
 }, 60_000);
 
@@ -388,9 +388,9 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
 test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
   // The server runs on Electron's own Node with the launcher's variables in its environment
-  // (IWE_PORT, IWE_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
+  // (CORVI_PORT, CORVI_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
   // server, which is exactly the leak). The pane's shells are the user's, so they must not see
-  // any of it — and they must see the change's context, which IWE adds on purpose
+  // any of it — and they must see the change's context, which Corvi adds on purpose
   // (src/capabilities/env.ts).
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
@@ -406,30 +406,30 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
     await Bun.sleep(200);
   }
   const env = await Bun.file(out).text();
-  // Line-anchored: the suite's own `npm_lifecycle_script` ("export IWE_ROOT=\"$ROOT\" …") rides
+  // Line-anchored: the suite's own `npm_lifecycle_script` ("export CORVI_ROOT=\"$ROOT\" …") rides
   // along in the environment, so a bare substring would false-positive on it.
   const hasVar = (name: string): boolean =>
     env.split("\n").some((line) => line.startsWith(`${name}=`));
   expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
-  expect(hasVar("IWE_PORT")).toBe(false);
-  expect(hasVar("IWE_ROOT")).toBe(false);
+  expect(hasVar("CORVI_PORT")).toBe(false);
+  expect(hasVar("CORVI_ROOT")).toBe(false);
   // A failing run prints what the pane got and what tmux thinks the session holds: enough to
   // tell "the env was never set" from "the pane predates it".
-  if (!hasVar("IWE_CHANGE_ID")) {
+  if (!hasVar("CORVI_CHANGE_ID")) {
     console.log(
       `pane env:\n${env}\nsession env:\n${await tmux("show-environment", "-t", session)}`,
     );
   }
-  expect(hasVar("IWE_CHANGE_ID")).toBe(true);
-  expect(env).toContain(`IWE_CHANGE_DIR=${join(tmp, "changes", id)}`);
+  expect(hasVar("CORVI_CHANGE_ID")).toBe(true);
+  expect(env).toContain(`CORVI_CHANGE_DIR=${join(tmp, "changes", id)}`);
   await page.close();
 }, 60_000);
 
 test.skipIf(!usable)("a bare tmux command cannot reach the change's session", async () => {
-  // IWE's sessions live on their own socket (IWE_TMUX_SOCKET, tmux.ts): a tmux command that
+  // Corvi's sessions live on their own socket (CORVI_TMUX_SOCKET, tmux.ts): a tmux command that
   // forgets to name it resolves the way tmux always does — $TMUX, else $TMUX_TMPDIR/tmux-<uid>/
   // default — and finds nothing of ours. This is what makes a careless kill-server from a probe,
-  // a script or an agent's stray test harmless to IWE's terminals.
+  // a script or an agent's stray test harmless to Corvi's terminals.
   const proc = Bun.spawn(["tmux", "ls"], {
     env: { ...process.env, TMUX_TMPDIR: tmuxTmp }, // TMUX deleted in beforeAll
     stdout: "pipe",
@@ -592,13 +592,13 @@ test.skipIf(!usable)("a window tab dragged onto another takes its place", async 
 
 test.skipIf(!usable)("a window that starts waiting is announced, and the notice opens it", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  // Stand in for the app's host: the real window exposes `window.iweHost` from its preload
+  // Stand in for the app's host: the real window exposes `window.corviHost` from its preload
   // (scripts/app/electron/preload.ts), a browser has none, so the test installs the same shape
   // and keeps the open-window callback the page registers on mount.
   await page.addInitScript(() => {
     const store: unknown[] = [];
     (window as unknown as { __notices: unknown[] }).__notices = store;
-    (window as unknown as { iweHost: unknown }).iweHost = {
+    (window as unknown as { corviHost: unknown }).corviHost = {
       notify: (message: unknown) => store.push(message),
       onOpenWindow: (callback: (change: string, window: string) => void) => {
         (window as unknown as { __openWindow: unknown }).__openWindow = callback;
@@ -766,7 +766,7 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   expect(await attached()).toBe(true);
   await Bun.sleep(1000); // the shell's own startup, before it can read a command
 
-  // IWE asks tmux for the clipboard explicitly; the page only has a clipboard to write into
+  // Corvi asks tmux for the clipboard explicitly; the page only has a clipboard to write into
   // because tmux sends its copies as OSC 52 (tmux.ts, and the addon in TerminalPane).
   expect(await tmux("show-options", "-s", "set-clipboard")).toBe("set-clipboard on");
 

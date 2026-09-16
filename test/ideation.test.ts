@@ -51,8 +51,9 @@ async function clonedRepo(name: string): Promise<string> {
 }
 
 beforeAll(async () => {
-  tmp = await realpath(await mkdtemp(join(tmpdir(), "iwe-ideation-")));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await realpath(await mkdtemp(join(tmpdir(), "corvi-ideation-")));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
 });
 
 afterAll(async () => {

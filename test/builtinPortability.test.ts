@@ -39,7 +39,7 @@ let tmp: string;
 let saved: typeof loaded = [];
 
 beforeEach(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-portability-"));
+  tmp = await mkdtemp(join(tmpdir(), "corvi-portability-"));
   saved = loaded.splice(0, loaded.length);
 });
 

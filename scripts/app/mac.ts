@@ -19,11 +19,11 @@ import { join } from "node:path";
 import { packager } from "@electron/packager";
 import { sh } from "../sh.ts";
 import { buildApp } from "./electron/build.ts";
+import { ID, PRODUCT } from "../../src/capabilities/identity.ts";
 
-const NAME = "Integrated Work Environment";
-/** Abbreviated bundle names an install may have left in ~/Applications; install and uninstall
- * both remove them, so they cannot sit in the Dock beside this one. */
-const OLD = ["IWE"];
+const NAME = PRODUCT;
+/** The bundle identifier macOS keys permissions, notifications and Apple Events by. */
+const BUNDLE_ID = "nl.wwbakker.corvi";
 const bundle = (): string => join(homedir(), "Applications", `${NAME}.app`);
 
 /** The Electron version this checkout depends on, read from the repository package.json. */
@@ -45,7 +45,7 @@ const MIC_USAGE =
 /** The Dock icon, from the same SVG everything else is drawn from. Skipped when `rsvg-convert`
  * is missing: an app with the wrong icon still works, and refusing to build would be theatre. */
 async function icon(into: string): Promise<string | null> {
-  const iconset = join(into, "iwe-icon.iconset");
+  const iconset = join(into, `${ID}-icon.iconset`);
   await rm(iconset, { recursive: true, force: true });
   await sh(["mkdir", "-p", iconset]);
   for (const size of [16, 32, 128, 256, 512]) {
@@ -91,8 +91,8 @@ async function quit(): Promise<void> {
 }
 
 async function install(root: string): Promise<void> {
-  const source = await mkdtemp(join(tmpdir(), "iwe-app-source-"));
-  const out = await mkdtemp(join(tmpdir(), "iwe-app-build-"));
+  const source = await mkdtemp(join(tmpdir(), `${ID}-app-source-`));
+  const out = await mkdtemp(join(tmpdir(), `${ID}-app-build-`));
   try {
     await buildApp(source, root);
     const drawn = await icon(out);
@@ -103,7 +103,7 @@ async function install(root: string): Promise<void> {
       platform: "darwin",
       arch: process.arch === "arm64" ? "arm64" : "x64",
       electronVersion: await electronVersion(root),
-      appBundleId: "dev.iwe.app",
+      appBundleId: BUNDLE_ID,
       appVersion: "1.0.0",
       icon: drawn ?? undefined,
       extendInfo: { NSMicrophoneUsageDescription: MIC_USAGE },
@@ -131,9 +131,6 @@ async function install(root: string): Promise<void> {
     await cp(builtApp, bundle(), { recursive: true, verbatimSymlinks: true });
     // Finder caches bundles by path and date; touching it makes the new icon appear now.
     await sh(["touch", bundle()]);
-    for (const old of OLD) {
-      await rm(join(homedir(), "Applications", `${old}.app`), { recursive: true, force: true });
-    }
 
     console.log(`installed: ${bundle()}`);
     console.log(`  serves:  ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
@@ -158,9 +155,6 @@ async function uninstall(): Promise<void> {
   // Quit before removing: a running app whose bundle vanishes is a confusing thing to leave.
   if (await running()) await quit();
   await rm(bundle(), { recursive: true, force: true });
-  for (const old of OLD) {
-    await rm(join(homedir(), "Applications", `${old}.app`), { recursive: true, force: true });
-  }
   console.log(`removed: ${bundle()}`);
 }
 

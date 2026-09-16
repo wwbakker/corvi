@@ -7,7 +7,7 @@ it with `node --watch`; [`../decisions/node-server.md`](../decisions/node-server
 [`../decisions/node-pty-terminal.md`](../decisions/node-pty-terminal.md)) — that serves an HTTP
 API and a
 React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `jira`, `tmux`), and keeps
-its only state in one directory per change (`~/changes/<id>/`). Everything else is read live and
+its only state in one directory per change (`~/corvi/changes/<id>/`). Everything else is read live and
 cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 
 ## Layers
@@ -22,8 +22,9 @@ src/
   dashboard/           the dashboard tab: server/ (summary.ts composes change, terminal and the
                        host; index.ts is the face), client/ (WidgetCard, WidgetRows,
                        PerRepoCard, CompletionCard, EditReposDialog), routes.ts (the summary route)
-  change-page/         the change shell: client/ (ChangeView.tsx, changeTabs.ts, PlanCard.tsx)
-                       composes the dashboard, the extension tabs and the terminal; owns no data
+  change-page/         the change shell: client/ (ChangeView, changeTabs, PlanCard,
+                       CancelDialog, CompleteAnywayDialog, refusals) composes the dashboard,
+                       the extension tabs and the terminal; owns no data
   wizard/              /new: Wizard.tsx, and index.ts (the face)
   terminals/           the terminal module: model.ts (the new-window key and the CSI-u sequences
                        page and server share), server/ (tmux sessions and windows, the pty and
@@ -38,24 +39,40 @@ src/
                        routes.ts (the settings file route)
   domain/              the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
                        (Workspace and the resolved Config as well as the ConfigFile shape),
-                       settings.ts (the extension-declared setting shapes)
+                       settings.ts (the extension-declared setting shapes), host.ts, chrome.ts
   capabilities/        the substrate everything stands on: effect/ (errors, http, run, support,
                        tags), serve.ts (the node:http route server), files.ts (file reads and
-                       writes), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher and the
-                       stream's routes), web.ts, os.ts
+                       writes), identity.ts (the product name, the CORVI_ environment prefix and
+                       the path defaults), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher
+                       and the stream's routes), web.ts, os.ts
   extension-host/      the extension contract and its machinery: api.ts (and api/*.ts),
                        registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
                        services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
-                       client-side registry and the extension UI contract), index.ts, routes.ts
-                       (wizard, pages, ext dispatch, card/tab endpoints, extension client and
-                       vendor chunks)
+                       client-side registry and the extension UI contract), migrate.ts, index.ts,
+                       routes.ts (wizard, pages, ext dispatch, card/tab endpoints, extension
+                       client and vendor chunks)
   vendors/             vendor CLI wrappers (git, github, stacks)
   extensions/          the built-ins (agents, git, github, jira, github-issues, azure-devops,
                        leftovers, review, notes)
-  app-root/            the browser shell and runtime: index.html, styles, the app router, the
-                       sidebar, the data hooks, the fetch client and notifications, and the
-                       shell's shared fragments — ChangeCard, Progress, stateClass — plus
-                       routes.ts (the icons and the /* fallback)
+  app-root/            the browser shell and runtime, bundled by esbuild from client.ts (the
+                       dev watcher and the production build): index.html, styles.css, app.tsx
+                       (the shell, changes list, URL↔view), state.ts, prefs.ts, poll.ts,
+                       events.ts, api.ts, cache.ts, Sidebar.tsx, ChangeCard.tsx, ActionsMenu.tsx,
+                       icons.tsx and icons/, moment.ts, stateClass.ts, Progress.tsx,
+                       LifecycleFailures.tsx, notify.tsx, host.ts, contextMenu.ts, routes.ts
+                       (the icons and the /* fallback)
+```
+
+The rest of the tree:
+
+```
+pi/agent-state.ts           pi extension: publishes working/waiting to tmux
+scripts/app.ts              installs the app: macOS .app, or Linux entry + launcher
+scripts/app/electron/       the window: main.ts and preload.ts, built into main.cjs by build.ts
+scripts/app/mac.ts linux.ts the platform installs
+scripts/app/run.ts drive.ts app:run (from the checkout) and app:drive (Playwright)
+scripts/clean-test.ts       ends what a test run left behind, by ownership
+test/                       the suite; test/terminal.test.ts drives a real pty and tmux
 ```
 
 The extension host (`src/extension-host/index.ts`) loads built-ins and out-of-tree modules through
@@ -204,6 +221,7 @@ not), so the promise above is enforced rather than conventional.
 ## Running it
 
 `bun run dev` serves on `127.0.0.1:4000`; the app runs `src/server.ts` on Electron's Node, from
-the checkout recorded in its bundle (`iweRoot` in the app's `package.json`). See the README for
-the product-level description and [`../decisions/electron-host.md`](../decisions/electron-host.md)
+the checkout recorded in its bundle (`corviRoot` in the app's `package.json`). See
+[`../manual/install.md`](../manual/install.md) for the product-level description and
+[`../decisions/electron-host.md`](../decisions/electron-host.md)
 for how the window is hosted.

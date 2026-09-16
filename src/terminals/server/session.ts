@@ -20,6 +20,7 @@ import { spawn } from "node-pty";
 import type { ServerWebSocket } from "../../capabilities/serve.ts";
 import { commandAvailable } from "../../capabilities/os.ts";
 import { childEnv } from "../../capabilities/env.ts";
+import { env } from "../../capabilities/identity.ts";
 import { attachCommand } from "./tmux.ts";
 
 /** What the socket upgrade carries: the session the route already started, at the size the page
@@ -87,9 +88,9 @@ export const openSession = (
     rows: Math.max(1, Math.floor(size.rows)),
     cwd: dir,
     // The pane's shells are the user's: the launcher's variables (ELECTRON_RUN_AS_NODE,
-    // NODE_ENV, IWE_PORT, IWE_ROOT, …) are scrubbed, and the change's context is added on
+    // NODE_ENV, CORVI_PORT, CORVI_ROOT, …) are scrubbed, and the change's context is added on
     // purpose, so a script or an agent in the pane knows where it is (src/capabilities/env.ts).
-    env: childEnv(process.env, { IWE_CHANGE_ID: id, IWE_CHANGE_DIR: dir }),
+    env: childEnv(process.env, { [env("CHANGE_ID")]: id, [env("CHANGE_DIR")]: dir }),
   });
 
   // Output can arrive before the upgrade has a socket to send it to (tmux starts fast): hold it

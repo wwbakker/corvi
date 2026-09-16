@@ -7,7 +7,7 @@
  * (src/app-root/notify.tsx), and there is no window chrome to lay the page's top row out as
  * (src/domain/chrome.ts).
  */
-import type { IweHost } from "../domain/host.ts";
+import type { CorviHost } from "../domain/host.ts";
 
-export const hostOf = (): IweHost | undefined =>
-  (window as unknown as { iweHost?: IweHost }).iweHost;
+export const hostOf = (): CorviHost | undefined =>
+  (window as unknown as { corviHost?: CorviHost }).corviHost;

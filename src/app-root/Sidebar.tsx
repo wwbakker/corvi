@@ -18,7 +18,7 @@ export type Page = "dashboard" | "terminals" | (string & {});
 /** How wide the column is, remembered between visits: it is furniture, and moving it back every
  * morning would be its own small annoyance. A cookie rather than localStorage: the app serves
  * itself from a fresh port every launch, and localStorage is scoped to the port (see prefs.ts). */
-const WIDTH_KEY = "iwe:sidebar-width";
+const WIDTH_KEY = "corvi:sidebar-width";
 const MIN = 160;
 const MAX = 480;
 

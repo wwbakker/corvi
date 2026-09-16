@@ -239,7 +239,7 @@ function App(): JSX.Element {
   // change's — so this is the one place the window says what it is showing. index.html's title
   // is what it says on the pages that are about no change.
   useEffect(() => {
-    document.title = change?.title ?? change?.branch ?? "Integrated Work Environment";
+    document.title = change?.title ?? change?.branch ?? "Corvi";
   }, [change]);
 
   // The right-click menu is the host's to draw and the setting's to decide (src/app-root/contextMenu.ts).

@@ -1,8 +1,8 @@
 /** Screenshots the running app so the UI can be inspected without a human describing it.
  *
  *   bun run shot                    # Chromium, against http://127.0.0.1:4000
- *   IWE_ENGINE=webkit bun run shot
- *   IWE_URL=... bun run shot
+ *   CORVI_ENGINE=webkit bun run shot
+ *   CORVI_URL=... bun run shot
  *
  * Writes to shots/. Requires `bunx playwright install chromium` once (webkit too, only for the
  * other-engine run).
@@ -12,13 +12,14 @@
  * another browser — the page is a web page first, and browsers remain a first-class view. */
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit } from "playwright";
+import { env } from "../src/capabilities/identity.ts";
 
-const url = process.env.IWE_URL ?? "http://127.0.0.1:4000";
+const url = process.env[env("URL")] ?? "http://127.0.0.1:4000";
 
-/** The engine of the app's own window: Chromium, via Electron. `IWE_ENGINE` overrides it. */
+/** The engine of the app's own window: Chromium, via Electron. `CORVI_ENGINE` overrides it. */
 const windowEngine = (): "webkit" | "chromium" => "chromium";
 
-const engineName = process.env.IWE_ENGINE ?? windowEngine();
+const engineName = process.env[env("ENGINE")] ?? windowEngine();
 const engine = engineName === "webkit" ? webkit : chromium;
 await mkdir("shots", { recursive: true });
 

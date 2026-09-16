@@ -14,7 +14,7 @@ import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 let tmp: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-description-"));
+  tmp = await mkdtemp(join(tmpdir(), "corvi-description-"));
 });
 
 afterAll(async () => {

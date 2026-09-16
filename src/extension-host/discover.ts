@@ -1,10 +1,10 @@
 import { Effect } from "effect";
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { config, expandTilde } from "../workspace/server/index.ts";
 import { workspaceById } from "../workspace/server/index.ts";
+import { configDir } from "../capabilities/identity.ts";
 import { capabilitiesLayer } from "./services.ts";
 import { install } from "./registry.ts";
 import type { ExtensionModule } from "./api.ts";
@@ -52,8 +52,7 @@ export async function loadAll(mods: readonly ExtensionModule[]): Promise<void> {
 /** The directory searched for out-of-tree extensions without being configured: it exists on a
  * machine that keeps extensions there, and is absent everywhere else — a convention, not a
  * setting, so it never appears in the config file the settings page edits. */
-export const defaultExtensionDir = (): string =>
-  join(homedir(), ".config", "iwe", "extensions");
+export const defaultExtensionDir = (): string => join(configDir(), "extensions");
 
 /** Expand the configured extension paths into module files. A path that is a file is the
  * module; a directory contributes its immediate .ts files plus any subdirectory's index.ts, in directory

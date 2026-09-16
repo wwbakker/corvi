@@ -160,19 +160,19 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
   // test file may have left any of those behind, so all three are cleared first rather than
   // assumed — including the file, which is pointed at an empty one and reloaded.)
   const beforeBag = config.extensionSettings;
-  const beforeConfig = process.env.IWE_CONFIG;
-  const beforeOrg = process.env.IWE_AZURE_ORG;
-  const beforeProject = process.env.IWE_AZURE_PROJECT;
+  const beforeConfig = process.env.CORVI_CONFIG;
+  const beforeOrg = process.env.CORVI_AZURE_ORG;
+  const beforeProject = process.env.CORVI_AZURE_PROJECT;
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { reloadConfigSync } = await import("../src/workspace/server/index.ts");
-  const empty = await mkdtemp(join(tmpdir(), "iwe-az-empty-"));
+  const empty = await mkdtemp(join(tmpdir(), "corvi-az-empty-"));
   config.extensionSettings = undefined;
-  delete process.env.IWE_AZURE_ORG;
-  delete process.env.IWE_AZURE_PROJECT;
-  process.env.IWE_CONFIG = join(empty, "config.json");
-  await Bun.write(process.env.IWE_CONFIG, "{}");
+  delete process.env.CORVI_AZURE_ORG;
+  delete process.env.CORVI_AZURE_PROJECT;
+  process.env.CORVI_CONFIG = join(empty, "config.json");
+  await Bun.write(process.env.CORVI_CONFIG, "{}");
   reloadConfigSync();
   try {
     const first = await runWithShell(shell, azDefaults());
@@ -189,12 +189,12 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
     expect(shell.calls.length).toBe(calls);
   } finally {
     config.extensionSettings = beforeBag;
-    if (beforeConfig === undefined) delete process.env.IWE_CONFIG;
-    else process.env.IWE_CONFIG = beforeConfig;
-    if (beforeOrg === undefined) delete process.env.IWE_AZURE_ORG;
-    else process.env.IWE_AZURE_ORG = beforeOrg;
-    if (beforeProject === undefined) delete process.env.IWE_AZURE_PROJECT;
-    else process.env.IWE_AZURE_PROJECT = beforeProject;
+    if (beforeConfig === undefined) delete process.env.CORVI_CONFIG;
+    else process.env.CORVI_CONFIG = beforeConfig;
+    if (beforeOrg === undefined) delete process.env.CORVI_AZURE_ORG;
+    else process.env.CORVI_AZURE_ORG = beforeOrg;
+    if (beforeProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
+    else process.env.CORVI_AZURE_PROJECT = beforeProject;
     await rm(empty, { recursive: true, force: true });
     reloadConfigSync();
   }
@@ -274,9 +274,9 @@ test("a failed or unreadable duration query has no estimate, not an error", asyn
   expect(await runWithShell(garbage, expectedDuration(az(), 503))).toBeUndefined();
 });
 
-test("expectedDuration asks az for as much history as IWE_AZURE_HISTORY names", async () => {
-  const original = process.env.IWE_AZURE_HISTORY;
-  process.env.IWE_AZURE_HISTORY = "3";
+test("expectedDuration asks az for as much history as CORVI_AZURE_HISTORY names", async () => {
+  const original = process.env.CORVI_AZURE_HISTORY;
+  process.env.CORVI_AZURE_HISTORY = "3";
   try {
     let seen = "";
     const shell = fakeShell((cmd) => {
@@ -287,8 +287,8 @@ test("expectedDuration asks az for as much history as IWE_AZURE_HISTORY names", 
     expect(seen).toContain("--top 3");
     expect(seen).toContain("--status completed");
   } finally {
-    if (original === undefined) delete process.env.IWE_AZURE_HISTORY;
-    else process.env.IWE_AZURE_HISTORY = original;
+    if (original === undefined) delete process.env.CORVI_AZURE_HISTORY;
+    else process.env.CORVI_AZURE_HISTORY = original;
   }
 });
 

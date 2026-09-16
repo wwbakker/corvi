@@ -4,7 +4,7 @@
  * importing anything that runs on the server.
  */
 
-/** An issue as IWE reads it, flattened from Jira's own shape. */
+/** An issue as Corvi reads it, flattened from Jira's own shape. */
 export type Issue = {
   key: string;
   summary: string;

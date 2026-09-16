@@ -1,6 +1,10 @@
 # IWE's terminals live on their own tmux socket
 
 > **Kind:** decision · **Status:** accepted
+>
+> **Renamed:** the socket is `corvi` and the sessions `corvi-<id>` since
+> [`corvi-identifiers.md`](corvi-identifiers.md); the decision below stands. The `IWE_*`
+> variables and commands in it are the names of its time.
 
 ## Context
 

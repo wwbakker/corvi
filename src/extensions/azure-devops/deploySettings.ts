@@ -11,7 +11,7 @@ import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
  * settings page wrote under `extensionSettings.azure-devops` — the extension's own
  * `globalSettings` declaration — wins, and when the bag is empty the legacy flat field answers
  * (through legacy.ts), which carries the default and the environment resolution
- * (IWE_AZURE_ENVIRONMENTS beats the file). A bag value that is not the right shape, or an empty
+ * (CORVI_AZURE_ENVIRONMENTS beats the file). A bag value that is not the right shape, or an empty
  * one, is not set: empty means unset.
  *
  * Organisation and project are not here: they belong to the extension's `azure.ts`, whose chain

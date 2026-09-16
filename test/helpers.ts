@@ -29,18 +29,18 @@ import {
 /** Whether this process has written the run's pid-file yet. */
 let announced = false;
 
-/** The token that names this run. The suite's own script sets `IWE_TEST_RUN`; a lone
+/** The token that names this run. The suite's own script sets `CORVI_TEST_RUN`; a lone
  * `bun test test/foo.test.ts` gets one from its pid and the clock. It is written into every temp
- * dir's name and into `<tmpdir>/iwe-<token>.pid`, which is what lets scripts/clean-test.ts tell
+ * dir's name and into `<tmpdir>/corvi-<token>.pid`, which is what lets scripts/clean-test.ts tell
  * one run's resources from another's, and a live run from a crashed one. */
 export const testRun = (): string => {
-  const fromEnv = process.env.IWE_TEST_RUN;
+  const fromEnv = process.env.CORVI_TEST_RUN;
   // A hand-set token the cleaner cannot read would leave this run's servers and tmux sockets
   // behind as unattributable (`--all`-only). Refuse it here, before anything starts, rather than
   // leak them.
   if (fromEnv !== undefined && fromEnv !== "" && !isRunToken(fromEnv)) {
     throw new Error(
-      `IWE_TEST_RUN=${fromEnv} is not a run token: scripts/clean-test.ts reads tokens as ` +
+      `CORVI_TEST_RUN=${fromEnv} is not a run token: scripts/clean-test.ts reads tokens as ` +
         "<base36>.<base36> (two lowercase words joined by a dot, what `date +%s.$$` produces). " +
         "Leave it unset for a lone test file, or run the suite with `bun run test`.",
     );
@@ -49,7 +49,7 @@ export const testRun = (): string => {
     fromEnv !== undefined && fromEnv !== ""
       ? fromEnv
       : `${Date.now().toString(36)}.${process.pid.toString(36)}`;
-  process.env.IWE_TEST_RUN = token;
+  process.env.CORVI_TEST_RUN = token;
   // The run's script writes this with the wrapper shell's pid, which lives for the whole run;
   // "wx" leaves that in place. A lone `bun test` has no wrapper, so its own pid stands in.
   if (!announced) {
@@ -66,15 +66,15 @@ export const testRun = (): string => {
 /** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
 export const testTempDir = async (label: string): Promise<string> => {
   const token = testRun();
-  return mkdtemp(join(tmpdir(), `iwe-${token}-${label}-`));
+  return mkdtemp(join(tmpdir(), `corvi-${token}-${label}-`));
 };
 
-/** Environment for a spawned test server: the OS picks the port (`IWE_PORT=0`), and every
+/** Environment for a spawned test server: the OS picks the port (`CORVI_PORT=0`), and every
  * path is the file's own tmp dir, so parallel workers share nothing — not the changes, the
  * config, the built page, the cache file, or the tmux socket. `TMUX` is removed rather than
  * overridden: inside a tmux session it wins over `TMUX_TMPDIR`, and every tmux command the
  * server runs — `kill-server` included — would reach the session you are working in.
- * `IWE_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
+ * `CORVI_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
  * sandboxes (docs/decisions/tmux-socket.md), so an inherited one would join this server to a
  * foreign tmux server instead of the per-file socket above. A file that wants its own socket
  * sets it deliberately after the scrub, as terminal.test.ts does. */
@@ -84,20 +84,21 @@ export const serverEnv = (
 ): Record<string, string | undefined> => {
   const env: Record<string, string | undefined> = {
     ...process.env,
-    IWE_ROOT: join(tmp, "changes"),
-    IWE_CONFIG: join(tmp, "config.json"),
+    CORVI_ROOT: join(tmp, "changes"),
+    CORVI_ARCHIVE_ROOT: join(tmp, "changes-archive"),
+    CORVI_CONFIG: join(tmp, "config.json"),
     XDG_STATE_HOME: join(tmp, "state"),
-    IWE_CACHE: join(tmp, "cache.json"),
+    CORVI_CACHE: join(tmp, "cache.json"),
     TMUX_TMPDIR: tmp,
-    IWE_PORT: "0",
+    CORVI_PORT: "0",
     ...extra,
   };
   delete env.TMUX;
-  delete env.IWE_TMUX_SOCKET;
+  delete env.CORVI_TMUX_SOCKET;
   return env;
 };
 
-/** Read a spawned server's stdout until it says where it is listening (`iwe on <url>`,
+/** Read a spawned server's stdout until it says where it is listening (`corvi on <url>`,
  * src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
  * own line rather than a poll: a random port picked here once landed on a busy one, and then
  * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
@@ -120,7 +121,7 @@ export const waitForUrl = async (
       const { value, done } = await reader.read();
       if (done) throw new Error(`the server exited before it was up:\n${seen}`);
       seen += decoder.decode(value, { stream: true });
-      const found = /iwe on (http:\/\/127\.0\.0\.1:\d+\/)/.exec(seen);
+      const found = /corvi on (http:\/\/127\.0\.0\.1:\d+\/)/.exec(seen);
       if (found?.[1]) return found[1].replace(/\/$/, "");
     }
   })();
@@ -142,18 +143,18 @@ const UNIX_SOCKET_PATH_MAX = 103;
  * before a test has named anything. `$TMPDIR` there is `/var/folders/<2>/<24>/T`, which tmux
  * resolves to `/private/var/folders/...` — 56 characters on this machine — and tmux then appends
  * `/tmux-<uid>/default`, 17 more. That leaves 29 for the directory the test hands it, and
- * `testTempDir("term")` makes 32 of them (`iwe-<token>-term-XXXXXX`, with the 16-character token
+ * `testTempDir("term")` makes 32 of them (`corvi-<token>-term-XXXXXX`, with the 16-character token
  * `bun run test` sets). tmux then starts no server at all — "File name too long" on the connect —
  * and every terminal test fails against an empty pane with nothing to say why. On Linux `$TMPDIR`
  * is `/tmp` and none of this is ever close.
  *
  * So the socket gets a directory of its own: the run token, which is what lets the cleaner
  * attribute it, and one short word. No label and no random suffix — there is no room, and the
- * token already tells two runs apart. The `iwe-` prefix stays, because a socket under a
- * `$TMPDIR/iwe-*` directory is what makes the server a test's own (scripts/clean-test.ts). The
+ * token already tells two runs apart. The `corvi-` prefix stays, because a socket under a
+ * `$TMPDIR/corvi-*` directory is what makes the server a test's own (scripts/clean-test.ts). The
  * length is checked rather than hoped for, since the failure is otherwise silent. */
 export const tmuxTempDir = async (): Promise<string> => {
-  const dir = join(tmpdir(), `iwe-${testRun()}-tmux`);
+  const dir = join(tmpdir(), `corvi-${testRun()}-tmux`);
   await mkdir(dir, { recursive: true });
   // Resolved, because that is the path tmux puts on the socket: /var/folders/... is a symlink
   // into /private/var/folders/.... The check assumes tmux's own `<tmpdir>/tmux-<uid>/default`.
@@ -161,7 +162,7 @@ export const tmuxTempDir = async (): Promise<string> => {
   if (socket.length > UNIX_SOCKET_PATH_MAX) {
     throw new Error(
       `the test's tmux socket path is ${socket.length} characters, over the ${UNIX_SOCKET_PATH_MAX} ` +
-        `a unix socket allows: ${socket}. Shorten the run token (IWE_TEST_RUN), or this directory's name.`,
+        `a unix socket allows: ${socket}. Shorten the run token (CORVI_TEST_RUN), or this directory's name.`,
     );
   }
   return dir;

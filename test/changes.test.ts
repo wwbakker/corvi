@@ -27,8 +27,9 @@ const stubKey = (c: Change): string | undefined =>
   (c.extensions?.["stub"] as { key?: string } | undefined)?.key;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
   repo = join(tmp, "myrepo");
   await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "hi\n");
@@ -475,8 +476,8 @@ test("every change's windows come back from one call, and other sessions are not
   const { changeOfSession } = await import("../src/terminals/server/index.ts");
   // The navigation column lists the terminals of every change at once; asking tmux per change
   // would be a process per change every few seconds.
-  expect(changeOfSession("iwe-PROJ-1")).toBe("PROJ-1");
-  expect(changeOfSession("iwe-PROJ-1671-2")).toBe("PROJ-1671-2");
+  expect(changeOfSession("corvi-PROJ-1")).toBe("PROJ-1");
+  expect(changeOfSession("corvi-PROJ-1671-2")).toBe("PROJ-1671-2");
   // Sessions you started yourself are left alone, and not shown as terminals of a change.
   expect(changeOfSession("work")).toBeUndefined();
   expect(changeOfSession("")).toBeUndefined();

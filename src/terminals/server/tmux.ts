@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { sh, shOrThrow, type Result } from "../../capabilities/shell.ts";
 import { CliError } from "../../capabilities/effect/errors.ts";
+import { ID, env } from "../../capabilities/identity.ts";
 import {
   formatFor,
   paneOptions,
@@ -13,23 +14,23 @@ import {
  * A terminal for a change: one tmux session, started in the change directory.
  *
  * tmux owns the session, not us. Windows and panes are yours to make with the usual keys, the
- * shells survive an IWE restart, and `tmux -L iwe attach -t iwe-<id>` from any terminal reaches
- * the same session as the browser does — the socket is IWE's own (tmuxCmd below), so the command
- * has to name it.
+ * shells survive a Corvi restart, and `tmux -L corvi attach -t corvi-<id>` from any terminal
+ * reaches the same session as the browser does — the socket is Corvi's own (tmuxCmd below), so
+ * the command has to name it.
  *
  * This file is the tmux half: how a client attaches, what the windows are, and the cleanup.
  * The pty that runs the attach command belongs to `session.ts`, so this module stays a set of
  * CLI calls and pure presentation.
  */
-export const sessionName = (id: string): string => `iwe-${id}`;
+export const sessionName = (id: string): string => `${ID}-${id}`;
 
-/** The tmux socket IWE's sessions live on: a bare name becomes `-L <name>` (the socket file
+/** The tmux socket Corvi's sessions live on: a bare name becomes `-L <name>` (the socket file
  * `tmux-<uid>/<name>` under `$TMUX_TMPDIR` or /tmp), a path becomes `-S <path>`. Overridable so a
  * test run or a sandbox copy can name its own — the tests pass the same value to their own tmux
  * calls through the same variable. */
-const socket = (): string => process.env.IWE_TMUX_SOCKET || "iwe";
+const socket = (): string => process.env[env("TMUX_SOCKET")] || ID;
 
-/** Every tmux command IWE runs goes through here: the socket is part of the command, not
+/** Every tmux command Corvi runs goes through here: the socket is part of the command, not
  * something each caller has to remember. `-L` and `-S` beat `$TMUX` (verified: with `$TMUX` set,
  * `tmux -L x ls` still asks the x socket), so the app cannot be rerouted by whatever shell it was
  * started from — and a bare `tmux` typed anywhere outside a pane can no longer reach these
@@ -140,7 +141,7 @@ const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
 export const stopTerminal = (id: string): Effect.Effect<void> =>
   shResult(tmuxCmd(["kill-session", "-t", sessionName(id)])).pipe(Effect.asVoid);
 
-/* Terminals are deliberately left running when the server stops: restarting IWE while you work on
+/* Terminals are deliberately left running when the server stops: restarting Corvi while you work on
  * it is constant, and losing the shells every time is not worth the tidiness. tmux owns them, so
  * the next run attaches to the same windows; completing a change ends one for good. */
 
@@ -160,7 +161,7 @@ export const listWindows = (id: string): Effect.Effect<PresentedWindow[], CliErr
 
 /** Which change a tmux session belongs to, or undefined for a session that is not ours. */
 export const changeOfSession = (session: string): string | undefined =>
-  session.startsWith("iwe-") ? session.slice("iwe-".length) : undefined;
+  session.startsWith(`${ID}-`) ? session.slice(ID.length + 1) : undefined;
 
 /**
  * Every change's windows, in one call.
@@ -235,9 +236,9 @@ export const ensureSession = (id: string, dir: string): Effect.Effect<void, CliE
         "-c",
         dir,
         "-e",
-        `IWE_CHANGE_ID=${id}`,
+        `${env("CHANGE_ID")}=${id}`,
         "-e",
-        `IWE_CHANGE_DIR=${dir}`,
+        `${env("CHANGE_DIR")}=${dir}`,
       ]),
     );
   });
@@ -247,7 +248,7 @@ export const ensureSession = (id: string, dir: string): Effect.Effect<void, CliE
  * bracketed paste so a multi-line prompt lands in the editor whole rather than being executed
  * line by line. The caller ensures the session exists first.
  *
- * Deliberately does not press Enter: IWE cannot tell a running agent from a shell (pi's status
+ * Deliberately does not press Enter: Corvi cannot tell a running agent from a shell (pi's status
  * is the agent extension's private vocabulary), and submitting a paragraph to a shell would run
  * it. The user reads it and sends it, which is the one keystroke worth keeping.
  *
@@ -256,7 +257,7 @@ export const ensureSession = (id: string, dir: string): Effect.Effect<void, CliE
  */
 export const pastePrompt = (id: string, text: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    const buffer = `iwe-prompt-${id}`;
+    const buffer = `${ID}-prompt-${id}`;
     // `--` so a prompt that begins with a dash is data, not an option.
     yield* shOrThrow(tmuxCmd(["set-buffer", "-b", buffer, "--", text]));
     yield* shOrThrow(tmuxCmd(["paste-buffer", "-p", "-b", buffer, "-t", sessionName(id)]));

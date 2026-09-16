@@ -22,8 +22,9 @@ let tmp: string;
 let repo: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-change-tabs-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-change-tabs-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
   repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "hi\n");

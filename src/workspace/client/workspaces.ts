@@ -22,7 +22,7 @@ export { DEFAULT_WORKSPACE };
 
 // A cookie rather than localStorage: the app serves itself from a fresh port every launch, and
 // localStorage is scoped to the port (see prefs.ts).
-const CHOSEN = "iwe:workspace";
+const CHOSEN = "corvi:workspace";
 
 /**
  * Which context you are working in.

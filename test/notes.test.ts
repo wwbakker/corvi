@@ -27,8 +27,9 @@ import { runEffect } from "./helpers.ts";
 let tmp: string;
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-notes-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-notes-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
 });
 
 afterAll(async () => {

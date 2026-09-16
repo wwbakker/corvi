@@ -50,7 +50,7 @@ const pageFocused = (): boolean =>
   document.hasFocus() || document.activeElement?.tagName === "IFRAME";
 
 /** Show it where it can be shown. The host bridge is the app window (Electron, the same
- * `window.iweHost` shape on both platforms); the browser's Notification is for a page in a real
+ * `window.corviHost` shape on both platforms); the browser's Notification is for a page in a real
  * browser; and no path is an error, because the toast is always there. */
 function deliver(notice: Notice, text: { title: string; body: string }, onOpen: () => void): void {
   const host = hostOf();

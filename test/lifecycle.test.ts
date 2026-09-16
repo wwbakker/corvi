@@ -31,8 +31,9 @@ const savedWorkspaces = config.workspaces;
 let savedLoaded: typeof loaded = [];
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), "iwe-lifecycle-"));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await mkdtemp(join(tmpdir(), "corvi-lifecycle-"));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
   // Enablement is the workspace's own list; naming none means every loaded extension applies, so
   // this workspace exercises the default answer and lets the stubs below be the only contributors.
   config.workspaces = [{ id: "test", name: "test" }];

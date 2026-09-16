@@ -49,8 +49,9 @@ const changeFor = async (id: string, repos: string[], direct?: string[]): Promis
 
 beforeAll(async () => {
   // Resolved: on macOS the temporary directory is a symlink, and git reports where it lands.
-  tmp = await realpath(await mkdtemp(join(tmpdir(), "iwe-repos-")));
-  process.env.IWE_ROOT = join(tmp, "changes");
+  tmp = await realpath(await mkdtemp(join(tmpdir(), "corvi-repos-")));
+  process.env.CORVI_ROOT = join(tmp, "changes");
+  process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
 });
 
 afterAll(async () => {

@@ -127,7 +127,7 @@ export default {
   // (pipeline, versionParameter, environmentParameter, environments) are read back by
   // ./deploySettings.ts; organisation and project by ./azure.ts, which adds the per-workspace
   // override above and the legacy `azure*` fields as the chain's fallback. An environment
-  // variable keeps beating the page: the field shows locked when IWE_AZURE_* is set.
+  // variable keeps beating the page: the field shows locked when CORVI_AZURE_* is set.
   globalSettings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: AZURE_ENV.organization },
     { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: AZURE_ENV.project },

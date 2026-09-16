@@ -5,7 +5,7 @@ import type { Change } from "../../domain/change.ts";
  * client half can import this file without importing anything that runs on the server.
  */
 
-/** An issue as IWE reads it, flattened from what `gh` answers. */
+/** An issue as Corvi reads it, flattened from what `gh` answers. */
 export type GitHubIssue = {
   number: number;
   title: string;

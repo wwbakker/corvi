@@ -2,6 +2,7 @@ import { Effect, Either } from "effect";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetState } from "../../domain/widget.ts";
 import { swr, invalidate } from "../../capabilities/cache.ts";
+import { env } from "../../capabilities/identity.ts";
 import { config, type Config } from "../../workspace/server/index.ts";
 import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
@@ -69,7 +70,7 @@ export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspace
  * The server-wide settings this extension declares, read back with the core's legacy flat
  * `jira*` fields as the fallback: `config.extensionSettings.jira.<key>` — what the settings page
  * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
- * which carries the default and the environment resolution (IWE_JIRA_ASSIGNEE and friends beat
+ * which carries the default and the environment resolution (CORVI_JIRA_ASSIGNEE and friends beat
  * the file); `legacy.ts` is where that fallback lives. A bag value that is not a string, or an
  * empty one, is not set: empty means unset.
  */
@@ -97,19 +98,19 @@ export function globalOf(settings: Config): {
 const siteKey = (site: Site): string => site.configFile ?? site.project ?? "default";
 
 /** Which sprints the board view covers. Closed sprints are finished work, so they are excluded
- * by default. Override with IWE_JIRA_SPRINT_STATES (e.g. "active,future,closed"). */
-const sprintStates = (): string => process.env.IWE_JIRA_SPRINT_STATES ?? "active,future";
+ * by default. Override with CORVI_JIRA_SPRINT_STATES (e.g. "active,future,closed"). */
+const sprintStates = (): string => process.env[env("JIRA_SPRINT_STATES")] ?? "active,future";
 
 /** Issue types offered for a change. Epics and subtasks are containers, not units of work.
- * Override with IWE_JIRA_ISSUE_TYPES. */
+ * Override with CORVI_JIRA_ISSUE_TYPES. */
 const issueTypes = (): string[] =>
-  (process.env.IWE_JIRA_ISSUE_TYPES ?? "Story,Bug")
+  (process.env[env("JIRA_ISSUE_TYPES")] ?? "Story,Bug")
     .split(",")
     .map((t) => t.trim().toLowerCase())
     .filter(Boolean);
 
-/** Issue type used when creating an issue from the wizard. Override with IWE_JIRA_ISSUE_TYPE. */
-const issueType = (): string => process.env.IWE_JIRA_ISSUE_TYPE ?? "Story";
+/** Issue type used when creating an issue from the wizard. Override with CORVI_JIRA_ISSUE_TYPE. */
+const issueType = (): string => process.env[env("JIRA_ISSUE_TYPE")] ?? "Story";
 
 /** Jira is the slowest of the sources and the least volatile. */
 const ISSUE_TTL = 60_000;

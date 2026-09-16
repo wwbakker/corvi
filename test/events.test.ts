@@ -17,18 +17,18 @@ let url: string;
 
 beforeAll(async () => {
   tmp = await testTempDir("events");
-  // A tmux of its own, or none. The host's default socket carries the app's own `iwe-*`
+  // A tmux of its own, or none. The host's default socket carries the app's own `corvi-*`
   // sessions, and the watcher would read their windows and say `windows` in the middle of a
   // test — a terminal that is none of this test's business. Its own TMUX_TMPDIR, with the
   // inherited TMUX removed, leaves `tmux list-windows` nothing to find. The directory must
   // exist: tmux ignores a TMUX_TMPDIR it cannot enter and falls back to the default socket.
   // Both come from serverEnv, which also gives the server port 0: the OS picks a free one,
   // so parallel workers never land on the same port, and readiness is the server's own
-  // `iwe on <url>` line rather than a poll.
-  server = Bun.spawn(["node", "src/server.ts", `--iwe-test-run=${testRun()}`], {
+  // `corvi on <url>` line rather than a poll.
+  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp),
     stdout: "pipe",
-    stderr: process.env.IWE_TEST_LOUD ? "inherit" : "ignore",
+    stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
   url = await waitForUrl(server);
 });

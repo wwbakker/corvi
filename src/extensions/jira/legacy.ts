@@ -1,5 +1,6 @@
 import type { Change } from "../../domain/change.ts";
 import type { Config } from "../../domain/config.ts";
+import { env } from "../../capabilities/identity.ts";
 import { resolveSetting } from "../../settings/server/legacySettings.ts";
 
 /**
@@ -15,9 +16,9 @@ import { resolveSetting } from "../../settings/server/legacySettings.ts";
 /** The environment variables the extension's declared settings name, so the settings page's
  * lock and the fallback here cannot drift apart. */
 export const JIRA_ENV = {
-  assignee: "IWE_JIRA_ASSIGNEE",
-  startTransition: "IWE_JIRA_START_TRANSITION",
-  doneTransition: "IWE_JIRA_DONE_TRANSITION",
+  assignee: env("JIRA_ASSIGNEE"),
+  startTransition: env("JIRA_START_TRANSITION"),
+  doneTransition: env("JIRA_DONE_TRANSITION"),
 } as const;
 
 /** The legacy `jira` string a change record written before the bag still carries. */

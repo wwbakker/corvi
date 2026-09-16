@@ -5,6 +5,7 @@ at a glance what is authoritative and what is work in progress.
 
 - **[`guides/`](guides/)** — durable. How the system is put together and which way to do things.
   Read these to understand the codebase or to make a change.
+- **[`manual/`](manual/)** — the product manual: how to install, configure and use Corvi.
 - **[`decisions/`](decisions/)** — durable and immutable. Why a thing was chosen. A later
   decision supersedes an earlier one; an accepted record is not rewritten.
 - **[`plans/`](plans/)** — temporary. Active work: plans, reviews, migration runs. When a plan
@@ -16,6 +17,17 @@ Every doc starts with a status header:
 ```
 > **Kind:** guide | decision | plan | review · **Status:** active | accepted | implemented | superseded | historical
 ```
+
+## Manual
+
+| Document | What it covers |
+|---|---|
+| [`manual/install.md`](manual/install.md) | Requirements, running from the source, the installed app, Linux, the move from an older install |
+| [`manual/configuration.md`](manual/configuration.md) | The config file and `CORVI_*` variables, the settings page, workspaces |
+| [`manual/changes.md`](manual/changes.md) | Ideas, repositories, worktrees, states, actions, completing and cancelling |
+| [`manual/interface.md`](manual/interface.md) | Navigation, the dashboard and what the page shows |
+| [`manual/terminals.md`](manual/terminals.md) | The Terminals tab, tmux, agents |
+| [`manual/integrations.md`](manual/integrations.md) | Jira, Azure DevOps, GitHub, review, notes |
 
 ## Guides
 
@@ -33,6 +45,7 @@ Every doc starts with a status header:
 | [`decisions/azure-devops-extension.md`](decisions/azure-devops-extension.md) | `ci` retires into `github` + `azure-devops`; `deployments` merges into `azure-devops` |
 | [`decisions/effect-migration.md`](decisions/effect-migration.md) | Server-side `src/` is Effect, behaviour-preserving |
 | [`decisions/electron-host.md`](decisions/electron-host.md) | Electron replaces the Swift and Python windows; one host, one engine |
+| [`decisions/corvi-identifiers.md`](decisions/corvi-identifiers.md) | The rename from IWE: one clean break, the name in one file, no migration code shipped |
 | [`decisions/host-context-menu.md`](decisions/host-context-menu.md) | The right-click menu: a setting, the host's menu in the app, the page's suppression in a browser |
 | [`decisions/window-titlebar.md`](decisions/window-titlebar.md) | The page's own first row is the window's title bar; the main process keeps only the traffic lights |
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
@@ -56,5 +69,6 @@ Every doc starts with a status header:
 
 ## Not documentation
 
-`README.md` at the repository root is the product manual, and `AGENTS.md` is the rules for
-working in this repository. Neither is part of the split above.
+`README.md` at the repository root is the front door — what Corvi is and how to install it; the
+manual behind it is in [`manual/`](manual/). `AGENTS.md` is the rules for working in this
+repository. Neither is part of the split above.

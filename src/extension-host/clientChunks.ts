@@ -2,7 +2,8 @@ import { mkdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { createRequire } from "node:module";
 import { build } from "esbuild";
-import { stateDir, writeAtomic } from "../capabilities/files.ts";
+import { writeAtomic } from "../capabilities/files.ts";
+import { stateDir } from "../capabilities/identity.ts";
 import { loaded } from "./index.ts";
 
 /**

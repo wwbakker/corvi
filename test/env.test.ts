@@ -11,9 +11,9 @@ test("the launcher's variables do not reach a child", () => {
     HOME: "/home/you",
     ELECTRON_RUN_AS_NODE: "1",
     NODE_ENV: "production",
-    IWE_PORT: "4000",
-    IWE_ROOT: "/changes",
-    IWE_TEST_RUN: "abc",
+    CORVI_PORT: "4000",
+    CORVI_ROOT: "/changes",
+    CORVI_TEST_RUN: "abc",
     TMUX: "/tmp/tmux-501/default,1,0",
     TMUX_PANE: "%0",
   });
@@ -22,21 +22,21 @@ test("the launcher's variables do not reach a child", () => {
   // Kept: how a tool inside a pane addresses its own tmux server.
   expect(env.TMUX).toBe("/tmp/tmux-501/default,1,0");
   expect(env.TMUX_PANE).toBe("%0");
-  // Scrubbed: the launcher's, and everything of IWE's own by prefix.
+  // Scrubbed: the launcher's, and everything of Corvi's own by prefix.
   expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
   expect(env.NODE_ENV).toBeUndefined();
-  expect(env.IWE_PORT).toBeUndefined();
-  expect(env.IWE_ROOT).toBeUndefined();
-  expect(env.IWE_TEST_RUN).toBeUndefined();
+  expect(env.CORVI_PORT).toBeUndefined();
+  expect(env.CORVI_ROOT).toBeUndefined();
+  expect(env.CORVI_TEST_RUN).toBeUndefined();
 });
 
 test("the caller's additions are applied after the scrub, so a workspace can set these on purpose", () => {
   const env = childEnv({ PATH: "/bin", NODE_ENV: "production" }, {
     NODE_ENV: "development",
-    IWE_CHANGE_ID: "PROJ-1",
+    CORVI_CHANGE_ID: "PROJ-1",
   });
   expect(env.NODE_ENV).toBe("development");
-  expect(env.IWE_CHANGE_ID).toBe("PROJ-1");
+  expect(env.CORVI_CHANGE_ID).toBe("PROJ-1");
   expect(env.PATH).toBe("/bin");
 });
 

@@ -6,8 +6,8 @@ import { Effect, TestClock } from "effect";
 import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/capabilities/cache.ts";
 import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
-const file = join(tmpdir(), "iwe-cache-test.json");
-process.env.IWE_CACHE = file;
+const file = join(tmpdir(), "corvi-cache-test.json");
+process.env.CORVI_CACHE = file;
 
 beforeEach(() => clearCache());
 afterAll(() => rm(file, { force: true }));
@@ -141,7 +141,7 @@ test("the cache survives a restart, minus what is too old to trust", async () =>
 test("no more CLIs run at once than the machine can afford", async () => {
   // Counted by the processes themselves: each writes a line, so the file says how many were
   // alive together. Thirty at once is what a dashboard of six repositories asks for.
-  const marks = join(tmpdir(), `iwe-parallel-${Date.now()}`);
+  const marks = join(tmpdir(), `corvi-parallel-${Date.now()}`);
   await Promise.all(
     Array.from({ length: 30 }, () =>
       runSh(["sh", "-c", `echo start >> ${marks}; sleep 0.05; echo end >> ${marks}`]),
@@ -156,7 +156,7 @@ test("no more CLIs run at once than the machine can afford", async () => {
     alive += line === "start" ? 1 : -1;
     peak = Math.max(peak, alive);
   }
-  expect(peak).toBeLessThanOrEqual(Number(process.env.IWE_PARALLEL ?? 8));
+  expect(peak).toBeLessThanOrEqual(Number(process.env.CORVI_PARALLEL ?? 8));
 });
 
 test("a command that cannot start is a failed command, not a crash", async () => {
@@ -175,12 +175,12 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
     id: "client",
     name: "Acme",
     // How two clients stop fighting over one login: another GitHub account, another tenant.
-    env: { GH_CONFIG_DIR: "~/.config/gh-client", IWE_TEST_MARK: "client" },
+    env: { GH_CONFIG_DIR: "~/.config/gh-client", CORVI_TEST_MARK: "client" },
   };
 
   // Outside a request there is no workspace, so nothing is added.
   expect(envOf(undefined)).toEqual({});
-  expect((await runSh(["sh", "-c", "echo ${IWE_TEST_MARK:-none}"])).stdout).toBe("none");
+  expect((await runSh(["sh", "-c", "echo ${CORVI_TEST_MARK:-none}"])).stdout).toBe("none");
 
   // The tag carries the workspace for the whole effect, however deep the call is.
   await runEffectWith(
@@ -188,11 +188,11 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
     Effect.gen(function* () {
       // A tilde is a path in practice, and a shell would have expanded it.
       expect(envOf(workspace).GH_CONFIG_DIR?.startsWith("/")).toBe(true);
-      expect((yield* sh(["sh", "-c", "echo $IWE_TEST_MARK"])).stdout).toBe("client");
+      expect((yield* sh(["sh", "-c", "echo $CORVI_TEST_MARK"])).stdout).toBe("client");
       expect((yield* sh(["sh", "-c", "echo $GH_CONFIG_DIR"])).stdout).toContain("gh-client");
     }),
   );
 
   // And it is gone again afterwards.
-  expect((await runSh(["sh", "-c", "echo ${IWE_TEST_MARK:-none}"])).stdout).toBe("none");
+  expect((await runSh(["sh", "-c", "echo ${CORVI_TEST_MARK:-none}"])).stdout).toBe("none");
 });

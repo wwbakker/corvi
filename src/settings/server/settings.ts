@@ -24,7 +24,7 @@ import { TOOLING } from "../../capabilities/os.ts";
 /**
  * Reading and writing the settings file from the page.
  *
- * The file stays the source of truth — it is hand-editable, it is what the README documents, and
+ * The file stays the source of truth — it is hand-editable, it is what the manual documents, and
  * a settings page that kept its own copy would be a second one. This only writes it, and then
  * refills the object every module already imported, so a change takes effect on the next request
  * rather than on the next restart.
@@ -69,7 +69,7 @@ const absolute = (value: string | undefined): boolean =>
 export function problems(next: Settings): string[] {
   const found: string[] = [];
 
-  for (const field of ["changesRoot", "reposRoot", "reposStart"] as const) {
+  for (const field of ["changesRoot", "archiveRoot", "reposRoot", "reposStart"] as const) {
     if (!absolute(next[field])) found.push(`${field} must be an absolute path`);
   }
 
@@ -129,8 +129,8 @@ function prune(value: unknown): unknown {
 /**
  * Write the settings and put them into effect.
  *
- * Merged over what the file holds, not replacing it: a key IWE does not know about was put there
- * by hand, for a version of IWE that does, and losing it silently would be rude. The ENV_OVERRIDES
+ * Merged over what the file holds, not replacing it: a key Corvi does not know about was put there
+ * by hand, for a version of Corvi that does, and losing it silently would be rude. The ENV_OVERRIDES
  * locking and the empty-field-means-unset pruning still apply.
  */
 export const writeSettings = (

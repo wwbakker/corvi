@@ -18,13 +18,13 @@
 import { sh } from "./sh.ts";
 
 /** The terminal this is being run from, which is what the permission is granted to — not `bun`
- * and not IWE. Reported plainly, because that is the row to look for in System Settings. */
+ * and not Corvi. Reported plainly, because that is the row to look for in System Settings. */
 const host = (): string => process.env.TERM_PROGRAM ?? "your terminal";
 
 async function screenRecording(): Promise<boolean> {
   // A capture of one pixel: it succeeds when the permission is there and writes nothing when it
   // is not, which is the only reliable way to ask.
-  const shot = "/tmp/iwe-permission-probe.png";
+  const shot = "/tmp/corvi-permission-probe.png";
   await sh(["rm", "-f", shot]);
   await sh(["screencapture", "-x", "-R", "0,0,1,1", shot]);
   const taken = await Bun.file(shot).exists();

@@ -9,28 +9,28 @@
  *   bun run test:clean --verbose        # also say so when there is nothing
  *
  * Tests start real things — servers on Node, whole tmux servers — and an aborted run leaves them
- * behind. Killing those by port or by process name is how a live IWE.app server was once
+ * behind. Killing those by port or by process name is how a live Corvi.app server was once
  * destroyed: from the outside they look exactly like test leftovers. So ownership here is
  * decided only by things a test's processes carry and the app's never do:
  *
- *   - a tmux server is a test's when its socket is under a `$TMPDIR/iwe-*` directory (the tests
- *     name it explicitly with -S and give it to the server as IWE_TMUX_SOCKET; IWE's own
- *     terminals live on the `iwe` socket, and anything else on the default socket is yours);
- *   - a server is a test's when its command line carries `--iwe-test-run`, which the tests pass
+ *   - a tmux server is a test's when its socket is under a `$TMPDIR/corvi-*` directory (the tests
+ *     name it explicitly with -S and give it to the server as CORVI_TMUX_SOCKET; Corvi's own
+ *     terminals live on the `corvi` socket, and anything else on the default socket is yours);
+ *   - a server is a test's when its command line carries `--corvi-test-run`, which the tests pass
  *     and src/server.ts ignores. The app's server (`electron src/server.ts`) and a dev server
  *     (`node src/server.ts`) carry no marker.
  *
- * The prefix is the whole rule: an entry under `$TMPDIR` named `iwe-*` that no live run names is
- * a stray, and `--prune` removes it. Do not name your own scratch files `iwe-…` there — a
- * `/tmp/iwe-notes.log` reads as a run named `notes.log`.
+ * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` that no live run names is
+ * a stray, and `--prune` removes it. Do not name your own scratch files `corvi-…` there — a
+ * `/tmp/corvi-notes.log` reads as a run named `notes.log`.
  *
  * Which run, and whether that run is still alive, is the second question — the one that lets two
  * suites run at once. A run is named by a token, a `<base36>.<base36>` pair the dot keeps apart
  * from the human labels a temp dir also carries. Its resources carry the token too:
  *
- *   - the server in `--iwe-test-run=<token>`;
- *   - the tmux socket, under `<tmpdir>/iwe-<token>-...`;
- *   - and the run itself in `<tmpdir>/iwe-<token>.pid`, written by `testRun()` (test/helpers.ts)
+ *   - the server in `--corvi-test-run=<token>`;
+ *   - the tmux socket, under `<tmpdir>/corvi-<token>-...`;
+ *   - and the run itself in `<tmpdir>/corvi-<token>.pid`, written by `testRun()` (test/helpers.ts)
  *     and holding its pid for as long as it lives.
  *
  * So the default `--kill` ends only runs whose pid-file is gone or whose pid is dead: a crash's
@@ -54,54 +54,54 @@ export const testRoots = async (): Promise<string[]> => {
 };
 
 /** Collapse duplicate slashes before comparing: macOS's TMPDIR ends in a slash, so a shell-built
- * `$TMPDIR/iwe-x` is `/var/folders/.../T//iwe-x` and would not match the `T/iwe-` prefix. */
+ * `$TMPDIR/corvi-x` is `/var/folders/.../T//corvi-x` and would not match the `T/corvi-` prefix. */
 const normalize = (path: string): string => path.replace(/\/{2,}/g, "/");
 
 const underTestRoot = (path: string, roots: readonly string[]): boolean => {
   const candidate = normalize(path);
-  return roots.some((root) => candidate.startsWith(`${normalize(root)}/iwe-`));
+  return roots.some((root) => candidate.startsWith(`${normalize(root)}/corvi-`));
 };
 
 /** Whether a command line belongs to a test run: only the marker every test server carries.
  * Pure and exported, so test/clean.test.ts can pin the shapes this must never confuse: a test's
  * server, the app's (`electron src/server.ts`), and a dev server (`node src/server.ts`). */
-export const isTestCommand = (command: string): boolean => command.includes("--iwe-test-run");
+export const isTestCommand = (command: string): boolean => command.includes("--corvi-test-run");
 
 /** Whether a tmux socket belongs to a test run. */
 export const isTestSocket = (socket: string, roots: readonly string[]): boolean =>
   underTestRoot(socket, roots);
 
 /** A run token: two base36 words joined by a dot. The dot is what makes it recognisable in a
- * path that also carries a human label, and what keeps `iwe-term-abc` (label `term`) from being
+ * path that also carries a human label, and what keeps `corvi-term-abc` (label `term`) from being
  * read as run `term`. */
 const TOKEN = "[0-9a-z]+\\.[0-9a-z]+";
 
 /** Whether a string is a run token in full. The parsers below match a token as a prefix, because
  * they read it out of a longer path or command line; test/helpers.ts refuses a hand-set
- * `IWE_TEST_RUN` that is not one, since the cleaner would otherwise leave that run's servers
+ * `CORVI_TEST_RUN` that is not one, since the cleaner would otherwise leave that run's servers
  * behind as unattributable. */
 export const isRunToken = (value: string): boolean => new RegExp(`^${TOKEN}$`).test(value);
 
 /** The token a test process carries, or undefined: a resource with no token is one this tool
  * cannot attribute to a run (the app's dev server, or a leftover from before tokens), and is
  * left alone unless `--all`. The lookahead keeps a longer word from being read as a shorter
- * token: `--iwe-test-run=abc.defG` is not run `abc.def`. */
+ * token: `--corvi-test-run=abc.defG` is not run `abc.def`. */
 export const tokenOf = (command: string): string | undefined =>
-  new RegExp(`--iwe-test-run=(${TOKEN})(?=\\s|$)`).exec(command)?.[1];
+  new RegExp(`--corvi-test-run=(${TOKEN})(?=\\s|$)`).exec(command)?.[1];
 
 /** The token a path carries, or undefined: a resource with no token is one this tool cannot
  * attribute to a run (the app's, or a leftover from before tokens), and is left alone unless
  * `--all`. */
 export const tokenFromPath = (path: string): string | undefined =>
-  new RegExp(`(?:^|[\\\\/])iwe-(${TOKEN})(?=[-/]|$)`).exec(normalize(path))?.[1];
+  new RegExp(`(?:^|[\\\\/])corvi-(${TOKEN})(?=[-/]|$)`).exec(normalize(path))?.[1];
 
-/** The token a pid-file name carries (`iwe-<token>.pid`), for pruning. */
+/** The token a pid-file name carries (`corvi-<token>.pid`), for pruning. */
 const tokenFromPidFile = (name: string): string | undefined =>
-  new RegExp(`^iwe-(${TOKEN})\\.pid$`).exec(name)?.[1];
+  new RegExp(`^corvi-(${TOKEN})\\.pid$`).exec(name)?.[1];
 
-/** Where a run writes its liveness: `<tmpdir>/iwe-<token>.pid`. The token names all of a run's
+/** Where a run writes its liveness: `<tmpdir>/corvi-<token>.pid`. The token names all of a run's
  * temp dirs, so one file answers for all of them. */
-export const runPidPath = (root: string, token: string): string => join(root, `iwe-${token}.pid`);
+export const runPidPath = (root: string, token: string): string => join(root, `corvi-${token}.pid`);
 
 type Proc = { pid: number; command: string };
 
@@ -120,7 +120,7 @@ const testSockets = async (roots: readonly string[]): Promise<string[]> => {
   const sockets = new Set<string>();
   for (const root of roots) {
     for (const dir of await readdir(root, { withFileTypes: true }).catch(() => [])) {
-      if (!dir.isDirectory() || !dir.name.startsWith("iwe-")) continue;
+      if (!dir.isDirectory() || !dir.name.startsWith("corvi-")) continue;
       const testDir = join(root, dir.name);
       for (const inner of await readdir(testDir, { withFileTypes: true }).catch(() => [])) {
         if (!inner.isDirectory() || !inner.name.startsWith("tmux-")) continue;
@@ -182,7 +182,7 @@ const pruneLeftovers = async (
   const unique = [...new Set(await Promise.all(roots.map((root) => realpath(root).catch(() => root))))];
   for (const root of unique) {
     for (const entry of await readdir(root, { withFileTypes: true }).catch(() => [])) {
-      if (!entry.name.startsWith("iwe-")) continue;
+      if (!entry.name.startsWith("corvi-")) continue;
       const path = join(root, entry.name);
       const token = tokenFromPath(entry.name) ?? tokenFromPidFile(entry.name);
       if (token === undefined ? !removeUnnamed : !covers(token)) continue;
@@ -233,7 +233,7 @@ const main = async (): Promise<void> => {
   if (!procs.length && !sockets.length) {
     if (verbose) console.log("no test processes or tmux servers are running");
     if (prune) {
-      // Quiescent: nothing test-owned is running, so an `iwe-*` entry no run names is a stray
+      // Quiescent: nothing test-owned is running, so a `corvi-*` entry no run names is a stray
       // (an old run's, or a fixed-path log), and the old prune's behaviour is right.
       const removed = await pruneLeftovers(roots, (t) => all || run === t || !liveToken(t, roots), true);
       if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);

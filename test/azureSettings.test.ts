@@ -20,10 +20,10 @@ import { runEffect } from "./helpers.ts";
  */
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "t", name: "T", ...patch });
 
-const originalConfig = process.env.IWE_CONFIG;
-const originalOrg = process.env.IWE_AZURE_ORG;
-const originalProject = process.env.IWE_AZURE_PROJECT;
-const originalEnvironments = process.env.IWE_AZURE_ENVIRONMENTS;
+const originalConfig = process.env.CORVI_CONFIG;
+const originalOrg = process.env.CORVI_AZURE_ORG;
+const originalProject = process.env.CORVI_AZURE_PROJECT;
+const originalEnvironments = process.env.CORVI_AZURE_ENVIRONMENTS;
 
 beforeEach(() => {
   clearCache();
@@ -32,14 +32,14 @@ beforeEach(() => {
 
 afterEach(() => {
   config.extensionSettings = undefined;
-  if (originalConfig === undefined) delete process.env.IWE_CONFIG;
-  else process.env.IWE_CONFIG = originalConfig;
-  if (originalOrg === undefined) delete process.env.IWE_AZURE_ORG;
-  else process.env.IWE_AZURE_ORG = originalOrg;
-  if (originalProject === undefined) delete process.env.IWE_AZURE_PROJECT;
-  else process.env.IWE_AZURE_PROJECT = originalProject;
-  if (originalEnvironments === undefined) delete process.env.IWE_AZURE_ENVIRONMENTS;
-  else process.env.IWE_AZURE_ENVIRONMENTS = originalEnvironments;
+  if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
+  else process.env.CORVI_CONFIG = originalConfig;
+  if (originalOrg === undefined) delete process.env.CORVI_AZURE_ORG;
+  else process.env.CORVI_AZURE_ORG = originalOrg;
+  if (originalProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
+  else process.env.CORVI_AZURE_PROJECT = originalProject;
+  if (originalEnvironments === undefined) delete process.env.CORVI_AZURE_ENVIRONMENTS;
+  else process.env.CORVI_AZURE_ENVIRONMENTS = originalEnvironments;
   reloadConfigSync();
 });
 
@@ -115,18 +115,18 @@ test("deploySettings reads the extension's own bag through the Settings capabili
 });
 
 test("a config file with only the legacy fields still works", async () => {
-  const originalConfig = process.env.IWE_CONFIG;
-  const originalOrg = process.env.IWE_AZURE_ORG;
-  const originalProject = process.env.IWE_AZURE_PROJECT;
-  const originalEnv = process.env.IWE_AZURE_ENVIRONMENTS;
-  const dir = await mkdtemp(join(tmpdir(), "iwe-azure-legacy-"));
-  process.env.IWE_CONFIG = join(dir, "config.json");
-  delete process.env.IWE_AZURE_ORG;
-  delete process.env.IWE_AZURE_PROJECT;
-  delete process.env.IWE_AZURE_ENVIRONMENTS;
+  const originalConfig = process.env.CORVI_CONFIG;
+  const originalOrg = process.env.CORVI_AZURE_ORG;
+  const originalProject = process.env.CORVI_AZURE_PROJECT;
+  const originalEnv = process.env.CORVI_AZURE_ENVIRONMENTS;
+  const dir = await mkdtemp(join(tmpdir(), "corvi-azure-legacy-"));
+  process.env.CORVI_CONFIG = join(dir, "config.json");
+  delete process.env.CORVI_AZURE_ORG;
+  delete process.env.CORVI_AZURE_PROJECT;
+  delete process.env.CORVI_AZURE_ENVIRONMENTS;
   try {
     await Bun.write(
-      process.env.IWE_CONFIG,
+      process.env.CORVI_CONFIG,
       JSON.stringify({
         azureOrganization: "https://dev.azure.com/legacy",
         azureProject: "LegacyProj",
@@ -153,7 +153,7 @@ test("a config file with only the legacy fields still works", async () => {
     });
 
     // The flat field carries the environment resolution, and the global bag still beats it.
-    process.env.IWE_AZURE_ORG = "https://dev.azure.com/from-env";
+    process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
     reloadConfigSync();
     expect(azureOf(config.workspaces[0]! as never, config).organization).toBe(
       "https://dev.azure.com/from-env",
@@ -161,14 +161,14 @@ test("a config file with only the legacy fields still works", async () => {
     config.extensionSettings = { "azure-devops": { organization: "global-org" } };
     expect(azureOf(config.workspaces[0]! as never, config).organization).toBe("global-org");
   } finally {
-    if (originalConfig === undefined) delete process.env.IWE_CONFIG;
-    else process.env.IWE_CONFIG = originalConfig;
-    if (originalOrg === undefined) delete process.env.IWE_AZURE_ORG;
-    else process.env.IWE_AZURE_ORG = originalOrg;
-    if (originalProject === undefined) delete process.env.IWE_AZURE_PROJECT;
-    else process.env.IWE_AZURE_PROJECT = originalProject;
-    if (originalEnv === undefined) delete process.env.IWE_AZURE_ENVIRONMENTS;
-    else process.env.IWE_AZURE_ENVIRONMENTS = originalEnv;
+    if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
+    else process.env.CORVI_CONFIG = originalConfig;
+    if (originalOrg === undefined) delete process.env.CORVI_AZURE_ORG;
+    else process.env.CORVI_AZURE_ORG = originalOrg;
+    if (originalProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
+    else process.env.CORVI_AZURE_PROJECT = originalProject;
+    if (originalEnv === undefined) delete process.env.CORVI_AZURE_ENVIRONMENTS;
+    else process.env.CORVI_AZURE_ENVIRONMENTS = originalEnv;
     await rm(dir, { recursive: true, force: true });
     reloadConfigSync();
     clearCache();

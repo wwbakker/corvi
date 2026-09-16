@@ -11,6 +11,7 @@ import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
 import { terminalSockets, type TerminalSocket } from "./terminals/server/session.ts";
+import { ID, env } from "./capabilities/identity.ts";
 
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
@@ -36,7 +37,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 const server = await serve<TerminalSocket>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
-  port: Number(process.env.IWE_PORT ?? 4000),
+  port: Number(process.env[env("PORT")] ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
   // One table per domain, each guarded as it is defined; composed here, where the server is.
@@ -58,7 +59,7 @@ const server = await serve<TerminalSocket>({
   },
 });
 
-console.log(`iwe on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
+console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
 
 // The page is built on demand, and a failed build in production comes back as an empty 200 with
 // no error anywhere — in the app's window that is a black screen, with nothing to say why. Ask

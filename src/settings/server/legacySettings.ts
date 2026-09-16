@@ -1,4 +1,5 @@
 import type { ExtensionSetting } from "../../extension-host/api.ts";
+import { env } from "../../capabilities/identity.ts";
 
 /**
  * The settings precedence chain, in one place.
@@ -24,11 +25,12 @@ import type { ExtensionSetting } from "../../extension-host/api.ts";
  * reads the same map, so a field's override is named once.
  */
 export const ENV_OVERRIDES: Record<string, string> = {
-  changesRoot: "IWE_ROOT",
-  reposRoot: "IWE_REPOS_ROOT",
-  reposStart: "IWE_REPOS_START",
-  worktreeCopy: "IWE_WORKTREE_COPY",
-  extensionPaths: "IWE_EXTENSION_PATHS",
+  changesRoot: env("ROOT"),
+  archiveRoot: env("ARCHIVE_ROOT"),
+  reposRoot: env("REPOS_ROOT"),
+  reposStart: env("REPOS_START"),
+  worktreeCopy: env("WORKTREE_COPY"),
+  extensionPaths: env("EXTENSION_PATHS"),
 };
 
 /** One extension's settings bag, as the config holds it: a value is one string or a list. */
@@ -56,7 +58,7 @@ export const bagList = (bag: SettingBag | undefined, key: string): string[] | un
  *
  * `parse` turns a raw environment value into the setting's shape; returning `undefined` from it
  * keeps the environment from counting, which is how a field says "an empty override is no
- * override" where that is its convention (IWE_EXTENSION_PATHS, IWE_AZURE_ENVIRONMENTS). With no
+ * override" where that is its convention (CORVI_EXTENSION_PATHS, CORVI_AZURE_ENVIRONMENTS). With no
  * `parse`, the raw string is the value, which is what a plain string setting wants.
  */
 export function resolveSetting<T>(spec: {

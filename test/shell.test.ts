@@ -44,21 +44,21 @@ test("with no Shell in context, sh spawns directly", async () => {
  * environment, since the server they leak from is this suite's parent when it runs inside a pane
  * — which is exactly the leak the scrub exists for. */
 test("a CLI spawn inherits neither the launcher's variables nor passes them to the workspace's", async () => {
-  const previous = { port: process.env.IWE_PORT, electron: process.env.ELECTRON_RUN_AS_NODE };
-  process.env.IWE_PORT = "4000";
+  const previous = { port: process.env.CORVI_PORT, electron: process.env.ELECTRON_RUN_AS_NODE };
+  process.env.CORVI_PORT = "4000";
   process.env.ELECTRON_RUN_AS_NODE = "1";
   try {
     const workspace: Workspace = { id: "env-test", name: "Env test", env: { MY_OWN: "yes" } };
     const result = await Effect.runPromise(
       Effect.provide(
-        sh(["sh", "-c", "echo $IWE_PORT:$ELECTRON_RUN_AS_NODE:$MY_OWN"]),
+        sh(["sh", "-c", "echo $CORVI_PORT:$ELECTRON_RUN_AS_NODE:$MY_OWN"]),
         Layer.succeed(WorkspaceTag, workspace),
       ),
     );
     expect(result).toMatchObject({ code: 0, stdout: "::yes" });
   } finally {
-    if (previous.port === undefined) delete process.env.IWE_PORT;
-    else process.env.IWE_PORT = previous.port;
+    if (previous.port === undefined) delete process.env.CORVI_PORT;
+    else process.env.CORVI_PORT = previous.port;
     if (previous.electron === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
     else process.env.ELECTRON_RUN_AS_NODE = previous.electron;
   }

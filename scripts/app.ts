@@ -1,5 +1,5 @@
 /**
- * Installs the app: a window onto IWE, with the server behind it.
+ * Installs the app: a window onto Corvi, with the server behind it.
  *
  *   bun run app:install
  *   bun run app:uninstall
