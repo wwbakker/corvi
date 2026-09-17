@@ -84,12 +84,14 @@ const bySprintOrder = (a: Issue, b: Issue): number =>
  * in the browser is instant and costs no round trip. ponytail: move to JQL if the board grows. */
 export function IssueTable({
   workspace,
-  selected,
+  selectedKey,
   onSelect,
 }: {
   /** Whose Jira: a second client is a second site, and its board is not this one's. */
   workspace?: string;
-  selected: Issue | null;
+  /** The key of the picked issue rather than the issue itself: the board is asked again when a
+   * draft is reopened, and the row that was picked is found by its key. */
+  selectedKey: string | null;
   onSelect: (issue: Issue | null) => void;
 }): JSX.Element {
   const [board, setBoard] = useState<Board>({ issues: [], sprints: [] });
@@ -221,8 +223,8 @@ export function IssueTable({
                 group.issues.map((issue) => (
                   <tr
                     key={issue.key}
-                    className={issue.key === selected?.key ? "selected" : ""}
-                    onClick={() => onSelect(issue.key === selected?.key ? null : issue)}
+                    className={issue.key === selectedKey ? "selected" : ""}
+                    onClick={() => onSelect(issue.key === selectedKey ? null : issue)}
                   >
                     <td>{issue.key}</td>
                     <td className="summary">{issue.summary}</td>
@@ -266,14 +268,17 @@ export function IssueTable({
 
 /** The step, as the wizard's host renders it. */
 export const step: StepComponent = ({ ctx }) => {
-  const [selected, setSelected] = useState<Issue | null>(null);
+  // The selection is the payload's own key, not an issue object: the board is asked again when
+  // the wizard is reopened, so the step keeps what it picked and the table finds the row.
+  const stored = ctx.payload("jira") as { key?: string } | undefined;
+  const [selectedKey, setSelectedKey] = useState<string | null>(stored?.key ?? null);
 
   const select = (issue: Issue | null): void => {
-    setSelected(issue);
+    setSelectedKey(issue?.key ?? null);
     ctx.setPayload("jira", issue ? { key: issue.key } : undefined);
     ctx.setTicket(issue?.key);
     if (issue) ctx.setDraft({ id: issue.key, branch: branchFor(issue.key, issue.summary) });
   };
 
-  return <IssueTable workspace={ctx.workspace} selected={selected} onSelect={select} />;
+  return <IssueTable workspace={ctx.workspace} selectedKey={selectedKey} onSelect={select} />;
 };

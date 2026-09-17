@@ -17,6 +17,7 @@ import { Sidebar, type Page } from "./Sidebar.tsx";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
+import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
 import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../extension-host/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
@@ -177,6 +178,21 @@ function App(): JSX.Element {
   // until the contexts are known, which reads as "loading" rather than as "everything".
   const changes = everything && ready ? inWorkspace(everything, chosen, workspaces) : undefined;
 
+  // The idea being written: the wizard's form, owned here so that leaving `/new` does not lose
+  // it. A draft is not a change — nothing is written until "Create idea" (src/wizard/draft.ts).
+  const [draft, setDraft] = useState<Draft>();
+  // `/new` is the draft's page: a deep link or Back into it opens a fresh one when there is
+  // none. Only on entering the view, so an emptied draft is not quietly re-made.
+  useEffect(() => {
+    if (view.name === "new") setDraft((d) => d ?? { ...EMPTY_DRAFT });
+  }, [view.name]);
+  // Patches are applied to what the last render held, so a step may change several fields in
+  // one go (an issue pick sets the payload, the ticket and the id) without losing the rest.
+  const changeDraft = useCallback(
+    (patch: DraftPatch): void => setDraft((d) => (d ? applyPatch(d, patch) : d)),
+    [],
+  );
+
   const selected = view.name === "change" ? view.id : null;
   // Found among all of them, not the filtered list: a link to a change in another workspace
   // should open it rather than say it does not exist.
@@ -198,6 +214,12 @@ function App(): JSX.Element {
   const setView = (next: View): void => {
     if (pathOf(next) !== window.location.pathname) window.history.pushState(null, "", pathOf(next));
     setViewState(next);
+  };
+
+  /** Give up on the idea being written: the draft goes, and there is nothing else to show. */
+  const discardDraft = (): void => {
+    setDraft(undefined);
+    setView({ name: "home" });
   };
 
   // A notification click comes back through the host as a plain function: activate the window,
@@ -282,6 +304,8 @@ function App(): JSX.Element {
         windows={terminals.windows}
         onHome={() => setView({ name: "home" })}
         onNew={() => setView({ name: "new" })}
+        draft={draft}
+        wizard={view.name === "new"}
         // The server's pages, offered as they are: which extensions exist here is not the
         // page's to know.
         pages={pages}
@@ -323,15 +347,19 @@ function App(): JSX.Element {
             }}
           />
         )}
-        {view.name === "new" && (
+        {view.name === "new" && draft && (
           <Wizard
             workspaces={workspaces}
             workspace={workspace?.id}
+            draft={draft}
+            onChange={changeDraft}
             onCreated={(c, provision) => {
+              // Only a created change takes the draft: a refused create keeps the form.
+              setDraft(undefined);
               void reload();
               setView({ name: "change", id: c.id, page: "dashboard", provision });
             }}
-            onCancel={() => setView({ name: "home" })}
+            onDiscard={discardDraft}
           />
         )}
         {view.name === "change" && (

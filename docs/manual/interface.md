@@ -6,7 +6,9 @@
 
 One column, down the left, from the top of the window:
 
-    Changes  New                     the overview, and starting one beside it
+    Changes                          the overview
+    IDEAS  New                       the ideas, and the button that starts one
+    ┃ New idea                       the draft you have not created yet — clicking it goes back
     ┃ Wait for the security review…  ▶     the changes still going; picking one opens its dashboard
     ┃ Anonymise customer names…       ▶
         >_ PROJ-1234                  its terminals, under the change they belong to
@@ -39,7 +41,13 @@ underneath and each says how it is doing itself.
 
 **One thing is highlighted at a time.** On a terminal, that is the window — not the change it
 belongs to, which stays plain until you are on its dashboard or its review tab. Two highlights
-would be two answers to "where am I".
+would be two answers to "where am I". On the wizard it is the draft row under Ideas.
+
+**The idea being written is a row too.** The draft you get by pressing **New** and then leaving
+before creating anything sits under Ideas — *New idea*, or its title once you have typed one — and
+clicking it reopens the wizard where you left it. Leaving the wizard loses nothing, because the
+form is kept in the page until **Create idea** or **Discard**
+(see [`changes.md`](changes.md#creating-an-idea)).
 
 A terminal's icon is green while its window runs something and grey while it sits at a prompt.
 **`>_ new`** appears only under the change you are working on: every change offering a terminal it

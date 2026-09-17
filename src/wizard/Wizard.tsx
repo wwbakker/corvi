@@ -2,8 +2,9 @@ import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change, type Created, type Selection } from "../app-root/api.ts";
 import { slugFor } from "../domain/change.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
-import { StepHost, type StepContext, type StepInfo } from "../extension-host/client.tsx";
+import { StepHost, type StepInfo } from "../extension-host/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
+import { stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
 
 /**
  * The "Create change" wizard.
@@ -16,8 +17,10 @@ import type { Workspace } from "../workspace/client/workspaces.ts";
 export function Wizard({
   workspaces,
   workspace,
+  draft,
+  onChange,
   onCreated,
-  onCancel,
+  onDiscard,
 }: {
   /** The contexts there are to choose from. */
   workspaces: Workspace[];
@@ -25,29 +28,23 @@ export function Wizard({
    * decides, and changing it changes this wizard with it. Undefined, which is what "All work"
    * means, leaves the choice to the wizard. */
   workspace?: string;
+  /** The form so far, owned by the App so that leaving this page does not lose it. Every field
+   * the wizard would otherwise keep in `useState` is in here. */
+  draft: Draft;
+  /** One patch to the draft; the App applies it to what it holds. */
+  onChange: (patch: DraftPatch) => void;
   onCreated: (change: Change, provision: Created["provision"]) => void;
-  onCancel: () => void;
+  /** Throw the draft away: nothing is written until "Create idea". */
+  onDiscard: () => void;
 }): JSX.Element {
-  const [step, setStep] = useState(0);
-  const [id, setId] = useState("");
-  const [branch, setBranch] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [repos, setRepos] = useState<Selection[]>([]);
-  const [ticket, setTicket] = useState<string>();
-  const [payloads, setPayloads] = useState<Record<string, unknown>>({});
+  const { step, id, branch, title, description, repos, ticket, idTouched, branchTouched } = draft;
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  // Whether the id and branch are still following the title, or have been set by hand (or by a
-  // picked issue). Once either is yours, typing in the title leaves it alone.
-  const [idTouched, setIdTouched] = useState(false);
-  const [branchTouched, setBranchTouched] = useState(false);
 
   // The change's context. The switcher's choice wins while it names one; "All work" hands the
   // decision to the wizard, which keeps its own — defaulting to the first context, which is
   // what the server would assume anyway.
-  const [picked, setPicked] = useState<string>();
-  const chosen = workspace ?? picked ?? workspaces[0]?.id;
+  const chosen = workspace ?? draft.picked ?? workspaces[0]?.id;
 
   // Which steps this context has. Asked of the server, because that is where the extensions and
   // their enablement are known; asked again whenever the context changes, which is why a
@@ -72,78 +69,37 @@ export function Wizard({
 
   // Added as a worktree off the remote default; both are changed per repository afterwards.
   const addRepo = (path: string): void =>
-    setRepos(repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }]);
-  const removeRepo = (path: string): void => setRepos(repos.filter((r) => r.path !== path));
+    onChange({
+      repos: repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }],
+    });
+  const removeRepo = (path: string): void => onChange({ repos: repos.filter((r) => r.path !== path) });
   const changeRepo = (path: string, patch: Partial<Selection>): void =>
-    setRepos(repos.map((r) => (r.path === path ? { ...r, ...patch } : r)));
+    onChange({ repos: repos.map((r) => (r.path === path ? { ...r, ...patch } : r)) });
 
   // The title is the source: the id and the branch follow it, until you edit either by hand —
   // after which they are yours. A picked issue claims both (setDraft below).
-  const editTitle = (value: string): void => {
-    setTitle(value);
-    if (!idTouched) setId(slugFor(value));
-    if (!branchTouched) setBranch(slugFor(value));
-  };
-  const editId = (value: string): void => {
-    setIdTouched(true);
-    setId(value);
-    if (!branchTouched) setBranch(value);
-  };
-  const editBranch = (value: string): void => {
-    setBranchTouched(true);
-    setBranch(value);
-  };
+  const editTitle = (value: string): void =>
+    onChange({
+      title: value,
+      ...(idTouched ? {} : { id: slugFor(value) }),
+      ...(branchTouched ? {} : { branch: slugFor(value) }),
+    });
+  const editId = (value: string): void =>
+    onChange({ id: value, idTouched: true, ...(branchTouched ? {} : { branch: value }) });
+  const editBranch = (value: string): void => onChange({ branch: value, branchTouched: true });
 
   const create = (): void => {
     setBusy(true);
     setError(null);
-    post<Created>("/changes", {
-      id,
-      branch,
-      title: title.trim() || undefined,
-      // The wizard makes an idea: the work (branch, worktree, ticket) starts later, from its page.
-      state: "Ideation",
-      // The starting text of PLAN.md, then the agent's and yours to shape.
-      plan: description,
-      workspace: chosen,
-      repos: repos.map((r) => r.path),
-      direct: repos.filter((r) => r.direct).map((r) => r.path),
-      base: Object.fromEntries(repos.filter((r) => r.base).map((r) => [r.path, r.base!])),
-      // Each step's pick, under the extension's own name: the core stores it and never looks
-      // inside.
-      extensions: payloads,
-    })
+    post<Created>("/changes", toChangeDraft(draft, chosen))
       .then((created) => onCreated(created.change, created.provision))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
   };
 
-  /** What the steps share: the draft they prefill, the repositories picked so far, the ticket
-   * the details step names, and their own slot of the change record. */
-  const ctx: StepContext = {
-    workspace: chosen,
-    draft: { id, branch },
-    setDraft: (patch) => {
-      if (patch.id !== undefined) {
-        setIdTouched(true);
-        setId(patch.id);
-      }
-      if (patch.branch !== undefined) {
-        setBranchTouched(true);
-        setBranch(patch.branch);
-      }
-    },
-    repos,
-    ticket,
-    setTicket,
-    setPayload: (extension, data) =>
-      setPayloads((prev) => {
-        const next = { ...prev };
-        if (data === undefined) delete next[extension];
-        else next[extension] = data;
-        return next;
-      }),
-  };
+  /** What the steps share, built from the draft: their prefill, the repositories picked so far,
+   * the ticket this page names, and their own slot of the creation record. */
+  const ctx = stepContext(draft, chosen, onChange);
   const panel = (info: StepInfo): JSX.Element => <StepHost key={info.id} info={info} ctx={ctx} />;
 
   return (
@@ -155,7 +111,7 @@ export function Wizard({
       <nav className="steps">
         {steps ? (
           titles.map((label, i) => (
-            <button key={`${i}-${label}`} className={`step ${i === step ? "active" : ""}`} onClick={() => setStep(i)}>
+            <button key={`${i}-${label}`} className={`step ${i === step ? "active" : ""}`} onClick={() => onChange({ step: i })}>
               {i + 1}. {label}
             </button>
           ))
@@ -173,7 +129,7 @@ export function Wizard({
         >
           {busy ? "Creating…" : "Create idea"}
         </button>
-        <button onClick={onCancel}>Cancel</button>
+        <button onClick={onDiscard}>Discard</button>
       </nav>
 
       {error && <div className="error-banner">{error}</div>}
@@ -189,7 +145,7 @@ export function Wizard({
                 <select
                   value={chosen ?? ""}
                   disabled={Boolean(workspace)}
-                  onChange={(e) => setPicked(e.target.value)}
+                  onChange={(e) => onChange({ picked: e.target.value })}
                 >
                   {workspaces.map((w) => (
                     <option key={w.id} value={w.id}>
@@ -217,7 +173,7 @@ export function Wizard({
                 <textarea
                   rows={6}
                   value={description}
-                  onChange={(e) => setDescription(e.target.value)}
+                  onChange={(e) => onChange({ description: e.target.value })}
                   placeholder="The starting plan. Stored as PLAN.md, for you and the agent to shape."
                 />
               </label>

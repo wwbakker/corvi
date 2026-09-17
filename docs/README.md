@@ -59,6 +59,7 @@ Every doc starts with a status header:
 | [`decisions/git-worktrees.md`](decisions/git-worktrees.md) | Worktrees are `git worktree`'s at a path Corvi computes; `wt` is no longer a dependency |
 | [`decisions/notifications.md`](decisions/notifications.md) | When a window needs you: suppression, sound, text, batching |
 | [`decisions/ideation-stage.md`](decisions/ideation-stage.md) | An idea before a change: `Ideation`, a real `start`, `PLAN.md` |
+| [`decisions/wizard-draft.md`](decisions/wizard-draft.md) | A draft before Ideation: client-only, one at a time, in the page's memory |
 
 ## Plans
 

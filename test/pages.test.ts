@@ -434,18 +434,71 @@ test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
 
 test.skipIf(!usable)("New starts an idea from the column or the overview", async () => {
   // One control in two places: the overview's header has it, and so does the column beside the
-  // Changes entry — from there it is one click from anywhere in the app. Both say the same word and
-  // open the same wizard.
+  // Ideas heading — the entries it adds to. Both say the same word and open the same wizard.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");
 
   expect((await page.locator(".page > header .create").innerText()).trim()).toBe("New");
-  expect((await page.locator(".sidebar .changes-row .create").innerText()).trim()).toBe("New");
+  expect((await page.locator(".sidebar .ideas-row .create").innerText()).trim()).toBe("New");
 
-  await page.locator(".sidebar .changes-row .create").click();
+  await page.locator(".sidebar .ideas-row .create").click();
   await page.waitForSelector(".wizard");
   expect(new URL(page.url()).pathname).toBe("/new");
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard", async () => {
+  // The promise this change is about: leaving /new loses nothing. The form lives in the App
+  // (src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(url, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-card");
+
+  await page.locator(".sidebar .ideas-row .create").click();
+  await page.waitForSelector(".wizard");
+  // The draft row is where "here" is while the wizard is open, not the overview entry.
+  expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(1);
+  expect(await page.locator(".sidebar > button.entry.current").count()).toBe(0);
+
+  await page.locator(".steps button.step", { hasText: "Idea" }).click();
+  await page.getByLabel("Title").fill("A half-written idea");
+  await page.getByLabel("Description").fill("The first paragraph of the plan.");
+
+  // The row says what the draft is called while it is being typed.
+  const row = page.locator(".sidebar .entry.change.state-ideation");
+  await page.waitForFunction(
+    () =>
+      document.querySelector(".sidebar .entry.change.state-ideation .subject")?.textContent ===
+      "A half-written idea",
+  );
+
+  // Leave for the overview: the draft is no longer the page, and the row is where it waits.
+  await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+  await page.waitForSelector(".change-card");
+  expect(await row.count()).toBe(1);
+  expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(0);
+
+  // Back through the row: the fields and the step are where they were left.
+  await row.click();
+  await page.waitForSelector(".wizard .form");
+  expect(new URL(page.url()).pathname).toBe("/new");
+  expect((await page.locator(".steps button.step.active").innerText()).trim()).toContain("Idea");
+  expect(await page.getByLabel("Title").inputValue()).toBe("A half-written idea");
+  expect(await page.getByLabel("Description").inputValue()).toBe("The first paragraph of the plan.");
+
+  // The other way in — the New button — opens the same draft, not a second, empty one.
+  await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+  await page.waitForSelector(".change-card");
+  await page.locator(".sidebar .ideas-row .create").click();
+  await page.waitForSelector(".wizard .form");
+  expect(await page.getByLabel("Title").inputValue()).toBe("A half-written idea");
+  expect(await row.count()).toBe(1);
+
+  // Discarding is the one thing that throws it away.
+  await page.getByRole("button", { name: "Discard" }).click();
+  await page.waitForSelector(".change-card");
+  expect(await row.count()).toBe(0);
   await page.close();
 }, 30_000);
 

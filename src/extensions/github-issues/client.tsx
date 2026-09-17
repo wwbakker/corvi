@@ -78,9 +78,13 @@ function NewIssueDialog({
 }
 
 export const step: StepComponent = ({ ctx }) => {
-  const [repo, setRepo] = useState<string>();
+  // The payload is the step's own memory: the repository and the issue number it picked, read
+  // back when the wizard is reopened. The issue list is asked again, so the number is enough to
+  // find the row again.
+  const stored = ctx.payload(KEY) as { repo?: string; number?: number } | undefined;
+  const [repo, setRepo] = useState<string | undefined>(stored?.repo);
   const [listing, setListing] = useState<Listing>();
-  const [selected, setSelected] = useState<GitHubIssue | null>(null);
+  const [selected, setSelected] = useState<number | null>(stored?.number ?? null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -108,7 +112,7 @@ export const step: StepComponent = ({ ctx }) => {
   }, [chosen]);
 
   const select = (issue: GitHubIssue | null): void => {
-    setSelected(issue);
+    setSelected(issue?.number ?? null);
     if (!chosen) return;
     ctx.setPayload(KEY, issue ? { repo: chosen, number: issue.number } : undefined);
     ctx.setTicket(issue && listing?.repository ? `${listing.repository}#${issue.number}` : undefined);
@@ -196,8 +200,8 @@ export const step: StepComponent = ({ ctx }) => {
           {(listing?.issues ?? []).map((issue) => (
             <tr
               key={issue.number}
-              className={selected?.number === issue.number ? "selected" : ""}
-              onClick={() => select(selected?.number === issue.number ? null : issue)}
+              className={selected === issue.number ? "selected" : ""}
+              onClick={() => select(selected === issue.number ? null : issue)}
             >
               <td>
                 <b>#{issue.number}</b> {issue.title}

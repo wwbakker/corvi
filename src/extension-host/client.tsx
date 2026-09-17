@@ -31,6 +31,9 @@ export type StepContext = {
   /** What the details step shows as the change's ticket: whatever an issue step last picked. */
   ticket?: string;
   setTicket: (label: string | undefined) => void;
+  /** This extension's own slot in the draft in hand — what `setPayload` last set, and what a
+   * step that was left and reopened reads back to restore its own selection. */
+  payload: (extension: string) => unknown;
   /** The step's contribution to the change record, stored under the extension's own name in the
    * change's `extensions` bag. Undefined removes it, which is what clearing a selection means. */
   setPayload: (extension: string, data: unknown) => void;
