@@ -12,12 +12,12 @@ import {
   readChange,
   writeChange,
 } from "../src/change/server/index.ts";
-import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch } from "../src/vendors/git.ts";
+import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../src/vendors/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/domain/change.ts";
 import type { TmuxWindow } from "../src/extension-host/api.ts";
 import type { PresentedWindow } from "../src/terminals/server/index.ts";
-import { runEffect, runSh, TestError } from "./helpers.ts";
+import { runEffect, runSetRepos, runSh, TestError } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
@@ -60,7 +60,7 @@ test("create change, provision a worktree, report status, remove it", async () =
   expect(before.state).toBe("none");
   expect(before.actions?.[0]?.id).toBe("add");
 
-  // wt is pointed at the change directory, so the worktree lives with the change's own state.
+  // The worktree lives in the change directory, with the change's own state.
   // realpath on both sides: macOS temp dirs are symlinks into /private.
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
@@ -125,6 +125,77 @@ test("a new worktree branches from the remote default, not a stale local main", 
 
   const worktree = (await runEffect(checkoutFor(change, clone)))!;
   expect(await Bun.file(join(worktree, "f.txt")).text()).toBe("one\ntwo\n");
+});
+
+test("a worktree branch does not track the branch it started from", async () => {
+  // Tracking origin/main would make a bare `git push` in the worktree aim at main, which is the
+  // one thing this must never do. A fresh branch has no upstream until it is pushed.
+  const origin = await makeRepo("track-origin");
+  const clone = join(tmp, "track-clone");
+  await runSh(["git", "clone", "--quiet", origin, clone]);
+
+  const change = await runEffect(
+    createChange({ id: "PROJ-TRACK-WT", branch: "PROJ-TRACK-WT-work", repos: [clone] }),
+  );
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  const worktree = (await runEffect(checkoutFor(change, clone)))!;
+
+  const upstream = await runSh(
+    ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"],
+    worktree,
+  );
+  expect(upstream.code).not.toBe(0);
+  // And it did start from main, so nothing main has is missing from it.
+  const base = await runSh(["git", "rev-list", "--count", `origin/main..${change.branch}`], worktree);
+  expect(base.stdout).toBe("0");
+});
+
+test("a repository with no remote starts the worktree from its own default branch", async () => {
+  // The repository is left on a branch of its own: the worktree must still grow out of main,
+  // because that is the default branch a repository without `origin/main` has — and what wt used.
+  const local = await makeRepo("local-only");
+  await runSh(["git", "switch", "-q", "-c", "side-work"], local);
+  await Bun.write(join(local, "side.txt"), "not this\n");
+  await runSh(["git", "add", "."], local);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "side"], local);
+  await runSh(["git", "switch", "-q", "main"], local);
+  await Bun.write(join(local, "main.txt"), "the default branch\n");
+  await runSh(["git", "add", "."], local);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "main"], local);
+  // Back to the side branch, so the checkout's HEAD is not the default branch.
+  await runSh(["git", "switch", "-q", "side-work"], local);
+
+  const change = await runEffect(
+    createChange({ id: "PROJ-LOCAL", branch: "PROJ-LOCAL-work", repos: [local] }),
+  );
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+
+  const worktree = (await runEffect(checkoutFor(change, local)))!;
+  expect(await Bun.file(join(worktree, "main.txt")).text()).toBe("the default branch\n");
+  expect(await Bun.file(join(worktree, "side.txt")).exists()).toBe(false);
+});
+
+test("commits on a repository with no remote still ask before a removal", async () => {
+  // No remote means no upstream to be ahead of and no `origin/main` to measure against. The
+  // repository's own main is what they are measured against, and commits it does not have exist
+  // only on that branch: a removal asks rather than assuming they landed somewhere.
+  const local = await makeRepo("no-remote-work");
+  const change = await runEffect(
+    createChange({ id: "PROJ-NOREMOTE", branch: "PROJ-NOREMOTE-work", repos: [local] }),
+  );
+  // The same checkouts the git extension's change:created hook creates.
+  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  const worktree = (await runEffect(checkoutFor(change, local)))!;
+  await Bun.write(join(worktree, "work.txt"), "only here\n");
+  await runSh(["git", "add", "."], worktree);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "work"], worktree);
+
+  expect((await runEffect(unsafeToRemove(change, local)))?.kind).toBe("unpushed");
+  expect(await runSetRepos(change, [], false)).toEqual({ needsForce: ["no-remote-work"] });
+  // Asked, not done: the worktree and its commit are still there.
+  expect(await runEffect(checkoutFor(change, local))).toBe(worktree);
 });
 
 test("a change starts in progress and completing it is what sets Completed", async () => {

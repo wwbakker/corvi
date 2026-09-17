@@ -19,11 +19,12 @@ import { shSoft } from "../../capabilities/effect/support.ts";
  * Abandoning a change: the opposite end of `complete.ts`.
  *
  * Cancelling takes back what Corvi made — the worktrees and the terminal — and touches nothing
- * that anyone else can see. The branches stay (wt keeps an unmerged one), the pull requests stay
- * open, the ticket stays where it is. That is deliberate: cancelling is a decision about your own
- * desk, and closing somebody else's pull request or moving a ticket other people are watching is
- * a decision about theirs. What is left is listed so you can go and deal with it — the loose
- * ends are gathered by asking the extensions (looseEnds, below).
+ * that anyone else can see. The branches stay (the removal keeps one until its content is in the
+ * default branch), the pull requests stay open, the ticket stays where it is. That is deliberate:
+ * cancelling is a decision about your own desk, and closing somebody else's pull request or
+ * moving a ticket other people are watching is a decision about theirs. What is left is listed so
+ * you can go and deal with it — the loose ends are gathered by asking the extensions (looseEnds,
+ * below).
  *
  * The protections are the same ones a repository removal has, because it is the same act:
  * uncommitted work refuses outright, commits nobody else has ask first.
@@ -81,8 +82,9 @@ export const cancelChange = (
     for (const repo of change.repos) yield* removeWorktree(change, repo);
     yield* stopTerminal(change.id);
 
-    // Asked afterwards, because it is a fact about what is left: wt keeps a branch that has commits
-    // nobody has seen and removes one that has nothing on it, and only the first is a loose end.
+    // Asked afterwards, because it is a fact about what is left: the removal keeps a branch whose
+    // content the default branch does not have, and deletes one whose content it already has, and
+    // only the first is a loose end.
     const kept = yield* keptBranches(change);
     if (kept.length) {
       loose.push(`the branch ${change.branch} is kept in ${kept.map((repo) => basename(repo)).join(", ")}`);
@@ -131,9 +133,9 @@ export const looseEnds = (change: Change): Effect.Effect<string[]> =>
 /**
  * Where the change's branch still exists once the worktrees are gone.
  *
- * wt keeps a branch that has commits nobody else has and removes one with nothing on it, which is
- * the behaviour you want and not the behaviour you would guess: worth reporting rather than
- * claiming either way.
+ * The removal keeps a branch whose content the default branch does not have and deletes one whose
+ * content it already has, which is the behaviour you want and not the behaviour you would guess:
+ * worth reporting rather than claiming either way.
  */
 const keptBranches = (change: Change): Effect.Effect<string[]> =>
   Effect.map(

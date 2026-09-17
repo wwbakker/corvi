@@ -1,8 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
-import { IDEATION, type Change, type ChangeDraft } from "../../domain/change.ts";
+import { duplicateRepoNames, IDEATION, type Change, type ChangeDraft } from "../../domain/change.ts";
 import { BadRequestError, ConflictError, DecodeError } from "../../capabilities/effect/errors.ts";
-import { readChange, writeChange, writeWtConfig } from "./store.ts";
+import { readChange, writeChange } from "./store.ts";
 
 /** The core's creation input: the plain draft the wizard collected and the `change:creating`
  * hooks transformed. */
@@ -35,6 +35,16 @@ export const createChange = (
     if (state !== IDEATION && repos.length === 0) {
       return yield* new BadRequestError({ message: "select at least one repository" });
     }
+    // Every repository is filed in the change directory under its own name, so two paths with the
+    // same name would collide there — a worktree on top of a worktree, or two browse links.
+    const duplicate = duplicateRepoNames(repos);
+    if (duplicate.length) {
+      return yield* new BadRequestError({
+        message:
+          `two repositories share the name ${duplicate.join(", ")}: Corvi files each repository ` +
+          `under its own name in the change directory`,
+      });
+    }
     const title = input.title?.trim();
     const change: Change = {
       id,
@@ -52,6 +62,5 @@ export const createChange = (
       createdAt: new Date().toISOString(),
     };
     yield* writeChange(change);
-    yield* writeWtConfig(id);
     return change;
   });

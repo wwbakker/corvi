@@ -18,13 +18,6 @@ jobs:
         with:
           node-version: 24
       - run: sudo apt-get update && sudo apt-get install -y tmux
-      - name: Install Worktrunk (wt)
-        run: |
-          curl -sSL -o wt.tar.xz https://github.com/max-sixty/worktrunk/releases/download/v0.77.0/worktrunk-x86_64-unknown-linux-musl.tar.xz
-          echo "8976ae756d31a80a330e134e9140b098818357292b318991a94b7ee53451da02  wt.tar.xz" | sha256sum -c -
-          tar -xJf wt.tar.xz
-          sudo install -m 0755 worktrunk-x86_64-unknown-linux-musl/wt /usr/local/bin/wt
-          wt --version
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
       - run: bun run typecheck

@@ -16,7 +16,7 @@ import { config } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
 import { install, loaded } from "../src/extension-host/registry.ts";
-import { contentInMain } from "../src/vendors/git.ts";
+import { contentInMain, integrated } from "../src/vendors/git.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
@@ -213,7 +213,13 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
     if (line === "git worktree list --porcelain") {
       return opts.worktree ? worktreeAt(opts.worktree, opts.branch ?? "") : "";
     }
-    if (line === "git status --porcelain=v2 --branch") return opts.status ?? "";
+    if (line === "git status --porcelain=v2 --branch") {
+      // A worktree being completed has been pushed, so it has an upstream by default — that is
+      // what keeps a branch whose default branch cannot be read out of the "unpushed commits"
+      // question. A test that cares about dirt, being behind or having no upstream overrides it.
+      return opts.status ??
+        `# branch.upstream origin/${opts.branch ?? "main"}\n# branch.ab +0 -0\n`;
+    }
     if (line === "git remote") return "origin";
     if (line === "git symbolic-ref --quiet --short refs/remotes/origin/HEAD") {
       return opts.remoteDefault ?? "origin/main";
@@ -226,7 +232,7 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
     if (line.startsWith("gh pr list")) return JSON.stringify(opts.pr ? [opts.pr] : []);
     if (line.startsWith("gh repo view")) return "";
     if (line.startsWith("gh pr merge")) return opts.merge ?? { code: 0 };
-    if (line.startsWith("wt --config")) return "";
+    if (line.startsWith("git worktree remove --force")) return "";
     if (line.startsWith("tmux ")) return "";
     return undefined;
   });
@@ -366,7 +372,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   // Every command went through the scripted seam — no real CLI, server or tmux.
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain(`gh pr merge 7 --squash`);
-  expect(asked.some((line) => line.startsWith("wt --config"))).toBe(true);
+  expect(asked.some((line) => line.startsWith("git worktree remove --force"))).toBe(true);
   expect(asked).toContain(`tmux -L corvi kill-session -t corvi-${change.id}`);
 });
 
@@ -430,6 +436,38 @@ test("contentInMain: contained, cherry-equivalent, and missing content", async (
   expect(await runWithShell(completionShell({}), contentInMain(repo, "PROJ-x", undefined))).toBe(
     false,
   );
+});
+
+test("integrated: the simulated merge is asked once per pair of tips, and again when one moves", async () => {
+  const repo = join(tmp, "integrated-repo");
+  const branch = "integrated-branch";
+  const tree = `${repo}-merged-tree`;
+  let baseSha = "aaa";
+  const merges: string[] = [];
+  const shell = fakeShell((cmd) => {
+    const line = cmd.join(" ");
+    // The cheap proofs fail (two commits, neither patch-identical), so every ask needs the merge.
+    if (line.startsWith("git rev-list --count")) return "2";
+    if (line.startsWith("git cherry ")) return "+ abc first\n+ def second";
+    if (line.startsWith("git merge-tree --write-tree")) {
+      merges.push(line);
+      return `${tree}\n`;
+    }
+    if (line === `git rev-parse origin/main ${branch}`) return `${baseSha}\nbbb`;
+    if (line.endsWith("^{tree}")) return tree;
+    return undefined;
+  });
+  const ask = (): Promise<boolean> =>
+    runWithShell(shell, integrated(repo, branch, "origin/main"));
+
+  expect(await ask()).toBe(true);
+  expect(await ask()).toBe(true);
+  expect(merges).toHaveLength(1); // the same pair of tips answered from the cache
+
+  // A commit on main is a different pair: the cached answer is not about these commits.
+  baseSha = "ccc";
+  expect(await ask()).toBe(true);
+  expect(merges).toHaveLength(2);
 });
 
 test("completionOf: a branch whose content is in main reads as merged without a PR", async () => {

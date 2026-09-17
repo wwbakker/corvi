@@ -29,10 +29,11 @@ const fileExists = (path: string): Effect.Effect<boolean> => fs(() => file(path)
 
 /** The change-root files the change module writes for itself. `Changes.readSidecar` refuses
  * these names, so the capability's migration read cannot be turned on the core's own record or
- * journal; a legacy sidecar from a former feature (notes.md) stays reachable. */
+ * journal; a legacy sidecar from a former feature (notes.md) stays reachable. `wt.toml` is
+ * deliberately not here any more: Corvi computes the worktree path itself (src/vendors/git.ts),
+ * so a file left by the days when wt owned it is an ordinary leftover. */
 export const CORE_SIDECARS: ReadonlySet<string> = new Set([
   "change.json",
-  "wt.toml",
   "completion.json",
   PLAN_FILE,
 ]);
@@ -47,12 +48,6 @@ const existingDir = (id: string): Effect.Effect<string | null> =>
   });
 
 const changeFile = (id: string): string => join(changeDir(id), "change.json");
-
-/** wt user-config for this change, so its worktrees land in the change directory instead of
- * next to their repositories. Passed to every wt invocation with --config.
- *
- * Pure sync path logic; nothing to wrap in an Effect. */
-export const wtConfigPath = (id: string): string => join(changeDir(id), "wt.toml");
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
@@ -197,7 +192,7 @@ export const setExtensionData = (
   });
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
- * change.json and the wt config travels. */
+ * change.json and whatever an extension left beside it travels. */
 export const archiveChange = (id: string): Effect.Effect<void> =>
   Effect.gen(function* () {
     if (!(yield* fileExists(changeFile(id)))) return; // already archived
@@ -237,15 +232,4 @@ export const listChanges = (): Effect.Effect<Change[]> =>
     );
     const byId = new Map(changes.flat().map((c) => [c.id, c]));
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  });
-
-export const writeWtConfig = (id: string): Effect.Effect<string> =>
-  Effect.gen(function* () {
-    const path = wtConfigPath(id);
-    if (!(yield* fileExists(path))) {
-      const dir = changeDir(id).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-      yield* fs(() => mkdir(changeDir(id), { recursive: true }));
-      yield* fs(() => write(path, `worktree-path = "${dir}/{{ repo }}"\n`));
-    }
-    return path;
   });

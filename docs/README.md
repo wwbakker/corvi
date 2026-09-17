@@ -54,7 +54,8 @@ Every doc starts with a status header:
 | [`decisions/terminal-clipboard.md`](decisions/terminal-clipboard.md) | tmux's own copies reach the system clipboard; the page handles OSC 52, middle-click pastes it |
 | [`decisions/node-pty-prebuild.md`](decisions/node-pty-prebuild.md) | node-pty is pinned to the 1.2.0 beta: 1.1.0's macOS prebuild ships a spawn-helper without the execute bit |
 | [`decisions/linux-native-window.md`](decisions/linux-native-window.md) | WebKitGTK + PyGObject for the Linux window (superseded by electron-host.md) |
-| [`decisions/wt-on-linux.md`](decisions/wt-on-linux.md) | `wt` is Worktrunk; no Linux-specific work needed |
+| [`decisions/wt-on-linux.md`](decisions/wt-on-linux.md) | `wt` is Worktrunk; no Linux-specific work needed (superseded by git-worktrees.md) |
+| [`decisions/git-worktrees.md`](decisions/git-worktrees.md) | Worktrees are `git worktree`'s at a path Corvi computes; `wt` is no longer a dependency |
 | [`decisions/notifications.md`](decisions/notifications.md) | When a window needs you: suppression, sound, text, batching |
 | [`decisions/ideation-stage.md`](decisions/ideation-stage.md) | An idea before a change: `Ideation`, a real `start`, `PLAN.md` |
 

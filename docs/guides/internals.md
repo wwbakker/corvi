@@ -96,10 +96,14 @@ The dashboard is CLI calls, and they are not all alike. `CORVI_TRACE=1` counts t
 what each tool costs; measured on a six-repository change, one refresh is **60 processes and 6
 seconds of CPU**. What keeps it cheap:
 
-- **Worktree state is read with git, not `wt list`.** `wt list` gathers CI, diffs and summaries in
-  parallel and costs 1-13 seconds of CPU per call; `git worktree list --porcelain` plus
-  `git status --porcelain=v2` costs ~25ms and answers everything the card shows. wt still creates
-  and removes worktrees — it owns where they live.
+- **Worktrees are git's, all the way through.** `git worktree list --porcelain` plus
+  `git status --porcelain=v2` costs ~25ms and answers everything the card shows, where a tool that
+  gathered CI, diffs and summaries in parallel cost whole seconds of CPU per call. Creating and
+  removing are `git worktree add` and `git worktree remove`, at a path Corvi computes — the layout
+  is Corvi's own ([`../decisions/git-worktrees.md`](../decisions/git-worktrees.md)). The one
+  expensive question — whether a branch's content is already in the default branch — is asked only
+  where it decides something (a removal, or whether a removal has to ask), and its simulated merge
+  is cached on the pair of tip SHAs the answer depends on, so a refresh never pays for it.
 - **Azure DevOps calls are shared.** `az` is a Python program, a few hundred milliseconds of CPU
   per invocation, and every repository of a change asks about the same branch at the same moment.
   Pipeline definitions are held for five minutes, runs for ten seconds, and calls in flight are

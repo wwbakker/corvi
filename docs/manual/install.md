@@ -2,7 +2,7 @@
 
 ## Requirements
 
-`git`, `wt`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira is
+`git`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira is
 talked to over its own REST API, but `jira-cli` is still what configures it — see
 [Jira over its own API](integrations.md#jira-over-its-own-api).
 
@@ -11,10 +11,9 @@ binaries cover macOS and Linux on x64 and arm64, so `bun install` needs neither 
 python3; a platform they do not cover falls back to `node-gyp` and does. It is pinned to a `1.2.0`
 beta, for the reason in [`../decisions/node-pty-prebuild.md`](../decisions/node-pty-prebuild.md).
 
-The same list applies on Linux (on Arch: `sudo pacman -S git worktrunk gh github-cli tmux`).
-`wt` is [Worktrunk](https://github.com/max-sixty/worktrunk) — a cross-platform Rust CLI with an
-official Arch package, and every invocation Corvi makes was verified to behave identically on Linux
-(`brew install worktrunk` on macOS; details and non-Arch installs in [`../decisions/wt-on-linux.md`](../decisions/wt-on-linux.md)).
+The same list applies on Linux (on Arch: `sudo pacman -S git gh github-cli tmux`). Worktrees are
+`git worktree`'s own, so nothing beyond `git` is needed to create, attach or remove one; the
+decision and what it costs are recorded in [`../decisions/git-worktrees.md`](../decisions/git-worktrees.md).
 
 The app's own window needs nothing extra on either platform: it is Electron, which `bun install`
 downloads with the rest of the dependencies ([`../decisions/electron-host.md`](../decisions/electron-host.md)), and the server

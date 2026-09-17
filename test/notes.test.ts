@@ -147,12 +147,14 @@ test("the readSidecar migration access reads a bare change-root file and refuses
   expect(await read(".")).toBe("");
 
   // The store's own files are reserved: they exist, but the capability refuses them, so the
-  // migration read cannot be turned on the change record or the completion journal.
+  // migration read cannot be turned on the change record or the completion journal. `wt.toml` is
+  // no longer one of them — Corvi owns the worktree path itself — so a file left behind by wt is
+  // an ordinary change-root file the migration read can see.
   await runEffect(writeSidecar(change.id, "completion.json", "{}\n"));
   await runEffect(writeSidecar(change.id, "wt.toml", 'worktree-path = "x"\n'));
   expect(await read("change.json")).toBe("");
-  expect(await read("wt.toml")).toBe("");
   expect(await read("completion.json")).toBe("");
+  expect(await read("wt.toml")).toBe('worktree-path = "x"\n');
   // The refusal is the guard, not an absent file: the store's own read still sees them.
   expect(await runEffect(readSidecar(change.id, "completion.json"))).toBe("{}\n");
   expect(await runEffect(readSidecar(change.id, "wt.toml"))).toBe('worktree-path = "x"\n');

@@ -2,12 +2,12 @@ import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
 import type { Change } from "../domain/change.ts";
-import { isIdeation } from "../domain/change.ts";
+import { duplicateRepoNames, isIdeation } from "../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
 import { shOrThrow } from "../capabilities/shell.ts";
 import { config } from "../workspace/server/index.ts";
 import { copyTooling } from "../capabilities/os.ts";
-import { writeChange, writeWtConfig, changeDir } from "../change/server/store.ts";
+import { writeChange, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
 import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
 import { fs, messageOf, shSoft } from "../capabilities/effect/support.ts";
@@ -15,12 +15,12 @@ import { fs, messageOf, shSoft } from "../capabilities/effect/support.ts";
 /**
  * One worktree, as the dashboard reads it.
  *
- * Plain git reads it: `wt list` costs 1-13 seconds of CPU per call (it gathers far more than
- * this, in parallel), against ~25ms for the two git commands below, and the dashboard asks once
- * per repository per refresh. wt still owns where worktrees live — it creates and removes them —
- * this only reads what is there.
+ * Read with plain git: `git worktree list --porcelain` and `git status --porcelain=v2` cost ~25ms
+ * together, and the dashboard asks once per repository per refresh. Corvi creates and removes the
+ * worktrees itself (`worktreePath`, `provisionRepo`, `removeWorktree`) — this only reads what is
+ * there.
  */
-export type WtEntry = {
+export type WorktreeEntry = {
   branch: string;
   path: string;
   working_tree?: {
@@ -37,14 +37,18 @@ export type WtEntry = {
 // Pure worktree parsing and status reading live here; the test suites reach the Effect API
 // through the helper in test/helpers.ts, which provides the Workspace tag.
 
-/** Every wt call is scoped to the change's own config, which places worktrees inside the
- * change directory. */
-const wt = (change: Change, args: string[]): Effect.Effect<string[]> =>
-  Effect.map(writeWtConfig(change.id), (configPath) =>
-    ["wt", "--config", configPath, ...args]);
+/** Where this change's worktree for `repo` lives: inside the change directory, beside the rest of
+ * the change's own state, named after the repository so the directory reads as the change's.
+ *
+ * Corvi's layout, not git's: `git worktree add` takes the path it is given, and the path is
+ * computed here so every caller — provisioning, removal, the card — agrees on one answer.
+ * Worktrees created before Corvi owned the path (when wt's `worktree-path` config wrote it) are at
+ * exactly this path, so nothing needs migrating. */
+export const worktreePath = (change: Change, repo: string): string =>
+  join(changeDir(change.id), basename(repo));
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export const findWorktree = (entries: WtEntry[], branch: string): WtEntry | undefined =>
+export const findWorktree = (entries: WorktreeEntry[], branch: string): WorktreeEntry | undefined =>
   entries.find((e) => e.branch === branch);
 
 /** Where each worktree of `repo` is, and which branch it holds. The main checkout is included,
@@ -65,7 +69,7 @@ export function parseWorktrees(porcelain: string): { path: string; branch: strin
 
 /** What `git status --porcelain=v2 --branch` says about a working tree. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function parseStatus(status: string): NonNullable<WtEntry["working_tree"]> & {
+export function parseStatus(status: string): NonNullable<WorktreeEntry["working_tree"]> & {
   upstream?: string;
   ahead: number;
   behind: number;
@@ -104,31 +108,112 @@ const cherryInMain = (
     return marks.length > 0 && marks.every((line) => line.startsWith("- "));
   });
 
-/** Whether every commit on `branch` is already in the remote's default branch: either
- * main contains the branch outright, or it contains patch-identical copies of every commit —
- * what a squash merge leaves behind, whose commits are never ancestors of main. Local refs
- * only, so callers that need the truth fetch first; routed through `sh` like the rest, so a
- * test scripts it like any other command. `base` is the same one `entryFor` compares
- * against: a change stacked on another one's branch is measured against that, not main. */
+/** Whether `branch` adds nothing to `base`, by the cheap proofs: `base` contains it outright, or
+ * contains patch-identical copies of every commit — what a rebase, a cherry-pick or a one-commit
+ * squash merge leaves behind, whose commits are never ancestors of `base`.
+ *
+ * `undefined` is "not proven either way": a base that does not resolve, or a count that cannot be
+ * read. The card shows that as unknown rather than diverged, which is the honest label, and every
+ * reader that acts on it treats it as not integrated. Local refs only, so callers that need the
+ * truth fetch first; routed through `sh` like the rest, so a test scripts it like any other
+ * command. */
+const cheaplyIntegrated = (
+  repo: string,
+  branch: string,
+  base: string,
+): Effect.Effect<boolean | undefined> =>
+  Effect.gen(function* () {
+    // Nothing beyond the base: the branch is contained outright, no cherry needed. An empty or
+    // unparseable count is "not proven", not zero — `Number("")` is 0, which would read
+    // every failed lookup as merged.
+    const raw = (yield* shSoft(["git", "rev-list", "--count", `${base}..${branch}`], repo)).stdout.trim();
+    if (!/^\d+$/.test(raw)) return undefined;
+    if (Number(raw) === 0) return true;
+    return yield* cherryInMain(repo, branch, base);
+  });
+
+/** Whether `branch` adds nothing to `base`, by the cheap proofs alone. For the callers that ask
+ * often and cannot pay for a merge: the readiness poll, and the card's own reading (`entryFor`). */
 export const contentInMain = (
   repo: string,
   branch: string,
   base: string | undefined,
 ): Effect.Effect<boolean> =>
+  base
+    ? Effect.map(cheaplyIntegrated(repo, branch, base), (proof) => proof === true)
+    : Effect.succeed(false);
+
+/** Whether a simulated merge of `base` and `branch` lands on the tree `base` already has: the
+ * branch's changes are already in `base`'s content. This is the multi-commit squash merge —
+ * `gh pr merge --squash` on a branch with more than one commit — where no single commit's patch-id
+ * matches and the ancestry is theirs, not main's.
+ *
+ * A conflict exits non-zero and is "not proven", not an error: doubt keeps a branch, it never
+ * deletes one. `--write-tree` writes the merged tree into the object database; nothing points at it
+ * and `git gc` reclaims it — the price of asking the question wt asked. */
+const mergeAddsNothing = (
+  repo: string,
+  branch: string,
+  base: string,
+): Effect.Effect<boolean> =>
   Effect.gen(function* () {
-    if (!base) return false;
-    // Nothing beyond main: the branch is contained outright, no cherry needed. An empty or
-    // unparseable count is "not proven", not zero — `Number("")` is 0, which would read
-    // every failed lookup as merged.
-    const raw = (yield* shSoft(["git", "rev-list", "--count", `${base}..${branch}`], repo)).stdout.trim();
-    if (!/^\d+$/.test(raw)) return false;
-    if (Number(raw) === 0) return true;
-    return yield* cherryInMain(repo, branch, base);
+    const merged = yield* shSoft(["git", "merge-tree", "--write-tree", base, branch], repo);
+    if (merged.code !== 0) return false;
+    const tree = merged.stdout.split("\n")[0]?.trim();
+    const target = (yield* shSoft(["git", "rev-parse", `${base}^{tree}`], repo)).stdout.trim();
+    return Boolean(tree && target && tree === target);
+  });
+
+/** The simulated merge is the only expensive half of `integrated`, and its answer is a property of
+ * two commits: objects are content-addressed, so a pair of tip SHAs determines it, and a ref that
+ * has moved (a fetch, a commit) is a different pair. One entry per repository and branch — the
+ * tips it was computed for, and what they answered — so the map is bounded by the branches the
+ * dashboard asks about rather than by commits, and no entry ever needs invalidating. */
+const integratedCache = new Map<string, { base: string; branch: string; answer: boolean }>();
+
+/** The tips `base` and `branch` point at now, or undefined when one of them does not resolve — and
+ * then the answer is simply not cached. */
+const tipPair = (
+  repo: string,
+  base: string,
+  branch: string,
+): Effect.Effect<{ base: string; branch: string } | undefined> =>
+  Effect.map(shSoft(["git", "rev-parse", base, branch], repo), (r) => {
+    const [baseSha, branchSha] = r.stdout.split("\n").map((line) => line.trim());
+    return r.code === 0 && baseSha && branchSha ? { base: baseSha, branch: branchSha } : undefined;
+  });
+
+/** Whether `branch` adds nothing to `base` — the one answer everything that acts on a branch should
+ * agree on. The cheap proofs first (most branches are settled by them, for the price of two git
+ * reads), then a simulated merge for the squash merges they cannot see, cached on the pair of tip
+ * SHAs it depends on.
+ *
+ * The merge is asked only where the answer decides something: a removal, and whether a removal has
+ * to ask about commits nobody else has. The card's label stays on the cheap half (`contentInMain`),
+ * because it is painted on every refresh and a merge writes into the repository; the disagreement
+ * that leaves is a label that is cautious, never a deletion that guesses. */
+export const integrated = (
+  repo: string,
+  branch: string,
+  base: string,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const cheap = yield* cheaplyIntegrated(repo, branch, base);
+    if (cheap === true) return true;
+    const key = `${repo}\0${branch}`;
+    const tips = yield* tipPair(repo, base, branch);
+    const known = integratedCache.get(key);
+    if (tips && known && known.base === tips.base && known.branch === tips.branch) {
+      return known.answer;
+    }
+    const answer = yield* mergeAddsNothing(repo, branch, base);
+    if (tips) integratedCache.set(key, { base: tips.base, branch: tips.branch, answer });
+    return answer;
   });
 
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
  * about it. Undefined when the change has no worktree there. */
-export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | undefined> =>
+export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEntry | undefined> =>
   Effect.gen(function* () {
     const worktrees = parseWorktrees(
       (yield* shSoft(["git", "worktree", "list", "--porcelain"], repo)).stdout,
@@ -138,22 +223,14 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | 
 
     const [status, base] = yield* Effect.all([
       shSoft(["git", "status", "--porcelain=v2", "--branch"], found.path),
-      remoteDefaultBranch(repo),
+      defaultBranch(repo),
     ]);
     const tree = parseStatus(status.stdout);
-    // Whether main already has everything on this branch, which is how a merged change is spotted.
-    // An empty or unparseable count is unknown, not zero: `Number("")` is 0, which would read
-    // a failed lookup as merged. Beyond rev-list containment, patch-identical content counts:
-    // a squash merge leaves commits main has the content of but not the ancestry of.
-    const raw = base
-      ? (yield* shSoft(["git", "rev-list", "--count", `${base}..${change.branch}`], repo)).stdout.trim()
-      : "";
-    const beyond = /^\d+$/.test(raw) ? Number(raw) : NaN;
-    // The rev-list count is already in hand, so only the cherry half runs here; `contentInMain`
-    // would re-run the count.
-    const integrated =
-      beyond === 0 ||
-      (!Number.isNaN(beyond) && beyond > 0 && (yield* cherryInMain(repo, change.branch, base!)));
+    // Whether the default branch already has everything on this branch, which is how a merged
+    // change is spotted — the cheap proofs only, because this is painted on every refresh and the
+    // simulated merge that catches a squash (`integrated`) writes into the repository. A lookup
+    // that cannot be read is unknown rather than diverged, and the card says so.
+    const proven = base ? yield* cheaplyIntegrated(repo, change.branch, base) : undefined;
     return {
       branch: change.branch,
       path: found.path,
@@ -161,10 +238,11 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WtEntry | 
       remote: tree.upstream
         ? { branch: tree.upstream, ahead: tree.ahead, behind: tree.behind }
         : null,
-      // "diverged" for commits main does not have, which is what makes them worth warning about
-      // before a removal. Unknown (no remote to compare with) stays undefined. Patch-identical
+      // "diverged" for commits the default branch does not have, which is what makes them worth
+      // warning about before a removal. Unknown — no default branch to compare with, or a failed
+      // lookup — stays undefined, and every reader treats that as "not in main". Patch-identical
       // content counts as integrated: a squash merge lands the content without the ancestry.
-      main_state: Number.isNaN(beyond) ? undefined : integrated ? "integrated" : "diverged",
+      main_state: proven === undefined ? undefined : proven ? "integrated" : "diverged",
       is_main: found.path === repo,
     };
   });
@@ -179,7 +257,7 @@ export const checkoutFor = (change: Change, repo: string): Effect.Effect<string 
 /** Human summary of one checkout — the worktree or the in-place repository — and how
  * alarming it is. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function describe(entry: WtEntry): { detail: string; state: WidgetState } {
+export function describe(entry: WorktreeEntry): { detail: string; state: WidgetState } {
   const tree = entry.working_tree ?? {};
   const dirty = Boolean(tree.staged || tree.modified || tree.untracked);
   const ahead = entry.remote?.ahead ?? 0;
@@ -246,7 +324,9 @@ const askDefaultBranch = (repo: string): Effect.Effect<string | undefined, CliEr
   });
 
 /** The remote's default branch, e.g. `origin/main`, or undefined for a repository without a
- * remote. New branches start here rather than at a local main that may be days behind.
+ * remote. New branches start here rather than at a local main that may be days behind, and this
+ * is the remote-only half of `defaultBranch`; GitHub's pull-request base reads it directly and
+ * should keep seeing `origin/…` or nothing.
  *
  * Never fails: a timed-out `git` reads as "no default branch", and that tolerance is explicit
  * here rather than surfacing the timeout through every caller. */
@@ -272,14 +352,61 @@ export const remoteDefaultBranch = (
     return asking;
   });
 
-/** The branch this repository's work starts from: what you chose, or the remote's default. */
+/** The repository's own default branch, for one without a remote: `main`, then `master` — what
+ * `wt switch` fell back to, and the branch a worktree should grow out of just the same. It has
+ * its own memo so `remoteDefaultBranch` keeps its remote-only meaning, and "neither" is not
+ * cached: the branch can be created later. */
+const localDefaultBranches = new Map<string, Effect.Effect<string | undefined>>();
+
+const askLocalDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    for (const name of ["main", "master"]) {
+      const found = yield* shSoft(
+        ["git", "show-ref", "--verify", "--quiet", `refs/heads/${name}`],
+        repo,
+      );
+      if (found.code === 0) return name;
+    }
+    return undefined;
+  });
+
+const localDefaultBranch = (repo: string): Effect.Effect<string | undefined> =>
+  Effect.suspend(() => {
+    const known = localDefaultBranches.get(repo);
+    if (known) return known;
+    const asking = Effect.runSync(
+      Effect.cached(
+        askLocalDefaultBranch(repo).pipe(
+          Effect.tap((found) =>
+            Effect.sync(() => {
+              if (found === undefined) localDefaultBranches.delete(repo); // do not cache "neither"
+            }),
+          ),
+        ),
+      ),
+    );
+    localDefaultBranches.set(repo, asking);
+    return asking;
+  });
+
+/** The branch this repository's work starts from and is measured against: the remote's default
+ * (`origin/main`), or — a repository with no remote — its own `main`/`master`. Undefined only when
+ * there is neither, and then nothing is measured and nothing is assumed to be merged. */
+export const defaultBranch = (repo: string): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    const remote = yield* remoteDefaultBranch(repo);
+    return remote ?? (yield* localDefaultBranch(repo));
+  });
+
+/** The branch this repository's work starts from: what you chose, or the repository's default
+ * branch — the remote's, or its own main/master when there is no remote. */
 export const baseFor = (
   change: Change,
   repo: string,
 ): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
     const chosen = change.base?.[repo];
-    return chosen !== undefined ? Effect.succeed(chosen) : remoteDefaultBranch(repo);
+    return chosen !== undefined ? Effect.succeed(chosen) : defaultBranch(repo);
   });
 
 /**
@@ -393,7 +520,9 @@ const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError>
       return;
     }
     const base = yield* baseFor(change, repo);
-    if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
+    // Only a remote has something to fetch; a repository with no remote branches from its own
+    // default branch, which is already local.
+    if (yield* remoteDefaultBranch(repo)) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     // --no-track: branching off origin/main would otherwise make origin/main the upstream, and
     // the first `git push` would try to push your work straight onto it. The branch gets its own
     // upstream when it is first pushed, as a worktree's does.
@@ -462,18 +591,35 @@ export const provisionRepo = (change: Change, repo: string): Effect.Effect<void,
     const exists =
       (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
         .code === 0;
-    // --no-cd: we are not a shell, wt must not try to change directory on our behalf.
+    const path = worktreePath(change, repo);
+    // The branch is already there — a cancelled change keeps an unmerged one, and re-creating the
+    // change is how you get back to it. Attaching leaves its configuration alone.
     if (exists) {
-      yield* shOrThrow(yield* wt(change, ["-C", repo, "switch", change.branch, "--no-cd"]));
+      yield* shOrThrow(["git", "worktree", "add", path, change.branch], repo);
       return yield* carryTooling(repo, change);
     }
     // Branch from the chosen base, fetched first: a local main is often behind. The base is the
-    // remote default unless this change is stacked on another one's branch.
+    // remote default unless this change is stacked on another one's branch; a repository with no
+    // remote falls back to its own default branch.
     const base = yield* baseFor(change, repo);
-    if (base) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
-    const baseArgs = base ? ["--base", base] : [];
+    if (yield* remoteDefaultBranch(repo)) yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
+    // -c branch.autoSetupMerge=false: branching off origin/main would otherwise make origin/main
+    // the upstream, and the first `git push` would try to push your work straight onto it. The
+    // branch gets its own upstream when it is first pushed, as before. With no base at all (no
+    // remote, and no main or master), git branches from HEAD.
     yield* shOrThrow(
-      yield* wt(change, ["-C", repo, "switch", "--create", change.branch, ...baseArgs, "--no-cd"]),
+      [
+        "git",
+        "-c",
+        "branch.autoSetupMerge=false",
+        "worktree",
+        "add",
+        "-b",
+        change.branch,
+        path,
+        ...(base ? [base] : []),
+      ],
+      repo,
     );
     yield* carryTooling(repo, change);
   });
@@ -510,12 +656,12 @@ export const provisionOrBrowse = (change: Change, repo: string): Effect.Effect<v
  * commits survive in the reflog but not anywhere anyone else can see. */
 export type Unsafe = { kind: "dirty" | "unpushed"; text: string };
 
-/** wt's view of the branch against main: anything else means commits main does not have. */
-const inMain = (state?: string): boolean =>
-  ["is_main", "integrated", "empty", undefined].includes(state);
+/** Whether the branch holds nothing the default branch lacks. Everything else — "diverged", and
+ * `undefined` for a branch whose state could not be read — means commits are there to lose. */
+const inMain = (state?: string): boolean => state === "integrated";
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export function unsafeIn(entry: WtEntry | undefined): Unsafe | undefined {
+export function unsafeIn(entry: WorktreeEntry | undefined): Unsafe | undefined {
   if (!entry) return undefined; // nothing to lose
   const tree = entry.working_tree ?? {};
   if (tree.staged || tree.modified || tree.untracked) {
@@ -543,7 +689,17 @@ export const unsafeToRemove = (
   change: Change,
   repo: string,
 ): Effect.Effect<Unsafe | undefined> =>
-  Effect.map(entryFor(change, repo), unsafeIn);
+  Effect.gen(function* () {
+    const entry = yield* entryFor(change, repo);
+    const unsafe = unsafeIn(entry);
+    // Commits nobody else has is the warning that content in the default branch withdraws. Ask the
+    // simulated merge before asking the user: a squash merge leaves commits no cheap check can
+    // prove landed, and being made to acknowledge work that is already in main is noise.
+    if (unsafe?.kind !== "unpushed") return unsafe;
+    const base = yield* defaultBranch(repo);
+    if (base && (yield* integrated(repo, change.branch, base))) return undefined;
+    return unsafe;
+  });
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
 export const repoStates = (
@@ -590,6 +746,16 @@ export const setRepos = (
 ): Effect.Effect<SetReposResult, CliError | BadRequestError> =>
   Effect.gen(function* () {
     const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
+    // Every repository is filed in the change directory under its own name, so two paths with the
+    // same name would collide there — a worktree on top of a worktree, or two browse links.
+    const duplicate = duplicateRepoNames(wanted);
+    if (duplicate.length) {
+      return yield* new BadRequestError({
+        message:
+          `two repositories share the name ${duplicate.join(", ")}: Corvi files each repository ` +
+          `under its own name in the change directory`,
+      });
+    }
     const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
     // A repository whose mode changed is torn down and set up again: the existing worktree or
     // link is as wrong as a repository that was dropped.
@@ -631,9 +797,15 @@ export const setRepos = (
   });
 
 /**
- * Drop the worktree. wt deletes the branch with it when it has been merged, and keeps it when it
- * has not — which is what makes switching a repository to in-place work: the worktree goes, the
- * branch stays, and the repository's own checkout picks it up.
+ * Drop the worktree, and the branch with it when the branch adds nothing to the repository's
+ * default branch. Deleting a branch is the destructive half, so it is asked separately: only a
+ * branch whose content is provably already in the default branch goes, and every other branch is
+ * kept.
+ *
+ * Keeping it is what makes switching a repository to in-place work: the worktree goes, the branch
+ * stays, and the repository's own checkout picks it up. A branch that could not be deleted is not
+ * an error — the worktree is gone, and the caller reports what is left (cancel's "the branch X is
+ * kept in …") rather than failing a removal that happened.
  */
 export const removeWorktree = (
   change: Change,
@@ -641,14 +813,22 @@ export const removeWorktree = (
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     if (isDirect(change, repo)) return yield* unlinkRepo(change, repo);
-    if (!(yield* checkoutFor(change, repo))) {
+    const path = yield* checkoutFor(change, repo);
+    if (!path) {
       // No worktree to remove — but an idea's repository still has a browse link to drop, or the
       // archived directory keeps a dangling symlink to it.
       return yield* unlinkRepo(change, repo);
     }
-    yield* shOrThrow(
-      yield* wt(change, ["-C", repo, "remove", "--yes", "--foreground", "--force", change.branch]),
-    );
+    // --force because build artifacts are untracked files and this was asked for deliberately; it
+    // also succeeds for a worktree whose directory was deleted by hand, which git still has
+    // registered until something prunes it.
+    yield* shOrThrow(["git", "worktree", "remove", "--force", path], repo);
+    const base = yield* defaultBranch(repo);
+    // -D, not -d: the merge that landed this content may have been a squash, so git's own
+    // ancestry test refuses what `integrated` has just proven. Proven first, or the branch stays.
+    if (base && (yield* integrated(repo, change.branch, base))) {
+      yield* shSoft(["git", "branch", "-D", change.branch], repo);
+    }
   });
 
 /** The `git` integration's action runner, in Effect. */
