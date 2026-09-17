@@ -1,5 +1,6 @@
 import type { SettingsView } from "../model.ts";
-import type { JSX } from "react";
+import { useState, type JSX } from "react";
+import { DirectoryPicker } from "../../workspace/client/DirectoryPicker.tsx";
 
 /** An extension the page knows about, with the settings it declares. */
 export type KnownExtension = SettingsView["extensions"][number];
@@ -44,6 +45,74 @@ export function Field({
       />
       {hint && <small>{hint}</small>}
     </label>
+  );
+}
+
+/**
+ * A directory setting: the same input as `Field`, with a picker built from the repository
+ * browser's listing. Typing stays possible — a `~` path, or one that does not exist yet — and
+ * has the same effect as choosing, because the field is the setting and the picker is an aid.
+ *
+ * `workspace` is the context whose repositories directory the picker opens on when the field is
+ * empty; the picker falls back to the server's own idea of where browsing starts.
+ */
+export function DirectoryField({
+  label,
+  hint,
+  value,
+  placeholder,
+  locked,
+  workspace,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string | undefined;
+  placeholder?: string;
+  /** The environment variable overriding this, when there is one. */
+  locked?: string;
+  /** Which context's repositories directory the picker opens on. */
+  workspace?: string;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+
+  // A div rather than a <label>: the Browse button inside one would be named by the label
+  // instead of by its own text, the same trap `Group` documents. The input carries the label as
+  // its accessible name instead.
+  return (
+    <div className="field">
+      <span className="label">
+        {label}
+        {locked && <span className="locked"> — set by {locked}</span>}
+      </span>
+      <div className="row">
+        <input
+          aria-label={label}
+          value={value ?? ""}
+          placeholder={locked ? "" : placeholder}
+          disabled={Boolean(locked)}
+          onChange={(e) => onChange(e.target.value)}
+        />
+        <button
+          type="button"
+          className="choose"
+          title="browse for a directory"
+          disabled={Boolean(locked)}
+          onClick={() => setOpen(true)}
+        >
+          Browse…
+        </button>
+      </div>
+      {hint && <small>{hint}</small>}
+      <DirectoryPicker
+        open={open}
+        onClose={() => setOpen(false)}
+        path={value?.trim() ? value : undefined}
+        workspace={workspace}
+        onChoose={onChange}
+      />
+    </div>
   );
 }
 
@@ -142,6 +211,7 @@ export function ListEditor({
   values,
   placeholder,
   locked,
+  picker = false,
   onChange,
 }: {
   label: string;
@@ -149,8 +219,12 @@ export function ListEditor({
   values: string[];
   placeholder?: string;
   locked?: string;
+  /** Whether a row may be filled by browsing: a directory list, as opposed to a list of names or
+   * environments, where a picker could only offer the wrong kind of value. */
+  picker?: boolean;
   onChange: (values: string[]) => void;
 }): JSX.Element {
+  const [picking, setPicking] = useState<number>();
   const set = (index: number, value: string): void =>
     onChange(values.map((v, i) => (i === index ? value : v)));
 
@@ -164,6 +238,16 @@ export function ListEditor({
             disabled={Boolean(locked)}
             onChange={(e) => set(index, e.target.value)}
           />
+          {picker && !locked && (
+            <button
+              type="button"
+              className="choose"
+              title="browse for a directory"
+              onClick={() => setPicking(index)}
+            >
+              …
+            </button>
+          )}
           <button
             className="remove"
             title="remove"
@@ -178,6 +262,14 @@ export function ListEditor({
         <button className="add" onClick={() => onChange([...values, ""])}>
           + add
         </button>
+      )}
+      {picker && (
+        <DirectoryPicker
+          open={picking !== undefined}
+          onClose={() => setPicking(undefined)}
+          path={picking !== undefined ? values[picking] : undefined}
+          onChoose={(dir) => picking !== undefined && set(picking, dir)}
+        />
       )}
     </Group>
   );

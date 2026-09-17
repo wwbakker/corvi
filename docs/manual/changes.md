@@ -25,7 +25,7 @@ workspace; an extension that is not enabled there has no step, not an empty one.
    Description (the starting text of `PLAN.md`), Change id and Branch name (both editable, and both
    stop following the title once you touch them), and the Ticket the issue step picked. Skipping the
    issue steps is fine: type a title and you have an idea.
-4. **Repositories** (optional) — from a directory browser rooted at `reposRoot`. Clicking a name
+4. **Repositories** (optional) — from a directory browser that opens on `repositoriesDirectory`. Clicking a name
    browses into it, the button beside it adds it to the selection: a directory that is both a
    repository and a parent of repositories (`acme/services`) can be either. Selected repositories
    are listed on the right and removed with the cross. A repository picked now is linked into the
@@ -216,8 +216,8 @@ has a `.idea` keeps it, since the IDE has owned it since. Build outputs (`target
 are deliberately *not* copied: recreating them is a build, and a stale copy is worse than none.
 Failing to copy is never fatal — the worktree is what was asked for.
 
-`reposStart` in the config sets the directory the browser opens on; `↑ Up` still walks back to
-`reposRoot`.
+`repositoriesDirectory` in the config — globally, or per context — sets the directory the browser
+opens on; from there `↑ Up` walks towards `/`, and the browser can reach anywhere on the machine.
 
 
 ## Left behind

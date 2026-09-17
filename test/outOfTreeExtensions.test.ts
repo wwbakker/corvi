@@ -146,7 +146,7 @@ test("the server serves the built client chunk and the react vendor chunks", asy
     cwd: repoRoot,
     env: serverEnv(tmp, {
       CORVI_EXTENSION_PATHS: "", // the file's list, not the inherited override
-      CORVI_REPOS_ROOT: tmp,
+      CORVI_REPOSITORIES_DIRECTORY: tmp,
       CORVI_CONFIG: configFile,
     }),
     stdout: "pipe",

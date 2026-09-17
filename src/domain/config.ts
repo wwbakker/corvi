@@ -18,8 +18,9 @@ export type Workspace = {
   /** Stable, and recorded in a change: renaming the name must not orphan anything. */
   id: string;
   name: string;
-  /** Where the repository browser opens in this context. */
-  reposStart?: string;
+  /** Where the repository browser opens in this context: the global setting when it is absent.
+   * The browser can walk anywhere from there — this only picks the starting point. */
+  repositoriesDirectory?: string;
   /** Which extensions exist here, by name (see src/extensions/). Absent means all of them. */
   extensions?: string[];
   /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
@@ -62,11 +63,9 @@ export type Config = {
    * setting of its own rather than a child of `changesRoot`: an archive can live on another
    * disk, and listing the changes root never has to filter it out. */
   archiveRoot: string;
-  /** Base directory the repository browser starts from. */
-  reposRoot: string;
-  /** Directory the browser opens on, inside reposRoot. Going up to reposRoot stays possible;
-   * this only saves the clicks you make every single time. */
-  reposStart: string;
+  /** Directory the repository browser opens on. The browser is unbounded — it can walk anywhere
+   * under `/` from here — so this is a starting point, not a boundary. */
+  repositoriesDirectory: string;
   /** Whether a notification plays the system sound; the settings page's one notification
    * decision so far. */
   notificationSound: boolean;
@@ -106,8 +105,9 @@ export type Config = {
 export type ConfigFile = {
   changesRoot?: string;
   archiveRoot?: string;
-  reposRoot?: string;
-  reposStart?: string;
+  /** Directory the repository browser opens on; see `Config.repositoriesDirectory`. Absent means
+   * `$HOME`. */
+  repositoriesDirectory?: string;
   notificationSound?: boolean;
   /** Whether right-clicking shows the browser's own menu; see `Config.contextMenu`. An absent value
    * means yes. */

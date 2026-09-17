@@ -20,10 +20,10 @@ export const configPath = (): string =>
 export const expandTilde = (path: string): string =>
   path.startsWith("~") ? join(homedir(), path.slice(1)) : path;
 
-const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "reposRoot"> = {
+const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "repositoriesDirectory"> = {
   changesRoot: defaultChangesRoot(),
   archiveRoot: defaultArchiveRoot(),
-  reposRoot: join(homedir(), "Repos"),
+  repositoriesDirectory: homedir(),
 };
 
 /**
@@ -103,22 +103,11 @@ function load(): Config {
         fallback: defaults.archiveRoot,
       }),
     ),
-    reposRoot: resolvePath(
+    repositoriesDirectory: resolvePath(
       resolveSetting({
-        env: ENV_OVERRIDES.reposRoot,
-        file: file.reposRoot,
-        fallback: defaults.reposRoot,
-      }),
-    ),
-    reposStart: resolvePath(
-      resolveSetting({
-        env: ENV_OVERRIDES.reposStart,
-        file: file.reposStart,
-        fallback: resolveSetting({
-          env: ENV_OVERRIDES.reposRoot,
-          file: file.reposRoot,
-          fallback: defaults.reposRoot,
-        }),
+        env: ENV_OVERRIDES.repositoriesDirectory,
+        file: file.repositoriesDirectory,
+        fallback: defaults.repositoriesDirectory,
       }),
     ),
     notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),

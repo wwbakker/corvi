@@ -22,7 +22,7 @@ export type {
   Entry,
 };
 export { CHANGE_STATES, IDEATION, isIdeation };
-export type Listing = { root: string; path: string; entries: Entry[] };
+export type Listing = { path: string; entries: Entry[] };
 export type CardInfo = {
   name: string;
   title: string;

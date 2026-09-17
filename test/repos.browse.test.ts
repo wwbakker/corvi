@@ -1,32 +1,37 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { config } from "../src/workspace/server/index.ts";
-import { absolutePath, browse, remoteBranches, resolveInRoot, startPath } from "../src/workspace/server/index.ts";
+import {
+  browse,
+  config,
+  remoteBranches,
+  repositoriesDirectoryOf,
+  resolveDirectory,
+} from "../src/workspace/server/index.ts";
+import type { Workspace } from "../src/domain/config.ts";
 import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
 
 /**
  * The repository browser: what is inside a directory, what counts as a repository, and what a
  * new branch can start from. The first two are filesystem reads; the branches are git reads,
- * driven here through the scripted Shell.
+ * driven here through the scripted Shell. The browser is unbounded — any absolute directory can
+ * be listed — so these tests are about what a listing contains, not about what it refuses.
  */
 let tmp: string;
-const originalRoot = config.reposRoot;
-const originalStart = config.reposStart;
+const original = config.repositoriesDirectory;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-browse-"));
-  config.reposRoot = tmp;
+  config.repositoriesDirectory = tmp;
 });
 
 afterAll(async () => {
-  config.reposRoot = originalRoot;
-  config.reposStart = originalStart;
+  config.repositoriesDirectory = original;
   await rm(tmp, { recursive: true, force: true });
 });
 
-test("browse: visible directories only, a repository either way .git is stored", async () => {
+test("browse: directories only, dot-directories withheld unless asked for, .git either way", async () => {
   await mkdir(join(tmp, "alpha", ".git"), { recursive: true });
   await mkdir(join(tmp, "alpha", "inner"), { recursive: true });
   await mkdir(join(tmp, "beta"), { recursive: true });
@@ -36,56 +41,75 @@ test("browse: visible directories only, a repository either way .git is stored",
   await mkdir(join(tmp, ".hidden"), { recursive: true });
   await writeFile(join(tmp, "notes.txt"), "not a directory\n");
 
-  const atRoot = await runEffect(browse(""));
-  expect(atRoot.root).toBe(tmp);
-  expect(atRoot.path).toBe("");
+  const atRoot = await runEffect(browse(tmp));
+  expect(atRoot.path).toBe(tmp);
+  // Hidden directories are withheld unless the request asks for them.
   expect(atRoot.entries.map((e) => e.name)).toEqual(["alpha", "beta", "zeta"]);
-  expect(atRoot.entries.map((e) => e.path)).toEqual(["alpha", "beta", "zeta"]);
+  // Every path is absolute, which is what the client navigates and selects by.
+  expect(atRoot.entries.map((e) => e.path)).toEqual([
+    join(tmp, "alpha"),
+    join(tmp, "beta"),
+    join(tmp, "zeta"),
+  ]);
   expect(atRoot.entries.map((e) => e.isRepo)).toEqual([true, true, false]);
 
-  // A nested path is relative to the root throughout, so going up stays possible.
-  const nested = await runEffect(browse("alpha"));
-  expect(nested.path).toBe("alpha");
-  expect(nested.entries.map((e) => [e.path, e.isRepo])).toEqual([["alpha/inner", false]]);
+  // `hidden` is the request's own word for them, so the listing carries what it will show.
+  const withHidden = await runEffect(browse(tmp, true));
+  expect(withHidden.entries.map((e) => e.name)).toEqual([".hidden", "alpha", "beta", "zeta"]);
+
+  // A nested path lists what is under it, and a file beside the directories is not a row.
+  const nested = await runEffect(browse(join(tmp, "alpha")));
+  expect(nested.path).toBe(join(tmp, "alpha"));
+  expect(nested.entries.map((e) => [e.path, e.isRepo])).toEqual([
+    [join(tmp, "alpha", "inner"), false],
+  ]);
+  expect((await runEffect(browse(join(tmp, "alpha"), true))).entries.map((e) => e.name)).toEqual([
+    ".git",
+    "inner",
+  ]);
 });
 
-test("startPath: the configured start is relative to the root, empty when it is not inside", () => {
-  config.reposStart = join(tmp, "alpha");
-  expect(startPath()).toBe("alpha");
+test("browse follows symlinks: a linked directory is a directory to browse", async () => {
+  // macOS' /etc, /tmp and /var are symlinks, and so is a checkout reached through one. A
+  // dirent's isDirectory() would answer false and the directory would simply not appear.
+  const real = await mkdtemp(join(tmpdir(), "corvi-browse-real-"));
+  await mkdir(join(real, "linked"), { recursive: true });
+  await symlink(real, join(tmp, "via-link"));
 
-  config.reposStart = tmp;
-  expect(startPath()).toBe("");
-
-  config.reposStart = join(tmp, "..", "somewhere");
-  expect(startPath()).toBe("");
-
-  // The browser opens there by default, without an explicit path argument.
-  config.reposStart = join(tmp, "alpha");
+  const linked = await runEffect(browse(join(tmp, "via-link")));
+  expect(linked.entries.map((e) => e.name)).toEqual(["linked"]);
+  await rm(real, { recursive: true, force: true });
 });
 
-test("browse defaults to the configured start directory", async () => {
-  config.reposStart = join(tmp, "alpha");
+test("browse defaults to the configured repositories directory", async () => {
   const opened = await runEffect(browse());
-  expect(opened.path).toBe("alpha");
-  expect(opened.entries.map((e) => e.name)).toEqual(["inner"]);
+  expect(opened.path).toBe(tmp);
 });
 
-test("resolveInRoot and absolutePath: inside the root is resolved, escaping is refused", () => {
-  expect(resolveInRoot("alpha")).toBe(join(tmp, "alpha"));
-  expect(resolveInRoot("")).toBe(tmp);
-  expect(resolveInRoot(".")).toBe(tmp);
-  // Normalization happens before the check, so a path that only looks like traversal is fine.
-  expect(resolveInRoot("alpha/../beta")).toBe(join(tmp, "beta"));
-  expect(absolutePath("alpha")).toBe(join(tmp, "alpha"));
+test("resolveDirectory: ~ is expanded, a path is normalized, a relative one is refused", () => {
+  expect(resolveDirectory(tmp)).toBe(tmp);
+  expect(resolveDirectory(join(tmp, "alpha", "..", "beta"))).toBe(join(tmp, "beta"));
 
-  expect(() => resolveInRoot("../outside")).toThrow("outside repos root");
-  expect(() => resolveInRoot("alpha/../../outside")).toThrow("outside repos root");
-  expect(() => absolutePath("../outside")).toThrow("outside repos root");
-  expect(runEffect(browse("../outside"))).rejects.toThrow("outside repos root");
+  expect(resolveDirectory("~")).toBe(homedir());
+  expect(resolveDirectory("~/Repos")).toBe(join(homedir(), "Repos"));
+
+  expect(() => resolveDirectory("alpha")).toThrow("not an absolute path");
+  expect(() => resolveDirectory("")).toThrow("not an absolute path");
+});
+
+test("repositoriesDirectoryOf: the workspace's own directory, else the global one", () => {
+  const own: Workspace = {
+    id: "client",
+    name: "Client",
+    repositoriesDirectory: join(tmp, "client-repos"),
+  };
+  expect(repositoriesDirectoryOf(own)).toBe(join(tmp, "client-repos"));
+  // A context that names none inherits the global setting, which is the point of the fallback.
+  expect(repositoriesDirectoryOf({ id: "own", name: "Own" })).toBe(tmp);
 });
 
 test("browse: a directory that is gone is a defect, not a silent empty listing", async () => {
-  expect(runEffect(browse("never-created"))).rejects.toThrow();
+  expect(runEffect(browse(join(tmp, "never-created")))).rejects.toThrow();
 });
 
 test("remoteBranches: the remote default leads, and non-branches are filtered out", async () => {

@@ -1,38 +1,53 @@
-import { type JSX, useEffect, useMemo, useState } from "react";
-import { api, type Branches, type Entry, type Listing, type Selection } from "../../app-root/api.ts";
+import { type JSX, useCallback, useEffect, useState } from "react";
+import { api, type Branches, type Listing, type Selection } from "../../app-root/api.ts";
+import { DirectoryListing } from "./DirectoryListing.tsx";
+import { fetchListing } from "./repoListing.ts";
 
-/** Directory browser under the configured repos root. Browsing and selecting are separate
- * actions on every row, because a directory can be both a repository and a parent of others.
- * How a repository is worked on, and what its branch starts from, is decided per selected
- * repository on the right. */
+/** Directory browser, unbounded: it opens where the context's repositories directory says and
+ * can walk anywhere from there. Browsing and selecting are separate actions on every row,
+ * because a directory can be both a repository and a parent of others. How a repository is
+ * worked on, and what its branch starts from, is decided per selected repository on the right. */
 export function RepoBrowser({
   selected,
   onAdd,
   onRemove,
   onChange,
+  workspace,
 }: {
   /** Repositories already chosen, with their mode and base branch. */
   selected: Selection[];
+  /** Which context's repositories directory to open on; undefined is the global one. */
+  workspace?: string;
   onAdd: (absolutePath: string) => void;
   onRemove: (absolutePath: string) => void;
   onChange: (absolutePath: string, patch: Partial<Selection>) => void;
 }): JSX.Element {
-  const [listing, setListing] = useState<Listing>({ root: "", path: "", entries: [] });
+  const [listing, setListing] = useState<Listing>({ path: "", entries: [] });
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
+  // Whether dot-directories are shown. The server withholds them, so this is part of the
+  // request rather than a filter over the answer.
+  const [showHidden, setShowHidden] = useState(false);
   // Branches per repository, fetched once each: the base selector needs somewhere to choose from.
   const [branches, setBranches] = useState<Record<string, Branches>>({});
 
-  // No argument opens the configured starting directory; an explicit "" is the root.
-  const open = (path?: string): void => {
-    api<Listing>(path === undefined ? "/repos" : `/repos?path=${encodeURIComponent(path)}`)
-      .then((next) => {
-        setListing(next);
-        setFilter(""); // a filter from the previous directory means nothing here
-      })
-      .catch((e: Error) => setError(e.message));
+  // No argument opens the configured starting directory; an explicit path is an absolute
+  // directory to browse, which is how "up" and a click on a name both work.
+  const open = useCallback(
+    (path: string | undefined, hidden: boolean): void => {
+      fetchListing({ path, workspace, hidden })
+        .then(setListing)
+        .catch((e: Error) => setError(e.message));
+    },
+    [workspace],
+  );
+  // Opens the start directory once and whenever the context changes; the hidden flag is read at
+  // that moment, so a later tick refetches the directory on screen rather than resetting here.
+  useEffect(() => open(undefined, showHidden), [open]);
+
+  const show = (next: boolean): void => {
+    setShowHidden(next);
+    open(listing.path || undefined, next);
   };
-  useEffect(() => open(), []);
 
   // Every selected repository needs its branches, whether it was just added or came with the
   // change; the default is what a repository starts from unless you say otherwise.
@@ -46,67 +61,31 @@ export function RepoBrowser({
     }
   }, [selected]);
 
-  const parent = listing.path.includes("/")
-    ? listing.path.slice(0, listing.path.lastIndexOf("/"))
-    : "";
-  const absolute = (entry: Entry): string => `${listing.root}/${entry.path}`;
-
-  // Filters the current directory only; browsing into a subdirectory is still a click.
-  const entries = useMemo(() => {
-    const needle = filter.toLowerCase();
-    return needle
-      ? listing.entries.filter((e) => e.name.toLowerCase().includes(needle))
-      : listing.entries;
-  }, [listing.entries, filter]);
-
   return (
     <div className="browser">
       {error && <div className="error-banner">{error}</div>}
       <div className="panes">
         <div className="pane">
-          <div className="breadcrumb">
-            <button type="button" onClick={() => open("")} disabled={!listing.path}>
-              {listing.root}
-            </button>
-            {listing.path && <span>/ {listing.path}</span>}
-            {listing.path && (
-              <button type="button" onClick={() => open(parent)}>
-                ↑ Up
-              </button>
-            )}
-          </div>
-
-          <input
-            className="filter"
-            placeholder="filter directories"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-
-          <ul className="entries">
-            {entries.map((entry) => {
-              const path = absolute(entry);
-              const added = selected.some((s) => s.path === path);
+          <DirectoryListing
+            listing={listing}
+            onOpen={(path) => open(path, showHidden)}
+            showHidden={showHidden}
+            onShowHidden={show}
+            showRepoTag
+            action={(entry) => {
+              const added = selected.some((s) => s.path === entry.path);
               return (
-                <li key={entry.path}>
-                  <button type="button" className="dir" onClick={() => open(entry.path)}>
-                    {entry.name}/{entry.isRepo && <span className="tag">repo</span>}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!entry.isRepo || added}
-                    title={entry.isRepo ? undefined : "not a git repository"}
-                    onClick={() => onAdd(path)}
-                  >
-                    {added ? "Added" : "Add"}
-                  </button>
-                </li>
+                <button
+                  type="button"
+                  disabled={!entry.isRepo || added}
+                  title={entry.isRepo ? undefined : "not a git repository"}
+                  onClick={() => onAdd(entry.path)}
+                >
+                  {added ? "Added" : "Add"}
+                </button>
               );
-            })}
-            {entries.length === 0 && (
-              <li className="hint">{listing.entries.length ? "nothing matches" : "empty"}</li>
-            )}
-          </ul>
+            }}
+          />
         </div>
 
         <div className="pane selected-pane">
@@ -120,7 +99,7 @@ export function RepoBrowser({
               return (
                 <li key={path} className="selection">
                   <div className="row">
-                    <span className="path">{path.replace(`${listing.root}/`, "")}</span>
+                    <span className="path">{path}</span>
                     <button type="button" title="Remove" onClick={() => onRemove(path)}>
                       ✕
                     </button>

@@ -72,7 +72,7 @@ const absolute = (value: string | undefined): boolean =>
 export function problems(next: Settings): string[] {
   const found: string[] = [];
 
-  for (const field of ["changesRoot", "archiveRoot", "reposRoot", "reposStart"] as const) {
+  for (const field of ["changesRoot", "archiveRoot", "repositoriesDirectory"] as const) {
     if (!absolute(next[field])) found.push(`${field} must be an absolute path`);
   }
 
@@ -86,8 +86,8 @@ export function problems(next: Settings): string[] {
       found.push(`two workspaces share the id "${workspace.id}"`);
     } else seen.add(workspace.id);
     if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
-    if (!absolute(workspace.reposStart)) {
-      found.push(`${where}: repositories start must be an absolute path`);
+    if (!absolute(workspace.repositoriesDirectory)) {
+      found.push(`${where}: repositories directory must be an absolute path`);
     }
     for (const key of Object.keys(workspace.env ?? {})) {
       if (!Schema.is(EnvVarName)(key)) {

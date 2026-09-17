@@ -964,6 +964,32 @@ dialog textarea.message {
   margin-bottom: 8px;
 }
 
+/* The listing pane's own controls: the filter, and the switch that reveals dot-directories. It
+   is the same pane in the repository browser and in the settings' directory picker. */
+.listing-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.listing-controls .filter {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.listing-controls label.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.listing-controls label.check input {
+  width: auto;
+}
+
 .selected-pane {
   border-left: 1px solid var(--line);
   padding-left: 16px;
@@ -2143,6 +2169,13 @@ button.danger:disabled {
 .settings .row .remove {
   padding: 0 10px;
   color: var(--muted);
+}
+
+/* The browse button beside a directory field: an aid to the input, so it reads as one. */
+.settings .row .choose {
+  padding: 0 10px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 
 .settings button.add,

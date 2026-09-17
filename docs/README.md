@@ -47,6 +47,7 @@ Every doc starts with a status header:
 | [`decisions/electron-host.md`](decisions/electron-host.md) | Electron replaces the Swift and Python windows; one host, one engine |
 | [`decisions/corvi-identifiers.md`](decisions/corvi-identifiers.md) | The rename from IWE: one clean break, the name in one file, no migration code shipped |
 | [`decisions/host-context-menu.md`](decisions/host-context-menu.md) | The right-click menu: a setting, the host's menu in the app, the page's suppression in a browser |
+| [`decisions/directory-browser.md`](decisions/directory-browser.md) | One `repositoriesDirectory`; the browser is unbounded, and the settings picker is its own listing |
 | [`decisions/window-titlebar.md`](decisions/window-titlebar.md) | The page's own first row is the window's title bar; the main process keeps only the traffic lights |
 | [`decisions/node-server.md`](decisions/node-server.md) | The server runs on Electron's Node; Bun is the development toolchain |
 | [`decisions/node-pty-terminal.md`](decisions/node-pty-terminal.md) | node-pty + xterm.js replace ttyd; the dev server runs on Node too |

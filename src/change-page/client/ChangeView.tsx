@@ -154,6 +154,7 @@ export function ChangeView({
       <PerRepoCard
         key={`${info.name}-${generation}`}
         changeId={id}
+        workspace={change?.workspace}
         info={info}
         repos={change?.repos ?? []}
         onReposChanged={reload}
