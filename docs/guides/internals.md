@@ -110,8 +110,8 @@ seconds of CPU**. What keeps it cheap:
   shared outright.
 - **`origin/HEAD` is asked once per repository.**
 
-The rest is network-bound rather than CPU-bound: `gh` and `jira` are Go binaries that spend their
-time waiting.
+The rest is network-bound rather than CPU-bound: `gh` is a Go binary that spends its time
+waiting, and Jira is a `fetch` from this same process rather than a program at all.
 
 ## Dashboard loading
 

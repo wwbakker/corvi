@@ -5,7 +5,10 @@
 **An agent-ready development environment for a change.** Corvi is a local dashboard for a
 *change*: the work spanning one or more repositories, plus the worktrees, pull requests, tickets
 and builds around it — and the terminals where you and your agents do the work. Everything is
-read live from the vendors' own CLIs, so Corvi stores no secrets and owns no copy of their data.
+read live from the vendors' own CLIs — and, for Jira, from its REST API — so Corvi owns no copy
+of their data. The one secret it can hold is a Jira token you choose to type into the settings
+page: kept in your own config file, masked in the interface, and readable from the file only by
+you.
 
 ![The Corvi dashboard](docs/images/home.png)
 

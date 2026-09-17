@@ -13,6 +13,7 @@ export function Field({
   hint,
   value,
   placeholder,
+  secret,
   locked,
   onChange,
 }: {
@@ -20,6 +21,10 @@ export function Field({
   hint?: string;
   value: string | undefined;
   placeholder?: string;
+  /** A value the page is not trusted with: drawn as a password, which is what it is. To the page
+   * it is an opaque string — the server sent a mask and keeps what it holds when the mask comes
+   * back (`src/settings/server/secrets.ts`). */
+  secret?: boolean;
   /** The environment variable overriding this, when there is one. */
   locked?: string;
   onChange: (value: string) => void;
@@ -31,6 +36,7 @@ export function Field({
         {locked && <span className="locked"> — set by {locked}</span>}
       </span>
       <input
+        type={secret ? "password" : "text"}
         value={value ?? ""}
         placeholder={locked ? "" : placeholder}
         disabled={Boolean(locked)}

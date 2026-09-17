@@ -25,7 +25,7 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly needsForce?: boolean;
 }> {}
 
-/** An external CLI (`git`, `gh`, `az`, `jira`, ...) failed. What it said and what it cost.
+/** An external CLI (`git`, `gh`, `az`, ...) failed. What it said and what it cost.
  * `message` is what the UI shows — for `shOrThrow` that is `<cmd> failed: <stderr>`, for a
  * timeout `<cmd> timed out after N seconds` — and `formatError` hands it to the response
  * verbatim. */

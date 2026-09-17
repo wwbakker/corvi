@@ -6,7 +6,8 @@ Corvi is one server process — Electron's Node in the app and in development (`
 it with `node --watch`; [`../decisions/node-server.md`](../decisions/node-server.md),
 [`../decisions/node-pty-terminal.md`](../decisions/node-pty-terminal.md)) — that serves an HTTP
 API and a
-React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `jira`, `tmux`), and keeps
+React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `tmux`) and to Jira over its REST
+API, and keeps
 its only state in one directory per change (`~/corvi/changes/<id>/`). Everything else is read live and
 cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
 

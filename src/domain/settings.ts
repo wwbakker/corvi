@@ -13,6 +13,12 @@ export type ExtensionSetting = {
   hint?: string;
   /** A list of strings rather than one value, edited as rows. */
   list?: boolean;
+  /** A value the page must never receive: the settings view hands over a mask in its place, and
+   * the write path keeps what was stored wherever the mask comes back unchanged. An empty value
+   * still clears it. The one setting that declares this is the exception to the locking rule: a
+   * secret's `env` is a fallback rather than an override, so the page may always edit it (see
+   * `src/settings/server/secrets.ts`). */
+  secret?: boolean;
   /** The environment variable that overrides this setting, shown locked when set — the page
    * cannot fight it. The override still works through the core config field the extension reads
    * back, and the precedence is: extension setting (page/file) wins, then that config field
@@ -28,4 +34,7 @@ export type WorkspaceSetting = {
   label: string;
   placeholder?: string;
   hint?: string;
+  /** As on `ExtensionSetting`: the page never receives the value, only a mask, and the mask
+   * coming back unchanged means "keep what is stored". */
+  secret?: boolean;
 };

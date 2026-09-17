@@ -2,9 +2,9 @@
 
 ## Requirements
 
-`git`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira is
-talked to over its own REST API, but `jira-cli` is still what configures it — see
-[Jira over its own API](integrations.md#jira-over-its-own-api).
+`git`, `gh` and `az` for the integrations; `tmux` for the Terminals tab. Jira needs no CLI: its
+server and the account are settings, and the API token is either exported in the environment or
+typed into those settings — see [Jira over its own API](integrations.md#jira-over-its-own-api).
 
 The terminal's pty is `node-pty`, installed with the rest of the dependencies. Its prebuilt
 binaries cover macOS and Linux on x64 and arm64, so `bun install` needs neither a C toolchain nor

@@ -50,7 +50,7 @@ const expand = (value: string): string =>
   value.startsWith("~") ? homedir() + value.slice(1) : value;
 
 /** What to add to a subprocess's environment: the workspace's own variables, `~` expanded,
- * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `JIRA_CONFIG_FILE` —
+ * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` —
  * and a shell would have done it. Empty outside a request. The workspace comes from the
  * `Workspace` tag (src/capabilities/effect/tags.ts), read at run time by `sh` and by the Shell capability's
  * live layer (src/extension-host/services.ts). */
@@ -97,7 +97,7 @@ const spawn = (
         try: () => {
           const [tool, ...args] = cmd;
           if (tool === undefined) throw new Error("empty command");
-          // Whose login this runs as: a workspace may point `gh`, `az` and `jira` at another account.
+          // Whose login this runs as: a workspace may point `gh` and `az` at another account.
           // Empty outside a request. The environment is the scrubbed server env with the
           // workspace's variables on top (src/capabilities/env.ts) — always passed explicitly,
           // since inheriting the parent's environment would be inheriting it unscrubbed.

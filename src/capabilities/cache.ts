@@ -1,8 +1,8 @@
 /**
  * Server-side cache: what the dashboard shows, kept between requests.
  *
- * Everything on a page costs a subprocess — `gh`, `az`, `jira` — and the same answers are asked
- * for by the overview, the dashboard and the summaries within seconds of each other. This is
+ * Everything on a page that costs something — `gh`, `az`, a Jira query — is asked for again by the
+ * overview, the dashboard and the summaries within seconds of each other. This is
  * stale-while-revalidate: an answer that is old enough to doubt is still handed over at once,
  * and a refresh runs behind it, so a page paints from what was true a moment ago rather than
  * waiting for what is true now.

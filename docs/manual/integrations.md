@@ -2,27 +2,29 @@
 
 ## Jira over its own API
 
-`src/extensions/jira/jiraHttp.ts` is the whole transport: read the config `jira init` wrote, basic
-auth with `JIRA_API_TOKEN`, and one `fetch`. `src/extensions/jira/jira.ts` is the integration on top
+`src/extensions/jira/jiraHttp.ts` is the whole transport: the workspace's site — a server, an
+account email and a token — basic auth with `JIRA_API_TOKEN` or a token stored in the settings,
+and one `fetch`. `src/extensions/jira/jira.ts` is the integration on top
 of it — sprints from `/rest/agile/1.0/board/<id>/sprint`, issues from that board's sprints and
 from `/rest/api/3/search/jql`, transitions from `/rest/api/3/issue/<key>/transitions`.
 
-Talking to the REST API directly means one process for the whole board rather than one per call,
-and JSON rather than CSV — a format `jira-cli`'s plain mode could not even produce unambiguously,
-since it pads columns with the delimiter.
+Talking to the REST API directly means one request rather than a process per call, and JSON
+fields as fields: no quoting rules and no column positions, and `assignee` is null rather than an
+empty column that might be a comma.
 
-Two things that only the API can do, and both matter:
+Two things only the API can do, and both matter:
 
-- **Transitions are asked for, not guessed.** `jira issue move KEY Done` fails with "transition
-  not found"; the API lists what is legal from where the issue is now, so a wrong status says
+- **Transitions are asked for, not guessed.** A move that fails with "transition not found" is a
+  dead end; the API lists what is legal from where the issue is now, so a wrong status says
   `cannot move to "Done" from here — available: To Do, In Progress`. A silent failure here is
   what leaves a change merged with its ticket still open.
-- **Fields come back as fields.** No quoting rules, no column positions, and `assignee` is null
-  rather than an empty column that might be a comma.
+- **Fields come back as fields.** An issue is read from the JSON Jira sent, at the paths it sent
+  it at, so nothing is parsed out of a formatted line.
 
-The config file is read without a YAML parser: it is a megabyte of custom-field schema and four
-scalars at known depths (`server`, `login`, `board.id`, `project.key`). A parser would be a
-dependency and a lot of code for four values.
+The site is the extension's own settings, at two levels: the config root's `extensionSettings.jira`
+is the default, and a workspace's own bag overrides it field by field. The board is found from the
+project key when it is not named — a project with one board never asks for its id, and one with
+several names them and asks. Nothing about Jira needs another tool installed.
 
 Descriptions are sent as an Atlassian document (`{type: "doc", version: 1, ...}`), which is what
 v3 takes instead of a string.

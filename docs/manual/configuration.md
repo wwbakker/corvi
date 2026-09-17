@@ -10,7 +10,12 @@
   "reposStart": "~/Repos/acme",
   "ideationPrompt": "",
   "extensionSettings": {
-    "jira": { "assignee": "", "startTransition": "In Progress", "doneTransition": "Done" },
+    "jira": {
+      "server": "https://example.atlassian.net",
+      "email": "you@example.com",
+      "project": "PROJ",
+      "token": ""
+    },
     "azure-devops": { "organization": "", "project": "" }
   },
   "worktreeCopy": [".idea", ".bsp", ".bloop", ".scala-build", ".metals", ".vscode"]
@@ -25,6 +30,18 @@ configuration: the account the Jira token belongs to (`/myself`) for the assigne
 extension reads from the file, …) are still read when the bag does not
 answer, and the `CORVI_*` environment variables beat them — which is why the settings page locks
 a field while its variable is set.
+
+`extensionSettings.jira` at the root is the **default site**, and a workspace's own bag overrides
+it field by field: `server`, `email`, `project`, `board`, `token` and `tokenEnv`. The board is
+only needed when the project has more than one — otherwise it is found from the project key, and
+the error names the boards when it cannot choose.
+
+**The token is the one secret in the file.** It may be left out entirely, in which case
+`tokenEnv` — `JIRA_API_TOKEN` by default — names the environment variable that holds it. A token
+stored here wins over the variable. In the settings page it is drawn as a password and the server
+sends a mask in place of the value: leaving the mask alone keeps what is stored, and clearing the
+field hands the credential back to the variable. A save writes this file for its owner alone
+(`0600`), because a token may be in it.
 
 `changesRoot` holds one directory per change, and `archiveRoot` is where completed changes are
 moved so it holds the work in flight; `reposRoot` bounds the repository browser and
@@ -81,14 +98,15 @@ tricked into making one of those on your behalf.
 The check wraps the route table in one place rather than being repeated in each handler, because
 a check you have to remember in forty places is a check that is missing from one of them.
 
-Jira is reached over its REST API, with HTTP basic auth: the account email and the token from
-`JIRA_API_TOKEN`, so start the server from a shell that has it exported. Without it, the Jira
-widget reports the problem and the change picker falls back to typing an id by hand.
+Jira is reached over its REST API, with HTTP basic auth: the account email and a token. The token
+is either exported in the environment the server was started from — `JIRA_API_TOKEN`, so start it
+from a shell that has it — or typed into the extension's own settings, where it is kept masked.
+Without either, the Jira widget reports the problem and the change picker falls back to typing an
+id by hand.
 
-**The site, account, board and project come from `jira-cli`'s own config file**
-(`~/.config/.jira/.config.yml`, or `JIRA_CONFIG_FILE`), so `jira init` is still the setup step and
-nothing is configured twice. The CLI is not called at runtime: four values are read out of the
-config file it wrote, and the rest is HTTP.
+**The site, the account, the project and the board are Corvi's own settings**, one set per
+workspace under `extensionSettings.jira` with the config root's as the default. No other tool is
+involved: nothing to install, nothing to keep in step.
 
 
 ## Workspaces
@@ -135,7 +153,7 @@ are looking at.
     { "id": "client", "name": "Acme",
       "reposStart": "~/Repos/acme",
       "extensionSettings": {
-        "jira": { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" }
+        "jira": { "server": "https://acme.atlassian.net", "email": "you@acme.example", "project": "PROJ", "tokenEnv": "JIRA_TOKEN_ACME" }
       },
       "extensionSettings": {
         "azure-devops": { "organization": "https://dev.azure.com/org", "project": "Project" }
@@ -171,11 +189,11 @@ searched implicitly when it exists. A discovered extension's wizard step or page
 interface from a `client.tsx` beside the module, which the server builds and serves to the
 page — see "Out-of-tree extensions" in [../guides/extensions.md](../guides/extensions.md).
 
-**A second client is a second site.** `extensionSettings.jira.configFile` points at another
-`jira init` — its own server, account and board — `extensionSettings.jira.tokenEnv` names the
-variable holding that site's token, and `azure-devops`'s organisation/`project` are passed
-to `az` explicitly rather than relying on its single configured default. Two clients can be open
-at once.
+**A second client is a second site.** `extensionSettings.jira.server` and `.email` are that
+client's own Jira, `.project` and `.board` its own board, and `.tokenEnv` names the variable
+holding its token — which is also how it says *not* to inherit the default site's stored token.
+`azure-devops`'s organisation/`project` are passed to `az` explicitly rather than relying on its
+single configured default. Two clients can be open at once.
 
 ### A second client is also a second login
 
@@ -186,7 +204,7 @@ at once.
     "AZURE_CONFIG_DIR": "~/.azure-client"
   },
   "extensionSettings":
-    { "jira": { "configFile": "~/.config/.jira/client.yml", "tokenEnv": "JIRA_TOKEN_CLIENT" } } }
+    { "jira": { "server": "https://acme.atlassian.net", "email": "you@acme.example", "tokenEnv": "JIRA_TOKEN_ACME" } } }
 ```
 
 `env` is added to **every** CLI Corvi runs for that workspace — `git`, `gh`, `az`, `tmux`, however

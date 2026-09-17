@@ -14,17 +14,14 @@ export const accountId = (
   Effect.gen(function* () {
     if (!configured.trim()) {
       return (
-        yield* jiraFetch<{ accountId?: string }>("/rest/api/3/myself", {
-          configFile: site.configFile,
-          tokenEnv: site.tokenEnv,
-        })
+        yield* jiraFetch<{ accountId?: string }>("/rest/api/3/myself", { site })
       ).accountId;
     }
     // Already an account id: Atlassian's are opaque strings, and a name never looks like one.
     if (!configured.includes("@") && !configured.includes(" ")) return configured;
     const found = yield* jiraFetch<{ accountId?: string; displayName?: string }[]>(
       "/rest/api/3/user/search",
-      { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { query: configured } },
+      { site, query: { query: configured } },
     );
     return found[0]?.accountId;
   });

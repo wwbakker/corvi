@@ -239,6 +239,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
                   label={field.label}
                   hint={field.hint}
                   placeholder={field.placeholder}
+                  secret={field.secret}
                   value={globalString(draft.extensionSettings?.[extension.name]?.[field.key])}
                   locked={view.overriddenExtensions?.[extension.name]?.[field.key]}
                   onChange={(value) => setExtensionGlobal(extension.name, field.key, value)}

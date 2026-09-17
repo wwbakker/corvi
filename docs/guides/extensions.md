@@ -57,13 +57,15 @@ Two ideas run through the model:
 | Change tabs | `changeTabs` | A tab on a change's page, beside the core's Dashboard. The client half exports `tab`, a component receiving the change and its workspace (below); the review extension is the change-tab example, and the notes extension pairs a widget with the `ExtensionStore`. |
 | Per-workspace settings | `workspaceSettings` | Configuration the extension declares per context, rendered by the settings page for every workspace that has the extension enabled (below). |
 | Global settings | `globalSettings` | Server-wide settings the extension declares, rendered by the settings page in a section per extension (below). |
+| A secret setting | `secret` | A flag on either of the above: the page never receives the value, only a mask, and a save that sends the mask back keeps what is stored (`src/settings/server/secrets.ts`, and [the decision](../decisions/extension-secrets.md)). |
 | PR description | `descriptionSections` | A heading part, joined with the others into the description's first line. |
 | Completion steps | `completionSteps` | Part of completing a change — planned up front, journaled like the core's steps, run after the merges and before the worktrees go. |
 | Routes | `routes` | Endpoints under `/api/ext/<name>/…`, behind the same origin guard as everything else, failures mapped to status codes by the same `runRoute` the core uses. Paths may carry `:name` segments (below). |
 
 Every hook runs as the request's workspace — the `Workspace` capability the host provides — so
 subprocesses started through its `Shell` inherit that workspace's environment, and a second
-client's `gh` or Jira token is already the right one.
+client's `gh` login is already the right one. Jira needs no subprocess and no login: its site and
+its token are the extension's own settings, read through that same `Workspace` tag.
 
 **Routes take path parameters.** A declared `path` may carry `:name` segments, each capturing
 one segment of the request path into `params["name"]` — `/services/:service/versions` answers
@@ -432,7 +434,11 @@ the extension enabled, stored under the workspace's `extensionSettings[name][key
 carries that bag without looking inside — what belongs there is the extension's own declaration,
 and the extension reads it back from the request's `Workspace` tag (the jira extension's
 `siteOfWorkspace` is the model; it reads `extensionSettings.jira` first and falls back to a
-legacy `workspace.jira` object through its own `legacy.ts`). The azure-devops extension is the
+legacy `workspace.jira` object through its own `legacy.ts`, then to the config root's
+`extensionSettings.jira` as the default site). A field may be declared `secret`, which is the one
+thing the core does look at: the page receives a mask instead of the value, and the write path
+keeps what is stored when the mask comes back (the jira extension's `token`). The azure-devops
+extension is the
 other worked example: it declares `workspaceSettings` for organisation and project, and its
 `azure.ts` reads them
 back as the first step of its chain — a per-workspace override the page can write, with the
