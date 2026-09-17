@@ -48,8 +48,8 @@ export type ExtensionStoreShape = {
 /** The single writer of an extension's own data about a committed change: its entry in the
  * `extensions` bag, and the files under `extensions/<name>/` in the change directory. The host
  * provides the layer per contribution with the extension's name bound, so an effect names a
- * file (`notes.md`) rather than itself. `change.json`, `wt.toml` and the core's own sidecars are
- * not reachable through it; paths that escape the extension's directory are rejected. */
+ * file (`notes.md`) rather than itself. `change.json` and the core's own sidecars are not
+ * reachable through it; paths that escape the extension's directory are rejected. */
 export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
   ExtensionStore,
   ExtensionStoreShape
@@ -66,13 +66,14 @@ export class Changes extends Context.Tag("corvi/Changes")<Changes, {
    * undefined when the change has no checkout there. `checkoutFor` never fails, and this does
    * not widen that. */
   checkout(change: Change, repo: string): Effect.Effect<string | undefined>;
-  /** The branch this repository's work starts from: what the change chose, or the remote's
-   * default (`origin/HEAD`, then `origin/main`), or undefined for a repository without a remote.
-   * The review tab needs it to count the commits a never-pushed branch holds. */
+  /** The branch this repository's work starts from: what the change chose, or the repository's
+   * default branch — the remote's (`origin/HEAD`, then `origin/main`), or its own `main`/`master`
+   * when there is no remote. Undefined only when there is neither. The review tab needs it to
+   * count the commits a never-pushed branch holds. */
   base(change: Change, repo: string): Effect.Effect<string | undefined>;
   /** Read a legacy change-root file, by bare filename, for migrating data written before
    * `ExtensionStore` existed. The name carries no path separators and is not one of the core's
-   * own change-root files (`change.json`, `wt.toml`, `completion.json`); a name that is refused,
+   * own change-root files (`change.json`, `completion.json`); a name that is refused,
    * absent or unreadable reads as "". This is migration access, not a general escape hatch: an
    * extension's new data goes to `ExtensionStore` (docs/guides/extensions.md, "Data on a
    * change"). */

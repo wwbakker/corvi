@@ -140,8 +140,8 @@ once and `Cancel` throws it away, so nothing is created or deleted while you are
 Applying an edit creates a worktree per added repository and removes one per dropped repository:
 
 - clean worktree — removed straight away;
-- unpushed commits — removed after a confirmation, since the checkout goes but `wt` keeps the
-  branch, so the commits remain reachable;
+- unpushed commits — removed after a confirmation, since the checkout goes but the branch is
+  kept, so the commits remain reachable;
 - uncommitted changes — the whole edit is refused, naming the repositories: revert or commit
   first. The server enforces this, not the dialog.
 
@@ -322,9 +322,9 @@ Cancel change    → the worktrees and the terminal go
 ```
 
 Nothing anyone else can see is touched. The pull requests stay open, the ticket stays where it is,
-and the branches stay wherever wt left them — cancelling is a decision about your own desk, and
-closing somebody else's pull request or moving a ticket other people are watching is a decision
-about theirs. What is left over is listed when it finishes:
+and a branch stays unless its content already landed in the default branch — cancelling is a
+decision about your own desk, and closing somebody else's pull request or moving a ticket other
+people are watching is a decision about theirs. What is left over is listed when it finishes:
 
 ```
 Cancelled. Still open: PROJ-123 is still open in Jira; example-api #12 is still open;
@@ -332,9 +332,9 @@ the branch PROJ-123-work is kept in example-api
 ```
 
 The branch line is worked out **after** the worktrees are removed rather than promised in advance,
-because wt keeps a branch that has commits nobody else has and removes one with nothing on it.
-That is the behaviour you want and not the one you would guess, so it is reported rather than
-claimed either way.
+because the removal keeps a branch whose content the default branch does not have and deletes one
+whose content is already there. That is the behaviour you want and not the one you would guess, so
+it is reported rather than claimed either way.
 
 The protections are a repository removal's, because it is the same act: **uncommitted work
 refuses outright** (it exists nowhere else, and no dialog makes it recoverable), and **commits

@@ -72,8 +72,8 @@ export const ChangesLive = Layer.succeed(Changes, {
   base: baseFor,
   // A legacy sidecar is a bare filename: the capability is migration access, so a name with a
   // separator — or a directory component like ".." — is not a change-root file and reads as "".
-  // The store's own files (change.json, wt.toml, completion.json) are refused too, so the read
-  // cannot be turned on the change record or the completion journal.
+  // The store's own files (change.json, completion.json) are refused too, so the read cannot be
+  // turned on the change record or the completion journal.
   readSidecar: (change: Change, name: string) =>
     name === "" || name === "." || name === ".." || name.includes("/") || name.includes("\\") ||
       CORE_SIDECARS.has(name)

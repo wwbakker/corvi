@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm, realpath } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, basename } from "node:path";
 import { createChange, changeDir } from "../src/change/server/index.ts";
 import {
   setRepos,
@@ -232,20 +232,160 @@ test("an in-place branch does not track the branch it started from", async () =>
   expect(base.stdout).toBe("0");
 });
 
+test("a removal deletes a branch whose content landed and keeps one whose did not", async () => {
+  const merged = await clonedRepo("branch-merged");
+  const open = await clonedRepo("branch-open");
+  const change = await changeFor("PROJ-BRANCH", [merged, open]);
+  await runEffect(provision(change));
+
+  // Two commits, so no single commit's patch-id matches what a squash merge leaves behind: this
+  // is the case that only a simulated merge can prove, and the reason this is Corvi's own rule
+  // rather than a plain `git branch -d`.
+  const mergedTree = (await runEffect(checkoutFor(change, merged)))!;
+  await Bun.write(join(mergedTree, "one.txt"), "1\n");
+  await runSh(["git", "add", "."], mergedTree);
+  await commit(mergedTree, "first");
+  await Bun.write(join(mergedTree, "two.txt"), "2\n");
+  await runSh(["git", "add", "."], mergedTree);
+  await commit(mergedTree, "second");
+  // The remote's main gets the same content in one commit, as `gh pr merge --squash` leaves it.
+  await runSh(["git", "merge", "--squash", change.branch], merged);
+  await commit(merged, "squash the branch");
+  await runSh(["git", "push", "--quiet", "origin", "main"], merged);
+  await runSh(["git", "fetch", "--quiet", "origin"], merged);
+
+  // The other branch holds a commit nobody else has: real work, and it stays. It is deliberately
+  // never pushed, so pushing-and-losing is not what is under test — the question is.
+  const openTree = (await runEffect(checkoutFor(change, open)))!;
+  await Bun.write(join(openTree, "open.txt"), "still to land\n");
+  await runSh(["git", "add", "."], openTree);
+  await commit(openTree, "not merged yet");
+
+  // The squash-merged branch is not a warning: the cheap proofs call it diverged (its commits are
+  // neither ancestors nor patch-identical), so the simulated merge is what proves the content
+  // landed — and nothing is asked of anyone.
+  expect(await runEffect(unsafeToRemove(change, merged))).toBeUndefined();
+  const dropped = await runSetRepos(change, [open]);
+  expect("change" in dropped).toBe(true);
+  expect(await runEffect(checkoutFor(change, merged))).toBeUndefined();
+
+  // Nothing left to contribute: gone, so a completed change does not leave a branch per repo.
+  expect((await runSh(["git", "branch", "--list", change.branch], merged)).stdout).toBe("");
+
+  // The unmerged branch still asks — its commits exist nowhere else — and forcing keeps the
+  // branch, which is what the commits are findable by.
+  const remaining = (dropped as { change: Change }).change;
+  expect(await runSetRepos(remaining, [], false)).toEqual({ needsForce: ["branch-open"] });
+  const emptied = await runSetRepos(remaining, [], true);
+  expect("change" in emptied).toBe(true);
+  expect(await runEffect(checkoutFor(change, open))).toBeUndefined();
+  const kept = await runSh(
+    ["git", "branch", "--list", "--format=%(refname:short)", change.branch],
+    open,
+  );
+  expect(kept.stdout.trim()).toBe(change.branch);
+});
+
+test("a branch whose merge conflicts with main is kept, not forced away", async () => {
+  const repo = await clonedRepo("conflict");
+  const change = await changeFor("PROJ-CONFLICT", [repo]);
+  await runEffect(provision(change));
+
+  // Both sides change the same file, so there is no patch-identical commit to find and no merge
+  // that lands on main's tree: the branch cannot be proven to have landed anywhere.
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
+  await Bun.write(join(worktree, "README.md"), "branch version\n");
+  await runSh(["git", "add", "."], worktree);
+  await commit(worktree, "branch version");
+  await Bun.write(join(repo, "README.md"), "main version\n");
+  await runSh(["git", "add", "."], repo);
+  await commit(repo, "main version");
+  await runSh(["git", "push", "--quiet", "origin", "main"], repo);
+  await runSh(["git", "fetch", "--quiet", "origin"], repo);
+
+  const emptied = await runSetRepos(change, [], true);
+  expect("change" in emptied).toBe(true);
+  expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
+  // Doubt keeps the branch: the commit exists only there, and a removal that guessed would
+  // delete the only pointer to it.
+  const kept = await runSh(
+    ["git", "branch", "--list", "--format=%(refname:short)", change.branch],
+    repo,
+  );
+  expect(kept.stdout.trim()).toBe(change.branch);
+});
+
+test("a worktree from before Corvi owned the path is adopted, not migrated", async () => {
+  // A change provisioned when wt owned the layout has an ordinary git worktree at exactly the path
+  // Corvi computes now, plus a wt.toml beside change.json. Both are left as they are: provisioning
+  // finds the checkout that is there, and the old config is neither read nor rewritten.
+  const repo = await clonedRepo("legacy");
+  const change = await changeFor("PROJ-LEGACY", [repo]);
+  const path = join(changeDir(change.id), basename(repo));
+  const config = `worktree-path = "${changeDir(change.id)}/{{ repo }}"\n`;
+  const legacy = join(changeDir(change.id), "wt.toml");
+  await runSh(
+    ["git", "-c", "branch.autoSetupMerge=false", "worktree", "add", "-b", change.branch, path, "origin/main"],
+    repo,
+  );
+  await Bun.write(legacy, config);
+  await Bun.write(join(path, "made-before-corvi.txt"), "still here\n");
+
+  // The change:created hook, which is what meets a worktree that already exists.
+  await runEffect(provision(change));
+  expect(await runEffect(checkoutFor(change, repo))).toBe(path);
+  expect(await Bun.file(join(path, "made-before-corvi.txt")).text()).toBe("still here\n");
+  // The repository's own checkout and the change's, and no third one made beside it.
+  const listed = await runSh(["git", "worktree", "list", "--porcelain"], repo);
+  expect(listed.stdout.match(/^worktree /gm)?.length).toBe(2);
+  expect(await Bun.file(legacy).text()).toBe(config);
+
+  // The marker goes before the removal: it is untracked, and a removal refuses a dirty worktree by
+  // design, which is not what this test is about.
+  await rm(join(path, "made-before-corvi.txt"));
+
+  // And it is removed like any other: the branch had nothing on it, so it goes too.
+  const emptied = await runSetRepos(change, []);
+  expect("change" in emptied).toBe(true);
+  expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
+  expect((await runSh(["git", "branch", "--list", change.branch], repo)).stdout).toBe("");
+});
+
+test("two repositories with the same name are refused, at creation and at an edit", async () => {
+  const first = await clonedRepo("clash");
+  await mkdir(join(tmp, "elsewhere"), { recursive: true });
+  const second = join(tmp, "elsewhere", "clash");
+  await runSh(["git", "clone", "--quiet", first, second]);
+  await runSh(["git", "config", "user.email", "t@t"], second);
+  await runSh(["git", "config", "user.name", "t"], second);
+
+  // Both would be filed in the change directory as `clash`, one on top of the other, so the list
+  // is refused before anything is created or moved.
+  expect(
+    runEffect(createChange({ id: "PROJ-CLASH", branch: "PROJ-CLASH", repos: [first, second] })),
+  ).rejects.toThrow(/share the name clash/);
+
+  const single = await changeFor("PROJ-CLASH-ONE", [first]);
+  await runEffect(provision(single));
+  expect(runSetRepos(single, [first, second], true)).rejects.toThrow(/share the name clash/);
+  // Refused before anything moved, so the worktree is still where it was.
+  expect(await runEffect(checkoutFor(single, first))).toBe(join(changeDir(single.id), "clash"));
+});
+
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
   const { parseStatus } = await import("../src/extensions/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provision(change));
-  const wt = (await runEffect(checkoutFor(change, repo)))!;
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // Nothing yet, which is a state of its own and not an error.
   expect((await runLocalChanges(change, repo)).files).toEqual([]);
 
-  await Bun.write(join(wt, "README.md"), "local\nedited\n");
-  await Bun.write(join(wt, "added.txt"), "staged\n");
-  await Bun.write(join(wt, "new.txt"), "untracked\n");
-  await runSh(["git", "add", "added.txt"], wt);
+  await Bun.write(join(worktree, "README.md"), "local\nedited\n");
+  await Bun.write(join(worktree, "added.txt"), "staged\n");
+  await Bun.write(join(worktree, "new.txt"), "untracked\n");
+  await runSh(["git", "add", "added.txt"], worktree);
 
   const status = await runLocalChanges(change, repo);
   const by = (path: string): FileChange => status.files.find((f) => f.path === path)!;
@@ -259,8 +399,8 @@ test("uncommitted work is listed as git sees it, staged and unstaged apart", asy
   expect(by("new.txt")).toMatchObject({ untracked: true, staged: false });
 
   // A file can be in both lists at once, with different contents in each.
-  await runSh(["git", "add", "README.md"], wt);
-  await Bun.write(join(wt, "README.md"), "local\nedited\nagain\n");
+  await runSh(["git", "add", "README.md"], worktree);
+  await Bun.write(join(worktree, "README.md"), "local\nedited\nagain\n");
   const both = await runLocalChanges(change, repo);
   expect(both.files.find((f) => f.path === "README.md")).toMatchObject({
     staged: true,

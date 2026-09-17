@@ -11,7 +11,7 @@ import {
   openers,
   parseWorktrees,
   parseStatus,
-  type WtEntry,
+  type WorktreeEntry,
 } from "../src/vendors/git.ts";
 import { isMac } from "../src/capabilities/os.ts";
 import { versionInLines } from "../src/extensions/azure-devops/pipelines.ts";
@@ -86,12 +86,12 @@ test("provisioning reports every extension and survives a failing one", async ()
   loaded.splice(0, loaded.length, ...restore);
 });
 
-test("worktree status is read from wt's own output", () => {
+test("a worktree entry describes what it holds", () => {
   const entries = JSON.parse(
     `[{"branch":"main","path":"/r","is_main":true,"working_tree":{},"remote":{"branch":"main","ahead":0,"behind":0}},
       {"branch":"PROJ-1-thing","path":"/r/.worktrees/PROJ-1-thing","working_tree":{"modified":true},
        "remote":{"branch":"PROJ-1-thing","ahead":2,"behind":1},"main_state":"diverged"}]`,
-  ) as WtEntry[];
+  ) as WorktreeEntry[];
 
   const entry = findWorktree(entries, "PROJ-1-thing");
   expect(entry?.path).toBe("/r/.worktrees/PROJ-1-thing");
@@ -131,7 +131,7 @@ test("a pull request says what it is waiting for", () => {
 });
 
 test("what a worktree removal would destroy", () => {
-  const entry = (over: Partial<WtEntry>): WtEntry => ({
+  const entry = (over: Partial<WorktreeEntry>): WorktreeEntry => ({
     branch: "b",
     path: "/p",
     remote: { name: "origin", branch: "b", ahead: 0, behind: 0 },
@@ -153,6 +153,9 @@ test("what a worktree removal would destroy", () => {
   ).toBe("unpushed");
   // Never pushed at all: no upstream to be ahead of, but the commits vanish with the branch.
   expect(unsafeIn(entry({ remote: null, main_state: "ahead" }))?.kind).toBe("unpushed");
+  // Never pushed, and no default branch to measure against — a repository with no remote at all.
+  // Unknown is not "in main": the commits exist only on that branch, so they still warn.
+  expect(unsafeIn(entry({ remote: null, main_state: undefined }))?.kind).toBe("unpushed");
   // Never pushed, but main already has the work: nothing to lose.
   expect(unsafeIn(entry({ remote: null, main_state: "integrated" }))).toBeUndefined();
   // Ahead of the upstream, but main already has the content: removing drops a copy.

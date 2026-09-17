@@ -106,8 +106,8 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect(await Bun.file(join(changeDir("PROJ-CANCEL"), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange("PROJ-CANCEL")))?.state).toBe("Cancelled");
 
-  // Nothing was committed on it, so wt took the branch with the worktree — and the report says
-  // so rather than claiming a branch is waiting for you that is not.
+  // Nothing was committed on it, so the branch had nothing to add and went with the worktree —
+  // and the report says so rather than claiming a branch is waiting for you that is not.
   expect((await runSh(["git", "branch", "--list", "PROJ-CANCEL-x"], repo)).stdout).toBe("");
   expect((result as { loose: string[] }).loose.some((l) => l.includes("branch"))).toBe(false);
 });

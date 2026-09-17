@@ -382,7 +382,7 @@ Effect.gen(function* () {
 `change.json` once; `read`, `write` and `list` work on files under `extensions/<name>/`, created
 on demand and confined to that directory (a path that escapes it is rejected). All of them
 resolve the change's *current* location, so they keep working after `archiveChange` moves the
-directory. `change.json`, `wt.toml` and the core's own sidecars are not reachable through it.
+directory. `change.json` and the core's own sidecars are not reachable through it.
 The capability exists wherever a committed change does — after-hooks, planned completion steps,
 cards, routes — and a `change:creating` hook has no directory yet, so it writes files in
 `change:created`.
@@ -393,7 +393,7 @@ A change whose notes predate the store still shows them, through one deliberatel
 the `Changes` capability: `readSidecar(change, name)` returns a legacy file from the change root
 by bare filename — no path separators, and not one of the core's own change-root files — and ""
 when it is refused, absent or unreadable, so the store is tried first and the legacy sidecar is
-the fallback. The core's `change.json`, `wt.toml` and `completion.json` are refused by name, so
+the fallback. The core's `change.json` and `completion.json` are refused by name, so
 the read cannot be turned on the change record or the completion journal. That is **migration
 access, not a general escape hatch**: new data always goes to `ExtensionStore`, a write never
 touches the legacy file, and the bare-filename scope exists only for data a former feature wrote

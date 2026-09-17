@@ -191,8 +191,8 @@ test("the Changes layer answers the base branch through the contract", async () 
   const base = (c: typeof change): Promise<string | undefined> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.base(c, repo)));
 
-  // No base chosen and no remote on this repository: there is nowhere to start from.
-  expect(await base(change)).toBeUndefined();
+  // No base chosen and no remote on this repository: its own default branch is what is left.
+  expect(await base(change)).toBe("main");
   // What the change chose answers without asking git, so a stacked change keeps its base.
   expect(await base({ ...change, base: { [repo]: "origin/release" } })).toBe("origin/release");
 });

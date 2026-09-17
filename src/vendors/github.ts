@@ -138,9 +138,9 @@ const prQuery = (
   repo: string,
 ): Effect.Effect<FoundPr | undefined, BadRequestError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
-    if (!wt) return undefined;
-    const head = yield* pushedAs(wt, repo, change.branch);
+    const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+    if (!worktree) return undefined;
+    const head = yield* pushedAs(worktree, repo, change.branch);
     const r = yield* shSoft(
       [
         "gh",
@@ -155,13 +155,13 @@ const prQuery = (
         "--json",
         "number,title,url,state,isDraft,reviewDecision,mergeable,statusCheckRollup",
       ],
-      wt,
+      worktree,
     );
     if (r.code !== 0) {
       return yield* new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" });
     }
     const prs = yield* cliJson(Schema.Array(PrSchema), [] as Pr[])(r.stdout);
-    return { worktree: wt, head, prs };
+    return { worktree, head, prs };
   });
 
 /**
@@ -499,18 +499,18 @@ export const mergePr = (
   number: number,
 ): Effect.Effect<string | undefined, BadRequestError | CliError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
-    if (!wt) {
+    const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+    if (!worktree) {
       return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
 
-    const stacked = yield* isStacked(wt, repo, number);
+    const stacked = yield* isStacked(worktree, repo, number);
     if (!stacked) {
-      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], wt);
+      yield* shOrThrow(["gh", "pr", "merge", String(number), "--squash"], worktree);
       return undefined;
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
-    const note = yield* mergeStacked(wt, stacked, number);
+    const note = yield* mergeStacked(worktree, stacked, number);
     return note && `${basename(repo)} #${number}: ${note}`;
   });
 
@@ -539,22 +539,22 @@ export const createPr = (
   repo: string,
 ): Effect.Effect<void, BadRequestError | CliError, Changes> =>
   Effect.gen(function* () {
-    const wt = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
-    if (!wt) {
+    const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+    if (!worktree) {
       return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
     }
-    yield* shOrThrow(["git", "push", "-u", "origin", change.branch], wt);
+    yield* shOrThrow(["git", "push", "-u", "origin", change.branch], worktree);
     // A change stacked on another one's branch must open its pull request against that branch:
     // against main the diff would contain the other change's commits as well. GitHub retargets
     // the pull request to main by itself once the base branch merges.
     const base = yield* baseFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
     const against = target && (yield* remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
-    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], wt);
+    yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
     if (against.length) {
-      const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], wt);
+      const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], worktree);
       const number = Number(view.stdout);
-      if (number) yield* stackOnBase(wt, target!, number);
+      if (number) yield* stackOnBase(worktree, target!, number);
     }
     // The cached answer says there is no pull request, and it was right until a moment ago.
     invalidate(`gh:pr:${change.id}`);

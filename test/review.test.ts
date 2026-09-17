@@ -182,13 +182,13 @@ test("what is committed but only here is counted, and pushing takes it away", as
   const repo = await clonedRepo("push");
   const change = await changeFor("PROJ-PUSH", [repo]);
   await runEffect(provision(change));
-  const wt = (await runEffect(checkoutFor(change, repo)))!;
+  const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since
   // it left the base branch is unpushed, and that is what the button has to offer.
-  await Bun.write(join(wt, "one.txt"), "1\n");
-  await runSh(["git", "add", "."], wt);
-  await commit(wt, "first");
+  await Bun.write(join(worktree, "one.txt"), "1\n");
+  await runSh(["git", "add", "."], worktree);
+  await commit(worktree, "first");
   const before = (await (
     await ext(`changes/${change.id}/local?path=${encodeURIComponent(repo)}`)
   ).json()) as LocalStatus;
@@ -204,9 +204,9 @@ test("what is committed but only here is counted, and pushing takes it away", as
   expect(after).toMatchObject({ tracked: true, unpushed: 0 });
 
   // A second commit is one ahead, which is the other way of counting the same thing.
-  await Bun.write(join(wt, "two.txt"), "2\n");
-  await runSh(["git", "add", "."], wt);
-  await commit(wt, "second");
+  await Bun.write(join(worktree, "two.txt"), "2\n");
+  await runSh(["git", "add", "."], worktree);
+  await commit(worktree, "second");
   const again = (await (
     await ext(`changes/${change.id}/local?path=${encodeURIComponent(repo)}`)
   ).json()) as LocalStatus;

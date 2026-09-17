@@ -1,6 +1,9 @@
 # `wt` on Linux
 
-> **Kind:** decision · **Status:** accepted
+> **Kind:** decision · **Status:** superseded · **Superseded by:** [git-worktrees.md](git-worktrees.md)
+
+*Corvi no longer depends on `wt`: worktrees are `git worktree`'s, at a path Corvi computes, and the
+reasoning below is kept as the record of what was chosen before that, not rewritten.*
 
 **Verdict: no work needed.** The `wt` IWE depends on is
 [Worktrunk](https://github.com/max-sixty/worktrunk) (crates.io: `worktrunk`, binary: `wt`) — a

@@ -14,7 +14,6 @@ export {
   CORE_SIDECARS,
   changeDir,
   archiveDir,
-  wtConfigPath,
   readChange,
   writeChange,
   readSidecar,
@@ -25,7 +24,6 @@ export {
   setExtensionData,
   archiveChange,
   listChanges,
-  writeWtConfig,
 } from "./store.ts";
 
 export { createChange, type CreateChangeInput } from "./create.ts";

@@ -91,6 +91,26 @@ export function branchFor(key: string, summary: string): string {
   return `${key}-${slugify(summary)}`.slice(0, 60).replace(/-+$/, "");
 }
 
+/** The name a repository path is filed under: its last component, trailing separators ignored.
+ * Split by hand rather than with node:path, because this half of the domain is also bundled for
+ * the browser. */
+function repoNameOf(path: string): string {
+  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
+}
+
+/** Repository names that appear more than once in a list of repository paths. Every repository a
+ * change touches is filed in the change directory under its own name — a worktree, or the link an
+ * idea and an in-place checkout use — so two paths with the same last component would collide
+ * there. A creation or an edit that would leave two of them is refused, naming them. */
+export function duplicateRepoNames(repos: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const repo of repos) {
+    const name = repoNameOf(repo);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return [...counts].filter(([, count]) => count > 1).map(([name]) => name);
+}
+
 /** The creation input, before a change exists: what the "New idea" wizard collected and what
  * the `change:creating` hooks transform. Everything but the id is optional, because the core
  * fills the gaps (branch defaults to the id, state to "In Progress", createdAt to now).
