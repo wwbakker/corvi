@@ -1,8 +1,8 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { problems, settingsViewSync, writeSettings, type Settings } from "../src/settings/server/index.ts";
+import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../src/settings/server/index.ts";
 import { config, reloadConfigSync, type Config } from "../src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
@@ -204,13 +204,30 @@ test("an extension setting the environment overrides is reported as locked too",
   try {
     const view = settingsViewSync();
     // The jira extension's own declaration travels to the page, and the one field whose
-    // environment variable is set is locked by name.
+    // environment variable is set is locked by name. The site comes first — it is what the rest
+    // of the section is about — and the token is the one secret at both levels.
     const jira = view.extensions.find((e) => e.name === "jira");
     expect(jira?.globalSettings.map((f) => f.key)).toEqual([
+      "server",
+      "email",
+      "project",
+      "board",
+      "token",
+      "tokenEnv",
       "assignee",
       "startTransition",
       "doneTransition",
     ]);
+    expect(jira?.workspaceSettings.map((f) => f.key)).toEqual([
+      "server",
+      "email",
+      "project",
+      "board",
+      "token",
+      "tokenEnv",
+    ]);
+    expect(jira?.globalSettings.filter((f) => f.secret).map((f) => f.key)).toEqual(["token"]);
+    expect(jira?.workspaceSettings.filter((f) => f.secret).map((f) => f.key)).toEqual(["token"]);
     expect(view.overriddenExtensions.jira).toEqual({ assignee: "CORVI_JIRA_ASSIGNEE" });
   } finally {
     delete process.env.CORVI_JIRA_ASSIGNEE;
@@ -276,4 +293,58 @@ test("the settings read migrates the retired names before the page edits them", 
     organization: "bag-org",
   });
   expect(view.file.extensionSettings).not.toHaveProperty("deployments");
+});
+
+test("a declared secret never reaches the page, and not retyping it keeps it", async () => {
+  await runEffect(
+    writeSettings({
+      extensionSettings: { jira: { server: "https://x.example", token: "root-secret" } },
+      workspaces: [
+        { id: "client", name: "Client", extensionSettings: { jira: { token: "client-secret" } } },
+      ],
+    }),
+  );
+
+  const view = settingsViewSync();
+  // The mask where a secret is stored, at both levels, in the file and in what is in effect.
+  expect(view.file.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  expect(view.effective.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  expect(view.file.workspaces?.[0]?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  expect(view.effective.workspaces?.[0]?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  // The running config still holds the real one: the redaction copies rather than mutating the
+  // object every request is reading.
+  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
+  expect(config.workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+
+  // A save that sends the mask back — a page that edited anything else — keeps what is stored.
+  await runEffect(writeSettings(view.file));
+  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
+  expect(config.workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  const kept = await readFile(file, "utf8");
+  expect(kept).toContain("root-secret");
+  expect(kept).not.toContain(MASK);
+
+  // A retyped token replaces it, and an emptied field falls back to the environment.
+  await runEffect(writeSettings({ extensionSettings: { jira: { token: "new-secret" } } }));
+  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("new-secret");
+  await runEffect(writeSettings({ extensionSettings: { jira: { token: "" } } }));
+  expect(config.extensionSettings?.["jira"]?.["token"]).toBeUndefined();
+});
+
+test("a mask for a secret nothing is stored in is not written as one", async () => {
+  // A page open before the token existed sends the mask for a field the file does not have; what
+  // it must not do is make the mask the token.
+  await runEffect(writeSettings({ extensionSettings: { jira: { server: "https://x.example" } } }));
+  await runEffect(
+    writeSettings({ extensionSettings: { jira: { server: "https://x.example", token: MASK } } }),
+  );
+
+  expect(config.extensionSettings?.["jira"]?.["token"]).toBeUndefined();
+  expect(await readFile(file, "utf8")).not.toContain(MASK);
+});
+
+test("the settings file is written for its owner alone", async () => {
+  await runEffect(writeSettings({ extensionSettings: { jira: { token: "hunter2" } } }));
+  // It may hold a token, and a mode that depended on whether it happened to would flap.
+  expect((await stat(file)).mode & 0o777).toBe(0o600);
 });

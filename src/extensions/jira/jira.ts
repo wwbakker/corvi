@@ -1,16 +1,16 @@
-import { Effect, Either } from "effect";
+import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
-import type { WidgetState } from "../../domain/widget.ts";
 import { swr, invalidate } from "../../capabilities/cache.ts";
 import { env } from "../../capabilities/identity.ts";
 import { config, type Config } from "../../workspace/server/index.ts";
-import { jiraFetch, jiraSetup, jiraBaseUrl } from "./jiraHttp.ts";
+import { bagString } from "../../settings/server/legacySettings.ts";
+import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import type { Issue, Sprint, TicketRef } from "./shared.ts";
+import type { Board, Issue, Sprint, TicketRef } from "./shared.ts";
 
 export type { Issue, Sprint } from "./shared.ts";
 
@@ -26,25 +26,40 @@ export const ticketOf = (change: Change): string | undefined =>
   (change.extensions?.["jira"] as TicketRef | undefined)?.key ?? legacyTicketOf(change);
 
 /**
- * Which Jira: whose config file, which project, which board.
+ * Which Jira: whose site, whose account, which project, which board.
  *
- * A workspace that says nothing uses jira-cli's own config. A second client names its own file,
- * so two sites can be open at once.
+ * A workspace that sets nothing uses the application-wide default — `extensionSettings.jira` at the
+ * root, which is also where this extension's server-wide settings live — and overrides it field
+ * by field, so a second client states the fields that differ rather than all of them. The token
+ * may be stored here or read from an environment variable the site names.
+ *
+ * This type holds a secret, so it stays server-side: it is not in `shared.ts`, whose whole purpose
+ * is to be importable by the browser half, and no route hands the page one.
  */
 export type Site = {
-  configFile?: string;
+  /** e.g. https://example.atlassian.net */
+  server?: string;
+  /** The Atlassian account email, which is the username half of basic auth. */
+  email?: string;
   project?: string;
   board?: string;
-  /** Which environment variable holds this site's API token. */
+  /** Which environment variable holds this site's token, when one is not stored. */
   tokenEnv?: string;
+  /** The token itself, when it was typed on the settings page rather than exported. */
+  token?: string;
 };
 
 /**
- * This workspace's Jira site, from the settings this extension itself declares: the fields under
+ * This workspace's Jira, from the settings this extension itself declares: the fields under
  * `workspace.extensionSettings.jira`, which the settings page renders from `workspaceSettings`,
- * and — for a workspace written before the bag — the legacy `workspace.jira` object, read
- * through `legacy.ts`. Every field optional; absent means jira-cli's own config. A second client
- * names its own file, so two sites can be open at once.
+ * and — for a workspace written before the bag — the legacy `workspace.jira` object, read through
+ * `legacy.ts`. Either of those answers before the config root's bag, so a workspace overrides the
+ * default site field by field.
+ *
+ * The two token fields resolve as one decision rather than as two independent ones: a workspace
+ * that names its own `tokenEnv` has said where its credential comes from, so it does not also
+ * inherit the default site's stored token — which is what would send one client's token to
+ * another, with no way for the workspace to say otherwise.
  */
 export function siteOfWorkspace(workspace: {
   extensionSettings?: Record<string, Record<string, string>>;
@@ -53,11 +68,20 @@ export function siteOfWorkspace(workspace: {
 }): Site {
   const own = workspace.extensionSettings?.jira;
   const legacy = legacySiteOfWorkspace(workspace);
+  const global = config.extensionSettings?.jira;
+  const namesOwnVariable = own?.tokenEnv !== undefined || legacy.tokenEnv !== undefined;
+  // A token is never legacy: an early workspace's object could name a variable or a site, and the
+  // token was the environment's either way.
+  const stored = bagString(own, "token");
+  // The server and the account have no legacy per-workspace form to answer from: they used to
+  // come out of the config file a legacy workspace named, and that file is not read any more.
   return {
-    configFile: own?.configFile ?? legacy.configFile,
-    project: own?.project ?? legacy.project,
-    board: own?.board ?? legacy.board,
-    tokenEnv: own?.tokenEnv ?? legacy.tokenEnv,
+    server: bagString(own, "server") ?? bagString(global, "server"),
+    email: bagString(own, "email") ?? bagString(global, "email"),
+    project: bagString(own, "project") ?? legacy.project ?? bagString(global, "project"),
+    board: bagString(own, "board") ?? legacy.board ?? bagString(global, "board"),
+    tokenEnv: bagString(own, "tokenEnv") ?? legacy.tokenEnv ?? bagString(global, "tokenEnv"),
+    token: stored ?? (namesOwnVariable ? undefined : bagString(global, "token")),
   };
 }
 
@@ -81,10 +105,7 @@ export function globalOf(settings: Config): {
   doneTransition: string;
 } {
   const bag = settings.extensionSettings?.jira;
-  const own = (key: string): string | undefined => {
-    const value = bag?.[key];
-    return typeof value === "string" && value.trim() ? value : undefined;
-  };
+  const own = (key: string): string | undefined => bagString(bag, key);
   const legacy = legacyGlobalOf(settings);
   return {
     assignee: own("assignee") ?? legacy.assignee,
@@ -94,8 +115,12 @@ export function globalOf(settings: Config): {
 }
 
 /** Namespaces the cache: two sites answering "PROJ-1" differently is exactly the bug this
- * prevents. */
-const siteKey = (site: Site): string => site.configFile ?? site.project ?? "default";
+ * prevents, and a board belongs to one of them. The email is part of it because two accounts on
+ * one site can see different issues. Exported, because both halves key their caches from it and
+ * two spellings of one namespace is how they drift apart. */
+export const siteKey = (site: Site): string =>
+  [site.server, site.email, site.project, site.board, site.tokenEnv].filter(Boolean).join("|") ||
+  "default";
 
 /** Which sprints the board view covers. Closed sprints are finished work, so they are excluded
  * by default. Override with CORVI_JIRA_SPRINT_STATES (e.g. "active,future,closed"). */
@@ -155,8 +180,7 @@ const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], Ba
     let token: string | undefined;
     do {
       const page = yield* jiraFetch<SearchJson>("/rest/api/3/search/jql", {
-        configFile: site.configFile,
-        tokenEnv: site.tokenEnv,
+        site,
         query: {
           jql,
           fields: FIELDS,
@@ -170,22 +194,63 @@ const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], Ba
     return issues;
   });
 
-const board = (site: Site): Effect.Effect<string, BadRequestError> =>
+/**
+ * The board's id: the configured one, or the project's when it has exactly one.
+ *
+ * A board id is the least knowable thing in the set, and a project key is what people have in
+ * hand, so a project with one board never asks for the id. A project with several names them all
+ * and asks, which is also what leaves the choice to the person who knows it.
+ *
+ * Cached, because the board view asks once per sprint: an uncached lookup would be one extra
+ * request per sprint on every visit. The failure is a `BadRequestError`, which `swr` carries
+ * through, so "has 3 boards" reaches the page rather than going quiet.
+ */
+const boardId = (site: Site): Effect.Effect<string, BadRequestError> =>
   Effect.gen(function* () {
-    const id = site.board ?? (yield* jiraSetup(site.configFile)).board;
-    if (!id) {
+    // The site before the board: "set Project or Board" is not the answer for a workspace that has
+    // no server at all, and this runs before any request would have said so.
+    const check = siteCheck(site);
+    if ("problem" in check) {
+      return yield* new BadRequestError({ message: check.problem });
+    }
+    if (site.board) return site.board;
+    const project = site.project;
+    if (!project) {
       return yield* new BadRequestError({
-        message: "no board configured in jira-cli's config — run `jira init`",
+        message: "no Jira board for this workspace — set Project or Board in Settings",
       });
     }
-    return id;
+    return yield* swr(
+      `jira:${siteKey(site)}:board-id`,
+      ISSUE_TTL,
+      Effect.gen(function* () {
+        const json = yield* jiraFetch<{ values?: { id: number; name: string }[] }>(
+          "/rest/agile/1.0/board",
+          { site, query: { projectKeyOrId: project } },
+        );
+        const boards = json.values ?? [];
+        const [first, second] = boards;
+        // Exactly one is the only case that needs no one's opinion; the first of several is not
+        // a choice this can make.
+        if (first && !second) return String(first.id);
+        if (!first) {
+          return yield* new BadRequestError({
+            message: `no board in project ${project} — set Board in Settings`,
+          });
+        }
+        const named = boards.map((board) => `${board.name} (${board.id})`).join(", ");
+        return yield* new BadRequestError({
+          message: `project ${project} has ${boards.length} boards: ${named} — set Board in Settings`,
+        });
+      }),
+    );
   });
 
 export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ values?: { id: number; name: string; state: string }[] }>(
-      `/rest/agile/1.0/board/${yield* board(site)}/sprint`,
-      { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { state: sprintStates() } },
+      `/rest/agile/1.0/board/${yield* boardId(site)}/sprint`,
+      { site, query: { state: sprintStates() } },
     );
     return (json.values ?? []).map((s) => ({ id: String(s.id), name: s.name, state: s.state }));
   });
@@ -196,18 +261,27 @@ export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequest
 const issuesInSprint = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ issues?: IssueJson[] }>(
-      `/rest/agile/1.0/board/${yield* board(site)}/sprint/${sprint.id}/issue`,
-      { configFile: site.configFile, tokenEnv: site.tokenEnv, query: { fields: FIELDS, maxResults: "100" } },
+      `/rest/agile/1.0/board/${yield* boardId(site)}/sprint/${sprint.id}/issue`,
+      { site, query: { fields: FIELDS, maxResults: "100" } },
     );
     return (json.issues ?? []).map((i) => issueFrom(i, sprint.name));
   });
 
-/** Work that is not in a sprint yet, and not finished. */
+/** Work that is not in a sprint yet, and not finished. The project is required rather than
+ * optional: without it this query would read the whole site's backlog, which is not what a
+ * workspace's picker is for. */
 const backlogIssues = (site: Site): Effect.Effect<Issue[], BadRequestError> =>
   Effect.gen(function* () {
-    const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
-    const scope = project ? `project = ${project} AND ` : "";
-    return yield* search(`${scope}sprint is EMPTY AND statusCategory != Done ORDER BY rank`, site);
+    const project = site.project;
+    if (!project) {
+      return yield* new BadRequestError({
+        message: "no Jira project for this workspace — set Project in Settings",
+      });
+    }
+    return yield* search(
+      `project = ${project} AND sprint is EMPTY AND statusCategory != Done ORDER BY rank`,
+      site,
+    );
   });
 
 /** Only what a change can be made from: epics and subtasks are containers, not units of work. */
@@ -216,25 +290,12 @@ const workable = (issues: Issue[]): Issue[] => {
   return issues.filter((i) => types.includes(i.type.toLowerCase()));
 };
 
-/** Everything on the board worth picking: open sprints plus the un-sprinted backlog.
- * Cached briefly; the wizard re-reads this on every visit and a board is not that volatile. */
-const boards = new Map<string, { at: number; issues: Issue[] }>();
-
-export const boardIssues = (
-  workspaceId?: string,
-  force = false,
-): Effect.Effect<{ issues: Issue[]; sprints: string[]; baseUrl?: string; error?: string }> =>
-  Effect.gen(function* () {
-    const site = siteFor(workspaceId);
-    const key = siteKey(site);
-    const baseUrl = yield* jiraBaseUrl(site.configFile);
-    const cache = boards.get(key);
-    if (!force && cache && Date.now() - cache.at < 60_000) {
-      return { issues: cache.issues, sprints: sprintNames(cache.issues), baseUrl };
-    }
-    // An error string rather than a failure: a broken or unconfigured Jira must still leave you
-    // able to type a change id by hand.
-    return yield* Effect.catchAll(
+/** Everything on the board worth picking: open sprints plus the un-sprinted backlog. An error
+ * string rather than a failure, because a broken or unconfigured Jira must still leave you able
+ * to type a change id by hand. */
+const readBoard = (site: Site): Effect.Effect<Board> =>
+  Effect.map(
+    Effect.catchAll(
       Effect.gen(function* () {
         const sprints = yield* listSprints(site);
         const groups = yield* Effect.all(
@@ -243,11 +304,27 @@ export const boardIssues = (
           { concurrency: "unbounded" },
         );
         const issues = workable(groups.flat());
-        boards.set(key, { at: Date.now(), issues });
-        return { issues, sprints: sprintNames(issues), baseUrl };
+        const board: Board = { issues, sprints: sprintNames(issues) };
+        return board;
       }),
-      (e) => Effect.succeed({ issues: [], sprints: [], baseUrl, error: messageOf(e) }),
-    );
+      (e): Effect.Effect<Board> => Effect.succeed({ issues: [], sprints: [], error: messageOf(e) }),
+    ),
+    (board): Board => ({ ...board, baseUrl: siteBaseUrl(site) }),
+  );
+
+/** What creating an issue has to forget, so the issue it just made shows up in the table. */
+const boardViewKey = (site: Site): string => `jira:${siteKey(site)}:board-view`;
+
+/** The board view, cached briefly through the same cache as everything else — it is the one the
+ * wizard re-reads on every visit, and one cache means `invalidate` and the tests' `clearCache`
+ * reach it. `force` is the refresh button: it waits for the current answer rather than racing a
+ * background one. */
+export const boardIssues = (workspaceId?: string, force = false): Effect.Effect<Board> =>
+  Effect.gen(function* () {
+    const site = siteFor(workspaceId);
+    const key = boardViewKey(site);
+    if (force) invalidate(key);
+    return yield* swr(key, ISSUE_TTL, readBoard(site));
   });
 
 
@@ -287,17 +364,22 @@ export const createIssue = (input: {
       return yield* new BadRequestError({ message: "summary required" });
     }
     const site = siteFor(input.workspace);
-    const project = site.project ?? (yield* jiraSetup(site.configFile)).project;
+    // The site first: a workspace with nothing configured must be told that, not that its project
+    // is missing — the project is only unreachable because the site is.
+    const check = siteCheck(site);
+    if ("problem" in check) {
+      return yield* new BadRequestError({ message: check.problem });
+    }
+    const project = site.project;
     if (!project) {
       return yield* new BadRequestError({
-        message: "no project configured in jira-cli's config — run `jira init`",
+        message: "no Jira project for this workspace — set Project in Settings",
       });
     }
     const type = input.type ?? issueType();
 
     const created = yield* jiraFetch<{ key: string }>("/rest/api/3/issue", {
-      configFile: site.configFile,
-      tokenEnv: site.tokenEnv,
+      site,
       method: "POST",
       body: {
         fields: {
@@ -314,15 +396,14 @@ export const createIssue = (input: {
       const account = yield* accountId(globalOf(config).assignee, site);
       if (account) {
         yield* jiraFetch(`/rest/api/3/issue/${created.key}/assignee`, {
-          configFile: site.configFile,
-          tokenEnv: site.tokenEnv,
+          site,
           method: "PUT",
           body: { accountId: account },
         });
       }
     }
 
-    boards.delete(siteKey(site)); // the new issue must show up in the table straight away
+    invalidate(boardViewKey(site)); // the new issue must show up in the table straight away
     return { key: created.key, summary, assignee: "", status: "", type, sprint: "" };
   });
 
@@ -342,7 +423,7 @@ export const moveIssue = (
   Effect.gen(function* () {
     const { transitions = [] } = yield* jiraFetch<{
       transitions?: { id: string; name: string; to?: { name?: string } }[];
-    }>(`/rest/api/3/issue/${key}/transitions`, { configFile: site.configFile });
+    }>(`/rest/api/3/issue/${key}/transitions`, { site });
 
     const wanted = status.trim().toLowerCase();
     const found = transitions.find(
@@ -356,12 +437,10 @@ export const moveIssue = (
     }
 
     yield* jiraFetch(`/rest/api/3/issue/${key}/transitions`, {
-      configFile: site.configFile,
-      tokenEnv: site.tokenEnv,
+      site,
       method: "POST",
       body: { transition: { id: found.id } },
     });
-    boards.delete(siteKey(site));
     invalidate("jira:"); // the status we would otherwise keep showing is the one we just changed
   });
 
@@ -395,13 +474,8 @@ export const issuesByKeys = (
 export const issueByKey = (key: string, site: Site = {}): Effect.Effect<Issue | undefined> =>
   Effect.orElseSucceed(
     Effect.map(
-      jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, {
-        configFile: site.configFile,
-        tokenEnv: site.tokenEnv,
-        query: { fields: FIELDS },
-      }),
+      jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, { site, query: { fields: FIELDS } }),
       issueFrom,
     ),
     () => undefined,
   );
-

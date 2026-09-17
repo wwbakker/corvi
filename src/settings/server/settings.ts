@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, chmod, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "../../domain/config.ts";
@@ -16,6 +16,7 @@ import {
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../extension-host/index.ts";
 import { migrateExtensionSettings, migrateFileSettings } from "../../extension-host/migrate.ts";
+import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import { invalidate } from "../../capabilities/cache.ts";
@@ -45,8 +46,10 @@ export const settingsViewSync = (): SettingsView => {
   migrateFileSettings(file);
   return {
     path: configPath(),
-    file,
-    effective: config,
+    // The page gets a copy with the extensions' secrets masked: it is given the file and what is
+    // in effect, and neither may carry a token (src/settings/server/secrets.ts).
+    file: redactSecrets(file, loaded),
+    effective: redactSecrets(config, loaded),
     overridden: overriddenSettings(),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
@@ -131,7 +134,8 @@ function prune(value: unknown): unknown {
  *
  * Merged over what the file holds, not replacing it: a key Corvi does not know about was put there
  * by hand, for a version of Corvi that does, and losing it silently would be rude. The ENV_OVERRIDES
- * locking and the empty-field-means-unset pruning still apply.
+ * locking and the empty-field-means-unset pruning still apply, and a masked secret is the stored
+ * value rather than the mask (src/settings/server/secrets.ts).
  */
 export const writeSettings = (
   next: Settings,
@@ -142,9 +146,15 @@ export const writeSettings = (
       return yield* new BadRequestError({ message: wrong.join("; ") });
     }
 
-    const merged = prune({ ...readFileSync(), ...next }) as Settings;
+    // Secrets first, before anything is merged: a field the page sent back as a mask keeps what
+    // the file holds, and one it left alone stays cleared.
+    const stored = readFileSync();
+    const merged = prune({ ...stored, ...keepStoredSecrets(next, stored, loaded) }) as Settings;
     yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
-    yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`));
+    // 0600 because the file may now hold a token: `writeFile`'s mode only applies when it creates
+    // the file, so an existing one is chmodded too rather than keeping whatever it had.
+    yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 }));
+    yield* fs(() => chmod(configPath(), 0o600));
 
     yield* reloadConfig;
     // The retired names fold into the extensions' own settings, in memory as on disk —

@@ -57,10 +57,10 @@ export const legacyGlobalOf = (config: Config): {
 };
 
 /** The legacy per-workspace `jira` site object, when the workspace carries one: `false`, absent
- * or a non-object means the workspace declares no site of its own. */
+ * or a non-object means the workspace declares no site of its own. An early object also carried
+ * a `configFile`; nothing reads it any more, so neither does this. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const legacySiteOfWorkspace = (workspace: object): {
-  configFile?: string;
   project?: string;
   board?: string;
   tokenEnv?: string;
@@ -68,7 +68,6 @@ export const legacySiteOfWorkspace = (workspace: object): {
   const value = (workspace as { jira?: unknown }).jira;
   if (typeof value !== "object" || value === null) return {};
   const site = value as {
-    configFile?: unknown;
     project?: unknown;
     board?: unknown;
     tokenEnv?: unknown;
@@ -76,7 +75,6 @@ export const legacySiteOfWorkspace = (workspace: object): {
   const str = (field: unknown): string | undefined =>
     typeof field === "string" && field.trim() ? field : undefined;
   return {
-    configFile: str(site.configFile),
     project: str(site.project),
     board: str(site.board),
     tokenEnv: str(site.tokenEnv),

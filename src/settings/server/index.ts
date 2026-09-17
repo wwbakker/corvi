@@ -14,6 +14,10 @@ export {
   blankWorkspace,
 } from "./settings.ts";
 
+/** The mask a stored secret is replaced by in the view: the page's contract with the server, so
+ * the two halves and their tests name it once (`./secrets.ts`). */
+export { MASK } from "./secrets.ts";
+
 export type { Settings, SettingsView } from "../model.ts";
 
 export {

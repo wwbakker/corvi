@@ -1,106 +1,87 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { Effect } from "effect";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
-import { file as fileHandle } from "../../capabilities/files.ts";
+import type { Site } from "./jira.ts";
 
 /**
  * Talking to Jira Cloud directly, over its own REST API.
  *
- * Nothing new is configured: `jira-cli`'s config file already holds the site, the account and
- * the board, and the token is already in `JIRA_API_TOKEN` because jira-cli wants it there.
- * Installing Corvi on a new machine is `jira init` and an exported token.
+ * The site is the workspace's own configuration, and this is the whole transport: a server, an
+ * account email and a token — which may be typed into the extension's settings or read from the
+ * environment variable the site names. Nothing else is configured, and no other tool is involved:
+ * not to run, not to configure, and not to hold the token.
  */
-export type JiraSetup = {
-  /** e.g. https://example.atlassian.net */
-  server: string;
-  /** The Atlassian account email, which is the username half of basic auth. */
-  login: string;
-  /** The board the wizard's issue table comes from. */
-  board?: string;
-  /** Project key, for creating issues. */
-  project?: string;
-};
 
-/** Whose Jira: a second client is a second site, a second account and a second token, which is
- * `jira init` into another config file. Named per workspace, so both can be open at once. */
-const configPath = (file?: string): string =>
-  file ?? process.env.JIRA_CONFIG_FILE ?? join(homedir(), ".config", ".jira", ".config.yml");
-
-/**
- * The three fields we need out of jira-cli's YAML, without a YAML parser.
- *
- * The file is thousands of lines of custom-field schema and four lines that matter, all of them
- * scalars at a known depth: `server` and `login` at the top level, `id` under `board`. A parser
- * would be a dependency and a lot of code to read four values that are already this easy to see.
- */
-// Pure and synchronous: nothing for an Effect to wrap.
-export function parseJiraConfig(text: string): Partial<JiraSetup> {
-  const top = (key: string): string | undefined =>
-    new RegExp(`^${key}:\\s*(\\S+)\\s*$`, "m").exec(text)?.[1];
-  // `board:` then an indented `id: 169` — the first indented id after the key.
-  const nested = (parent: string, key: string): string | undefined => {
-    const at = new RegExp(`^${parent}:\\s*$`, "m").exec(text);
-    if (!at) return undefined;
-    const after = text.slice(at.index + at[0].length);
-    return new RegExp(`^\\s+${key}:\\s*"?([^"\\n]+)"?\\s*$`, "m").exec(after)?.[1]?.trim();
-  };
-  return {
-    server: top("server")?.replace(/\/$/, ""),
-    login: top("login"),
-    board: nested("board", "id"),
-    project: nested("project", "key"),
-  };
+/** The site's URL: a bare host is what people type, so it gets the scheme. http(s) only — a
+ * scheme this transport cannot speak must be rejected rather than read as a host, which is what
+ * "ftp://x.example" would otherwise become. */
+function serverUrl(server: string): URL | undefined {
+  const trimmed = server.trim();
+  const absolute = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const url = new URL(absolute);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+    return url.hostname ? url : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
-/** Read once per file: it is only written by `jira init`, and it is a megabyte of custom fields.
- * The map holds one memoized Effect per path: concurrent askers share a single read, and a
- * missing or unreadable file is an empty setup, not an error. */
-const setups = new Map<string, Effect.Effect<Partial<JiraSetup>>>();
+/** What a request needs, or why there is not one to make. */
+type SiteCheck = { server: URL; auth: string } | { problem: string };
 
-export const jiraSetup = (file?: string): Effect.Effect<Partial<JiraSetup>> =>
-  Effect.suspend(() => {
-    const path = configPath(file);
-    const known = setups.get(path);
-    if (known) return known;
-    const asking = Effect.runSync(
-      Effect.cached(
-        Effect.orDie(Effect.tryPromise(() => fileHandle(path).text())).pipe(
-          Effect.map(parseJiraConfig),
-          Effect.catchAllDefect(() => Effect.succeed({})),
-        ),
-      ),
-    );
-    setups.set(path, asking);
-    return asking;
-  });
+/**
+ * Is this site usable, and if so how does one speak to it.
+ *
+ * One statement of what "configured" means, for the callers about to make a request and for the
+ * ones that have to say why they cannot — the board view, which reports rather than fails, and
+ * `createIssue`, which must not report a missing project for a site with no server. The order is
+ * the order the fields are filled in, and each failure names the field.
+ *
+ * The token is the site's own when one is stored, and the environment's otherwise — a credential
+ * typed against a site is more specific than a variable set for whatever process started the
+ * server. A variable that is set but empty is not a token, so it falls through like an unset one.
+ */
+export function siteCheck(site: Site): SiteCheck {
+  const address = site.server?.trim();
+  if (!address) {
+    return { problem: "no Jira server for this workspace — set Server in Settings" };
+  }
+  const server = serverUrl(address);
+  if (!server) {
+    return { problem: `"${address}" is not a server address — set Server in Settings` };
+  }
 
+  const email = site.email?.trim();
+  if (!email) {
+    return { problem: "no Jira account email for this workspace — set Account email in Settings" };
+  }
 
-/** Base URL of the Jira instance, for the links in the UI. */
-export const jiraBaseUrl = (file?: string): Effect.Effect<string | undefined> =>
-  Effect.map(jiraSetup(file), (setup) => setup.server);
+  const variable = site.tokenEnv?.trim() || "JIRA_API_TOKEN";
+  const token = site.token?.trim() || process.env[variable];
+  if (!token) {
+    return {
+      problem: `no Jira token for this workspace — set API token in Settings, or export ${variable}`,
+    };
+  }
 
+  return { server, auth: `Basic ${btoa(`${email}:${token}`)}` };
+}
 
-/** What is missing, said in the words of the thing you would do about it. Fails with a
- * BadRequestError whose message the route mapping turns into a 400. */
-const credentials = (
-  file?: string,
-  tokenEnv?: string,
-): Effect.Effect<{ server: string; auth: string }, BadRequestError> =>
+const credentials = (site: Site): Effect.Effect<{ server: URL; auth: string }, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, login } = yield* jiraSetup(file);
-    // A second site is a second token: which variable holds it is the workspace's to say.
-    const token = process.env[tokenEnv ?? "JIRA_API_TOKEN"];
-    if (!server || !login) {
-      return yield* new BadRequestError({
-        message: `no Jira site configured in ${configPath(file)} — run \`jira init\``,
-      });
-    }
-    if (!token) {
-      return yield* new BadRequestError({ message: `${tokenEnv ?? "JIRA_API_TOKEN"} is not set in the environment` });
-    }
-    return { server, auth: `Basic ${btoa(`${login}:${token}`)}` };
+    const check = siteCheck(site);
+    if ("problem" in check) return yield* new BadRequestError({ message: check.problem });
+    return check;
   });
+
+/** Where the site is, for the links the UI builds: the same normalization every request uses, so
+ * a bare host typed on the settings page links somewhere real. Undefined when there is nothing to
+ * link to, which is the widget showing the issue without a URL rather than a broken one. */
+export const siteBaseUrl = (site: Site): string | undefined => {
+  const address = site.server?.trim();
+  if (!address) return undefined;
+  return serverUrl(address)?.origin;
+};
 
 /**
  * One request. Errors carry Jira's own explanation, because "400" on its own has never helped
@@ -112,14 +93,12 @@ export const jiraFetch = <T>(
     method?: string;
     body?: unknown;
     query?: Record<string, string | undefined>;
-    /** Which site: a workspace's own jira-cli config file, when it has one. */
-    configFile?: string;
-    /** Which environment variable holds that site's token. */
-    tokenEnv?: string;
+    /** Which Jira: the workspace's own site, or the config-wide default it inherits. */
+    site?: Site;
   },
 ): Effect.Effect<T, BadRequestError> =>
   Effect.gen(function* () {
-    const { server, auth } = yield* credentials(init?.configFile, init?.tokenEnv);
+    const { server, auth } = yield* credentials(init?.site ?? {});
     const url = new URL(path, server);
     for (const [key, value] of Object.entries(init?.query ?? {})) {
       if (value !== undefined) url.searchParams.set(key, value);
@@ -158,7 +137,6 @@ export const jiraFetch = <T>(
         new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
     });
   });
-
 
 /** Jira's error shape, flattened to a line. */
 function explain(text: string): string {

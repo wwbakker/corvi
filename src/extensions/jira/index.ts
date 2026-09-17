@@ -2,10 +2,11 @@ import { Effect, Either } from "effect";
 import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { swr } from "../../capabilities/cache.ts";
-import { jiraFetch, jiraBaseUrl } from "./jiraHttp.ts";
+import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
 import {
   boardIssues,
   siteOfWorkspace,
+  siteKey,
   createIssue,
   globalOf,
   issueByKey,
@@ -32,6 +33,11 @@ import { Settings, Workspace, type Extension } from "../../extension-host/api.ts
  *
  * Its effects require nothing beyond the capabilities: `Workspace` for whose Jira a change's
  * ticket belongs to, `Settings` for the assignee and the transitions.
+ *
+ * Which Jira that is, is the settings this extension declares, at two levels: the config root's
+ * bag is the default site, and a workspace's own bag overrides it field by field. That is the
+ * whole of the extension's configuration — there is no other tool's file to read — and the token
+ * is either one typed into this page or an environment variable the site names.
  */
 
 /** Jira is the slowest of the sources and the least volatile. */
@@ -49,12 +55,11 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget> 
   Effect.gen(function* () {
     const found = yield* Effect.either(
       swr(
-        `jira:${site.configFile ?? site.project ?? "default"}:issue:${key}`,
+        `jira:${siteKey(site)}:issue:${key}`,
         ISSUE_TTL,
         Effect.map(
           jiraFetch<IssueJson>(`/rest/api/3/issue/${key}`, {
-            configFile: site.configFile,
-            tokenEnv: site.tokenEnv,
+            site,
             query: { fields: "summary,status,assignee,issuetype" },
           }),
           issueFrom,
@@ -72,7 +77,7 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget> 
       };
     }
     const issue = found.right;
-    const base = yield* jiraBaseUrl(site.configFile);
+    const base = siteBaseUrl(site);
     const item: WidgetItem = {
       label: `${issue.key} ${issue.summary}`,
       detail: [issue.status, issue.assignee].filter(Boolean).join(" · "),
@@ -88,30 +93,74 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget> 
     };
   });
 
+/** The site, as the settings page renders it: the fields the page edits, worded once so both
+ * levels say the same thing. The token is the one secret, and it is the same field at both
+ * levels — the server masks it in what it sends and keeps what it holds when the mask comes back
+ * (src/settings/server/secrets.ts). */
+const siteFields = {
+  server: {
+    key: "server",
+    label: "Server",
+    placeholder: "https://example.atlassian.net",
+    hint: "Which Jira: the site's own address.",
+  },
+  email: {
+    key: "email",
+    label: "Account email",
+    placeholder: "you@example.com",
+    hint: "The Atlassian account the token belongs to — the username half of basic auth.",
+  },
+  project: {
+    key: "project",
+    label: "Project",
+    placeholder: "PROJ",
+    hint: "The project key. Issues are created in it, and its board is found from it.",
+  },
+  board: {
+    key: "board",
+    label: "Board",
+    placeholder: "169",
+    hint: "The board the issue table comes from, by id — only needed when the project has more than one, and the error then names them.",
+  },
+  token: {
+    key: "token",
+    label: "API token",
+    placeholder: "ATATT…",
+    secret: true,
+    hint: "Stored in this config file and used instead of the environment's token. Leave the mask to keep it, clear the field to fall back to the variable below.",
+  },
+  tokenEnv: {
+    key: "tokenEnv",
+    label: "Token variable",
+    placeholder: "JIRA_API_TOKEN",
+    hint: "Which environment variable holds this site's token, when none is stored here. Naming one here is how a second client keeps its own token.",
+  },
+} as const;
+
 export default {
   name: "jira",
   title: "Jira",
 
-  // The per-workspace settings this extension owns, rendered by the settings page for every
-  // workspace that has Jira enabled and stored under `extensionSettings.jira` — where
-  // siteOfWorkspace reads them back. Every field optional; absent means jira-cli's own config.
+  // The per-workspace fields override the default site below, field by field: a second client
+  // states what differs, and an empty field inherits.
   workspaceSettings: [
-    { key: "project", label: "Project", placeholder: "from the Jira config file" },
-    { key: "board", label: "Board", placeholder: "from the Jira config file" },
-    {
-      key: "configFile",
-      label: "Jira config file",
-      hint: "A second client is a second site and a second account: jira init into another file.",
-      placeholder: "~/.config/.jira/.config.yml",
-    },
-    { key: "tokenEnv", label: "Token variable", placeholder: "JIRA_API_TOKEN" },
+    { ...siteFields.server, placeholder: "the default site" },
+    { ...siteFields.email, placeholder: "the default site" },
+    { ...siteFields.project, placeholder: "the default setting" },
+    { ...siteFields.board, placeholder: "from the project" },
+    siteFields.token,
+    siteFields.tokenEnv,
   ],
 
-  // The server-wide settings this extension declares, shown on the settings page for every
-  // workspace and stored under `extensionSettings.jira` — where globalOf reads them back, with
-  // the core's legacy flat `jira*` fields (through legacy.ts) as the fallback. An environment
-  // variable keeps beating the page: the field shows locked when CORVI_JIRA_* is set.
+  // The default site, and the server-wide settings that are not about one Jira: these are the
+  // values every workspace starts from.
   globalSettings: [
+    siteFields.server,
+    siteFields.email,
+    { ...siteFields.project, placeholder: "PROJ" },
+    { ...siteFields.board, placeholder: "found from the project" },
+    siteFields.token,
+    siteFields.tokenEnv,
     { key: "assignee", label: "Assign new issues to", placeholder: "whoever the token belongs to", env: JIRA_ENV.assignee },
     { key: "startTransition", label: "Transition on starting a change", placeholder: "In Progress", env: JIRA_ENV.startTransition },
     { key: "doneTransition", label: "Transition on completing one", placeholder: "Done", env: JIRA_ENV.doneTransition },
@@ -159,8 +208,7 @@ export default {
           const account = yield* accountId(global.assignee, site);
           if (account) {
             yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
-              configFile: site.configFile,
-              tokenEnv: site.tokenEnv,
+              site,
               method: "PUT",
               body: { accountId: account },
             });

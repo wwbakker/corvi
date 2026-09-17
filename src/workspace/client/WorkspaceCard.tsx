@@ -161,6 +161,7 @@ export function WorkspaceCard({
                 label={field.label}
                 hint={field.hint}
                 placeholder={field.placeholder}
+                secret={field.secret}
                 value={workspace.extensionSettings?.[name]?.[field.key]}
                 onChange={(value) => setExtensionField(name, field.key, value)}
               />

@@ -1,7 +1,6 @@
 import { test, expect } from "bun:test";
 import { branchFor } from "../src/domain/change.ts";
 import { issueFrom } from "../src/extensions/jira/jira.ts";
-import { parseJiraConfig } from "../src/extensions/jira/jiraHttp.ts";
 
 test("branch name derived from a picked issue", () => {
   expect(branchFor("PROJ-123", "Fix the flaky import")).toBe("PROJ-123-fix-the-flaky-import");
@@ -14,8 +13,7 @@ test("branch name derived from a picked issue", () => {
 });
 
 test("an issue is read from the fields we asked Jira for", () => {
-  // Commas and quotes need no special handling: the issue comes from structured JSON, not from
-  // splitting a CLI's plain output by hand.
+  // Commas and quotes need no special handling: the issue comes from structured JSON.
   expect(
     issueFrom(
       {
@@ -47,41 +45,5 @@ test("an issue is read from the fields we asked Jira for", () => {
     status: "",
     type: "",
     sprint: "",
-  });
-});
-
-test("the site, account and board come from jira-cli's own config", () => {
-  // Thousands of lines of custom-field schema, four values that matter, all at a known depth.
-  const yaml = [
-    "auth_type: basic",
-    "board:",
-    "    id: 169",
-    "    name: PROJ board",
-    "    type: simple",
-    "issue:",
-    "    fields:",
-    "        custom:",
-    "            - name: Sprint",
-    "              key: customfield_10104",
-    "login: someone@example.com",
-    "project:",
-    "    key: PROJ",
-    "    type: next-gen",
-    "server: https://example.atlassian.net/",
-  ].join("\n");
-  expect(parseJiraConfig(yaml)).toEqual({
-    // The trailing slash goes: every path is joined onto this.
-    server: "https://example.atlassian.net",
-    login: "someone@example.com",
-    board: "169",
-    project: "PROJ",
-  });
-
-  // A file that is not there, or not jira-cli's, says so by having nothing in it.
-  expect(parseJiraConfig("")).toEqual({
-    server: undefined,
-    login: undefined,
-    board: undefined,
-    project: undefined,
   });
 });
