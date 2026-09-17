@@ -6,8 +6,7 @@
 {
   "changesRoot": "~/corvi/changes",
   "archiveRoot": "~/corvi/changes-archive",
-  "reposRoot": "~/Repos",
-  "reposStart": "~/Repos/acme",
+  "repositoriesDirectory": "~/Repos",
   "ideationPrompt": "",
   "extensionSettings": {
     "jira": { "assignee": "", "startTransition": "In Progress", "doneTransition": "Done" },
@@ -27,12 +26,14 @@ answer, and the `CORVI_*` environment variables beat them — which is why the s
 a field while its variable is set.
 
 `changesRoot` holds one directory per change, and `archiveRoot` is where completed changes are
-moved so it holds the work in flight; `reposRoot` bounds the repository browser and
-`reposStart` is the directory it opens on, which `↑ Up` still walks out of, up to `reposRoot`.
+moved so it holds the work in flight; `repositoriesDirectory` is where the repository browser
+opens and defaults to your home directory. The browser is **unbounded** — from where it starts it
+can walk anywhere on the machine, up to `/` — so this setting picks the starting point rather
+than a boundary.
 `ideationPrompt` is the briefing pasted into an idea's terminal by **Brief the agent**
 (`{id}`, `{title}`, `{plan}` and `{state}` are filled in from the change); an empty value uses the
 built-in one. Environment variables still win: `CORVI_ROOT`, `CORVI_ARCHIVE_ROOT`,
-`CORVI_REPOS_ROOT`, `CORVI_REPOS_START`, `CORVI_PORT`, `CORVI_JIRA_ASSIGNEE`,
+`CORVI_REPOSITORIES_DIRECTORY`, `CORVI_PORT`, `CORVI_JIRA_ASSIGNEE`,
 `CORVI_JIRA_START_TRANSITION`, `CORVI_JIRA_DONE_TRANSITION`, `CORVI_AZURE_ORG`, `CORVI_AZURE_PROJECT`, `CORVI_AZURE_RUNS`,
 `CORVI_CACHE` (where the cache is stored), `CORVI_PARALLEL` (how many CLIs may run at once),
 `CORVI_CLI_TIMEOUT` (seconds a CLI may run before it is killed; 120 by default, 0 disables) and
@@ -68,7 +69,9 @@ that just changed: another organisation, another Jira site, another set of envir
 
 The server binds to localhost and runs as you: it has no auth of its own because it delegates
 to `git`, `gh` and `az`, which already hold your credentials (`gh auth login`, `az login`), and
-to the Jira token in your environment.
+to the Jira token in your environment. The directory browser lists any directory under `/`,
+which is a wider read surface than the rest — but the same one: it is reachable only from the
+page, and the same-site check below covers every request that reaches it.
 
 **Requests from other sites are refused.** Localhost keeps other machines out but not the browser
 you already have open: any website can `POST http://127.0.0.1:4000/api/changes`, and while it
@@ -133,7 +136,7 @@ are looking at.
 {
   "workspaces": [
     { "id": "client", "name": "Acme",
-      "reposStart": "~/Repos/acme",
+      "repositoriesDirectory": "~/Repos/acme",
       "extensionSettings": {
         "jira": { "project": "PROJ", "configFile": "~/.config/.jira/client.yml" }
       },

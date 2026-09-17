@@ -1,61 +1,66 @@
 import { readdir, stat } from "node:fs/promises";
-import { join, normalize, sep } from "node:path";
+import { isAbsolute, join, normalize } from "node:path";
 import { Effect } from "effect";
-import { config } from "./config.ts";
+import { config, expandTilde } from "./config.ts";
 import type { Entry } from "../model.ts";
 import { remoteDefaultBranch } from "../../vendors/git.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs, shSoft } from "../../capabilities/effect/support.ts";
 
-/** Resolve a browser path inside the repos root, rejecting anything that escapes it.
- * Purely synchronous, so no Effect wrapper: it throws the typed taxonomy (BadRequestError),
- * the way applyPatch in src/change/model.ts does. */
-export function resolveInRoot(relative: string): string {
-  const full = join(config.reposRoot, normalize(relative));
-  if (full !== config.reposRoot && !full.startsWith(config.reposRoot + sep)) {
-    throw new BadRequestError({ message: `path outside repos root: ${relative}` });
-  }
+/** An absolute directory as the browser and the settings page speak it: `~` expanded and
+ * normalized. There is no root to stay inside — the browser is unbounded — so the only rule left
+ * is that a path has to be absolute. A relative one is the caller's mistake and throws the typed
+ * taxonomy, the way resolveInRoot did. Purely synchronous, so no Effect wrapper. */
+export function resolveDirectory(path: string): string {
+  const full = normalize(expandTilde(path));
+  if (!isAbsolute(full)) throw new BadRequestError({ message: `not an absolute path: ${path}` });
   return full;
 }
 
-/** Configured starting directory as a path relative to the root, empty when it is the root or
- * lies outside it. */
-// Pure and synchronous: nothing for an Effect to wrap.
-export function startPath(): string {
-  const start = config.reposStart;
-  if (start === config.reposRoot || !start.startsWith(config.reposRoot + sep)) return "";
-  return start.slice(config.reposRoot.length + 1);
-}
-
-/** Directories directly under `relative`, hidden ones omitted. `undefined` means "wherever the
- * browser should open"; an explicit "" is the root, so going up still works. */
+/** Directories directly under `dir`. `undefined` means "wherever the browser should open", which
+ * is the configured repositories directory. Dot-directories are withheld unless `hidden` asks
+ * for them, so the request decides what a listing carries rather than the page filtering it back
+ * out — the same shape as everything else here. */
 export const browse = (
-  relative: string = startPath(),
-): Effect.Effect<{ root: string; path: string; entries: Entry[] }> =>
+  dir: string = config.repositoriesDirectory,
+  hidden = false,
+): Effect.Effect<{ path: string; entries: Entry[] }> =>
   Effect.gen(function* () {
-    const dir = resolveInRoot(relative);
-    const found = yield* fs(() => readdir(dir, { withFileTypes: true }));
+    const full = resolveDirectory(dir);
+    const found = yield* fs(() => readdir(full, { withFileTypes: true }));
+    const shown = hidden ? found : found.filter((e) => !e.name.startsWith("."));
     const entries = yield* Effect.forEach(
-      found.filter((e) => e.isDirectory() && !e.name.startsWith(".")),
+      shown,
       (e) =>
         Effect.gen(function* () {
-          const path = relative ? `${relative}/${e.name}` : e.name;
-          // A clone has .git as a directory, a worktree as a file: stat covers both, file() does not.
+          const path = join(full, e.name);
+          // stat rather than dirent.isDirectory(): a symlinked directory is a directory here.
+          // macOS' /etc, /tmp and /var are symlinks, and so is a checkout reached through one;
+          // a plain file or a broken link answers false and is not shown.
+          const directory = yield* fs(() =>
+            stat(path).then(
+              (s) => s.isDirectory(),
+              () => false,
+            ),
+          );
+          if (!directory) return undefined;
+          // A clone has .git as a directory, a worktree as a file: stat covers both.
           const isRepo = yield* fs(() =>
-            stat(join(dir, e.name, ".git")).then(
+            stat(join(path, ".git")).then(
               () => true,
               () => false,
             ),
           );
-          return { path, name: e.name, isRepo };
+          return { path, name: e.name, isRepo } satisfies Entry;
         }),
       // Unbounded concurrency is deliberate: these per-entry stats are independent.
       { concurrency: "unbounded" },
     );
     return {
-      root: config.reposRoot,
-      path: relative,
-      entries: entries.sort((a, b) => a.name.localeCompare(b.name)),
+      path: full,
+      entries: entries
+        .filter((entry): entry is Entry => entry !== undefined)
+        .sort((a, b) => a.name.localeCompare(b.name)),
     };
   });
 
@@ -82,6 +87,3 @@ export const remoteBranches = (
     const branches = fallback ? [fallback, ...found.filter((b) => b !== fallback)] : found;
     return { branches, default: fallback };
   });
-
-export const absolutePath = (relative: string): string => resolveInRoot(relative);
-

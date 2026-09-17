@@ -8,11 +8,14 @@ import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
  */
 export function EditReposDialog({
   changeId,
+  workspace,
   open,
   onClose,
   onSaved,
 }: {
   changeId: string;
+  /** The change's context: where its repository browser opens. */
+  workspace?: string;
   open: boolean;
   onClose: () => void;
   onSaved: (change: Change) => void;
@@ -82,6 +85,7 @@ export function EditReposDialog({
       <h3>Repositories</h3>
       {error && <div className="error-banner">{error}</div>}
       <RepoBrowser
+        workspace={workspace}
         selected={draft}
         onAdd={(path) => setDraft(has(path) ? draft : [...draft, { path, direct: false }])}
         onRemove={(path) => setDraft(draft.filter((d) => d.path !== path))}

@@ -54,7 +54,7 @@ beforeAll(async () => {
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
   server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_REPOS_ROOT: tmp }),
+    env: serverEnv(tmp, { CORVI_REPOSITORIES_DIRECTORY: tmp }),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });

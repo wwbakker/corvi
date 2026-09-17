@@ -5,7 +5,7 @@ import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
 import type { ExtensionSetting } from "../../extension-host/api.ts";
-import { CheckField, Field, ListEditor, TextArea, type KnownExtension } from "./SettingsFields.tsx";
+import { CheckField, DirectoryField, Field, ListEditor, TextArea, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 
 /**
@@ -149,7 +149,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
 
       {active === "locations" && (
         <div className="form">
-          <Field
+          <DirectoryField
             label="Changes root"
             hint="One directory per change: its worktrees and its change.json."
             value={draft.changesRoot}
@@ -157,7 +157,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             locked={lock("changesRoot")}
             onChange={(changesRoot) => set({ changesRoot })}
           />
-          <Field
+          <DirectoryField
             label="Archive root"
             hint="Where completed changes are moved, so the changes root holds the work in flight."
             value={draft.archiveRoot}
@@ -165,21 +165,13 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             locked={lock("archiveRoot")}
             onChange={(archiveRoot) => set({ archiveRoot })}
           />
-          <Field
-            label="Repositories root"
-            hint="The repository browser cannot walk above this."
-            value={draft.reposRoot}
-            placeholder={effective.reposRoot}
-            locked={lock("reposRoot")}
-            onChange={(reposRoot) => set({ reposRoot })}
-          />
-          <Field
-            label="Browser starts at"
-            hint="Where it opens; ↑ Up still walks back to the root."
-            value={draft.reposStart}
-            placeholder={effective.reposStart}
-            locked={lock("reposStart")}
-            onChange={(reposStart) => set({ reposStart })}
+          <DirectoryField
+            label="Repositories directory"
+            hint="Where the repository browser opens. From there it can walk anywhere on the machine — the setting picks the starting point, it does not fence anything in."
+            value={draft.repositoriesDirectory}
+            placeholder={effective.repositoriesDirectory}
+            locked={lock("repositoriesDirectory")}
+            onChange={(repositoriesDirectory) => set({ repositoriesDirectory })}
           />
         </div>
       )}
@@ -210,6 +202,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             values={draft.extensionPaths ?? []}
             placeholder="/home/me/my-extension"
             locked={lock("extensionPaths")}
+            picker
             onChange={(extensionPaths) => set({ extensionPaths })}
           />
         </div>

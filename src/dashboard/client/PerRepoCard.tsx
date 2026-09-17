@@ -23,11 +23,14 @@ const nameOf = (repo: string): string => repo.split("/").pop() ?? repo;
  */
 export function PerRepoCard({
   changeId,
+  workspace,
   info,
   repos,
   onReposChanged,
 }: {
   changeId: string;
+  /** The change's context, for the repository dialog's browser. */
+  workspace?: string;
   info: CardInfo;
   repos: string[];
   onReposChanged: () => void;
@@ -129,6 +132,7 @@ export function PerRepoCard({
       {info.name === "git" && (
         <EditReposDialog
           changeId={changeId}
+          workspace={workspace}
           open={editing}
           onClose={() => setEditing(false)}
           onSaved={onReposChanged}

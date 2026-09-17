@@ -36,6 +36,19 @@ test("the workspace card renders a declared per-workspace setting generically", 
   expect(html).toContain('value="acme"');
 });
 
+test("the workspace card offers the repositories directory, the global setting as its placeholder", () => {
+  const html = render({ id: "client", name: "Client" }, [azureDevops]);
+  expect(html).toContain("Repositories directory");
+  expect(html).toContain('placeholder="the global setting"');
+  expect(html).toContain("Browse");
+
+  const own = render(
+    { id: "client", name: "Client", repositoriesDirectory: "/tmp/client-repos" },
+    [azureDevops],
+  );
+  expect(own).toContain('value="/tmp/client-repos"');
+});
+
 test("the workspace card has no azure section left", () => {
   const html = render({ id: "client", name: "Client" }, [azureDevops]);
   // The generic fields are there, but the vendor toggle and its dedicated controls are gone.

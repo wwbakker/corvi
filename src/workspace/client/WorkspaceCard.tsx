@@ -1,5 +1,5 @@
 import type { Workspace } from "../../domain/config.ts";
-import { Field, Group, type KnownExtension } from "../../settings/client/SettingsFields.tsx";
+import { DirectoryField, Field, Group, type KnownExtension } from "../../settings/client/SettingsFields.tsx";
 import type { JSX } from "react";
 
 /** The environment a workspace adds to every CLI it runs: how two clients stop fighting over one
@@ -143,11 +143,13 @@ export function WorkspaceCard({
         value={workspace.id}
         onChange={(id) => set({ id })}
       />
-      <Field
-        label="Repositories start at"
+      <DirectoryField
+        label="Repositories directory"
+        hint="Where the repository browser opens in this context; the global setting when it is empty."
         placeholder="the global setting"
-        value={workspace.reposStart}
-        onChange={(reposStart) => set({ reposStart })}
+        value={workspace.repositoriesDirectory}
+        workspace={workspace.id}
+        onChange={(repositoriesDirectory) => set({ repositoriesDirectory })}
       />
 
       {/* The per-workspace settings each enabled extension declares, bound to where the

@@ -8,7 +8,7 @@ import { DEFAULT_WORKSPACE } from "../../domain/config.ts";
 export type Workspace = {
   id: string;
   name: string;
-  reposStart?: string;
+  repositoriesDirectory?: string;
   env?: Record<string, string>;
 };
 

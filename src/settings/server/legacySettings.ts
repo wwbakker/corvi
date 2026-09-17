@@ -27,8 +27,7 @@ import { env } from "../../capabilities/identity.ts";
 export const ENV_OVERRIDES: Record<string, string> = {
   changesRoot: env("ROOT"),
   archiveRoot: env("ARCHIVE_ROOT"),
-  reposRoot: env("REPOS_ROOT"),
-  reposStart: env("REPOS_START"),
+  repositoriesDirectory: env("REPOSITORIES_DIRECTORY"),
   worktreeCopy: env("WORKTREE_COPY"),
   extensionPaths: env("EXTENSION_PATHS"),
 };

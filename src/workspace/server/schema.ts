@@ -20,7 +20,7 @@ import type {
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  reposStart: Schema.optional(Schema.String),
+  repositoriesDirectory: Schema.optional(Schema.String),
   /** Which extensions exist here. Absent means all of them; an empty list means none. Names
    * are validated against what is loaded by the settings write, not here: the file may be
    * edited by hand before the extension it names exists. */
@@ -74,8 +74,9 @@ export const ConfigFile = Schema.Struct({
   changesRoot: Schema.optional(Schema.String),
   /** Where completed changes are moved; absent means `~/corvi/changes-archive`. */
   archiveRoot: Schema.optional(Schema.String),
-  reposRoot: Schema.optional(Schema.String),
-  reposStart: Schema.optional(Schema.String),
+  /** Directory the repository browser opens on; absent means `$HOME`. The browser is unbounded,
+   * so this is only where it starts. */
+  repositoriesDirectory: Schema.optional(Schema.String),
   /** Whether a notification plays the system sound. Absent means yes. */
   notificationSound: Schema.optional(Schema.Boolean),
   /** Whether right-clicking shows the browser's own menu. Absent means yes. */
@@ -131,8 +132,7 @@ const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabular
 export const Resolved = Schema.Struct({
   changesRoot: Schema.String,
   archiveRoot: Schema.String,
-  reposRoot: Schema.String,
-  reposStart: Schema.String,
+  repositoriesDirectory: Schema.String,
   notificationSound: Schema.Boolean,
   contextMenu: Schema.Boolean,
   ideationPrompt: Schema.String,

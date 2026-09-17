@@ -46,6 +46,12 @@ test("what cannot be written", () => {
   expect(problems({ changesRoot: "changes" })).toEqual(["changesRoot must be an absolute path"]);
   // `~` is a path the program can resolve, so it is one the page may offer.
   expect(problems({ changesRoot: "~/changes" })).toEqual([]);
+  // The repositories directory is a path like any other: the browser is unbounded, so nothing
+  // bounds it, but a relative one still has nowhere to start.
+  expect(problems({ repositoriesDirectory: "Repos" })).toEqual([
+    "repositoriesDirectory must be an absolute path",
+  ]);
+  expect(problems({ repositoriesDirectory: "~/Repos" })).toEqual([]);
 
   expect(problems({ workspaces: [{ id: "a b", name: "Spaces" }] })).toEqual([
     'workspace id "a b" must be a word',
@@ -71,6 +77,14 @@ test("what cannot be written", () => {
   expect(problems({ workspaces: [{ id: "c", name: "C", env: { "not a name": "x" } }] })).toEqual([
     'C: "not a name" is not an environment variable name',
   ]);
+
+  // A context's own repositories directory follows the same rule as the global one.
+  expect(
+    problems({ workspaces: [{ id: "c", name: "C", repositoriesDirectory: "relative" }] }),
+  ).toEqual(["C: repositories directory must be an absolute path"]);
+  expect(
+    problems({ workspaces: [{ id: "c", name: "C", repositoriesDirectory: "~/Repos/acme" }] }),
+  ).toEqual([]);
 });
 
 test("writing takes effect without a restart, and refuses what is wrong", async () => {
@@ -197,6 +211,22 @@ test("a setting the environment overrides is reported as locked", async () => {
   expect(view.path).toBe(file);
   // The default is offered back, so a page can undo a change to the list.
   expect(view.toolingDefault).toContain(".bsp");
+});
+
+test("the repositories directory's environment override wins, and the page is told", () => {
+  const original = process.env.CORVI_REPOSITORIES_DIRECTORY;
+  process.env.CORVI_REPOSITORIES_DIRECTORY = "/tmp/env-repos";
+  try {
+    reloadConfigSync();
+    const view = settingsViewSync();
+    expect(view.overridden.repositoriesDirectory).toBe("CORVI_REPOSITORIES_DIRECTORY");
+    expect(view.effective.repositoriesDirectory).toBe("/tmp/env-repos");
+  } finally {
+    if (original === undefined) delete process.env.CORVI_REPOSITORIES_DIRECTORY;
+    else process.env.CORVI_REPOSITORIES_DIRECTORY = original;
+    // One config object, shared with the rest of this file: put the file's answer back.
+    reloadConfigSync();
+  }
 });
 
 test("an extension setting the environment overrides is reported as locked too", () => {

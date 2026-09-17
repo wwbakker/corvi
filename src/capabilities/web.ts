@@ -97,7 +97,7 @@ export const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
 export const bodyOrEmpty = (req: Request): Effect.Effect<unknown> =>
   Effect.promise(() => req.json().catch(() => ({})));
 
-/** A sync call that throws typed errors (applyPatch, resolveInRoot) lifted into the error
+/** A sync call that throws typed errors (applyPatch, resolveDirectory) lifted into the error
  * channel at the route boundary. Anything that is not one of ours is reported like one, which is
  * the same message-and-400 `runRoute` would give an escaped throw. */
 export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>

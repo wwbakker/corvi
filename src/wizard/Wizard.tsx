@@ -255,6 +255,7 @@ export function Wizard({
                 the remote default, unless this change builds on another one.
               </p>
               <RepoBrowser
+                workspace={chosen}
                 selected={repos}
                 onAdd={addRepo}
                 onRemove={removeRepo}

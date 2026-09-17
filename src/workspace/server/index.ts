@@ -33,15 +33,13 @@ export {
   workspaceById,
   workspaceOf,
   extensionEnabled,
-  reposStartOf,
+  repositoriesDirectoryOf,
 } from "./workspaces.ts";
 
 export {
-  resolveInRoot,
-  startPath,
+  resolveDirectory,
   browse,
   remoteBranches,
-  absolutePath,
 } from "./repos.ts";
 
 export type { Entry } from "../model.ts";

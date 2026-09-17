@@ -32,7 +32,8 @@ src/
                        tabs, cheat sheet), routes.ts (the terminal socket and the window API)
   workspace/           the workspace module: model.ts (Entry, the repository-browser row),
                        server/ (config loader, file schema, workspace resolution, repository
-                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser),
+                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser and the
+                       directory listing and picker it shares with the settings page),
                        routes.ts (the repo browser and the workspaces list)
   settings/            the settings module: model.ts (Settings, SettingsView), server/ (settings
                        page read/write, legacySettings), client/ (SettingsPage, SettingsFields),

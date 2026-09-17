@@ -24,6 +24,7 @@ export const workspaceOf = (change: Change): Workspace => workspaceById(change.w
 export const extensionEnabled = (workspace: Workspace, name: string): boolean =>
   workspace.extensions ? workspace.extensions.includes(name) : true;
 
-/** Where the repository browser opens for this workspace. */
-export const reposStartOf = (workspace: Workspace): string =>
-  workspace.reposStart || config.reposStart;
+/** Where the repository browser opens for this workspace: its own setting, the global one when it
+ * names none. The browser is unbounded, so this is only the starting point. */
+export const repositoriesDirectoryOf = (workspace: Workspace): string =>
+  workspace.repositoriesDirectory || config.repositoriesDirectory;
