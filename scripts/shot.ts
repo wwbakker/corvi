@@ -38,7 +38,7 @@ const shot = async (name: string): Promise<void> => {
 await page.goto(url, { waitUntil: "networkidle" });
 await shot("1-home");
 
-await page.getByRole("button", { name: "New change" }).click();
+await page.locator(".sidebar .ideas-row .create").click();
 await page.waitForSelector(".table tbody tr", { timeout: 30_000 }).catch(() => {});
 await shot("2-wizard-jira");
 
@@ -50,9 +50,9 @@ await page.locator("dialog").getByRole("button", { name: "Cancel" }).click();
 
 // Pick the first issue, then walk the remaining steps.
 await page.locator(".table tbody tr:not(.group)").first().click();
-await page.getByRole("button", { name: "2. Change" }).click();
+await page.locator(".steps button.step", { hasText: "Idea" }).click();
 await shot("3-wizard-change");
-await page.getByRole("button", { name: "3. Repositories" }).click();
+await page.locator(".steps button.step", { hasText: "Repositories" }).click();
 await page.waitForSelector(".entries li");
 // Step into a directory and tick a repository, so the shot shows the browser in use.
 await page.locator(".entries button.dir").first().click();

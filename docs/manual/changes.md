@@ -4,7 +4,7 @@
 
 ## Creating an idea
 
-**New** — the same button the column has, beside `Changes` — opens a wizard whose steps are its
+**New** — the same button the column has, beside `Ideas` — opens a wizard whose steps are its
 extensions', in phases — the issue steps first (they prefill the idea), then the idea details, then
 the repositories, then steps that want the repositories. Which steps a context has is resolved per
 workspace; an extension that is not enabled there has no step, not an empty one.
@@ -31,6 +31,12 @@ workspace; an extension that is not enabled there has no step, not an empty one.
    are listed on the right and removed with the cross. A repository picked now is linked into the
    change directory for reading, without switching its branch or creating a worktree; **Start
    work** turns that link into the checkout, so an idea that never starts leaves no branch behind.
+
+Leaving the wizard does not lose what you typed. A half-filled idea waits in the column under
+**Ideas** as *New idea*, or under its title once you have typed one; clicking it reopens the
+wizard on the step you left, with the title, description, id, branch, ticket, repositories and each
+step's pick as they were. Nothing is written until **Create idea**, and **Discard** throws the
+draft away; closing the application forgets it.
 
 Creating an idea writes `change.json` and `PLAN.md` and provisions nothing else: no branch, no
 worktree, and no ticket transition. Its page has a **Plan** card — editable, the same `PLAN.md`

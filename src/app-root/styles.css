@@ -325,20 +325,24 @@ body.resizing {
   color: var(--muted);
 }
 
-/* The overview entry and the way to start one, side by side: the overview's own green button,
-   sized to the column it now sits in. */
-.sidebar .changes-row {
+/* The Ideas heading and the way to start one, side by side: the heading's green button sits with
+   the entries it adds to, sized to the column. */
+.sidebar .ideas-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* The heading's own air, now that the heading is a row: the label keeps the left inset it had. */
+  margin: 10px 0 2px;
+  padding-right: 10px;
 }
 
-.sidebar .changes-row .entry {
+.sidebar .ideas-row .group-label {
   flex: 1;
   min-width: 0;
+  margin: 0 0 0 12px;
 }
 
-.sidebar .changes-row .create {
+.sidebar .ideas-row .create {
   flex: none;
   padding: 3px 8px;
   font-size: 12px;

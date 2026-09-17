@@ -2,9 +2,10 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { api, type Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
-import { byWorkOrder, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
+import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
+import { draftLabel, type Draft } from "../wizard/draft.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
@@ -71,6 +72,8 @@ export function Sidebar({
   windows,
   onHome,
   onNew,
+  draft,
+  wizard,
   pages,
   onPage,
   extPage,
@@ -90,9 +93,14 @@ export function Sidebar({
   /** Every change's tmux windows, keyed by change: the terminals sit under their own change. */
   windows: Record<string, TerminalWindow[]>;
   onHome: () => void;
-  /** Start an idea: the same button the overview's header has, beside the entry it belongs to, so
-   * there is one from anywhere in the app. */
+  /** Start an idea: it belongs beside the Ideas heading, where the entries it adds to begin —
+   * and it is the same control the overview's header has. It opens the draft already there. */
   onNew: () => void;
+  /** The idea being written, if there is one: the row under Ideas that leads back to it. */
+  draft?: Draft;
+  /** Whether the wizard is the page open: the draft row is current then, and the overview is
+   * not. */
+  wizard: boolean;
   /** The pages the server says this context has, under Changes: one entry per page. */
   pages: { id: string; title: string }[];
   onPage: (id: string) => void;
@@ -237,29 +245,43 @@ export function Sidebar({
         />
       </div>
 
-      {/* The overview, and the way to start one: the button is the overview's own, here where the
-          list of changes begins. */}
-      <div className="changes-row">
-        <button
-          className={current || extPage || settings ? "entry" : "entry current"}
-          onClick={onHome}
-        >
-          Changes
-        </button>
-        <button className="create" title="start a new idea" onClick={onNew}>
-          New
-        </button>
-      </div>
+      {/* The overview. The way to start one left this row for the Ideas heading below, where the
+          entries it adds to begin. */}
+      <button
+        className={current || extPage || settings || wizard ? "entry" : "entry current"}
+        onClick={onHome}
+      >
+        Changes
+      </button>
       <div className="list">
         {/* Ideas first, under their own heading: they are the newest thing and the one thing you
-            have not started. The work they become follows in attention order. */}
-        {ideas.length > 0 && (
-          <>
-            <p className="group-label">Ideas</p>
-            {ideas.map(entry)}
-          </>
+            have not started. The work they become follows in attention order. The heading is the
+            New button's home — it sits with the entries it adds to, and stays there with no
+            ideas and no draft. */}
+        <div className="ideas-row">
+          <p className="group-label">Ideas</p>
+          <button className="create" title="start a new idea" onClick={onNew}>
+            New
+          </button>
+        </div>
+        {/* The draft is not a change yet — nothing has been written — so it appears as an idea
+            that is still being written, above the ideas that exist. Clicking it is the way back
+            into the wizard, wherever you left it. */}
+        {draft && (
+          <div className="change-entry">
+            <button
+              className={`entry sub change ${stateClass(IDEATION)}${wizard ? " current" : ""}`}
+              title="not created yet — open it to finish or discard it"
+              onClick={onNew}
+            >
+              <span className="top">
+                <span className="subject">{draftLabel(draft)}</span>
+              </span>
+            </button>
+          </div>
         )}
-        {ideas.length > 0 && active.length > 0 && <p className="group-label">Changes</p>}
+        {ideas.map(entry)}
+        {active.length > 0 && <p className="group-label">Changes</p>}
         {active.map(entry)}
         {changes && live.length === 0 && <p className="hint">nothing in progress</p>}
       </div>

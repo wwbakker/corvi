@@ -278,7 +278,9 @@ export default () =>
 The client half exports `step`, a React component receiving the wizard's shared context — the
 draft (id, branch) it may prefill, the repositories picked so far, the ticket label it may set,
 and `setPayload(extension, data)`, which lands whatever the step picked on the change record
-under the extension's own name, in the change's `extensions` bag. The core stores that bag and
+under the extension's own name, in the change's `extensions` bag. `payload(extension)` reads that
+slot back while the wizard is open: leaving `/new` keeps the draft, so a step that comes back
+finds out what it picked and can put its selection back. The core stores that bag and
 never looks inside; the extension owns its shape and reads it back through `change.extensions`.
 An extension that offers a page exports `page` from the same half instead — a component
 receiving the workspace the page is open on (below) — one that adds a change tab exports
@@ -288,7 +290,7 @@ receiving the workspace the page is open on (below) — one that adds a change t
 ```tsx
 // src/extensions/my-extension/client.tsx
 export const step: StepComponent = ({ ctx }) => {
-  // ctx.repos, ctx.draft, ctx.setDraft, ctx.setPayload, ctx.setTicket
+  // ctx.repos, ctx.draft, ctx.setDraft, ctx.setPayload, ctx.payload, ctx.setTicket
 };
 ```
 
