@@ -20,13 +20,21 @@ combine this work with an Effect major upgrade, database conversion, or new agen
 
 ## 1. Establish the executable baseline
 
-- [ ] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
-- [ ] Identify behavior tests for creation/start, review, completion/cancellation, settings,
+- [x] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
+- [x] Identify behavior tests for creation/start, review, completion/cancellation, settings,
       documents, integrations, terminal survival, and process cleanup.
-- [ ] Separate behavior assertions from tests tied to global registries, private exports, and
+- [x] Separate behavior assertions from tests tied to global registries, private exports, and
       custom-extension loading. Plan replacement coverage before deleting coupled tests.
-- [ ] Review representative APIs: change storage, worktrees, terminals, and one completion workflow.
-      Review the package graph before moving files.
+- [x] Author representative contracts and typechecked callers for repository queries, change
+      associations/storage, working-directory resolution, and the lifecycle/terminal boundary.
+- [ ] Owner review of the contracts, dependency graph, and deliberate behavior differences before
+      moving files or starting package implementation.
+
+The [repository/change design](../design/repositories-and-changes.md) is the step-1 deliverable.
+It contains the behavior-test map and minimum next slice. Implementation baseline `3391c8d`:
+typecheck and lint pass; full suite 489 pass, 1 skip (Electron binary absent), 0 fail, about 47s.
+The design adds prototype tests, not implemented Git/storage adapters. No production code or
+package manifests have changed. Re-run the baseline before implementation if the checkout changes.
 
 Deliverable: an agreed graph and readable interfaces, not a new collection of barrels around the
 same implementation dependencies.
@@ -49,6 +57,9 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 - [ ] Extract worktree inspection/parsing behind `repositories`' public API.
 - [ ] Separate Git facts from change-directory selection and dashboard presentation.
 - [ ] Supply process/filesystem dependencies through Layers; no optional live fallback.
+- [ ] Extract the change-owned association projection/update and migrate association data explicitly
+      before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
+      unresolved legacy ownership must not become automatic cleanup authority.
 - [ ] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
 - [ ] Test pure rules, the real Git adapter, the API boundary, and the existing UI behavior.
 - [ ] Add concise package instructions and use this slice as the example for remaining extractions.

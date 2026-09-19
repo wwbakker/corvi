@@ -9,6 +9,7 @@ bun run typecheck
 bun run lint
 bun run test
 ```
+The test should take around 1 minute. Set timeout at 3 minutes.
 
 Use the **complete suite** through `bun run test`. The wrapper isolates the changes root,
 archive, configuration, and state directory and runs owned-resource cleanup on exit. A focused

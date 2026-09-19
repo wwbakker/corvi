@@ -26,6 +26,13 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 Read architecture and API design before changing a public surface. Read local package instructions
 when they exist. Historical implementation choices do not override these rules.
 
+## Concrete design for the first slice
+
+[Repository capabilities and change workflows](design/repositories-and-changes.md) specifies the
+step-1 contracts, association model, caller examples, and migration boundaries. It is ready for
+review, not an implemented package API. Its TypeScript prototypes are checked by the root typecheck;
+its example tests run in the full suite. They do not verify a production Git/storage adapter.
+
 ## For users
 
 The manual describes existing user behavior, commands, and file formats. Names such as
@@ -44,6 +51,8 @@ system. Update the manual when behavior changes, not when a target is merely pro
 - **Guides** are the current rules. Each rule has one authoritative home.
 - **Decisions** record a current choice and a short rationale, not a transcript. Owner approval
   is required to change architectural policy; update the relevant guide in the same change.
+- **Designs** specify concrete contracts pending implementation. Typecheck examples, link their
+  owner, and retire prototypes when the implemented public APIs become authoritative.
 - **Plans** contain unfinished implementation work and explicit decision gates. Delete completed
   plans after retaining any necessary current guidance. Git retains history; do not archive it here.
 - **Manuals** describe the product, not internal modules or migration strategy.

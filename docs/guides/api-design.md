@@ -36,33 +36,13 @@ to be a useful boundary.
 - Keep DTOs, interfaces, constructors, and adapter Layers identifiable. Importing the public
   service definition must not acquire its implementation's resources.
 
-An illustrative worktree contract:
+The [repository/change design](../design/repositories-and-changes.md) provides concrete,
+typechecked interfaces and callers. It distinguishes discovering a worktree from verifying an
+established reference and inspecting its files. A required worktree that disappeared is a typed
+failure; a revision that has no commit can be expected absence.
 
-```ts
-import type { Effect, Option } from "effect";
-
-// Types below belong to the repository capability's public model/error entrypoints.
-export interface Worktrees {
-  readonly inspectWorktree: (
-    ref: WorktreeRef,
-  ) => Effect.Effect<Option.Option<WorktreeSnapshot>, RepositoryUnavailable>;
-
-  readonly createWorktree: (
-    input: CreateWorktreeInput,
-  ) => Effect.Effect<WorktreeSnapshot, WorktreeCreationError>;
-
-  readonly assessWorktreeRemoval: (
-    ref: WorktreeRef,
-  ) => Effect.Effect<RemovalAssessment, RepositoryUnavailable>;
-
-  readonly removeWorktree: (
-    input: RemoveWorktreeInput,
-  ) => Effect.Effect<void, WorktreeRemovalError>;
-}
-```
-
-The layer captures required I/O services. The operation names and types are not sufficient alone:
-`removeWorktree` must specify which safety facts it rechecks, what an acknowledgement permits,
+The layer captures required I/O services. Names and types are not sufficient alone: a future
+`removeWorktree` contract must specify which safety facts it rechecks, what acknowledgement permits,
 and what happens to an unmerged branch. An earlier assessment is not authorization to delete
 against stale state. Make those guarantees short contract comments and test them.
 
