@@ -10,9 +10,8 @@ import { install } from "./registry.ts";
 import type { ExtensionModule } from "./api.ts";
 
 /**
- * Discovery and loading: the built-ins are joined, after them, by out-of-tree extensions
- * discovered from the config and imported from disk — through the same install/factory path, so
- * the contract (docs/guides/extensions.md) does not change with the extension's address.
+ * Loads statically supplied and discovered modules through the same installation path.
+ * Loader removal is tracked in docs/plans/architecture-refactor.md.
  */
 
 /** Install one module: a static description as-is, a factory run once with the startup
@@ -28,7 +27,7 @@ async function installModule(mod: ExtensionModule, clientPath?: string): Promise
     const ext = await Effect.runPromise(
       mod().pipe(
         // The default workspace stands in for the request's: there is no request at startup,
-        // and load-time Shell runs with its environment (docs/guides/extensions.md).
+        // and load-time Shell runs with its environment.
         Effect.provide(capabilitiesLayer(workspaceById(undefined))),
       ),
     );

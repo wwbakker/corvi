@@ -20,8 +20,7 @@ import { loaded } from "./index.ts";
  * as nearly as serving allows. Two reacts break hooks and context; a chunk that bundled its
  * own would be a step that crashes the moment it called useState.
  *
- * esbuild, rather than Bun's bundler: this runs inside the server, which is Node now
- * (docs/decisions/node-server.md), and esbuild runs on both.
+ * esbuild builds these chunks inside the Node server.
  */
 
 /** Where the built chunks live, alongside the app's other writable state. */

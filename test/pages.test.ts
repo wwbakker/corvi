@@ -284,7 +284,7 @@ test.skipIf(!usable)("a read from the change you left does not land on the one y
 
 test.skipIf(!usable)("the change's own row is the page's first, and it stays there", async () => {
   // The terminals are the window's title bar in the app, which is the page's first row whether or not
-  // a host is there (docs/decisions/window-titlebar.md): full-bleed, and one height everywhere so it
+  // a host is there (docs/manual/interface.md): full-bleed, and one height everywhere so it
   // lines up with the column beside it. The change's own name is not in it — the column's entry says
   // it, and so does the window's title.
   await fetch(`${url}/api/changes/${id}`, {
@@ -342,7 +342,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
   // The host bridge is what says the page is inside the app window (src/domain/host.ts), and only
   // then is the first row chrome as well: what you drag the window by, and clear of the traffic
-  // lights the main process placed in it (docs/decisions/window-titlebar.md). Injected rather than
+  // lights the main process placed in it (docs/manual/interface.md). Injected rather than
   // driven through Electron, because the page's half of the contract is what is being checked — the
   // lights' pixels are the main process's, and only a real window has those.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -371,7 +371,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(await region(".change-bar")).toBe("drag");
   // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
   // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
-  // which is not part of the drag region at all (docs/decisions/window-titlebar.md).
+  // which is not part of the drag region at all (docs/manual/interface.md).
   expect(await strip.locator(".subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
@@ -411,7 +411,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
-  // Renaming is an action in the change's own row (docs/decisions/window-titlebar.md): the menu's
+  // Renaming is an action in the change's own row (docs/manual/interface.md): the menu's
   // Rename change opens a field beside the state and the actions, and what it is given is what the
   // column's entry and the window's title say afterwards.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -527,7 +527,7 @@ test.skipIf(!usable)("the overview stays current while one of its own tabs is sh
 }, 30_000);
 
 test.skipIf(!usable)("the right-click menu follows the setting", async () => {
-  // Two worlds, one setting (docs/decisions/host-context-menu.md). The host draws the menu in the
+  // Two worlds, one setting (docs/manual/interface.md). The host draws the menu in the
   // app — Electron has none of Chromium's own — and here the page is what can be checked: with the
   // setting off, a right-click the page does not handle is cancelled, which is what "no menu" means
   // in a browser and what keeps the click from reaching the host at all.

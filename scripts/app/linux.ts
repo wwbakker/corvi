@@ -196,9 +196,9 @@ if [ -x "$ELECTRON" ] && [ -f "$APP/main.cjs" ]; then
 fi
 
 # No Electron: the browser's app mode is the fallback, and a browser window
-# cannot start or stop a server — so this launcher does both. The server is
-# runtime-agnostic (docs/decisions/node-server.md): Node 22.6+ runs its
-# TypeScript with type stripping, and Bun still can.
+# cannot start or stop a server — so this launcher does both. Prefer Node's
+# TypeScript support; native terminal behavior is verified on Node
+# (docs/manual/install.md).
 if command -v node >/dev/null 2>&1 && node --experimental-strip-types -e "process.exit(0)" >/dev/null 2>&1; then
     RUNNER="node --experimental-strip-types"
 elif command -v bun >/dev/null 2>&1; then

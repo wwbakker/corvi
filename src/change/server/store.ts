@@ -22,8 +22,7 @@ export const archiveRoot = (): string => process.env[env("ARCHIVE_ROOT")] ?? con
 export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(archiveRoot(), id);
 
-/** The Effect API. Failures go through the typed taxonomy
- * (docs/guides/effect-conventions.md), each carrying a human-readable message. */
+/** File-backed change records and associated documents. */
 
 const fileExists = (path: string): Effect.Effect<boolean> => fs(() => file(path).exists());
 
@@ -63,8 +62,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
   );
 
 /** Read one change's change.json through its Schema. `null` means no change.json in the change
- * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError (see
- * docs/guides/effect-conventions.md). */
+ * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError. */
 export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);

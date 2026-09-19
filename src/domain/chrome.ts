@@ -1,6 +1,6 @@
 /**
  * The window's own chrome: the band of the page that is the title bar, and the traffic lights
- * that sit in it (docs/decisions/window-titlebar.md).
+ * that sit in it (docs/manual/interface.md).
  *
  * One copy of the numbers, because two processes lay the same band out: the main process places
  * the traffic lights in the window (scripts/app/electron/main.ts) and the page draws the row

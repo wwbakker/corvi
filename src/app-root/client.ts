@@ -1,9 +1,8 @@
 /**
  * The page's bundle, built with esbuild.
  *
- * Bun's HTML import built and served the page inside `Bun.serve`; the server runs on Node now
- * (docs/decisions/node-server.md), so the build is explicit: esbuild bundles the page's script
- * and its stylesheet, and the HTML is copied with its local references rewritten. The route
+ * esbuild bundles the page's script and stylesheet. The HTML is copied with local references
+ * rewritten. The route
  * (src/app-root/routes.ts) serves the result, falling back to index.html for the SPA's own
  * paths.
  *

@@ -9,7 +9,7 @@ import { csiuFor } from "../src/terminals/model.ts";
 /**
  * The terminal is process plumbing — a pty running tmux, spawned and cleaned up — so the only
  * test worth having drives the real thing through a real browser. The server runs on Node here,
- * as it does in the app: Bun never delivers pty output (docs/decisions/node-pty-terminal.md).
+ * as it does in the app; native PTY support is checked on the supported Node runtime.
  * The browser is what draws it, so a test without one would not test the terminal at all.
  *
  * It is skipped where the tools are missing rather than failing, since the rest of Corvi works
@@ -538,7 +538,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The change's own row is the page's first row — the window's title bar in the app, and the same
   // one the terminal page showed — with the tabs row right under it: both against the top, the
   // column and the right edge of the content area rather than under the page's own padding
-  // (docs/decisions/window-titlebar.md).
+  // (docs/manual/interface.md).
   expect(titleBar!.y).toBe(0);
   expect(Math.abs(titleBar!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
   expect(Math.abs(titleBar!.x + titleBar!.width - viewport[0])).toBeLessThanOrEqual(1);
@@ -547,7 +547,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(Math.abs(tabsRow!.x + tabsRow!.width - viewport[0])).toBeLessThanOrEqual(1);
 
   // The two pages' rows are the same row — same height, held at the top — and neither carries the
-  // change's name (docs/decisions/window-titlebar.md).
+  // change's name (docs/manual/interface.md).
   expect(await page.locator(".change-bar .subject").count()).toBe(0);
   expect(Math.abs(titleBar!.height - barBox!.height)).toBeLessThanOrEqual(1);
 

@@ -1,7 +1,5 @@
 /**
- * The vocabulary both halves of the leftovers extension share. Pure types, importing nothing
- * that runs, so the browser half may read them by value (docs/guides/extensions.md, the three
- * rules).
+ * Browser-safe request and response types for leftover directories.
  */
 
 /**

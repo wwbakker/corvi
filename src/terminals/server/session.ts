@@ -13,8 +13,7 @@
  *   - browser to server, binary: keystrokes; text: JSON control (`{"type":"resize",…}`);
  *   - server to browser, text: terminal output.
  *
- * This is plumbing, not logic: it speaks events, not Effects, like the WebSocket bridge it
- * replaces (docs/guides/effect-conventions.md keeps it out of the Effect contract).
+ * A WebSocket connection owns its PTY attachment, not the persistent tmux session.
  */
 import { spawn } from "node-pty";
 import type { ServerWebSocket } from "../../capabilities/serve.ts";
@@ -40,7 +39,7 @@ export type TerminalSession = {
 /** Bun loads the native addon but never delivers a byte of its output: its N-API shim does not
  * feed the pty's poll handle, so onData stays silent while spawn and exit work. Refuse rather
  * than open a socket that looks alive and is dead — `bun run dev` runs the server on Node, where
- * the terminal works (docs/decisions/node-pty-terminal.md). */
+ * the terminal works (docs/manual/terminals.md). */
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
 
 const missingTmux = (): Error => {

@@ -1,9 +1,8 @@
 import { Data } from "effect";
 
 /**
- * The one error taxonomy for the Effect layer — see docs/guides/effect-conventions.md. Every
- * module fails with one of these five; nothing grows a per-module hierarchy beside them. Each
- * carries a human-readable message, which is what the UI shows.
+ * Error values consumed by the route response mapper. Each carries a display message.
+ * Domain-specific contracts and transport error mapping are described in docs/guides/api-design.md.
  *
  * This file knows nothing about HTTP: mapping these to status codes lives in http.ts, the only
  * place that knows what a Response is.

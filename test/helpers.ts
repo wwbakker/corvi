@@ -75,7 +75,7 @@ export const testTempDir = async (label: string): Promise<string> => {
  * overridden: inside a tmux session it wins over `TMUX_TMPDIR`, and every tmux command the
  * server runs — `kill-server` included — would reach the session you are working in.
  * `CORVI_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
- * sandboxes (docs/decisions/tmux-socket.md), so an inherited one would join this server to a
+ * sandboxes (docs/guides/testing.md), so an inherited one would join this server to a
  * foreign tmux server instead of the per-file socket above. A file that wants its own socket
  * sets it deliberately after the scrub, as terminal.test.ts does. */
 export const serverEnv = (

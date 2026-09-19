@@ -21,8 +21,8 @@ import { config, setMigrator } from "../workspace/server/index.ts";
  * and the name-bound `ExtensionStore` — so an extension's requirements arrive through the R
  * channel, with no ambient state and no bridging layer. The built-ins are joined, after them, by out-of-tree
  * extensions discovered from the config and imported from disk — through the same
- * install/factory path, so the contract (docs/guides/extensions.md) does not change with the
- * extension's address.
+ * install/factory path. Replacement with explicit composition is tracked in
+ * docs/plans/architecture-refactor.md.
  */
 
 // The built-ins, in dashboard order: the agents' furniture first (it is what names windows

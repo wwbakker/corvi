@@ -1,19 +1,15 @@
 /**
  * The Corvi window, in Electron.
  *
- * A real application: a Dock icon you can quit, a window with no title bar of its own — the page's
- * first row is one (docs/decisions/window-titlebar.md) — and the server inside it. Electron
- * replaces the two hand-written hosts — Swift and WKWebView on
- * macOS, Python and WebKitGTK on Linux (docs/decisions/linux-native-window.md, superseded by
- * docs/decisions/electron-host.md) — with one main process, so the window behaves the same
- * everywhere and the page runs in the engine it is developed and tested against.
+ * The page's first row supplies the title bar (docs/manual/interface.md). Electron provides
+ * native window controls and hosts the same Chromium page used by browser tests.
  *
  * It is still only a window onto the same HTTP server any browser can open. The app picks a
  * fresh port at each launch, starts the server on it through the user's login shell, and stops
  * the server it started when it quits. A server somebody started themselves — a pinned
  * `CORVI_PORT` answering, `bun run dev` on 4000 — is never touched. The server runs on Electron's
  * own Node (`ELECTRON_RUN_AS_NODE`), not on Bun the user has installed
- * (docs/decisions/node-server.md).
+ * (docs/manual/install.md).
  *
  * Built by scripts/app/electron/build.ts into main.cjs/preload.cjs and run either from a packaged
  * bundle (scripts/app/mac.ts, scripts/app/linux.ts) or straight from the checkout

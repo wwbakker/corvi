@@ -75,8 +75,7 @@ export class Changes extends Context.Tag("corvi/Changes")<Changes, {
    * `ExtensionStore` existed. The name carries no path separators and is not one of the core's
    * own change-root files (`change.json`, `completion.json`); a name that is refused,
    * absent or unreadable reads as "". This is migration access, not a general escape hatch: an
-   * extension's new data goes to `ExtensionStore` (docs/guides/extensions.md, "Data on a
-   * change"). */
+   * extension's new data goes to `ExtensionStore`. */
   readSidecar(change: Change, name: string): Effect.Effect<string>;
 }>() {}
 

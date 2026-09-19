@@ -9,9 +9,8 @@
  * package.json — the `IWERoot` of the Swift app's Info.plist, in the one place both platforms
  * already look — so moving the repository is a reinstall, not a rebuild.
  *
- * The old Swift wrapper compiled a binary from scripts/app/IWE.swift; that wrapper is gone (see
- * docs/decisions/electron-host.md). What stays is the shape: one window, its own server on a
- * fresh port, quit stops it, and a reinstall puts a running app back on the new build.
+ * Each window owns a server on a fresh port. Quitting stops that server, and reinstalling
+ * relaunches the app with the installed build. See docs/manual/install.md.
  */
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";

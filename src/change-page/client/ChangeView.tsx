@@ -274,7 +274,7 @@ export function ChangeView({
 
   // Renaming sits in the menu rather than on the name itself: the row the name is in is the
   // window's title bar in the app, and a button there would be a hole in the region you drag the
-  // window by (docs/decisions/window-titlebar.md).
+  // window by (docs/manual/interface.md).
   const rename: Action = {
     label: "Rename change",
     title: "A name of your own; the ticket's summary is only a suggestion",
@@ -348,7 +348,7 @@ export function ChangeView({
   /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
    * reference. The change's name is deliberately not here: the navigation column carries it, and the
    * row is the window's, so both of a change's pages still begin the same way
-   * (docs/decisions/window-titlebar.md). */
+   * (docs/manual/interface.md). */
   const changeHeader = (
     <header className="change-bar">
       {windowTabs}
@@ -427,7 +427,7 @@ export function ChangeView({
           {change && (
             <>
               {/* The name is typed here, in the row the menu that asks for it lives in: the window's
-                  own row says nothing about the change (docs/decisions/window-titlebar.md). */}
+                  own row says nothing about the change (docs/manual/interface.md). */}
               {draft !== null && (
                 <input
                   className="subject"

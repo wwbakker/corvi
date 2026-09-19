@@ -71,7 +71,7 @@ export type Config = {
   notificationSound: boolean;
   /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
    * app window because Electron has none of its own. A page that handles its own right-click (the
-   * terminal, whose menu is tmux's) is untouched either way. See docs/decisions/host-context-menu.md. */
+   * terminal, whose menu is tmux's) is untouched either way. See docs/manual/interface.md. */
   contextMenu: boolean;
   /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
    * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means

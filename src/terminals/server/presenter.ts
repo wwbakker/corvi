@@ -11,8 +11,7 @@ import { windowPresenters } from "../../extension-host/registry.ts";
  * host nor anything that runs the host: the pipeline that lists windows and the pipeline that
  * loads extensions meet at the registry, not at each other. Presenters are global — they run no
  * effects and take no capabilities, and a window's name cannot depend on whose client is looking
- * (docs/guides/style.md, rule 7). See `windowPresenters` in the registry for why the aggregation
- * lives there.
+ * at it. `windowPresenters` supplies the aggregated presenter list.
  */
 
 /** Shells: a window sitting at a prompt is idle, whatever the shell is called. */

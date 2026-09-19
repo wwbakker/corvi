@@ -1,7 +1,5 @@
 /**
- * The vocabulary both halves of the review extension share. Pure types, importing nothing that
- * runs, so the browser half may read them by value (docs/guides/extensions.md, the three rules)
- * and the server half may hand them over the wire unchanged.
+ * Browser-safe request and response types for local repository review.
  */
 
 /** One file git has something to say about, in the vocabulary git itself uses. */

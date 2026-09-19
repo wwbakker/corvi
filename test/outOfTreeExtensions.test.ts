@@ -16,8 +16,8 @@ import type { Workspace } from "../src/workspace/server/index.ts";
  * config (or an environment override), imported from disk through the same install path as
  * the built-ins, and served to the page as chunks the server built (src/extension-host/clientChunks.ts).
  *
- * The extension written here is deliberately the shape docs/guides/extensions.md promises: a default
- * export with a wizard step, plus a sibling client.tsx — nothing else, and no host imports.
+ * The fixture exercises a default export with a wizard step and a sibling client.tsx.
+ * Loader removal and replacement coverage are tracked in docs/plans/architecture-refactor.md.
  */
 
 const repoRoot = join(import.meta.dir, "..");

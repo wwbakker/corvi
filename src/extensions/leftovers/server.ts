@@ -11,11 +11,8 @@ import type { Leftover } from "./shared.ts";
 /**
  * Directories in the changes root that no longer belong to a change, and their removal.
  *
- * The extension is a page of its own now, so its implementation is colocated here rather than in
- * the change module. It reads the changes root through the change store's own helpers — a
- * first-party built-in may reach into core modules while it lives in this repository
- * (docs/guides/extensions.md, "Scope") — and runs subprocesses through the contract's `Shell`
- * capability, so the request's workspace environment is already applied.
+ * Reads leftover directories through change-store helpers and runs subprocesses through Shell.
+ * The removal checks protect directories that still contain a change record.
  */
 
 /** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to

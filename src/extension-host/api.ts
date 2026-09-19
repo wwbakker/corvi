@@ -1,34 +1,7 @@
 /**
- * The surface an extension can contribute to.
- *
- * An extension is a TypeScript module with a default-exported factory receiving this API — the
- * same shape pi's extensions have. It contributes to registries (cards, wizard steps, hooks)
- * and the host wires it up; it never mutates host state directly, and nothing here is named
- * after a vendor: an extension hooks the "Create change" screen, not "the task board".
- *
- * Everything is additive: any number of extensions may contribute to any surface, and the
- * per-workspace enablement (the `extensions` list in the workspace config) decides whose
- * contributions exist for the request in hand. There are no singleton slots to arbitrate.
- *
- * Handlers are Effects, and that is the dependency-injection contract:
- *
- * - **The host provides `Capabilities`** — the Workspace tag (the request's own), a `Shell`
- *   for subprocesses with the workspace's environment, the answer `Cache`, the `Settings`,
- *   the event `Bus`, the name-bound `ExtensionStore`, and the read-only `Changes` store. An
- *   effect may require any subset; requiring anything outside the union fails to typecheck,
- *   which is what makes "no host imports" checkable rather than a matter of discipline.
- * - **Failures are values in the E channel.** On the capability surfaces the host handles any
- *   failure by its message (a failed card is a red card, a failed lookup contributes
- *   nothing), so those channels are `unknown` — fail with whatever typed error you like.
- *   Routes are the exception: their failures map to HTTP status codes, so they are typed as
- *   the taxonomy (`RouteError`), exactly like the core's own routes.
- * - **Pure functions stay pure.** `applies` and `plan` are synchronous and receive plain
- *   data; no effect wrapper buys anything there, and the completion plan must be answerable
- *   before anything runs anyway.
- *
- * This file is the whole API on purpose: out-of-tree extensions get this, and nothing else is a
- * promise. The surface groups live in `api/*.ts` — one file per group, so the contract is
- * navigable — and are re-exported here unchanged.
+ * Contribution types consumed by the loader and dispatchers. Handlers declare their service
+ * requirements through Effect; pure selectors receive data directly. Replacement with ordinary
+ * capability packages and explicit composition is tracked in docs/plans/architecture-refactor.md.
  */
 
 import type { Effect } from "effect";

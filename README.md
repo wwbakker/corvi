@@ -51,18 +51,18 @@ first run has the settings page at `/settings` for the paths and integrations, a
 - [Changes](docs/manual/changes.md) — ideas, repositories, worktrees, states, completing.
 - [The interface](docs/manual/interface.md) and [terminals](docs/manual/terminals.md).
 - [Integrations](docs/manual/integrations.md) — Jira, Azure DevOps, GitHub, review.
-- [Architecture](docs/guides/architecture.md) and the other [guides](docs/README.md), including
-  the extension contract and the decisions behind the code.
+- [Architecture](docs/guides/architecture.md), [API design](docs/guides/api-design.md), and the
+  other [contributor guides](docs/README.md).
 
-Corvi grew up as *IWE* (Integrated Work Environment). This release renames everything after it —
-environment variables, directories and the app itself — and records why in
-[`docs/decisions/corvi-identifiers.md`](docs/decisions/corvi-identifiers.md).
+The architecture guides define the accepted modular redesign. The implementation still uses
+`src/`; the [refactor plan](docs/plans/architecture-refactor.md) tracks adoption. Included
+integrations will become ordinary workspace packages, not a third-party extension platform.
 
 ## Development
 
 ```bash
 bun run dev          # the server, rebuilding the page as you edit
-bun test             # the suite (spawns real servers and tmux)
+bun run test         # the full suite with isolated data and owned-resource cleanup
 bun run typecheck && bun run lint
 ```
 

@@ -57,10 +57,7 @@ async function verify(): Promise<void> {
     process.exit(1);
   }
   await ensureElectron();
-  // The page build exactly as the server runs it (src/app-root/client.ts: esbuild inside the
-  // process). Not `bun build src/app-root/index.html` any more: that path is gone with the Node
-  // port (docs/decisions/node-server.md), and checking it here would pass while the real one was
-  // broken.
+  // Verify the same esbuild path the server uses, not a separate bundler configuration.
   try {
     const { ensureClient } = await import("../src/app-root/client.ts");
     await ensureClient();

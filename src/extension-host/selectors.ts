@@ -19,7 +19,7 @@ import type {
  * The workspace queries: which extensions exist for a workspace, and one flat list per surface
  * they contribute to. Every selector below is the same shape — take the workspace's extensions,
  * concatenate each one's slice — so that shape lives once, in `contributed`, rather than as a
- * clone per surface (docs/guides/style.md, rule 6). The output order is load order, which is
+ * clone per surface. The output order is load order, which is
  * also each surface's presentation order.
  */
 

@@ -1,10 +1,7 @@
 /**
  * Files, without a runtime of their own.
  *
- * The server used to read and write through Bun's `Bun.file`/`Bun.write`; it runs on Node now
- * (docs/decisions/node-server.md), so this is the same shape over `node:fs/promises`: `file()`
- * answers existence, text and JSON, and `write()` writes. Call sites changed their import, not
- * their line.
+ * Uses `node:fs/promises` for file existence, text/JSON reads, and writes.
  *
  * Failure is the caller's: a missing file rejects, exactly as `Bun.file(...).text()` did, and
  * every caller already treats that as "no file" where that is what it means.

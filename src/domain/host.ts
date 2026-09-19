@@ -1,7 +1,7 @@
 /**
  * The host capability: what the page asks the window for, and what the window calls back.
  *
- * The page runs in two kinds of place — the app's own window (Electron, docs/decisions/electron-host.md)
+ * The page runs in two kinds of place — the app's own window (Electron, docs/manual/install.md)
  * and a real browser. Only the app has a host: it shows the notification the page asks for, and
  * answers a click by asking the page to open the change and tmux window the notice was about. A
  * browser has no bridge, so the page falls back to the browser's own `Notification`

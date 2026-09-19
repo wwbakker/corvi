@@ -1,5 +1,5 @@
 /**
- * The right-click menu, as the setting wants it (`docs/decisions/host-context-menu.md`).
+ * The right-click menu, as the setting wants it (`docs/manual/interface.md`).
  *
  * Two worlds, one setting. In the app the host draws the menu — Electron has none of Chromium's own
  * — and the page tells it what the setting says, since the setting lives in the server's config and

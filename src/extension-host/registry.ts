@@ -27,7 +27,7 @@ import type {
  * This is a leaf module. It imports types and nothing that runs, which is what lets
  * `src/terminals/server/presenter.ts` read the window presenters from here without importing the
  * host: the host's module graph reaches back into the terminal through the events, so the
- * registry sits below both and imports neither (docs/guides/style.md, rule 7). It is also why
+ * registry sits below both and imports neither. It is also why
  * the presenters are aggregated here, next to the `loaded` they read.
  */
 

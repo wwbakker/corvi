@@ -3,9 +3,7 @@ import { loaded } from "../src/extension-host/index.ts";
 import { clients } from "../src/extension-host/client.tsx";
 
 /**
- * Parity between the two hand-kept extension registries — the one place the
- * "two lines each" contract of docs/guides/extensions.md is checkable rather than a
- * matter of discipline:
+ * Parity between the server and client contribution registries:
  *
  * - the server's loader, src/extension-host/index.ts `loaded`, which knows which
  *   extensions declare wizard steps, pages, change tabs or dashboard widgets, and

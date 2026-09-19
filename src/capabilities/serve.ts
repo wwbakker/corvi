@@ -1,11 +1,8 @@
 /**
  * The server, on `node:http`.
  *
- * `Bun.serve` gave the app three things: a route table (`:param` and `*` patterns, a handler per
- * method, `req.params`), Request/Response handlers with streaming bodies, and WebSocket upgrades
- * with per-connection data. The app runs on Electron's Node now (docs/decisions/node-server.md),
- * so this is the same surface over `node:http` and `ws` — and the route tables, the proxy and
- * the page do not change.
+ * Serves route tables with `:param` and `*` patterns, streaming Request/Response handlers,
+ * and WebSocket upgrades with per-connection data using `node:http` and `ws`.
  *
  * The route tables are still typed with Bun's route types (`src/capabilities/web.ts`): those are
  * erased at run time and are the only thing that keeps `req.params` typed through twenty route

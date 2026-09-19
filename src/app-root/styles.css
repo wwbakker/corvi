@@ -439,7 +439,7 @@ body.resizing {
 
 /* The field the change's name is typed into: the menu's "Rename change" opens it in the row that
    carries the change's controls, because the window's own row says nothing about the change
-   (docs/decisions/window-titlebar.md). */
+   (docs/manual/interface.md). */
 .change-tabs input.subject {
   min-width: 220px;
   max-width: 100%;

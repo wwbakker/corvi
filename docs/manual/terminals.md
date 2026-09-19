@@ -2,109 +2,83 @@
 
 ![A change's terminal](../images/terminal.png)
 
-Each change has a **Terminals** tab: one tmux session named `corvi-<change id>`, started in the
-change directory on Corvi's own tmux socket (`-L corvi`), attached by a pty in the server
-(`node-pty`) and drawn by xterm.js in the page itself.
+## Sessions and attachment
 
-A terminal outlives the server: tmux owns the session and the pty is only one of its clients, so
-restarting Corvi — which is constant while working on Corvi itself — detaches and re-attaches without
-costing you a shell. Completing a change is what ends a terminal for good.
+Each change can have a tmux session named `corvi-<change id>`, started in its change directory on
+Corvi's own socket (`-L corvi`). Corvi attaches through node-pty and renders it with xterm.js.
 
-The connection is made when a terminal is opened, and not before: a dashboard you glanced at
-should not leave a session behind. The dashboard cards are unmounted while a terminal is in front —
-otherwise their per-repository calls, which occupy every connection the browser allows per
-origin, starve the window list's polling. Returning to the dashboard repaints from the cache and
-refreshes.
+Opening a terminal starts or attaches the session. Opening a dashboard does not. Closing the
+page or restarting Corvi detaches the client without losing shells: tmux owns the persistent
+session. Completing or cancelling a change explicitly closes its session before archiving it.
 
-The session's windows are listed in the navigation column, labelled by **where they are** — the
-directory of the pane, which is the repository you are in — with **what is running there** in
-brackets after it: `example-api`, `example-web - (vim)`. A plain shell adds nothing, so it is
-left out. Rename a window (`ctrl-b ,`) and your name replaces the directory, because tmux stops
-renaming it for you at that point and so do we.
+This persistence is not a promise to restore processes after a machine reboot or to resume an
+agent conversation. Those are separate planned capabilities.
 
-A window running a **coding agent** says what the agent is doing — `example-api - (pi working)`,
-`example-api - (pi waiting)` — instead of `node`, which says nothing. The agent reports that
-itself, in the `@agent_status` **tmux pane option**, which the agents extension's presenter reads out
-of the same `list-windows` call as everything else. The overview believes it over the process
-waiting for you is not work in progress, though its process is very much running.
+## Windows and navigation
 
-`pi/agent-state.ts` is that reporter for pi — `agent_start` sets `@agent_status working`,
-`agent_settled` sets `waiting`, `session_shutdown` unsets it. Settled rather than ended, because
-after `agent_end` pi may still retry, auto-compact or pick up queued messages, none of which are
-"waiting for you".
+Windows appear under their change in the navigation column. A default label uses the active
+pane's directory and running command, such as `example-web - (vim)`. A plain shell adds no
+command suffix. Renaming a window with `Ctrl-b ,` keeps your chosen name.
 
-```bash
-bun run extension:install     # symlinks it into ~/.pi/agent/extensions/
+The new-window control, **Cmd-T** on macOS, or **Ctrl-Alt-T** on Linux creates another window in
+the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
+desktop app can deliver it to Corvi. Keyboard focus stays with the terminal while switching windows.
+
+Use normal tmux commands for windows and split panes; the terminal's cheat sheet lists common
+shortcuts. Mouse mode supports scrolling through terminal history. A dot indicates output that
+arrived while you were looking elsewhere.
+
+## Agent status
+
+Pi can report **working** or **waiting** in the active pane's `@agent_status` option. Corvi uses
+that status instead of merely showing the process name `node`. An idle agent is not counted as
+active work just because its process still exists.
+
+The included reporter is installed into Pi with:
+
+```sh
+bun run extension:install
 bun run extension:uninstall
-tmux display -p '#{@agent_status}'   # what the pane you are in says about itself
 ```
 
-A symlink rather than a copy, so editing it here is editing the installed one and `/reload` in pi
-picks it up; the script repoints whatever symlink is there, so installing from another branch or
-worktree moves it, but leaves a real file at that path alone.
+These commands install Corvi's adapter into Pi; they do not install third-party code into Corvi.
+The installation is a symlink to `pi/agent-state.ts`. Installing from another checkout repoints
+the symlink, so do not run it as an incidental test. A real file at the destination is left alone.
 
-A pane option rather than the terminal title, because the title is shared: pi rewrites it
-whenever the session name changes — right after a run, when it names the session from your first
-message — and the shell rewrites it between commands, so a marker there would keep vanishing
-seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops it when the pane
-dies, so a crashed agent leaves nothing stale behind. The option is read from each window's
-**active pane**, so an agent left in the inactive half of a split is not seen.
+The reporter marks `agent_start` as working, `agent_settled` as waiting, and clears its state on
+session shutdown. Status belongs to the active pane; an agent in an inactive split is not shown.
+When a pane disappears, its pane options disappear too.
 
-A dot marks a window whose output arrived while you were looking elsewhere, and the strip's **new**
-tab — or **cmd-t** (`ctrl-alt-t` on Linux, where the meta key is unreliable) — opens another. The
-navigation column lists the windows a change has and nothing else: adding one is the strip's, right
-there beside the ones you already have.
+## Keyboard and clipboard
 
-A new window starts **where the current one is**, not back in the change directory: a new tab is
-almost always "the same place, another thing", and `#{pane_current_path}` is what tmux's own
-`ctrl-b c` binding uses anyway. cmd-t works from inside the terminal too, where the keyboard
-usually is: the injected key script cannot open a window itself, so it forwards the key to the
-page around the frame. In a browser tab Chrome keeps cmd-t for itself; installed as an app it
-reaches us — on Linux the chord is ctrl-alt-t for the same reason, and it works in a browser tab
-too. The keyboard stays in the terminal throughout: the navigation column's entries refuse
-the focus a mousedown would give them, and opening a terminal focuses it, so you can type straight
-away. tmux stays the source of truth — the page calls `list-windows`, `new-window` and
-`select-window`, so the keys keep working and a session attached from a terminal stays in step.
+- Shift-Enter, Ctrl-Enter, and their combination are sent using extended key sequences for
+  applications that support them. Shift-Tab also passes through.
+- Plain mouse selection belongs to tmux. Its copies reach the system clipboard through OSC 52;
+  `Ctrl-b ]` still pastes from tmux's own buffer.
+- Option-drag on macOS or Shift-drag on Linux selects through the browser terminal instead.
+- macOS uses Cmd-C for that selection.
+- Linux uses Ctrl-Shift-C / Ctrl-Shift-V; middle-click also pastes. Ctrl-C remains the shell's
+  interrupt shortcut.
 
-Windows and panes are yours to make with the usual tmux keys — the **tmux cheat sheet** button in
-the terminal's own row lists them — which is also the answer to "how do I get more than one terminal":
-tmux does that, Corvi does not duplicate it. Mouse mode is switched on for the session, so the wheel scrolls the
-pane instead of walking through shell history; it is set with `-t`, so tmux sessions you started
-yourself keep your own settings. A change needs no terminal at all some days and three in one
-repository on others, so Corvi opens none for you: opening the terminal is what starts the session.
+## Attention notifications
 
-**Shift-Enter and Ctrl-Enter.** A browser terminal cannot encode these by itself: xterm.js sends a
-carriage return for Enter whatever modifier is held — there is no legacy encoding for a modified
-Enter, and it implements neither of the modern ones. So the page sends the CSI u sequence
-itself instead (`ESC [13;2u` for shift, `;5` for
-ctrl, `;6` for both). tmux is started with `extended-keys on`, which passes those through to
-applications that ask for them — which is what an application means when it says *"tmux
-extended-keys is off. Modified Enter keys may not work."*
+A transition from working to waiting can notify you when you are not actively looking at that
+window. Selecting the same change is not enough to suppress it if another view/window is active.
+Notification sound is configurable. With no connected page, there is no server-side OS notifier.
+Several waiting windows can notify separately; each uses a stable window identity.
 
-Shift-Tab has always worked because it *does* have a legacy encoding (`ESC [Z`), which is the
-difference between the two keys.
+## Troubleshooting and safety
 
-Copying out: the mouse belongs to tmux while mouse mode is on, and tmux hands its own copies to
-the page as an OSC 52 sequence, which the terminal writes to the system clipboard — so a plain
-drag (and a **double-click** for a word, a triple-click for a line) is all it takes; the tmux
-buffer is separate (`ctrl-b ]` still pastes it). The browser's selection is one modifier away:
-**option**-drag on macOS, **shift**-drag on Linux — the modifier xterm.js honours on each
-platform, and the terminal turns on `macOptionClickForcesSelection` for the Mac one. On macOS
-the browser's own shortcut copies that selection (**⌘C**; the app's Edit menu routes it, as
-AppKit did). On Linux there is no menu to route a clipboard shortcut and Ctrl+C belongs to the
-shell, so the page takes **Ctrl+Shift+C / Ctrl+Shift+V**, and **middle-click** pastes the
-clipboard too; the cheat sheet button lists the keys for the platform you are on.
+To inspect a session from another terminal, name Corvi's socket explicitly:
 
-A terminal that comes up blank: the session is reachable from a normal terminal
-(`tmux -L corvi attach -t corvi-<change id>` — the sessions live on Corvi's own socket, so the command
-has to name it), which tells you quickly whether the problem is tmux or the browser. After
-changing the manifest, reinstall the app — Chrome keeps the old one otherwise.
+```sh
+tmux -L corvi attach -t corvi-<change-id>
+```
 
-The socket is also what keeps a stray `tmux` command from reaching Corvi: a bare `tmux` — from a
-script, a probe, a test run — resolves to the default socket and finds none of these sessions.
-Inside a pane, though, `$TMUX` still names Corvi's server, so a `tmux kill-server` typed there ends
-every Corvi terminal; outside a pane it finds nothing.
+A blank browser terminal with a working tmux attachment points to the connection or rendering
+path rather than lost shells. Check the correct server's logs and the browser console.
 
-Completing a change kills its session and the ptys attached to it, since the change directory
-moves into the archive underneath it.
-
+`CORVI_TMUX_SOCKET` can select a specific socket for isolated tests. Never use the user socket as
+a fixture. Inside a Corvi pane, inherited `TMUX` points at that server: an unqualified
+`tmux kill-server` there would terminate every Corvi session. Follow the contributor
+[resource-safety rules](../guides/testing.md#resource-safety) when diagnosing test leftovers.

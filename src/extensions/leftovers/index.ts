@@ -9,9 +9,7 @@ import type { Extension } from "../../extension-host/api.ts";
  * It contributes a page (the sidebar's Leftovers entry, rendered by its client half) and the two
  * routes that page fetches from, under its own namespace. The implementation — the `du` walk,
  * the git-kind probe, the guarded removal — lives beside it (./server.ts); this module only
- * describes it. The changes root it reads is the change store's, imported directly because a
- * first-party built-in may reach into core modules while it lives in this repository
- * (docs/guides/extensions.md, "Scope").
+ * describes it. The implementation resolves the changes root through change-store helpers.
  */
 export default {
   name: "leftovers",

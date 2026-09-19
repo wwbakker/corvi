@@ -1,182 +1,56 @@
-# Style
+# Code and documentation style
 
-> **Kind:** guide · **Status:** active
+## Names and types
 
-The codebase is mostly one style already: the error taxonomy, the SWR cache, the SSE design and
-the extension contract all read the same way. Where it diverges, one side is the winner and the
-other is a mistake waiting to be copied. This page names the winner on each axis, so a new
-change does not have to pick.
+- Use descriptive domain names. `assessWorktreeRemoval` is preferable to `check` or `unsafe`.
+  Avoid abbreviations unless they are established domain vocabulary.
+- Declare explicit types for function parameters, return values, service interfaces, and
+  exported constants whose type is part of the API. Contextually typed callbacks can use their
+  declared context. Derive data types from canonical schemas instead of duplicating shapes.
+- Prefer readonly records/collections, discriminated unions, and branded identifiers. Avoid
+  `any`, unchecked assertions, and generic types that let a caller assert an arbitrary result.
+- Effects describe I/O; do not add `Effect` to every operation name. Do not create a sync/async
+  pair unless consumers actually need both contracts.
 
-Each rule states the tell: the thing that is on the wrong side of it.
+## Functions and modules
 
-## 1. Explicit over ambient
+- Prefer pure transformations and `const`. Keep mutation private to a service or local algorithm
+  when it improves correctness or clarity; do not mutate inputs or returned shared values.
+- Use early returns and exhaustive handling of meaningful alternatives. Use named intermediate
+  values where they make a decision readable; minimizing variable count is not a goal.
+- Group related behavior by concept. A coherent file can contain several operations. Do not
+  enforce one function per file or flatten an entire package into unrelated siblings.
+- Extract a helper when it names a meaningful operation, clarifies a boundary, or removes actual
+  duplication. Similar syntax alone does not justify a shared abstraction.
+- Use standard ESM, explicit imports/exports, and `import type` for types. No TypeScript namespace
+  blocks. Aliases are acceptable when they make distinct domain meanings clearer.
+- Keep public entrypoints intentional and side-effect-free. Internal files import their local
+  collaborators directly rather than their own public barrel.
 
-Anything a function needs arrives through its type — `Workspace`, `Shell`, `Cache`, `Settings`,
-`Bus`. Do not read hidden global state to do the job.
+See [architecture](architecture.md) for package placement and [API design](api-design.md) for
+public contracts. A file's existing style does not authorize a new dependency exception.
 
-- **Right:** `run(cmd): Effect<Result, CliError, Workspace | Shell>`.
-- **Tell:** a module imports `sh` and reaches for the workspace implicitly. The `Shell`
-  capability is the same work with the dependency declared; prefer it.
+## Browser code
 
-## 2. Effect is the API
+Group UI code by feature, with shared primitives in a clearly named UI directory. Components
+render view models and invoke feature actions; request hooks/adapters own typed client calls,
+cancellation, and cache updates. Do not construct backend CLI commands in components.
 
-Server modules expose Effect functions. A Promise wrapper is a second public surface, not a
-convenience.
+Keep Electron access behind a typed host capability implemented by browser/desktop adapters.
+Use named design tokens instead of inventing colors at call sites. Keep user-facing behavior
+consistent across hosts; platform differences are deliberate adapter behavior.
 
-- **Right:** `readChange(id): Effect<Change | null, DecodeError>`.
-- **Tell:** a Promise `readChange` next to the Effect one that only tests call. The browser
-  boundary is HTTP, never a Promise wrapper.
+## Comments and docs
 
-## 3. A feature is one module directory
-
-A feature — a domain of the product, or an extension — is one directory whose aspects travel
-together:
-
-- `server/` — the implementation that shells out or touches the filesystem; its `index.ts` is
-  the module's public face.
-- `client/` — the browser half, when there is one.
-- `model.ts` — the pure, synchronous logic both halves share.
-
-Any aspect may be absent: a headless module has no `client/`, a vocabulary-only one no
-`server/`. `src/vendors/` holds only vendor clients genuinely shared by more than one
-feature (`git.ts` qualifies); the rest of the substrate is `src/domain/` (the vocabulary),
-`src/capabilities/` and `src/extension-host/`, with each feature's HTTP table in its own
-`routes.ts`.
-
-**One role per file.** `store.ts` is the persisted state, `create.ts` one operation,
-`presenter.ts` the merge, `summary.ts` the composition — not a second concern grafted onto an
-existing file.
-
-**Submodules are modules.** `wizard/` and `dashboard/` are directories with their
-own aspects and their own face, and the same rules nest as far as a feature needs. The
-composition lives in the submodule that composes, which is why `dashboard` can depend on
-`terminal` and the host without `change/server` closing a cycle.
-
-**The server half's `index.ts` is the module's face, and nothing inside the module imports
-it.** Code outside enters through the barrel; siblings import each other directly, which is
-what keeps the barrel cycle-free. A submodule whose face is a browser component re-exports it
-from a top-level `index.ts` (`wizard/index.ts`); client components are otherwise imported
-file-to-file, because a barrel of components would pull every one into the page bundle. A leaf
-that a second module needs by value — `extension-host/registry.ts`, `change/server/store.ts`,
-`terminals/server/session.ts`, `settings/server/legacySettings.ts` — is the exception rule 7 names.
-
-- **Right:** `extensions/jira/{index.ts,jira.ts,jiraHttp.ts,client.tsx}`;
-  `change/server/index.ts` is the change face every route imports;
-  `bun run outline src/change/server` prints it.
-- **Tell:** a feature whose implementation is a top-level module plus an `integrations/` file plus
-  an `extensions/` folder, or a route importing `change/server/complete.ts` directly instead of
-  the barrel. See [`architecture.md`](architecture.md#where-a-features-code-lives).
-
-## 4. Failure is a value
-
-Failures are typed values in the `E` channel, or data (`exit codes are data`). Never a `throw`
-across a module boundary; never a duck the caller probes.
-
-- **Right:** `Effect.fail(new ConflictError({ message, needsForce }))`.
-- **Tell:** `throw new BadRequestError(...)` in sync code caught by an `attempt()` at the route
-  boundary (`applyPatch`); or `result.needsForce` probed with `"needsForce" in result`.
-
-## 5. One name per concept
-
-"Extension" is the noun. "Integration" survives only where the wire contract forces it. A module
-is named for the one thing it does.
-
-- **Right:** `extensions/`, `extensionsFor`, one `git.ts`.
-- **Tell:** `src/extensions/review/` (the change's local-changes tab) and
-  `src/vendors/git.ts` (the worktree engine) both reading as "the local changes code";
-  or a
-  new field named `integration` where the wire contract (`Widget.integration`) does not force it.
-
-## 6. Shared means shared
-
-A helper used twice lives in one place — preferably on the service it belongs to
-(`shSoft`/`cliJson` are `Shell` behaviour), not cloned.
-
-- **Right:** one `shSoft`, one `cliJson`, one `messageOf`.
-- **Tell:** the same helper defined in several modules, each carrying its own copy of the same
-  explanatory comment. `shSoft`, `cliJson`, `messageOf` and `fs` live in
-  `src/capabilities/effect/support.ts`.
-
-## 7. State has an owner
-
-The registry, the config object, the cache: each lives in one named module that others import.
-
-- **Right:** a leaf `registry.ts` exports `loaded`; `terminals/server/presenter.ts` imports it.
-- **Tell:** a side-channel installed by the host to avoid an import cycle, rather than a leaf
-  module both sides import.
-
-Four leaves are imported across module boundaries rather than through a barrel, and why is not
-one reason:
-
-- `extension-host/registry.ts` and `change/server/store.ts` break cycles by depending on **state**
-  rather than on a half: the registry sits below both the host and the terminal, and the store is
-  the change module's state leaf.
-- `terminals/server/session.ts` is the terminal's **socket boundary**: the files that speak the
-  socket (the terminal routes, `server.ts`) import it directly so the module's barrel does not
-  drag node-pty into every consumer of `stopTerminal` or `listWindows`.
-- `settings/server/legacySettings.ts` shares one **precedence chain** — the settings bag, then the
-  flat field, then the environment — with the workspace config loader and the azure-devops
-  extension's settings read; it is stated once there rather than copied or routed through the barrel.
-- `extension-host/services.ts`'s `ChangesLive` is provided by `capabilities/web.ts`'s
-  `withChange`, so route effects that read a checkout through the contract run without
-  importing the host: the layer is the shared leaf, the provider is the HTTP boundary.
-
-## 8. Hooks fetch, components render
-
-Client data goes through the shared hooks and cache (`app-root/state.ts`, `app-root/cache.ts`); components
-do not call `fetch` themselves.
-
-- **Right:** `useChanges`, `useWindows`, `useTerminal`.
-- **Tell:** a component building its own URL and calling `api(...)` outside a hook.
-
-## 9. Shared code has a place, not a list
-
-Pure code both the server and the browser need lives in `src/domain/`. The lint boundary is
-then structural rather than an allowlist: it covers every server tree, for `src/app-root/**` and for
-a module's `client/` half (and the wizard's module-root browser half), with only `src/domain/`, a
-module's `model.ts` importable by value.
-
-- **Right:** `src/domain/change.ts`, importable from `src/app-root/**` and `src/change-page/client/**`.
-- **Tell:** `eslint.config.js` naming the individual files it lets through instead of pointing at
-  `src/domain/`.
-
-## 10. Read the interface before the implementation
-
-A module's exports are its surface, and the compiler already checks that surface against the
-callers. `bun run outline <file|directory>` prints the exported names, full types and doc
-summaries with every body elided, so a change is planned against the contract rather than
-discovered by reading the implementation. An Effect signature carries its error and requirement
-channels (`Effect<A, E, R>`), which is what makes the outline normally enough.
-
-- **Right:** `bun run outline src/change/server` before adding a route that calls it.
-- **Tell:** opening `store.ts` to find out what `change/server/index.ts` promises, or a module
-  whose only readable description is its implementation.
-
-## 11. Colours are named in one place
-
-Every colour the page uses is a token in `:root` (`src/app-root/styles.css`) — three surfaces, four
-foregrounds, the accents, and the tones derived from them. A rule that wants something between two
-of those mixes a token toward another (`color-mix(in srgb, var(--surface) 94%, var(--text))`) at
-`:root`, once, and reads the result by name. A hex in a rule is the tell that a tone was invented at
-the call site; the pair that follows is the same shade drifting in two directions.
-
-- **Right:** `background: var(--surface)`, and for a control's face `background: var(--raise)`.
-- **Right:** a new *level* of surface is a conversation about the palette, not a new hex — there are
-  three, and adding a fourth is a decision (see `docs/decisions/window-titlebar.md` for why the
-  navigation column and the window's own rows share one).
-- **Tell:** `#262b33` (or any other literal, and any `rgb(`) outside the `:root` block, and two
-  rules with slightly different shades of the same idea.
-
-The one colour outside that block is xterm's background (`src/terminals/client/TerminalPane.tsx`),
-which reads `--well` from the sheet rather than repeating it.
-
-## Checklist for a change
-
-- Does anything new read ambient state? If yes, pass it through the type instead.
-- Did you add a Promise wrapper? If yes, why — tests can use the Effect.
-- Did you put implementation somewhere other than its feature folder? If yes, say why in the
-  decision record.
-- Did you throw, or return a shape the caller must probe? Fail with the taxonomy.
-- Did you copy a helper? Put it where both callers already import from.
-- Is there a second name for a thing that already has one? Use the existing name.
-- Did you reach for a colour? Use the token, or add the derivation to `:root` where the others are.
+- Let names and types explain what code does. Use short comments for safety constraints,
+  lifecycle/consistency guarantees, intentional tolerances, and surprising external behavior.
+- Do not narrate assignments, label every pure function as pure, or explain the history of a
+  refactor. Preserve useful constraints when changing code; update them rather than deleting them.
+- Do not claim guarantees the implementation does not establish. Put important guarantees in
+  tests as well as contracts.
+- Guides state current rules. Manuals describe current product behavior. The refactor plan owns
+  temporary migration details. Do not duplicate the same rule across all three.
+- A package's `AGENTS.md` should briefly list ownership, non-ownership, public entrypoints,
+  allowed dependencies, non-obvious invariants, and verification. Link repository-wide guidance.
+- TODOs name a concrete missing behavior or decision. Remove completed TODOs and plans instead
+  of retaining a narrative archive.

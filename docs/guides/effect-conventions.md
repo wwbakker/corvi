@@ -1,90 +1,96 @@
 # Effect conventions
 
-> **Kind:** guide · **Status:** active
+Status: accepted target. Use Effect **3** APIs from the installed version; OpenCode's Effect 4
+beta examples are architectural references, not compatible API recipes.
 
-This is the standing contract for server-side `src/` code. It exists so that changes land as
-one coherent whole instead of one accent each. If a change needs to break a rule here, it says
-so first and this file is changed — the code follows the file, never the other way round.
+## Purity and execution
 
-The rulings behind these rules are recorded in
-[`../decisions/effect-migration.md`](../decisions/effect-migration.md).
+- Keep pure calculations synchronous. Use immutable data and explicit inputs; use `Either` or
+  another explicit result for expected validation failures.
+- Effectful operations return descriptions of work. Constructing an Effect must not already
+  start I/O; suspend eager Promise/native calls inside the appropriate Effect constructor.
+- Importing a module does not read files/environment configuration, start timers, install
+  integrations, run Effects, or allocate mutable application registries.
+- `Effect.run*` and `ManagedRuntime` belong at application entrypoints, test harnesses, or explicit
+  foreign-callback adapters. Domain code composes Effects instead of executing them.
+- Promise adapters are legitimate at browser/native/library boundaries, not duplicate backend
+  APIs maintained for tests.
 
-## Scope
+## Services and Layers
 
-Server-side `src/` only. Excluded, deliberately:
+Define an explicit service interface and an Effect 3 `Context.Tag`. Export model/service entrypoints
+separately from concrete adapter Layers. Give Layers explicit output, error, and requirement types.
 
-- `src/terminals/server/session.ts` — the pty bridge stays as-is; it speaks events, not logic.
-- `src/app-root/**`, a module's `client/**`, an extension's `client.tsx` and the host's browser
-  contract (`src/extension-host/client.tsx`) — the React UI never sees Effect.
-- `src/capabilities/web.ts` — the sync guard stays as-is.
-- `src/capabilities/os.ts` — platform detection stays as-is.
-- Purely synchronous code (pure string logic, pure data shaping) — no effect wrapper buys
-  anything there.
+Acquire stable dependencies while constructing a service and capture them in its implementation.
+Operations then require only genuine per-call context; construction requirements remain visible in
+the Layer type. Use parameters for operation-specific values such as a workspace or repository ref.
 
-## Style
+Missing required services must not fall back to real processes, the filesystem, or a default
+workspace. `Effect.serviceOption` is only for genuinely optional behavior. Supply defaults explicitly
+at composition. Tests replace services through Layers, never ambient lookup tricks.
 
-- Sequential effectful code is written with `Effect.gen` and `yield*`; composition chains use
-  `pipe`. Do not nest `Effect.map`/`Effect.flatMap` towers inside a `gen` block — pick one.
-- Errors are **typed values in the `E` channel**. Never `throw` across a module boundary; never
-  `Effect.die` to express a domain failure. Genuinely unexpected failures (a broken invariant,
-  a corrupted runtime state) remain untyped defects and are allowed to die.
+Use ordinary Layers and a small number of runtime roots. Shared instances are explicit in the
+composition. Do not create per-function runtimes or a custom dependency graph framework.
 
-## Naming
+## State and configuration
 
-A server function is named for what it does, never for the fact that it returns an Effect. There
-is no `Effect` suffix: `readChange`, `createChange`, `sh`, `swr`. When a synchronous sibling of
-the same operation exists, it takes the `Sync` suffix and the plain name stays with the Effect
-one — `readFile`/`readFileSync`, `reloadConfig`/`reloadConfigSync`,
-`settingsView`/`settingsViewSync` — so a name means the same thing whether or not the caller can
-wait.
+Application state is allocated when its owner is constructed. Use `Ref`, `SubscriptionRef`, caches,
+or private mutable structures as appropriate. Do not export mutable maps, arrays, or configuration
+objects for consumers to refill or reset.
 
-## Error taxonomy (`src/capabilities/effect/errors.ts`)
+Configuration services return immutable snapshots and explicit updates/streams. Decide whether an
+operation captures a snapshot or observes updates; do not change credentials midway through an
+operation by mutating a shared object. Workspace identity participates in cache/service identity
+where environments or credentials affect the answer.
 
-One small sealed tagged set, shared by every module. **No per-module error hierarchies beyond
-this** — if a failure does not fit, it is a defect, or it fits one of these with a message.
+Use Effect time services for time-dependent behavior and tests. Capture environment/configuration
+at a defined boundary, not through scattered `process.env` reads in domain operations.
 
-| Error          | Meaning                                   | Carries                                          |
-| -------------- | ----------------------------------------- | ------------------------------------------------ |
-| `NotFoundError`  | the thing asked about does not exist      | human-readable message (maps 404)                |
-| `BadRequestError`| the request itself is wrong               | human-readable message (maps 400)                |
-| `ConflictError`  | the state forbids it (409)                | message, optional `needsForce` payload           |
-| `CliError`       | an external CLI failed                    | `tool`, `command`, `stderr`, exit code           |
-| `DecodeError`    | Schema validation failed                  | message, `source`: request body / file / CLI JSON|
+## Resource lifetimes
 
-Each error carries a human-readable message, which is what a user sees. `errors.ts` holds data
-types and message formatting only; it knows nothing about HTTP.
+Declare an owner for every process, listener, subscription, timer, attachment, and background fiber.
+Acquire resources with `Effect.acquireRelease`/scoped Layers and register finalizers immediately.
+Use scoped fibers for background work; the owning scope controls their cancellation.
 
-## Services (`src/capabilities/effect/tags.ts`)
+An application owns its listeners, caches, and integration instances. Requests and PTY attachments
+have narrower scopes. A tmux session intended to outlive Corvi is not an attachment-owned resource:
+closing a socket releases the PTY client, not the persistent session.
 
-A `Workspace` service `Context.Tag` carries the workspace config object (the `Workspace` type
-in `src/domain/config.ts`) through a request.
+Adapt callbacks once, capturing the necessary runtime/services and cancellation. Unregister native
+listeners on cleanup. Do not restore ambient request context with undocumented globals.
 
-Code that may legitimately run outside a request scope (startup, caches) uses
-`Effect.serviceOption(Workspace)` and falls back to an `undefined` workspace and an empty env
-override. No tag lookup may fail outside a request scope.
+## Failure and interruption
 
-## Concurrency
+- Expected failures use domain-specific tagged errors. Prefer `catchTag` and explicit error mapping.
+- `never` in the E channel does not mean a computation cannot defect or be interrupted.
+- Do not use `orDie` to hide ordinary I/O failures a caller needs to handle. Unexpected invariant
+  failures may remain defects; diagnose them at the application boundary.
+- Never convert interruption to a successful empty result or ordinary business rejection with
+  a broad cause/defect catch. Preserve cancellation through adapters and workflows.
+- Fallbacks name a specific tolerated failure and its behavior. Missing data, unavailable data,
+  invalid data, and an empty value are distinct unless the contract deliberately says otherwise.
 
-- Hand-rolled queues and counters are `Effect.makeSemaphore` / `Effect.forEach` with an
-  explicit concurrency.
-- Timeouts are `Effect.timeout` with interruption, and whatever the effect spawned must be
-  **killed on interruption** — a timed-out `git` that keeps running is a leak, not a timeout.
+A timeout must cancel owned work, not merely stop awaiting it. Process adapters must specify
+termination, bounded shutdown, and output-drain behavior. They must never terminate unrelated
+processes or a persistent terminal session just because a client detached.
 
-## Schemas
+## Composition and concurrency
 
-- Effect Schema (`effect/Schema`) parses: `change.json`, `config.json`, request bodies, and CLI
-  `--json` output. Decode failures become `DecodeError`.
-- Deliberate tolerance is **explicit**: a documented silent fallback is `Schema.decode(...)`
-  piped through `Effect.orElseSucceed` (or the equivalent combinator) with a comment saying
-  which README behavior it preserves. Never a bare `as` cast — that is what the tolerance rules
-  exist to prevent.
+Use `Effect.gen` for sequential orchestration and pipelines for small transformations. Name
+important effectful operations for tracing using the installed version's APIs. Bind services to
+named values before invoking them; avoid nested service yields.
 
-## Verification (every task, before reporting done)
+Choose concurrency explicitly. Bound process/network fan-out, serialize conflicting mutations,
+and use Effect synchronization primitives instead of ad hoc Promise queues. Restrict
+uninterruptible regions to small state/finalizer transitions, never long network or CLI operations.
 
-```sh
-bun run typecheck && bun run lint && bun test
-```
+A cache's freshness policy is part of its contract. Destructive decisions revalidate the relevant
+facts; stale display data must not authorize removal, merging, or deployment. Log recoverable
+background failures without losing the last good value where that is the documented policy.
 
-Green means: typecheck passes, lint passes, and `bun test` is green (the WebKit page run, if
-chosen, skips itself where its bundle cannot launch). Workers never run
-`git commit`; the coordinator commits.
+## Foreign APIs
+
+Prefer suitable Effect platform services to new wrappers for filesystem, process, and HTTP I/O.
+Use the build tool to install and inspect a dependency before adopting its API. Keep unavoidable
+Promise/event-native adapters at the boundary. Runtime selection and native dependency loading
+belong in adapter entrypoints, not in pure models or service definitions.
