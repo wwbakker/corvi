@@ -27,7 +27,9 @@ to the target architecture.
 3. Keep behavior changes separate from structural changes. Internal APIs may be replaced;
    preserve user workflows and safety. Identify data migrations explicitly.
 4. Ask before changing package ownership, dependency direction, architectural rules, or
-   unresolved product behavior. Do not approve your own exception by editing a guide.
+   unresolved product behavior. Do not approve your own exception by editing a guide.repository/change
+   work, also read the [concrete contract design](docs/design/repositories-and-changes.md) and its
+   review status. Existing source layout, comments, and tests are evidence of behavior, not exceptions
 
 ## Non-negotiable boundaries
 

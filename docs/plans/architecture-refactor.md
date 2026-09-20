@@ -20,14 +20,14 @@ combine this work with an Effect major upgrade, database conversion, or new agen
 
 ## 1. Establish the executable baseline
 
-- [x] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
-- [x] Identify behavior tests for creation/start, review, completion/cancellation, settings,
+- [ ] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
+- [ ] Identify behavior tests for creation/start, review, completion/cancellation, settings,
       documents, integrations, terminal survival, and process cleanup.
-- [x] Separate behavior assertions from tests tied to global registries, private exports, and
+- [ ] Separate behavior assertions from tests tied to global registries, private exports, and
       custom-extension loading. Plan replacement coverage before deleting coupled tests.
-- [x] Author representative contracts and typechecked callers for repository queries, change
+- [ ] Author representative contracts and typechecked callers for repository queries, change
       associations/storage, working-directory resolution, and the lifecycle/terminal boundary.
-- [x] Owner review of the contracts, dependency graph, and deliberate behavior differences before
+- [ ] Owner review of the contracts, dependency graph, and deliberate behavior differences before
       moving files or starting package implementation.
 
 The [repository/change design](../design/repositories-and-changes.md) is the step-1 deliverable.
