@@ -116,10 +116,11 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `src/change/server/complete.ts` map the HTTP shapes (force question, veto, loose ends,
       after notices, the `completion.json` progress bridge) onto the workflow through the cutover
       adapters in `src/change/lifecycle-layer.ts`; the existing cancel/ideation/completion tests
-      pass. The create/start write paths remain on the legacy flows; the git provisioning
-      semantics they need now sit behind `repositories` (`provisionLinkedWorktree`,
-      `provisionInPlace`), so the remaining work is the start route, the Jira start step, and the
-      extension-host removal.
+      pass; **start now runs through it too** (`src/change/server/start.ts` maps the HTTP shape,
+      drops browse links, copies tooling, and still runs the `change:started` hooks for the Jira
+      step). **Create provisioning is explicit as well** (`src/change/provisioning.ts` replaces
+      the git `change:created` hook). What remains before the host can go: the Jira
+      `change:started` step and the completion/loose-end bridges.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.

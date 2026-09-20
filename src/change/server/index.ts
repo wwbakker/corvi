@@ -28,7 +28,7 @@ export {
 
 export { createChange, type CreateChangeInput } from "./create.ts";
 
-export { startChange } from "./start.ts";
+export { startChange, startChangeWithWorkflow, type Started } from "./start.ts";
 
 export {
   completeChange,

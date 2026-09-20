@@ -28,6 +28,7 @@ import {
   layer as changeLifecycleLayer,
   type PullRequestState,
 } from "@corvi/workflows/lifecycle"
+import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
 import type { Change as LegacyChange } from "../domain/change.ts"
 import type { Workspace as WorkspaceShape } from "../domain/config.ts"
 import { Shell, Workspace } from "../capabilities/effect/tags.ts"
@@ -259,6 +260,29 @@ export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succee
       ),
     ),
 })
+
+/** The repositories capability over the native link store, without the lifecycle services. */
+export const repositoriesLayer = (roots: {
+  readonly root: string;
+  readonly archiveRoot: string;
+}): Layer.Layer<Repositories | ChangeRepositories> =>
+  Layer.merge(
+    changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+    repositoriesOverShell,
+  )
+
+/** The start workflow over the native store and the real Git adapter: no provider ports are
+ * needed, because its provisioning is all concrete checkouts. */
+export const changeWorkLayer = (
+  roots: { readonly root: string; readonly archiveRoot: string },
+  options: { readonly progress?: Layer.Layer<OperationProgress> } = {},
+): Layer.Layer<ChangeWork> =>
+  changeWorkCapabilityLayer.pipe(
+    Layer.provide(changesNodeLayer),
+    Layer.provide(storeLayer(roots)),
+    Layer.provide(repositoriesOverShell),
+    Layer.provide(options.progress ?? progressLayer({ root: roots.root })),
+  )
 
 /** The lifecycle over the native store, the real Git adapter, and the cutover adapters. */
 export const lifecycleLayer = (
