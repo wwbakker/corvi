@@ -138,6 +138,34 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return ref.startsWith(prefix) ? ref.slice(prefix.length) || undefined : undefined
     })
 
+    const hasRemote = Effect.fn("Git.repo.hasRemote")(function* (
+      repository: Git.Repository,
+      remote?: string,
+    ) {
+      const result = yield* run("discover", repository.worktree, ["remote"])
+      if (result.exitCode !== 0) return false
+      const names = result.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+      return remote ? names.includes(remote) : names.length > 0
+    })
+
+    const defaultBranch = Effect.fn("Git.history.defaultBranch")(function* (repository: Git.Repository) {
+      const remote = yield* defaultRemoteBranch(repository)
+      if (remote) return `origin/${remote}`
+      for (const name of ["main", "master"]) {
+        const exists = yield* run("upstream", repository.worktree, [
+          "show-ref",
+          "--verify",
+          "--quiet",
+          `refs/heads/${name}`,
+        ])
+        if (exists.exitCode === 0) return name
+      }
+      return undefined
+    })
+
     const statusDirty = Effect.fn("Git.status.dirty")(function* (repository: Git.Repository) {
       const result = yield* run("status", repository.worktree, ["status", "--porcelain"])
       if (result.exitCode !== 0)
@@ -228,6 +256,35 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         })
     })
 
+    const fetchRemote = Effect.fn("Git.sync.fetchRemote")(function* (
+      repository: Git.Repository,
+      remote = "origin",
+    ) {
+      const result = yield* run("checkout", repository.worktree, ["fetch", "--quiet", remote])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "checkout",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git fetch failed",
+        })
+    })
+
+    const switchToBranch = Effect.fn("Git.sync.switchToBranch")(function* (
+      repository: Git.Repository,
+      input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
+    ) {
+      const args = input.create
+        ? ["switch", "--create", input.branch, ...(input.base ? ["--no-track", input.base] : [])]
+        : ["switch", input.branch]
+      const result = yield* run("checkout", repository.worktree, args)
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "checkout",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git switch failed",
+        })
+    })
+
     const create = Effect.fn("Git.worktree.create")(function* (input: {
       readonly repository: Git.Repository
       readonly directory: AbsolutePath
@@ -293,13 +350,48 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         )
     })
 
+    const addWorktree = Effect.fn("Git.worktree.add")(function* (input: {
+      readonly repository: Git.Repository
+      readonly directory: AbsolutePath
+      readonly branch: string
+      readonly base?: string
+      readonly create: boolean
+    }) {
+      const args = input.create
+        ? [
+            "-c",
+            "branch.autoSetupMerge=false",
+            "worktree",
+            "add",
+            "-b",
+            input.branch,
+            input.directory,
+            ...(input.base ? [input.base] : []),
+          ]
+        : ["worktree", "add", input.directory, input.branch]
+      const result = yield* run("create", input.repository.worktree, args)
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "create",
+          directory: input.directory,
+          message: result.stderr.trim() || "git worktree add failed",
+        })
+      const repository = yield* discover(input.directory)
+      if (repository) return repository
+      return yield* new Git.OperationError({
+        operation: "create",
+        directory: input.directory,
+        message: "created worktree could not be opened",
+      })
+    })
+
     return {
-      repo: { discover },
-      history: { branch, head, branchExists, upstream, defaultRemoteBranch },
+      repo: { discover, hasRemote },
+      history: { branch, head, branchExists, upstream, defaultRemoteBranch, defaultBranch },
       status: { dirty: statusDirty },
       integration: { proven: integrationProven },
-      sync: { checkoutRemoteBranch, deleteBranch },
-      worktree: { create, remove, list },
+      sync: { checkoutRemoteBranch, deleteBranch, fetchRemote, switchToBranch },
+      worktree: { create, remove, list, add: addWorktree },
     }
   }),
 )

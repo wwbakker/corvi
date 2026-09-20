@@ -5,12 +5,19 @@
  * (plan step 6), these layers are replaced, not extended. Nothing here imports a workflow
  * implementation from an integration.
  */
-import { Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 
 import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
+import type { OperationProgress, OperationStep } from "@corvi/changes/progress"
 import { ChangeRepositories } from "@corvi/changes/repositories"
 import type { Change as CorviChange, Repository } from "@corvi/contracts/changes"
-import { layer as repositoriesNodeLayer } from "@corvi/repositories/node"
+import { Repositories, layer as repositoriesCapabilityLayer } from "@corvi/repositories"
+import {
+  Command,
+  CommandError,
+  gitLayer,
+  nodeCommand,
+} from "@corvi/repositories/node"
 import {
   ChangeLifecycle,
   Issues,
@@ -23,12 +30,13 @@ import {
 } from "@corvi/workflows/lifecycle"
 import type { Change as LegacyChange } from "../domain/change.ts"
 import type { Workspace as WorkspaceShape } from "../domain/config.ts"
+import { Shell, Workspace } from "../capabilities/effect/tags.ts"
 import { messageOf } from "../capabilities/effect/support.ts"
-import { capabilitiesLayer } from "../extension-host/services.ts"
+import { capabilitiesLayer, ChangesLive } from "../extension-host/services.ts"
 import { completionStepsFor, looseEndContributorsFor } from "../extension-host/index.ts"
 import { stopTerminal } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "../vendors/github.ts"
-import { config, workspaceOf } from "../workspace/server/index.ts"
+import { config, workspaceById, workspaceOf } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
 /** The provider functions speak the old domain shape; the store keeps both in one record. */
@@ -50,11 +58,48 @@ const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChan
 const providerError = (operation: string, error: unknown): ProviderError =>
   new ProviderError({ provider: "github", operation, message: messageOf(error), cause: error })
 
+/** Git commands through the app's Shell when one is in context — tests script it, and a host
+ * may provide it — and through the direct spawner otherwise, mirroring `sh`'s own fallback. */
+const shellCommandLayer: Layer.Layer<Command> = Layer.effect(
+  Command,
+  Effect.gen(function* () {
+    const shell = yield* Effect.serviceOption(Shell)
+    const workspace = yield* Effect.serviceOption(Workspace)
+    return {
+      run: (input) => {
+        if (Option.isNone(shell)) return nodeCommand.run(input)
+        const run = shell.value.run([input.program, ...input.args], { cwd: input.cwd })
+        const withWorkspace = Effect.provideService(
+          run,
+          Workspace,
+          Option.isSome(workspace) ? workspace.value : workspaceById(undefined),
+        )
+        return withWorkspace.pipe(
+          Effect.map((result) => ({
+            exitCode: result.code,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          })),
+          Effect.mapError(
+            (cause) =>
+              new CommandError({ program: input.program, message: cause.message, cause }),
+          ),
+        )
+      },
+    }
+  }),
+)
+
+/** The repositories capability over the real Git adapter, whose commands honour the Shell seam. */
+const repositoriesOverShell: Layer.Layer<Repositories> = repositoriesCapabilityLayer.pipe(
+  Layer.provide(gitLayer),
+  Layer.provide(shellCommandLayer),
+)
+
 /** The GitHub vendor behind the pull-request port. `fresh` is the click path: it forgets the
- * change's cached reads and fetches before deciding. */
-export const pullRequestsLayer = (
-  workspace: WorkspaceShape,
-): Layer.Layer<PullRequests, never, ChangeRepositories> =>
+ * change's cached reads and fetches before deciding. Only `Changes` is provided here — never a
+ * Shell — so a scripted Shell in context still sees every command. */
+export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepositories> =>
   Layer.effect(
     PullRequests,
     Effect.gen(function* () {
@@ -104,7 +149,7 @@ export const pullRequestsLayer = (
             const observed = yield* (fresh
               ? refreshReadiness(legacy, link.originalLocation)
               : mergeReadiness(legacy, link.originalLocation)
-            ).pipe(Effect.provide(capabilitiesLayer(workspace, "github")), Effect.mapError((e) => providerError("readiness", e)))
+            ).pipe(Effect.provide(ChangesLive), Effect.mapError((e) => providerError("readiness", e)))
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
@@ -117,7 +162,7 @@ export const pullRequestsLayer = (
             const link = yield* linkFor(change, repository.repositoryId)
             const legacy = yield* legacyFor(change)
             return yield* mergePr(legacy, link.originalLocation, number).pipe(
-              Effect.provide(capabilitiesLayer(workspace, "github")),
+              Effect.provide(ChangesLive),
               Effect.mapError((e) => providerError("merge", e)),
             )
           }),
@@ -156,13 +201,23 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
         )
 
       return {
-        transition: (change) =>
+        plan: (change) =>
           Effect.gen(function* () {
             const legacy = yield* legacyFor(change)
-            const notes: string[] = []
-            for (const { name, contribution } of completionStepsFor(workspace)) {
+            const steps: OperationStep[] = []
+            for (const { contribution } of completionStepsFor(workspace)) {
               const planned = contribution.plan(legacy, { config, workspace })
               if (!planned) continue
+              steps.push({ id: planned.id, label: planned.label, state: "waiting" })
+            }
+            return steps
+          }),
+        run: ({ change, stepId }) =>
+          Effect.gen(function* () {
+            const legacy = yield* legacyFor(change)
+            for (const { name, contribution } of completionStepsFor(workspace)) {
+              const planned = contribution.plan(legacy, { config, workspace })
+              if (planned?.id !== stepId) continue
               const note = yield* contribution.run(legacy).pipe(
                 Effect.provide(capabilitiesLayer(workspace, name)),
                 Effect.mapError(
@@ -175,9 +230,9 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
                     }),
                 ),
               )
-              if (typeof note === "string") notes.push(note)
+              return typeof note === "string" ? note : undefined
             }
-            return notes.length > 0 ? notes.join("; ") : undefined
+            return undefined
           }),
         current: (change) =>
           Effect.gen(function* () {
@@ -209,13 +264,14 @@ export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succee
 export const lifecycleLayer = (
   workspace: WorkspaceShape,
   roots: { readonly root: string; readonly archiveRoot: string },
+  options: { readonly progress?: Layer.Layer<OperationProgress> } = {},
 ): Layer.Layer<ChangeLifecycle> =>
   changeLifecycleLayer.pipe(
-    Layer.provide(pullRequestsLayer(workspace)),
+    Layer.provide(pullRequestsLayer()),
     Layer.provide(issuesLayer(workspace)),
     Layer.provide(terminalSessionsLayer),
     Layer.provide(changesNodeLayer),
     Layer.provide(storeLayer(roots)),
-    Layer.provide(repositoriesNodeLayer),
-    Layer.provide(progressLayer({ root: roots.root })),
+    Layer.provide(repositoriesOverShell),
+    Layer.provide(options.progress ?? progressLayer({ root: roots.root })),
   )

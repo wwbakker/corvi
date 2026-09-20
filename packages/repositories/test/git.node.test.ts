@@ -402,3 +402,58 @@ test("removeBranchIfIntegrated deletes integrated branches and keeps the rest", 
 
   expect(await cleanup("never-existed")).toBe("absent")
 })
+
+test("provisionLinkedWorktree creates a worktree on a new branch from the remote default", async () => {
+  const dir = await makeRepo("provision-repo")
+  const worktree = join(tmp, "provision-wt")
+  await withRepositories(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      yield* repositories.provisionLinkedWorktree({
+        source: AbsolutePath.make(dir),
+        directory: AbsolutePath.make(worktree),
+        branch: "feature",
+      })
+    }),
+  )
+  expect(git(worktree, "symbolic-ref", "--short", "HEAD")).toBe("feature")
+})
+
+test("provisionInPlace creates the branch in place and leaves a dirty checkout alone", async () => {
+  const dir = await makeRepo("inplace-repo")
+  const created = await withRepositories(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionInPlace({
+        source: AbsolutePath.make(dir),
+        branch: "feature",
+      })
+    }),
+  )
+  expect(created).toBe("created")
+  expect(git(dir, "symbolic-ref", "--short", "HEAD")).toBe("feature")
+
+  const again = await withRepositories(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionInPlace({
+        source: AbsolutePath.make(dir),
+        branch: "feature",
+      })
+    }),
+  )
+  expect(again).toBe("already")
+
+  const dirtyDir = await makeRepo("inplace-dirty-repo")
+  await writeFile(join(dirtyDir, "wip.txt"), "x\n")
+  const dirty = await withRepositories(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionInPlace({
+        source: AbsolutePath.make(dirtyDir),
+        branch: "feature",
+      })
+    }),
+  )
+  expect(dirty).toBe("skipped-dirty")
+})

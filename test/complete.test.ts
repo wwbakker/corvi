@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Change, CompletionStep } from "../src/domain/change.ts";
@@ -210,6 +210,11 @@ type CompletionShellOptions = {
 const completionShell = (opts: CompletionShellOptions): FakeShell =>
   fakeShell((cmd) => {
     const line = cmd.join(" ");
+    if (line === "git status --porcelain") {
+      // The new capability reads plain porcelain; the legacy options describe a v2 record.
+      return opts.status && !opts.status.startsWith("#") ? " M changed\n" : "";
+    }
+    if (line === "git symbolic-ref refs/remotes/origin/HEAD") return "refs/remotes/origin/main";
     if (line === "git worktree list --porcelain") {
       return opts.worktree ? worktreeAt(opts.worktree, opts.branch ?? "") : "";
     }
@@ -343,6 +348,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   const change = await runEffect(
     createChange({ id: "PROJ-OK", branch: "PROJ-OK", repos: [repo] }),
   );
+  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-ok"),
     branch: change.branch,
@@ -559,6 +565,7 @@ test("completeChange: a pull request that needs no review completes and is merge
   const change = await runEffect(
     createChange({ id: "PROJ-NOREVIEW", branch: "PROJ-NOREVIEW", repos: [repo] }),
   );
+  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-noreview"),
     branch: change.branch,
@@ -579,6 +586,7 @@ test("completeChange: force completes despite an unapproved PR, and journals the
   const change = await runEffect(
     createChange({ id: "PROJ-FORCE", branch: "PROJ-FORCE", repos: [repo] }),
   );
+  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-force"),
     branch: change.branch,
@@ -625,6 +633,7 @@ test("completeChange: force still refuses uncommitted work", async () => {
   const change = await runEffect(
     createChange({ id: "PROJ-DIRTYFORCE", branch: "PROJ-DIRTYFORCE", repos: [repo] }),
   );
+  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-dirtyforce"),
     branch: change.branch,

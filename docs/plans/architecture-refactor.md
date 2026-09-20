@@ -112,10 +112,14 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
       partial-failure reporting. Keep force/acknowledgement and dirty-worktree protections.
       `ChangeLifecycle` exists in `@corvi/workflows/lifecycle` with scripted-port tests, and
-      **cancel now runs through it** in the app: `src/change/server/cancel.ts` maps the HTTP shape
-      (force question, veto, loose ends, after notices) onto the workflow through the cutover
-      adapters in `src/change/lifecycle-layer.ts`, and the existing cancel/ideation tests pass.
-      Completion and the create/start write paths remain on the legacy flows.
+      **cancel and complete now run through it** in the app: `src/change/server/cancel.ts` and
+      `src/change/server/complete.ts` map the HTTP shapes (force question, veto, loose ends,
+      after notices, the `completion.json` progress bridge) onto the workflow through the cutover
+      adapters in `src/change/lifecycle-layer.ts`; the existing cancel/ideation/completion tests
+      pass. The create/start write paths remain on the legacy flows; the git provisioning
+      semantics they need now sit behind `repositories` (`provisionLinkedWorktree`,
+      `provisionInPlace`), so the remaining work is the start route, the Jira start step, and the
+      extension-host removal.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.

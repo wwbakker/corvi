@@ -32,6 +32,9 @@ export type RemovalAssessment =
 /** What happened to the branch after a checkout was removed. */
 export type BranchCleanup = "deleted" | "kept" | "absent"
 
+/** What provisioning an in-place checkout did, including the dirty case it leaves alone. */
+export type InPlaceOutcome = "already" | "switched" | "created" | "skipped-dirty"
+
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
   readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree"
   readonly directory: string
@@ -68,6 +71,21 @@ export interface Interface {
     readonly repository: AbsolutePath
     readonly branch: string
   }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
+  /** Creates the linked worktree the change asked for: an existing branch is attached, a missing
+   * one is created from `base` (the repository default when absent) after a fetch. */
+  readonly provisionLinkedWorktree: (input: {
+    readonly source: AbsolutePath
+    readonly directory: AbsolutePath
+    readonly branch: string
+    readonly base?: string
+  }) => Effect.Effect<void, NotARepository | CheckoutError>
+  /** Switches the source checkout itself to the change's branch, creating it when needed; a
+   * dirty checkout is left exactly as it is. */
+  readonly provisionInPlace: (input: {
+    readonly source: AbsolutePath
+    readonly branch: string
+    readonly base?: string
+  }) => Effect.Effect<InPlaceOutcome, NotARepository | CheckoutError>
 }
 
 export class Repositories extends Context.Tag("corvi/Repositories")<Repositories, Interface>() {}
@@ -297,6 +315,83 @@ export const layer = Layer.effect(
       return (yield* exists()) ? ("kept" as const) : ("absent" as const)
     })
 
-    return { inspectCheckout, assessRemoval, removeBranchIfIntegrated, switchBranch, addWorktree, removeWorktree }
+    const provisionLinkedWorktree = Effect.fn("Repositories.provisionLinkedWorktree")(function* (input: {
+      readonly source: AbsolutePath
+      readonly directory: AbsolutePath
+      readonly branch: string
+      readonly base?: string
+    }) {
+      const repository = yield* discover(input.source, "add-worktree")
+      // A checkout already at the destination is the state this wanted.
+      const existing = yield* inspect(git.repo.discover(input.directory), input.source)
+      if (existing) return
+      const exists = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
+      if (exists) {
+        yield* inspect(
+          git.worktree.add({
+            repository,
+            directory: input.directory,
+            branch: input.branch,
+            create: false,
+          }),
+          input.source,
+        )
+        return
+      }
+      const base =
+        input.base ?? (yield* inspect(git.history.defaultBranch(repository), input.source))
+      if (yield* inspect(git.repo.hasRemote(repository), input.source))
+        yield* inspect(git.sync.fetchRemote(repository), input.source).pipe(Effect.either)
+      yield* inspect(
+        git.worktree.add({
+          repository,
+          directory: input.directory,
+          branch: input.branch,
+          create: true,
+          ...(base ? { base } : {}),
+        }),
+        input.source,
+      )
+    })
+
+    const provisionInPlace = Effect.fn("Repositories.provisionInPlace")(function* (input: {
+      readonly source: AbsolutePath
+      readonly branch: string
+      readonly base?: string
+    }) {
+      const repository = yield* discover(input.source, "switch")
+      const current = yield* inspect(git.history.branch(repository), input.source)
+      if (current === input.branch) return "already" as const
+      if (yield* inspect(git.status.dirty(repository), input.source)) return "skipped-dirty" as const
+      const exists = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
+      if (exists) {
+        yield* inspect(git.sync.switchToBranch(repository, { branch: input.branch }), input.source)
+        return "switched" as const
+      }
+      const base =
+        input.base ?? (yield* inspect(git.history.defaultBranch(repository), input.source))
+      if (yield* inspect(git.repo.hasRemote(repository), input.source))
+        yield* inspect(git.sync.fetchRemote(repository), input.source).pipe(Effect.either)
+      yield* inspect(
+        git.sync.switchToBranch(repository, {
+          branch: input.branch,
+          create: true,
+          ...(base ? { base } : {}),
+        }),
+        input.source,
+      )
+      return "created" as const
+    })
+
+    return {
+      inspectCheckout,
+      assessRemoval,
+      removeBranchIfIntegrated,
+      provisionLinkedWorktree,
+      provisionInPlace,
+      switchBranch,
+      addWorktree,
+      removeWorktree,
+    }
   }),
 )

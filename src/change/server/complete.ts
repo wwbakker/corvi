@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { Effect, Either } from "effect";
+import { Effect, Either, Layer, Ref } from "effect";
 import type {
   Change,
   Completion,
@@ -10,17 +10,10 @@ import type {
 } from "../../domain/change.ts";
 import { isIdeation } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
-import { mergeReadiness, mergePr, refreshReadiness, forgetPrs } from "../../vendors/github.ts";
+import { mergeReadiness, refreshReadiness, forgetPrs } from "../../vendors/github.ts";
 import type { Changes } from "../../extension-host/api/capabilities.ts";
-import { removeWorktree, unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
-import {
-  archiveChange,
-  changeDir,
-  readSidecar,
-  writeChange,
-  writeSidecar,
-} from "./store.ts";
-import { stopTerminal } from "../../terminals/server/index.ts";
+import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
+import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
 import { config } from "../../workspace/server/index.ts";
 import {
   afterChange,
@@ -28,15 +21,29 @@ import {
   completionStepsFor,
   type ProvisionResult,
 } from "../../extension-host/index.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
+import { ChangeRepositories } from "@corvi/changes/repositories";
+import { ChangeStoreError } from "@corvi/changes/errors";
+import { layer as changesNodeLayer, storeLayer } from "@corvi/changes/node";
+import { OperationProgress } from "@corvi/changes/progress";
+import { ChangeId, type Repository } from "@corvi/contracts/changes";
+import {
+  ChangeLifecycle,
+  type Acknowledgement,
+  type LifecycleOutcome,
+  type LifecycleReason,
+  type OutstandingPullRequest,
+} from "@corvi/workflows/lifecycle";
 import {
   BadRequestError,
   DecodeError,
+  NotFoundError,
+  isIweError,
   type CliError,
   type IweError,
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
+import { lifecycleLayer } from "../lifecycle-layer.ts";
 
 // The page reads the same completion types; they live in the domain so both halves agree.
 export type { Completion, CompletionReason, CompletionRefusal };
@@ -177,171 +184,269 @@ const plannedContributions = (change: Change): CompletionStep[] =>
       contribution.plan(change, { config, workspace: workspaceOf(change) }))
     .filter((s): s is CompletionStep => Boolean(s));
 
+/** The completion journal while the workflow runs: the page polls `completion.json`, so this
+ * adapter keeps writing that shape from the workflow's steps. */
+const completionProgressLayer = (
+  changeId: string,
+  ref: Ref.Ref<CompletionProgress>,
+): Layer.Layer<OperationProgress> =>
+  Layer.succeed(OperationProgress, {
+    record: ({ step }) =>
+      Effect.gen(function* () {
+        yield* Ref.update(ref, (progress): CompletionProgress => {
+          const index = progress.steps.findIndex((existing) => existing.id === step.id)
+          const steps = [...progress.steps]
+          const existing = steps[index]
+          if (existing !== undefined)
+            steps[index] = {
+              ...existing,
+              state: step.state,
+              ...(step.detail ? { detail: step.detail } : {}),
+            }
+          else
+            steps.push({
+              id: step.id,
+              label: step.label,
+              state: step.state,
+              ...(step.detail ? { detail: step.detail } : {}),
+            })
+          return { ...progress, steps }
+        })
+        yield* writeProgress(changeId, ref)
+      }),
+  })
+
+const writeProgress = (
+  changeId: string,
+  ref: Ref.Ref<CompletionProgress>,
+): Effect.Effect<void, ChangeStoreError> =>
+  Effect.flatMap(Ref.get(ref), (progress) =>
+    save(changeId, progress).pipe(
+      Effect.mapError(
+        (error) =>
+          new ChangeStoreError({
+            changeId: ChangeId.make(changeId),
+            operation: "write",
+            message: error.message,
+            cause: error,
+          }),
+      ),
+    ),
+  )
+
+const finalizeProgress = (
+  changeId: string,
+  ref: Ref.Ref<CompletionProgress>,
+  error?: string,
+): Effect.Effect<void, ChangeStoreError> =>
+  Effect.gen(function* () {
+    yield* Ref.update(ref, (progress): CompletionProgress => ({
+      ...progress,
+      finishedAt: new Date().toISOString(),
+      ...(error ? { error } : {}),
+    }))
+    yield* writeProgress(changeId, ref)
+  })
+
+const toLegacyReasons = (reasons: readonly LifecycleReason[]): CompletionReason[] =>
+  reasons.map((reason) => ({ text: reason.text, kind: reason.kind }))
+
+const toLegacyToMerge = (
+  links: readonly Repository[],
+  outstanding: readonly OutstandingPullRequest[],
+): Completion["toMerge"] =>
+  outstanding.flatMap((pullRequest) => {
+    const link = links.find(
+      (entry) => entry.repositoryId === pullRequest.repository.repositoryId,
+    )
+    return link ? [{ repo: link.originalLocation, number: pullRequest.number }] : []
+  })
+
+const isAcknowledgementCode = (
+  code: LifecycleReason["code"],
+): code is Acknowledgement["code"] =>
+  code === "review-pending" ||
+  code === "unpushed" ||
+  code === "ownership-unverified" ||
+  code === "shared-worktree" ||
+  code === "provider-veto"
+
+const acknowledgementsFor = (reasons: readonly LifecycleReason[]): readonly Acknowledgement[] =>
+  reasons.flatMap((reason) =>
+    reason.kind === "forceable" && isAcknowledgementCode(reason.code)
+      ? [{ code: reason.code, subject: reason.subject, facts: reason.facts }]
+      : [],
+  )
+
+const errorDetail = (error: unknown): string =>
+  typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message: unknown }).message)
+    : String(error)
+
+/** The transport boundary for this operation: capability failures become the taxonomy the route
+ * mapper knows; the workflow and capability errors stay typed behind it. */
+const asIwe = (error: unknown): IweError => {
+  if (isIweError(error)) return error
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    const tag = String((error as { _tag: unknown })._tag)
+    const raw = "message" in error ? (error as { message: unknown }).message : undefined
+    const message = raw ? String(raw) : tag
+    return tag === "ChangeNotFound"
+      ? new NotFoundError({ message })
+      : new BadRequestError({ message })
+  }
+  return new BadRequestError({ message: messageOf(error) })
+}
+
 /**
- * Merge every outstanding pull request and close the ticket. Checks readiness fresh first: a
+ * Merge every outstanding pull request and close the ticket, through the lifecycle workflow.
+ * Readiness is checked fresh inside the workflow; the app adapter keeps the old protocol: a
  * change that is not ready comes back as `NotReady` for the page to acknowledge (`force` waives
- * every forceable reason — unmerged PRs, unpushed commits — after the page made each one
- * explicit). A hard reason — an idea, uncommitted work — fails even with force, because no
- * acknowledgement makes it go away; an extension veto is discovered after the check and likewise
- * fails. The waived reasons are journaled and reported as notes.
+ * every forceable reason after the page made each one explicit), a hard reason fails even with
+ * force, and the extension veto runs before anything irreversible.
  *
- * Every step is written to disk as it starts and as it finishes, so a completion that stops half
- * way says where it stopped — to a page opened afterwards, or after a restart. Running it again
- * picks up what is left: merges already done are skipped.
+ * The `completion.json` journal is written as each workflow step runs, so a completion that stops
+ * half way says where it stopped — to a page opened afterwards, or after a restart.
  */
 export const completeChange = (
   change: Change,
   force = false,
 ): Effect.Effect<CompletionResult, IweError, Changes> =>
   Effect.gen(function* () {
-    // Fresh, and before anything is written: a decision about whether to start is not a completion
-    // that started and stopped. `completionOf` also answers for an idea without the CLI lookups.
-    const completion = yield* completionOf(change, true);
-    const overridden = completion.tagged.filter((r) => r.kind === "forceable").map((r) => r.text);
-    const hard = completion.tagged.filter((r) => r.kind === "hard").map((r) => r.text);
-    if (!completion.ready && !force) {
-      return {
-        _tag: "NotReady" as const,
-        refusal: { reasons: completion.tagged, toMerge: completion.toMerge },
-      };
-    }
-    // Forced, but something no waiver reaches is unmet — an idea, uncommitted work. An error,
-    // not a refusal: acknowledging reasons cannot make these go away.
-    if (!completion.ready && hard.length > 0) {
-      return yield* new BadRequestError({
-        message: `cannot complete: ${completion.reasons.join("; ")}`,
-      });
-    }
-    // Written now that it will run: the record that a completion is in progress. Forced from the
-    // start, so a retry reads the mode from the journal rather than the request.
-    const progress: CompletionProgress = {
+    const ref = yield* Ref.make<CompletionProgress>({
       startedAt: new Date().toISOString(),
       ...(force ? { forced: true as const } : {}),
-      steps: [{ id: "check", label: "check every pull request is ready", state: "running" }],
-    };
-    yield* save(change.id, progress);
-    const checked = progress.steps[0]!;
-    const notes: string[] =
-      force && overridden.length > 0
-        ? [`completed with overrides: ${overridden.join("; ")}`]
-        : [];
-    if (force && overridden.length > 0) {
-      progress.overridden = overridden;
-      checked.detail = `overridden: ${overridden.join("; ")}`;
-    }
-    // The before-hooks run now, with readiness proven and nothing irreversible done: a veto here
-    // leaves the change exactly as it was. These see the change, not a draft — there is nothing
-    // to patch about a completion — so their only move is to fail. The journal records the veto
-    // rather than leaving a completion looking like it is still checking.
-    const vetoed = yield* Effect.either(beforeChange("change:completing", change));
-    if (Either.isLeft(vetoed)) {
-      checked.state = "failed";
-      checked.detail = messageOf(vetoed.left);
-      progress.error = messageOf(vetoed.left);
-      progress.finishedAt = new Date().toISOString();
-      yield* save(change.id, progress);
-      return yield* vetoed.left;
-    }
-    checked.state = "done";
-    // The extensions' steps, planned once: named in the journal before anything runs, and run
-    // from that plan so it cannot promise one thing and do another.
-    const workspace = workspaceOf(change);
-    const contributions = completionStepsFor(workspace)
-      .map(({ name, contribution }) => ({
-        name,
-        contributor: contribution,
-        planned: contribution.plan(change, { config, workspace }),
+      steps: [],
+    })
+    const workspace = workspaceOf(change)
+    const roots = { root: root(), archiveRoot: archiveRoot() }
+    const layer = Layer.merge(
+      lifecycleLayer(workspace, roots, {
+        progress: completionProgressLayer(change.id, ref),
+      }),
+      changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+    )
+    return yield* runCompletion(change, ref, force).pipe(Effect.provide(layer))
+  })
+
+const runCompletion = (
+  change: Change,
+  ref: Ref.Ref<CompletionProgress>,
+  force: boolean,
+): Effect.Effect<CompletionResult, IweError, ChangeLifecycle | ChangeRepositories> =>
+  Effect.gen(function* () {
+    const changeId = ChangeId.make(change.id)
+    const lifecycle = yield* ChangeLifecycle
+    const repositoryLinks = yield* ChangeRepositories
+    const links = yield* repositoryLinks
+      .listRepositories(changeId)
+      .pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })))
+
+    // Fresh, and before anything is written: a refusal is a dialog, not a completion that
+    // started and stopped. The same assessment is handed to the workflow, so the click path
+    // pays for one readiness check, not two.
+    const assessment = yield* lifecycle.assessCompletion(changeId, { fresh: true })
+    if (assessment._tag === "Blocked" && !force)
+      return {
+        _tag: "NotReady" as const,
+        refusal: {
+          reasons: toLegacyReasons(assessment.reasons),
+          toMerge: toLegacyToMerge(links, assessment.toMerge),
+        },
+      }
+    if (assessment._tag === "Blocked")
+      return yield* new BadRequestError({
+        message: `cannot complete: ${assessment.reasons.map((reason) => reason.text).join("; ")}`,
+      })
+    if (assessment._tag === "AcknowledgementRequired" && !force)
+      return {
+        _tag: "NotReady" as const,
+        refusal: {
+          reasons: toLegacyReasons(assessment.reasons),
+          toMerge: toLegacyToMerge(links, assessment.toMerge),
+        },
+      }
+
+    const overridden =
+      assessment._tag === "AcknowledgementRequired"
+        ? assessment.reasons
+            .filter((reason) => reason.kind === "forceable")
+            .map((reason) => reason.text)
+        : []
+    yield* Ref.update(ref, (progress): CompletionProgress => ({
+      ...progress,
+      ...(overridden.length > 0 ? { overridden } : {}),
+      steps: [{ id: "check", label: "check every repository is ready", state: "running" as const }],
+    }))
+    yield* writeProgress(change.id, ref)
+
+    // The veto: after the question, before any irreversible step.
+    const veto = yield* Effect.either(beforeChange("change:completing", change))
+    if (veto._tag === "Left") {
+      yield* Ref.update(ref, (progress): CompletionProgress => ({
+        ...progress,
+        finishedAt: new Date().toISOString(),
+        error: messageOf(veto.left),
+        steps: progress.steps.map((step) =>
+          step.id === "check"
+            ? { ...step, state: "failed" as const, detail: messageOf(veto.left) }
+            : step,
+        ),
       }))
-      .filter((c): c is { name: string; contributor: typeof c.contributor; planned: CompletionStep } =>
-        Boolean(c.planned));
-    progress.steps = [checked, ...stepsFor(change, completion, contributions.map((c) => c.planned))];
-    yield* save(change.id, progress);
+      yield* writeProgress(change.id, ref)
+      return yield* Effect.fail(veto.left)
+    }
 
-    /** Run one step, recording it before and after. A failure stops the completion where it is. */
-    const step = (
-      id: string,
-      work: Effect.Effect<string | undefined, CliError | BadRequestError, Changes>,
-    ): Effect.Effect<void, CliError | BadRequestError, Changes> =>
-      Effect.gen(function* () {
-        const found = progress.steps.find((s) => s.id === id);
-        if (!found) return;
-        found.state = "running";
-        yield* save(change.id, progress);
-        const outcome = yield* Effect.either(work);
-        if (Either.isLeft(outcome)) {
-          found.state = "failed";
-          found.detail = messageOf(outcome.left);
-          progress.error = found.detail;
-          progress.finishedAt = new Date().toISOString();
-          yield* save(change.id, progress);
-          return yield* outcome.left;
-        }
-        found.detail = outcome.right;
-        found.state = "done";
-        yield* save(change.id, progress);
-      });
-
-    // Sequential on purpose: if a merge fails, the ones after it should not have happened either.
-    // A merge that was queued rather than done is worth saying out loud: the change is finished
-    // here, but the commit is not on main yet.
-    for (const { repo, number } of completion.toMerge) {
-      yield* step(
-        `merge:${repo}`,
-        Effect.tap(mergePr(change, repo, number), (note) =>
-          Effect.sync(() => {
-            if (note) notes.push(note);
+    const run = (
+      acknowledgements: readonly Acknowledgement[],
+    ): Effect.Effect<LifecycleOutcome, IweError | ChangeStoreError> =>
+      lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
+        Effect.catchAll((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
+          Effect.gen(function* () {
+            yield* finalizeProgress(change.id, ref, errorDetail(error))
+            return yield* Effect.fail(asIwe(error))
           }),
         ),
-      );
+      )
+
+    const outcome = yield* run(
+      acknowledgementsFor(assessment._tag === "Ready" ? [] : assessment.reasons),
+    )
+
+    if (outcome._tag === "Done") {
+      yield* finalizeProgress(change.id, ref)
+      const updated = yield* readChange(change.id)
+      if (!updated)
+        return yield* new BadRequestError({
+          message: "the completed change could not be read back",
+        })
+      const after = yield* afterChange("change:completed", updated)
+      const notes = [
+        ...(overridden.length > 0
+          ? [`completed with overrides: ${overridden.join("; ")}`]
+          : []),
+        ...outcome.notes,
+      ]
+      return { _tag: "Done" as const, change: updated, notes, after }
     }
-    // The extensions' steps: close the ticket, comment on the issue, whatever each one planned
-    // for a finished change. A failure stops the completion where it stands, like any core step.
-    for (const { name, contributor, planned } of contributions) {
-      yield* step(
-        planned.id,
-        Effect.map(
-          Effect.catchAll(
-            contributor.run(change).pipe(Effect.provide(capabilitiesLayer(workspace, name))),
-            (e) => new BadRequestError({ message: messageOf(e) }),
-          ),
-          (note) => (typeof note === "string" ? note : undefined),
-        ),
-      );
+    if (outcome._tag === "NeedsAcknowledgement") {
+      yield* finalizeProgress(change.id, ref)
+      return {
+        _tag: "NotReady" as const,
+        refusal: {
+          reasons: toLegacyReasons(outcome.reasons),
+          toMerge: toLegacyToMerge(links, outcome.toMerge),
+        },
+      }
     }
-
-    // The work is on the remote now, so the worktrees have nothing left to hold.
-    yield* step(
-      "worktrees",
-      Effect.map(
-        Effect.forEach(change.repos, (repo) => removeWorktree(change, repo), {
-          concurrency: 1,
-          discard: true,
-        }),
-        () => undefined,
-      ),
-    );
-    // The terminal sits in a directory that is about to move into the archive.
-    yield* step(
-      "terminal",
-      Effect.map(stopTerminal(change.id), () => undefined),
-    );
-
-    const completed: Change = { ...change, state: "Completed", completedAt: new Date().toISOString() };
-    yield* step(
-      "archive",
-      Effect.map(
-      Effect.gen(function* () {
-        yield* writeChange(completed);
-        yield* archiveChange(change.id);
-      }),
-      () => undefined,
-      ),
-    );
-
-    progress.finishedAt = new Date().toISOString();
-    yield* save(change.id, progress);
-    // The after-hooks observe a change that is already committed and archived. Their failures are
-    // reported under each extension's name and never fail the completion.
-    const after = yield* afterChange("change:completed", completed);
-    return { _tag: "Done" as const, change: completed, notes, after };
-  });
+    yield* finalizeProgress(
+      change.id,
+      ref,
+      outcome.reasons.map((reason) => reason.text).join("; "),
+    )
+    return yield* new BadRequestError({
+      message: `cannot complete: ${outcome.reasons.map((reason) => reason.text).join("; ")}`,
+    })
+  }).pipe(
+    Effect.catchAll((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(error))),
+  )

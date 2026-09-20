@@ -117,12 +117,14 @@ export const layer = Layer.effect(
         case "UseOriginalLocationOriginalBranch":
           return Effect.void
         case "UseOriginalLocationNewBranch":
-          return repositories.switchBranch({
-            worktree: AbsolutePath.make(repository.originalLocation),
-            branch: change.branch,
-          })
+          return repositories
+            .provisionInPlace({
+              source: AbsolutePath.make(repository.originalLocation),
+              branch: change.branch,
+            })
+            .pipe(Effect.asVoid)
         case "UseNewLocationNewBranch":
-          return repositories.addWorktree({
+          return repositories.provisionLinkedWorktree({
             source: AbsolutePath.make(repository.originalLocation),
             directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
             branch: change.branch,

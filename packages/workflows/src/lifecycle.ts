@@ -5,7 +5,7 @@
  * acknowledgement. The journal is written step by step, so a half-finished operation stays
  * legible from a page that was never open.
  */
-import { Context, Data, Effect, Layer, Ref } from "effect"
+import { Context, Data, Effect, Layer, Ref, type Either } from "effect"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -128,7 +128,14 @@ export interface PullRequestsInterface {
 export class PullRequests extends Context.Tag("corvi/workflows/PullRequests")<PullRequests, PullRequestsInterface>() {}
 
 export interface IssuesInterface {
-  readonly transition: (change: Change) => Effect.Effect<string | undefined, ProviderError>
+  /** The completion steps this change's integrations plan, in order; empty when none apply. The
+   * workflow journals them as `waiting` before anything runs. */
+  readonly plan: (change: Change) => Effect.Effect<readonly OperationStep[], ProviderError>
+  /** Run one planned step; a note may explain what it did. */
+  readonly run: (input: {
+    readonly change: Change
+    readonly stepId: string
+  }) => Effect.Effect<string | undefined, ProviderError>
   /** Where the issue stands, for a cancellation's loose ends: one line each. */
   readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>
 }
@@ -148,6 +155,7 @@ export class TerminalSessions extends Context.Tag("corvi/workflows/TerminalSessi
 export interface Interface {
   readonly assessCompletion: (
     changeId: ChangeId,
+    options?: { readonly fresh?: boolean },
   ) => Effect.Effect<
     Readiness,
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | ProviderError | CheckoutError
@@ -155,6 +163,9 @@ export interface Interface {
   readonly completeChange: (input: {
     readonly changeId: ChangeId
     readonly acknowledgements?: readonly Acknowledgement[]
+    /** A fresh assessment for this operation. When absent the workflow takes one itself; when
+     * present the app's click-path check is the one that ran, so no second check repeats it. */
+    readonly assessment?: Readiness
   }) => Effect.Effect<
     LifecycleOutcome,
     | ChangeNotFound
@@ -287,15 +298,7 @@ export const layer = Layer.effect(
           branch: change.branch,
         })
         .pipe(
-          Effect.mapError((error) =>
-            error._tag === "NotARepository"
-              ? new CheckoutError({
-                  operation: "remove-worktree",
-                  directory: link.originalLocation,
-                  message: "the source repository is gone",
-                })
-              : error,
-          ),
+          Effect.catchTag("NotARepository", () => Effect.succeed("absent" as const)),
         )
 
     const completionAssessment = (
@@ -377,14 +380,40 @@ export const layer = Layer.effect(
     ): readonly OutstandingPullRequest[] =>
       toMerge.map(({ link, number }) => ({ repository: subjectOf(change, link), number }))
 
-    const assessCompletion = Effect.fn("ChangeLifecycle.assessCompletion")(function* (changeId: ChangeId) {
+    const detailOf = (error: unknown): string =>
+      typeof error === "object" && error !== null && "message" in error
+        ? String((error as { message: unknown }).message)
+        : String(error)
+
+    /** Record a step before and after; a failure is journaled before it propagates. */
+    const runStep = <A, E, R>(
+      changeId: ChangeId,
+      id: string,
+      label: string,
+      work: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, E | ChangeStoreError, R> =>
+      Effect.gen(function* () {
+        yield* record(changeId, { id, label, state: "running" })
+        const attempt: Either.Either<A, E> = yield* work.pipe(Effect.either)
+        if (attempt._tag === "Left") {
+          yield* record(changeId, { id, label, state: "failed", detail: detailOf(attempt.left) })
+          return yield* Effect.fail(attempt.left)
+        }
+        yield* record(changeId, { id, label, state: "done" })
+        return attempt.right
+      })
+
+    const assessCompletion = Effect.fn("ChangeLifecycle.assessCompletion")(function* (
+      changeId: ChangeId,
+      options?: { readonly fresh?: boolean },
+    ) {
       const change = yield* changes.getChange(changeId)
       if (change.phase === "Ideation")
         return { _tag: "Blocked", reasons: [ideaReason(change)], toMerge: [] } satisfies Readiness
       if (isTerminal(change.phase))
         return { _tag: "Blocked", reasons: [finishedReason(change)], toMerge: [] } satisfies Readiness
       const sourceLinks = yield* links.listRepositories(changeId)
-      const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, false)
+      const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, options?.fresh ?? false)
       return readinessFrom(reasons, mergeList(change, toMerge))
     })
 
@@ -399,6 +428,7 @@ export const layer = Layer.effect(
     const completeChange = Effect.fn("ChangeLifecycle.completeChange")(function* (input: {
       readonly changeId: ChangeId
       readonly acknowledgements?: readonly Acknowledgement[]
+      readonly assessment?: Readiness
     }) {
       return yield* withOperation(
         input.changeId,
@@ -420,7 +450,20 @@ export const layer = Layer.effect(
             } satisfies LifecycleOutcome
 
           const sourceLinks = yield* links.listRepositories(input.changeId)
-          const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, true)
+          let assessed: Readiness
+          if (input.assessment) {
+            assessed = input.assessment
+          } else {
+            const { reasons, toMerge } = yield* completionAssessment(change, sourceLinks, true)
+            assessed = readinessFrom(reasons, mergeList(change, toMerge))
+          }
+          const reasons = assessed._tag === "Ready" ? [] : assessed.reasons
+          const toMerge = assessed.toMerge.flatMap((pullRequest) => {
+            const link = sourceLinks.find(
+              (entry) => entry.repositoryId === pullRequest.repository.repositoryId,
+            )
+            return link ? [{ link, number: pullRequest.number }] : []
+          })
           if (reasons.some((reason) => reason.kind === "hard"))
             return {
               _tag: "Blocked",
@@ -437,8 +480,8 @@ export const layer = Layer.effect(
               toMerge: mergeList(change, toMerge),
             } satisfies LifecycleOutcome
 
-          const notes: string[] = []
           // The plan first: a page opened mid-operation shows what is still coming.
+          const issueSteps = yield* issues.plan(change)
           yield* record(change.changeId, {
             id: "check",
             label: "check every repository is ready",
@@ -450,30 +493,38 @@ export const layer = Layer.effect(
               label: `merge ${link.directoryName} #${number}`,
               state: "waiting",
             })
-          yield* record(change.changeId, { id: "issues", label: "transition the ticket", state: "waiting" })
+          for (const step of issueSteps)
+            yield* record(change.changeId, { id: step.id, label: step.label, state: "waiting" })
           yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "waiting" })
           yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
+
+          const notes: string[] = []
 
           // Sequential on purpose: a failed merge stops the ones after it.
           for (const { link, number } of toMerge) {
             const id = `merge:${link.originalLocation}`
             const label = `merge ${link.directoryName} #${number}`
-            yield* record(change.changeId, { id, label, state: "running" })
-            const note = yield* pullRequests.merge({ change, repository: subjectOf(change, link), number })
+            const note = yield* runStep(
+              change.changeId,
+              id,
+              label,
+              pullRequests.merge({ change, repository: subjectOf(change, link), number }),
+            )
             if (note) notes.push(note)
-            yield* record(change.changeId, { id, label, state: "done", ...(note ? { detail: note } : {}) })
           }
 
-          yield* record(change.changeId, { id: "issues", label: "transition the ticket", state: "running" })
-          const issueNote = yield* issues.transition(change)
-          if (issueNote) notes.push(issueNote)
-          yield* record(change.changeId, {
-            id: "issues",
-            label: "transition the ticket",
-            state: "done",
-            ...(issueNote ? { detail: issueNote } : {}),
-          })
+          // The integrations' steps: close the ticket, comment on the issue, whatever each one
+          // planned. A failure stops the completion where it stands, like any core step.
+          for (const step of issueSteps) {
+            const note = yield* runStep(
+              change.changeId,
+              step.id,
+              step.label,
+              issues.run({ change, stepId: step.id }),
+            )
+            if (note) notes.push(note)
+          }
 
           // One journal step for the teardown, as the page has always shown it; the removal
           // rechecks each checkout before acting.
@@ -495,8 +546,8 @@ export const layer = Layer.effect(
               )
               if (safety._tag === "Unsafe" || unacknowledged) {
                 yield* record(change.changeId, {
-                  id,
-                  label,
+                  id: "worktrees",
+                  label: "remove the worktrees",
                   state: "failed",
                   detail: "the checkout changed since the assessment",
                 })
@@ -515,18 +566,35 @@ export const layer = Layer.effect(
                     } satisfies LifecycleOutcome)
               }
             }
-            yield* removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link)))
+            const removal = yield* Effect.either(
+              removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link))),
+            )
+            if (removal._tag === "Left") {
+              yield* record(change.changeId, {
+                id: "worktrees",
+                label: "remove the worktrees",
+                state: "failed",
+                detail: detailOf(removal.left),
+              })
+              return yield* removal.left
+            }
             yield* cleanupBranch(change, link)
           }
           yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "done" })
 
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "running" })
-          yield* terminals.stop(change.changeId)
-          yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "done" })
+          yield* runStep(
+            change.changeId,
+            "terminal",
+            "close the terminal",
+            terminals.stop(change.changeId),
+          )
 
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "running" })
-          const completed = yield* changes.transitionTo(change.changeId, "Completed")
-          yield* record(change.changeId, { id: "archive", label: "archive the change", state: "done" })
+          const completed = yield* runStep(
+            change.changeId,
+            "archive",
+            "archive the change",
+            changes.transitionTo(change.changeId, "Completed"),
+          )
 
           return { _tag: "Done", change: completed, notes, loose: [] } satisfies LifecycleOutcome
         }),

@@ -26,7 +26,9 @@ export interface CommandInterface {
 
 export class Command extends Context.Tag("corvi/Command")<Command, CommandInterface>() {}
 
-export const layer = Layer.succeed(Command, {
+/** The direct spawner, exported so a host whose process runner is already in context (the app's
+ * Shell seam) can fall back to it instead of providing a second one. */
+export const nodeCommand: CommandInterface = {
   run: ({ program, args, cwd }) =>
     Effect.tryPromise({
       try: () =>
@@ -51,4 +53,6 @@ export const layer = Layer.succeed(Command, {
         }),
       catch: (cause) => new CommandError({ program, message: `could not run ${program}`, cause }),
     }),
-})
+}
+
+export const layer = Layer.succeed(Command, nodeCommand)

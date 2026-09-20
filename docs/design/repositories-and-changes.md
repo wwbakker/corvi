@@ -340,17 +340,33 @@ export class CheckoutError extends Data.TaggedError("CheckoutError")<{
 export interface Interface {
   /** Reads the recorded location; absence is a value, unreadable is an error. */
   readonly inspectCheckout: (directory: AbsolutePath) => Effect.Effect<CheckoutInspection, CheckoutError>
-  /** Switches an existing checkout to the branch (the original-location-new-branch method). */
-  readonly switchBranch: (input: {
+  /** Whether removing this checkout would destroy anything: uncommitted work refuses outright;
+   * commits the base cannot prove it has are acknowledged first. */
+  readonly assessRemoval: (input: {
     readonly worktree: AbsolutePath
+    readonly branch?: string
+  }) => Effect.Effect<RemovalAssessment, NotARepository | CheckoutError>
+  /** After a checkout is gone: delete the branch when the base proves its content landed,
+   * report it kept when it remains, or absent when it never existed. */
+  readonly removeBranchIfIntegrated: (input: {
+    readonly repository: AbsolutePath
     readonly branch: string
-  }) => Effect.Effect<void, NotARepository | CheckoutError>
-  /** Adds a linked worktree and checks out the branch (the new-location method). */
-  readonly addWorktree: (input: {
+  }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
+  /** Creates the linked worktree the change asked for: an existing branch is attached, a
+   * missing one is created from `base` (the repository default when absent) after a fetch. */
+  readonly provisionLinkedWorktree: (input: {
     readonly source: AbsolutePath
     readonly directory: AbsolutePath
     readonly branch: string
+    readonly base?: string
   }) => Effect.Effect<void, NotARepository | CheckoutError>
+  /** Switches the source checkout itself to the change's branch, creating it when needed; a
+   * dirty checkout is left exactly as it is. */
+  readonly provisionInPlace: (input: {
+    readonly source: AbsolutePath
+    readonly branch: string
+    readonly base?: string
+  }) => Effect.Effect<InPlaceOutcome, NotARepository | CheckoutError>
   /** Removes a linked worktree. No first-slice workflow calls this. */
   readonly removeWorktree: (input: {
     readonly worktree: AbsolutePath
@@ -360,8 +376,11 @@ export interface Interface {
 ```
 
 The checkout-method enum is application policy and stays in `changes`; mapping
-`UseOriginalLocation*` to `switchBranch`, and `UseNewLocation*` to `addWorktree`, happens in the
-workflow. The capability only knows concrete sources and destinations.
+`UseOriginalLocation*` to `provisionInPlace`, and `UseNewLocation*` to
+`provisionLinkedWorktree`, happens in the workflow. The capability only knows concrete sources and
+destinations; base selection (`origin/<default>`, else a local `main`/`master`) and the fetch are
+its own. `InPlaceOutcome` is `already | switched | created | skipped-dirty`, so a dirty checkout is
+reported rather than touched.
 
 ## Service and implementation
 ```ts
@@ -651,12 +670,14 @@ export const layer = Layer.effect(
         case "UseOriginalLocationOriginalBranch":
           return Effect.void
         case "UseOriginalLocationNewBranch":
-          return repositories.switchBranch({
-            worktree: AbsolutePath.make(repository.originalLocation),
-            branch: change.branch,
-          })
+          return repositories
+            .provisionInPlace({
+              source: AbsolutePath.make(repository.originalLocation),
+              branch: change.branch,
+            })
+            .pipe(Effect.asVoid)
         case "UseNewLocationNewBranch":
-          return repositories.addWorktree({
+          return repositories.provisionLinkedWorktree({
             source: AbsolutePath.make(repository.originalLocation),
             directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
             branch: change.branch,
@@ -831,6 +852,7 @@ and integration proof; those additions arrive with the mutation slice, not the r
 export interface Interface {
   readonly assessCompletion: (
     changeId: ChangeId,
+    options?: { readonly fresh?: boolean },
   ) => Effect.Effect<
     Readiness,
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | ProviderError | CheckoutError
@@ -838,6 +860,8 @@ export interface Interface {
   readonly completeChange: (input: {
     readonly changeId: ChangeId
     readonly acknowledgements?: readonly Acknowledgement[]
+    /** The fresh assessment the click path already made; absent, the workflow takes its own. */
+    readonly assessment?: Readiness
   }) => Effect.Effect<
     LifecycleOutcome,
     | ChangeNotFound
@@ -878,7 +902,8 @@ export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycl
 **Complete** — an idea is `Blocked`, never acknowledgeable:
 
 1. Read the change and its links; assess provider readiness and removal safety per repository,
-   in parallel, fresh at the click.
+   in parallel, fresh at the click. The app hands that fresh assessment to `completeChange`, so
+   one click makes one readiness check.
 2. Every forceable reason must be acknowledged with matching facts; changed facts invalidate the
    acknowledgement. Hard reasons — an idea, uncommitted work — block regardless.
 3. Journal the plan first — each merge, the issue step, the worktrees, the terminal, the archive,
@@ -1083,9 +1108,9 @@ per-workspace enablement, notes, Pi reporting) moves to the owning package tests
   `PartiallyStarted` with the other repositories provisioned, and writes a failed journal entry.
 - `inspectChangeRepositories` returns `Missing` for a concept link without running a mutating Git
   command; an unreadable Git call is an error, not `Missing`.
-- The checkout-method mapping is exact: `UseOriginalLocationNewBranch` calls `switchBranch`,
-  `UseNewLocationNewBranch` calls `addWorktree`, and `UseOriginalLocationOriginalBranch` calls
-  neither.
+- The checkout-method mapping is exact: `UseOriginalLocationNewBranch` calls `provisionInPlace`,
+  `UseNewLocationNewBranch` calls `provisionLinkedWorktree`, and `UseOriginalLocationOriginalBranch`
+  calls neither.
 - Two workspace layers with different roots do not share links or checkout paths.
 - The transport test encodes a `RepositoryView` and both route and client decode it; every error
   tag maps to exactly one status.

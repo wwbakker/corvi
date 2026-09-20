@@ -3,9 +3,9 @@
 ## Owns
 
 Checkout work on concrete locations: inspecting a checkout, assessing whether removing it would
-destroy anything, switching a branch in place, adding a linked worktree, and removing one. The Git
-port and its real adapter, including the status, upstream, and integration facts removal safety
-rests on.
+destroy anything, provisioning one (a linked worktree or the source checkout in place, with base
+selection and a fetch), and removing one. The Git port and its real adapter, including the status,
+upstream, and integration facts the safety rules rest on.
 
 ## Does not own
 
@@ -33,6 +33,8 @@ entrypoint stays platform-free.
   landed; an unreadable upstream comparison is not zero ahead.
 - `removeBranchIfIntegrated` deletes a branch only when the base proves its content landed, reports
   it kept otherwise (including a refused deletion), and never fails after the removal happened.
+- Provisioning an in-place checkout leaves a dirty one exactly as it is (`skipped-dirty`); a missing
+  branch is created from the repository default after a fetch, and never tracks that default.
 
 ## Verification
 

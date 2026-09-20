@@ -154,6 +154,7 @@ export class TerminalSessions extends Context.Tag("corvi/workflows/TerminalSessi
 export interface Interface {
   readonly assessCompletion: (
     changeId: ChangeId,
+    options?: { readonly fresh?: boolean },
   ) => Effect.Effect<
     Readiness,
     ChangeNotFound | ChangeStoreError | RepositoryStoreError | ProviderError | CheckoutError
@@ -161,6 +162,8 @@ export interface Interface {
   readonly completeChange: (input: {
     readonly changeId: ChangeId
     readonly acknowledgements?: readonly Acknowledgement[]
+    /** The fresh assessment the click path already made; absent, the workflow takes its own. */
+    readonly assessment?: Readiness
   }) => Effect.Effect<
     LifecycleOutcome,
     | ChangeNotFound

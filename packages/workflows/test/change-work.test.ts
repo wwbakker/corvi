@@ -92,6 +92,22 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
             state.inspectFailure ? Effect.fail(state.inspectFailure) : Effect.succeed(state.inspect),
           assessRemoval: () => Effect.succeed({ _tag: "Safe" as const }),
           removeBranchIfIntegrated: () => Effect.succeed("deleted" as const),
+          provisionLinkedWorktree: (input) => {
+            state.calls.push(`add ${input.directory}`)
+            return state.failAddFor && String(input.directory).endsWith(`/${state.failAddFor}`)
+              ? Effect.fail(
+                  new CheckoutError({
+                    operation: "add-worktree",
+                    directory: String(input.directory),
+                    message: "worktree add failed",
+                  }),
+                )
+              : Effect.void
+          },
+          provisionInPlace: (input) => {
+            state.calls.push(`switch ${input.branch}`)
+            return Effect.succeed("created" as const)
+          },
           switchBranch: (input) => {
             state.calls.push(`switch ${input.branch}`)
             return Effect.void

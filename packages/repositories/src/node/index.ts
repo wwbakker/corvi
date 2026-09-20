@@ -5,7 +5,7 @@ import { Repositories, layer as repositoriesLayer } from "../repositories.ts"
 import { layer as commandLayer } from "./command.ts"
 import { layer as gitLayer } from "./git.ts"
 
-export { Command, CommandError, layer as commandLayer } from "./command.ts"
+export { Command, CommandError, layer as commandLayer, nodeCommand } from "./command.ts"
 export { layer as gitLayer } from "./git.ts"
 
 /** The repositories capability with nothing left to provide. */

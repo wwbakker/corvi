@@ -44,6 +44,8 @@ export class OperationError extends Data.TaggedError("Git.OperationError")<{
 export interface Interface {
   readonly repo: {
     readonly discover: (directory: AbsolutePath) => Effect.Effect<Repository | undefined, OperationError>
+    /** Whether the repository has any remote (or the named one). */
+    readonly hasRemote: (repository: Repository, remote?: string) => Effect.Effect<boolean, OperationError>
   }
   readonly history: {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
@@ -55,6 +57,9 @@ export interface Interface {
       repository: Repository,
       remote?: string,
     ) => Effect.Effect<string | undefined, OperationError>
+    /** The base a new branch starts from: `origin/<default>` when a remote has one, else a local
+     * `main` or `master`; absent when neither exists. */
+    readonly defaultBranch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
   }
   readonly status: {
     /** Whether the working tree holds staged, modified, untracked, or conflicted entries. */
@@ -76,6 +81,13 @@ export interface Interface {
     /** Deletes a local branch even when its commits look unmerged; the caller has proven the
      * content landed. */
     readonly deleteBranch: (repository: Repository, branch: string) => Effect.Effect<void, OperationError>
+    readonly fetchRemote: (repository: Repository, remote?: string) => Effect.Effect<void, OperationError>
+    /** `git switch <branch>`, or `git switch --create <branch> --no-track <base>` when creating;
+     * a creation without a base branches from HEAD. */
+    readonly switchToBranch: (
+      repository: Repository,
+      input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
+    ) => Effect.Effect<void, OperationError>
   }
   readonly worktree: {
     readonly create: (input: {
@@ -88,6 +100,15 @@ export interface Interface {
       readonly force: boolean
     }) => Effect.Effect<void, OperationError>
     readonly list: (repository: Repository) => Effect.Effect<readonly Worktree[], OperationError>
+    /** Adds a linked worktree: for an existing branch, or creating the branch from `base`
+     * (branches from HEAD when no base is given, and never setting up an upstream). */
+    readonly add: (input: {
+      readonly repository: Repository
+      readonly directory: AbsolutePath
+      readonly branch: string
+      readonly base?: string
+      readonly create: boolean
+    }) => Effect.Effect<Repository, OperationError>
   }
 }
 

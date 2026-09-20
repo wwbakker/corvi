@@ -13,16 +13,21 @@ const repository = new Git.Repository({
 
 interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
+  readonly hasRemote?: Git.Interface["repo"]["hasRemote"]
   readonly branch?: Git.Interface["history"]["branch"]
   readonly head?: Git.Interface["history"]["head"]
   readonly branchExists?: Git.Interface["history"]["branchExists"]
   readonly upstream?: Git.Interface["history"]["upstream"]
   readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
+  readonly defaultBranch?: Git.Interface["history"]["defaultBranch"]
   readonly status?: Git.Interface["status"]["dirty"]
   readonly integration?: Git.Interface["integration"]["proven"]
   readonly checkoutRemoteBranch?: Git.Interface["sync"]["checkoutRemoteBranch"]
   readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
+  readonly fetchRemote?: Git.Interface["sync"]["fetchRemote"]
+  readonly switchToBranch?: Git.Interface["sync"]["switchToBranch"]
   readonly create?: Git.Interface["worktree"]["create"]
+  readonly addWorktree?: Git.Interface["worktree"]["add"]
   readonly remove?: Git.Interface["worktree"]["remove"]
   readonly list?: Git.Interface["worktree"]["list"]
 }
@@ -31,22 +36,29 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
   repositoriesLayer.pipe(
     Layer.provide(
       Layer.succeed(Git.Service, {
-        repo: { discover: script.discover ?? (() => Effect.succeed(undefined)) },
+        repo: {
+          discover: script.discover ?? (() => Effect.succeed(undefined)),
+          hasRemote: script.hasRemote ?? (() => Effect.succeed(false)),
+        },
         history: {
           branch: script.branch ?? (() => Effect.succeed(undefined)),
           head: script.head ?? (() => Effect.succeed(undefined)),
           branchExists: script.branchExists ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
           defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
+          defaultBranch: script.defaultBranch ?? (() => Effect.succeed(undefined)),
         },
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
         sync: {
           checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void),
           deleteBranch: script.deleteBranch ?? (() => Effect.void),
+          fetchRemote: script.fetchRemote ?? (() => Effect.void),
+          switchToBranch: script.switchToBranch ?? (() => Effect.void),
         },
         worktree: {
           create: script.create ?? (() => Effect.succeed(repository)),
+          add: script.addWorktree ?? (() => Effect.succeed(repository)),
           remove: script.remove ?? (() => Effect.void),
           list: script.list ?? (() => Effect.succeed([])),
         },
@@ -363,4 +375,133 @@ test("a branch that refuses deletion is reported kept, not failed", async () => 
   )
   expect(Either.isRight(result)).toBe(true)
   if (Either.isRight(result)) expect(result.right).toBe("kept")
+})
+
+test("provisionLinkedWorktree attaches an existing branch", async () => {
+  const added: Array<{ branch: string; create: boolean; base?: string }> = []
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionLinkedWorktree({
+        source: AbsolutePath.make("/source/repo"),
+        directory: AbsolutePath.make("/change/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: (dir) => Effect.succeed(String(dir) === "/source/repo" ? repository : undefined),
+      branchExists: () => Effect.succeed(true),
+      addWorktree: (input) => {
+        added.push({ branch: input.branch, create: input.create })
+        return Effect.succeed(repository)
+      },
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  expect(added).toEqual([{ branch: "feature", create: false }])
+})
+
+test("provisionLinkedWorktree creates the branch from the remote default after a fetch", async () => {
+  const added: Array<{ branch: string; create: boolean; base?: string }> = []
+  let fetched = 0
+  await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionLinkedWorktree({
+        source: AbsolutePath.make("/source/repo"),
+        directory: AbsolutePath.make("/change/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: (dir) => Effect.succeed(String(dir) === "/source/repo" ? repository : undefined),
+      branchExists: () => Effect.succeed(false),
+      hasRemote: () => Effect.succeed(true),
+      defaultBranch: () => Effect.succeed("origin/main"),
+      fetchRemote: () => {
+        fetched += 1
+        return Effect.void
+      },
+      addWorktree: (input) => {
+        added.push({ branch: input.branch, create: input.create, ...(input.base ? { base: input.base } : {}) })
+        return Effect.succeed(repository)
+      },
+    },
+  )
+  expect(fetched).toBe(1)
+  expect(added).toEqual([{ branch: "feature", create: true, base: "origin/main" }])
+})
+
+test("provisionLinkedWorktree leaves an existing checkout alone", async () => {
+  let added = 0
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionLinkedWorktree({
+        source: AbsolutePath.make("/source/repo"),
+        directory: AbsolutePath.make("/change/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      branchExists: () => Effect.succeed(false),
+      addWorktree: () => {
+        added += 1
+        return Effect.succeed(repository)
+      },
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  expect(added).toBe(0)
+})
+
+test("provisionInPlace reports already, dirty, switched and created", async () => {
+  const run = (script: GitScript): Promise<Either.Either<import("../src/repositories.ts").InPlaceOutcome, unknown>> =>
+    runEither(
+      Effect.gen(function* () {
+        const repositories = yield* Repositories
+        return yield* repositories.provisionInPlace({
+          source: AbsolutePath.make("/source/repo"),
+          branch: "feature",
+        })
+      }),
+      script,
+    )
+
+  const already = await run({ discover: () => Effect.succeed(repository), branch: () => Effect.succeed("feature") })
+  if (Either.isRight(already)) expect(already.right).toBe("already")
+  else expect(true).toBe(false)
+
+  const dirty = await run({
+    discover: () => Effect.succeed(repository),
+    branch: () => Effect.succeed("main"),
+    status: () => Effect.succeed(true),
+  })
+  if (Either.isRight(dirty)) expect(dirty.right).toBe("skipped-dirty")
+  else expect(true).toBe(false)
+
+  const switched = await run({
+    discover: () => Effect.succeed(repository),
+    branch: () => Effect.succeed("main"),
+    branchExists: () => Effect.succeed(true),
+  })
+  if (Either.isRight(switched)) expect(switched.right).toBe("switched")
+  else expect(true).toBe(false)
+
+  const switchedTo: string[] = []
+  const created = await run({
+    discover: () => Effect.succeed(repository),
+    branch: () => Effect.succeed("main"),
+    branchExists: () => Effect.succeed(false),
+    hasRemote: () => Effect.succeed(true),
+    defaultBranch: () => Effect.succeed("origin/main"),
+    switchToBranch: (_repository, input) => {
+      switchedTo.push(`${input.create ? "create" : "attach"}:${input.base ?? ""}`)
+      return Effect.void
+    },
+  })
+  if (Either.isRight(created)) expect(created.right).toBe("created")
+  else expect(true).toBe(false)
+  expect(switchedTo).toEqual(["create:origin/main"])
 })

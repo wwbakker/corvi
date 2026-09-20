@@ -35,7 +35,10 @@ interface Script {
   removal: RemovalAssessment | (() => RemovalAssessment)
   branchCleanup?: "deleted" | "kept" | "absent"
   loose: readonly { readonly repository: RepositoryRef; readonly number: number }[]
-  issue: readonly string[]
+  issueSteps?: readonly OperationStep[]
+  issueNote?: string
+  looseIssues?: readonly string[]
+  mergeFailure?: string
   looseFailure: boolean
   /** Signalled by the merge port when the operation is provably in flight. */
   started?: Deferred.Deferred<void>
@@ -77,7 +80,7 @@ const script = (overrides: Partial<Script> = {}): Script => ({
   ],
   removal: { _tag: "Safe" },
   loose: [],
-  issue: [],
+  looseIssues: [],
   looseFailure: false,
   ...overrides,
 })
@@ -111,6 +114,8 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           assessRemoval: () =>
             Effect.succeed(typeof state.removal === "function" ? state.removal() : state.removal),
           removeBranchIfIntegrated: () => Effect.succeed(state.branchCleanup ?? "deleted"),
+          provisionLinkedWorktree: () => Effect.void,
+          provisionInPlace: () => Effect.succeed("created" as const),
           switchBranch: () => Effect.void,
           addWorktree: () => Effect.void,
           removeWorktree: (input) => {
@@ -140,6 +145,10 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           merge: ({ number }) =>
             Effect.gen(function* () {
               state.calls.push(`merge #${number}`)
+              if (state.mergeFailure)
+                return yield* Effect.fail(
+                  new ProviderError({ provider: "github", operation: "merge", message: state.mergeFailure }),
+                )
               if (state.started) yield* Deferred.succeed(state.started, undefined)
               if (state.hold) yield* Deferred.await(state.hold)
               return `merged #${number}`
@@ -152,11 +161,12 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
               : Effect.succeed(state.loose),
         }),
         Layer.succeed(Issues, {
-          transition: () => {
-            state.calls.push("issue transition")
-            return Effect.succeed(state.issue.length > 0 ? state.issue.join("; ") : undefined)
+          plan: () => Effect.succeed(state.issueSteps ?? []),
+          run: ({ stepId }) => {
+            state.calls.push(`issue ${stepId}`)
+            return Effect.succeed(state.issueNote)
           },
-          current: () => Effect.succeed(state.issue),
+          current: () => Effect.succeed(state.looseIssues ?? []),
         }),
         Layer.succeed(TerminalSessions, {
           stop: () => {
@@ -296,7 +306,6 @@ test("completion merges, removes only the created checkout, stops the terminal a
   }
   expect(state.calls).toEqual([
     "merge #7",
-    "issue transition",
     "remove /workspace/demo/created",
     "stop terminal",
     "transition Completed",
@@ -304,10 +313,38 @@ test("completion merges, removes only the created checkout, stops the terminal a
   expect(state.steps.map((step) => `${step.id}:${step.state}`)).toContain("archive:done")
   expect(state.steps.filter((step) => step.state === "waiting").map((step) => step.id)).toEqual([
     "merge:/sources/created",
-    "issues",
     "worktrees",
     "terminal",
     "archive",
+  ])
+})
+
+test("planned integration steps are journaled and run in order", async () => {
+  const state = script({
+    issueSteps: [{ id: "jira", label: "move PROJ-1 to Done", state: "waiting" }],
+    issueNote: "moved PROJ-1",
+  })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+    }),
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result) && result.right._tag === "Done")
+    expect(result.right.notes).toEqual(["merged #7", "moved PROJ-1"])
+  expect(state.calls).toEqual([
+    "merge #7",
+    "issue jira",
+    "remove /workspace/demo/created",
+    "stop terminal",
+    "transition Completed",
+  ])
+  expect(state.steps.filter((step) => step.id === "jira").map((step) => step.state)).toEqual([
+    "waiting",
+    "running",
+    "done",
   ])
 })
 
@@ -423,7 +460,7 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
     },
     branchCleanup: "kept",
     loose: [{ repository: ref("created"), number: 3 }],
-    issue: ["PROJ-1 is still open"],
+    looseIssues: ["PROJ-1 is still open"],
   })
   const acknowledged: readonly Acknowledgement[] = [
     { code: "unpushed", subject: ref("created"), facts: "unpushed:abc:2" },
@@ -498,4 +535,24 @@ test("one lifecycle operation per change at a time", async () => {
     const failure = result.left
     expect((failure as { _tag?: string })._tag).toBe("ChangeOperationInProgress")
   }
+})
+
+test("a failed merge is journaled before the completion stops", async () => {
+  const state = script({ mergeFailure: "Pull request is not mergeable" })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+    }),
+  )
+  expect(Either.isLeft(result)).toBe(true)
+  const merge = state.steps.filter((step) => step.id === "merge:/sources/created").at(-1)
+  expect(merge?.state).toBe("failed")
+  expect(merge?.detail).toContain("not mergeable")
+  const byId = (id: string): OperationStep | undefined =>
+    state.steps.filter((step) => step.id === id).at(-1)
+  expect(byId("worktrees")?.state).toBe("waiting")
+  expect(byId("terminal")?.state).toBe("waiting")
+  expect(byId("archive")?.state).toBe("waiting")
 })
