@@ -6,7 +6,9 @@ plan; execution remains in the [architecture refactor plan](../plans/architectur
 
 The sketches below follow the shape of `opencode/packages/core/src/git.ts`: values and errors
 first, then the service interface, then the Layer that implements it. They are Effect 3 design
-prototypes, not production code.
+prototypes, not production code. The same contracts live as typechecked prototypes in
+`docs/design/repositories-and-changes/`; `bun run typecheck` checks them and no application code
+imports them.
 
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
@@ -575,10 +577,16 @@ repository stays visible instead of being lost.
 export interface Interface {
   readonly inspectChangeRepositories: (
     changeId: ChangeId,
-  ) => Effect.Effect<readonly RepositoryView[], ChangeNotFound | ChangeStoreError | CheckoutError>
+  ) => Effect.Effect<
+    readonly RepositoryView[],
+    ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError
+  >
   readonly startChange: (
     changeId: ChangeId,
-  ) => Effect.Effect<StartOutcome, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeStoreError>
+  ) => Effect.Effect<
+    StartOutcome,
+    ChangeNotFound | InvalidTransition | ChangeConflict | ChangeStoreError | RepositoryStoreError
+  >
 }
 ```
 
@@ -725,6 +733,7 @@ export const inspectChangeRepositoriesRoute = (request: {
     Effect.catchTags({
       ChangeNotFound: () => new HttpError({ status: 404, message: "change not found" }),
       ChangeStoreError: (error) => new HttpError({ status: 500, message: error.message }),
+      RepositoryStoreError: (error) => new HttpError({ status: 500, message: error.message }),
       CheckoutError: (error) => new HttpError({ status: 500, message: error.message }),
     }),
   )
@@ -794,6 +803,7 @@ export const startChangeRoute = (request: {
       InvalidTransition: () => new HttpError({ status: 409, message: "change is not an idea" }),
       ChangeConflict: () => new HttpError({ status: 409, message: "change changed; retry" }),
       ChangeStoreError: (error) => new HttpError({ status: 500, message: error.message }),
+      RepositoryStoreError: (error) => new HttpError({ status: 500, message: error.message }),
     }),
   )
 ```
@@ -809,7 +819,8 @@ export interface ChangesClient {
 `PartiallyStarted` is a 200: it is a business outcome, not a transport failure. The response
 carries repository ids and failures; the client refetches the read endpoint for rows. The journal
 is durable, so a reload can read what happened; streaming those steps live needs replay and
-cancellation semantics and is not part of this slice.
+cancellation semantics and is not part of this slice. There is no retry in this slice: a partial
+start stays visible as `PartiallyStarted`, `Missing` rows, and the journal.
 
 # Behavior tests
 

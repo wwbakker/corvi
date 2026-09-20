@@ -26,13 +26,13 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 Read architecture and API design before changing a public surface. Read local package instructions
 when they exist. Historical implementation choices do not override these rules.
 
-## Concrete design for the first slice
+## Design for the first slice
 
 [Repository capabilities and change workflows](design/repositories-and-changes.md) specifies the
-step-1 contracts, association model, caller examples, and migration boundaries. It was revised
-after owner review; it is not an implemented package API. Its TypeScript prototypes are checked by
-the root typecheck; its example tests run in the full suite. They do not verify a production
-Git/storage adapter.
+first slice's contracts: links owned by `changes`, checkout work in `repositories`, the read and
+start workflows, the transport contract, and the behavior-test map. Its TypeScript prototypes
+live under `design/repositories-and-changes/` and are checked by `bun run typecheck`; no
+production package, adapter, or prototype test is implemented.
 
 ## For users
 

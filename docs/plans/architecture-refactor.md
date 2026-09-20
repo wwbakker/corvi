@@ -33,8 +33,9 @@ combine this work with an Effect major upgrade, database conversion, or new agen
 The [repository/change design](../design/repositories-and-changes.md) is the step-1 deliverable.
 It contains the behavior-test map and minimum next slice. Implementation baseline `3391c8d`:
 typecheck and lint pass; full suite 489 pass, 1 skip (Electron binary absent), 0 fail, about 47s.
-The design adds prototype tests, not implemented Git/storage adapters. No production code or
-package manifests have changed. Re-run the baseline before implementation if the checkout changes.
+The design adds typechecked prototypes under `docs/design/repositories-and-changes/`, not
+implemented Git/storage adapters or prototype tests. No production code or package manifests have
+changed. Re-run the baseline before implementation if the checkout changes.
 
 Deliverable: an agreed graph and readable interfaces, not a new collection of barrels around the
 same implementation dependencies.
