@@ -210,6 +210,19 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   await page.close();
 }, 30_000);
 
+test.skipIf(!usable)("the checkouts card reads the change's repositories through the typed client", async () => {
+  // The first browser consumer of the new slice: the card fetches the typed operation, decodes
+  // the DTO, and shows the projected state and the branch the worktree actually holds.
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const card = page.locator('[data-testid="checkouts"]');
+  await card.locator(".checkout-row").first().waitFor();
+  expect(await card.locator(".checkout-name").first().innerText()).toBe("example-api");
+  expect(await card.locator(".checkout-state").first().innerText()).toBe("Active");
+  expect(await card.locator(".checkout-detail").first().innerText()).toContain(`${id}-x`);
+  await page.close();
+}, 30_000);
+
 test.skipIf(!usable)("switching changes shows the new change's notes, not the one just left", async () => {
   // A change's notes are its own: the change you open must show them, not the ones you were
   // typing into the change you left. The read is asynchronous, so this waits for what ends up

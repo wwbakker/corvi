@@ -709,8 +709,9 @@ The dashboard reads one change's repositories. The route decodes the path, calls
 encodes the view; the client exposes a named method that returns the same decoded shape. Both
 import the schema from `@corvi/contracts/api` (shown below); there is no caller-selected response
 generic. This read is wired first: the app serves it (`src/change/repositories-route.ts`) from the
-read-only legacy projection, and `test/repositoriesEndpoint.test.ts` drives the route and the
-client against each other.
+read-only legacy projection, `test/repositoriesEndpoint.test.ts` drives the route and the client
+against each other, and the change page's `CheckoutsCard` consumes the typed client in the
+browser (`test/pages.test.ts`).
 
 ## Contract
 ```ts

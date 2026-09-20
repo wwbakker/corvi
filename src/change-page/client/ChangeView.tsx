@@ -31,6 +31,7 @@ import { CancelDialog } from "./CancelDialog.tsx";
 import { cancelNeedsForce, completionRefusal } from "./refusals.ts";
 import { PerRepoCard } from "../../dashboard/client/PerRepoCard.tsx";
 import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
+import { CheckoutsCard } from "./CheckoutsCard.tsx";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
@@ -536,6 +537,9 @@ export function ChangeView({
           </div>
           <div className="column status">
             <CompletionCard changeId={id} busy={completing} onFinished={setChange} />
+            {/* The change's own checkout facts, served by the new slice: local changes only,
+                because the legacy records the read projects are local. */}
+            {change && !change.workspace && <CheckoutsCard changeId={id} />}
             {(infos ?? []).filter((i) => i.column !== "left").map(card)}
             {change &&
               (widgets ?? [])

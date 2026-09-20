@@ -2322,3 +2322,32 @@ button.danger:disabled {
 .toast-close:hover {
   color: var(--text);
 }
+
+/* The checkouts card: one row per repository link, its projected state, and the branch the
+   location actually holds. The detail sits at the far right, so a column of rows scans. */
+.checkouts .checkout-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0 6px 18px;
+  border-top: 1px solid var(--line);
+}
+
+.checkouts .checkout-row:first-of-type {
+  border-top: none;
+}
+
+.checkouts .checkout-name {
+  font-weight: 600;
+}
+
+.checkouts .checkout-state {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.checkouts .checkout-detail {
+  color: var(--muted);
+  font-size: 12px;
+  margin-left: auto;
+}
