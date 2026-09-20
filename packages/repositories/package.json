@@ -1,0 +1,15 @@
+{
+  "name": "@corvi/repositories",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/repositories.ts",
+    "./git": "./src/git.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:"
+  }
+}

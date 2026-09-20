@@ -57,15 +57,19 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 
 ## 3. Build a reference capability slice
 
-- [ ] Extract worktree inspection/parsing behind `repositories`' public API.
-- [ ] Separate Git facts from change-directory selection and dashboard presentation.
-- [ ] Supply process/filesystem dependencies through Layers; no optional live fallback.
+- [x] Extract worktree inspection/parsing behind `repositories`' public API.
+- [x] Separate Git facts from change-directory selection and dashboard presentation.
+- [x] Supply process/filesystem dependencies through Layers; no optional live fallback.
 - [ ] Extract the change-owned association projection/update and migrate association data explicitly
       before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
-      unresolved legacy ownership must not become automatic cleanup authority.
+      unresolved legacy ownership must not become automatic cleanup authority. The link store and
+      capability landed in `@corvi/changes`; the legacy `repos`/`direct` migration is next, and no
+      application workflow writes yet.
 - [ ] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
-- [ ] Test pure rules, the real Git adapter, the API boundary, and the existing UI behavior.
-- [ ] Add concise package instructions and use this slice as the example for remaining extractions.
+- [ ] Test pure rules, the real Git adapter, the API boundary, and the existing UI behavior. Pure
+      rules, the file store, the workflows, and the real Git adapter have package tests; the
+      endpoint/client contract test follows the route wiring.
+- [x] Add concise package instructions and use this slice as the example for remaining extractions.
 
 Start with inspection rather than deletion: prove the boundary without changing destructive policy.
 

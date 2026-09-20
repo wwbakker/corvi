@@ -129,12 +129,20 @@ test("an undeclared external import fails", async () => {
   expect(problemsOf(root)).toContain("undeclared external dependency: zod");
 });
 
-test("contracts may not import Node built-ins", async () => {
+test("contracts may not import a Node built-in even in its node adapter", async () => {
   const root = await writeFixture("builtin", graph, [
-    contractsPackage({ "changes.ts": 'import "node:fs";\n' }),
+    contractsPackage({ "node/inside.ts": 'import "node:fs";\n' }),
     changesPackage({ "index.ts": "export const y = 1;\n" }),
   ]);
   expect(problemsOf(root)).toContain("may not import a Node built-in: node:fs");
+});
+
+test("a capability entrypoint may not import a Node built-in", async () => {
+  const root = await writeFixture("builtin-entrypoint", graph, [
+    contractsPackage({ "changes.ts": "export const x = 1;\n" }),
+    changesPackage({ "index.ts": 'import "node:fs";\n' }),
+  ]);
+  expect(problemsOf(root)).toContain("Node built-in imports belong in the node adapter entrypoint: node:fs");
 });
 
 test("contracts may not import an external outside its allowlist", async () => {

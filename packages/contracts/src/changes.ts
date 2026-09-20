@@ -57,3 +57,15 @@ export class Repository extends Schema.Class<Repository>("Repository")({
 }) {}
 
 export type RepositoryState = "Concept" | "Active" | "Archived"
+
+export type RepositoryRef = {
+  readonly changeId: ChangeId
+  readonly repositoryId: RepositoryId
+}
+
+export type AddRepositoryInput = {
+  readonly changeId: ChangeId
+  readonly directoryName: DirectoryName
+  readonly originalLocation: string
+  readonly checkoutMethod: CheckoutMethod
+}

@@ -6,9 +6,10 @@ plan; execution remains in the [architecture refactor plan](../plans/architectur
 
 The sketches below follow the shape of `opencode/packages/core/src/git.ts`: values and errors
 first, then the service interface, then the Layer that implements it. They are Effect 3 design
-prototypes, not production code. The canonical schemas live in `packages/contracts`; the
-typechecked prototypes in `docs/design/repositories-and-changes/` import them and `bun run
-typecheck` checks them. No application code imports the prototypes.
+prototypes, not production code. The canonical schemas live in `packages/contracts`, and the
+first capability packages are `packages/changes`, `packages/repositories`, and
+`packages/workflows`; the typechecked prototypes in `docs/design/repositories-and-changes/`
+mirror them and `bun run typecheck` checks both. No application code imports the prototypes.
 
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
@@ -78,7 +79,8 @@ export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
 }> {}
 
 export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
-  readonly changeId: ChangeId
+  /** Absent for store-wide operations such as listing the changes root. */
+  readonly changeId?: ChangeId
   readonly operation: "read" | "write"
   readonly message: string
   readonly cause?: unknown
@@ -382,8 +384,18 @@ export const layer = Layer.effect(
         ),
       )
       if (!repository) return { _tag: "Missing" } satisfies CheckoutInspection
-      const branch = yield* git.history.branch(repository)
-      const head = yield* git.history.head(repository)
+      const observed = yield* Effect.all([git.history.branch(repository), git.history.head(repository)]).pipe(
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation: "inspect",
+              directory,
+              message: "could not read the checkout",
+              cause,
+            }),
+        ),
+      )
+      const [branch, head] = observed
       return { _tag: "Present", branch, head } satisfies CheckoutInspection
     })
 
@@ -486,8 +498,8 @@ export interface Interface {
     readonly discover: (directory: AbsolutePath) => Effect.Effect<Repository | undefined, GitError>
   }
   readonly history: {
-    readonly branch: (repository: Repository) => Effect.Effect<string | undefined>
-    readonly head: (repository: Repository) => Effect.Effect<string | undefined>
+    readonly branch: (repository: Repository) => Effect.Effect<string | undefined, GitError>
+    readonly head: (repository: Repository) => Effect.Effect<string | undefined, GitError>
   }
   readonly sync: {
     readonly checkoutRemoteBranch: (

@@ -9,7 +9,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { builtinModules } from "node:module"
-import { dirname, isAbsolute, join, relative, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import * as ts from "typescript"
 
 interface GraphRule {
@@ -232,7 +232,11 @@ export const checkArchitecture = (root: string): readonly string[] => {
           continue
         }
         if (isBuiltin(specifier)) {
-          if (allowedExternal(rule, specifier) === false)
+          const local = relative(pkg.dir, file)
+          const inNodeAdapter = local.startsWith(`src${sep}node${sep}`)
+          if (!inNodeAdapter)
+            report(file, imported, `Node built-in imports belong in the node adapter entrypoint: ${specifier}`)
+          else if (allowedExternal(rule, specifier) === false)
             report(file, imported, `may not import a Node built-in: ${specifier}`)
           continue
         }

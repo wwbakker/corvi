@@ -1,8 +1,12 @@
-/** Design prototype: checkout work on concrete locations, over the Git adapter. */
+/** Checkout work on concrete locations, over the Git adapter.
+ *
+ * This capability does not know about changes or links: it receives a source, a destination,
+ * and a branch. The checkout-method enum and its mapping belong to the caller.
+ */
 import { Context, Data, Effect, Layer } from "effect"
 
+import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "./git.ts"
-import type { AbsolutePath } from "./paths.ts"
 
 export type CheckoutInspection =
   | { readonly _tag: "Missing" }

@@ -5,7 +5,6 @@ import type {
   Change,
   ChangeId,
   ChangePhase,
-  CheckoutMethod,
   DirectoryName,
   Repository,
   RepositoryId,
@@ -22,6 +21,7 @@ export {
   RepositoryId,
 } from "@corvi/contracts/changes"
 export type { ChangeFilter, CreateChangeInput, RepositoryState } from "@corvi/contracts/changes"
+export type { AddRepositoryInput, RepositoryRef } from "@corvi/contracts/changes"
 
 import { join } from "./paths.ts"
 
@@ -46,7 +46,8 @@ export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
 }> {}
 
 export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
-  readonly changeId: ChangeId
+  /** Absent for store-wide operations such as listing the changes root. */
+  readonly changeId?: ChangeId
   readonly operation: "read" | "write"
   readonly message: string
   readonly cause?: unknown
@@ -79,18 +80,6 @@ export const checkoutLocationOf = (change: Change, repository: Repository): stri
   repository.checkoutMethod === "UseNewLocationNewBranch"
     ? join(change.workspaceLocation, repository.directoryName)
     : repository.originalLocation
-
-export type RepositoryRef = {
-  readonly changeId: ChangeId
-  readonly repositoryId: RepositoryId
-}
-
-export type AddRepositoryInput = {
-  readonly changeId: ChangeId
-  readonly directoryName: DirectoryName
-  readonly originalLocation: string
-  readonly checkoutMethod: CheckoutMethod
-}
 
 export class RepositoryNotFound extends Data.TaggedError("RepositoryNotFound")<{
   readonly changeId: ChangeId

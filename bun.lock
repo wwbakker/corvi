@@ -35,10 +35,36 @@
         "typescript": "^6.0.3",
       },
     },
+    "packages/changes": {
+      "name": "@corvi/changes",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
     "packages/contracts": {
       "name": "@corvi/contracts",
       "version": "0.0.0",
       "dependencies": {
+        "effect": "catalog:",
+      },
+    },
+    "packages/repositories": {
+      "name": "@corvi/repositories",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/workflows": {
+      "name": "@corvi/workflows",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/changes": "workspace:*",
+        "@corvi/contracts": "workspace:*",
+        "@corvi/repositories": "workspace:*",
         "effect": "catalog:",
       },
     },
@@ -107,7 +133,13 @@
 
     "@cacheable/utils": ["@cacheable/utils@2.5.0", "", { "dependencies": { "hashery": "^1.5.1", "keyv": "^5.6.0" } }, "sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA=="],
 
+    "@corvi/changes": ["@corvi/changes@workspace:packages/changes"],
+
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
+
+    "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
+
+    "@corvi/workflows": ["@corvi/workflows@workspace:packages/workflows"],
 
     "@earendil-works/chord": ["@earendil-works/chord@0.85.1", "", { "dependencies": { "esbuild": "0.28.1" } }, "sha512-VDlkEC3dhCzQ5fcyH1OhG19dq+6jCn+rqc/iXFivwDYGR5anwo2RCiXij9PpHhqNR5GuhhE+Er69Zi1Sn4eY6w=="],
 
