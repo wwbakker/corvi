@@ -1,8 +1,25 @@
-import { basename } from "node:path";
-import { Effect } from "effect";
+/** Cancelling a change, through the lifecycle workflow.
+ *
+ * The app-level adapter keeps the HTTP-facing shape — the force question, the loose-end report,
+ * the after-observer notices — while the orchestration, fresh safety rechecks, and journaling
+ * live in `@corvi/workflows/lifecycle`. The extension veto still runs after the force question
+ * and before anything irreversible, as it did before the cutover.
+ */
+import { Effect, Layer } from "effect";
+
+import { layer as changesNodeLayer, storeLayer } from "@corvi/changes/node";
+import { ChangeRepositories } from "@corvi/changes/repositories";
+import { ChangeId, type Repository } from "@corvi/contracts/changes";
+import {
+  ChangeLifecycle,
+  type Acknowledgement,
+  type LifecycleReason,
+  type Readiness,
+} from "@corvi/workflows/lifecycle";
+import { BadRequestError, NotFoundError, isIweError, type IweError } from "../../capabilities/effect/errors.ts";
+import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Change } from "../../domain/change.ts";
-import { removeWorktree, unsafeToRemove } from "../../vendors/git.ts";
-import { archiveChange, changeDir, writeChange } from "./store.ts";
+import type { Workspace as WorkspaceShape } from "../../domain/config.ts";
 import {
   afterChange,
   beforeChange,
@@ -11,28 +28,11 @@ import {
 } from "../../extension-host/index.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
-import { stopTerminal } from "../../terminals/server/index.ts";
-import { BadRequestError, type CliError, type IweError } from "../../capabilities/effect/errors.ts";
-import { shSoft } from "../../capabilities/effect/support.ts";
+import { unlinkRepo } from "../../vendors/git.ts";
+import { lifecycleLayer } from "../lifecycle-layer.ts";
+import { archiveRoot, readChange, root } from "./store.ts";
 
-/**
- * Abandoning a change: the opposite end of `complete.ts`.
- *
- * Cancelling takes back what Corvi made — the worktrees and the terminal — and touches nothing
- * that anyone else can see. The branches stay (the removal keeps one until its content is in the
- * default branch), the pull requests stay open, the ticket stays where it is. That is deliberate:
- * cancelling is a decision about your own desk, and closing somebody else's pull request or
- * moving a ticket other people are watching is a decision about theirs. What is left is listed so
- * you can go and deal with it — the loose ends are gathered by asking the extensions (looseEnds,
- * below).
- *
- * The protections are the same ones a repository removal has, because it is the same act:
- * uncommitted work refuses outright, commits nobody else has ask first.
- */
-
-/** Names of the repositories whose work would be lost, when that needs asking about first.
- * The Effect API answers in one discriminated union that callers branch on by `_tag`; the
- * `NeedsForce` arm is the one that asks before losing commits nobody else has. */
+/** Names of the repositories whose work would be lost, when that needs asking about first. */
 export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
 export type Cancelled = {
   _tag: "Done";
@@ -42,66 +42,110 @@ export type Cancelled = {
   after: ProvisionResult[];
 };
 
+const isAcknowledgementCode = (
+  code: LifecycleReason["code"],
+): code is Acknowledgement["code"] =>
+  code === "review-pending" ||
+  code === "unpushed" ||
+  code === "ownership-unverified" ||
+  code === "shared-worktree" ||
+  code === "provider-veto";
+
+const acknowledgementsFor = (readiness: Readiness): readonly Acknowledgement[] =>
+  readiness._tag === "Ready"
+    ? []
+    : readiness.reasons.flatMap((reason) =>
+        reason.kind === "forceable" && isAcknowledgementCode(reason.code)
+          ? [{ code: reason.code, subject: reason.subject, facts: reason.facts }]
+          : [],
+      );
+
+const namesOf = (links: readonly Repository[], reasons: readonly LifecycleReason[]): string[] =>
+  reasons.map((reason) => {
+    const link = links.find((entry) => entry.repositoryId === reason.subject?.repositoryId);
+    return link?.directoryName ?? reason.text;
+  });
+
+const services = (
+  workspace: WorkspaceShape,
+  roots: { readonly root: string; readonly archiveRoot: string },
+): Layer.Layer<ChangeLifecycle | ChangeRepositories> =>
+  Layer.merge(
+    changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+    lifecycleLayer(workspace, roots),
+  )
+
+/** The transport boundary for this operation: capability failures become the taxonomy the route
+ * mapper knows; the workflow and capability errors stay typed behind it. */
+const asIwe = (error: unknown): IweError => {
+  if (isIweError(error)) return error;
+  if (typeof error === "object" && error !== null && "_tag" in error) {
+    const tag = String((error as { _tag: unknown })._tag);
+    const raw = "message" in error ? (error as { message: unknown }).message : undefined;
+    const message = raw ? String(raw) : tag;
+    return tag === "ChangeNotFound" ? new NotFoundError({ message }) : new BadRequestError({ message });
+  }
+  return new BadRequestError({ message: messageOf(error) });
+};;
+
 export const cancelChange = (
   change: Change,
   force = false,
-): Effect.Effect<Cancelled | NeedsForce, IweError> =>
-  Effect.gen(function* () {
-    const unsafe = yield* Effect.forEach(
-      change.repos,
-      (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
-      // Unbounded concurrency is deliberate: these per-repo checks are independent.
-      { concurrency: "unbounded" },
-    );
+): Effect.Effect<Cancelled | NeedsForce, IweError> => {
+  const workspace = workspaceOf(change);
+  const roots = { root: root(), archiveRoot: archiveRoot() };
+  return Effect.gen(function* () {
+    const repositoryLinks = yield* ChangeRepositories;
+    const lifecycle = yield* ChangeLifecycle;
+    const changeId = ChangeId.make(change.id);
+    const links = yield* repositoryLinks
+      .listRepositories(changeId)
+      .pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
 
-    // Uncommitted work cannot be recovered from anywhere, so it is never thrown away on the
-    // strength of a menu item: commit it, or revert it, and then cancel.
-    const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
-    if (dirty.length) {
+    // Fresh, and before anything is written: the acknowledgement question and the refusal are
+    // decisions about whether to start, not a cancellation that started and stopped. Uncommitted
+    // work refuses outright, even with force.
+    const readiness = yield* lifecycle.assessCancellation(changeId);
+    if (readiness._tag === "Blocked") {
       return yield* new BadRequestError({
-        message:
-          `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, ` +
-          `commit or revert them before cancelling`,
+        message: `${namesOf(links, readiness.reasons).join(", ")}: uncommitted changes, commit or revert them before cancelling`,
       });
     }
-    // Commits nobody else has: the branch survives a cancellation, so these are recoverable — but
-    // only by someone who knows the branch is there, which is worth one question.
-    const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
-    if (unpushed.length && !force) {
-      return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
-    }
+    if (readiness._tag === "AcknowledgementRequired" && !force)
+      return { _tag: "NeedsForce", needsForce: namesOf(links, readiness.reasons) } satisfies NeedsForce;
 
-    // The before-hooks run before anything irreversible: a veto here leaves the change, its
-    // worktrees and its terminal exactly as they were. They see the change, not a draft, so
-    // their only move is to fail.
+    // The extensions' veto: after the question, before anything irreversible.
     yield* beforeChange("change:cancelling", change);
 
-    // Asked before the worktrees go, because that is where the pull request is looked up from.
-    const loose = yield* looseEnds(change);
+    // The change directory's browse links: an idea's symlinks are Corvi's own, so they go before
+    // the checkout removal, which then finds nothing at that path rather than failing on a
+    // directory Git does not know as a worktree. A real worktree is untouched by this.
+    yield* Effect.forEach(change.repos, (repo) => unlinkRepo(change, repo), {
+      concurrency: 1,
+      discard: true,
+    });
 
-    for (const repo of change.repos) yield* removeWorktree(change, repo);
-    yield* stopTerminal(change.id);
-
-    // Asked afterwards, because it is a fact about what is left: the removal keeps a branch whose
-    // content the default branch does not have, and deletes one whose content it already has, and
-    // only the first is a loose end.
-    const kept = yield* keptBranches(change);
-    if (kept.length) {
-      loose.push(`the branch ${change.branch} is kept in ${kept.map((repo) => basename(repo)).join(", ")}`);
+    const outcome = yield* lifecycle.cancelChange({
+      changeId,
+      acknowledgements: acknowledgementsFor(readiness),
+    });
+    if (outcome._tag === "Done") {
+      const updated = yield* readChange(change.id);
+      if (!updated)
+        return yield* new BadRequestError({ message: "the cancelled change could not be read back" });
+      const after = yield* afterChange("change:cancelled", updated);
+      return { _tag: "Done", change: updated, loose: [...outcome.loose], after } satisfies Cancelled;
     }
-
-    const cancelled: Change = {
-      ...change,
-      state: "Cancelled",
-      completedAt: new Date().toISOString(),
-    };
-    yield* writeChange(cancelled);
-    yield* archiveChange(change.id);
-    // The after-hooks observe the archived change. Their failures are reported under each
-    // extension's name and never fail the cancellation.
-    const after = yield* afterChange("change:cancelled", cancelled);
-    return { _tag: "Done", change: cancelled, loose, after };
-  });
+    if (outcome._tag === "NeedsAcknowledgement")
+      return { _tag: "NeedsForce", needsForce: namesOf(links, outcome.reasons) } satisfies NeedsForce;
+    return yield* new BadRequestError({
+      message: `${namesOf(links, outcome.reasons).join(", ")}: uncommitted changes, commit or revert them before cancelling`,
+    });
+  }).pipe(
+    Effect.catchAll((error) => Effect.fail(asIwe(error))),
+    Effect.provide(services(workspace, roots)),
+  );
+};
 
 /**
  * What cancelling deliberately leaves alone, said out loud.
@@ -118,36 +162,11 @@ export const looseEnds = (change: Change): Effect.Effect<string[]> =>
       looseEndContributorsFor(workspaceOf(change)),
       ({ name, contribution }) =>
         Effect.catchAll(
-          Effect.provide(
-            contribution.looseEnds(change),
-            capabilitiesLayer(workspaceOf(change), name),
-          ),
+          Effect.provide(contribution.looseEnds(change), capabilitiesLayer(workspaceOf(change), name)),
           () => Effect.succeed([] as string[]),
         ),
       // Unbounded concurrency is deliberate: these contributors are independent.
       { concurrency: "unbounded" },
     ),
     (ends) => ends.flat(),
-  );
-
-/**
- * Where the change's branch still exists once the worktrees are gone.
- *
- * The removal keeps a branch whose content the default branch does not have and deletes one whose
- * content it already has, which is the behaviour you want and not the behaviour you would guess:
- * worth reporting rather than claiming either way.
- */
-const keptBranches = (change: Change): Effect.Effect<string[]> =>
-  Effect.map(
-    Effect.forEach(
-      change.repos,
-      (repo) =>
-        Effect.map(
-          shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo),
-          (exists) => (exists.code === 0 ? repo : undefined),
-        ),
-      // Unbounded concurrency is deliberate: these per-repo checks are independent.
-      { concurrency: "unbounded" },
-    ),
-    (found) => found.filter((r): r is string => Boolean(r)),
   );

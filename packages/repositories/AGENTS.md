@@ -31,6 +31,8 @@ entrypoint stays platform-free.
   lifecycle workflow calls it only for Corvi-created checkouts after a fresh `assessRemoval`.
 - `assessRemoval` refuses uncommitted work outright and acknowledges commits the base cannot prove
   landed; an unreadable upstream comparison is not zero ahead.
+- `removeBranchIfIntegrated` deletes a branch only when the base proves its content landed, reports
+  it kept otherwise (including a refused deletion), and never fails after the removal happened.
 
 ## Verification
 

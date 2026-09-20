@@ -62,11 +62,13 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 - [x] Supply process/filesystem dependencies through Layers; no optional live fallback.
 - [ ] Extract the change-owned association projection/update and migrate association data explicitly
       before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
-      unresolved legacy ownership must not become automatic cleanup authority. The store now writes
-      a legacy-compatible record: `repositories` materializes on write, `repos`/`direct` stay in
+      unresolved legacy ownership must not become automatic cleanup authority. The store writes a
+      legacy-compatible record: `repositories` materializes on write, `repos`/`direct` stay in
       sync from it, and the legacy fields win when the old app edits them, so one record serves
-      both readers. A terminal transition archives the directory. Enabling the new write paths is
-      the remaining step.
+      both readers. The legacy writer materializes the same links on its own writes (and strips
+      them from its in-memory value), so the field is maintained whichever half touched the
+      record; a terminal transition archives the directory. Enabling the new write paths is the
+      remaining step.
 - [x] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
       The read is served from the legacy projection, driven end to end by
       `test/repositoriesEndpoint.test.ts`, and consumed in the browser by the change page's
@@ -109,9 +111,11 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
 - [ ] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
       partial-failure reporting. Keep force/acknowledgement and dirty-worktree protections.
-      `ChangeLifecycle` now exists in `@corvi/workflows/lifecycle` with scripted-port tests
-      (ordered steps, fact-fingerprinted acknowledgements, recheck-before-removal, per-change
-      serialization); the app routes and write-path migration remain.
+      `ChangeLifecycle` exists in `@corvi/workflows/lifecycle` with scripted-port tests, and
+      **cancel now runs through it** in the app: `src/change/server/cancel.ts` maps the HTTP shape
+      (force question, veto, loose ends, after notices) onto the workflow through the cutover
+      adapters in `src/change/lifecycle-layer.ts`, and the existing cancel/ideation tests pass.
+      Completion and the create/start write paths remain on the legacy flows.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.

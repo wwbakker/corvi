@@ -48,6 +48,7 @@ export interface Interface {
   readonly history: {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly head: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
+    readonly branchExists: (repository: Repository, branch: string) => Effect.Effect<boolean, OperationError>
     readonly upstream: (repository: Repository) => Effect.Effect<UpstreamState, OperationError>
     /** The remote's symbolic HEAD, from local metadata only; never fetches. */
     readonly defaultRemoteBranch: (
@@ -72,6 +73,9 @@ export interface Interface {
       repository: Repository,
       input: { readonly remote?: string; readonly branch: string; readonly reset?: boolean },
     ) => Effect.Effect<void, OperationError>
+    /** Deletes a local branch even when its commits look unmerged; the caller has proven the
+     * content landed. */
+    readonly deleteBranch: (repository: Repository, branch: string) => Effect.Effect<void, OperationError>
   }
   readonly worktree: {
     readonly create: (input: {

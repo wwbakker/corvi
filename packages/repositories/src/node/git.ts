@@ -77,6 +77,25 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
     })
 
+    const branchExists = Effect.fn("Git.history.branchExists")(function* (
+      repository: Git.Repository,
+      branch: string,
+    ) {
+      const result = yield* run("upstream", repository.worktree, [
+        "show-ref",
+        "--verify",
+        "--quiet",
+        `refs/heads/${branch}`,
+      ])
+      if (result.exitCode === 0) return true
+      if (result.exitCode === 1) return false
+      return yield* new Git.OperationError({
+        operation: "upstream",
+        directory: repository.worktree,
+        message: result.stderr.trim() || "git show-ref failed",
+      })
+    })
+
     const upstream = Effect.fn("Git.history.upstream")(function* (repository: Git.Repository) {
       const branchName = yield* run("upstream", repository.worktree, [
         "symbolic-ref",
@@ -196,6 +215,19 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         })
     })
 
+    const deleteBranch = Effect.fn("Git.sync.deleteBranch")(function* (
+      repository: Git.Repository,
+      branch: string,
+    ) {
+      const result = yield* run("remove", repository.worktree, ["branch", "-D", branch])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "remove",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git branch -D failed",
+        })
+    })
+
     const create = Effect.fn("Git.worktree.create")(function* (input: {
       readonly repository: Git.Repository
       readonly directory: AbsolutePath
@@ -263,10 +295,10 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
 
     return {
       repo: { discover },
-      history: { branch, head, upstream, defaultRemoteBranch },
+      history: { branch, head, branchExists, upstream, defaultRemoteBranch },
       status: { dirty: statusDirty },
       integration: { proven: integrationProven },
-      sync: { checkoutRemoteBranch },
+      sync: { checkoutRemoteBranch, deleteBranch },
       worktree: { create, remove, list },
     }
   }),

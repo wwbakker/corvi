@@ -626,3 +626,23 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
 
   (config as { workspaces: unknown }).workspaces = original.workspaces;
 });
+
+test("a legacy write materializes the new link model", async () => {
+  const change: Change = {
+    id: "legacy-links",
+    branch: "legacy-links",
+    repos: [join(tmp, "repo-a"), join(tmp, "repo-b")],
+    direct: [join(tmp, "repo-b")],
+    state: "In Progress",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  await Effect.runPromise(writeChange(change));
+  const record = (await Bun.file(join(changeDir(change.id), "change.json")).json()) as {
+    repositories?: { originalLocation: string; checkoutMethod: string }[];
+  };
+  expect(record.repositories?.map((link) => link.originalLocation)).toEqual(change.repos);
+  expect(record.repositories?.map((link) => link.checkoutMethod)).toEqual([
+    "UseNewLocationNewBranch",
+    "UseOriginalLocationNewBranch",
+  ]);
+});

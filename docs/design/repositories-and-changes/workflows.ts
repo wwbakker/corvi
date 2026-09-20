@@ -50,11 +50,12 @@ export type StartOutcome =
       readonly failures: readonly ProvisionFailure[]
     }
 
-/** One journal entry of an operation that can stop half way. */
+/** One journal entry of an operation that can stop half way. `waiting` is written with the plan,
+ * before anything runs, so a page can show what is still coming. */
 export type OperationStep = {
   readonly id: string
   readonly label: string
-  readonly state: "running" | "done" | "failed"
+  readonly state: "waiting" | "running" | "done" | "failed"
   readonly detail?: string
 }
 

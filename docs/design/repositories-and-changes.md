@@ -92,7 +92,8 @@ export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
 
 Allowed transitions:
 
-- `Ideation -> Implementation` is the only way out of `Ideation` (starting the work).
+- `Ideation -> Implementation` starts the work, and `Ideation -> Cancelled` abandons the idea;
+  those are the only ways out of `Ideation`.
 - `Implementation`, `Verification` and `Blocked` may move among themselves.
 - `Completed` and `Cancelled` are terminal, set `completedAt`, and are entered by the
   complete/cancel workflows, not by hand.
@@ -563,11 +564,12 @@ export type StartOutcome =
       readonly failures: readonly ProvisionFailure[]
     }
 
-/** One journal entry of an operation that can stop half way. */
+/** One journal entry of an operation that can stop half way. `waiting` is written with the plan,
+ * before anything runs, so a page can show what is still coming. */
 export type OperationStep = {
   readonly id: string
   readonly label: string
-  readonly state: "running" | "done" | "failed"
+  readonly state: "waiting" | "running" | "done" | "failed"
   readonly detail?: string
 }
 ```
@@ -734,9 +736,17 @@ export type LifecycleReason = {
 }
 
 export type Readiness =
-  | { readonly _tag: "Ready" }
-  | { readonly _tag: "AcknowledgementRequired"; readonly reasons: readonly LifecycleReason[] }
-  | { readonly _tag: "Blocked"; readonly reasons: readonly LifecycleReason[] }
+  | { readonly _tag: "Ready"; readonly toMerge: readonly OutstandingPullRequest[] }
+  | {
+      readonly _tag: "AcknowledgementRequired"
+      readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
+    }
+  | {
+      readonly _tag: "Blocked"
+      readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
+    }
 
 export type Acknowledgement = {
   readonly code: AcknowledgementCode
@@ -755,11 +765,13 @@ export type LifecycleOutcome =
       readonly _tag: "NeedsAcknowledgement"
       readonly operation: "complete" | "cancel"
       readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
     }
   | {
       readonly _tag: "Blocked"
       readonly operation: "complete" | "cancel"
       readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
     }
 ```
 
@@ -777,6 +789,8 @@ export interface PullRequestsInterface {
   readonly readiness: (input: {
     readonly change: Change
     readonly repository: RepositoryRef
+    /** The click path forgets cached reads and fetches before deciding; the poll does not. */
+    readonly fresh: boolean
   }) => Effect.Effect<PullRequestState, ProviderError>
   readonly merge: (input: {
     readonly change: Change
@@ -794,8 +808,8 @@ export type OutstandingPullRequest = {
 
 export interface IssuesInterface {
   readonly transition: (change: Change) => Effect.Effect<string | undefined, ProviderError>
-  /** Where the issue stands, for a cancellation's loose ends. */
-  readonly current: (change: Change) => Effect.Effect<string | undefined, ProviderError>
+  /** Where the issue stands, for a cancellation's loose ends: one line each. */
+  readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>
 }
 
 export interface TerminalSessionsInterface {
@@ -867,8 +881,8 @@ export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycl
    in parallel, fresh at the click.
 2. Every forceable reason must be acknowledged with matching facts; changed facts invalidate the
    acknowledgement. Hard reasons — an idea, uncommitted work — block regardless.
-3. Journal the plan: one step per merge, the issue step, the worktrees, the terminal, the
-   archive.
+3. Journal the plan first — each merge, the issue step, the worktrees, the terminal, the archive,
+   recorded as `waiting` — then run it, updating each step as it starts and finishes.
 4. Merge eligible pull requests sequentially; a failure stops later steps and journals where.
 5. Run the issue transition.
 6. Remove only safe, Corvi-owned checkouts; a shared worktree or unresolved ownership blocks.
@@ -880,6 +894,8 @@ export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycl
 1. Read the change and its links; assess removal safety per checkout.
 2. Uncommitted work blocks; unpushed commits need acknowledgement.
 3. Collect loose ends from providers before removal; a failed lookup is a note, not a blocker.
+   The plan (loose ends, worktrees, terminal, archive) is journaled as `waiting` before anything
+   runs.
 4. Remove only safe, Corvi-owned checkouts; keep the branch when its content is not in the base.
 5. Stop the owned terminal session.
 6. Transition to `Cancelled` and archive; list what was deliberately left alone.

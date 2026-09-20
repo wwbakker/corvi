@@ -29,6 +29,9 @@ export type RemovalAssessment =
   | { readonly _tag: "NeedsAcknowledgement"; readonly reasons: readonly RemovalReason[] }
   | { readonly _tag: "Unsafe"; readonly reasons: readonly RemovalReason[] }
 
+/** What happened to the branch after a checkout was removed. */
+export type BranchCleanup = "deleted" | "kept" | "absent"
+
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
   readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree"
   readonly directory: string
@@ -58,6 +61,13 @@ export interface Interface {
     /** The branch the change put there; absent for a detached checkout. */
     readonly branch?: string
   }) => Effect.Effect<RemovalAssessment, NotARepository | CheckoutError>
+  /** After a checkout is gone: delete the branch when the base proves its content landed,
+   * report it kept when it remains, or absent when it never existed. A branch that refuses
+   * deletion is reported kept, not failed: the removal already happened. */
+  readonly removeBranchIfIntegrated: (input: {
+    readonly repository: AbsolutePath
+    readonly branch: string
+  }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
 }
 
 export class Repositories extends Context.Tag("corvi/Repositories")<Repositories, Interface>() {}
@@ -268,6 +278,25 @@ export const layer = Layer.effect(
       } satisfies RemovalAssessment
     })
 
-    return { inspectCheckout, assessRemoval, switchBranch, addWorktree, removeWorktree }
+    const removeBranchIfIntegrated = Effect.fn("Repositories.removeBranchIfIntegrated")(function* (input: {
+      readonly repository: AbsolutePath
+      readonly branch: string
+    }) {
+      const repository = yield* discover(input.repository, "remove-worktree")
+      const exists = (): Effect.Effect<boolean, CheckoutError> =>
+        inspect(git.history.branchExists(repository, input.branch), input.repository)
+      const base = yield* inspect(git.history.defaultRemoteBranch(repository), input.repository)
+      const integrated = base
+        ? yield* inspect(git.integration.proven(repository, { branch: input.branch, base }), input.repository)
+        : false
+      if (integrated) {
+        const deleted = yield* git.sync.deleteBranch(repository, input.branch).pipe(Effect.either)
+        if (deleted._tag === "Right") return "deleted" as const
+        return (yield* exists()) ? ("kept" as const) : ("absent" as const)
+      }
+      return (yield* exists()) ? ("kept" as const) : ("absent" as const)
+    })
+
+    return { inspectCheckout, assessRemoval, removeBranchIfIntegrated, switchBranch, addWorktree, removeWorktree }
   }),
 )

@@ -4,6 +4,7 @@ import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { PLAN_FILE } from "../../domain/change.ts";
+import { projectLegacyRepositories } from "@corvi/changes/legacy";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -50,9 +51,15 @@ const changeFile = (id: string): string => join(changeDir(id), "change.json");
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
-// DecodeError with the ParseResult issues rendered one line per problem, path included.
+// DecodeError with the ParseResult issues rendered one line per problem, path included. The new
+// link array is dropped from the in-memory value: this half derives it from `repos`/`direct` on
+// write, so it never reads it, and leaving it in would change every legacy comparison.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
   Schema.decodeUnknown(Schema.parseJson(ChangeSchema), { onExcessProperty: "preserve" })(text).pipe(
+    Effect.map((change) => {
+      const { repositories: _links, ...legacy } = change as Change & { repositories?: unknown };
+      return legacy as Change;
+    }),
     Effect.mapError((error) => {
       const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
         .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
@@ -77,7 +84,11 @@ export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
-    yield* fs(() => write(join(dir, "change.json"), JSON.stringify(change, null, 2) + "\n"));
+    // Materialize the new link model on every write, from the same `repos`/`direct` the old app
+    // maintains: whichever writer touched the record, both readers see the same links. The old
+    // schema preserves unknown fields, so the added key is ignored on its side.
+    const record = { ...change, repositories: projectLegacyRepositories(change) };
+    yield* fs(() => write(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
   });
 
 /** A file beside change.json — notes, completion progress — which therefore travels into the

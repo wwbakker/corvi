@@ -15,11 +15,13 @@ interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
   readonly branch?: Git.Interface["history"]["branch"]
   readonly head?: Git.Interface["history"]["head"]
+  readonly branchExists?: Git.Interface["history"]["branchExists"]
   readonly upstream?: Git.Interface["history"]["upstream"]
   readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
   readonly status?: Git.Interface["status"]["dirty"]
   readonly integration?: Git.Interface["integration"]["proven"]
   readonly checkoutRemoteBranch?: Git.Interface["sync"]["checkoutRemoteBranch"]
+  readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
   readonly create?: Git.Interface["worktree"]["create"]
   readonly remove?: Git.Interface["worktree"]["remove"]
   readonly list?: Git.Interface["worktree"]["list"]
@@ -33,12 +35,16 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
         history: {
           branch: script.branch ?? (() => Effect.succeed(undefined)),
           head: script.head ?? (() => Effect.succeed(undefined)),
+          branchExists: script.branchExists ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
           defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
         },
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
-        sync: { checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void) },
+        sync: {
+          checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void),
+          deleteBranch: script.deleteBranch ?? (() => Effect.void),
+        },
         worktree: {
           create: script.create ?? (() => Effect.succeed(repository)),
           remove: script.remove ?? (() => Effect.void),
@@ -275,4 +281,86 @@ test("assessRemoval refuses a location that is not a repository", async () => {
   const result = await assess({})
   expect(Either.isLeft(result)).toBe(true)
   if (Either.isLeft(result)) expect((result.left as { _tag: string })._tag).toBe("NotARepository")
+})
+
+test("removeBranchIfIntegrated deletes a branch the base proves landed", async () => {
+  const deleted: string[] = []
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.removeBranchIfIntegrated({
+        repository: AbsolutePath.make("/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      branchExists: () => Effect.succeed(true),
+      defaultRemoteBranch: () => Effect.succeed("main"),
+      integration: () => Effect.succeed(true),
+      deleteBranch: (_repository, branch) => {
+        deleted.push(branch)
+        return Effect.void
+      },
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right).toBe("deleted")
+  expect(deleted).toEqual(["feature"])
+})
+
+test("removeBranchIfIntegrated keeps a branch the base cannot prove landed", async () => {
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.removeBranchIfIntegrated({
+        repository: AbsolutePath.make("/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      branchExists: () => Effect.succeed(true),
+      defaultRemoteBranch: () => Effect.succeed("main"),
+      integration: () => Effect.succeed(false),
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right).toBe("kept")
+})
+
+test("removeBranchIfIntegrated reports a branch that never existed as absent", async () => {
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.removeBranchIfIntegrated({
+        repository: AbsolutePath.make("/repo"),
+        branch: "feature",
+      })
+    }),
+    { discover: () => Effect.succeed(repository), branchExists: () => Effect.succeed(false) },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right).toBe("absent")
+})
+
+test("a branch that refuses deletion is reported kept, not failed", async () => {
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.removeBranchIfIntegrated({
+        repository: AbsolutePath.make("/repo"),
+        branch: "feature",
+      })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      branchExists: () => Effect.succeed(true),
+      defaultRemoteBranch: () => Effect.succeed("main"),
+      integration: () => Effect.succeed(true),
+      deleteBranch: () => Effect.fail(new Git.OperationError({ operation: "remove", message: "checked out" })),
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right).toBe("kept")
 })

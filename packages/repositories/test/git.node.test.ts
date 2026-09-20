@@ -368,3 +368,37 @@ test("integration.proven does not prove unmerged work or unknown revisions", asy
   )
   expect(result).toEqual({ unmerged: false, unknownBase: false, unknownBranch: false })
 })
+
+test("removeBranchIfIntegrated deletes integrated branches and keeps the rest", async () => {
+  const dir = await makeRepo("branch-cleanup-repo")
+  git(dir, "checkout", "-b", "feature")
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "feature work")
+  git(dir, "checkout", "main")
+  git(dir, "merge", "--ff-only", "feature")
+
+  const cleanup = (branch: string): Promise<string> =>
+    withRepositories(
+      Effect.gen(function* () {
+        const repositories = yield* Repositories
+        return yield* repositories.removeBranchIfIntegrated({
+          repository: AbsolutePath.make(dir),
+          branch,
+        })
+      }),
+    )
+
+  expect(await cleanup("feature")).toBe("deleted")
+  expect(git(dir, "branch", "--list", "feature")).toBe("")
+
+  git(dir, "checkout", "-b", "unmerged")
+  await writeFile(join(dir, "c.txt"), "c\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "unmerged work")
+  git(dir, "checkout", "main")
+  expect(await cleanup("unmerged")).toBe("kept")
+  expect(git(dir, "branch", "--list", "unmerged")).toContain("unmerged")
+
+  expect(await cleanup("never-existed")).toBe("absent")
+})

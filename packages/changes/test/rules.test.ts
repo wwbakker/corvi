@@ -22,8 +22,10 @@ const link = (checkoutMethod: Repository["checkoutMethod"]): Repository =>
     checkoutMethod,
   })
 
-test("only Ideation leaves for Implementation, and terminal phases are final", () => {
+test("only Ideation leaves for Implementation or Cancelled, and terminal phases are final", () => {
   expect(allowedTransition("Ideation", "Implementation")).toBe(true)
+  expect(allowedTransition("Ideation", "Cancelled")).toBe(true)
+  expect(allowedTransition("Ideation", "Completed")).toBe(false)
   expect(allowedTransition("Ideation", "Blocked")).toBe(false)
   expect(allowedTransition("Implementation", "Verification")).toBe(true)
   expect(allowedTransition("Verification", "Blocked")).toBe(true)

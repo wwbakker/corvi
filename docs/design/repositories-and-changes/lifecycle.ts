@@ -40,9 +40,17 @@ export type LifecycleReason = {
 }
 
 export type Readiness =
-  | { readonly _tag: "Ready" }
-  | { readonly _tag: "AcknowledgementRequired"; readonly reasons: readonly LifecycleReason[] }
-  | { readonly _tag: "Blocked"; readonly reasons: readonly LifecycleReason[] }
+  | { readonly _tag: "Ready"; readonly toMerge: readonly OutstandingPullRequest[] }
+  | {
+      readonly _tag: "AcknowledgementRequired"
+      readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
+    }
+  | {
+      readonly _tag: "Blocked"
+      readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
+    }
 
 /** One acknowledged reason. The facts must still match when the destructive step runs. */
 export type Acknowledgement = {
@@ -64,11 +72,13 @@ export type LifecycleOutcome =
       readonly _tag: "NeedsAcknowledgement"
       readonly operation: "complete" | "cancel"
       readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
     }
   | {
       readonly _tag: "Blocked"
       readonly operation: "complete" | "cancel"
       readonly reasons: readonly LifecycleReason[]
+      readonly toMerge: readonly OutstandingPullRequest[]
     }
 
 export class ChangeOperationInProgress extends Data.TaggedError("ChangeOperationInProgress")<{
@@ -103,6 +113,8 @@ export interface PullRequestsInterface {
   readonly readiness: (input: {
     readonly change: Change
     readonly repository: RepositoryRef
+    /** The click path forgets cached reads and fetches before deciding; the poll does not. */
+    readonly fresh: boolean
   }) => Effect.Effect<PullRequestState, ProviderError>
   readonly merge: (input: {
     readonly change: Change
@@ -123,8 +135,8 @@ export class PullRequests extends Context.Tag("corvi/workflows/PullRequests")<Pu
 export interface IssuesInterface {
   /** The ticket step a completed change needs; a note may explain what it did. */
   readonly transition: (change: Change) => Effect.Effect<string | undefined, ProviderError>
-  /** Where the issue stands, for a cancellation's loose ends. */
-  readonly current: (change: Change) => Effect.Effect<string | undefined, ProviderError>
+  /** Where the issue stands, for a cancellation's loose ends: one line each. */
+  readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>
 }
 
 export class Issues extends Context.Tag("corvi/workflows/Issues")<Issues, IssuesInterface>() {}

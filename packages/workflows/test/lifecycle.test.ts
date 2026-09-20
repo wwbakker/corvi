@@ -33,8 +33,9 @@ interface Script {
   steps: OperationStep[]
   readiness: PullRequestState[]
   removal: RemovalAssessment | (() => RemovalAssessment)
+  branchCleanup?: "deleted" | "kept" | "absent"
   loose: readonly { readonly repository: RepositoryRef; readonly number: number }[]
-  issue: string | undefined
+  issue: readonly string[]
   looseFailure: boolean
   /** Signalled by the merge port when the operation is provably in flight. */
   started?: Deferred.Deferred<void>
@@ -76,7 +77,7 @@ const script = (overrides: Partial<Script> = {}): Script => ({
   ],
   removal: { _tag: "Safe" },
   loose: [],
-  issue: undefined,
+  issue: [],
   looseFailure: false,
   ...overrides,
 })
@@ -109,6 +110,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           inspectCheckout: () => Effect.succeed({ _tag: "Missing" as const }),
           assessRemoval: () =>
             Effect.succeed(typeof state.removal === "function" ? state.removal() : state.removal),
+          removeBranchIfIntegrated: () => Effect.succeed(state.branchCleanup ?? "deleted"),
           switchBranch: () => Effect.void,
           addWorktree: () => Effect.void,
           removeWorktree: (input) => {
@@ -152,7 +154,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
         Layer.succeed(Issues, {
           transition: () => {
             state.calls.push("issue transition")
-            return Effect.succeed(state.issue)
+            return Effect.succeed(state.issue.length > 0 ? state.issue.join("; ") : undefined)
           },
           current: () => Effect.succeed(state.issue),
         }),
@@ -300,6 +302,35 @@ test("completion merges, removes only the created checkout, stops the terminal a
     "transition Completed",
   ])
   expect(state.steps.map((step) => `${step.id}:${step.state}`)).toContain("archive:done")
+  expect(state.steps.filter((step) => step.state === "waiting").map((step) => step.id)).toEqual([
+    "merge:/sources/created",
+    "issues",
+    "worktrees",
+    "terminal",
+    "archive",
+  ])
+})
+
+test("a refusal carries what completion would merge", async () => {
+  const state = script({
+    readiness: [
+      { repository: ref("created"), number: 7, ready: true, merged: false },
+      { repository: ref("borrowed"), number: 8, ready: false, merged: false, reason: "waiting for review" },
+    ],
+  })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const service = yield* lifecycle
+      return yield* service.completeChange({ changeId: ChangeId.make("demo") })
+    }),
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) {
+    expect(result.right._tag).toBe("NeedsAcknowledgement")
+    if (result.right._tag === "NeedsAcknowledgement")
+      expect(result.right.toMerge).toEqual([{ repository: ref("created"), number: 7 }])
+  }
 })
 
 test("a stale acknowledgement does not authorize the removal", async () => {
@@ -390,8 +421,9 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
       _tag: "NeedsAcknowledgement",
       reasons: [{ code: "unpushed", kind: "forceable", text: "2 unpushed commit(s)", facts: "unpushed:abc:2" }],
     },
+    branchCleanup: "kept",
     loose: [{ repository: ref("created"), number: 3 }],
-    issue: "PROJ-1 is still open",
+    issue: ["PROJ-1 is still open"],
   })
   const acknowledged: readonly Acknowledgement[] = [
     { code: "unpushed", subject: ref("created"), facts: "unpushed:abc:2" },

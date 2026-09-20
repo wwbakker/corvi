@@ -6,12 +6,13 @@ export const isTerminal = (phase: ChangePhase): boolean =>
 
 export const isFinished = (change: Pick<Change, "phase">): boolean => isTerminal(change.phase)
 
-/** `Ideation` only leaves for `Implementation`; the manual phases move among themselves,
- * and the complete/cancel workflows enter the terminal phases. */
+/** `Ideation` leaves for `Implementation` (starting the work) or `Cancelled` (abandoning the
+ * idea); the manual phases move among themselves, and the complete/cancel workflows enter the
+ * terminal phases. */
 export const allowedTransition = (from: ChangePhase, to: ChangePhase): boolean => {
   if (from === to) return false
   if (isTerminal(from)) return false
-  if (from === "Ideation") return to === "Implementation"
+  if (from === "Ideation") return to === "Implementation" || to === "Cancelled"
   return true
 }
 

@@ -12,7 +12,7 @@ const Steps = Schema.Array(
   Schema.Struct({
     id: Schema.String,
     label: Schema.String,
-    state: Schema.Literal("running", "done", "failed"),
+    state: Schema.Literal("waiting", "running", "done", "failed"),
     detail: Schema.optional(Schema.String),
   }),
 )
