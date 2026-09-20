@@ -302,6 +302,11 @@ export const layer = Layer.effect(
 )
 ```
 
+The store keeps one legacy-compatible record per change: `repositories` materializes the link
+list, `repos`/`direct` are derived from it, and when the old app edits those fields they win and
+the links are re-projected until the next write. A terminal transition archives the change
+directory.
+
 # Repositories (Git)
 
 The `repositories` capability performs checkout work on concrete locations. It does not know about
@@ -895,9 +900,9 @@ The dashboard reads one change's repositories. The route decodes the path, calls
 encodes the view; the client exposes a named method that returns the same decoded shape. Both
 import the schema from `@corvi/contracts/api` (shown below); there is no caller-selected response
 generic. This read is wired first: the app serves it (`src/change/repositories-route.ts`) from the
-read-only legacy projection, `test/repositoriesEndpoint.test.ts` drives the route and the client
-against each other, and the change page's `CheckoutsCard` consumes the typed client in the
-browser (`test/pages.test.ts`).
+change store, which reads the legacy record in place and materializes the link list on write;
+`test/repositoriesEndpoint.test.ts` drives the route and the client against each other, and the
+change page's `CheckoutsCard` consumes the typed client in the browser (`test/pages.test.ts`).
 
 ## Contract
 ```ts

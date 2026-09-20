@@ -6,7 +6,7 @@
  */
 import { Effect, Layer } from "effect"
 
-import { legacyReadLayer, progressLayer } from "@corvi/changes/node"
+import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
 import type { RepositoryViewDto } from "@corvi/contracts/api"
 import { ChangeId } from "@corvi/contracts/changes"
 import { layer as repositoriesNodeLayer } from "@corvi/repositories/node"
@@ -31,7 +31,8 @@ const param = (req: Request, name: string): string =>
  * the current configuration. */
 const sliceLayer = (): Layer.Layer<ChangeWork> =>
   changeWorkLayer.pipe(
-    Layer.provide(legacyReadLayer({ root: root(), archiveRoot: archiveRoot() })),
+    Layer.provide(changesNodeLayer),
+    Layer.provide(storeLayer({ root: root(), archiveRoot: archiveRoot() })),
     Layer.provide(repositoriesNodeLayer),
     Layer.provide(progressLayer({ root: root() })),
   )

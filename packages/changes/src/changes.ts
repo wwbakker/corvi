@@ -5,9 +5,9 @@ import { Change, type ChangeFilter, type ChangeId, type ChangePhase, type Create
 import {
   ChangeIdTaken,
   ChangeNotFound,
+  ChangeStoreError,
   InvalidTransition,
   type ChangeConflict,
-  type ChangeStoreError,
 } from "./errors.ts"
 import { allowedTransition, isFinished, isTerminal } from "./rules.ts"
 import { ChangeStore } from "./store.ts"
@@ -54,7 +54,16 @@ export const layer = Layer.effect(
         createdAt: now(),
       })
       yield* store.create(change, [])
-      return change
+      // The store owns the on-disk location, so the created change is read back rather than
+      // echoing the input's workspace location.
+      const created = yield* store.read(input.changeId)
+      if (!created)
+        return yield* new ChangeStoreError({
+          changeId: input.changeId,
+          operation: "read",
+          message: "the created change could not be read back",
+        })
+      return created
     })
 
     const transitionTo = Effect.fn("Change.transitionTo")(function* (

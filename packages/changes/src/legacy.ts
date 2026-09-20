@@ -15,7 +15,8 @@ import {
   type ChangePhase,
 } from "@corvi/contracts/changes"
 
-export const LegacyChangeRecord = Schema.Struct({
+/** The stored record's fields, shared with the store that extends them. */
+export const LegacyChangeRecordFields = {
   id: Schema.String,
   title: Schema.optional(Schema.String),
   branch: Schema.optional(Schema.String),
@@ -25,10 +26,17 @@ export const LegacyChangeRecord = Schema.Struct({
   workspace: Schema.optional(Schema.String),
   createdAt: Schema.optional(Schema.String),
   completedAt: Schema.optional(Schema.String),
-})
+} as const
+
+export const LegacyChangeRecord = Schema.Struct(LegacyChangeRecordFields)
 export type LegacyChangeRecord = typeof LegacyChangeRecord.Type
 
 /** The legacy phase names, including the two the new vocabulary renamed. */
+/** The inverse: the old app's name for the same phase, written on save so both read the same
+ * field. */
+export const legacyStateForPhase = (phase: ChangePhase): string =>
+  phase === "Implementation" ? "In Progress" : phase === "Verification" ? "Awaiting Review" : phase
+
 export const mapLegacyPhase = (state: string | undefined): ChangePhase => {
   switch (state) {
     case "Ideation":

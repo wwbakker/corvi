@@ -27,7 +27,7 @@ afterAll(async () => {
 })
 
 const services = (at: string): Layer.Layer<ChangeService | ChangeRepositories> =>
-  servicesLayer.pipe(Layer.provide(storeLayer({ root: at })))
+  servicesLayer.pipe(Layer.provide(storeLayer({ root: at, archiveRoot: `${at}-archive` })))
 
 const runEither = <A, E>(
   program: Effect.Effect<A, E, ChangeService | ChangeRepositories>,
@@ -194,12 +194,13 @@ test("links survive a phase transition and a fresh store layer", async () => {
 
 test("a malformed record is a typed store error, not absence", async () => {
   const id = ChangeId.make("malformed")
-  await Bun.write(join(root, id, "change.json"), "{ not json }\n")
-  const result = await runEither(
+  const brokenRoot = join(root, "broken-store")
+  await Bun.write(join(brokenRoot, id, "change.json"), "{ not json }\n")
+  const result = await Effect.runPromise(
     Effect.gen(function* () {
       const changes = yield* ChangeService
       return yield* changes.getChange(id)
-    }),
+    }).pipe(Effect.either, Effect.provide(services(brokenRoot))),
   )
   expect(Either.isLeft(result)).toBe(true)
   if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeStoreError")
@@ -214,4 +215,65 @@ test("a transition to an unknown change is ChangeNotFound", async () => {
   )
   expect(Either.isLeft(result)).toBe(true)
   if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeNotFound")
+})
+
+test("links materialize into the record and keep the legacy fields in sync", async () => {
+  await Effect.runPromise(create("materialize").pipe(Effect.provide(services(root))))
+  await Effect.runPromise(addRepository("materialize", "one").pipe(Effect.provide(services(root))))
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const links = yield* ChangeRepositories
+      yield* links.addRepository({
+        changeId: ChangeId.make("materialize"),
+        directoryName: DirectoryName.make("two"),
+        originalLocation: "/sources/two",
+        checkoutMethod: "UseOriginalLocationNewBranch",
+      })
+    }).pipe(Effect.provide(services(root))),
+  )
+  const record = (await Bun.file(join(root, "materialize", "change.json")).json()) as {
+    repositories?: unknown[]
+    repos?: string[]
+    direct?: string[]
+    state?: string
+  }
+  expect(record.repositories).toHaveLength(2)
+  expect(record.repos).toEqual(["/sources/one", "/sources/two"])
+  expect(record.direct).toEqual(["/sources/two"])
+  expect(record.state).toBe("Ideation")
+})
+
+test("a terminal transition archives the record and it still reads", async () => {
+  await Effect.runPromise(create("archived").pipe(Effect.provide(services(root))))
+  const { read, archived } = await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      yield* changes.transitionTo(ChangeId.make("archived"), "Implementation")
+      yield* changes.transitionTo(ChangeId.make("archived"), "Completed")
+      return {
+        read: yield* changes.getChange(ChangeId.make("archived")),
+        archived: yield* changes.listChanges("Archived"),
+      }
+    }).pipe(Effect.provide(services(root))),
+  )
+  expect(archived.map((change) => change.changeId)).toContain(ChangeId.make("archived"))
+  expect(read.completedAt).toBeDefined()
+  expect(await Bun.file(join(root, "archived", "change.json")).exists()).toBe(false)
+  expect(await Bun.file(join(`${root}-archive`, "archived", "change.json")).exists()).toBe(true)
+})
+
+test("a legacy edit to repos wins over a stale materialized link list", async () => {
+  await Effect.runPromise(create("legacy-edit").pipe(Effect.provide(services(root))))
+  await Effect.runPromise(addRepository("legacy-edit", "one").pipe(Effect.provide(services(root))))
+  // The old app rewrites the record from its own view: repos changes, repositories is preserved.
+  const path = join(root, "legacy-edit", "change.json")
+  const record = (await Bun.file(path).json()) as Record<string, unknown>
+  await Bun.write(path, JSON.stringify({ ...record, repos: ["/sources/two"], direct: [] }, null, 2) + "\n")
+  const links = await Effect.runPromise(
+    Effect.gen(function* () {
+      const repositories = yield* ChangeRepositories
+      return yield* repositories.listRepositories(ChangeId.make("legacy-edit"))
+    }).pipe(Effect.provide(services(root))),
+  )
+  expect(links.map((repository) => repository.directoryName)).toEqual([DirectoryName.make("two")])
 })

@@ -62,10 +62,11 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 - [x] Supply process/filesystem dependencies through Layers; no optional live fallback.
 - [ ] Extract the change-owned association projection/update and migrate association data explicitly
       before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
-      unresolved legacy ownership must not become automatic cleanup authority. The link store and
-      the read-only legacy projection landed in `@corvi/changes`. The migration waits for the
-      application's write paths to move to the new store: while the old app edits `repos`/`direct`,
-      a materialized copy would silently drift, so the read stays a live projection.
+      unresolved legacy ownership must not become automatic cleanup authority. The store now writes
+      a legacy-compatible record: `repositories` materializes on write, `repos`/`direct` stay in
+      sync from it, and the legacy fields win when the old app edits them, so one record serves
+      both readers. A terminal transition archives the directory. Enabling the new write paths is
+      the remaining step.
 - [x] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
       The read is served from the legacy projection, driven end to end by
       `test/repositoriesEndpoint.test.ts`, and consumed in the browser by the change page's
