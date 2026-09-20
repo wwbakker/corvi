@@ -27,6 +27,9 @@ import {
   type ProvisionResult,
 } from "../../extension-host/index.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { prLooseEnds } from "../../extensions/github/index.ts";
+import { jiraLooseEnds } from "../../extensions/jira/index.ts";
+import { includedLooseEndIntegrations } from "../included-integrations.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
@@ -151,22 +154,35 @@ export const cancelChange = (
  * What cancelling deliberately leaves alone, said out loud.
  *
  * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
- * change that comes back to you in a week as somebody else's question. Whose ends there are is
- * the extensions' business: every contributor of the change's workspace is asked, in extension
- * load order — so the pull-request lines (ci) precede the ticket line (jira). A contributor that
- * fails contributes nothing: cancelling must never fail because a vendor lookup did.
+ * change that comes back to you in a week as somebody else's question. The included integrations
+ * are called by name, in load order (github's pull requests before jira's ticket); extensions
+ * loaded from outside the repository still contribute through the registry until the platform is
+ * removed, with the included names skipped so their lines are not said twice. A lookup that
+ * fails contributes nothing: cancelling must never fail because a vendor is unreachable.
  */
 export const looseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
-    Effect.forEach(
-      looseEndContributorsFor(workspaceOf(change)),
-      ({ name, contribution }) =>
-        Effect.catchAll(
-          Effect.provide(contribution.looseEnds(change), capabilitiesLayer(workspaceOf(change), name)),
-          () => Effect.succeed([] as string[]),
+    Effect.all([
+      Effect.catchAll(
+        Effect.provide(prLooseEnds(change), capabilitiesLayer(workspaceOf(change), "github")),
+        () => Effect.succeed([] as string[]),
+      ),
+      Effect.forEach(
+        looseEndContributorsFor(workspaceOf(change)).filter(
+          ({ name }) => !includedLooseEndIntegrations.includes(name),
         ),
-      // Unbounded concurrency is deliberate: these contributors are independent.
-      { concurrency: "unbounded" },
-    ),
-    (ends) => ends.flat(),
+        ({ name, contribution }) =>
+          Effect.catchAll(
+            Effect.provide(contribution.looseEnds(change), capabilitiesLayer(workspaceOf(change), name)),
+            () => Effect.succeed([] as string[]),
+          ),
+        // Unbounded concurrency is deliberate: these contributors are independent.
+        { concurrency: "unbounded" },
+      ),
+    ]),
+    ([pullRequests, contributed]) => [
+      ...pullRequests,
+      ...jiraLooseEnds(change),
+      ...contributed.flat(),
+    ],
   );

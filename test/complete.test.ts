@@ -140,6 +140,36 @@ test("stepsFor: the change's own extensions plan their steps when none are passe
   }
 });
 
+test("stepsFor: the included steps are each planned once with every extension enabled", () => {
+  // The included integrations are planned by name and skipped in the registry pass; a name left
+  // out of the skip list would plan the same step twice.
+  const saved = config.workspaces;
+  config.workspaces = [{ id: "test-all", name: "test" }];
+  try {
+    const plan = stepsFor(
+      changeWith({
+        extensions: {
+          jira: { key: "PROJ-9" },
+          "github-issues": { repo: "acme/myrepo", number: 42 },
+        },
+      }),
+      { ready: true, reasons: [], tagged: [], toMerge: [] },
+    );
+    expect(plan.map((s) => s.id)).toEqual([
+      "jira",
+      "github-issues",
+      "worktrees",
+      "terminal",
+      "archive",
+    ]);
+    expect(plan.filter((s) => s.id === "jira")).toHaveLength(1);
+    expect(plan.filter((s) => s.id === "github-issues")).toHaveLength(1);
+    expect(plan[1]!.label).toBe("close myrepo#42");
+  } finally {
+    config.workspaces = saved;
+  }
+});
+
 test("progressOf: no record is none, and a half-written record reads as none", async () => {
   const change = await runEffect(
     createChange({ id: "PROJ-PROGRESS", branch: "PROJ-PROGRESS", repos: [join(tmp, "r")] }),

@@ -117,10 +117,13 @@ export type ProvisionResult = { integration: string; ok: boolean; error?: string
 const runAfter = (
   event: "change:created" | "change:started" | "change:completed" | "change:cancelled",
   change: Change,
+  except: readonly string[] = [],
 ): Effect.Effect<ProvisionResult[]> =>
   Effect.gen(function* () {
     const results: ProvisionResult[] = [];
+    const excluded = new Set(except);
     for (const ext of extensionsFor(workspaceOf(change))) {
+      if (excluded.has(ext.name)) continue;
       for (const handler of afterHooksFor(ext, event)) {
         const outcome = yield* asWorkspace(change, handler(change), ext.name).pipe(
           Effect.map(() => ({ integration: ext.name, ok: true }) as ProvisionResult),
@@ -142,6 +145,13 @@ export const provision = (change: Change): Effect.Effect<ProvisionResult[]> =>
  * a failure is reported under its extension's name rather than undoing the start. */
 export const startWork = (change: Change): Effect.Effect<ProvisionResult[]> =>
   runAfter("change:started", change);
+
+/** The `change:started` hooks of the extensions the cutover adapters do not call directly. The
+ * named ones are excluded so their steps are not said twice. */
+export const startWorkExcept = (
+  change: Change,
+  except: readonly string[],
+): Effect.Effect<ProvisionResult[]> => runAfter("change:started", change, except);
 
 /** Run the after-hooks for a completed or cancelled change: always after change.json is written
  * and the change is archived, and never able to fail the operation. The results are reported

@@ -19,7 +19,7 @@ import {
 } from "./jira.ts";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
-import { Settings, Workspace, type Extension } from "../../extension-host/api.ts";
+import { Settings, Workspace, type Capabilities, type Extension } from "../../extension-host/api.ts";
 
 /**
  * The jira extension: a self-describing value.
@@ -136,6 +136,60 @@ const siteFields = {
     hint: "Which environment variable holds this site's token, when none is stored here. Naming one here is how a second client keeps its own token.",
   },
 } as const;
+
+/** Starting the work: assign the ticket and move it to the start status. Exported so the start
+ * workflow's adapter can call it without the hook registry. */
+export const moveIssueOnStart = (change: Change): Effect.Effect<void, unknown, Capabilities> =>
+  Effect.gen(function* () {
+    const key = ticketOf(change);
+    if (!key) return;
+    const workspace = yield* Workspace;
+    const settings = yield* Settings;
+    const global = globalOf(settings);
+    const site = siteOfWorkspace(workspace);
+    const account = yield* accountId(global.assignee, site);
+    if (account) {
+      yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
+        site,
+        method: "PUT",
+        body: { accountId: account },
+      });
+    }
+    const current = (yield* issueByKey(key, site))?.status;
+    if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
+      yield* moveIssue(key, global.startTransition, site);
+    }
+  });
+
+/** Completing closes the ticket: the plan is pure given the config, the run moves it. */
+export const planIssueCompletion = (
+  change: Change,
+  appConfig: Parameters<typeof globalOf>[0],
+): CompletionStep | undefined => {
+  const key = ticketOf(change);
+  return key
+    ? {
+        id: "jira",
+        label: `move ${key} to ${globalOf(appConfig).doneTransition}`,
+        state: "waiting",
+      }
+    : undefined;
+};
+
+export const moveIssueOnComplete = (change: Change): Effect.Effect<void, unknown, Capabilities> =>
+  Effect.gen(function* () {
+    const key = ticketOf(change);
+    if (!key) return;
+    const site = siteOfWorkspace(yield* Workspace);
+    const { doneTransition } = globalOf(yield* Settings);
+    yield* moveIssue(key, doneTransition, site);
+  });
+
+/** Cancelling leaves the ticket where it is; one line when there is a key. */
+export const jiraLooseEnds = (change: Change): readonly string[] => {
+  const key = ticketOf(change);
+  return key ? [`${key} is still open in Jira`] : [];
+};
 
 export default {
   name: "jira",

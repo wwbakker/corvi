@@ -104,7 +104,7 @@ const summaryContribution = (
  * repository in parallel and in repository order. A repository with no pull request, or no
  * network, is not a loose end worth failing a cancellation over, so each lookup is best effort.
  */
-const prLooseEnds = (
+export const prLooseEnds = (
   change: Change,
 ): Effect.Effect<string[], never, Changes | Shell | Workspace | Cache> =>
   Effect.map(

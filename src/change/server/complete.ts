@@ -14,14 +14,12 @@ import { mergeReadiness, refreshReadiness, forgetPrs } from "../../vendors/githu
 import type { Changes } from "../../extension-host/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
-import { config } from "../../workspace/server/index.ts";
+import { workspaceOf } from "../../workspace/server/index.ts";
 import {
   afterChange,
   beforeChange,
-  completionStepsFor,
   type ProvisionResult,
 } from "../../extension-host/index.ts";
-import { workspaceOf } from "../../workspace/server/index.ts";
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeStoreError } from "@corvi/changes/errors";
 import { layer as changesNodeLayer, storeLayer } from "@corvi/changes/node";
@@ -43,7 +41,7 @@ import {
   type IweError,
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import { lifecycleLayer } from "../lifecycle-layer.ts";
+import { lifecycleLayer, plannedCompletionSteps } from "../lifecycle-layer.ts";
 
 // The page reads the same completion types; they live in the domain so both halves agree.
 export type { Completion, CompletionReason, CompletionRefusal };
@@ -160,7 +158,7 @@ const save = (id: string, progress: CompletionProgress): Effect.Effect<void, Bad
 export function stepsFor(
   change: Change,
   completion: Completion,
-  contributed: CompletionStep[] = plannedContributions(change),
+  contributed: CompletionStep[] = plannedCompletionSteps(change),
 ): CompletionStep[] {
   return [
     ...completion.toMerge.map(({ repo, number }) => ({
@@ -174,15 +172,6 @@ export function stepsFor(
     { id: "archive", label: "archive the change", state: "waiting" as const },
   ];
 }
-
-/** What this change's extensions plan to do, planned once and passed around: a plan that could
- * answer differently twice would be two promises about one completion. Pure functions get
- * plain data, so the plan reads the config and the workspace as arguments. */
-const plannedContributions = (change: Change): CompletionStep[] =>
-  completionStepsFor(workspaceOf(change))
-    .map(({ contribution }) =>
-      contribution.plan(change, { config, workspace: workspaceOf(change) }))
-    .filter((s): s is CompletionStep => Boolean(s));
 
 /** The completion journal while the workflow runs: the page polls `completion.json`, so this
  * adapter keeps writing that shape from the workflow's steps. */

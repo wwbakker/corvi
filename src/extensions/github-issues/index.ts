@@ -1,7 +1,7 @@
 import { Context, Effect, Option, Schema } from "effect";
 import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Shell, Workspace, type Extension } from "../../extension-host/api.ts";
+import { Cache, Shell, Workspace, type Capabilities, type Extension } from "../../extension-host/api.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
@@ -233,6 +233,29 @@ const statusFor = (
       summary: found.state,
       items: [item],
     };
+  });
+
+/** Closing the issue is a completion step; the plan is pure, the run calls `gh`. */
+export const planIssueClose = (change: Change): CompletionStep | undefined => {
+  const ref = refOf(change);
+  return ref
+    ? { id: KEY, label: `close ${ref.repo.split("/").pop()}#${ref.number}`, state: "waiting" }
+    : undefined;
+};
+
+export const closeIssueOnComplete = (
+  change: Change,
+): Effect.Effect<string | undefined, unknown, Capabilities> =>
+  Effect.gen(function* () {
+    const shell = yield* Shell;
+    const cache = yield* Cache;
+    const ref = refOf(change);
+    if (!ref) return;
+    const repository = yield* nameWithOwner(ref.repo);
+    if (!repository) return `not a GitHub repository: ${ref.repo}`;
+    yield* closeIssue(shell, repository, ref.number, `Completed in change ${change.id}`);
+    yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
+    return `closed ${refLabel(repository, ref)}`;
   });
 
 export default {

@@ -105,6 +105,7 @@ export {
   repoStatusOf,
   runCard,
   startWork,
+  startWorkExcept,
   statusOne,
   type ProvisionResult,
 } from "./effects.ts";

@@ -117,10 +117,20 @@ Start with inspection rather than deletion: prove the boundary without changing 
       after notices, the `completion.json` progress bridge) onto the workflow through the cutover
       adapters in `src/change/lifecycle-layer.ts`; the existing cancel/ideation/completion tests
       pass; **start now runs through it too** (`src/change/server/start.ts` maps the HTTP shape,
-      drops browse links, copies tooling, and still runs the `change:started` hooks for the Jira
-      step). **Create provisioning is explicit as well** (`src/change/provisioning.ts` replaces
-      the git `change:created` hook). What remains before the host can go: the Jira
-      `change:started` step and the completion/loose-end bridges.
+      drops browse links, copies tooling, and calls the Jira ticket move through the named
+      `moveIssueOnStart` export, gated on the workspace's Jira enablement). **Create provisioning
+      is explicit as well** (`src/change/provisioning.ts` replaces the git `change:created`
+      hook), and the completion plan/run and loose-end lookups call named integration functions
+      (`planIssueCompletion`/`moveIssueOnComplete`/`jiraLooseEnds`, `planIssueClose`/
+      `closeIssueOnComplete`, `prLooseEnds`) instead of the contribution selectors. The included
+      sets live in `src/change/included-integrations.ts`, and a single `plannedCompletionSteps`
+      in the adapters plans for both the workflow port and the app journal, so the two cannot
+      disagree about which steps exist. Extensions
+      loaded from outside the repository still contribute through the registry for now (start
+      hooks, completion steps, loose ends), with the included names excluded so their steps are
+      not said twice; deleting that path is part of step 6. What remains before the host can go:
+      the presentation surface (cards, pages, tabs, widgets, wizard steps, titles, descriptions)
+      and the loader itself.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.

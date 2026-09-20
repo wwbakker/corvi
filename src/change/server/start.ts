@@ -13,11 +13,15 @@ import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
 import { IDEATION, type Change } from "../../domain/change.ts";
 import {
-  startWork,
+  extensionsFor,
+  startWorkExcept,
   type ProvisionResult,
 } from "../../extension-host/index.ts";
-import { unlinkRepo } from "../../vendors/git.ts";
-import { config } from "../../workspace/server/index.ts";
+import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { includedStartIntegrations } from "../included-integrations.ts";
+import { moveIssueOnStart } from "../../extensions/jira/index.ts";
+import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
+import { config, workspaceOf } from "../../workspace/server/index.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
 import { archiveRoot, changeDir, readChange, root, writeChange } from "./store.ts";
 
@@ -109,16 +113,46 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
     }
 
     const updated = (yield* readChange(change.id)) ?? change;
-    const after = yield* startWork(updated);
-    const failures: ProvisionResult[] =
-      outcome._tag === "PartiallyStarted"
+
+    // An in-place checkout is linked from the change directory for reading; the worktree
+    // methods already place their own directory.
+    yield* Effect.forEach(
+      outcome.repositories.filter(
+        (repository) => repository.checkoutMethod !== "UseNewLocationNewBranch",
+      ),
+      (repository) => browseRepo(updated, repository.originalLocation),
+      { concurrency: 1, discard: true },
+    );
+
+    const reports: ProvisionResult[] = [
+      ...(outcome._tag === "PartiallyStarted"
         ? outcome.failures.map((failure) => ({
             integration: "git",
             ok: false,
             error: describeProvisionError(failure.error),
           }))
-        : [];
-    return { change: updated, provision: [...failures, ...after] };
+        : [{ integration: "git", ok: true }]),
+    ];
+
+    // The ticket move, called explicitly: the workspace's jira extension decides whether it
+    // applies, and a failure is reported under its name like the hook's result was.
+    const workspace = workspaceOf(updated);
+    if (extensionsFor(workspace).some((extension) => extension.name === "jira")) {
+      const moved = yield* moveIssueOnStart(updated).pipe(
+        Effect.provide(capabilitiesLayer(workspace, "jira")),
+        Effect.either,
+      );
+      reports.push(
+        moved._tag === "Right"
+          ? { integration: "jira", ok: true }
+          : { integration: "jira", ok: false, error: messageOf(moved.left) },
+      );
+    }
+
+    // The start hooks of extensions loaded from outside the repository still run through the
+    // registry until the extension platform is removed; the included ones are excluded above.
+    reports.push(...(yield* startWorkExcept(updated, includedStartIntegrations)));
+    return { change: updated, provision: reports };
   }).pipe(
     Effect.provide(changeWorkLayer({ root: root(), archiveRoot: archiveRoot() })),
   );
