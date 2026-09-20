@@ -6,6 +6,7 @@ import { buildClientChunks } from "./extension-host/clientChunks.ts";
 import { extensionHostRoutes } from "./extension-host/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
+import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
@@ -44,6 +45,7 @@ const server = await serve<TerminalSocket>({
   routes: {
     ...appRootRoutes,
     ...changeRoutes,
+    ...repositoriesRoutes,
     ...dashboardRoutes,
     ...eventsRoutes,
     ...extensionHostRoutes,

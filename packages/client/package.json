@@ -1,0 +1,13 @@
+{
+  "name": "@corvi/client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/changes.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:"
+  }
+}

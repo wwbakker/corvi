@@ -7,6 +7,7 @@ import { Context, Effect, Layer } from "effect"
 
 import { ChangeRepositories } from "@corvi/changes/repositories"
 import { ChangeService } from "@corvi/changes/changes"
+import { OperationProgress, type OperationStep, type ProgressInterface } from "@corvi/changes/progress"
 import { checkoutLocationOf, stateOf } from "@corvi/changes/rules"
 import {
   InvalidTransition,
@@ -56,21 +57,7 @@ export type StartOutcome =
     }
 
 /** One journal entry of an operation that can stop half way. */
-export type OperationStep = {
-  readonly id: string
-  readonly label: string
-  readonly state: "running" | "done" | "failed"
-  readonly detail?: string
-}
-
-export interface ProgressInterface {
-  readonly record: (input: {
-    readonly changeId: ChangeId
-    readonly step: OperationStep
-  }) => Effect.Effect<void, ChangeStoreError>
-}
-
-export class OperationProgress extends Context.Tag("corvi/OperationProgress")<OperationProgress, ProgressInterface>() {}
+export { OperationProgress, type OperationStep, type ProgressInterface } from "@corvi/changes/progress"
 
 export interface Interface {
   readonly inspectChangeRepositories: (

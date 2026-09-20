@@ -24,6 +24,11 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly needsForce?: boolean;
 }> {}
 
+/** Something on our side failed while serving a well-formed request. */
+export class InternalError extends Data.TaggedError("InternalError")<{
+  readonly message: string;
+}> {}
+
 /** An external CLI (`git`, `gh`, `az`, ...) failed. What it said and what it cost.
  * `message` is what the UI shows — for `shOrThrow` that is `<cmd> failed: <stderr>`, for a
  * timeout `<cmd> timed out after N seconds` — and `formatError` hands it to the response
@@ -43,12 +48,12 @@ export class DecodeError extends Data.TaggedError("DecodeError")<{
   readonly message: string;
 }> {}
 
-export type IweError = NotFoundError | BadRequestError | ConflictError | CliError | DecodeError;
+export type IweError = NotFoundError | BadRequestError | ConflictError | CliError | DecodeError | InternalError;
 
 /** True when `e` is one of ours (and therefore has a status code waiting in http.ts). */
 export const isIweError = (e: unknown): e is IweError =>
   typeof e === "object" && e !== null && "_tag" in e &&
-  ["NotFoundError", "BadRequestError", "ConflictError", "CliError", "DecodeError"].includes(
+  ["NotFoundError", "BadRequestError", "ConflictError", "CliError", "DecodeError", "InternalError"].includes(
     (e as { _tag: unknown })._tag as string,
   );
 

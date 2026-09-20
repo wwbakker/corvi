@@ -7,7 +7,8 @@ import type { IweError } from "./errors.ts";
  * Everything upstream just fails with a typed error.
  *
  * NotFoundError → 404, BadRequestError → 400, ConflictError → 409, CliError → 400, DecodeError →
- * 400 for a request body (the caller's mistake) but 500 for a file or CLI decode (ours).
+ * 400 for a request body (the caller's mistake) but 500 for a file or CLI decode (ours),
+ * InternalError → 500.
  */
 
 const json = (data: unknown, status: number): Response => Response.json(data, { status });
@@ -24,6 +25,8 @@ const statusFor = (e: IweError): number => {
       return 400;
     case "DecodeError":
       return e.source === "request-body" ? 400 : 500;
+    case "InternalError":
+      return 500;
   }
 };
 

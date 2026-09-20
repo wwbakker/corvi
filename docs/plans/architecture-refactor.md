@@ -63,12 +63,14 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 - [ ] Extract the change-owned association projection/update and migrate association data explicitly
       before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
       unresolved legacy ownership must not become automatic cleanup authority. The link store and
-      capability landed in `@corvi/changes`; the legacy `repos`/`direct` migration is next, and no
-      application workflow writes yet.
-- [ ] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
-- [ ] Test pure rules, the real Git adapter, the API boundary, and the existing UI behavior. Pure
-      rules, the file store, the workflows, and the real Git adapter have package tests; the
-      endpoint/client contract test follows the route wiring.
+      the read-only legacy projection landed in `@corvi/changes`; the migration itself and any
+      application write path are next.
+- [x] Connect one existing dashboard use case through a workflow and typed endpoint/client contract.
+      The read is served from the legacy projection and driven end to end by
+      `test/repositoriesEndpoint.test.ts`; the React presenter is the next increment.
+- [x] Test pure rules, the real Git adapter, the API boundary, and the existing UI behavior. Pure
+      rules, the file store, the workflows, the real Git adapter, the legacy projection, the client,
+      and the server/client contract all have tests; the existing UI suite still passes.
 - [x] Add concise package instructions and use this slice as the example for remaining extractions.
 
 Start with inspection rather than deletion: prove the boundary without changing destructive policy.

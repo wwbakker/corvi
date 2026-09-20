@@ -45,7 +45,11 @@
     "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
+    "@corvi/changes": "workspace:*",
+    "@corvi/client": "workspace:*",
     "@corvi/contracts": "workspace:*",
+    "@corvi/repositories": "workspace:*",
+    "@corvi/workflows": "workspace:*",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-webgl": "^0.19.0",

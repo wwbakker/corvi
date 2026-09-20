@@ -8,8 +8,9 @@ The sketches below follow the shape of `opencode/packages/core/src/git.ts`: valu
 first, then the service interface, then the Layer that implements it. They are Effect 3 design
 prototypes, not production code. The canonical schemas live in `packages/contracts`, and the
 first capability packages are `packages/changes`, `packages/repositories`, and
-`packages/workflows`; the typechecked prototypes in `docs/design/repositories-and-changes/`
-mirror them and `bun run typecheck` checks both. No application code imports the prototypes.
+`packages/workflows`, with the browser operations in `packages/client`; the typechecked
+prototypes in `docs/design/repositories-and-changes/` mirror them and `bun run typecheck`
+checks both. No application code imports the prototypes.
 
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
@@ -578,11 +579,10 @@ export interface ProgressInterface {
 export class OperationProgress extends Context.Tag("corvi/OperationProgress")<OperationProgress, ProgressInterface>() {}
 ```
 
-The port is backed by a change-owned operation record: steps are written atomically beside the
-change's data, not into `PLAN.md` or notes, and the record is versioned like the rest of the
-persisted change. A half started change has to stay legible from a page that was never open, and
-completion will use the same record. `PartiallyStarted` is an outcome, not an error — the failed
-repository stays visible instead of being lost.
+The port is exposed by `@corvi/changes/progress`; the node adapter appends steps to
+`<root>/<changeId>/operations.json`. A half started change has to stay legible from a page that
+was never opened, and completion will use the same record. `PartiallyStarted` is an outcome, not
+an error — the failed repository stays visible instead of being lost.
 
 ## Interface
 ```ts
@@ -708,7 +708,9 @@ so the result is either `Started` or `PartiallyStarted` with a journal entry per
 The dashboard reads one change's repositories. The route decodes the path, calls the workflow, and
 encodes the view; the client exposes a named method that returns the same decoded shape. Both
 import the schema from `@corvi/contracts/api` (shown below); there is no caller-selected response
-generic.
+generic. This read is wired first: the app serves it (`src/change/repositories-route.ts`) from the
+read-only legacy projection, and `test/repositoriesEndpoint.test.ts` drives the route and the
+client against each other.
 
 ## Contract
 ```ts

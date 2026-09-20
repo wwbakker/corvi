@@ -5,7 +5,11 @@
     "": {
       "name": "corvi",
       "dependencies": {
+        "@corvi/changes": "workspace:*",
+        "@corvi/client": "workspace:*",
         "@corvi/contracts": "workspace:*",
+        "@corvi/repositories": "workspace:*",
+        "@corvi/workflows": "workspace:*",
         "@xterm/addon-clipboard": "^0.2.0",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-webgl": "^0.19.0",
@@ -37,6 +41,14 @@
     },
     "packages/changes": {
       "name": "@corvi/changes",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/client": {
+      "name": "@corvi/client",
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
@@ -134,6 +146,8 @@
     "@cacheable/utils": ["@cacheable/utils@2.5.0", "", { "dependencies": { "hashery": "^1.5.1", "keyv": "^5.6.0" } }, "sha512-buipgOVDkkPXNR5+xBpDw7Zk2n1EvU7qBJCNUcL7rhQ//kfpOXPAvQ511Os0vpLYJ1pZnvudNytkQt2hst3wqA=="],
 
     "@corvi/changes": ["@corvi/changes@workspace:packages/changes"],
+
+    "@corvi/client": ["@corvi/client@workspace:packages/client"],
 
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
 

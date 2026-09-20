@@ -6,6 +6,8 @@ import { ChangeRepositories, layer as changeRepositoriesLayer } from "../change-
 import type { ChangeStore } from "../store.ts"
 
 export { layer as storeLayer } from "./store.ts"
+export { readLayer as legacyReadLayer } from "./legacy.ts"
+export { layer as progressLayer } from "./progress.ts"
 
 /** Change records and repository links over the store. The store itself is provided above. */
 export const layer: Layer.Layer<ChangeService | ChangeRepositories, never, ChangeStore> = Layer.mergeAll(
