@@ -1,0 +1,45 @@
+{
+  "packages": {
+    "@corvi/contracts": { "dependsOn": [], "external": ["effect"] },
+    "@corvi/configuration": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/changes": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/repositories": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/terminals": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/agents": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/workflows": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/changes",
+        "@corvi/repositories",
+        "@corvi/terminals",
+        "@corvi/agents"
+      ]
+    },
+    "@corvi/client": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/github": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/jira": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/azure-devops": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/pi": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/opencode": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/server": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/changes",
+        "@corvi/repositories",
+        "@corvi/terminals",
+        "@corvi/agents",
+        "@corvi/workflows",
+        "@corvi/client",
+        "@corvi/github",
+        "@corvi/jira",
+        "@corvi/azure-devops",
+        "@corvi/pi",
+        "@corvi/opencode"
+      ]
+    },
+    "@corvi/web": { "dependsOn": ["@corvi/client", "@corvi/contracts"] },
+    "@corvi/desktop": { "dependsOn": ["@corvi/web", "@corvi/contracts"] }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "@corvi/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./paths": "./src/paths.ts",
+    "./changes": "./src/changes.ts",
+    "./api": "./src/api.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}

@@ -107,14 +107,18 @@ Required as packages are extracted:
   root barrel, or add an export just because a test wants an internal function.
 - Cross-package imports use package names. Ban relative/absolute source-path imports and
   TypeScript aliases that bypass exports. Apply the graph to type-only and dynamic imports too.
+- Record allowed edges and external allowlists in the root `architecture.json`; `bun run boundaries`
+  checks resolved imports against it and reports cycles, undeclared dependencies, deep imports,
+  relative escapes, and forbidden built-ins.
 - Check resolved dependencies for forbidden edges and cycles. Package manifests alone are not
   enforcement; hoisting can hide undeclared dependencies.
 - Bundle browser entrypoints in tests and reject Node, PTY, backend and unintended integration
   runtime inputs. Smoke-test package resolution under Node and Electron's Node.
 - Keep public interface/model entrypoints separate from adapters that load native modules.
 
-The current lint configuration does not yet implement this graph. Do not disable a failing rule
-without replacing its protection; migrate enforcement with the package it protects.
+The checked graph (`architecture.json`, `scripts/architecture.ts`) enforces these rules for
+extracted workspaces, with negative fixtures proving it rejects violations. Do not disable a
+failing rule without replacing its protection; migrate enforcement with the package it protects.
 
 ## Layout within a package
 

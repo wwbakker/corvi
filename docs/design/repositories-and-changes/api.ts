@@ -1,11 +1,15 @@
-/** Design prototype: DTOs, the server routes, and the named client methods. */
+/** Design prototype: wire schemas (from contracts), server routes, and named client methods. */
 import { Data, Effect, Schema } from "effect"
 
 import {
-  Change,
+  RepositoryViewSchema,
+  StartOutcomeSchema,
+  type RepositoryViewDto,
+  type StartOutcomeDto,
+} from "@corvi/contracts/api"
+
+import {
   ChangeId,
-  DirectoryName,
-  RepositoryId,
   type ChangeConflict,
   type ChangeNotFound,
   type ChangeStoreError,
@@ -20,23 +24,7 @@ export class HttpError extends Data.TaggedError("HttpError")<{
   readonly message: string
 }> {}
 
-export const RepositoryViewSchema = Schema.Struct({
-  repositoryId: RepositoryId,
-  directoryName: DirectoryName,
-  state: Schema.Literal("Concept", "Active", "Archived"),
-  checkoutLocation: Schema.String,
-  checkout: Schema.Union(
-    Schema.Struct({ _tag: Schema.Literal("Missing") }),
-    Schema.Struct({
-      _tag: Schema.Literal("Present"),
-      branch: Schema.optional(Schema.String),
-      head: Schema.optional(Schema.String),
-    }),
-  ),
-})
-export type RepositoryViewDto = typeof RepositoryViewSchema.Type
-
-export const toRepositoryViewDto = (view: RepositoryView): RepositoryViewDto => ({
+const toRepositoryViewDto = (view: RepositoryView): RepositoryViewDto => ({
   repositoryId: view.repository.repositoryId,
   directoryName: view.repository.directoryName,
   state: view.state,
@@ -62,27 +50,6 @@ export const inspectChangeRepositoriesRoute = (request: {
       CheckoutError: (error) => new HttpError({ status: 500, message: error.message }),
     }),
   )
-
-export const ProvisionFailureSchema = Schema.Struct({
-  repositoryId: RepositoryId,
-  code: Schema.Literal("not-a-repository", "checkout-failed"),
-  message: Schema.String,
-})
-
-export const StartOutcomeSchema = Schema.Union(
-  Schema.Struct({
-    _tag: Schema.Literal("Started"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-  }),
-  Schema.Struct({
-    _tag: Schema.Literal("PartiallyStarted"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-    failures: Schema.Array(ProvisionFailureSchema),
-  }),
-)
-export type StartOutcomeDto = typeof StartOutcomeSchema.Type
 
 export const toStartOutcomeDto = (outcome: StartOutcome): StartOutcomeDto =>
   outcome._tag === "Started"

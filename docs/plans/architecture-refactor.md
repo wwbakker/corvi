@@ -42,14 +42,16 @@ same implementation dependencies.
 
 ## 2. Establish workspaces and enforce boundaries
 
-- [ ] Configure `apps/*`, `packages/*`, and `integrations/*` workspaces, shared dependency versions,
+- [x] Configure `apps/*`, `packages/*`, and `integrations/*` workspaces, shared dependency versions,
       explicit package exports, and per-package TypeScript checks.
-- [ ] Add a checked dependency graph: no cycles, undeclared dependencies, deep imports, or bypass
+- [x] Add a checked dependency graph: no cycles, undeclared dependencies, deep imports, or bypass
       aliases. Include negative fixtures and type-only/dynamic import coverage.
 - [ ] Add browser import/bundle isolation and Node/Electron package-resolution smoke tests.
-- [ ] Keep one root verification command running every package/app test with owned-resource cleanup.
+      Contracts bundle and Node resolution are covered in `test/contracts.test.ts`; app bundles and
+      Electron resolution come with those packages.
+- [x] Keep one root verification command running every package/app test with owned-resource cleanup.
       Change CI and the PR checklist to use the safe test wrapper rather than bare `bun test`.
-- [ ] Extract canonical shared boundary schemas without pulling runtime code into contracts.
+- [x] Extract canonical shared boundary schemas without pulling runtime code into contracts.
 
 Do not scaffold empty integrations or weaken current lint rules before replacement checks exist.
 

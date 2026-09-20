@@ -4,6 +4,7 @@
 
 - [ ] `bun run typecheck`
 - [ ] `bun run lint`
+- [ ] `bun run boundaries`
 - [ ] `bun run test` (full suite)
 - [ ] Behavior changes and data migrations identified; architectural changes approved
 - [ ] Documentation and local links checked

@@ -1,40 +1,29 @@
-/** Design prototype: change records, repository links, and their pure rules. */
-import { Data, Schema } from "effect"
+/** Design prototype: capability errors and pure rules over the canonical contracts. */
+import { Data } from "effect"
+
+import type {
+  Change,
+  ChangeId,
+  ChangePhase,
+  CheckoutMethod,
+  DirectoryName,
+  Repository,
+  RepositoryId,
+  RepositoryState,
+} from "@corvi/contracts/changes"
+
+export {
+  Change,
+  ChangeId,
+  ChangePhase,
+  CheckoutMethod,
+  DirectoryName,
+  Repository,
+  RepositoryId,
+} from "@corvi/contracts/changes"
+export type { ChangeFilter, CreateChangeInput, RepositoryState } from "@corvi/contracts/changes"
 
 import { join } from "./paths.ts"
-
-export const ChangeId = Schema.String.pipe(Schema.brand("corvi/ChangeId"))
-export type ChangeId = typeof ChangeId.Type
-
-export const ChangePhase = Schema.Literal(
-  "Ideation",
-  "Implementation",
-  "Verification",
-  "Blocked",
-  "Completed",
-  "Cancelled",
-)
-export type ChangePhase = typeof ChangePhase.Type
-
-export class Change extends Schema.Class<Change>("Change")({
-  changeId: ChangeId,
-  title: Schema.String,
-  workspaceLocation: Schema.String,
-  branch: Schema.String,
-  phase: ChangePhase,
-  createdAt: Schema.String,
-  completedAt: Schema.optional(Schema.String),
-}) {}
-
-export type ChangeFilter = "Active" | "Archived"
-
-export type CreateChangeInput = {
-  readonly changeId: ChangeId
-  readonly title: string
-  readonly workspaceLocation: string
-  readonly branch?: string
-  readonly phase?: ChangePhase
-}
 
 export class ChangeNotFound extends Data.TaggedError("ChangeNotFound")<{
   readonly changeId: ChangeId
@@ -76,29 +65,6 @@ export const allowedTransition = (from: ChangePhase, to: ChangePhase): boolean =
   if (from === "Ideation") return to === "Implementation"
   return true
 }
-
-export const RepositoryId = Schema.String.pipe(Schema.brand("corvi/RepositoryId"))
-export type RepositoryId = typeof RepositoryId.Type
-
-export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"))
-export type DirectoryName = typeof DirectoryName.Type
-
-export const CheckoutMethod = Schema.Literal(
-  "UseOriginalLocationOriginalBranch",
-  "UseOriginalLocationNewBranch",
-  "UseNewLocationNewBranch",
-)
-export type CheckoutMethod = typeof CheckoutMethod.Type
-
-export class Repository extends Schema.Class<Repository>("Repository")({
-  changeId: ChangeId,
-  repositoryId: RepositoryId,
-  directoryName: DirectoryName,
-  originalLocation: Schema.String,
-  checkoutMethod: CheckoutMethod,
-}) {}
-
-export type RepositoryState = "Concept" | "Active" | "Archived"
 
 /** The row's state is a projection of the change, not a stored field. */
 export const stateOf = (change: Change): RepositoryState =>

@@ -7,9 +7,15 @@ Run from the repository root:
 ```sh
 bun run typecheck
 bun run lint
+bun run boundaries
 bun run test
 ```
+
 The test should take around 1 minute. Set timeout at 3 minutes.
+
+`bun run boundaries` checks the workspace dependency graph declared in `architecture.json`:
+decoded imports, declared dependencies, deep imports, relative escapes, and cycles for extracted
+packages. Negative fixtures for it live in `test/architecture.test.ts`.
 
 Use the **complete suite** through `bun run test`. The wrapper isolates the changes root,
 archive, configuration, and state directory and runs owned-resource cleanup on exit. A focused
@@ -51,7 +57,9 @@ harness; tests can compose Effects directly without publishing Promise wrappers 
 
 ## Required architecture checks
 
-These are **refactor deliverables**, not checks already implemented by the current lint config:
+These are **refactor deliverables**, not checks already implemented by the current lint config.
+`bun run boundaries` already enforces items 1 and 2 for extracted workspaces; the remaining
+checks apply as the packages and apps are extracted:
 
 1. Resolved imports obey the package graph, including types and dynamic imports.
 2. Undeclared workspace dependencies, deep imports, bypass aliases, and package cycles fail.

@@ -90,6 +90,7 @@ export default tseslint.config(
       "src/**/*.{ts,tsx}",
       "scripts/**/*.ts",
       "test/**/*.{ts,tsx}",
+      "packages/**/*.{ts,tsx}",
       "pi/**/*.ts",
     ],
     languageOptions: { parser: tseslint.parser },

@@ -6,9 +6,9 @@ plan; execution remains in the [architecture refactor plan](../plans/architectur
 
 The sketches below follow the shape of `opencode/packages/core/src/git.ts`: values and errors
 first, then the service interface, then the Layer that implements it. They are Effect 3 design
-prototypes, not production code. The same contracts live as typechecked prototypes in
-`docs/design/repositories-and-changes/`; `bun run typecheck` checks them and no application code
-imports them.
+prototypes, not production code. The canonical schemas live in `packages/contracts`; the
+typechecked prototypes in `docs/design/repositories-and-changes/` import them and `bun run
+typecheck` checks them. No application code imports the prototypes.
 
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
@@ -695,7 +695,8 @@ so the result is either `Started` or `PartiallyStarted` with a journal entry per
 
 The dashboard reads one change's repositories. The route decodes the path, calls the workflow, and
 encodes the view; the client exposes a named method that returns the same decoded shape. Both
-import the schema below; there is no caller-selected response generic.
+import the schema from `@corvi/contracts/api` (shown below); there is no caller-selected response
+generic.
 
 ## Contract
 ```ts

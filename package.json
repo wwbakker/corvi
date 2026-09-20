@@ -9,6 +9,12 @@
   "module": "src/server.ts",
   "type": "module",
   "private": true,
+  "workspaces": {
+    "packages": ["apps/*", "packages/*", "integrations/*"],
+    "catalog": {
+      "effect": "^3.22.2"
+    }
+  },
   "engines": {
     "node": ">=24"
   },
@@ -23,6 +29,7 @@
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; CORVI_ROOT=\"${TMPDIR:-/tmp}/corvi-test-root\" CORVI_ARCHIVE_ROOT=\"${TMPDIR:-/tmp}/corvi-test-archive\" CORVI_CONFIG=\"${TMPDIR:-/tmp}/corvi-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/corvi-test-state\" bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
+    "boundaries": "bun scripts/architecture.ts",
     "outline": "bun scripts/outline.ts",
     "lint": "eslint .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
@@ -38,11 +45,12 @@
     "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
+    "@corvi/contracts": "workspace:*",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
-    "effect": "^3.22.2",
+    "effect": "catalog:",
     "esbuild": "^0.28.2",
     "node-pty": "1.2.0-beta.15",
     "react": "^19.3.0",
