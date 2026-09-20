@@ -19,8 +19,23 @@ export class Worktree extends Schema.Class<Worktree>("Git.Worktree")({
   kind: Schema.Literal("main", "linked"),
 }) {}
 
+/** The branch's tracking state. `Unavailable` is a configured upstream whose comparison could
+ * not be read; it must not be treated as zero ahead/behind. */
+export type UpstreamState =
+  | { readonly _tag: "NoUpstream" }
+  | { readonly _tag: "Counted"; readonly ahead: number; readonly behind: number }
+  | { readonly _tag: "Unavailable" }
+
 export class OperationError extends Data.TaggedError("Git.OperationError")<{
-  readonly operation: "discover" | "checkout" | "create" | "remove" | "list"
+  readonly operation:
+    | "discover"
+    | "checkout"
+    | "create"
+    | "remove"
+    | "list"
+    | "status"
+    | "upstream"
+    | "integration"
   readonly message: string
   readonly directory?: string
   readonly cause?: unknown
@@ -33,6 +48,24 @@ export interface Interface {
   readonly history: {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly head: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
+    readonly upstream: (repository: Repository) => Effect.Effect<UpstreamState, OperationError>
+    /** The remote's symbolic HEAD, from local metadata only; never fetches. */
+    readonly defaultRemoteBranch: (
+      repository: Repository,
+      remote?: string,
+    ) => Effect.Effect<string | undefined, OperationError>
+  }
+  readonly status: {
+    /** Whether the working tree holds staged, modified, untracked, or conflicted entries. */
+    readonly dirty: (repository: Repository) => Effect.Effect<boolean, OperationError>
+  }
+  readonly integration: {
+    /** Conservative proof that `branch`'s content is in `base`: ancestry, then patch
+     * equivalence. Anything else is false; a failed lookup is not a proof. */
+    readonly proven: (
+      repository: Repository,
+      input: { readonly branch: string; readonly base: string },
+    ) => Effect.Effect<boolean, OperationError>
   }
   readonly sync: {
     readonly checkoutRemoteBranch: (

@@ -16,6 +16,19 @@ export class NotARepository extends Data.TaggedError("NotARepository")<{
   readonly directory: string
 }> {}
 
+/** One thing a removal would destroy, and the facts it was observed from. */
+export type RemovalReason = {
+  readonly code: "dirty-worktree" | "unpushed"
+  readonly kind: "hard" | "forceable"
+  readonly text: string
+  readonly facts: string
+}
+
+export type RemovalAssessment =
+  | { readonly _tag: "Safe" }
+  | { readonly _tag: "NeedsAcknowledgement"; readonly reasons: readonly RemovalReason[] }
+  | { readonly _tag: "Unsafe"; readonly reasons: readonly RemovalReason[] }
+
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
   readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree"
   readonly directory: string
@@ -38,6 +51,13 @@ export interface Interface {
     readonly worktree: AbsolutePath
     readonly force: boolean
   }) => Effect.Effect<void, NotARepository | CheckoutError>
+  /** Whether removing this checkout would destroy anything: uncommitted work refuses outright;
+   * commits the base cannot prove it has are acknowledged first. */
+  readonly assessRemoval: (input: {
+    readonly worktree: AbsolutePath
+    /** The branch the change put there; absent for a detached checkout. */
+    readonly branch?: string
+  }) => Effect.Effect<RemovalAssessment, NotARepository | CheckoutError>
 }
 
 export class Repositories extends Context.Tag("corvi/Repositories")<Repositories, Interface>() {}
@@ -160,6 +180,94 @@ export const layer = Layer.effect(
       )
     })
 
-    return { inspectCheckout, switchBranch, addWorktree, removeWorktree }
+    const inspect = <A>(
+      effect: Effect.Effect<A, Git.OperationError>,
+      directory: AbsolutePath,
+    ): Effect.Effect<A, CheckoutError> =>
+      effect.pipe(
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation: "inspect",
+              directory,
+              message: "could not read the checkout",
+              cause,
+            }),
+        ),
+      )
+
+    const assessRemoval = Effect.fn("Repositories.assessRemoval")(function* (input: {
+      readonly worktree: AbsolutePath
+      readonly branch?: string
+    }) {
+      const repository = yield* discover(input.worktree, "inspect")
+      const head = yield* inspect(git.history.head(repository), input.worktree)
+      const dirty = yield* inspect(git.status.dirty(repository), input.worktree)
+      if (dirty)
+        return {
+          _tag: "Unsafe",
+          reasons: [
+            {
+              code: "dirty-worktree",
+              kind: "hard",
+              text: "uncommitted changes",
+              facts: `dirty:${head ?? "unborn"}`,
+            },
+          ],
+        } satisfies RemovalAssessment
+
+      const base = yield* inspect(git.history.defaultRemoteBranch(repository), input.worktree)
+      const proven = (branch: string): Effect.Effect<boolean, CheckoutError> =>
+        base
+          ? inspect(git.integration.proven(repository, { branch, base }), input.worktree)
+          : Effect.succeed(false)
+
+      if (!input.branch)
+        return {
+          _tag: "NeedsAcknowledgement",
+          reasons: [
+            {
+              code: "unpushed",
+              kind: "forceable",
+              text: "a detached checkout",
+              facts: `detached:${head ?? "unborn"}`,
+            },
+          ],
+        } satisfies RemovalAssessment
+
+      const upstream = yield* inspect(git.history.upstream(repository), input.worktree)
+      if (upstream._tag === "Counted" && upstream.ahead > 0) {
+        if (yield* proven(input.branch)) return { _tag: "Safe" } satisfies RemovalAssessment
+        return {
+          _tag: "NeedsAcknowledgement",
+          reasons: [
+            {
+              code: "unpushed",
+              kind: "forceable",
+              text: `${upstream.ahead} unpushed commit(s)`,
+              facts: `unpushed:${head ?? "unborn"}:${upstream.ahead}`,
+            },
+          ],
+        } satisfies RemovalAssessment
+      }
+      if (upstream._tag === "Counted") return { _tag: "Safe" } satisfies RemovalAssessment
+      if (yield* proven(input.branch)) return { _tag: "Safe" } satisfies RemovalAssessment
+      return {
+        _tag: "NeedsAcknowledgement",
+        reasons: [
+          {
+            code: "unpushed",
+            kind: "forceable",
+            text:
+              upstream._tag === "Unavailable"
+                ? "the upstream comparison is unavailable"
+                : "commits that were never pushed",
+            facts: `unpushed:${head ?? "unborn"}:none`,
+          },
+        ],
+      } satisfies RemovalAssessment
+    })
+
+    return { inspectCheckout, assessRemoval, switchBranch, addWorktree, removeWorktree }
   }),
 )

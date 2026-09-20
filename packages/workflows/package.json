@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/change-work.ts"
+    ".": "./src/change-work.ts",
+    "./lifecycle": "./src/lifecycle.ts"
   },
   "dependencies": {
     "@corvi/changes": "workspace:*",

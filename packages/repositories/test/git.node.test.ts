@@ -196,3 +196,175 @@ test("the composed node layer inspects a present checkout and an absent one", as
   )
   expect(missing).toEqual({ _tag: "Missing" })
 })
+
+/** A fresh repository with an `origin/main` standing in for a fetched remote. */
+const makeRepo = async (name: string): Promise<string> => {
+  const dir = join(tmp, name)
+  execFileSync("git", ["init", "-b", "main", dir])
+  await writeFile(join(dir, "a.txt"), "a\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "init")
+  git(dir, "remote", "add", "origin", "/nonexistent/repo")
+  git(dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+  git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+  return dir
+}
+
+test("status.dirty reports a modified or untracked working tree", async () => {
+  const dir = await makeRepo("status-repo")
+  const clean = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.status.dirty(repository)
+    }),
+  )
+  expect(clean).toBe(false)
+
+  await writeFile(join(dir, "untracked.txt"), "x\n")
+  const dirty = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.status.dirty(repository)
+    }),
+  )
+  expect(dirty).toBe(true)
+})
+
+test("history.upstream distinguishes no upstream, counts, and unreadable comparisons", async () => {
+  const dir = await makeRepo("upstream-repo")
+  const initial = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.upstream(repository)
+    }),
+  )
+  expect(initial).toEqual({ _tag: "NoUpstream" })
+
+  git(dir, "branch", "--set-upstream-to=origin/main", "main")
+  const counted = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.upstream(repository)
+    }),
+  )
+  expect(counted).toEqual({ _tag: "Counted", ahead: 0, behind: 0 })
+
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "second")
+  const ahead = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.upstream(repository)
+    }),
+  )
+  expect(ahead).toEqual({ _tag: "Counted", ahead: 1, behind: 0 })
+
+  git(dir, "update-ref", "-d", "refs/remotes/origin/main")
+  const unavailable = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.upstream(repository)
+    }),
+  )
+  expect(unavailable).toEqual({ _tag: "Unavailable" })
+})
+
+test("history.defaultRemoteBranch reads the remote's symbolic HEAD", async () => {
+  const dir = await makeRepo("remote-head-repo")
+  const found = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.defaultRemoteBranch(repository)
+    }),
+  )
+  expect(found).toBe("main")
+
+  const other = await makeRepo("remote-head-repo-2")
+  const missing = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(other))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.history.defaultRemoteBranch(repository)
+    }),
+  )
+  expect(missing).toBe("main")
+})
+
+test("integration.proven proves ancestry", async () => {
+  const dir = await makeRepo("ancestor-repo")
+  git(dir, "checkout", "-b", "feature")
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "feature work")
+  git(dir, "checkout", "main")
+  git(dir, "merge", "--ff-only", "feature")
+
+  const proven = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.integration.proven(repository, { branch: "feature", base: "main" })
+    }),
+  )
+  expect(proven).toBe(true)
+})
+
+test("integration.proven proves patch equivalence when commits differ", async () => {
+  const dir = await makeRepo("cherry-repo")
+  git(dir, "checkout", "-b", "feature")
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "feature work")
+  git(dir, "checkout", "main")
+  git(dir, "cherry-pick", "feature")
+
+  const proven = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.integration.proven(repository, { branch: "feature", base: "main" })
+    }),
+  )
+  expect(proven).toBe(true)
+})
+
+test("integration.proven does not prove unmerged work or unknown revisions", async () => {
+  const dir = await makeRepo("unmerged-repo")
+  git(dir, "checkout", "-b", "feature")
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "feature work")
+  git(dir, "checkout", "main")
+
+  const result = await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return {
+        unmerged: yield* service.integration.proven(repository, { branch: "feature", base: "main" }),
+        unknownBase: yield* service.integration.proven(repository, { branch: "feature", base: "nope" }),
+        unknownBranch: yield* service.integration.proven(repository, { branch: "nope", base: "main" }),
+      }
+    }),
+  )
+  expect(result).toEqual({ unmerged: false, unknownBase: false, unknownBranch: false })
+})

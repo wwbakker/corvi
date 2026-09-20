@@ -90,6 +90,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
         Layer.succeed(Repositories, {
           inspectCheckout: () =>
             state.inspectFailure ? Effect.fail(state.inspectFailure) : Effect.succeed(state.inspect),
+          assessRemoval: () => Effect.succeed({ _tag: "Safe" as const }),
           switchBranch: (input) => {
             state.calls.push(`switch ${input.branch}`)
             return Effect.void

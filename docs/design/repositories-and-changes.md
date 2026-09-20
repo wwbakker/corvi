@@ -703,6 +703,192 @@ export const layer = Layer.effect(
 so the result is either `Started` or `PartiallyStarted` with a journal entry per repository.
 `describeProvisionError` maps the typed union to the short line the journal shows.
 
+# Change lifecycle
+
+Completion and cancellation are callable workflows over the same capabilities. They are the only
+writers of terminal phases. `assess*` is the page's read; the mutating operations recheck their
+facts before acting, because an earlier assessment is not authorization to delete against stale
+state. The typechecked prototype is `docs/design/repositories-and-changes/lifecycle.ts`.
+
+## Values
+```ts
+export type AcknowledgementCode =
+  | "review-pending"
+  | "unpushed"
+  | "ownership-unverified"
+  | "shared-worktree"
+  | "provider-veto"
+
+export type LifecycleReason = {
+  readonly code: AcknowledgementCode | "idea" | "dirty-worktree"
+  readonly subject?: RepositoryRef
+  readonly kind: "forceable" | "hard"
+  readonly text: string
+  /** Fingerprints the observed facts: changed facts need a fresh acknowledgement. */
+  readonly facts: string
+}
+
+export type Readiness =
+  | { readonly _tag: "Ready" }
+  | { readonly _tag: "AcknowledgementRequired"; readonly reasons: readonly LifecycleReason[] }
+  | { readonly _tag: "Blocked"; readonly reasons: readonly LifecycleReason[] }
+
+export type Acknowledgement = {
+  readonly code: AcknowledgementCode
+  readonly subject?: RepositoryRef
+  readonly facts: string
+}
+
+export type LifecycleOutcome =
+  | {
+      readonly _tag: "Done"
+      readonly change: Change
+      readonly notes: readonly string[]
+      readonly loose: readonly string[]
+    }
+  | {
+      readonly _tag: "NeedsAcknowledgement"
+      readonly operation: "complete" | "cancel"
+      readonly reasons: readonly LifecycleReason[]
+    }
+  | {
+      readonly _tag: "Blocked"
+      readonly operation: "complete" | "cancel"
+      readonly reasons: readonly LifecycleReason[]
+    }
+```
+
+## Provider ports
+```ts
+export type PullRequestState = {
+  readonly repository: RepositoryRef
+  readonly number: number
+  readonly ready: boolean
+  readonly merged: boolean
+  readonly reason?: string
+}
+
+export interface PullRequestsInterface {
+  readonly readiness: (input: {
+    readonly change: Change
+    readonly repository: RepositoryRef
+  }) => Effect.Effect<PullRequestState, ProviderError>
+  readonly merge: (input: {
+    readonly change: Change
+    readonly repository: RepositoryRef
+    readonly number: number
+  }) => Effect.Effect<string | undefined, ProviderError>
+  /** Open pull requests, for a cancellation's loose ends. */
+  readonly outstanding: (change: Change) => Effect.Effect<readonly OutstandingPullRequest[], ProviderError>
+}
+
+export type OutstandingPullRequest = {
+  readonly repository: RepositoryRef
+  readonly number: number
+}
+
+export interface IssuesInterface {
+  readonly transition: (change: Change) => Effect.Effect<string | undefined, ProviderError>
+  /** Where the issue stands, for a cancellation's loose ends. */
+  readonly current: (change: Change) => Effect.Effect<string | undefined, ProviderError>
+}
+
+export interface TerminalSessionsInterface {
+  /** Stops the session this change owns; never one chosen by name, port, or resemblance. */
+  readonly stop: (changeId: ChangeId) => Effect.Effect<void, TerminalError>
+}
+```
+
+The ports are declared by the workflow and supplied by server composition; `changes` and
+`repositories` never import a provider. `outstanding` and `current` feed a cancellation's
+loose-end list, and a failed lookup is a note there, never a blocker. The removal facts the
+operations consume come from
+`repositories`: dirty and unpushed state, ownership (created, borrowed, unverified), and whether
+another active change references the same checkout. That needs Git status, upstream comparison,
+and integration proof; those additions arrive with the mutation slice, not the read slice.
+
+## Interface
+```ts
+export interface Interface {
+  readonly assessCompletion: (
+    changeId: ChangeId,
+  ) => Effect.Effect<
+    Readiness,
+    ChangeNotFound | ChangeStoreError | RepositoryStoreError | ProviderError | CheckoutError
+  >
+  readonly completeChange: (input: {
+    readonly changeId: ChangeId
+    readonly acknowledgements?: readonly Acknowledgement[]
+  }) => Effect.Effect<
+    LifecycleOutcome,
+    | ChangeNotFound
+    | InvalidTransition
+    | ChangeConflict
+    | ChangeOperationInProgress
+    | ChangeStoreError
+    | RepositoryStoreError
+    | ProviderError
+    | TerminalError
+    | CheckoutError
+  >
+  readonly assessCancellation: (
+    changeId: ChangeId,
+  ) => Effect.Effect<Readiness, ChangeNotFound | ChangeStoreError | RepositoryStoreError | CheckoutError>
+  readonly cancelChange: (input: {
+    readonly changeId: ChangeId
+    readonly acknowledgements?: readonly Acknowledgement[]
+  }) => Effect.Effect<
+    LifecycleOutcome,
+    | ChangeNotFound
+    | InvalidTransition
+    | ChangeConflict
+    | ChangeOperationInProgress
+    | ChangeStoreError
+    | RepositoryStoreError
+    | ProviderError
+    | TerminalError
+    | CheckoutError
+  >
+}
+
+export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycle")<ChangeLifecycle, Interface>() {}
+```
+
+## Ordering and failure contract
+
+**Complete** — an idea is `Blocked`, never acknowledgeable:
+
+1. Read the change and its links; assess provider readiness and removal safety per repository,
+   in parallel, fresh at the click.
+2. Every forceable reason must be acknowledged with matching facts; changed facts invalidate the
+   acknowledgement. Hard reasons — an idea, uncommitted work — block regardless.
+3. Journal the plan: one step per merge, the issue step, the worktrees, the terminal, the
+   archive.
+4. Merge eligible pull requests sequentially; a failure stops later steps and journals where.
+5. Run the issue transition.
+6. Remove only safe, Corvi-owned checkouts; a shared worktree or unresolved ownership blocks.
+7. Stop the terminal session this change owns.
+8. Transition to `Completed` and archive; observer failures are notes, not failures.
+
+**Cancel** — an idea is allowed; external systems are left alone:
+
+1. Read the change and its links; assess removal safety per checkout.
+2. Uncommitted work blocks; unpushed commits need acknowledgement.
+3. Collect loose ends from providers before removal; a failed lookup is a note, not a blocker.
+4. Remove only safe, Corvi-owned checkouts; keep the branch when its content is not in the base.
+5. Stop the owned terminal session.
+6. Transition to `Cancelled` and archive; list what was deliberately left alone.
+
+## Guarantees
+
+- One lifecycle operation per change at a time; a second is `ChangeOperationInProgress`.
+- Acknowledgements name a reason, a subject, and the observed facts; there is no `force: true`
+  in the contract.
+- Destructive steps recheck before acting; a stale or changed fact requires a fresh decision.
+- Destructive steps are never retried automatically; a retry reconciles with the journal and
+  skips what is already done.
+- Borrowed checkouts are never removed; unresolved ownership blocks rather than guesses.
+
 # API (transport boundary)
 
 The dashboard reads one change's repositories. The route decodes the path, calls the workflow, and

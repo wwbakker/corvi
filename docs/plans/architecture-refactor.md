@@ -108,6 +108,9 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
 - [ ] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
       partial-failure reporting. Keep force/acknowledgement and dirty-worktree protections.
+      `ChangeLifecycle` now exists in `@corvi/workflows/lifecycle` with scripted-port tests
+      (ordered steps, fact-fingerprinted acknowledgements, recheck-before-removal, per-change
+      serialization); the app routes and write-path migration remain.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.

@@ -77,6 +77,107 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
     })
 
+    const upstream = Effect.fn("Git.history.upstream")(function* (repository: Git.Repository) {
+      const branchName = yield* run("upstream", repository.worktree, [
+        "symbolic-ref",
+        "--quiet",
+        "--short",
+        "HEAD",
+      ])
+      if (branchName.exitCode !== 0) return { _tag: "NoUpstream" } as const
+      const name = branchName.stdout.trim()
+      // The config, not the resolved ref: a configured upstream whose target is missing is
+      // unavailable, not the same as no upstream at all.
+      const configured = yield* run("upstream", repository.worktree, [
+        "config",
+        "--get",
+        `branch.${name}.remote`,
+      ])
+      if (configured.exitCode !== 0) return { _tag: "NoUpstream" } as const
+      const counts = yield* run("upstream", repository.worktree, [
+        "rev-list",
+        "--left-right",
+        "--count",
+        "HEAD...@{upstream}",
+      ])
+      if (counts.exitCode !== 0) return { _tag: "Unavailable" } as const
+      const [ahead, behind] = counts.stdout.trim().split(/\s+/)
+      return { _tag: "Counted", ahead: Number(ahead ?? 0), behind: Number(behind ?? 0) } as const
+    })
+
+    const defaultRemoteBranch = Effect.fn("Git.history.defaultRemoteBranch")(function* (
+      repository: Git.Repository,
+      remote = "origin",
+    ) {
+      const result = yield* run("upstream", repository.worktree, [
+        "symbolic-ref",
+        `refs/remotes/${remote}/HEAD`,
+      ])
+      if (result.exitCode !== 0) return undefined
+      const ref = result.stdout.trim()
+      const prefix = `refs/remotes/${remote}/`
+      return ref.startsWith(prefix) ? ref.slice(prefix.length) || undefined : undefined
+    })
+
+    const statusDirty = Effect.fn("Git.status.dirty")(function* (repository: Git.Repository) {
+      const result = yield* run("status", repository.worktree, ["status", "--porcelain"])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "status",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git status failed",
+        })
+      return result.stdout.trim().length > 0
+    })
+
+    const integrationProven = Effect.fn("Git.integration.proven")(function* (
+      repository: Git.Repository,
+      input: { readonly branch: string; readonly base: string },
+    ) {
+      // An unknown base or branch is not a proof.
+      const base = yield* run("integration", repository.worktree, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${input.base}^{commit}`,
+      ])
+      if (base.exitCode !== 0) return false
+      const branch = yield* run("integration", repository.worktree, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${input.branch}^{commit}`,
+      ])
+      if (branch.exitCode !== 0) return false
+      const ancestor = yield* run("integration", repository.worktree, [
+        "merge-base",
+        "--is-ancestor",
+        input.branch,
+        input.base,
+      ])
+      if (ancestor.exitCode === 0) return true
+      if (ancestor.exitCode !== 1)
+        return yield* new Git.OperationError({
+          operation: "integration",
+          directory: repository.worktree,
+          message: ancestor.stderr.trim() || "git merge-base failed",
+        })
+      // Patch equivalence: every branch-only commit has an equivalent patch in the base. An
+      // empty range is not a proof on its own; the ancestry check already answered that case.
+      const cherry = yield* run("integration", repository.worktree, ["cherry", input.base, input.branch])
+      if (cherry.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "integration",
+          directory: repository.worktree,
+          message: cherry.stderr.trim() || "git cherry failed",
+        })
+      const lines = cherry.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+      return lines.length > 0 && lines.every((line) => line.startsWith("-"))
+    })
+
     const checkoutRemoteBranch = Effect.fn("Git.sync.checkoutRemoteBranch")(function* (
       repository: Git.Repository,
       input: { readonly remote?: string; readonly branch: string; readonly reset?: boolean },
@@ -162,7 +263,9 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
 
     return {
       repo: { discover },
-      history: { branch, head },
+      history: { branch, head, upstream, defaultRemoteBranch },
+      status: { dirty: statusDirty },
+      integration: { proven: integrationProven },
       sync: { checkoutRemoteBranch },
       worktree: { create, remove, list },
     }

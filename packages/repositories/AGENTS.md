@@ -2,8 +2,10 @@
 
 ## Owns
 
-Checkout work on concrete locations: inspecting a checkout, switching a branch in place, adding a
-linked worktree, and removing one. The Git port and its real adapter.
+Checkout work on concrete locations: inspecting a checkout, assessing whether removing it would
+destroy anything, switching a branch in place, adding a linked worktree, and removing one. The Git
+port and its real adapter, including the status, upstream, and integration facts removal safety
+rests on.
 
 ## Does not own
 
@@ -25,8 +27,10 @@ entrypoint stays platform-free.
 
 - Absence is a value (`{ _tag: "Missing" }`); a failed read is an error, never absence.
 - Commands run through the `Command` port without a shell; exit codes are data.
-- The adapter never deletes a checkout; `removeWorktree` exists for completion workflows, and no
-  first-slice workflow calls it.
+- The adapter never deletes a checkout; `removeWorktree` exists for completion workflows, and the
+  lifecycle workflow calls it only for Corvi-created checkouts after a fresh `assessRemoval`.
+- `assessRemoval` refuses uncommitted work outright and acknowledges commits the base cannot prove
+  landed; an unreadable upstream comparison is not zero ahead.
 
 ## Verification
 

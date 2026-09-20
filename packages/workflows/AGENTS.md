@@ -2,9 +2,9 @@
 
 ## Owns
 
-Application operations that compose capabilities: `inspectChangeRepositories` for the dashboard
-read and `startChange` for starting work, including the checkout-method mapping and the operation
-journal port.
+Application operations that compose capabilities: `inspectChangeRepositories` and `startChange`,
+and the change lifecycle (`assessCompletion`, `completeChange`, `assessCancellation`,
+`cancelChange`) with its provider ports and journaling.
 
 ## Does not own
 
@@ -12,7 +12,10 @@ Git commands, storage primitives, HTTP or JSX, provider calls, or terminal behav
 
 ## Public entrypoints
 
-- `@corvi/workflows`: `ChangeWork`, `OperationProgress`, the view/outcome values, and the layer.
+- `@corvi/workflows`: `ChangeWork`, `OperationProgress` re-export, the view/outcome values, and
+  the layer.
+- `@corvi/workflows/lifecycle`: `ChangeLifecycle`, the lifecycle values, and the `PullRequests`,
+  `Issues`, and `TerminalSessions` ports.
 
 ## Dependencies
 
@@ -25,6 +28,9 @@ Git commands, storage primitives, HTTP or JSX, provider calls, or terminal behav
 - No retry is part of this slice; a partial start stays visible as the outcome, the journal, and
   `Missing` rows.
 - The checkout-method enum is mapped here, not in the capabilities.
+- Lifecycle operations are serialized per change (`ChangeOperationInProgress`); acknowledgements
+  are facts, not `force: true`; destructive steps recheck before acting; only Corvi-created
+  checkouts are removed.
 
 ## Verification
 

@@ -3,7 +3,7 @@ import { Effect, Either, Layer } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "../src/git.ts"
-import { Repositories, layer as repositoriesLayer } from "../src/repositories.ts"
+import { Repositories, layer as repositoriesLayer, type RemovalAssessment } from "../src/repositories.ts"
 
 const repository = new Git.Repository({
   worktree: AbsolutePath.make("/repo"),
@@ -15,6 +15,10 @@ interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
   readonly branch?: Git.Interface["history"]["branch"]
   readonly head?: Git.Interface["history"]["head"]
+  readonly upstream?: Git.Interface["history"]["upstream"]
+  readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
+  readonly status?: Git.Interface["status"]["dirty"]
+  readonly integration?: Git.Interface["integration"]["proven"]
   readonly checkoutRemoteBranch?: Git.Interface["sync"]["checkoutRemoteBranch"]
   readonly create?: Git.Interface["worktree"]["create"]
   readonly remove?: Git.Interface["worktree"]["remove"]
@@ -29,7 +33,11 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
         history: {
           branch: script.branch ?? (() => Effect.succeed(undefined)),
           head: script.head ?? (() => Effect.succeed(undefined)),
+          upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
+          defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
         },
+        status: { dirty: script.status ?? (() => Effect.succeed(false)) },
+        integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
         sync: { checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void) },
         worktree: {
           create: script.create ?? (() => Effect.succeed(repository)),
@@ -186,4 +194,85 @@ test("removeWorktree passes the force decision through", async () => {
     },
   )
   expect(forces).toEqual([true])
+})
+
+const assess = (script: GitScript): Promise<Either.Either<RemovalAssessment, unknown>> =>
+  runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.assessRemoval({ worktree: AbsolutePath.make("/change/repo"), branch: "feature" })
+    }),
+    script,
+  )
+
+test("assessRemoval refuses a dirty worktree", async () => {
+  const result = await assess({ discover: () => Effect.succeed(repository), status: () => Effect.succeed(true) })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right._tag).toBe("Unsafe")
+})
+
+test("assessRemoval acknowledges unpushed commits when the base cannot prove them", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    upstream: () => Effect.succeed({ _tag: "Counted", ahead: 2, behind: 0 } as const),
+    defaultRemoteBranch: () => Effect.succeed("main"),
+    integration: () => Effect.succeed(false),
+  })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) {
+    expect(result.right._tag).toBe("NeedsAcknowledgement")
+    if (result.right._tag === "NeedsAcknowledgement")
+      expect(result.right.reasons[0]?.text).toBe("2 unpushed commit(s)")
+  }
+})
+
+test("assessRemoval is safe when the base proves the branch landed", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    upstream: () => Effect.succeed({ _tag: "Counted", ahead: 2, behind: 0 } as const),
+    defaultRemoteBranch: () => Effect.succeed("main"),
+    integration: () => Effect.succeed(true),
+  })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right._tag).toBe("Safe")
+})
+
+test("assessRemoval acknowledges branches that were never pushed when unproven", async () => {
+  const result = await assess({ discover: () => Effect.succeed(repository) })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) {
+    expect(result.right._tag).toBe("NeedsAcknowledgement")
+    if (result.right._tag === "NeedsAcknowledgement")
+      expect(result.right.reasons[0]?.text).toBe("commits that were never pushed")
+  }
+})
+
+test("assessRemoval is safe for an unpushed branch the base proves landed", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    defaultRemoteBranch: () => Effect.succeed("main"),
+    integration: () => Effect.succeed(true),
+  })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right._tag).toBe("Safe")
+})
+
+test("assessRemoval treats an unreadable upstream comparison as not proven", async () => {
+  const result = await assess({
+    discover: () => Effect.succeed(repository),
+    upstream: () => Effect.succeed({ _tag: "Unavailable" } as const),
+    defaultRemoteBranch: () => Effect.succeed("main"),
+  })
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) {
+    expect(result.right._tag).toBe("NeedsAcknowledgement")
+    if (result.right._tag === "NeedsAcknowledgement")
+      expect(result.right.reasons[0]?.text).toBe("the upstream comparison is unavailable")
+  }
+})
+
+test("assessRemoval refuses a location that is not a repository", async () => {
+  const result = await assess({})
+  expect(Either.isLeft(result)).toBe(true)
+  if (Either.isLeft(result)) expect((result.left as { _tag: string })._tag).toBe("NotARepository")
 })
