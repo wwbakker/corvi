@@ -31,8 +31,8 @@ plus entries from `git cherry`. These checks inform the contract; they do not re
 | Owner | Public surface for this design |
 | --- | --- |
 | `@corvi/contracts/paths`, `/git`, `/changes` | Canonical IDs, repository/worktree refs, observed values, and change association values shared across boundaries |
-| `@corvi/repositories/repositories`, `/worktrees`, `/references`, `/history` | Query service interfaces and domain errors; no native imports at these entrypoints |
-| `@corvi/repositories/git` | Query Layer and its adapter-only process/path requirements |
+| `@corvi/repositories` | The single `Repositories` capability and its one `RepositoryError`; no native imports at this entrypoint |
+| `@corvi/repositories/composition` | Query Layer and its adapter-only process/path requirements |
 | `@corvi/changes/repositories` | Change-owned association projection, validation, and atomic updates |
 | `@corvi/workflows/change-work` | Inspect a change's repository and resolve its working directory |
 | `@corvi/workflows/change-lifecycle` | Start/complete/cancel orchestration, extracted after the read slice |
@@ -44,9 +44,13 @@ contracts; client -> contracts. Concrete integration adapters implement workflow
 are supplied by server composition. Neither repositories nor changes imports the other one's
 runtime. Shared WorktreeRef values are canonical contracts, not a type-only back door into services.
 
-The four query subjects are **Repositories, Worktrees, References, History**. Remote HEAD is a
-reference query, not a special kind of branch. No custom Layer graph or universal Git facade is
-needed. Mutation interfaces are not added to the query service merely for future completeness.
+The capability exposes one **Repositories** service. Internally it stays separated into
+repository, worktree, reference, and history modules (`api.ts`, `worktrees/`, `references/`,
+`history/`, `git/`); remote HEAD is a reference query, not a special kind of branch. One service
+does not mean one implementation file, and the low-level Git execution port stays
+composition-only, never exported from the capability entrypoint. No custom Layer graph or
+universal Git facade is needed. Mutation interfaces are not added to the query service merely for
+future completeness.
 
 ## 2. Repository and worktree identities
 
@@ -59,15 +63,16 @@ share one model. Its identity is `{ repository, directory }`, never a branch. An
 a branch and an optional commit (None when unborn); a detached HEAD has a commit and no branch.
 
 `resolveRepository` accepts a directory in a worktree or a Git directory. `resolveWorktree` accepts
-a directory in a worktree and returns its canonical top level; a bare/Git-only directory fails.
+a directory in a worktree and returns its canonical top level; a bare/Git-only directory is None.
 Resolving a reference does not open a terminal, fetch, switch branches, or record a change.
 
 `verifyWorktree` requires the exact recorded root and verifies the actual common directory and
 registration without an expensive working-file status scan. `inspectWorktree` performs that same
 identity check before reading status. It never follows a branch to some other directory. A missing
-root, wrong owner, permission failure, and malformed Git output have different errors. An observed
-HEAD/identity race gets one bounded retry, then `WorktreeChangedDuringInspection`, not mixed success.
-Other processes can still edit files after inspection; a snapshot is not an atomic filesystem view.
+root is absence (`None`); wrong owner, permission failure, and malformed Git output are
+`RepositoryError`, told apart by message and cause rather than by a class per reason. An observed
+HEAD/identity race gets one bounded retry, then `RepositoryError`, not mixed success. Other
+processes can still edit files after inspection; a snapshot is not an atomic filesystem view.
 
 Location identity is deliberately not a persisted UUID. Relocation requires an explicit rebind.
 Recreating a repository at exactly the same common-directory path cannot always be detected by
@@ -82,29 +87,37 @@ and must handle zero, one, or multiple matches explicitly.
 
 ## 3. Query semantics and I/O
 
-| API | Guarantee |
+| API | Result and guarantee |
 | --- | --- |
-| `resolveRepository` | Canonical common-directory identity and bare/non-bare storage facts |
-| `resolveWorktree` | Canonical worktree root and owning repository |
-| `listWorktrees` | Registered locations/HEADs without per-directory status reads |
-| `verifyWorktree` | Validate an existing reference without scanning file status |
-| `inspectWorktree` | Validated identity plus HEAD, status, and upstream observation |
+| `resolveRepository` | Some: canonical common-directory identity and bare/non-bare storage facts. None: definitively not inside a repository |
+| `resolveWorktree` | Some: canonical worktree root and owning repository. None: bare/Git-only or definitively missing |
+| `listWorktrees` | Registered locations/HEADs without per-directory status reads; stale, locked, and prunable entries included |
+| `verifyWorktree` | Some: the exact recorded root is a registered, usable worktree. None: gone, prunable, or not a worktree. No file-status scan |
+| `inspectWorktree` | Some: validated identity plus HEAD, status, and upstream observation. None: no usable worktree at the recorded location |
 | `listRemotes` | Locally configured remote names, not network availability |
 | `readRemoteDefault` | NotConfigured, Unknown, or a known remote-tracking branch from local metadata |
-| `resolveCommit` | Resolve a structured revision to a full commit ID; missing/unborn is None |
+| `resolveCommit` | Some: a structured revision resolved to a full commit ID. None: missing or unborn. Non-commit targets are `RepositoryError` |
 | `assessIntegration` | Evidence for two pinned commit IDs, not an arbitrary moving branch |
+
+Expected absence is `Option.none` in the result; `RepositoryError` means the answer could not be
+established, including an identity mismatch between a recorded worktree and the directory it
+names. One operational error class carries a safe message, the operation, and optional
+diagnostics; adapter errors stay private and are translated at the package boundary. Structured
+classification is added only where a caller acts on it. Interruption is never translated into
+`RepositoryError`.
 
 Revisions distinguish local branches, remote branches, tags, and full commit IDs. They do not
 accept raw revspecs or an implicit HEAD from the common directory. Constructors/codecs validate
 shape; the Git adapter validates Git reference syntax and qualifies names. Tags resolving to
-non-commit objects are errors, not missing references. Commit IDs support the repository's object
-format, rather than assuming only SHA-1.
+non-commit objects are `RepositoryError`, not missing references. Commit IDs support the
+repository's object format, rather than assuming only SHA-1.
 
 An absent upstream means no tracking configuration. A configured upstream with no available target,
 an unborn HEAD, or incomplete comparison history is **Some with unavailable comparison**, not None
 and not zero ahead/behind. Status includes conflicts explicitly as well as staged/modified/untracked.
 
-The query Layer captures two explicit dependencies:
+The query Layer captures two explicit adapter dependencies, exported only from the composition
+entrypoint and never from the capability entrypoint:
 
 - `GitObservation`: workspace-bound environment, concurrency limit, timeout, cancellation, and raw
   stdout/stderr. Spawn/timeout failures use its error channel; exit codes remain data for decoding.
@@ -146,7 +159,7 @@ Conservative algorithm:
    non-merge range yields `ProvenIntegrated/patch-equivalent-range`.
 5. Plus entries yield `NotProvenIntegrated/unmatched-patches` with the actual unmatched patch count.
    Empty output is not a vacuous proof; return `no-comparable-patches` when there is no usable proof.
-6. Unexpected exits or invalid output are `RepositoryReadError`, not a successful negative answer.
+6. Unexpected exits or invalid output are `RepositoryError`, not a successful negative answer.
 
 Ancestry/patch equivalence describe history, not semantic tree equality. In particular, a multi-commit
 squash can leave plus entries even when the final trees match. A display may conservatively report
@@ -199,14 +212,19 @@ to the same data must participate, including other local server processes. There
 spanning that record and Git. Recording failure after provisioning leaves a recoverable partial
 operation, not permission to remove whatever appears at the destination on retry.
 
+The same test was applied to the change APIs: `ChangeStoreError` reports operation, message, and
+cause; `ChangeConflict` and `InvalidAssociation` stay structured because callers retry, reconcile,
+or explain them, and `CompletionReason` keeps its meaning because acknowledgement acts on it.
+
 ## 6. Workflow acceptance examples
 
 **Dashboard:** `inspectChangeRepository` reads the recorded change membership before touching Git.
 Ideas return Browsing; finished changes return Archived without requiring their source repositories
-to remain online. Active bound work is inspected by its stored directory. Only a definitive
-NotAWorktree becomes a Missing view; access failures/mismatches propagate as typed errors. Expected
-HEAD and observed HEAD are compared separately. Current commit and default-base commit are pinned
-before assessing integration. The result contains facts, not WidgetItem, English labels, or actions.
+to remain online. Active bound work is inspected by its stored directory. Only a definitive `None`
+becomes a Missing view; access failures and identity mismatches propagate as `RepositoryError`.
+Expected HEAD and observed HEAD are compared separately. Current commit and default-base commit are
+pinned before assessing integration. The result contains facts, not WidgetItem, English labels, or
+actions.
 
 A web presenter maps those facts to the existing local-change card. A missing checkout, an unreadable
 repository, and an unknown comparison must remain distinguishable. Server-side display composition
@@ -218,8 +236,8 @@ performs no branch lookup or switch. It returns a directory only; terminal/agent
 separate caller. Ideation's existing briefing terminal runs at the change directory and is not
 replaced by this repository-working-directory operation.
 
-Both examples acquire Effect services explicitly and declare their complete error/requirement
-channels. A Layer captures the workspace ID, policy, and services for `ChangeWorkQueries`. Server
+Both examples acquire the `ChangeStore` and `Repositories` services explicitly and declare their
+complete error/requirement channels. A Layer captures the workspace ID, policy, and services for `ChangeWorkQueries`. Server
 composition selects that workspace from the stored change, not the browser's current filter. The
 workflow rechecks the stored workspace before any Git call; a mismatch fails rather than using
 another context's credentials. Rebuild/select the right Layer after an explicit workspace move.
@@ -307,7 +325,8 @@ New acceptance cases: main/linked/bare; unborn/detached; subdirectory/symlink re
 spaces/tabs/newlines; missing/locked/prunable worktrees; wrong-repository refs; configured missing
 upstream versus no upstream/zero counts; branch switch preserving association; ambiguous branch
 matches; multi-commit squash and merge ranges; malformed output/timeout not counted as absence;
-read-only command policy; wrong-workspace rejection before Git; archived reads without Git;
+Option absence versus `RepositoryError`; read-only command policy; wrong-workspace rejection before
+Git; archived reads without Git;
 shared-worktree cleanup protection; concurrent association updates and lost
 write prevention. Preserve real Git tests in addition to scripted-port tests.
 

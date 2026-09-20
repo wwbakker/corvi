@@ -27,7 +27,7 @@ combine this work with an Effect major upgrade, database conversion, or new agen
       custom-extension loading. Plan replacement coverage before deleting coupled tests.
 - [x] Author representative contracts and typechecked callers for repository queries, change
       associations/storage, working-directory resolution, and the lifecycle/terminal boundary.
-- [ ] Owner review of the contracts, dependency graph, and deliberate behavior differences before
+- [x] Owner review of the contracts, dependency graph, and deliberate behavior differences before
       moving files or starting package implementation.
 
 The [repository/change design](../design/repositories-and-changes.md) is the step-1 deliverable.

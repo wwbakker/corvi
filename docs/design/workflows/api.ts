@@ -2,9 +2,8 @@
 import { Context, Data } from "effect";
 import type { Brand, Effect, Layer, Option } from "effect";
 import type {
-  AbsolutePath, BranchName, CommitId, History, InspectionError, IntegrationAssessment,
-  References, ReferenceError, RemoteName, RepositoryRef, WorktreeIdentityError,
-  WorktreeRef, WorktreeSnapshot, Worktrees,
+  AbsolutePath, BranchName, CommitId, IntegrationAssessment, RemoteName, Repositories,
+  RepositoryError, RepositoryRef, WorktreeRef, WorktreeSnapshot,
 } from "../repositories/api.ts";
 import type {
   AssociationState, ChangeId, ChangeNotFound, ChangeState, ChangeStore, ChangeStoreError,
@@ -50,7 +49,7 @@ export interface ChangeRepositoryInput {
 }
 export class WorkingDirectoryUnavailable extends Data.TaggedError("WorkingDirectoryUnavailable")<{
   readonly changeId: ChangeId;
-  readonly reason: "idea-not-started" | "not-prepared" | "released" | "finished";
+  readonly reason: "idea-not-started" | "not-prepared" | "released" | "finished" | "missing-worktree";
 }> {}
 
 export class ChangeWorkspaceMismatch extends Data.TaggedError("ChangeWorkspaceMismatch")<{
@@ -59,8 +58,8 @@ export class ChangeWorkspaceMismatch extends Data.TaggedError("ChangeWorkspaceMi
   readonly actual: WorkspaceId;
 }> {}
 export type ChangeLookupError = ChangeNotFound | RepositoryNotInChange | ChangeStoreError | ChangeWorkspaceMismatch;
-export type ChangeInspectionError = ChangeLookupError | InspectionError | ReferenceError;
-export type WorkingDirectoryError = ChangeLookupError | WorktreeIdentityError | WorkingDirectoryUnavailable;
+export type ChangeInspectionError = ChangeLookupError | RepositoryError;
+export type WorkingDirectoryError = ChangeLookupError | WorkingDirectoryUnavailable | RepositoryError;
 
 export interface ChangeWorkQueriesApi {
   readonly inspectRepository: (input: ChangeRepositoryInput) => Effect.Effect<RepositoryWorkView, ChangeInspectionError>;
@@ -69,7 +68,7 @@ export interface ChangeWorkQueriesApi {
 }
 export class ChangeWorkQueries extends Context.Tag("corvi/workflows/ChangeWorkQueries")<ChangeWorkQueries, ChangeWorkQueriesApi>() {}
 export declare const makeChangeWorkQueriesLayer: (options: WorkspaceQueryOptions) => Layer.Layer<
-  ChangeWorkQueries, never, ChangeStore | Worktrees | References | History
+  ChangeWorkQueries, never, ChangeStore | Repositories
 >;
 
 // Lifecycle facade: designed for subsequent extraction, not part of the read-only slice.
@@ -135,4 +134,4 @@ export class TerminalSessions extends Context.Tag("corvi/terminals/TerminalSessi
 export type DefaultBase =
   | { readonly _tag: "Resolved"; readonly commit: CommitId }
   | { readonly _tag: "Unavailable"; readonly reason: "unknown-default" | "missing-base" };
-export type DefaultBaseError = ReferenceError;
+export type DefaultBaseError = RepositoryError;

@@ -1,9 +1,9 @@
 /** Typechecked acceptance examples, not production workflows. No code runs on import. */
 import { Effect, Option } from "effect";
-import { History, References, Worktrees } from "../repositories/api.ts";
+import { Repositories } from "../repositories/api.ts";
 import type {
-  AbsolutePath, CommitId, HistoryApi, IntegrationAssessment, ReferencesApi, RemoteDefault,
-  RemoteName, RepositoryRef, WorktreeHead, WorktreeRef, WorktreeSnapshot, WorktreesApi,
+  AbsolutePath, CommitId, IntegrationAssessment, RemoteDefault, RemoteName, RepositoriesApi,
+  RepositoryRef, WorktreeHead, WorktreeRef, WorktreeSnapshot,
 } from "../repositories/api.ts";
 import { ChangeStore, RepositoryNotInChange } from "../changes/api.ts";
 import type { ChangeRepository, ChangeStoreApi, ChangeWorkState, RepositoryIntent, WorkspaceId } from "../changes/api.ts";
@@ -47,21 +47,21 @@ export function compareHead(expected: ExpectedHead, observed: WorktreeHead): Hea
 export const resolveDefaultBase = (
   repository: RepositoryRef,
   policy: DefaultBasePolicy,
-  references: ReferencesApi,
+  repositories: RepositoriesApi,
 ): Effect.Effect<DefaultBase, DefaultBaseError> =>
   Effect.gen(function* () {
-    const remotes: ReadonlyArray<RemoteName> = yield* references.listRemotes(repository);
+    const remotes: ReadonlyArray<RemoteName> = yield* repositories.listRemotes(repository);
     if (remotes.length > 0) {
       if (!remotes.includes(policy.preferredRemote)) return { _tag: "Unavailable", reason: "unknown-default" };
-      const remote: RemoteDefault = yield* references.readRemoteDefault(repository, policy.preferredRemote);
+      const remote: RemoteDefault = yield* repositories.readRemoteDefault(repository, policy.preferredRemote);
       if (remote._tag !== "Known") return { _tag: "Unavailable", reason: "unknown-default" };
-      const commit: Option.Option<CommitId> = yield* references.resolveCommit(repository, remote.revision);
+      const commit: Option.Option<CommitId> = yield* repositories.resolveCommit(repository, remote.revision);
       return Option.isSome(commit)
         ? { _tag: "Resolved", commit: commit.value }
         : { _tag: "Unavailable", reason: "missing-base" };
     }
     for (const name of policy.localBranches) {
-      const commit: Option.Option<CommitId> = yield* references.resolveCommit(repository, { _tag: "LocalBranch", name });
+      const commit: Option.Option<CommitId> = yield* repositories.resolveCommit(repository, { _tag: "LocalBranch", name });
       if (Option.isSome(commit)) return { _tag: "Resolved", commit: commit.value };
     }
     return { _tag: "Unavailable", reason: "unknown-default" };
@@ -71,9 +71,10 @@ export const resolveDefaultBase = (
 export const inspectChangeRepository = (
   input: ChangeRepositoryInput,
   options: WorkspaceQueryOptions,
-): Effect.Effect<RepositoryWorkView, ChangeInspectionError, ChangeStore | Worktrees | References | History> =>
+): Effect.Effect<RepositoryWorkView, ChangeInspectionError, ChangeStore | Repositories> =>
   Effect.gen(function* () {
     const { change, binding } = yield* requireBinding(input, options.workspaceId);
+    const repositories: RepositoriesApi = yield* Repositories;
     const view = (status: RepositoryWorkStatus): RepositoryWorkView => ({
       changeId: change.id, source: binding.source, intent: binding.intent, status,
     });
@@ -83,11 +84,7 @@ export const inspectChangeRepository = (
     if (binding.work._tag === "Pending") return view({ _tag: "Unprepared" });
     if (binding.work._tag === "Released") return view({ _tag: "Released", previous: binding.work.previous });
 
-    const worktrees: WorktreesApi = yield* Worktrees;
-    const observed: Option.Option<WorktreeSnapshot> = yield* worktrees.inspectWorktree(binding.work.association.worktree).pipe(
-      Effect.map(Option.some),
-      Effect.catchTag("NotAWorktree", () => Effect.succeed(Option.none<WorktreeSnapshot>())),
-    );
+    const observed: Option.Option<WorktreeSnapshot> = yield* repositories.inspectWorktree(binding.work.association.worktree);
     if (Option.isNone(observed)) return view({ _tag: "Missing", worktree: binding.work.association.worktree });
     const snapshot: WorktreeSnapshot = observed.value;
     const expectedHead: ExpectedHead = expectedHeadFor(binding.intent);
@@ -98,11 +95,9 @@ export const inspectChangeRepository = (
 
     const candidate: Option.Option<CommitId> = snapshot.head._tag === "Attached" ? snapshot.head.commit : Option.some(snapshot.head.commit);
     if (Option.isNone(candidate)) return observedView({ _tag: "NotAssessed", reason: "unborn-head" });
-    const references: ReferencesApi = yield* References;
-    const base: DefaultBase = yield* resolveDefaultBase(snapshot.ref.repository, options.defaultBase, references);
+    const base: DefaultBase = yield* resolveDefaultBase(snapshot.ref.repository, options.defaultBase, repositories);
     if (base._tag === "Unavailable") return observedView({ _tag: "NotAssessed", reason: base.reason });
-    const history: HistoryApi = yield* History;
-    const assessment: IntegrationAssessment = yield* history.assessIntegration(snapshot.ref.repository, { candidate: candidate.value, base: base.commit });
+    const assessment: IntegrationAssessment = yield* repositories.assessIntegration(snapshot.ref.repository, { candidate: candidate.value, base: base.commit });
     return observedView({ _tag: "Assessed", assessment });
   });
 
@@ -110,7 +105,7 @@ export const inspectChangeRepository = (
 export const resolveChangeWorkingDirectory = (
   input: ChangeRepositoryInput,
   workspaceId: WorkspaceId,
-): Effect.Effect<AbsolutePath, WorkingDirectoryError, ChangeStore | Worktrees> =>
+): Effect.Effect<AbsolutePath, WorkingDirectoryError, ChangeStore | Repositories> =>
   Effect.gen(function* () {
     const { change, binding } = yield* requireBinding(input, workspaceId);
     if (change.state === "Ideation")
@@ -121,7 +116,9 @@ export const resolveChangeWorkingDirectory = (
       return yield* new WorkingDirectoryUnavailable({ changeId: change.id, reason: "not-prepared" });
     if (binding.work._tag === "Released")
       return yield* new WorkingDirectoryUnavailable({ changeId: change.id, reason: "released" });
-    const worktrees: WorktreesApi = yield* Worktrees;
-    const worktree: WorktreeRef = yield* worktrees.verifyWorktree(binding.work.association.worktree);
-    return worktree.directory;
+    const repositories: RepositoriesApi = yield* Repositories;
+    const verified: Option.Option<WorktreeRef> = yield* repositories.verifyWorktree(binding.work.association.worktree);
+    if (Option.isNone(verified))
+      return yield* new WorkingDirectoryUnavailable({ changeId: change.id, reason: "missing-worktree" });
+    return verified.value.directory;
   });

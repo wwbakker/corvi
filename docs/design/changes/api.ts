@@ -58,10 +58,13 @@ export class RepositoryNotInChange extends Data.TaggedError("RepositoryNotInChan
   readonly changeId: ChangeId;
   readonly repository: RepositoryRef;
 }> {}
+/** Operational store failure: reported, not classified by reason. The structured outcomes
+ * below stay because callers retry, reconcile, or explain them. */
 export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
   readonly changeId: ChangeId;
   readonly operation: "read" | "record-association";
-  readonly reason: "unreadable" | "invalid-record" | "write-failed" | "migration-required";
+  readonly message: string;
+  readonly cause?: unknown;
 }> {}
 export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
   readonly changeId: ChangeId;

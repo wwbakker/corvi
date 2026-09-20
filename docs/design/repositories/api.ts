@@ -96,73 +96,69 @@ export type IntegrationAssessment = ComparedCommits & (
   | { readonly _tag: "Indeterminate"; readonly reason: "incomplete-history" }
 );
 
-export class NotARepository extends Data.TaggedError("NotARepository")<{
-  readonly directory: AbsolutePath;
-}> {}
-export class NotAWorktree extends Data.TaggedError("NotAWorktree")<{
-  readonly directory: AbsolutePath;
-}> {}
-export class WorktreeRepositoryMismatch extends Data.TaggedError("WorktreeRepositoryMismatch")<{
-  readonly expected: WorktreeRef;
-  readonly actual: RepositoryRef;
-}> {}
-export class WorktreeChangedDuringInspection extends Data.TaggedError("WorktreeChangedDuringInspection")<{
-  readonly worktree: WorktreeRef;
-}> {}
-export class InvalidGitReference extends Data.TaggedError("InvalidGitReference")<{
-  readonly value: string;
-}> {}
-export class RevisionIsNotACommit extends Data.TaggedError("RevisionIsNotACommit")<{
-  readonly repository: RepositoryRef;
-  readonly revision: Revision;
-}> {}
-export class RepositoryReadError extends Data.TaggedError("RepositoryReadError")<{
-  readonly directory: AbsolutePath;
-  readonly operation: string;
-  readonly reason: "git-unavailable" | "timeout" | "access-denied" | "command-failed" | "invalid-output";
-  /** Sanitized diagnostic, not argv, raw stderr, or credentials. */
+/**
+ * The one public operational failure. Expected absence stays in the result as `None`; domain
+ * outcomes (integration evidence, remote-default state, upstream comparison) stay structured.
+ * Adapter errors are private and translated at the package boundary. Interruption is never
+ * flattened into this error.
+ */
+export type RepositoryOperation =
+  | "resolveRepository" | "resolveWorktree" | "listWorktrees" | "verifyWorktree"
+  | "inspectWorktree" | "listRemotes" | "readRemoteDefault" | "resolveCommit"
+  | "assessIntegration";
+export class RepositoryError extends Data.TaggedError("RepositoryError")<{
+  /** Safe to show to the user: names the subject and the failed operation, never credentials. */
   readonly message: string;
+  readonly operation: RepositoryOperation;
+  /** Diagnostics only: sanitized, never argv or raw stderr, never rendered. */
+  readonly cause?: unknown;
 }> {}
 
-export type DiscoveryError = NotARepository | RepositoryReadError;
-export type WorktreeIdentityError = NotAWorktree | WorktreeRepositoryMismatch | RepositoryReadError;
-export type InspectionError = WorktreeIdentityError | WorktreeChangedDuringInspection;
-export type ReferenceError = InvalidGitReference | RevisionIsNotACommit | RepositoryReadError;
-
+/**
+ * The single capability service. The implementation stays split under worktrees/, references/,
+ * history/, and git/; the consumer-facing tag is one because ownership, lifetime, and
+ * substitution are the same for all of these observations. Consumers require only
+ * `Repositories`.
+ */
 export interface RepositoriesApi {
-  /** Accepts a worktree descendant or a Git directory. Canonicalizes the common directory. */
-  readonly resolveRepository: (directory: AbsolutePath) => Effect.Effect<RepositoryInfo, DiscoveryError>;
+  /** Some for a worktree descendant or a Git directory. None when the directory is definitively
+   * not inside a repository. */
+  readonly resolveRepository: (directory: AbsolutePath) => Effect.Effect<Option.Option<RepositoryInfo>, RepositoryError>;
+
+  /** Some for a directory inside a worktree, canonicalized to its root. None for a Git-only/bare
+   * directory or a definitively missing one. */
+  readonly resolveWorktree: (directory: AbsolutePath) => Effect.Effect<Option.Option<WorktreeRef>, RepositoryError>;
+
+  /** Registrations only: main first when present, stale/locked entries included, and no
+   * per-directory status read. */
+  readonly listWorktrees: (repository: RepositoryRef) => Effect.Effect<ReadonlyArray<RegisteredWorktree>, RepositoryError>;
+
+  /** Some when the exact recorded root is a registered, usable worktree of that repository.
+   * None when it is definitively gone, prunable, or not a worktree. No file-status scan. */
+  readonly verifyWorktree: (worktree: WorktreeRef) => Effect.Effect<Option.Option<WorktreeRef>, RepositoryError>;
+
+  /** Validated identity plus HEAD, status, and upstream. None when there is definitively no
+   * usable worktree at the recorded location. One bounded identity/HEAD retry happens inside;
+   * a persistent race is a RepositoryError, not a mixed snapshot. */
+  readonly inspectWorktree: (worktree: WorktreeRef) => Effect.Effect<Option.Option<WorktreeSnapshot>, RepositoryError>;
+
+  readonly listRemotes: (repository: RepositoryRef) => Effect.Effect<ReadonlyArray<RemoteName>, RepositoryError>;
+
+  /** NotConfigured, Unknown, and Known stay distinct because callers choose different fallbacks. */
+  readonly readRemoteDefault: (repository: RepositoryRef, remote: RemoteName) => Effect.Effect<RemoteDefault, RepositoryError>;
+
+  /** None for a missing or unborn revision. A non-commit target (a tag to a tree or blob) is a
+   * RepositoryError, not absence. */
+  readonly resolveCommit: (repository: RepositoryRef, revision: Revision) => Effect.Effect<Option.Option<CommitId>, RepositoryError>;
+
+  /** Uses pinned commits, not moving refs. No fetch, merge simulation, or object/ref writes. */
+  readonly assessIntegration: (repository: RepositoryRef, commits: ComparedCommits) => Effect.Effect<IntegrationAssessment, RepositoryError>;
 }
 export class Repositories extends Context.Tag("corvi/repositories/Repositories")<Repositories, RepositoriesApi>() {}
 
-export interface WorktreesApi {
-  /** Accepts a worktree descendant and returns its canonical root. Rejects Git-only directories. */
-  readonly resolveWorktree: (directory: AbsolutePath) => Effect.Effect<WorktreeRef, NotAWorktree | RepositoryReadError>;
-  /** Main first when present. Excludes the bare repository entry; includes stale registrations. */
-  readonly listWorktrees: (repository: RepositoryRef) => Effect.Effect<ReadonlyArray<RegisteredWorktree>, RepositoryReadError>;
-  /** Verifies exact root and repository membership without reading working-file status. */
-  readonly verifyWorktree: (worktree: WorktreeRef) => Effect.Effect<WorktreeRef, WorktreeIdentityError>;
-  /** Verifies identity and observes status; never redirects a stale ref to another worktree. */
-  readonly inspectWorktree: (worktree: WorktreeRef) => Effect.Effect<WorktreeSnapshot, InspectionError>;
-}
-export class Worktrees extends Context.Tag("corvi/repositories/Worktrees")<Worktrees, WorktreesApi>() {}
-
-export interface ReferencesApi {
-  readonly listRemotes: (repository: RepositoryRef) => Effect.Effect<ReadonlyArray<RemoteName>, RepositoryReadError>;
-  /** None means a missing/unborn ref. Existing non-commit targets are a distinct error. */
-  readonly resolveCommit: (repository: RepositoryRef, revision: Revision) => Effect.Effect<Option.Option<CommitId>, ReferenceError>;
-  /** Reads local remote configuration and symbolic HEAD; no network or ref updates. */
-  readonly readRemoteDefault: (repository: RepositoryRef, remote: RemoteName) => Effect.Effect<RemoteDefault, InvalidGitReference | RepositoryReadError>;
-}
-export class References extends Context.Tag("corvi/repositories/References")<References, ReferencesApi>() {}
-
-export interface HistoryApi {
-  /** Uses pinned commits, not moving refs. No fetch, merge simulation, or object/ref writes. */
-  readonly assessIntegration: (repository: RepositoryRef, commits: ComparedCommits) => Effect.Effect<IntegrationAssessment, RepositoryReadError>;
-}
-export class History extends Context.Tag("corvi/repositories/History")<History, HistoryApi>() {}
-
-// Adapter-only entrypoints. These are not dependencies of browser consumers.
+// Adapter requirements, exported only from the composition entrypoint and never by the
+// capability entrypoint. Their errors never appear in RepositoriesApi; the query Layer
+// translates them at the package boundary.
 export class GitExecutionError extends Data.TaggedError("GitExecutionError")<{
   readonly reason: "spawn" | "timeout";
   readonly message: string;
@@ -189,8 +185,4 @@ export interface DirectoryResolutionApi {
 export class DirectoryResolution extends Context.Tag("corvi/repositories/DirectoryResolution")<DirectoryResolution, DirectoryResolutionApi>() {}
 
 /** Construction captures dependencies. There is no cache or process between observations. */
-export declare const repositoryQueriesLayer: Layer.Layer<
-  Repositories | Worktrees | References | History,
-  never,
-  GitObservation | DirectoryResolution
->;
+export declare const repositoriesLayer: Layer.Layer<Repositories, never, GitObservation | DirectoryResolution>;

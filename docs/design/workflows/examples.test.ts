@@ -3,8 +3,8 @@ import { expect, test } from "bun:test";
 import { Brand, Effect, Layer, Option } from "effect";
 import { ChangeNotFound, ChangeStore } from "../changes/api.ts";
 import type { ChangeId, ChangeRevision, ChangeState, ChangeWorkState, RepositoryIntent, WorkspaceId } from "../changes/api.ts";
-import { History, NotAWorktree, References, RepositoryReadError, Worktrees } from "../repositories/api.ts";
-import type { AbsolutePath, BranchName, CommitId, InspectionError, RemoteDefault, RemoteName, RepositoryRef, WorktreeHead, WorktreeRef, WorktreeSnapshot } from "../repositories/api.ts";
+import { Repositories, RepositoryError } from "../repositories/api.ts";
+import type { AbsolutePath, BranchName, CommitId, RemoteDefault, RemoteName, RepositoryRef, WorktreeHead, WorktreeRef, WorktreeSnapshot } from "../repositories/api.ts";
 import type { ChangeInspectionError, ChangeRepositoryInput, WorkspaceQueryOptions, RepositoryWorkView, WorkingDirectoryError } from "./api.ts";
 import { inspectChangeRepository, resolveChangeWorkingDirectory } from "./examples.ts";
 
@@ -29,13 +29,15 @@ interface FixtureOptions {
   readonly intent?: RepositoryIntent;
   readonly head?: WorktreeHead;
   readonly state?: ChangeState;
-  readonly failure?: InspectionError;
+  readonly inspectMissing?: boolean;
+  readonly verifyMissing?: boolean;
+  readonly error?: RepositoryError;
   readonly remotes?: ReadonlyArray<RemoteName>;
   readonly remoteDefault?: RemoteDefault;
 }
 interface Fixture {
   readonly calls: string[];
-  readonly layer: Layer.Layer<ChangeStore | Worktrees | References | History>;
+  readonly layer: Layer.Layer<ChangeStore | Repositories>;
 }
 
 function fixture(options: FixtureOptions = {}): Fixture {
@@ -76,21 +78,21 @@ function fixture(options: FixtureOptions = {}): Fixture {
         }),
         recordAssociation: () => unexpected("record-association"),
       }),
-      Layer.succeed(Worktrees, {
+      Layer.succeed(Repositories, {
+        resolveRepository: () => unexpected("resolve-repository"),
         resolveWorktree: () => unexpected("resolve-worktree"),
         listWorktrees: () => unexpected("list-worktrees"),
         verifyWorktree: (ref) => Effect.sync(() => {
           calls.push("verify-worktree");
           expect(ref).toEqual(worktree);
-          return ref;
+          return options.verifyMissing ? Option.none<WorktreeRef>() : Option.some(ref);
         }),
         inspectWorktree: (ref) => Effect.suspend(() => {
           calls.push("inspect-worktree");
           expect(ref).toEqual(worktree);
-          return options.failure ? Effect.fail(options.failure) : Effect.succeed(snapshot);
+          if (options.error) return Effect.fail(options.error);
+          return Effect.succeed(options.inspectMissing ? Option.none<WorktreeSnapshot>() : Option.some(snapshot));
         }),
-      }),
-      Layer.succeed(References, {
         listRemotes: () => Effect.sync(() => {
           calls.push("list-remotes");
           return options.remotes ?? [];
@@ -106,8 +108,6 @@ function fixture(options: FixtureOptions = {}): Fixture {
             : { _tag: "LocalBranch", name: branch("main") });
           return Option.some(base);
         }),
-      }),
-      Layer.succeed(History, {
         assessIntegration: (_repository, commits) => Effect.sync(() => {
           calls.push("assess-integration");
           expect(commits).toEqual({ candidate, base });
@@ -153,12 +153,12 @@ test("design: an unknown remote default does not trigger local fallback or integ
 });
 
 test("design: only a definitive worktree miss becomes the Missing view", async (): Promise<void> => {
-  const missing: Fixture = fixture({ failure: new NotAWorktree({ directory: worktree.directory }) });
+  const missing: Fixture = fixture({ inspectMissing: true });
   expect((await Effect.runPromise(inspectChangeRepository(input, policy).pipe(Effect.provide(missing.layer)))).status)
     .toEqual({ _tag: "Missing", worktree });
-  const failed: Fixture = fixture({ failure: new RepositoryReadError({ directory: worktree.directory, operation: "status", reason: "access-denied", message: "denied" }) });
+  const failed: Fixture = fixture({ error: new RepositoryError({ operation: "inspectWorktree", message: "denied" }) });
   const error: ChangeInspectionError = await Effect.runPromise(inspectChangeRepository(input, policy).pipe(Effect.flip, Effect.provide(failed.layer)));
-  expect(error._tag).toBe("RepositoryReadError");
+  expect(error._tag).toBe("RepositoryError");
 });
 
 test("design: archived inspection does not touch Git or allow resolving an active working directory", async (): Promise<void> => {
@@ -177,6 +177,13 @@ test("design: membership is checked before Git and is distinct from a missing ch
   expect(env.calls).toEqual(["read-change"]);
   const missing: ChangeInspectionError = await Effect.runPromise(inspectChangeRepository({ ...input, changeId: Brand.nominal<ChangeId>()("missing") }, policy).pipe(Effect.flip, Effect.provide(env.layer)));
   expect(missing._tag).toBe("ChangeNotFound");
+});
+
+test("design: a worktree that cannot be verified is an application-level unavailability, not a repository error", async (): Promise<void> => {
+  const env: Fixture = fixture({ verifyMissing: true });
+  const error: WorkingDirectoryError = await Effect.runPromise(resolveChangeWorkingDirectory(input, workspaceId).pipe(Effect.flip, Effect.provide(env.layer)));
+  expect(error).toMatchObject({ _tag: "WorkingDirectoryUnavailable", reason: "missing-worktree" });
+  expect(env.calls).toEqual(["read-change", "verify-worktree"]);
 });
 
 test("design: a workspace-bound query never observes a change using another workspace's services", async (): Promise<void> => {

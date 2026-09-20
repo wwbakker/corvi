@@ -29,9 +29,10 @@ when they exist. Historical implementation choices do not override these rules.
 ## Concrete design for the first slice
 
 [Repository capabilities and change workflows](design/repositories-and-changes.md) specifies the
-step-1 contracts, association model, caller examples, and migration boundaries. It is ready for
-review, not an implemented package API. Its TypeScript prototypes are checked by the root typecheck;
-its example tests run in the full suite. They do not verify a production Git/storage adapter.
+step-1 contracts, association model, caller examples, and migration boundaries. It was revised
+after owner review; it is not an implemented package API. Its TypeScript prototypes are checked by
+the root typecheck; its example tests run in the full suite. They do not verify a production
+Git/storage adapter.
 
 ## For users
 
