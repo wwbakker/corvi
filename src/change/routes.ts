@@ -21,7 +21,6 @@ import { messageOf } from "../capabilities/effect/support.ts";
 import type { Change } from "../domain/change.ts";
 import type { Changes } from "../extension-host/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
-import { applyCreatingHooks } from "../extension-host/index.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
@@ -39,10 +38,7 @@ export const changeRoutes = guard({
           const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0] & {
             plan?: string;
           };
-          // The creating hooks transform the draft; the core then re-runs every invariant in
-          // createChange before anything is written.
-          const draft = yield* applyCreatingHooks(body);
-          const change = yield* createChange({ ...body, ...draft });
+          const change = yield* createChange(body);
           // The plan the wizard collected, written as the change's own document. It is a file,
           // not a field of the draft: the agent and the dashboard edit the same file afterwards.
           if (typeof body.plan === "string" && body.plan) {
@@ -165,7 +161,7 @@ export const changeRoutes = guard({
           // The same protocol a repository removal uses: ask once, then repeat with force.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
-            : json({ change: result.change, loose: result.loose, after: result.after });
+            : json({ change: result.change, loose: result.loose });
         }),
       ),
   },
@@ -210,5 +206,5 @@ export const completePost = (
     const outcome = yield* completeChange(change, body.force === true);
     return outcome._tag === "NotReady"
       ? json(outcome.refusal, 409)
-      : json({ change: outcome.change, notes: outcome.notes, after: outcome.after });
+      : json({ change: outcome.change, notes: outcome.notes });
   });

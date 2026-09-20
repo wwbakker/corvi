@@ -1,9 +1,8 @@
 /** Cancelling a change, through the lifecycle workflow.
  *
- * The app-level adapter keeps the HTTP-facing shape — the force question, the loose-end report,
- * the after-observer notices — while the orchestration, fresh safety rechecks, and journaling
- * live in `@corvi/workflows/lifecycle`. The extension veto still runs after the force question
- * and before anything irreversible, as it did before the cutover.
+ * The app-level adapter keeps the HTTP-facing shape — the force question, the loose-end
+ * report — while the orchestration, fresh safety rechecks, and journaling live in
+ * `@corvi/workflows/lifecycle`.
  */
 import { Effect, Layer } from "effect";
 
@@ -20,16 +19,9 @@ import { BadRequestError, NotFoundError, isIweError, type IweError } from "../..
 import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Change } from "../../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../../domain/config.ts";
-import {
-  afterChange,
-  beforeChange,
-  looseEndContributorsFor,
-  type ProvisionResult,
-} from "../../extension-host/index.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { prLooseEnds } from "../../extensions/github/index.ts";
 import { jiraLooseEnds } from "../../extensions/jira/index.ts";
-import { includedLooseEndIntegrations } from "../included-integrations.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
@@ -41,8 +33,6 @@ export type Cancelled = {
   _tag: "Done";
   change: Change;
   loose: string[];
-  /** What the after-hooks reported, under each extension's name: collected, never fatal. */
-  after: ProvisionResult[];
 };
 
 const isAcknowledgementCode = (
@@ -117,9 +107,6 @@ export const cancelChange = (
     if (readiness._tag === "AcknowledgementRequired" && !force)
       return { _tag: "NeedsForce", needsForce: namesOf(links, readiness.reasons) } satisfies NeedsForce;
 
-    // The extensions' veto: after the question, before anything irreversible.
-    yield* beforeChange("change:cancelling", change);
-
     // The change directory's browse links: an idea's symlinks are Corvi's own, so they go before
     // the checkout removal, which then finds nothing at that path rather than failing on a
     // directory Git does not know as a worktree. A real worktree is untouched by this.
@@ -136,8 +123,7 @@ export const cancelChange = (
       const updated = yield* readChange(change.id);
       if (!updated)
         return yield* new BadRequestError({ message: "the cancelled change could not be read back" });
-      const after = yield* afterChange("change:cancelled", updated);
-      return { _tag: "Done", change: updated, loose: [...outcome.loose], after } satisfies Cancelled;
+      return { _tag: "Done", change: updated, loose: [...outcome.loose] } satisfies Cancelled;
     }
     if (outcome._tag === "NeedsAcknowledgement")
       return { _tag: "NeedsForce", needsForce: namesOf(links, outcome.reasons) } satisfies NeedsForce;
@@ -155,34 +141,14 @@ export const cancelChange = (
  *
  * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
  * change that comes back to you in a week as somebody else's question. The included integrations
- * are called by name, in load order (github's pull requests before jira's ticket); extensions
- * loaded from outside the repository still contribute through the registry until the platform is
- * removed, with the included names skipped so their lines are not said twice. A lookup that
+ * are called by name, in load order (github's pull requests before jira's ticket). A lookup that
  * fails contributes nothing: cancelling must never fail because a vendor is unreachable.
  */
 export const looseEnds = (change: Change): Effect.Effect<string[]> =>
   Effect.map(
-    Effect.all([
-      Effect.catchAll(
-        Effect.provide(prLooseEnds(change), capabilitiesLayer(workspaceOf(change), "github")),
-        () => Effect.succeed([] as string[]),
-      ),
-      Effect.forEach(
-        looseEndContributorsFor(workspaceOf(change)).filter(
-          ({ name }) => !includedLooseEndIntegrations.includes(name),
-        ),
-        ({ name, contribution }) =>
-          Effect.catchAll(
-            Effect.provide(contribution.looseEnds(change), capabilitiesLayer(workspaceOf(change), name)),
-            () => Effect.succeed([] as string[]),
-          ),
-        // Unbounded concurrency is deliberate: these contributors are independent.
-        { concurrency: "unbounded" },
-      ),
-    ]),
-    ([pullRequests, contributed]) => [
-      ...pullRequests,
-      ...jiraLooseEnds(change),
-      ...contributed.flat(),
-    ],
+    Effect.catchAll(
+      Effect.provide(prLooseEnds(change), capabilitiesLayer(workspaceOf(change), "github")),
+      () => Effect.succeed([] as string[]),
+    ),
+    (pullRequests) => [...pullRequests, ...jiraLooseEnds(change)],
   );

@@ -4,7 +4,7 @@ import type { Change } from "../../domain/change.ts";
 import { prItem } from "../../vendors/github.ts";
 import type { Changes } from "../../extension-host/api/capabilities.ts";
 import type { BadRequestError } from "../../capabilities/effect/errors.ts";
-import { descriptionSectionsFor } from "../../extension-host/index.ts";
+import { includedDescriptionSections } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
@@ -33,7 +33,7 @@ export const prDescription = (change: Change): Effect.Effect<string, BadRequestE
     // " - ". A section that fails is absent, not a failed request.
     const workspace = workspaceOf(change);
     const parts = yield* Effect.forEach(
-      descriptionSectionsFor(workspace),
+      includedDescriptionSections(workspace),
       ({ name, contribution: section }) =>
         section.heading(change).pipe(
           Effect.provide(capabilitiesLayer(workspace, name)),

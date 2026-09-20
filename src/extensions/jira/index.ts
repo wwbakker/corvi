@@ -3,6 +3,7 @@ import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { swr } from "../../capabilities/cache.ts";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
+import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import {
   boardIssues,
   siteOfWorkspace,
@@ -20,6 +21,7 @@ import {
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
 import { Settings, Workspace, type Capabilities, type Extension } from "../../extension-host/api.ts";
+import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
 
 /**
  * The jira extension: a self-describing value.
@@ -139,7 +141,7 @@ const siteFields = {
 
 /** Starting the work: assign the ticket and move it to the start status. Exported so the start
  * workflow's adapter can call it without the hook registry. */
-export const moveIssueOnStart = (change: Change): Effect.Effect<void, unknown, Capabilities> =>
+export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequestError, Capabilities> =>
   Effect.gen(function* () {
     const key = ticketOf(change);
     if (!key) return;
@@ -176,7 +178,7 @@ export const planIssueCompletion = (
     : undefined;
 };
 
-export const moveIssueOnComplete = (change: Change): Effect.Effect<void, unknown, Capabilities> =>
+export const moveIssueOnComplete = (change: Change): Effect.Effect<void, BadRequestError, Capabilities> =>
   Effect.gen(function* () {
     const key = ticketOf(change);
     if (!key) return;
@@ -189,6 +191,37 @@ export const moveIssueOnComplete = (change: Change): Effect.Effect<void, unknown
 export const jiraLooseEnds = (change: Change): readonly string[] => {
   const key = ticketOf(change);
   return key ? [`${key} is still open in Jira`] : [];
+};
+
+/** The overview names a change after its ticket's summary. */
+export const jiraTitleSource: TitleSource = {
+  applies: (change) => Boolean(ticketOf(change)),
+  lookup: (changes) =>
+    Effect.gen(function* () {
+      const site = siteOfWorkspace(yield* Workspace);
+      const keys = [
+        ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
+      ];
+      const issues = yield* issuesByKeys(keys, site);
+      const titles = new Map<string, string>();
+      for (const change of changes) {
+        const key = ticketOf(change);
+        const summary = key && issues.get(key)?.summary;
+        if (summary) titles.set(change.id, summary);
+      }
+      return titles;
+    }),
+};
+
+/** The pull-request description opens with the ticket and what it is. */
+export const jiraDescriptionSection: DescriptionSection = {
+  heading: (change) =>
+    Effect.gen(function* () {
+      const key = ticketOf(change);
+      if (!key) return undefined;
+      const issue = yield* issueByKey(key, siteOfWorkspace(yield* Workspace));
+      return issue?.summary ? `${key} - ${issue.summary}` : key;
+    }),
 };
 
 export default {
@@ -244,102 +277,6 @@ export default {
   // The wizard's issue step: content in client.tsx, this declaration is what the page is
   // told exists. Its id is the payload key the step writes the picked issue under.
   wizardSteps: [{ id: "jira", title: "Jira", phase: "issue" }],
-
-  events: {
-    // Starting the work means the ticket is being worked on: assign it and move it to the start
-    // status. Creating an idea does not touch the ticket — the idea may come to nothing, and a
-    // ticket moved to In Progress for a thought is a lie other people can see. One hook,
-    // reported to the wizard under this extension's name when the work starts.
-    "change:started": [
-      (change) =>
-        Effect.gen(function* () {
-          const key = ticketOf(change);
-          if (!key) return;
-          const workspace = yield* Workspace;
-          const settings = yield* Settings;
-          const global = globalOf(settings);
-          const site = siteOfWorkspace(workspace);
-          const account = yield* accountId(global.assignee, site);
-          if (account) {
-            yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
-              site,
-              method: "PUT",
-              body: { accountId: account },
-            });
-          }
-          const current = (yield* issueByKey(key, site))?.status;
-          if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
-            yield* moveIssue(key, global.startTransition, site);
-          }
-        }),
-    ],
-  },
-
-  // The overview names a change after its ticket's summary.
-  titleSources: [
-    {
-      applies: (change) => Boolean(ticketOf(change)),
-      lookup: (changes) =>
-        Effect.gen(function* () {
-          const site = siteOfWorkspace(yield* Workspace);
-          const keys = [
-            ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
-          ];
-          const issues = yield* issuesByKeys(keys, site);
-          const titles = new Map<string, string>();
-          for (const change of changes) {
-            const key = ticketOf(change);
-            const summary = key && issues.get(key)?.summary;
-            if (summary) titles.set(change.id, summary);
-          }
-          return titles;
-        }),
-    },
-  ],
-
-  // The pull-request description opens with the ticket and what it is.
-  descriptionSections: [
-    {
-      heading: (change) =>
-        Effect.gen(function* () {
-          const key = ticketOf(change);
-          if (!key) return undefined;
-          const issue = yield* issueByKey(key, siteOfWorkspace(yield* Workspace));
-          return issue?.summary ? `${key} - ${issue.summary}` : key;
-        }),
-    },
-  ],
-
-  // Cancelling leaves the ticket where it is — moving a ticket other people are watching is
-  // a decision about theirs — and says so, so you can go and deal with it.
-  looseEnds: [
-    {
-      looseEnds: (change) => {
-        const key = ticketOf(change);
-        return Effect.succeed(key ? [`${key} is still open in Jira`] : []);
-      },
-    },
-  ],
-
-  // Completing a change closes the ticket, after the merges and before the worktrees go.
-  completionSteps: [
-    {
-      plan: (change, world): CompletionStep | undefined => {
-        const key = ticketOf(change);
-        return key
-          ? { id: "jira", label: `move ${key} to ${globalOf(world.config).doneTransition}`, state: "waiting" }
-          : undefined;
-      },
-      run: (change) =>
-        Effect.gen(function* () {
-          const key = ticketOf(change);
-          if (!key) return;
-          const site = siteOfWorkspace(yield* Workspace);
-          const { doneTransition } = globalOf(yield* Settings);
-          yield* moveIssue(key, doneTransition, site);
-        }),
-    },
-  ],
 
   // The two routes the wizard's step fetches: the board, and creating an issue into it. An
   // error string rather than a failed request, so a broken or unconfigured Jira still leaves

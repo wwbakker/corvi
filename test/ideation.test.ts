@@ -16,8 +16,8 @@ import {
   startChange,
   writeSidecar,
 } from "../src/change/server/index.ts";
-import { provision, startWork } from "../src/extension-host/index.ts";
-import { checkoutFor } from "../src/vendors/git.ts";
+import { provisionChangeRepositories } from "../src/change/provisioning.ts";
+import { checkoutFor, unlinkRepo } from "../src/vendors/git.ts";
 import { isIdeation, slugFor } from "../src/domain/change.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runCancel, runEffect, runSetRepos, runSh } from "./helpers.ts";
@@ -119,16 +119,17 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
     }),
   );
 
-  // change:created links the repository for reading — no branch switch, no worktree.
-  await runEffect(provision(idea));
+  // Creating an idea links the repository for reading — no branch switch, no worktree.
+  await runEffect(provisionChangeRepositories(idea));
   const link = join(changeDir(idea.id), basename(repo));
   expect((await lstat(link)).isSymbolicLink()).toBe(true);
   expect(await runEffect(checkoutFor(idea, repo))).toBeUndefined();
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout).toBe("main");
 
-  // change:started replaces the link with the checkout the change asked for.
+  // Starting replaces the link with the checkout the change asked for.
   const started = await runEffect(startChange(idea));
-  await runEffect(startWork(started));
+  await runEffect(unlinkRepo(started, repo));
+  await runEffect(provisionChangeRepositories(started));
   expect(await runEffect(checkoutFor(started, repo))).toBeDefined();
   // The path is the same; a real worktree now, not a symlink.
   expect((await lstat(link)).isDirectory()).toBe(true);
@@ -157,7 +158,7 @@ test("cancelling an idea drops its browse links", async () => {
   const idea = await runEffect(
     createChange({ id: "idea-cancel", state: "Ideation", repos: [repo] }),
   );
-  await runEffect(provision(idea));
+  await runEffect(provisionChangeRepositories(idea));
   expect((await lstat(join(changeDir(idea.id), basename(repo)))).isSymbolicLink()).toBe(true);
 
   const cancelled = await runCancel(idea);

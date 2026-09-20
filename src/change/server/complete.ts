@@ -15,11 +15,6 @@ import type { Changes } from "../../extension-host/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
-import {
-  afterChange,
-  beforeChange,
-  type ProvisionResult,
-} from "../../extension-host/index.ts";
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeStoreError } from "@corvi/changes/errors";
 import { layer as changesNodeLayer, storeLayer } from "@corvi/changes/node";
@@ -50,7 +45,7 @@ export type { Completion, CompletionReason, CompletionRefusal };
  * acknowledge why first. An unmet hard reason (an idea, uncommitted work) is neither — it fails,
  * because no acknowledgement can make it go away. */
 export type CompletionResult =
-  | { _tag: "Done"; change: Change; notes: string[]; after: ProvisionResult[] }
+  | { _tag: "Done"; change: Change; notes: string[] }
   | { _tag: "NotReady"; refusal: CompletionRefusal };
 
 /** Turn per-repository readiness into one verdict: a change completes as a whole or not at all. */
@@ -369,23 +364,6 @@ const runCompletion = (
     }))
     yield* writeProgress(change.id, ref)
 
-    // The veto: after the question, before any irreversible step.
-    const veto = yield* Effect.either(beforeChange("change:completing", change))
-    if (veto._tag === "Left") {
-      yield* Ref.update(ref, (progress): CompletionProgress => ({
-        ...progress,
-        finishedAt: new Date().toISOString(),
-        error: messageOf(veto.left),
-        steps: progress.steps.map((step) =>
-          step.id === "check"
-            ? { ...step, state: "failed" as const, detail: messageOf(veto.left) }
-            : step,
-        ),
-      }))
-      yield* writeProgress(change.id, ref)
-      return yield* Effect.fail(veto.left)
-    }
-
     const run = (
       acknowledgements: readonly Acknowledgement[],
     ): Effect.Effect<LifecycleOutcome, IweError | ChangeStoreError> =>
@@ -409,14 +387,13 @@ const runCompletion = (
         return yield* new BadRequestError({
           message: "the completed change could not be read back",
         })
-      const after = yield* afterChange("change:completed", updated)
       const notes = [
         ...(overridden.length > 0
           ? [`completed with overrides: ${overridden.join("; ")}`]
           : []),
         ...outcome.notes,
       ]
-      return { _tag: "Done" as const, change: updated, notes, after }
+      return { _tag: "Done" as const, change: updated, notes }
     }
     if (outcome._tag === "NeedsAcknowledgement") {
       yield* finalizeProgress(change.id, ref)

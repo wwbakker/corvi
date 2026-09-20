@@ -6,10 +6,9 @@ import type { Change } from "../src/domain/change.ts";
 import type { Widget, WidgetItem } from "../src/domain/widget.ts";
 import type { Capabilities, Card } from "../src/extension-host/api.ts";
 import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
-import { install, loaded } from "../src/extension-host/registry.ts";
-import { provision, repoStatusOf, runCard, statusOne } from "../src/extension-host/effects.ts";
-import githubExtension from "../src/extensions/github/index.ts";
-import azureDevopsExtension from "../src/extensions/azure-devops/index.ts";
+import { repoStatusOf, runCard, statusOne } from "../src/extension-host/effects.ts";
+import githubExtension, { githubSummaryContributor, prLooseEnds } from "../src/extensions/github/index.ts";
+import azureDevopsExtension, { azureDevopsSummaryContributor } from "../src/extensions/azure-devops/index.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Result } from "../src/capabilities/shell.ts";
@@ -324,7 +323,7 @@ test("the github summary names open comments and takes the checks' verdict", asy
   const shell = summaryShell(0, 1);
   const summary = await runWithShell(
     shell,
-    githubExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    githubSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(summary.facts).toEqual([
     { id: "unresolved", label: "1 unresolved comment", state: "warn" },
@@ -336,7 +335,7 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
   const { clearCache } = await import("../src/capabilities/cache.ts");
   const one = await runWithShell(
     summaryShell(1, 0),
-    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(one.facts).toEqual([{ id: "pipelines", label: "1 pipeline active", state: "pending" }]);
   // A pipeline in flight is pending whatever the last checks said.
@@ -347,7 +346,7 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
   clearCache();
   const two = await runWithShell(
     summaryShell(2, 0),
-    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(two.facts.map((f) => f.label)).toEqual(["2 pipelines active"]);
 });
@@ -355,14 +354,14 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
 test("an idle inbox and idle pipelines contribute nothing but the idle line", async () => {
   const githubSummary = await runWithShell(
     summaryShell(0, 0),
-    githubExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    githubSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(githubSummary.facts).toEqual([]);
   expect(githubSummary.state).toBe("ok");
 
   const azureSummary = await runWithShell(
     summaryShell(0, 0),
-    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(azureSummary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
   expect(azureSummary.state).toBeUndefined();
@@ -376,7 +375,7 @@ test("a vendor being down loses the facts, not the summary", async () => {
   });
   const summary = await runWithShell(
     shell,
-    azureDevopsExtension.summaryContributions[0]!.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
   );
   expect(summary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
   expect(summary.state).toBeUndefined();
@@ -404,7 +403,7 @@ test("loose ends name each open pull request, and a failed lookup contributes no
 
   const ends = await runWithShell(
     shell,
-    githubExtension.looseEnds[0]!.looseEnds(change({ repos: [orderRepo, brokenRepo, goneRepo] })),
+    prLooseEnds(change({ repos: [orderRepo, brokenRepo, goneRepo] })),
   );
   // One line per repository that has a pull request; a down vendor and a missing worktree are
   // not loose ends worth failing a cancellation over.
@@ -643,63 +642,6 @@ const widget = (over: Partial<Widget> = {}): Widget => ({
     },
   ],
   ...over,
-});
-
-test("provisioning records each hook and a failure stops only its own extension's later hooks", async () => {
-  const calls: string[] = [];
-  const before = loaded.splice(0, loaded.length);
-  install({
-    name: "prov-one",
-    title: "One",
-    events: {
-      "change:created": [
-        () => {
-          calls.push("one:a");
-          return Effect.fail(new TestError({ message: "a exploded" }));
-        },
-        () => {
-          calls.push("one:b");
-          return Effect.void;
-        },
-      ],
-    },
-  });
-  install({
-    name: "prov-two",
-    title: "Two",
-    events: {
-      "change:created": [
-        () => {
-          calls.push("two:a");
-          return Effect.void;
-        },
-      ],
-    },
-  });
-  try {
-    const results = await runEffect(provision(change()));
-    // The failed hook stops the rest of its own extension (they would build on half-done work),
-    // but never the extensions after it.
-    expect(calls).toEqual(["one:a", "two:a"]);
-    expect(results).toEqual([
-      { integration: "prov-one", ok: false, error: "a exploded" },
-      { integration: "prov-two", ok: true },
-    ]);
-  } finally {
-    loaded.splice(0, loaded.length, ...before);
-  }
-});
-
-test("a hook that fails with a non-Error is reported by its String form", async () => {
-  const before = loaded.splice(0, loaded.length);
-  install({ name: "prov-str", title: "Str", events: { "change:created": [() => Effect.fail("boom")] } });
-  try {
-    expect(await runEffect(provision(change()))).toEqual([
-      { integration: "prov-str", ok: false, error: "boom" },
-    ]);
-  } finally {
-    loaded.splice(0, loaded.length, ...before);
-  }
 });
 
 test("statusOne passes a live card through unchanged", async () => {

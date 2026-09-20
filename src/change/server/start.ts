@@ -11,14 +11,9 @@ import {
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
-import { IDEATION, type Change } from "../../domain/change.ts";
-import {
-  extensionsFor,
-  startWorkExcept,
-  type ProvisionResult,
-} from "../../extension-host/index.ts";
+import { IDEATION, type Change, type ProvisionResult } from "../../domain/change.ts";
+import { extensionsFor } from "../../extension-host/index.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
-import { includedStartIntegrations } from "../included-integrations.ts";
 import { moveIssueOnStart } from "../../extensions/jira/index.ts";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
 import { config, workspaceOf } from "../../workspace/server/index.ts";
@@ -149,9 +144,6 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
       );
     }
 
-    // The start hooks of extensions loaded from outside the repository still run through the
-    // registry until the extension platform is removed; the included ones are excluded above.
-    reports.push(...(yield* startWorkExcept(updated, includedStartIntegrations)));
     return { change: updated, provision: reports };
   }).pipe(
     Effect.provide(changeWorkLayer({ root: root(), archiveRoot: archiveRoot() })),

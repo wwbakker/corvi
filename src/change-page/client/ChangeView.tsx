@@ -191,10 +191,9 @@ export function ChangeView({
     setCompleting(true);
     setError(null);
     post<Completed>(`/changes/${id}/complete`, { ...(force ? { force: true } : {}) })
-      .then(({ change: updated, after }) => {
+      .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
-        setAfter(after);
         setRefusal(null);
       })
       .catch((e: ApiError) => {
@@ -250,11 +249,10 @@ export function ChangeView({
     setCancelling(true);
     setError(null);
     post<Cancelled>(`/changes/${id}/cancel`, { force })
-      .then(({ change: updated, loose, after }) => {
+      .then(({ change: updated, loose }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         onChanged();
-        setAfter(after);
         setCancelWarning(null);
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })

@@ -2,6 +2,7 @@ import { Context, Effect, Option, Schema } from "effect";
 import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Shell, Workspace, type Capabilities, type Extension } from "../../extension-host/api.ts";
+import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
@@ -245,7 +246,7 @@ export const planIssueClose = (change: Change): CompletionStep | undefined => {
 
 export const closeIssueOnComplete = (
   change: Change,
-): Effect.Effect<string | undefined, unknown, Capabilities> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError, Capabilities> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     const cache = yield* Cache;
@@ -257,6 +258,45 @@ export const closeIssueOnComplete = (
     yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
     return `closed ${refLabel(repository, ref)}`;
   });
+
+/** The overview names a change after its issue's title. */
+export const githubIssuesTitleSource: TitleSource = {
+  applies: (change) => Boolean(refOf(change)),
+  lookup: (changes) =>
+    Effect.gen(function* () {
+      const titles = new Map<string, string>();
+      for (const change of changes) {
+        const ref = refOf(change);
+        if (!ref) continue;
+        // A gh that cannot answer leaves the stored title standing: the failure is caught by
+        // the consumer, which drops this source's answer as a whole — so per-issue trouble is
+        // tolerated here, and only a source-wide failure is a failed lookup.
+        const found = yield* Effect.option(nameWithOwner(ref.repo));
+        const repository = Option.getOrUndefined(found);
+        const issue = repository
+          ? Option.getOrUndefined(yield* Effect.option(viewIssue(repository, ref.number)))
+          : undefined;
+        if (issue?.title) titles.set(change.id, issue.title);
+      }
+      return titles;
+    }),
+};
+
+/** The pull-request description opens with the issue and what it is. */
+export const githubIssuesDescriptionSection: DescriptionSection = {
+  heading: (change) =>
+    Effect.gen(function* () {
+      const ref = refOf(change);
+      if (!ref) return undefined;
+      const found = yield* Effect.option(nameWithOwner(ref.repo));
+      const repository = Option.getOrUndefined(found);
+      if (!repository) return undefined;
+      const issue = Option.getOrUndefined(
+        yield* Effect.option(viewIssue(repository, ref.number)),
+      );
+      return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
+    }),
+};
 
 export default {
   name: KEY,
@@ -285,73 +325,7 @@ export default {
   // step has nothing to look at until then.
   wizardSteps: [{ id: KEY, title: "GitHub issue", phase: "repos" }],
 
-  // The overview names a change after its issue's title.
-  titleSources: [
-    {
-      applies: (change) => Boolean(refOf(change)),
-      lookup: (changes) =>
-        Effect.gen(function* () {
-          const titles = new Map<string, string>();
-          for (const change of changes) {
-            const ref = refOf(change);
-            if (!ref) continue;
-            // A gh that cannot answer leaves the stored title standing: the failure is caught
-            // by the host, which drops this source's answer as a whole — so per-issue trouble
-            // is tolerated here, and only a source-wide failure is a failed lookup.
-            const found = yield* Effect.option(nameWithOwner(ref.repo));
-            const repository = Option.getOrUndefined(found);
-            const issue = repository
-              ? Option.getOrUndefined(yield* Effect.option(viewIssue(repository, ref.number)))
-              : undefined;
-            if (issue?.title) titles.set(change.id, issue.title);
-          }
-          return titles;
-        }),
-    },
-  ],
-
-  // The pull-request description opens with the issue and what it is.
-  descriptionSections: [
-    {
-      heading: (change) =>
-        Effect.gen(function* () {
-          const ref = refOf(change);
-          if (!ref) return undefined;
-          const found = yield* Effect.option(nameWithOwner(ref.repo));
-          const repository = Option.getOrUndefined(found);
-          if (!repository) return undefined;
-          const issue = Option.getOrUndefined(
-            yield* Effect.option(viewIssue(repository, ref.number)),
-          );
-          return `${refLabel(repository, ref)}${issue?.title ? ` - ${issue.title}` : ""}`;
-        }),
-    },
-  ],
-
   // Completing a change closes the issue, after the merges and before the worktrees go.
-  completionSteps: [
-    {
-      plan: (change, _world): CompletionStep | undefined => {
-        const ref = refOf(change);
-        return ref
-          ? { id: KEY, label: `close ${ref.repo.split("/").pop()}#${ref.number}`, state: "waiting" }
-          : undefined;
-      },
-      run: (change) =>
-        Effect.gen(function* () {
-          const shell = yield* Shell;
-          const cache = yield* Cache;
-          const ref = refOf(change);
-          if (!ref) return;
-          const repository = yield* nameWithOwner(ref.repo);
-          if (!repository) return `not a GitHub repository: ${ref.repo}`;
-          yield* closeIssue(shell, repository, ref.number, `Completed in change ${change.id}`);
-          yield* cache.invalidate(`gh:issues:issue:${repository}#${ref.number}`);
-          return `closed ${refLabel(repository, ref)}`;
-        }),
-    },
-  ],
-
   // The two routes the wizard's step fetches: a repository's open issues, and creating one.
   // Their failures are taxonomy errors, so the host maps them to status codes itself.
   routes: [

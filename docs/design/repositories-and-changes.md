@@ -1091,7 +1091,7 @@ run Effects directly and use Deferred/events instead of sleeps.
 | Current tests | Behavior to keep after retargeting |
 | --- | --- |
 | `changes`, `ideation`, `repos`, `provision`, `tooling` | idea vs started change, branch/base selection, in-place protection, archive readability |
-| `complete`, `cancel`, `lifecycle`, `lifecycleFailures` | fresh checks, ordered steps, acknowledgement, dirty-work refusal, partial-failure reporting |
+| `complete`, `cancel`, `extensionStore`, `lifecycleFailures` | fresh checks, ordered steps, acknowledgement, dirty-work refusal, partial-failure reporting, extension-owned files |
 | `review`, `cards`, `github`, `githubChecks`, `jira*`, `azure*` | status/diff/commit facts, provider reads and existing rendering |
 | `settings`, `env`, `notes`, `wizardDraft`, `migrate` | workspace/credential separation, secret masking, unknown-field preservation, document/draft data |
 | `terminal`, `events`, `origin`, `clean`, `node-runtime`, `serve`, `pages` | session survival, attachment cleanup, origin protection, owned processes, browser/native behavior |

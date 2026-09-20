@@ -1,17 +1,16 @@
 import { basename } from "node:path";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { TmuxWindow, WindowPresentation } from "../../extension-host/api.ts";
-import { windowPresenters } from "../../extension-host/registry.ts";
+import { agentsWindowPresenter } from "../../extensions/agents/index.ts";
 
 /**
  * The presentation half of the terminal: raw tmux facts in, the shape the page draws out.
  *
- * Everything here is pure, and it reads the window presenters from the registry leaf directly
- * rather than through the host (`src/extension-host/registry.ts`), so this module imports neither the
- * host nor anything that runs the host: the pipeline that lists windows and the pipeline that
- * loads extensions meet at the registry, not at each other. Presenters are global — they run no
- * effects and take no capabilities, and a window's name cannot depend on whose client is looking
- * at it. `windowPresenters` supplies the aggregated presenter list.
+ * Everything here is pure, and the window presenter is the included agents integration's own,
+ * imported directly rather than read through the host registry: the pipeline that lists windows
+ * stays a leaf. Presenters are global — they run no effects and take no capabilities, and a
+ * window's name cannot depend on whose client is looking at it. The core's defaults answer
+ * where the presenter leaves a field alone.
  */
 
 /** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
@@ -25,7 +24,7 @@ export type PresentedWindow = TerminalWindow & { busy: boolean };
  * for exactly these, so the raw window carries what presenters know how to read. */
 export const paneOptions = (): string[] => {
   const seen = new Set<string>();
-  for (const presenter of windowPresenters()) {
+  for (const presenter of [agentsWindowPresenter]) {
     for (const option of presenter.paneOptions ?? []) seen.add(option);
   }
   return [...seen];
@@ -63,7 +62,7 @@ export const parseWindow = (line: string, options: readonly string[]): TmuxWindo
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */
 const merged = (raw: TmuxWindow): WindowPresentation =>
-  windowPresenters().reduce<WindowPresentation>((acc, presenter) => {
+  [agentsWindowPresenter].reduce<WindowPresentation>((acc, presenter) => {
     const answer = presenter.present(raw);
     if (!answer) return acc; // a presenter with nothing to say contributes nothing
     return {

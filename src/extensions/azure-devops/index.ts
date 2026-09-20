@@ -2,7 +2,8 @@ import { Effect } from "effect";
 import { basename } from "node:path";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Settings, Shell, Workspace, type Extension, type SummaryContribution } from "../../extension-host/api.ts";
+import { Cache, Changes, Settings, Shell, Workspace, type Extension } from "../../extension-host/api.ts";
+import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import { prNumberOf } from "../../vendors/github.ts";
@@ -97,6 +98,11 @@ const summaryContribution = (
     };
   });
 
+/** The overview contributor: the pipelines in flight, as the card says them. */
+export const azureDevopsSummaryContributor: SummaryContributor = {
+  facts: summaryContribution,
+};
+
 export default {
   name: "azure-devops",
   title: "Azure DevOps",
@@ -107,8 +113,6 @@ export default {
       repoStatus: (change, repo) => repoItem(change, repo),
     },
   ],
-
-  summaryContributions: [{ facts: summaryContribution }],
 
   // The page URL is the id: /azure-devops — the id is client-side view
   // state, not a server route.

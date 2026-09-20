@@ -29,7 +29,7 @@ const agentOf = (option: string | undefined): AgentState | undefined =>
 /** The presenter: reads `@agent_status` from every window's active pane and answers for the windows
  * where an agent speaks. Everything it leaves undefined — the label, the detail — the core
  * composes from the tmux facts, exactly as it does for a plain shell. */
-const presenter: TerminalPresenter = {
+export const agentsWindowPresenter: TerminalPresenter = {
   paneOptions: ["@agent_status", "@agent_session_name", "@agent_last_message"],
   present: (window) => {
     const agent = agentOf(window.options["@agent_status"]);
@@ -63,5 +63,4 @@ const presenter: TerminalPresenter = {
 export default {
   name: "agents",
   title: "Coding agents",
-  windowPresenters: [presenter],
 } satisfies Extension;

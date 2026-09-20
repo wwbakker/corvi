@@ -122,15 +122,19 @@ Start with inspection rather than deletion: prove the boundary without changing 
       is explicit as well** (`src/change/provisioning.ts` replaces the git `change:created`
       hook), and the completion plan/run and loose-end lookups call named integration functions
       (`planIssueCompletion`/`moveIssueOnComplete`/`jiraLooseEnds`, `planIssueClose`/
-      `closeIssueOnComplete`, `prLooseEnds`) instead of the contribution selectors. The included
-      sets live in `src/change/included-integrations.ts`, and a single `plannedCompletionSteps`
-      in the adapters plans for both the workflow port and the app journal, so the two cannot
-      disagree about which steps exist. Extensions
-      loaded from outside the repository still contribute through the registry for now (start
-      hooks, completion steps, loose ends), with the included names excluded so their steps are
-      not said twice; deleting that path is part of step 6. What remains before the host can go:
-      the presentation surface (cards, pages, tabs, widgets, wizard steps, titles, descriptions)
-      and the loader itself.
+      `closeIssueOnComplete`, `prLooseEnds`). A single `plannedCompletionSteps` in the adapters
+      plans for both the workflow port and the app journal, so the two cannot disagree about
+      which steps exist. **The lifecycle hook contract is gone**: the `events`,
+      `completionSteps` and `looseEnds` extension fields, `applyCreatingHooks`/`beforeChange`/
+      `afterChange`/`provision`/`startWork` and their selectors were removed, along with the
+      built-ins' declarations and the coupled tests. The included integrations are the whole
+      lifecycle surface. The contributor surfaces followed: `titleSources`, `descriptionSections`,
+      `summaryContributions` and `windowPresenters` are gone from the contract too, and
+      `src/integrations/overview.ts` composes the included jira/github-issues/github/azure-devops
+      contributors explicitly (enablement-gated, in load order); the terminal presenter is the
+      agents integration's direct import. What remains before the host can go: the
+      component-bearing presentation surface (cards, pages, tabs, widgets, wizard steps) and the
+      loader itself.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
@@ -142,8 +146,10 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
       exists only for external extension code. Preserve normal application bundling.
 - [ ] Replace the public extension contract/host registry with explicit included-module composition.
+      The lifecycle and overview-contributor halves are done; the component-bearing surfaces
+      (cards, pages, tabs, widgets, wizard steps) and the loader remain.
 - [ ] Replace generic card/hook/page plumbing where ordinary feature APIs and composition suffice.
-      Retain a declarative list only where it has a clear application responsibility.
+      Hook plumbing is removed; the card/page/widget plumbing remains.
 - [ ] Remove external-loader settings/UI and obsolete tests; retain included-integration coverage.
 - [ ] Migrate provider metadata/documents safely if their stored layout changes. Confirm notes,
       archived documents, ticket references, and secrets remain available.

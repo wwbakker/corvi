@@ -3,7 +3,7 @@ import { worst } from "../../domain/widget.ts";
 import type { Change, ChangeSummary } from "../../domain/change.ts";
 import type { SummaryFact } from "../../domain/widget.ts";
 import { listWindows } from "../../terminals/server/index.ts";
-import { summaryContributorsFor } from "../../extension-host/index.ts";
+import { includedSummaryContributors } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
@@ -33,7 +33,7 @@ export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown>
     // Every contributor in load order, each inside its workspace's context; one that fails
     // contributes nothing, never a failed request.
     const answered = yield* Effect.forEach(
-      summaryContributorsFor(workspaceOf(change)),
+      includedSummaryContributors(workspaceOf(change)),
       ({ name, contribution }) =>
         contribution.facts(change).pipe(
           Effect.provide(capabilitiesLayer(workspaceOf(change), name)),

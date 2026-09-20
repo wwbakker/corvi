@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changeDir, createChange, readChange, writeChange } from "../src/change/server/index.ts";
-import { runEffect, TestError } from "./helpers.ts";
+import { runEffect } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
@@ -13,17 +13,11 @@ import {
   loaded,
   pagesFor,
   widgetsFor,
-  windowPresenters,
   wizardStepsFor,
 } from "../src/extension-host/index.ts";
-import type {
-  Extension,
-  TerminalPresenter,
-  WindowPresentation,
-} from "../src/extension-host/api.ts";
-import { presentWindow } from "../src/terminals/server/index.ts";
-import { looseEnds } from "../src/change/server/index.ts";
-import { repoFromRemote } from "../src/extensions/github-issues/index.ts";
+import type { Extension } from "../src/extension-host/api.ts";
+import { planIssueClose, repoFromRemote } from "../src/extensions/github-issues/index.ts";
+import { planIssueCompletion } from "../src/extensions/jira/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
 import { config, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
@@ -54,79 +48,6 @@ afterAll(async () => {
 });
 
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
-
-/** A window as tmux reports it, raw: the facts before anyone says what to call it. */
-const raw = (over: Partial<Parameters<typeof presentWindow>[0]> = {}): { index: number; name: string; command: string; active: boolean; activity: boolean; directory: string; named: boolean; options: Record<string, string>; id: string; } => ({
-  index: 3,
-  id: "@3",
-  name: "zsh",
-  command: "node",
-  active: true,
-  activity: false,
-  directory: "example-api",
-  named: false,
-  options: {},
-  ...over,
-});
-
-/** A presenter that says the same thing about every window running node, and nothing about
- * any other window — so the core defaults have their say on those. */
-const constant = (
-  answer: WindowPresentation | undefined,
-  paneOptions?: string[],
-): TerminalPresenter => ({
-  paneOptions,
-  present: (w) => (w.command === "node" ? answer : undefined),
-});
-
-test("a window's presentation: the first presenter to answer a field wins, the core defaults last", () => {
-  const first = install({
-    name: "test-presenters-first",
-    title: "First",
-    windowPresenters: [
-      // The first presenter in the list answers running and icon; it leaves state alone.
-      constant({ running: "first running", icon: "first" }),
-      constant({ icon: "second-in-first", state: "ok" }),
-    ],
-  });
-  const second = install({
-    name: "test-presenters-second",
-    title: "Second",
-    windowPresenters: [constant({ detail: "second detail", running: "too late" })],
-  });
-  try {
-    const w = presentWindow(raw());
-    // The first presenter's running wins, and the label composes around it.
-    expect(w.label).toBe("example-api - (first running)");
-    // First presenter wins per field; the field it left out falls through to the next.
-    expect(w.icon).toBe("first");
-    expect(w.state).toBe("ok");
-    // Across extensions, load order: the second extension's detail lands where nobody earlier
-    // answered, and its running loses to the first's.
-    expect(w.detail).toBe("second detail");
-    // Where nobody answered at all, the core's defaults speak.
-    expect(presentWindow(raw({ command: "zsh" }))).toMatchObject({
-      label: "example-api",
-      detail: "zsh (zsh) in example-api",
-      icon: "terminal",
-      state: "idle",
-    });
-    // The pane options the loaded presenters declare are the ones tmux is asked for.
-    const agent = install({
-      name: "test-presenters-agent",
-      title: "Agent",
-      windowPresenters: [constant(undefined, ["@agent_status"])],
-    });
-    try {
-      expect(windowPresenters().flatMap((p) => p.paneOptions ?? [])).toContain("@agent_status");
-    } finally {
-      loaded.splice(loaded.indexOf(agent), 1);
-    }
-  } finally {
-    loaded.splice(loaded.indexOf(first), 1);
-    loaded.splice(loaded.indexOf(second), 1);
-  }
-});
 
 test("extension routes match :param patterns, first pattern wins", async () => {
   const ext = install({
@@ -258,42 +179,6 @@ test("an extension's issue is named by repository and number, and read from the 
   expect(refOf({ id: "B", branch: "B", repos: [], createdAt: "" })).toBeUndefined();
 });
 
-test("cancelling asks the loose-end contributors, in load order, and a failure contributes nothing", async () => {
-  const first = install({
-    name: "test-loose-first",
-    title: "First",
-    looseEnds: [
-      { looseEnds: () => Effect.succeed(["the first end"]) },
-      // Several contributors on one extension: flattened in declaration order.
-      { looseEnds: () => Effect.succeed(["another", "and one more"]) },
-    ],
-  });
-  const second = install({
-    name: "test-loose-second",
-    title: "Second",
-    looseEnds: [
-      // A vendor being down is not a reason for a cancellation to fail: the gatherer swallows it.
-      { looseEnds: () => Effect.fail(new TestError({ message: "vendor down" })) },
-      { looseEnds: () => Effect.succeed(["the second extension's end"]) },
-    ],
-  });
-  try {
-    const change: Change = { id: "L", branch: "L", repos: [], createdAt: "" };
-    const ends = await Effect.runPromise(looseEnds(change));
-    // Extension by extension, contributor by contributor — load order decides, the same order
-    // every other per-workspace surface reads in.
-    expect(ends).toEqual([
-      "the first end",
-      "another",
-      "and one more",
-      "the second extension's end",
-    ]);
-  } finally {
-    loaded.splice(loaded.indexOf(first), 1);
-    loaded.splice(loaded.indexOf(second), 1);
-  }
-});
-
 test("a workspace that names no extensions has them all", () => {
   const enabled = extensionsFor(ws()).map((e) => e.name);
   // The built-ins, whatever they are — and the jira extension among them.
@@ -413,30 +298,29 @@ test("dashboard widgets follow the enablement, in load order, and duplicates coe
 });
 
 test("a completion step is planned only when the change has something for it", () => {
-  // The jira extension's contributor: planned for a change with a ticket, absent without one,
-  // readable from either place the key may live.
-  const jira = loaded.find((e) => e.name === "jira")!;
-  const contributor = jira.completionSteps[0]!;
-  const ctx = { config, workspace: ws() };
+  // The jira planner: planned for a change with a ticket, absent without one, readable from
+  // either place the key may live.
   const legacy = { id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" } as unknown as Change;
-  expect(contributor.plan(legacy, ctx)).toEqual({
+  expect(planIssueCompletion(legacy, config)).toEqual({
     id: "jira",
     label: "move PROJ-1 to Done",
     state: "waiting",
   });
   const withBag: Change = { id: "B", branch: "B", repos: [], createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
-  expect(contributor.plan(withBag, ctx)?.label).toBe("move PROJ-2 to Done");
-  expect(contributor.plan({ id: "C", branch: "C", repos: [], createdAt: "" }, ctx)).toBeUndefined();
+  expect(planIssueCompletion(withBag, config)?.label).toBe("move PROJ-2 to Done");
+  expect(planIssueCompletion({ id: "C", branch: "C", repos: [], createdAt: "" }, config)).toBeUndefined();
 
-  // The github-issues extension's: the label names the issue without a subprocess, so the plan
-  // is honest about what is coming before anything runs.
-  const gh = loaded.find((e) => e.name === "github-issues")!;
-  const ghPlanned = gh.completionSteps[0]!.plan(
-    { id: "D", branch: "D", repos: [], createdAt: "", extensions: { "github-issues": { repo: "/r/thing", number: 9 } } },
-    ctx,
-  );
+  // The github-issues planner: the label names the issue without a subprocess, so the plan is
+  // honest about what is coming before anything runs.
+  const ghPlanned = planIssueClose({
+    id: "D",
+    branch: "D",
+    repos: [],
+    createdAt: "",
+    extensions: { "github-issues": { repo: "/r/thing", number: 9 } },
+  });
   expect(ghPlanned?.label).toBe("close thing#9");
-  expect(gh.completionSteps[0]!.plan({ id: "E", branch: "E", repos: [], createdAt: "" }, ctx)).toBeUndefined();
+  expect(planIssueClose({ id: "E", branch: "E", repos: [], createdAt: "" })).toBeUndefined();
 });
 
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {

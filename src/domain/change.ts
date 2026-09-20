@@ -111,17 +111,20 @@ export function duplicateRepoNames(repos: string[]): string[] {
   return [...counts].filter(([, count]) => count > 1).map(([name]) => name);
 }
 
-/** The creation input, before a change exists: what the "New idea" wizard collected and what
- * the `change:creating` hooks transform. Everything but the id is optional, because the core
- * fills the gaps (branch defaults to the id, state to "In Progress", createdAt to now).
+/** What the creation input is: what the "New idea" wizard collected. Everything but the id
+ * is optional, because the core fills the gaps (branch defaults to the id, state to
+ * "In Progress", createdAt to now).
  *
  * `state: "Ideation"` is what makes an idea: no repositories are required, and the change is
  * written without a branch or worktree — starting it is what provisions those. Any other state
  * (or none) is a change created ready to work, which needs at least one repository.
  *
- * Defined with the domain vocabulary rather than beside the hooks that receive it: it is the
- * same shape the core's `<change> create` takes, and the contract re-exports it for extension
- * authors (src/extension-host/api/lifecycle.ts). */
+ * Defined with the domain vocabulary rather than beside the wizard that produces it: it is the
+ * same shape the core's `<change> create` takes. */
+/** What provisioning one repository target reported, shown after a create or a start. A failure
+ * carries the first error and stops that integration's later work; the change itself survives. */
+export type ProvisionResult = { integration: string; ok: boolean; error?: string };
+
 export type ChangeDraft = {
   /** Directory name under the changes root; also the default branch name. */
   id: string;

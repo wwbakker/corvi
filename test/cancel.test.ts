@@ -211,30 +211,3 @@ test("what cancelling leaves alone is said out loud", async () => {
   // precede jira's ticket line.
   expect(result.loose).toContain("PROJ-LOOSE is still open in Jira");
 });
-
-test("a failing change:cancelling hook vetoes before the worktree goes", async () => {
-  const repo = await clonedRepo("cancel-veto");
-  const change = await runEffect(
-    createChange({ id: "PROJ-VETO-C", branch: "PROJ-VETO-C-x", repos: [repo] }),
-  );
-  await Effect.runPromise(
-    Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }),
-  );
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-
-  const saved = loaded.splice(0, loaded.length);
-  install({
-    name: "veto-cancel",
-    title: "Veto",
-    events: { "change:cancelling": [() => Effect.fail(new TestError({ message: "hold on" }))] },
-  });
-  try {
-    await expect(runEffect(cancelChange(change))).rejects.toThrow("hold on");
-  } finally {
-    loaded.splice(0, loaded.length, ...saved);
-  }
-
-  // The veto came before the removal: the worktree is still there and the change is active.
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-  expect((await runEffect(readChange("PROJ-VETO-C")))?.state).toBe("In Progress");
-});

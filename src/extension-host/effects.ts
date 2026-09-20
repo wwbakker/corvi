@@ -1,33 +1,18 @@
 import { Effect, Either } from "effect";
-import { isFinished, type Change, type ChangeDraft } from "../domain/change.ts";
+import { isFinished, type Change } from "../domain/change.ts";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
-import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
+import { workspaceOf } from "../workspace/server/index.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
-import { BadRequestError, isIweError, type IweError } from "../capabilities/effect/errors.ts";
+import { BadRequestError } from "../capabilities/effect/errors.ts";
 import { capabilitiesLayer } from "./services.ts";
-import { extensionsFor } from "./selectors.ts";
-import type { LoadedExtension } from "./registry.ts";
-import type {
-  Capabilities,
-  Card,
-  ChangeAfterHook,
-  ChangeBeforeHook,
-} from "./api.ts";
+import type { Capabilities, Card } from "./api.ts";
 
 /**
- * Running what the extensions contributed: the lifecycle hooks, a card's widget, one
- * repository's rows, and a card's actions. Each effect is run as the change's workspace with the
- * contributing extension's name bound into the `ExtensionStore`, and each failure is a value the
- * caller can show — a red card, a red row, a collected result — never a failed request, except
- * where a before-hook vetoes an operation on purpose.
+ * Running what the extensions contributed: a card's widget, one repository's rows, and a card's
+ * actions. Each effect is run as the change's workspace with the contributing extension's name
+ * bound into the `ExtensionStore`, and each failure is a value the caller can show — a red card,
+ * a red row — never a failed request.
  */
-
-/** Map any failure to the taxonomy, so a before-hook's veto travels as a typed error the route
- * can turn into a status code and the wizard can show. A hook that failed with one of ours keeps
- * its tag (a `ConflictError` stays a 409); anything else becomes `BadRequestError` carrying its
- * message. */
-const veto = (e: unknown): IweError =>
-  isIweError(e) ? e : new BadRequestError({ message: messageOf(e) });
 
 /** Run one contributed effect as the change's workspace: the capabilities layer provides the
  * Workspace tag, Shell, Cache, Settings, Bus and the name-bound `ExtensionStore`, and the
@@ -38,128 +23,6 @@ const asWorkspace = <A, E>(
   extension?: string,
 ): Effect.Effect<A, E> =>
   Effect.provide(effect, capabilitiesLayer(workspaceOf(change), extension));
-
-/** The same, for a moment before the change exists (creation), where only the draft's workspace
- * is known. */
-const asWorkspaceById = <A, E>(
-  workspace: string | undefined,
-  effect: Effect.Effect<A, E, Capabilities>,
-  extension?: string,
-): Effect.Effect<A, E> =>
-  Effect.provide(effect, capabilitiesLayer(workspaceById(workspace), extension));
-
-const afterHooksFor = (
-  ext: LoadedExtension,
-  event: "change:created" | "change:started" | "change:completed" | "change:cancelled",
-): ChangeAfterHook[] =>
-  event === "change:created"
-    ? ext.changeCreated
-    : event === "change:started"
-      ? ext.changeStarted
-      : event === "change:completed"
-        ? ext.changeCompleted
-        : ext.changeCancelled;
-
-const beforeHooksFor = (
-  ext: LoadedExtension,
-  event: "change:completing" | "change:cancelling",
-): ChangeBeforeHook[] =>
-  event === "change:completing" ? ext.changeCompleting : ext.changeCancelling;
-
-/** A patch with its explicit `undefined`s dropped: `{ id: undefined }` from a hook leaves the
- * draft alone rather than erasing the id the wizard collected. */
-const definedOnly = (patch: Partial<ChangeDraft>): Partial<ChangeDraft> => {
-  const entries = Object.entries(patch).filter(([, value]) => value !== undefined);
-  return Object.fromEntries(entries) as Partial<ChangeDraft>;
-};
-
-/** Run every `change:creating` hook, in extension load order, chaining their patches: each hook
- * sees the draft the one before it produced. The returned draft is what the core validates and
- * writes — the hooks decide what the change is, they never bypass an invariant. The first
- * failure vetoes the create. */
-export const applyCreatingHooks = (draft: ChangeDraft): Effect.Effect<ChangeDraft, IweError> =>
-  Effect.gen(function* () {
-    let current = draft;
-    for (const ext of extensionsFor(workspaceById(draft.workspace))) {
-      for (const handler of ext.changeCreating) {
-        const patch = yield* asWorkspaceById(draft.workspace, handler(current), ext.name).pipe(
-          Effect.mapError(veto),
-        );
-        if (patch) current = { ...current, ...definedOnly(patch) };
-      }
-    }
-    return current;
-  });
-
-/** Run every before-hook for an operation that has no draft to patch (completing, cancelling),
- * in extension load order, as the change's workspace with the extension's name bound. The first
- * failure vetoes: the operation must not start. */
-export const beforeChange = (
-  event: "change:completing" | "change:cancelling",
-  change: Change,
-): Effect.Effect<void, IweError> =>
-  Effect.gen(function* () {
-    for (const ext of extensionsFor(workspaceOf(change))) {
-      for (const handler of beforeHooksFor(ext, event)) {
-        yield* asWorkspace(change, handler(change), ext.name).pipe(Effect.mapError(veto));
-      }
-    }
-  });
-
-export type ProvisionResult = { integration: string; ok: boolean; error?: string };
-
-/**
- * Run every after-hook for a committed change, in extension load order. Failures are collected
- * rather than thrown: the change already exists, and a half-provisioned change is fixable from
- * the dashboard once you can see what went wrong. A hook that failed stops its own extension's
- * later hooks — they would build on a half-done job — but never the extensions after it.
- */
-const runAfter = (
-  event: "change:created" | "change:started" | "change:completed" | "change:cancelled",
-  change: Change,
-  except: readonly string[] = [],
-): Effect.Effect<ProvisionResult[]> =>
-  Effect.gen(function* () {
-    const results: ProvisionResult[] = [];
-    const excluded = new Set(except);
-    for (const ext of extensionsFor(workspaceOf(change))) {
-      if (excluded.has(ext.name)) continue;
-      for (const handler of afterHooksFor(ext, event)) {
-        const outcome = yield* asWorkspace(change, handler(change), ext.name).pipe(
-          Effect.map(() => ({ integration: ext.name, ok: true }) as ProvisionResult),
-          Effect.catchAll((e) => Effect.succeed({ integration: ext.name, ok: false, error: messageOf(e) })),
-        );
-        results.push(outcome);
-        if (!outcome.ok) break;
-      }
-    }
-    return results;
-  });
-
-/** Run the `change:created` hooks for a freshly created change. */
-export const provision = (change: Change): Effect.Effect<ProvisionResult[]> =>
-  runAfter("change:created", change);
-
-/** Run the `change:started` hooks for an idea whose work has begun: the git extension creates
- * each checkout here, and a vendor tracking the ticket moves it. The state is already written, so
- * a failure is reported under its extension's name rather than undoing the start. */
-export const startWork = (change: Change): Effect.Effect<ProvisionResult[]> =>
-  runAfter("change:started", change);
-
-/** The `change:started` hooks of the extensions the cutover adapters do not call directly. The
- * named ones are excluded so their steps are not said twice. */
-export const startWorkExcept = (
-  change: Change,
-  except: readonly string[],
-): Effect.Effect<ProvisionResult[]> => runAfter("change:started", change, except);
-
-/** Run the after-hooks for a completed or cancelled change: always after change.json is written
- * and the change is archived, and never able to fail the operation. The results are reported
- * under each extension's own name, exactly as provisioning reports them. */
-export const afterChange = (
-  event: "change:completed" | "change:cancelled",
-  change: Change,
-): Effect.Effect<ProvisionResult[]> => runAfter(event, change);
 
 /** One card's widget; a failed effect is a red card carrying the error's message, never a
  * failed request. A finished change's rows lose their actions — reading, not acting. The

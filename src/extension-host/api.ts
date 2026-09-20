@@ -6,19 +6,11 @@
 
 import type { Effect } from "effect";
 import type { Card } from "./api/cards.ts";
-import type { CompletionStepContributor, ExtensionEvents } from "./api/lifecycle.ts";
-import type {
-  DescriptionSection,
-  LooseEndContributor,
-  SummaryContributor,
-  TitleSource,
-} from "./api/overview.ts";
 import type { Page } from "./api/pages.ts";
 import type { ChangeTab } from "./api/tabs.ts";
 import type { DashboardWidget } from "./api/widgets.ts";
 import type { RequestMethod, RouteHandler } from "./api/routes.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
-import type { TerminalPresenter } from "./api/terminal.ts";
 import type { Startup } from "./api/capabilities.ts";
 import type { WizardStep } from "./api/wizard.ts";
 
@@ -26,29 +18,11 @@ export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore, Changes } from 
 export type {
   Result,
   Capabilities,
-  CreatingCapabilities,
   Startup,
   ExtensionStoreShape,
 } from "./api/capabilities.ts";
 export type { Card } from "./api/cards.ts";
 export type { WizardStep } from "./api/wizard.ts";
-export type {
-  ChangeDraft,
-  PlanWorld,
-  CompletionStepContributor,
-  ChangeBeforeHook,
-  ChangeAfterHook,
-  ChangeCreatingHook,
-  ExtensionEvents,
-} from "./api/lifecycle.ts";
-export type {
-  SummaryFact,
-  TitleSource,
-  SummaryContribution,
-  SummaryContributor,
-  LooseEndContributor,
-  DescriptionSection,
-} from "./api/overview.ts";
 export type {
   TmuxWindow,
   WindowPresentation,
@@ -90,18 +64,6 @@ export type Extension = {
 
   cards?: Card[];
   wizardSteps?: WizardStep[];
-  titleSources?: TitleSource[];
-  descriptionSections?: DescriptionSection[];
-  completionSteps?: CompletionStepContributor[];
-  /** Facts about a change, said on its overview card; the host merges every contributor's
-   * answer into the one summary the card renders. */
-  summaryContributions?: SummaryContributor[];
-  /** What cancelling a change would leave behind; the host asks every contributor. */
-  looseEnds?: LooseEndContributor[];
-  /** How tmux windows are named and drawn. Presenters are global, not per-workspace: they
-   * are pure functions of tmux data, and a window's name cannot depend on whose client
-   * happens to be looking. */
-  windowPresenters?: TerminalPresenter[];
   /** Pages this extension offers the sidebar. */
   pages?: Page[];
   /** Tabs this extension adds to a change's page, beside the core's Dashboard. The
@@ -115,7 +77,6 @@ export type Extension = {
   /** Server-wide settings this extension declares, shown on the settings page for every
    * workspace — a server-wide thing is configured once, not per context. */
   globalSettings?: ExtensionSetting[];
-  events?: ExtensionEvents;
   routes?: { method: RequestMethod; path: string; handler: RouteHandler }[];
 };
 

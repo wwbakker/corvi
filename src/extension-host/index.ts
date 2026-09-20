@@ -64,11 +64,10 @@ setMigrator(migrateExtensionSettings);
 migrateExtensionSettings(config.workspaces);
 
 // The public surface: every symbol the rest of the server imports from here, whichever module
-// implements it (or from ./registry.ts, which src/terminals/server/presenter.ts reads directly).
+// implements it.
 export {
   install,
   loaded,
-  windowPresenters,
   type CompiledRoute,
   type LoadedExtension,
 } from "./registry.ts";
@@ -82,32 +81,19 @@ export {
   cardForExtension,
   cardsFor,
   changeTabsFor,
-  completionStepsFor,
-  descriptionSectionsFor,
   extensionsFor,
-  looseEndContributorsFor,
   pagesFor,
-  summaryContributorsFor,
-  titleSourcesFor,
   widgetsFor,
   wizardStepsFor,
   type ChangeTabInfo,
   type DashboardWidgetInfo,
-  type NamedContribution,
   type PageInfo,
   type WizardStepInfo,
 } from "./selectors.ts";
 export {
-  afterChange,
-  applyCreatingHooks,
-  beforeChange,
-  provision,
   repoStatusOf,
   runCard,
-  startWork,
-  startWorkExcept,
   statusOne,
-  type ProvisionResult,
 } from "./effects.ts";
 export { dispatchExtensionRoute } from "./dispatch.ts";
 

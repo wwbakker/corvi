@@ -7,7 +7,7 @@ import {
   createChange,
   startChangeWithWorkflow,
 } from "../src/change/server/index.ts";
-import { provision } from "../src/extension-host/index.ts";
+import { provisionChangeRepositories } from "../src/change/provisioning.ts";
 import type { Result } from "../src/capabilities/shell.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
@@ -56,7 +56,7 @@ test("starting an idea provisions its worktree and reports the result", async ()
       repos: [repo],
     }),
   );
-  await runEffect(provision(idea));
+  await runEffect(provisionChangeRepositories(idea));
 
   const started = await runEffect(startChangeWithWorkflow(idea));
   expect(started.change.state).toBe("In Progress");
@@ -80,7 +80,7 @@ test("a failed repository leaves the start partially done, and says so", async (
       repos: [good, broken],
     }),
   );
-  await runEffect(provision(idea));
+  await runEffect(provisionChangeRepositories(idea));
   await rm(broken, { recursive: true, force: true });
 
   const started = await runEffect(startChangeWithWorkflow(idea));

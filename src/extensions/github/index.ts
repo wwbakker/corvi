@@ -7,7 +7,8 @@ import { Cache, Changes, Shell, Workspace } from "../../extension-host/api.ts";
 import { prItem, prSummary, createPr } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
-import type { Extension, SummaryContribution } from "../../extension-host/api.ts";
+import type { Extension } from "../../extension-host/api.ts";
+import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 
 /**
  * Pull requests and the checks they report, per repository: whether this change is green, from
@@ -99,6 +100,9 @@ const summaryContribution = (
     };
   });
 
+/** The overview contributor: the open threads and the checks' verdict, as the card says them. */
+export const githubSummaryContributor: SummaryContributor = { facts: summaryContribution };
+
 /**
  * What cancelling would leave open per repository: the pull request, when there is one, per
  * repository in parallel and in repository order. A repository with no pull request, or no
@@ -131,10 +135,4 @@ export default {
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],
-
-  summaryContributions: [{ facts: summaryContribution }],
-
-  // Cancelling leaves the pull requests open — closing somebody else's pull request is a
-  // decision about theirs — and says so, one line per repository that has one.
-  looseEnds: [{ looseEnds: prLooseEnds }],
 } satisfies Extension;

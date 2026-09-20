@@ -5,6 +5,7 @@ import type {
   CompletionReason,
   CompletionRefusal,
   CompletionStep,
+  ProvisionResult,
 } from "../domain/change.ts";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
 import type { Entry } from "../workspace/model.ts";
@@ -17,6 +18,7 @@ export type {
   CompletionReason,
   CompletionRefusal,
   CompletionStep,
+  ProvisionResult,
   Widget,
   WidgetItem,
   Entry,
@@ -43,16 +45,13 @@ export type Selection = { path: string; direct: boolean; base?: string };
 
 export type Branches = { branches: string[]; default?: string };
 
-export type ProvisionResult = { integration: string; ok: boolean; error?: string };
 export type Created = { change: Change; provision: ProvisionResult[] };
 
-/** A completed change, the notes from its own completion steps, and what the `change:completed`
- * after-hooks reported under each extension's name (a failure there never fails the operation). */
-export type Completed = { change: Change; notes: string[]; after: ProvisionResult[] };
+/** A completed change and the notes from its own completion steps. */
+export type Completed = { change: Change; notes: string[] };
 
-/** A cancelled change, what cancelling deliberately left behind, and the `change:cancelled`
- * after-hook results. */
-export type Cancelled = { change: Change; loose: string[]; after: ProvisionResult[] };
+/** A cancelled change and what cancelling deliberately left behind. */
+export type Cancelled = { change: Change; loose: string[] };
 
 /** Errors carry the response body, so a caller can react to more than the message. */
 export type ApiError = Error & { status: number; body: unknown };

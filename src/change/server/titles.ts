@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { listChanges, writeChange } from "./store.ts";
-import { titleSourcesFor } from "../../extension-host/index.ts";
+import { includedTitleSources } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
@@ -40,7 +40,7 @@ export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> 
         Effect.gen(function* () {
           const workspace = workspaceOf(group[0]!);
           const titles = new Map<string, string>();
-          for (const { name, contribution: source } of titleSourcesFor(workspace)) {
+          for (const { name, contribution: source } of includedTitleSources(workspace)) {
             const claimed = group.filter((c) => source.applies(c));
             if (claimed.length === 0) continue;
             // A source that fails contributes nothing: a vendor being down is not a reason to

@@ -34,14 +34,12 @@ import type { Workspace as WorkspaceShape } from "../domain/config.ts"
 import { Shell, Workspace } from "../capabilities/effect/tags.ts"
 import { messageOf } from "../capabilities/effect/support.ts"
 import { capabilitiesLayer, ChangesLive } from "../extension-host/services.ts"
-import { completionStepsFor, looseEndContributorsFor } from "../extension-host/index.ts"
 import { prLooseEnds } from "../extensions/github/index.ts"
 import { closeIssueOnComplete, planIssueClose } from "../extensions/github-issues/index.ts"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "../extensions/jira/index.ts"
 import { stopTerminal } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "../vendors/github.ts"
-import { config, workspaceById, workspaceOf } from "../workspace/server/index.ts"
-import { includedCompletionIntegrations, includedLooseEndIntegrations } from "./included-integrations.ts"
+import { config, workspaceById } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
 /** The provider functions speak the old domain shape; the store keeps both in one record. */
@@ -182,18 +180,11 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
 /** The included completion steps and loose ends behind the issue port. */
 /** What this change's integrations plan to do, planned once and passed around: a plan that
  * could answer differently twice would be two promises about one completion. The included steps
- * are explicit (jira before github-issues, in load order); extensions loaded from outside the
- * repository still contribute through the registry until the platform is removed, with the
- * included names skipped so their steps are not said twice. */
-export const plannedCompletionSteps = (change: LegacyChange): CompletionStep[] => [
-  ...[planIssueCompletion(change, config), planIssueClose(change)].filter(
+ * are the whole set, in load order (jira before github-issues). */
+export const plannedCompletionSteps = (change: LegacyChange): CompletionStep[] =>
+  [planIssueCompletion(change, config), planIssueClose(change)].filter(
     (step): step is CompletionStep => Boolean(step),
-  ),
-  ...completionStepsFor(workspaceOf(change))
-    .filter(({ name }) => !includedCompletionIntegrations.includes(name))
-    .map(({ contribution }) => contribution.plan(change, { config, workspace: workspaceOf(change) }))
-    .filter((step): step is CompletionStep => Boolean(step)),
-];
+  );
 
 export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, never, ChangeRepositories> =>
   Layer.effect(
@@ -262,46 +253,17 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
                 ),
               )
             }
-            // Steps contributed by extensions loaded from outside the repository.
-            for (const { name, contribution } of completionStepsFor(workspace)) {
-              if (includedCompletionIntegrations.includes(name)) continue
-              const planned = contribution.plan(legacy, { config, workspace })
-              if (planned?.id !== stepId) continue
-              const note = yield* contribution.run(legacy).pipe(
-                Effect.provide(capabilitiesLayer(workspace, name)),
-                Effect.mapError(
-                  (error) =>
-                    new ProviderError({
-                      provider: name,
-                      operation: "complete",
-                      message: messageOf(error),
-                      cause: error,
-                    }),
-                ),
-              )
-              return typeof note === "string" ? note : undefined
-            }
             return undefined
           }),
         current: (change) =>
           Effect.gen(function* () {
             const legacy = yield* legacyFor(change)
-            // Pull-request lines first, as the github extension loaded before jira; extensions
-            // loaded from outside the repository still contribute until the platform is removed.
+            // Pull-request lines first, as the github extension loaded before jira.
             const pullRequests = yield* prLooseEnds(legacy).pipe(
               Effect.provide(capabilitiesLayer(workspace, "github")),
               Effect.catchAll(() => Effect.succeed([] as string[])),
             )
-            const lines: string[] = [...pullRequests, ...jiraLooseEnds(legacy)]
-            for (const { name, contribution } of looseEndContributorsFor(workspace)) {
-              if (includedLooseEndIntegrations.includes(name)) continue
-              const found = yield* contribution.looseEnds(legacy).pipe(
-                Effect.provide(capabilitiesLayer(workspace, name)),
-                Effect.catchAll(() => Effect.succeed([] as string[])),
-              )
-              lines.push(...found)
-            }
-            return lines
+            return [...pullRequests, ...jiraLooseEnds(legacy)]
           }),
       }
     }),

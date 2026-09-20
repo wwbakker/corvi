@@ -83,11 +83,6 @@ export class Changes extends Context.Tag("corvi/Changes")<Changes, {
  * assignable to requiring the union, so handlers declare only what they use. */
 export type Capabilities = WorkspaceTag | Shell | Cache | Settings | Bus | ExtensionStore | Changes;
 
-/** What a `change:creating` hook may require: the request's workspace and the four services,
- * but not `ExtensionStore` — the change directory does not exist while the hooks are still
- * deciding what the change is, so a creator that needs files writes them in `change:created`. */
-export type CreatingCapabilities = WorkspaceTag | Shell | Cache | Settings | Bus;
-
 /** What an extension's *load* may require: everything but the request `Workspace`, which does
  * not exist at startup. The loader provides the default workspace alongside the services, so
  * load-time `Shell` runs with its environment. */

@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange } from "../src/change/server/index.ts";
 import { checkoutFor } from "../src/vendors/git.ts";
-import { changeTabsFor, dispatchExtensionRoute, provision } from "../src/extension-host/index.ts";
+import { changeTabsFor, dispatchExtensionRoute } from "../src/extension-host/index.ts";
+import { provisionChangeRepositories } from "../src/change/provisioning.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
@@ -89,7 +90,7 @@ test("the review tab is offered only when the extension is enabled, and its URL 
 test("the extension's local route answers for a repository of a change, and 404s an unknown one", async () => {
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-REVIEW-LOCAL", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "added.txt"), "staged\n");
   await runSh(["git", "add", "added.txt"], worktree);
@@ -114,7 +115,7 @@ test("committing takes the files you ticked, in every repository at once", async
   const a = await clonedRepo("commit-a");
   const b = await clonedRepo("commit-b");
   const change = await changeFor("PROJ-COMMIT", [a, b]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const wtA = (await runEffect(checkoutFor(change, a)))!;
   const wtB = (await runEffect(checkoutFor(change, b)))!;
 
@@ -161,7 +162,7 @@ test("committing takes the files you ticked, in every repository at once", async
 test("a repository that refuses to commit does not stop the others", async () => {
   const good = await clonedRepo("commit-good");
   const change = await changeFor("PROJ-PARTIAL", [good]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   await Bun.write(join((await runEffect(checkoutFor(change, good)))!, "README.md"), "edited\n");
 
   // A repository of this change without a worktree: it says so, the other one still commits.
@@ -181,7 +182,7 @@ test("a repository that refuses to commit does not stop the others", async () =>
 test("what is committed but only here is counted, and pushing takes it away", async () => {
   const repo = await clonedRepo("push");
   const change = await changeFor("PROJ-PUSH", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since

@@ -412,36 +412,6 @@ test("completeChange: every step is journaled as it runs and the change is archi
   expect(asked).toContain(`tmux -L corvi kill-session -t corvi-${change.id}`);
 });
 
-test("completeChange: a failing change:completing hook vetoes before any merge", async () => {
-  const repo = join(tmp, "veto-repo");
-  const change = await runEffect(
-    createChange({ id: "PROJ-VETO", branch: "PROJ-VETO", repos: [repo] }),
-  );
-  const shell = completionShell({
-    worktree: join(tmp, "wt-veto"),
-    branch: change.branch,
-    pr: approved(7),
-  });
-  const saved = loaded.splice(0, loaded.length);
-  install({
-    name: "veto-complete",
-    title: "Veto",
-    events: { "change:completing": [() => Effect.fail(new TestError({ message: "hold" }))] },
-  });
-  try {
-    await expect(runWithShell(shell, completeChange(change))).rejects.toThrow("hold");
-  } finally {
-    loaded.splice(0, loaded.length, ...saved);
-  }
-  // The merge never ran: the veto came before the irreversible step, and the change is untouched.
-  expect(shell.calls.some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(false);
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
-  // The veto is legible afterwards rather than leaving a completion looking half-started.
-  const journal = (await runEffect(progressOf(change.id)))!;
-  expect(journal.steps[0]).toMatchObject({ id: "check", state: "failed", detail: "hold" });
-  expect(journal.finishedAt).toBeTruthy();
-});
-
 test("contentInMain: contained, cherry-equivalent, and missing content", async () => {
   const repo = join(tmp, "content-repo");
   // Nothing beyond main: contained outright, no cherry needed.
@@ -680,30 +650,6 @@ test("completeChange: force still refuses an idea", async () => {
   const idea = await runEffect(createChange({ id: "PROJ-FORCEIDEA", state: "Ideation" }));
   await expect(runEffect(completeChange(idea, true))).rejects.toThrow(/still an idea/);
   expect((await runEffect(readChange(idea.id)))?.state).toBe("Ideation");
-});
-
-test("completeChange: force does not waive a change:completing veto", async () => {
-  const repo = join(tmp, "force-veto-repo");
-  const change = await runEffect(
-    createChange({ id: "PROJ-FORCEVETO", branch: "PROJ-FORCEVETO", repos: [repo] }),
-  );
-  const shell = completionShell({
-    worktree: join(tmp, "wt-forceveto"),
-    branch: change.branch,
-    pr: approved(7),
-  });
-  const saved = loaded.splice(0, loaded.length);
-  install({
-    name: "veto-force-complete",
-    title: "Veto",
-    events: { "change:completing": [() => Effect.fail(new TestError({ message: "hold" }))] },
-  });
-  try {
-    await expect(runWithShell(shell, completeChange(change, true))).rejects.toThrow("hold");
-  } finally {
-    loaded.splice(0, loaded.length, ...saved);
-  }
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
 });
 
 test("CompleteAnywayDialog: every reason needs its own acknowledge", async () => {
