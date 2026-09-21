@@ -1,7 +1,9 @@
 import { Context, Effect, Option, Schema } from "effect";
 import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Shell, Workspace, type Capabilities, type IncludedIntegration } from "../../integrations/types.ts";
+import { Cache, Shell, Workspace } from "../../integrations/api/capabilities.ts";
+import type { Capabilities } from "../../integrations/api/capabilities.ts";
+import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";

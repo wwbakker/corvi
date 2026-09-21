@@ -4,7 +4,7 @@ import type { Change, ChangeSummary } from "../../domain/change.ts";
 import type { SummaryFact } from "../../domain/widget.ts";
 import { listWindows } from "../../terminals/server/index.ts";
 import { includedSummaryContributors } from "../../integrations/overview.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { capabilitiesLayer } from "../../integrations/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
 export type { ChangeSummary };

@@ -7,9 +7,8 @@ import {
   Shell,
   Settings,
   Workspace,
-  type Capabilities,
-  type ExtensionStoreShape,
-} from "../integrations/types.ts";
+} from "./api/capabilities.ts";
+import type { Capabilities, ExtensionStoreShape } from "./api/capabilities.ts";
 import { envOf, shWithEnv } from "../capabilities/shell.ts";
 import { invalidate, swr } from "../capabilities/cache.ts";
 import { config } from "../workspace/server/index.ts";

@@ -36,7 +36,7 @@ import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
 import { PlanCard } from "./PlanCard.tsx";
-import { TabHost, WidgetHost, type WidgetInfo } from "../../extension-host/client.tsx";
+import { TabHost, WidgetHost, type WidgetInfo } from "../../integrations/client.tsx";
 
 export function ChangeView({
   id,

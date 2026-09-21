@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { WidgetState } from "../../domain/widget.ts";
-import { Cache, Settings, Shell, Workspace } from "../../integrations/types.ts";
+import { Cache, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import type { Result } from "../../capabilities/shell.ts";
 import { azFor, type Az } from "./azure.ts";

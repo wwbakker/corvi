@@ -429,7 +429,7 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   const original = { ...config };
   const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
   const { azureOf } = await import("../src/extensions/azure-devops/azure.ts");
-  const { extensionsFor, loaded } = await import("../src/extension-host/index.ts");
+  const { extensionsFor, loaded } = await import("../src/integrations/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag.

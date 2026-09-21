@@ -14,8 +14,8 @@ import {
   EnvVarName,
   WorkspaceId,
 } from "../../workspace/server/index.ts";
-import { loaded } from "../../extension-host/index.ts";
-import { migrateExtensionSettings, migrateFileSettings } from "../../extension-host/migrate.ts";
+import { loaded } from "../../integrations/index.ts";
+import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";

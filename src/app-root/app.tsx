@@ -19,7 +19,7 @@ import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/worksp
 import { Wizard } from "../wizard/index.ts";
 import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
 import { ChangeView } from "../change-page/client/ChangeView.tsx";
-import { PageHost } from "../extension-host/client.tsx";
+import { PageHost } from "../integrations/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { Notifier } from "./notify.tsx";
 import { hostOf } from "./host.ts";

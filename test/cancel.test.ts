@@ -174,7 +174,7 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, cardForExtension } = await import("../src/extension-host/index.ts");
+  const { repoStatusOf, cardForExtension } = await import("../src/integrations/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Config } from "../../domain/config.ts";
-import { Cache, Settings, Shell, Workspace } from "../../integrations/types.ts";
+import { Cache, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import { bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
 import { AZURE_ENV, legacyOrgProjectOf, legacyWorkspaceOf } from "./legacy.ts";
 

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { Changes, ExtensionStore, type RouteError } from "../../integrations/types.ts";
+import { Changes, ExtensionStore } from "../../integrations/api/capabilities.ts";
+import type { RouteError } from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
 
 /**

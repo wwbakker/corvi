@@ -1,7 +1,7 @@
 import type { Change } from "../domain/change.ts";
 import type { Workspace } from "../domain/config.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
-import { loaded, type LoadedExtension } from "./registry.ts";
+import { loaded, type LoadedIntegration } from "./loaded.ts";
 import type {
   Card,
   ChangeTab,
@@ -24,7 +24,7 @@ import type {
  * A workspace that names none has all of them, which is what an unconfigured machine gets.
  * Enablement is the extensions list alone.
  */
-export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
+export const extensionsFor = (workspace: Workspace): LoadedIntegration[] => {
   const names = workspace.extensions;
   if (!names) return loaded;
   const wanted = new Set(names);
@@ -34,7 +34,7 @@ export const extensionsFor = (workspace: Workspace): LoadedExtension[] => {
 /** One surface across a workspace's extensions, concatenated in load order. */
 const contributed = <T>(
   workspace: Workspace,
-  pick: (ext: LoadedExtension) => readonly T[],
+  pick: (ext: LoadedIntegration) => readonly T[],
 ): T[] => extensionsFor(workspace).flatMap(pick);
 
 /** The cards a change's dashboard shows, with the extension each belongs to — the extension's

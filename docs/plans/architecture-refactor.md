@@ -146,17 +146,21 @@ Start with inspection rather than deletion: prove the boundary without changing 
 ## 6. Remove the extension platform
 
 - [x] Remove out-of-tree path discovery, factories/loader machinery, and custom-module installation.
-      `src/extension-host/discover.ts` and `install`/`installFactory` are gone;
-      `src/integrations/included.ts` is the explicit list and `registry.ts` normalizes it.
+      Discovery and `install`/`installFactory` are gone;
+      `src/integrations/included.ts` is the explicit list and `src/integrations/loaded.ts`
+      normalizes it. The host directory itself is renamed away: `src/extension-host/**` was
+      moved to `src/integrations/**` (`client.tsx`, `routes.ts`, `selectors.ts`, `effects.ts`,
+      `services.ts`, `dispatch.ts`, `migrate.ts`).
 - [x] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
       exists only for external extension code. Preserve normal application bundling.
       `clientChunks.ts`, `vendor-jsx.ts`, the `/extensions/*/client.js` and `/vendor/*` routes and
-      the page's import map are gone; `src/extension-host/client.tsx` imports the included client
+      the page's import map are gone; `src/integrations/client.tsx` imports the included client
       halves directly.
 - [x] Replace the public extension contract/host registry with explicit included-module composition.
       No `Extension` type, no loader: the modules import `src/integrations/types.ts`, the list is
       fixed in composition order, and a workspace's `extensions` list still gates a workspace's
-      surfaces.
+      surfaces. The type barrel holds surface types only — capabilities and errors are imported
+      from `src/capabilities/` — and an unknown name in a workspace's list is named at startup.
 - [x] Replace generic card/hook/page plumbing where ordinary feature APIs and composition suffice.
       Hook and overview-contributor plumbing are removed; cards, pages, tabs, widgets and wizard
       steps stay as declarative fields on the included integrations, which is the retained list.

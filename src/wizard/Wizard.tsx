@@ -2,7 +2,7 @@ import { type JSX, useEffect, useState } from "react";
 import { api, post, type Change, type Created, type Selection } from "../app-root/api.ts";
 import { slugFor } from "../domain/change.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
-import { StepHost, type StepInfo } from "../extension-host/client.tsx";
+import { StepHost, type StepInfo } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
 import { stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
 

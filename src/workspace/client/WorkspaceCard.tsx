@@ -88,7 +88,7 @@ function ExtensionToggles({
 
 /** The patch an enablement change applies: the extensions list. A workspace save preserves
  * unknown keys, so a legacy `azure: false` a migrated file still carries is cleared by the
- * migration (src/extension-host/migrate.ts), not here. */
+ * migration (src/integrations/migrate.ts), not here. */
 export const enablementPatch = (
   _workspace: Workspace,
   extensions: string[] | undefined,

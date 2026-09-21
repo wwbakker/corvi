@@ -5,7 +5,7 @@ import { prItem } from "../../vendors/github.ts";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import type { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { includedDescriptionSections } from "../../integrations/overview.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { capabilitiesLayer } from "../../integrations/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
 /**

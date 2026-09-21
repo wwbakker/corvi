@@ -1,11 +1,11 @@
 import { Effect } from "effect";
 import {
   BadRequestError,
-  Changes,
   DecodeError,
   NotFoundError,
-  type IncludedIntegration,
-} from "../../integrations/types.ts";
+} from "../../capabilities/effect/errors.ts";
+import { Changes } from "../../integrations/api/capabilities.ts";
+import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
 import { commitChange, fileDiff, localChanges, pushChange } from "./server.ts";
 import type { CommitRequest } from "./shared.ts";

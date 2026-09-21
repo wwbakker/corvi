@@ -1,4 +1,5 @@
 import { migrateExtensionSettings } from "./migrate.ts";
+import { unknownIntegrationNames } from "./included.ts";
 import { config, setMigrator } from "../workspace/server/index.ts";
 
 /**
@@ -24,13 +25,23 @@ import { config, setMigrator } from "../workspace/server/index.ts";
 setMigrator(migrateExtensionSettings);
 migrateExtensionSettings(config.workspaces);
 
+// A workspace's enablement list is hand-editable; a name nothing answers for is a typo worth
+// saying once at startup rather than a silently dead surface.
+for (const workspace of config.workspaces) {
+  for (const name of unknownIntegrationNames(workspace.extensions)) {
+    console.error(
+      `workspace "${workspace.id}" enables "${name}", which is not an included integration`,
+    );
+  }
+}
+
 // The public surface: every symbol the rest of the server imports from here, whichever module
 // implements it.
 export {
   loaded,
   type CompiledRoute,
-  type LoadedExtension,
-} from "./registry.ts";
+  type LoadedIntegration,
+} from "./loaded.ts";
 export {
   cardForExtension,
   cardsFor,
@@ -49,7 +60,7 @@ export {
   runCard,
   statusOne,
 } from "./effects.ts";
-export { dispatchExtensionRoute } from "./dispatch.ts";
+export { dispatchIntegrationRoute } from "./dispatch.ts";
 
 /** Re-exported for the contributors' convenience; the type lives in domain/change.ts with the
  * rest of the dashboard's vocabulary. */

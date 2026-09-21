@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { loadCache, saveCache } from "./capabilities/cache.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
-import { extensionHostRoutes } from "./extension-host/routes.ts";
+import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
@@ -41,7 +41,7 @@ const server = await serve<TerminalSocket>({
     ...repositoriesRoutes,
     ...dashboardRoutes,
     ...eventsRoutes,
-    ...extensionHostRoutes,
+    ...integrationRoutes,
     ...settingsRoutes,
     ...terminalsRoutes,
     ...workspaceRoutes,

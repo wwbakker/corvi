@@ -20,7 +20,7 @@ import type {
  */
 
 /** One integration, as loaded: its description, normalized — the arrays coalesced to empty. */
-export type LoadedExtension = {
+export type LoadedIntegration = {
   name: string;
   title: string;
   cards: Card[];
@@ -62,7 +62,7 @@ export const compileRoutes = (ext: IncludedIntegration): CompiledRoute[] =>
     handler: r.handler,
   }));
 
-const normalize = (ext: IncludedIntegration): LoadedExtension => ({
+const normalize = (ext: IncludedIntegration): LoadedIntegration => ({
   name: ext.name,
   title: ext.title,
   workspaceSettings: ext.workspaceSettings ?? [],
@@ -77,4 +77,4 @@ const normalize = (ext: IncludedIntegration): LoadedExtension => ({
 
 /** Everything included, in composition order — which is the dashboard's card order and the
  * wizard's step order within a phase. */
-export const loaded: LoadedExtension[] = includedIntegrations.map(normalize);
+export const loaded: LoadedIntegration[] = includedIntegrations.map(normalize);

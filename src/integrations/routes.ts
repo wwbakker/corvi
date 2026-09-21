@@ -4,7 +4,7 @@ import {
   cardForExtension,
   cardsFor,
   changeTabsFor,
-  dispatchExtensionRoute,
+  dispatchIntegrationRoute,
   pagesFor,
   repoStatusOf,
   runCard,
@@ -27,7 +27,7 @@ import {
 // (/api/ext/azure-devops/…): the implementation (extensions/azure-devops/server.ts) lives with
 // the extension, the routes and the page are the extension's own.
 
-export const extensionHostRoutes = guard({
+export const integrationRoutes = guard({
   // The steps the "Create change" wizard has in the context you are in: the extensions'
   // contributions, resolved per workspace. The page renders what it is told exists — which is
   // why a context without an extension has no step to show for it, not an empty one.
@@ -74,7 +74,7 @@ export const extensionHostRoutes = guard({
   // (/services/:service/versions) — and the dispatcher does its own matching on the pathname.
   // Unknown routes 404.
   "/api/ext/:name/*": async (req) =>
-    (await dispatchExtensionRoute(req)) ?? new Response("no such extension route", { status: 404 }),
+    (await dispatchIntegrationRoute(req)) ?? new Response("no such extension route", { status: 404 }),
 
   // The components this change's dashboard shows: the ones its workspace has at all. The
   // browser asks each of them for its own widget, so one slow CLI cannot hold up the page.

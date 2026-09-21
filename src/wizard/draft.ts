@@ -1,6 +1,6 @@
 import type { Selection } from "../app-root/api.ts";
 import type { ChangeDraft } from "../domain/change.ts";
-import type { StepContext } from "../extension-host/client.tsx";
+import type { StepContext } from "../integrations/client.tsx";
 
 /**
  * The wizard's form, kept outside the component so that leaving `/new` does not lose it.

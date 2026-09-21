@@ -19,7 +19,7 @@ import { BadRequestError, NotFoundError, isIweError, type IweError } from "../..
 import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Change } from "../../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../../domain/config.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { capabilitiesLayer } from "../../integrations/services.ts";
 import { prLooseEnds } from "../../extensions/github/index.ts";
 import { jiraLooseEnds } from "../../extensions/jira/index.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";

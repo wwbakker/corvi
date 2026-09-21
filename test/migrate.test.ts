@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { clearCache } from "../src/capabilities/cache.ts";
-import { loaded } from "../src/extension-host/index.ts";
-import { migrateExtensionSettings } from "../src/extension-host/migrate.ts";
+import { loaded } from "../src/integrations/index.ts";
+import { migrateExtensionSettings } from "../src/integrations/migrate.ts";
 import type { Workspace } from "../src/domain/config.ts";
 
 /**

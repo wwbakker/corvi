@@ -27,13 +27,13 @@ const serverImports = (up, extra = []) => [
   `${up}vendors/**`,
   `!${up}domain`,
   `!${up}domain/**`,
-  // The extension host's client contract is browser code that lives under extension-host/ by
+  // The integration host's client contract is browser code that lives under integrations/ by
   // design: the host owns it, not a module, so a browser half may import this one file by
   // value. Its parent directory is re-included first (a file cannot be re-admitted while every
   // parent is excluded), then its contents are restricted again and the one file re-admitted.
-  `!${up}extension-host`,
-  `${up}extension-host/**`,
-  `!${up}extension-host/client.tsx`,
+  `!${up}integrations`,
+  `${up}integrations/**`,
+  `!${up}integrations/client.tsx`,
   `${up}extensions/**`,
   // An integration's browser half is browser code, next to its server half by design: the
   // host's client registry imports the included halves directly. A file cannot be re-admitted
@@ -168,14 +168,14 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/extension-host/client.tsx"],
+    files: ["src/integrations/client.tsx"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },
     },
     rules: {
-      // The host's browser contract is browser code under extension-host/ by design (see
-      // serverImports), and the rule that keeps it one has to cover it too.
+      // The integration host's browser contract is browser code under integrations/ by design
+      // (see serverImports), and the rule that keeps it one has to cover it too.
       "no-restricted-imports": browserBoundary("../", ["./routes.ts"]),
     },
   },

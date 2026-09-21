@@ -140,7 +140,7 @@ function load(): Config {
  *
  * The retired extension names fold into the extensions' own settings here rather than in the
  * host: the config owns the workspaces, and importing the host from the config would close a
- * module cycle. The migration lives in src/extension-host/migrate.ts and is injected by
+ * module cycle. The migration lives in src/integrations/migrate.ts and is injected by
  * setMigrator, which the host calls once its composed list — the source of the loaded names —
  * exists.
  */

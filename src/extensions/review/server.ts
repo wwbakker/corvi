@@ -2,12 +2,10 @@ import { basename } from "node:path";
 import { Effect } from "effect";
 import {
   BadRequestError,
-  Changes,
   CliError,
-  Shell,
-  Workspace,
-  type Result,
-} from "../../integrations/types.ts";
+} from "../../capabilities/effect/errors.ts";
+import { Changes, Shell, Workspace } from "../../integrations/api/capabilities.ts";
+import type { Result } from "../../capabilities/shell.ts";
 import type { Change } from "../../domain/change.ts";
 import type {
   CommitRequest,

@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { api, put } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
-import type { WidgetComponent } from "../../extension-host/client.tsx";
+import type { WidgetComponent } from "../../integrations/client.tsx";
 
 /**
  * The notes extension's browser half: the change's Notes widget on its dashboard. The widget

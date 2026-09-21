@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import type { PageComponent } from "../../extension-host/client.tsx";
+import type { PageComponent } from "../../integrations/client.tsx";
 import { api } from "../../app-root/api.ts";
 import { moment } from "../../app-root/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";

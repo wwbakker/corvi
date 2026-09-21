@@ -11,9 +11,9 @@ import {
   readSidecar,
   writeSidecar,
 } from "../src/change/server/index.ts";
-import { dispatchExtensionRoute, widgetsFor } from "../src/extension-host/index.ts";
+import { dispatchIntegrationRoute, widgetsFor } from "../src/integrations/index.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import { Changes } from "../src/integrations/types.ts";
+import { Changes } from "../src/integrations/api/capabilities.ts";
 import { config } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
@@ -41,7 +41,7 @@ const changeFor = (id: string): Promise<Change> =>
 
 /** Call the extension's own namespace (the path after `/api/ext/notes/`), as the page does. */
 const ext = async (path: string, method = "GET", body?: unknown): Promise<Response> => {
-  const response = dispatchExtensionRoute(
+  const response = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/notes/${path}`, {
       method,
       ...(body === undefined
@@ -115,7 +115,7 @@ test("the notes route answers an unknown change with 404 and a malformed body wi
   expect((await missing.json() as { error: string }).error).toMatch(/no such change/);
 
   const change = await changeFor("PROJ-NOTES-BODY");
-  const badBody = dispatchExtensionRoute(
+  const badBody = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/notes/changes/${change.id}/notes`, {
       method: "PUT",
       body: "not json",

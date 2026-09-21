@@ -31,3 +31,13 @@ export const includedIntegrations: readonly IncludedIntegration[] = [
   review,
   notes,
 ];
+
+/** The included integrations' names: what a workspace's `extensions` list may name. */
+export const includedIntegrationNames: ReadonlySet<string> = new Set(
+  includedIntegrations.map((integration) => integration.name),
+);
+
+/** The names a workspace lists that no included integration answers for, in list order. An
+ * absent list means all of them, so it has none. */
+export const unknownIntegrationNames = (names: readonly string[] | undefined): string[] =>
+  (names ?? []).filter((name) => !includedIntegrationNames.has(name));

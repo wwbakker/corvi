@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import type { PageComponent, PageProps } from "../../extension-host/client.tsx";
+import type { PageComponent, PageProps } from "../../integrations/client.tsx";
 import { api, del } from "../../app-root/api.ts";
 import type { Leftover } from "./shared.ts";
 

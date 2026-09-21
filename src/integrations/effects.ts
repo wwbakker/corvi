@@ -5,7 +5,8 @@ import { workspaceOf } from "../workspace/server/index.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { BadRequestError } from "../capabilities/effect/errors.ts";
 import { capabilitiesLayer } from "./services.ts";
-import type { Capabilities, Card } from "../integrations/types.ts";
+import type { Capabilities } from "./api/capabilities.ts";
+import type { Card } from "../integrations/types.ts";
 
 /**
  * Running what the extensions contributed: a card's widget, one repository's rows, and a card's

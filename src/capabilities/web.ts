@@ -5,9 +5,9 @@ import { readChange } from "../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "./effect/errors.ts";
 import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
-import { Workspace } from "./effect/tags.ts";
-import { ChangesLive } from "../extension-host/services.ts";
-import { Changes } from "../integrations/types.ts";
+import { Workspace } from "../integrations/api/capabilities.ts";
+import { ChangesLive } from "../integrations/services.ts";
+import { Changes } from "../integrations/api/capabilities.ts";
 import type { Change } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
 

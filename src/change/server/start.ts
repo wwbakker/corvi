@@ -12,8 +12,8 @@ import {
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
 import { IDEATION, type Change, type ProvisionResult } from "../../domain/change.ts";
-import { extensionsFor } from "../../extension-host/index.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { extensionsFor } from "../../integrations/index.ts";
+import { capabilitiesLayer } from "../../integrations/services.ts";
 import { moveIssueOnStart } from "../../extensions/jira/index.ts";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
 import { config, workspaceOf } from "../../workspace/server/index.ts";

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange } from "../src/change/server/index.ts";
 import { checkoutFor } from "../src/vendors/git.ts";
-import { changeTabsFor, dispatchExtensionRoute } from "../src/extension-host/index.ts";
+import { changeTabsFor, dispatchIntegrationRoute } from "../src/integrations/index.ts";
 import { provisionChangeRepositories } from "../src/change/provisioning.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import type { Workspace } from "../src/workspace/server/index.ts";
@@ -50,7 +50,7 @@ const ext = async (
   method = "GET",
   body?: unknown,
 ): Promise<Response> => {
-  const response = dispatchExtensionRoute(
+  const response = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/review/${path}`, {
       method,
       ...(body === undefined

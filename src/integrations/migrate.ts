@@ -1,4 +1,4 @@
-import { loaded } from "./registry.ts";
+import { loaded } from "./loaded.ts";
 import type { ConfigFile, Workspace } from "../domain/config.ts";
 
 /**

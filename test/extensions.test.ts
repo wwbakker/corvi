@@ -12,13 +12,14 @@ import {
   pagesFor,
   widgetsFor,
   wizardStepsFor,
-} from "../src/extension-host/index.ts";
-import { matchRoute } from "../src/extension-host/dispatch.ts";
-import type { CompiledRoute } from "../src/extension-host/registry.ts";
+} from "../src/integrations/index.ts";
+import { matchRoute } from "../src/integrations/dispatch.ts";
+import type { CompiledRoute } from "../src/integrations/loaded.ts";
 import { planIssueClose, repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { planIssueCompletion } from "../src/extensions/jira/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
+import { unknownIntegrationNames } from "../src/integrations/included.ts";
 import { config, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 
@@ -152,6 +153,13 @@ test("an extension's issue is named by repository and number, and read from the 
   expect(ref).toEqual({ repo: "/repos/thing", number: 7 });
   expect(refLabel("owner/thing", ref!)).toBe("owner/thing#7");
   expect(refOf({ id: "B", branch: "B", repos: [], createdAt: "" })).toBeUndefined();
+});
+
+test("a workspace's enablement list may only name included integrations", () => {
+  expect(unknownIntegrationNames(["jira", "github-issues"])).toEqual([]);
+  expect(unknownIntegrationNames(["jira", "memory"])).toEqual(["memory"]);
+  // An absent list means all of them, so it names nothing unknown.
+  expect(unknownIntegrationNames(undefined)).toEqual([]);
 });
 
 test("a workspace that names no extensions has them all", () => {

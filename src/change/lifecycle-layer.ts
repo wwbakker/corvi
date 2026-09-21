@@ -33,7 +33,7 @@ import type { Change as LegacyChange, CompletionStep } from "../domain/change.ts
 import type { Workspace as WorkspaceShape } from "../domain/config.ts"
 import { Shell, Workspace } from "../capabilities/effect/tags.ts"
 import { messageOf } from "../capabilities/effect/support.ts"
-import { capabilitiesLayer, ChangesLive } from "../extension-host/services.ts"
+import { capabilitiesLayer, ChangesLive } from "../integrations/services.ts"
 import { prLooseEnds } from "../extensions/github/index.ts"
 import { closeIssueOnComplete, planIssueClose } from "../extensions/github-issues/index.ts"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "../extensions/jira/index.ts"

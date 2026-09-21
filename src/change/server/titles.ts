@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { listChanges, writeChange } from "./store.ts";
 import { includedTitleSources } from "../../integrations/overview.ts";
-import { capabilitiesLayer } from "../../extension-host/services.ts";
+import { capabilitiesLayer } from "../../integrations/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 
 /**

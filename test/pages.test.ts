@@ -157,7 +157,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
     effective: { contextMenu: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
+  // top-level config keys (src/integrations/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
   expect(written.file.contextMenu).toBe(true);
   expect(written.effective.contextMenu).toBe(true);

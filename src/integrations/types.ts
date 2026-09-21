@@ -1,7 +1,7 @@
 /**
- * The surface types the included integrations and their consumers share, plus the capability
- * tags they run against. The modules are ordinary code now; nothing is discovered, and nothing
- * outside these modules composes them.
+ * The surface types the included integrations and their consumers share. Capabilities, service
+ * tags and the error taxonomy are imported from `src/capabilities/` directly: these modules are
+ * ordinary code now, and this file holds only what describes a surface.
  */
 
 import type { Card } from "./api/cards.ts";
@@ -12,12 +12,6 @@ import type { RequestMethod, RouteHandler } from "./api/routes.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
 import type { WizardStep } from "./api/wizard.ts";
 
-export { Shell, Workspace, Cache, Settings, Bus, ExtensionStore, Changes } from "./api/capabilities.ts";
-export type {
-  Result,
-  Capabilities,
-  ExtensionStoreShape,
-} from "./api/capabilities.ts";
 export type { Card } from "./api/cards.ts";
 export type { WizardStep } from "./api/wizard.ts";
 export type {
@@ -29,13 +23,6 @@ export type { Page } from "./api/pages.ts";
 export type { ChangeTab } from "./api/tabs.ts";
 export type { DashboardWidget, WidgetComponent } from "./api/widgets.ts";
 export type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
-export {
-  BadRequestError,
-  CliError,
-  ConflictError,
-  DecodeError,
-  NotFoundError,
-} from "./api/routes.ts";
 export type { RouteError, RouteHandler, RequestMethod } from "./api/routes.ts";
 
 /**

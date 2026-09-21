@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { worst } from "../../domain/widget.ts";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Shell, Workspace } from "../../integrations/types.ts";
+import { Cache, Changes, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import { prItem, prSummary, createPr } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";

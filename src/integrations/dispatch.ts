@@ -2,17 +2,17 @@ import { Effect } from "effect";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { workspaceById } from "../workspace/server/index.ts";
 import { capabilitiesLayer } from "./services.ts";
-import { loaded, type CompiledRoute } from "./registry.ts";
+import { loaded, type CompiledRoute } from "./loaded.ts";
 
 /**
- * The extension route dispatcher: patterns compiled at install (registry.ts) and matched here,
+ * The integration route dispatcher: patterns compiled once (loaded.ts) and matched here,
  * against `/api/ext/<name>/<path>`. Unknown routes answer undefined, which the server turns
  * into its 404.
  */
 
 // Compiled at install in the leaf registry, which owns the loaded shape; re-exported here so the
 // dispatcher is where a reader looks for route matching.
-export { compileRoutes, type CompiledRoute } from "./registry.ts";
+export { compileRoutes, type CompiledRoute } from "./loaded.ts";
 
 /** Whether one compiled route fits a request, and what it captured: undefined is no fit, so
  * the caller tries the next pattern in order — the first fit wins. */
@@ -47,7 +47,7 @@ export const matchRoute = (
  * the extension, then across extensions in load order — the first one whose shape fits wins,
  * and its captured parameters go to the handler. Unknown routes answer undefined, which the
  * server turns into its 404. */
-export const dispatchExtensionRoute = (req: Request): Promise<Response> | undefined => {
+export const dispatchIntegrationRoute = (req: Request): Promise<Response> | undefined => {
   const url = new URL(req.url);
   const match = /^\/api\/ext\/([^/]+)\/(.+)$/.exec(url.pathname);
   if (!match) return undefined;
