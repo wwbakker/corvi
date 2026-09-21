@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { writeAtomic } from "../src/capabilities/files.ts";
+import { writeAtomic } from "../apps/server/src/capabilities/files.ts";
 
 /**
  * The write every durable file goes through (change.json, sidecars, settings). A reader must see

@@ -16,7 +16,7 @@ let firstUrl: string;
 let secondUrl: string;
 
 const boot = (tmp: string): ReturnType<typeof Bun.spawn> =>
-  Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",

@@ -3,7 +3,7 @@
  *
  * The tags live in the contract so an integration package can name the services it needs
  * without importing the application; the host provides the layers
- * (`src/integrations/services.ts`). `Shell`'s Node implementation is `@corvi/shell`, which
+ * (`apps/server/src/integrations/services.ts`). `Shell`'s Node implementation is `@corvi/shell`, which
  * re-exports the tag for callers that want one import.
  */
 import { Context, type Effect } from "effect";

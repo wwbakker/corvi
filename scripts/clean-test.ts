@@ -17,8 +17,8 @@
  *     name it explicitly with -S and give it to the server as CORVI_TMUX_SOCKET; Corvi's own
  *     terminals live on the `corvi` socket, and anything else on the default socket is yours);
  *   - a server is a test's when its command line carries `--corvi-test-run`, which the tests pass
- *     and src/server.ts ignores. The app's server (`electron src/server.ts`) and a dev server
- *     (`node src/server.ts`) carry no marker.
+ *     and apps/server/src/server.ts ignores. The app's server (`electron apps/server/src/server.ts`) and a dev server
+ *     (`node apps/server/src/server.ts`) carry no marker.
  *
  * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` that no live run names is
  * a stray, and `--prune` removes it. Do not name your own scratch files `corvi-…` there — a
@@ -64,7 +64,7 @@ const underTestRoot = (path: string, roots: readonly string[]): boolean => {
 
 /** Whether a command line belongs to a test run: only the marker every test server carries.
  * Pure and exported, so test/clean.test.ts can pin the shapes this must never confuse: a test's
- * server, the app's (`electron src/server.ts`), and a dev server (`node src/server.ts`). */
+ * server, the app's (`electron apps/server/src/server.ts`), and a dev server (`node apps/server/src/server.ts`). */
 export const isTestCommand = (command: string): boolean => command.includes("--corvi-test-run");
 
 /** Whether a tmux socket belongs to a test run. */

@@ -8,7 +8,7 @@ import {
   remoteBranches,
   repositoriesDirectoryOf,
   resolveDirectory,
-} from "../src/workspace/server/index.ts";
+} from "../apps/server/src/workspace/server/index.ts";
 import type { Workspace } from "@corvi/configuration/config";
 import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
 

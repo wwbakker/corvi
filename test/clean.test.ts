@@ -10,12 +10,12 @@ import { isRunToken, isTestCommand, isTestSocket, tokenFromPath, tokenOf } from 
 const roots = ["/var/folders/tp/xyz/T", "/private/var/folders/tp/xyz/T"];
 
 test("a test server names itself; the app's and a dev server do not", () => {
-  expect(isTestCommand("node src/server.ts --corvi-test-run")).toBe(true);
-  expect(isTestCommand("bun src/server.ts --corvi-test-run=1a2b.3c4d")).toBe(true);
-  expect(isTestCommand("node src/server.ts")).toBe(false);
-  expect(isTestCommand("bun src/server.ts")).toBe(false);
-  expect(isTestCommand("electron src/server.ts")).toBe(false);
-  expect(isTestCommand("/opt/corvi/dist/electron src/server.ts")).toBe(false);
+  expect(isTestCommand("node apps/server/src/server.ts --corvi-test-run")).toBe(true);
+  expect(isTestCommand("bun apps/server/src/server.ts --corvi-test-run=1a2b.3c4d")).toBe(true);
+  expect(isTestCommand("node apps/server/src/server.ts")).toBe(false);
+  expect(isTestCommand("bun apps/server/src/server.ts")).toBe(false);
+  expect(isTestCommand("electron apps/server/src/server.ts")).toBe(false);
+  expect(isTestCommand("/opt/corvi/dist/electron apps/server/src/server.ts")).toBe(false);
 });
 
 test("tmux servers are told apart by their socket", () => {
@@ -27,7 +27,7 @@ test("tmux servers are told apart by their socket", () => {
 });
 
 test("a run is named by the token its resources carry", () => {
-  expect(tokenOf("node src/server.ts --corvi-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
+  expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
   expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-term-abc/tmux-501/default")).toBe(
     "1a2b.3c4d",
   );
@@ -38,8 +38,8 @@ test("a run is named by the token its resources carry", () => {
   );
   // A resource with no token is one this tool cannot attribute to a run: an old run, or the
   // app's own. It is listed, and only --all ends it.
-  expect(tokenOf("node src/server.ts --corvi-test-run")).toBeUndefined();
-  expect(tokenOf("node src/server.ts")).toBeUndefined();
+  expect(tokenOf("node apps/server/src/server.ts --corvi-test-run")).toBeUndefined();
+  expect(tokenOf("node apps/server/src/server.ts")).toBeUndefined();
   expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-term-abc/changes/PROJ")).toBeUndefined();
 });
 
@@ -61,9 +61,9 @@ test("a run token is two base36 words in full; a longer word is not a token", ()
   // The command parser reads a token out of a longer line, but only up to its end: `abc.defG` is
   // not run `abc.def`, so its resources stay unattributed rather than being ended for the wrong
   // run. test/helpers.ts refuses such a token before it can name anything.
-  expect(tokenOf("node src/server.ts --corvi-test-run=abc.defG")).toBeUndefined();
-  expect(tokenOf("node src/server.ts --corvi-test-run=abc.def")).toBe("abc.def");
-  expect(tokenOf("node src/server.ts --corvi-test-run=abc.def --loud")).toBe("abc.def");
+  expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.defG")).toBeUndefined();
+  expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.def")).toBe("abc.def");
+  expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.def --loud")).toBe("abc.def");
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {

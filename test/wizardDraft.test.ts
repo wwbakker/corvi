@@ -6,7 +6,7 @@ import {
   toChangeDraft,
   type Draft,
   type DraftPatch,
-} from "../src/wizard/draft.ts";
+} from "../apps/server/src/wizard/draft.ts";
 
 /**
  * The draft is the wizard's own vocabulary, and `toChangeDraft` is the one place it becomes the

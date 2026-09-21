@@ -1,19 +1,19 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect, Either, Layer } from "effect";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { runtimeConfig, type Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { Widget, WidgetItem } from "../src/domain/widget.ts";
-import type { Capabilities } from "../src/integrations/api/capabilities.ts";
-import type { Card } from "../src/integrations/types.ts";
-import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/integrations/services.ts";
-import { repoStatusOf, runCard, statusOne } from "../src/integrations/effects.ts";
-import githubExtension, { githubSummaryContributor, prLooseEnds } from "../src/extensions/github/index.ts";
-import azureDevopsExtension, { azureDevopsSummaryContributor } from "../src/extensions/azure-devops/index.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Widget, WidgetItem } from "../apps/server/src/domain/widget.ts";
+import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
+import type { Card } from "../apps/server/src/integrations/types.ts";
+import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integrations/effects.ts";
+import githubExtension, { githubSummaryContributor, prLooseEnds } from "../apps/server/src/extensions/github/index.ts";
+import azureDevopsExtension, { azureDevopsSummaryContributor } from "../apps/server/src/extensions/azure-devops/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
-import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
 
 /**
@@ -334,7 +334,7 @@ test("the github summary names open comments and takes the checks' verdict", asy
 });
 
 test("the azure-devops summary counts active pipelines, in the singular and plural", async () => {
-  const { clearCache } = await import("../src/capabilities/cache.ts");
+  const { clearCache } = await import("../apps/server/src/capabilities/cache.ts");
   const one = await runWithShell(
     summaryShell(1, 0),
     azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),

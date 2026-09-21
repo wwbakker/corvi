@@ -14,8 +14,8 @@ Session and window identity, input handling, attachment and owned PTY resources.
 ## Does not own
 
 Agent conversation identity, change transitions, notifications policy. The presenter
-aggregation stays in the app (`src/terminals/server/presenter.ts`) because it composes the
-agents integration; the routes stay in `src/terminals/routes.ts` because they are transport.
+aggregation stays in the app (`apps/server/src/terminals/server/presenter.ts`) because it composes the
+agents integration; the routes stay in `apps/server/src/terminals/routes.ts` because they are transport.
 
 ## Public entrypoints
 

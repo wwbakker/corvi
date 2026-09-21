@@ -10,11 +10,11 @@ import {
   invalidate,
   swr,
   type CacheStore,
-} from "../src/capabilities/cache.ts";
-import { resetRuntime, setRuntime } from "../src/capabilities/runtime.ts";
-import { Cache } from "../src/integrations/api/capabilities.ts";
-import { capabilitiesLayer } from "../src/integrations/services.ts";
-import { workspaceById } from "../src/workspace/server/index.ts";
+} from "../apps/server/src/capabilities/cache.ts";
+import { resetRuntime, setRuntime } from "../apps/server/src/capabilities/runtime.ts";
+import { Cache } from "../apps/server/src/integrations/api/capabilities.ts";
+import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
 const file = join(tmpdir(), "corvi-cache-test.json");
@@ -181,7 +181,7 @@ test("a command that cannot start is a failed command, not a crash", async () =>
 });
 
 test("every CLI a workspace runs gets that workspace's environment", async () => {
-  const { envOf, sh } = await import("../src/capabilities/shell.ts");
+  const { envOf, sh } = await import("../apps/server/src/capabilities/shell.ts");
   const workspace = {
     id: "client",
     name: "Acme",

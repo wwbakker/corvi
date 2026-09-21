@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 
 import type { RepositoryViewDto } from "@corvi/contracts/api";
 import { DirectoryName, RepositoryId } from "@corvi/contracts/changes";
-import { checkoutRows, describeCheckout } from "../src/change-page/client/repositoryView.ts";
+import { checkoutRows, describeCheckout } from "../apps/server/src/change-page/client/repositoryView.ts";
 
 const view = (
   checkout: RepositoryViewDto["checkout"],

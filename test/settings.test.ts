@@ -2,8 +2,8 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../src/settings/server/index.ts";
-import { runtimeConfig, reloadConfigSync, type Config } from "../src/workspace/server/index.ts";
+import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../apps/server/src/settings/server/index.ts";
+import { runtimeConfig, reloadConfigSync, type Config } from "../apps/server/src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
 /**

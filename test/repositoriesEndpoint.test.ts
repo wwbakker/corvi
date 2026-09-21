@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ClientError, makeChangesClient } from "@corvi/client";
 import { DirectoryName, RepositoryId, ChangeId } from "@corvi/contracts/changes";
-import { serve, type Serving } from "../src/capabilities/serve.ts";
-import { repositoriesRoutes } from "../src/change/repositories-route.ts";
+import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
+import { repositoriesRoutes } from "../apps/server/src/change/repositories-route.ts";
 
 /**
  * The first wired slice, end to end over HTTP: the legacy record is projected read-only, the

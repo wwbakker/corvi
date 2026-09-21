@@ -22,7 +22,7 @@ afterAll(async () => {
 });
 
 test("the page bundle is browser-only", async () => {
-  const { ensureClient, clientDir } = await import("../src/app-root/client.ts");
+  const { ensureClient, clientDir } = await import("../apps/server/src/app-root/client.ts");
   await ensureClient();
 
   const script = await Bun.file(join(clientDir, "app.js")).text();

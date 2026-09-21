@@ -2,15 +2,15 @@ import { test, expect, afterEach, beforeEach } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { azureOf } from "../src/extensions/azure-devops/azure.ts";
-import { deploySettings, deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { azureOf } from "../apps/server/src/extensions/azure-devops/azure.ts";
+import { deploySettings, deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
 import {
   runtimeConfig,
   extensionEnabled,
   reloadConfigSync,
   type Workspace,
-} from "../src/workspace/server/index.ts";
+} from "../apps/server/src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
 /**

@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { changeDir, createChange, readChange, writeChange } from "../src/change/server/index.ts";
+import { changeDir, createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
 import { runEffect } from "./helpers.ts";
 import { Effect } from "effect";
 import {
@@ -12,16 +12,16 @@ import {
   pagesFor,
   widgetsFor,
   wizardStepsFor,
-} from "../src/integrations/index.ts";
-import { matchRoute } from "../src/integrations/dispatch.ts";
-import type { CompiledRoute } from "../src/integrations/loaded.ts";
-import { planIssueClose, repoFromRemote } from "../src/extensions/github-issues/index.ts";
-import { planIssueCompletion } from "../src/extensions/jira/index.ts";
-import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
-import { ticketOf } from "../src/extensions/jira/jira.ts";
-import { unknownIntegrationNames } from "../src/integrations/included.ts";
-import { runtimeConfig, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "../apps/server/src/integrations/index.ts";
+import { matchRoute } from "../apps/server/src/integrations/dispatch.ts";
+import type { CompiledRoute } from "../apps/server/src/integrations/loaded.ts";
+import { planIssueClose, repoFromRemote } from "../apps/server/src/extensions/github-issues/index.ts";
+import { planIssueCompletion } from "../apps/server/src/extensions/jira/index.ts";
+import { refOf, refLabel } from "../apps/server/src/extensions/github-issues/shared.ts";
+import { ticketOf } from "../apps/server/src/extensions/jira/jira.ts";
+import { unknownIntegrationNames } from "../apps/server/src/integrations/included.ts";
+import { runtimeConfig, reloadConfigSync, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 
 /**
  * A changes root of its own, because creating a change writes one.

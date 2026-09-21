@@ -103,7 +103,7 @@ Current fixtures live in `test/helpers.ts`:
 - `serverEnv(...)` isolates data/cache/config and removes inherited `TMUX`/`CORVI_TMUX_SOCKET`.
 - `tmuxTempDir()` keeps socket paths within the Unix socket length limit (103 bytes plus NUL on
   macOS). Every test tmux command names its private socket with `-S`.
-- Spawn a test server as Node plus `src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
+- Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
   the ownership marker when the entrypoint moves. Normal app/dev servers have no test marker.
 
 Corvi's user sessions use `-L corvi` unless explicitly configured otherwise. The default tmux

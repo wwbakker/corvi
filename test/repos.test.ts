@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
-import { createChange, changeDir } from "../src/change/server/index.ts";
+import { createChange, changeDir } from "../apps/server/src/change/server/index.ts";
 import {
   setRepos,
   checkoutFor,
@@ -10,12 +10,12 @@ import {
   unsafeToRemove,
   repoStates,
   isDirect,
-} from "../src/vendors/git.ts";
+} from "../apps/server/src/vendors/git.ts";
 import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
-import { provisionChangeRepositories } from "../src/change/provisioning.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { FileChange } from "../src/extensions/review/shared.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { FileChange } from "../apps/server/src/extensions/review/shared.ts";
 
 /**
  * Editing the repositories of a change moves real worktrees around, and the ways it can go wrong
@@ -373,7 +373,7 @@ test("two repositories with the same name are refused, at creation and at an edi
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../src/extensions/review/server.ts");
+  const { parseStatus } = await import("../apps/server/src/extensions/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provisionChangeRepositories(change));

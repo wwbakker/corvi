@@ -1,6 +1,6 @@
 /** The surface an included integration and the application share: what an integration
  * contributes, and the shapes those contributions speak. Ordinary values and Effect types —
- * the host composes the list (`src/integrations/included.ts`); nothing here registers or loads
+ * the host composes the list (`apps/server/src/integrations/included.ts`); nothing here registers or loads
  * anything.
  */
 import type { Effect } from "effect";
@@ -75,7 +75,7 @@ export type ExtensionSetting = {
    * the write path keeps what was stored wherever the mask comes back unchanged. An empty value
    * still clears it. The one setting that declares this is the exception to the locking rule: a
    * secret's `env` is a fallback rather than an override, so the page may always edit it (see
-   * `src/settings/server/secrets.ts`). */
+   * `apps/server/src/settings/server/secrets.ts`). */
   secret?: boolean;
   /** The environment variable that overrides this setting, shown locked when set — the page
    * cannot fight it. The override still works through the core config field the integration
@@ -116,7 +116,7 @@ export type DashboardWidget = {
 /**
  * One included integration, as a value: everything it contributes, described as fields rather
  * than registered anywhere. Arrays are orders: the dashboard's card order, the wizard's step
- * order within a phase, the completion steps' run order. `src/integrations/included.ts` fixes
+ * order within a phase, the completion steps' run order. `apps/server/src/integrations/included.ts` fixes
  * the order across integrations.
  */
 export type IncludedIntegration = {

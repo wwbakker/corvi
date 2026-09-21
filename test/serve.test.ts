@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { serve, type Serving } from "../src/capabilities/serve.ts";
+import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 
 /**
  * The route matching `serve` owns now that Bun's router is gone.

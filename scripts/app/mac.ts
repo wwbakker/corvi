@@ -18,7 +18,7 @@ import { join } from "node:path";
 import { packager } from "@electron/packager";
 import { sh } from "../sh.ts";
 import { buildApp } from "./electron/build.ts";
-import { ID, PRODUCT } from "../../src/capabilities/identity.ts";
+import { ID, PRODUCT } from "../../apps/server/src/capabilities/identity.ts";
 
 const NAME = PRODUCT;
 /** The bundle identifier macOS keys permissions, notifications and Apple Events by. */

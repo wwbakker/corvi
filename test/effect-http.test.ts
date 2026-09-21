@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { Effect } from "effect";
-import { toResponse } from "../src/capabilities/effect/http.ts";
-import { runRoute } from "../src/capabilities/effect/run.ts";
+import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
+import { runRoute } from "../apps/server/src/capabilities/effect/run.ts";
 import {
   BadRequestError,
   CliError,

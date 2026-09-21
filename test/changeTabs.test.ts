@@ -3,13 +3,13 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { Changes } from "../src/integrations/api/capabilities.ts";
-import { capabilitiesLayer } from "../src/integrations/services.ts";
-import { integrationRoutes } from "../src/integrations/routes.ts";
-import { changeDir, createChange } from "../src/change/server/index.ts";
-import { provisionRepo } from "../src/vendors/git.ts";
-import { visibleChangeTabs } from "../src/integrations/selectors.ts";
-import { runtimeConfig, workspaceById } from "../src/workspace/server/index.ts";
+import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
+import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
+import { changeDir, createChange } from "../apps/server/src/change/server/index.ts";
+import { provisionRepo } from "../apps/server/src/vendors/git.ts";
+import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
+import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**

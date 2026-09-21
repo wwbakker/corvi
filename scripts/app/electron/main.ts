@@ -32,9 +32,9 @@ import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSyn
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { TRAFFIC_LIGHTS } from "../../../src/domain/chrome.ts";
-import type { HostNotice } from "../../../src/domain/host.ts";
-import { ID, PRODUCT, env, stateDir } from "../../../src/capabilities/identity.ts";
+import { TRAFFIC_LIGHTS } from "../../../apps/server/src/domain/chrome.ts";
+import type { HostNotice } from "../../../apps/server/src/domain/host.ts";
+import { ID, PRODUCT, env, stateDir } from "../../../apps/server/src/capabilities/identity.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
  * all one colour instead of a white flash. Same value as the hosts this replaced. */
@@ -191,7 +191,7 @@ let stopping = false;
 const isOurPid = (pid: number): boolean => {
   if (isLinux) {
     try {
-      return readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("src/server.ts");
+      return readFileSync(`/proc/${pid}/cmdline`, "utf8").includes("apps/server/src/server.ts");
     } catch {
       return false;
     }
@@ -231,7 +231,7 @@ const startServer = (port: number, checkout: string): void => {
   const loginShell = process.env.SHELL || (isMac ? "/bin/zsh" : "/bin/bash");
   const run =
     `exec env ${env("PORT")}='${port}' NODE_ENV=production ELECTRON_RUN_AS_NODE=1 ` +
-    `${shq(process.execPath)} src/server.ts`;
+    `${shq(process.execPath)} apps/server/src/server.ts`;
   const child = spawn(loginShell, ["-ilc", run], {
     cwd: checkout,
     stdio: ["ignore", log, log],
@@ -353,7 +353,7 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
 // --- The page's own right-click menu ------------------------------------------
 
 /** Whether the page's setting wants a browser menu on right-click. The setting is in the server's
- * config, which this process does not read, so the page says so (`src/domain/host.ts`). Chromium's
+ * config, which this process does not read, so the page says so (`apps/server/src/domain/host.ts`). Chromium's
  * own menu is not Electron's to draw, so the host draws the handful of things a page needs. */
 let contextMenu = true;
 
@@ -430,8 +430,8 @@ const createWindow = (): BrowserWindow => {
     show: false,
     backgroundColor: BACKGROUND,
     title: DEFAULT_TITLE,
-    // No title bar of the platform's: the page's first row is the window's (src/domain/chrome.ts,
-    // src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
+    // No title bar of the platform's: the page's first row is the window's (apps/server/src/domain/chrome.ts,
+    // apps/server/src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
     // them. Linux is left as it is — its compositor draws no decorations for this app to remove.
     ...(isMac
       ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }
@@ -543,7 +543,7 @@ const run = async (): Promise<void> => {
     void win.loadURL(url);
     return;
   }
-  if (!checkout || !existsSync(join(checkout, "src", "server.ts"))) {
+  if (!checkout || !existsSync(join(checkout, "apps", "server", "src", "server.ts"))) {
     show(win, `No ${PRODUCT} checkout to serve — reinstall the app from the repository.`);
     return;
   }

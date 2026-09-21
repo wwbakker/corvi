@@ -3,10 +3,10 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { createChange, archiveChange, changeDir, readChange } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
-import { dispatchIntegrationRoute } from "../src/integrations/index.ts";
-import type { Leftover } from "../src/extensions/leftovers/shared.ts";
+import { createChange, archiveChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
+import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
+import type { Leftover } from "../apps/server/src/extensions/leftovers/shared.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**

@@ -16,7 +16,7 @@ A provider's SDK types, the assumption that every agent is a terminal, or the de
 start anything. Provider packages (`@corvi/pi`, `@corvi/opencode`) will depend on contracts,
 not on this package; the terminal is where a session happens to live today, not what an agent
 is. The app composes the presenter into the window pipeline
-(`src/terminals/server/presenter.ts`) and supplies the resolved plan path and configured
+(`apps/server/src/terminals/server/presenter.ts`) and supplies the resolved plan path and configured
 template.
 
 ## Public entrypoints

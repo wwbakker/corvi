@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { runtimeConfig, reloadConfigSync } from "../src/workspace/server/index.ts";
-import azureDevops from "../src/extensions/azure-devops/index.ts";
-import { acceptedVersions, type Run } from "../src/extensions/azure-devops/server.ts";
-import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
+import azureDevops from "../apps/server/src/extensions/azure-devops/index.ts";
+import { acceptedVersions, type Run } from "../apps/server/src/extensions/azure-devops/server.ts";
+import { deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
 import { runVersionsFor } from "./helpers.ts";
-import { autoDeployedApp } from "../src/extensions/azure-devops/deployConventions.ts";
-import type { Az } from "../src/extensions/azure-devops/azure.ts";
+import { autoDeployedApp } from "../apps/server/src/extensions/azure-devops/deployConventions.ts";
+import type { Az } from "../apps/server/src/extensions/azure-devops/azure.ts";
 
 // `acceptedVersions` is pure and synchronous on purpose: the one thing that would otherwise need
 // `az` — the expected duration — is computed by the caller and handed in, so every case here

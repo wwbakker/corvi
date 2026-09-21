@@ -25,7 +25,7 @@ beforeAll(async () => {
   // Both come from serverEnv, which also gives the server port 0: the OS picks a free one,
   // so parallel workers never land on the same port, and readiness is the server's own
   // `corvi on <url>` line rather than a poll.
-  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",

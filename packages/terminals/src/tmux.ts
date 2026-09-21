@@ -276,7 +276,7 @@ export const make = (host: Host): Sessions => {
       if (has.code === 0) return;
       // -e sets the *session* environment at creation, so the shell in the first window starts with
       // the change's context — the same one a pty-created session inherits from its client
-      // (src/capabilities/env.ts). Without it, a session created here would keep this server
+      // (apps/server/src/capabilities/env.ts). Without it, a session created here would keep this server
       // process's environment and no change context for every pane it ever grows.
       yield* host.runOrThrow(
         tmuxCmd([

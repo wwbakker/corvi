@@ -3,7 +3,7 @@ import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl } from "./helpers.ts";
-import { platformName } from "../src/capabilities/os.ts";
+import { platformName } from "../apps/server/src/capabilities/os.ts";
 import { csiuFor } from "@corvi/terminals/model";
 
 /**
@@ -69,13 +69,13 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const session = `corvi-${id}`;
 
-/** Start the server the app would start: `src/server.ts` on Node. Port 0: the OS picks a free
+/** Start the server the app would start: `apps/server/src/server.ts` on Node. Port 0: the OS picks a free
  * one, so parallel workers never collide; readiness is the server's own `corvi on <url>` line.
  * CORVI_TMUX_SOCKET is added after the scrub in serverEnv — serverEnv removes every CORVI_*
  * variable (it would otherwise leak another file's socket), then the test's own socket is set
  * deliberately. */
 const startServer = async (): Promise<void> => {
-  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     // TMUX_TMPDIR is the short socket dir, not tmp: the same value this file's own tmux
     // calls use. The server itself resolves its socket through CORVI_TMUX_SOCKET below (a
     // path, so -S), never through TMUX_TMPDIR — this is for the pane shells it spawns.
@@ -147,7 +147,7 @@ test("the keys a terminal cannot encode are sent as CSI u", () => {
 test("a Bun server says it has no terminal rather than opening a silent socket", async () => {
   // The suite runs under Bun, which is exactly the runtime where node-pty never delivers data;
   // this is the guard that turns that into a message instead of an empty pane.
-  const { terminalUnavailable } = await import("../src/terminals/server/session.ts");
+  const { terminalUnavailable } = await import("../apps/server/src/terminals/server/session.ts");
   expect(terminalUnavailable()).toContain("needs Node");
 });
 
@@ -394,7 +394,7 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   // (CORVI_PORT, CORVI_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
   // server, which is exactly the leak). The pane's shells are the user's, so they must not see
   // any of it — and they must see the change's context, which Corvi adds on purpose
-  // (src/capabilities/env.ts).
+  // (apps/server/src/capabilities/env.ts).
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
@@ -747,7 +747,7 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
     };
   });
   expect(overflowY).toBe("hidden");
-  // xterm's own stylesheet is part of the page's (src/app-root/styles.css imports it, and the build
+  // xterm's own stylesheet is part of the page's (apps/server/src/app-root/styles.css imports it, and the build
   // inlines it). It is the one thing the measurements above cannot see: without it the screen is not
   // positioned and the terminal draws over nothing — an empty page — while every box here still
   // measures correctly. `position: relative` on the screen is xterm's rule, not ours.

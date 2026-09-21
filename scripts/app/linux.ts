@@ -20,7 +20,7 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { sh } from "../sh.ts";
 import { buildApp } from "./electron/build.ts";
-import { ID, PRODUCT, dataDir, stateDir } from "../../src/capabilities/identity.ts";
+import { ID, PRODUCT, dataDir, stateDir } from "../../apps/server/src/capabilities/identity.ts";
 
 /** What it is called in the app grid and in its own title bar. */
 const NAME = PRODUCT;
@@ -138,7 +138,7 @@ with socket.socket() as s:
 # rather than whatever now owns that pid.
 ours() {
     [ -n "$1" ] && [ -d "/proc/$1" ] \\
-        && tr '\\0' ' ' < "/proc/$1/cmdline" | grep -q "src/server.ts"
+        && tr '\\0' ' ' < "/proc/$1/cmdline" | grep -q "apps/server/src/server.ts"
 }
 
 stop_one() {
@@ -212,7 +212,7 @@ URL="http://127.0.0.1:$PORT/"
 : >> "$LOG"
 # 'exec' in the shell command makes the pid below the server's own pid, which
 # is what makes the pid-file and 'corvi stop' tell the truth.
-nohup "$SHELL_BIN" -ilc "cd '$ROOT' && CORVI_PORT='$PORT' NODE_ENV=production exec $RUNNER src/server.ts" >> "$LOG" 2>&1 &
+nohup "$SHELL_BIN" -ilc "cd '$ROOT' && CORVI_PORT='$PORT' NODE_ENV=production exec $RUNNER apps/server/src/server.ts" >> "$LOG" 2>&1 &
 echo $! > "$LOG_DIR/corvi-app-$PORT.pid"
 echo "starting the server on port $PORT — logs in $LOG"
 for _ in $(seq 1 100); do

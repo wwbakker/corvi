@@ -6,9 +6,9 @@ import {
   changeDir,
   createChange,
   startChangeWithWorkflow,
-} from "../src/change/server/index.ts";
-import { provisionChangeRepositories } from "../src/change/provisioning.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**

@@ -10,7 +10,7 @@ import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
  *
  * The suite runs the server on Node, but the app runs it under Electron's own Node
  * (docs/manual/install.md). This is the one test that proves the app's binary can do it
- * for real: the same `src/server.ts`, booted with
+ * for real: the same `apps/server/src/server.ts`, booted with
  * `ELECTRON_RUN_AS_NODE=1` (Node's type stripping runs the TypeScript), serving its page — which
  * means esbuild built it inside that process — and answering an API call.
  *
@@ -46,7 +46,7 @@ beforeAll(async () => {
     // is what the app's window does (scripts/app/electron/main.ts).
     ELECTRON_RUN_AS_NODE: "1",
   };
-  server = Bun.spawn([electron, "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn([electron, "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env,
     stdout: "pipe",
     stderr: "pipe",

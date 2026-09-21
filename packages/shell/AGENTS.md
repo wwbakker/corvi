@@ -15,7 +15,7 @@ The shell capability: the interface re-exported from the contract and the Node i
 
 Which environment a child gets, how long a CLI may run, how many may run at once, or what the
 product's variables are called. The host constructs the node shell with those policies
-(`src/capabilities/shell.ts`) and provides the `Shell` layer; `Workspace` and the failure
+(`apps/server/src/capabilities/shell.ts`) and provides the `Shell` layer; `Workspace` and the failure
 vocabulary live in `@corvi/contracts`.
 
 ## Public entrypoints

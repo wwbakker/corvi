@@ -15,13 +15,13 @@ import {
   readSidecar,
   startChangeWithWorkflow,
   writeSidecar,
-} from "../src/change/server/index.ts";
-import { provisionChangeRepositories } from "../src/change/provisioning.ts";
-import { checkoutFor } from "../src/vendors/git.ts";
-import { isIdeation, slugFor } from "../src/domain/change.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { isIdeation, slugFor } from "../apps/server/src/domain/change.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { runCancel, runEffect, runSetRepos, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The ideation stage: an idea is created with a title and a plan and nothing else — no branch,

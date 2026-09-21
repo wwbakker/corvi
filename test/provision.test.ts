@@ -11,14 +11,14 @@ import {
   parseWorktrees,
   parseStatus,
   type WorktreeEntry,
-} from "../src/vendors/git.ts";
-import { isMac } from "../src/capabilities/os.ts";
-import { versionInLines } from "../src/extensions/azure-devops/pipelines.ts";
-import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
-import { readiness, headRef, waitingOnYou } from "../src/vendors/github.ts";
-import { presentWindow, type PresentedWindow } from "../src/terminals/server/index.ts";
-import type { TmuxWindow } from "../src/integrations/types.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "../apps/server/src/vendors/git.ts";
+import { isMac } from "../apps/server/src/capabilities/os.ts";
+import { versionInLines } from "../apps/server/src/extensions/azure-devops/pipelines.ts";
+import { deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
+import { readiness, headRef, waitingOnYou } from "../apps/server/src/vendors/github.ts";
+import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
+import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 
 /**
@@ -311,7 +311,7 @@ test("a review thread you answered last is not waiting on you", () => {
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {
-  const { latestFor, versionIn, serviceName } = await import("../src/extensions/azure-devops/server.ts");
+  const { latestFor, versionIn, serviceName } = await import("../apps/server/src/extensions/azure-devops/server.ts");
   const settings = deploySettingsOf(undefined, {});
   const run = (
     id: number,
@@ -367,7 +367,7 @@ test("what an environment holds is the newest run that was sent to it", async ()
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { branchOf } = await import("../src/extensions/azure-devops/server.ts");
+  const { branchOf } = await import("../apps/server/src/extensions/azure-devops/server.ts");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.

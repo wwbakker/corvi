@@ -4,27 +4,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
-import type { Workspace } from "../src/workspace/server/index.ts";
-import { capabilitiesLayer } from "../src/integrations/services.ts";
-import type { Capabilities } from "../src/integrations/api/capabilities.ts";
-import { setRepos } from "../src/vendors/git.ts";
-import { sh, type Result } from "../src/capabilities/shell.ts";
+import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
+import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
+import { setRepos } from "../apps/server/src/vendors/git.ts";
+import { sh, type Result } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
-import { CacheLive, ChangesLive, SettingsLive } from "../src/integrations/services.ts";
+import { CacheLive, ChangesLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
 import type { CliError } from "@corvi/contracts/errors";
-import { toResponse } from "../src/capabilities/effect/http.ts";
-import { swr } from "../src/capabilities/cache.ts";
-import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import { cancelChange } from "../src/change/server/index.ts";
-import { fileDiff, localChanges } from "../src/extensions/review/server.ts";
-import type { LocalStatus } from "../src/extensions/review/shared.ts";
+import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
+import { swr } from "../apps/server/src/capabilities/cache.ts";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import { cancelChange } from "../apps/server/src/change/server/index.ts";
+import { fileDiff, localChanges } from "../apps/server/src/extensions/review/server.ts";
+import type { LocalStatus } from "../apps/server/src/extensions/review/shared.ts";
 import {
   deploy,
   versionsFor,
   type Buildable,
-} from "../src/extensions/azure-devops/server.ts";
+} from "../apps/server/src/extensions/azure-devops/server.ts";
 
 
 /** Whether this process has written the run's pid-file yet. */
@@ -100,7 +100,7 @@ export const serverEnv = (
 };
 
 /** Read a spawned server's stdout until it says where it is listening (`corvi on <url>`,
- * src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
+ * apps/server/src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
  * own line rather than a poll: a random port picked here once landed on a busy one, and then
  * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
  * server exits first, or says nothing within a minute. */
@@ -173,7 +173,7 @@ export const tmuxTempDir = async (): Promise<string> => {
  * The one seam between the Promise-shaped tests and the Effect API.
  *
  * The server's modules are Effects, and where a call shells out the environment comes from the
- * request's `Workspace` tag (src/capabilities/shell.ts). Tests are Promise-shaped by contract, so they run the
+ * request's `Workspace` tag (apps/server/src/capabilities/shell.ts). Tests are Promise-shaped by contract, so they run the
  * Effect here rather than through a request: this provides the capability services, the tag
  * included, and hands back a Promise. Nothing else in the test suite needs to know about layers.
  */
@@ -322,10 +322,10 @@ export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Pro
   );
 
 /** Editing a change's repositories, in the duck the tests read: the Effect API answers in a
- * tagged union (src/vendors/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
+ * tagged union (apps/server/src/vendors/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
-): Promise<{ change: import("../src/domain/change.ts").Change } | { needsForce: string[] }> => {
+): Promise<{ change: import("../apps/server/src/domain/change.ts").Change } | { needsForce: string[] }> => {
   const result = await runEffect(setRepos(...args));
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };

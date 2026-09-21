@@ -2,7 +2,7 @@
  * The configuration vocabulary: what a workspace is and what the resolved config holds.
  *
  * These are the types every module speaks — the platform (`@corvi/contracts/workspace`,
- * `src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in the
+ * `apps/server/src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in the
  * configuration package rather than in the module that happens to read the file. The loading,
  * the file schema and the settings precedence chain are the package's `./settings` and the
  * app's workspace server.
@@ -20,7 +20,7 @@ export type Workspace = {
   /** Where the repository browser opens in this context: the global setting when it is absent.
    * The browser can walk anywhere from there — this only picks the starting point. */
   repositoriesDirectory?: string;
-  /** Which extensions exist here, by name (see src/extensions/). Absent means all of them. */
+  /** Which extensions exist here, by name (see apps/server/src/extensions/). Absent means all of them. */
   extensions?: string[];
   /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
    * holds the field the extension's `workspaceSettings` declaration names, which is where the
@@ -80,7 +80,7 @@ export type Config = {
    * workspace stands in. */
   workspaces: Workspace[];
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
-   * paths inside them rewritten. Empty disables it. See `src/capabilities/os.ts`. */
+   * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
   worktreeCopy: string[];
   /** Settings the extensions declared, stored under their own name:
    * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
@@ -94,7 +94,7 @@ export type Config = {
  * The config file's own shape, as it is written on disk: every key optional, because an absent
  * value means "the default". This is also the settings page's write shape (the settings
  * module's `Settings`). The Effect Schema that decodes it lives in
- * `src/workspace/server/schema.ts`, which checks itself against this type.
+ * `apps/server/src/workspace/server/schema.ts`, which checks itself against this type.
  */
 export type ConfigFile = {
   changesRoot?: string;

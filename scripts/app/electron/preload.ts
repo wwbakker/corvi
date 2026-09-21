@@ -4,11 +4,11 @@
  * With `contextIsolation` on (the BrowserWindow's setting, scripts/app/electron/main.ts) the
  * page and the main process share nothing; this bridge is the only door, and it exposes exactly
  * two things: the notification the page asks for, and the callback a notification click calls.
- * The page keeps `openWindow` as the one navigation entry point (src/app-root/app.tsx).
+ * The page keeps `openWindow` as the one navigation entry point (apps/server/src/app-root/app.tsx).
  */
 import { contextBridge, ipcRenderer } from "electron";
-import type { HostPlatform, CorviHost } from "../../../src/domain/host.ts";
-import { ID } from "../../../src/capabilities/identity.ts";
+import type { HostPlatform, CorviHost } from "../../../apps/server/src/domain/host.ts";
+import { ID } from "../../../apps/server/src/capabilities/identity.ts";
 
 // A click can arrive before the page has mounted its handler — a fresh launch, a reload — so the
 // click is held until a callback exists. The preload runs before the page's own scripts, which is
@@ -22,7 +22,7 @@ ipcRenderer.on(`${ID}:open-window`, (_event, change: string, window: string) => 
 });
 
 /** The window's platform for the page's chrome, which only tells macOS apart from the rest
- * (src/domain/chrome.ts). Anything else lays out the same way, so it has one name here. */
+ * (apps/server/src/domain/chrome.ts). Anything else lays out the same way, so it has one name here. */
 const platform: HostPlatform =
   process.platform === "darwin" || process.platform === "win32" ? process.platform : "linux";
 

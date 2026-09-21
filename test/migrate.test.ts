@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { loaded } from "../src/integrations/index.ts";
-import { migrateExtensionSettings } from "../src/integrations/migrate.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { loaded } from "../apps/server/src/integrations/index.ts";
+import { migrateExtensionSettings } from "../apps/server/src/integrations/migrate.ts";
 import type { Workspace } from "@corvi/configuration/config";
 
 /**

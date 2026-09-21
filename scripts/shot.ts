@@ -12,7 +12,7 @@
  * another browser — the page is a web page first, and browsers remain a first-class view. */
 import { mkdir } from "node:fs/promises";
 import { chromium, webkit } from "playwright";
-import { env } from "../src/capabilities/identity.ts";
+import { env } from "../apps/server/src/capabilities/identity.ts";
 
 const url = process.env[env("URL")] ?? "http://127.0.0.1:4000";
 

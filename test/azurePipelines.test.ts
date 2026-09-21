@@ -11,12 +11,12 @@ import {
   versionInLines,
   versionOf,
   type Run,
-} from "../src/extensions/azure-devops/pipelines.ts";
-import { azDefaults, azFor, type Az } from "../src/extensions/azure-devops/azure.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../src/domain/widget.ts";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { runtimeConfig } from "../src/workspace/server/index.ts";
+} from "../apps/server/src/extensions/azure-devops/pipelines.ts";
+import { azDefaults, azFor, type Az } from "../apps/server/src/extensions/azure-devops/azure.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../apps/server/src/domain/widget.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
@@ -166,7 +166,7 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { reloadConfigSync } = await import("../src/workspace/server/index.ts");
+  const { reloadConfigSync } = await import("../apps/server/src/workspace/server/index.ts");
   const empty = await mkdtemp(join(tmpdir(), "corvi-az-empty-"));
   runtimeConfig().extensionSettings = undefined;
   delete process.env.CORVI_AZURE_ORG;

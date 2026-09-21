@@ -3,11 +3,11 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { ExtensionStore } from "../src/integrations/api/capabilities.ts";
-import { extensionStoreLayer } from "../src/integrations/services.ts";
-import { archiveChange, changeDir, createChange, readChange } from "../src/change/server/index.ts";
-import { runtimeConfig } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
+import { ExtensionStore } from "../apps/server/src/integrations/api/capabilities.ts";
+import { extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { archiveChange, changeDir, createChange, readChange } from "../apps/server/src/change/server/index.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
 
 /**

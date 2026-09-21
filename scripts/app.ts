@@ -14,7 +14,7 @@
  */
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { isLinux, isMac } from "../src/capabilities/os.ts";
+import { isLinux, isMac } from "../apps/server/src/capabilities/os.ts";
 import { electronBinary } from "./app/electron/binary.ts";
 import { sh } from "./sh.ts";
 
@@ -59,7 +59,7 @@ async function verify(): Promise<void> {
   await ensureElectron();
   // Verify the same esbuild path the server uses, not a separate bundler configuration.
   try {
-    const { ensureClient } = await import("../src/app-root/client.ts");
+    const { ensureClient } = await import("../apps/server/src/app-root/client.ts");
     await ensureClient();
   } catch (e) {
     console.error(e instanceof Error ? (e.stack ?? e.message) : String(e));

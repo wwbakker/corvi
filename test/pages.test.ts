@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
-import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../src/domain/chrome.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../apps/server/src/domain/chrome.ts";
 
 /**
  * Every page, in the engine the app renders in.
@@ -53,7 +53,7 @@ beforeAll(async () => {
   // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
-  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp, { CORVI_REPOSITORIES_DIRECTORY: tmp }),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
@@ -157,7 +157,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
     effective: { contextMenu: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/integrations/index.ts migrates top-level keys on load).
+  // top-level config keys (apps/server/src/integrations/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
   expect(written.file.contextMenu).toBe(true);
   expect(written.effective.contextMenu).toBe(true);
@@ -310,7 +310,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   await strip.locator(".window-tab.overview").waitFor();
 
   expect(await strip.locator(".subject").count()).toBe(0);
-  // The name went to the window's title (src/app-root/app.tsx), which the OS window switcher reads:
+  // The name went to the window's title (apps/server/src/app-root/app.tsx), which the OS window switcher reads:
   // it arrives with the change's record rather than with the page, so it is waited for.
   await page.waitForFunction(() => document.title === "Anonymise customer names");
   expect(await page.title()).toBe("Anonymise customer names");
@@ -353,7 +353,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
 }, 30_000);
 
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
-  // The host bridge is what says the page is inside the app window (src/domain/host.ts), and only
+  // The host bridge is what says the page is inside the app window (apps/server/src/domain/host.ts), and only
   // then is the first row chrome as well: what you drag the window by, and clear of the traffic
   // lights the main process placed in it (docs/manual/interface.md). Injected rather than
   // driven through Electron, because the page's half of the contract is what is being checked — the
@@ -463,7 +463,7 @@ test.skipIf(!usable)("New starts an idea from the column or the overview", async
 
 test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard", async () => {
   // The promise this change is about: leaving /new loses nothing. The form lives in the App
-  // (src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
+  // (apps/server/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");

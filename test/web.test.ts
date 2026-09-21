@@ -1,17 +1,17 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import type { Change } from "../src/domain/change.ts";
-import { aborted } from "../src/app-root/api.ts";
-import { stateClass } from "../src/app-root/stateClass.ts";
-import { changeNav, resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import { moment } from "../src/app-root/moment.ts";
-import { getPref, setPref } from "../src/app-root/prefs.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import { aborted } from "../apps/server/src/app-root/api.ts";
+import { stateClass } from "../apps/server/src/app-root/stateClass.ts";
+import { changeNav, resolveChangePage } from "../apps/server/src/change-page/client/changeTabs.ts";
+import { moment } from "../apps/server/src/app-root/moment.ts";
+import { getPref, setPref } from "../apps/server/src/app-root/prefs.ts";
 import {
   ALL,
   DEFAULT_WORKSPACE,
   inWorkspace,
   workspaceOf,
   type Workspace,
-} from "../src/workspace/client/workspaces.ts";
+} from "../apps/server/src/workspace/client/workspaces.ts";
 
 /**
  * The web client's pure logic: the pieces that decide what the sidebar shows, how a state is

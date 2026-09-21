@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { guard, sameSite } from "../src/capabilities/web.ts";
+import { guard, sameSite } from "../apps/server/src/capabilities/web.ts";
 
 /**
  * The server listens on the loopback address, which keeps other machines out but not the browser

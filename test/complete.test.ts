@@ -2,19 +2,19 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { Change, CompletionStep } from "../src/domain/change.ts";
+import type { Change, CompletionStep } from "../apps/server/src/domain/change.ts";
 import {
   completeChange,
   completionOf,
   progressOf,
   verdict,
-} from "../src/change/server/index.ts";
-import { plannedCompletionSteps } from "../src/change/lifecycle-layer.ts";
-import { changeDir, createChange, readChange, writeSidecar } from "../src/change/server/index.ts";
-import { runtimeConfig } from "../src/workspace/server/index.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { plannedCompletionSteps } from "../apps/server/src/change/lifecycle-layer.ts";
+import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
-import { contentInMain, integrated } from "../src/vendors/git.ts";
+import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
@@ -606,7 +606,7 @@ test("CompleteAnywayDialog: every reason needs its own acknowledge", async () =>
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog, canCompleteAnyway } = await import(
-    "../src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const refusal = {
     reasons: [
@@ -642,7 +642,7 @@ test("CompleteAnywayDialog: hard reasons offer no override button", async () => 
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog } = await import(
-    "../src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
@@ -664,7 +664,7 @@ test("CompleteAnywayDialog: says which pull requests will still be merged", asyn
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog } = await import(
-    "../src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
@@ -687,7 +687,7 @@ test("CompleteAnywayDialog: says which pull requests will still be merged", asyn
 test("CancelDialog: the confirm waits for the acknowledge the server names", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { CancelDialog } = await import("../src/change-page/client/CancelDialog.tsx");
+  const { CancelDialog } = await import("../apps/server/src/change-page/client/CancelDialog.tsx");
   const render = (props: {
     needsForce: string[];
     acked: boolean;
@@ -719,7 +719,7 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
 });
 
 test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
-  const { overrideNote } = await import("../src/dashboard/client/CompletionCard.tsx");
+  const { overrideNote } = await import("../apps/server/src/dashboard/client/CompletionCard.tsx");
   const step = { id: "check", label: "check", state: "done" as const };
 
   // Finished and forced: the note names what was overridden.
@@ -753,7 +753,7 @@ test("overrideNote: only a finished forced completion says it completed with ove
 
 test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog", async () => {
   const { completionRefusal, cancelNeedsForce } = await import(
-    "../src/change-page/client/refusals.ts"
+    "../apps/server/src/change-page/client/refusals.ts"
   );
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
     status,
@@ -788,7 +788,7 @@ test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog",
 });
 
 test("retryBody: a retry keeps the forced mode the journal recorded", async () => {
-  const { retryBody } = await import("../src/dashboard/client/CompletionCard.tsx");
+  const { retryBody } = await import("../apps/server/src/dashboard/client/CompletionCard.tsx");
   expect(retryBody(null)).toEqual({});
   expect(retryBody({ startedAt: "t", forced: true, steps: [] })).toEqual({ force: true });
   expect(retryBody({ startedAt: "t", forced: false, steps: [] })).toEqual({});
@@ -814,7 +814,7 @@ test("completeChange: the readiness check runs once per call", async () => {
 });
 
 test("the complete route answers a 409 with the tagged reasons, and force still refuses an idea", async () => {
-  const { changeRoutes } = await import("../src/change/routes.ts");
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
   const idea = await runEffect(createChange({ id: "PROJ-ROUTEIDEA", state: "Ideation" }));
   const route = changeRoutes["/api/changes/:id/complete"] as unknown as {
     POST: (req: Request, srv: unknown) => Promise<Response>;
@@ -847,8 +847,8 @@ test("the complete route answers a 409 with the tagged reasons, and force still 
 });
 
 test("the complete route drives readiness through the scripted CLI", async () => {
-  const { withChangeEffect } = await import("../src/capabilities/web.ts");
-  const { completePost } = await import("../src/change/routes.ts");
+  const { withChangeEffect } = await import("../apps/server/src/capabilities/web.ts");
+  const { completePost } = await import("../apps/server/src/change/routes.ts");
   const repo = join(tmp, "route-cli-repo");
   const change = await runEffect(
     createChange({ id: "PROJ-ROUTECLI", branch: "PROJ-ROUTECLI", repos: [repo] }),

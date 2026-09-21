@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { electronBinary } from "./electron/binary.ts";
 import { buildApp } from "./electron/build.ts";
-import { env, stateDir } from "../../src/capabilities/identity.ts";
+import { env, stateDir } from "../../apps/server/src/capabilities/identity.ts";
 
 /** Where the window built for development lives; `app:drive` builds to the same place. */
 export const devAppDir = (): string => join(stateDir(), "app-dev");

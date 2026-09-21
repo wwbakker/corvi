@@ -4,6 +4,27 @@
   "workspaces": {
     "": {
       "name": "corvi",
+      "devDependencies": {
+        "@earendil-works/pi-coding-agent": "^0.85.1",
+        "@effect/language-service": "^0.87.2",
+        "@electron/packager": "20.3.0",
+        "@eslint/js": "^10.0.1",
+        "@types/bun": "latest",
+        "@types/react": "^19.3.0",
+        "@types/react-dom": "^19.3.0",
+        "@types/ws": "^8.18.1",
+        "electron": "44.3.0",
+        "eslint": "^10.10.0",
+        "playwright": "^1.63.0",
+        "typescript-eslint": "^8.70.0",
+      },
+      "peerDependencies": {
+        "typescript": "^6.0.3",
+      },
+    },
+    "apps/server": {
+      "name": "@corvi/server",
+      "version": "0.0.0",
       "dependencies": {
         "@corvi/agents": "workspace:*",
         "@corvi/changes": "workspace:*",
@@ -24,23 +45,6 @@
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
         "ws": "^8.21.3",
-      },
-      "devDependencies": {
-        "@earendil-works/pi-coding-agent": "^0.85.1",
-        "@effect/language-service": "^0.87.2",
-        "@electron/packager": "20.3.0",
-        "@eslint/js": "^10.0.1",
-        "@types/bun": "latest",
-        "@types/react": "^19.3.0",
-        "@types/react-dom": "^19.3.0",
-        "@types/ws": "^8.18.1",
-        "electron": "44.3.0",
-        "eslint": "^10.10.0",
-        "playwright": "^1.63.0",
-        "typescript-eslint": "^8.70.0",
-      },
-      "peerDependencies": {
-        "typescript": "^6.0.3",
       },
     },
     "packages/agents": {
@@ -187,6 +191,8 @@
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
 
     "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
+
+    "@corvi/server": ["@corvi/server@workspace:apps/server"],
 
     "@corvi/shell": ["@corvi/shell@workspace:packages/shell"],
 

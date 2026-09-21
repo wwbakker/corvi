@@ -18,7 +18,7 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sh } from "./sh.ts";
-import { PRODUCT } from "../src/capabilities/identity.ts";
+import { PRODUCT } from "../apps/server/src/capabilities/identity.ts";
 
 const NAME = `${PRODUCT} Sandbox`;
 const ID = "nl.wwbakker.corvi.sandbox";

@@ -2,16 +2,16 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange } from "../src/change/server/index.ts";
-import { checkoutFor } from "../src/vendors/git.ts";
-import { changeTabsFor, dispatchIntegrationRoute } from "../src/integrations/index.ts";
-import { provisionChangeRepositories } from "../src/change/provisioning.ts";
-import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import type { Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { CommitResult, LocalStatus } from "../src/extensions/review/shared.ts";
+import { createChange } from "../apps/server/src/change/server/index.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { changeTabsFor, dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import { resolveChangePage } from "../apps/server/src/change-page/client/changeTabs.ts";
+import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { CommitResult, LocalStatus } from "../apps/server/src/extensions/review/shared.ts";
 import { runEffect, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The review extension on the change-tab contract (E3): its tab exists exactly when the
@@ -227,7 +227,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../src/extensions/review/LocalPane.tsx");
+  const { summarise } = await import("../apps/server/src/extensions/review/LocalPane.tsx");
   const status = (files: unknown[], unpushed = 0): LocalStatus => ({
     repo: "/r",
     name: "r",

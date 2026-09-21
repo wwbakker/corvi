@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { Item, Refreshing } from "../src/dashboard/client/WidgetRows.tsx";
-import { moment } from "../src/app-root/moment.ts";
+import { Item, Refreshing } from "../apps/server/src/dashboard/client/WidgetRows.tsx";
+import { moment } from "../apps/server/src/app-root/moment.ts";
 
 /**
  * A widget row, server-rendered rather than mounted in a browser: what a row *says* is the

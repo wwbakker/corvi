@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Effect, Either } from "effect";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { runtimeConfig, type Config, type Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import jiraExtension from "../src/extensions/jira/index.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig, type Config, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import jiraExtension from "../apps/server/src/extensions/jira/index.ts";
 import {
   boardIssues,
   createIssue,
@@ -17,9 +17,9 @@ import {
   siteOf,
   siteOfWorkspace,
   ticketOf,
-} from "../src/extensions/jira/jira.ts";
-import { jiraFetch } from "../src/extensions/jira/jiraHttp.ts";
-import { accountId } from "../src/extensions/jira/account.ts";
+} from "../apps/server/src/extensions/jira/jira.ts";
+import { jiraFetch } from "../apps/server/src/extensions/jira/jiraHttp.ts";
+import { accountId } from "../apps/server/src/extensions/jira/account.ts";
 import { runEffect } from "./helpers.ts";
 
 /**

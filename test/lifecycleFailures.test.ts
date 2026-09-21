@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { LifecycleFailures } from "../src/app-root/LifecycleFailures.tsx";
-import type { ProvisionResult } from "../src/app-root/api.ts";
+import { LifecycleFailures } from "../apps/server/src/app-root/LifecycleFailures.tsx";
+import type { ProvisionResult } from "../apps/server/src/app-root/api.ts";
 
 /**
  * The provisioning failures as the change page renders them. The component is server-rendered

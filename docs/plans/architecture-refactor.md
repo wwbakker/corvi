@@ -92,9 +92,9 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 - [x] Replace import-time configuration reads and mutable exported configuration with a snapshot
       service. Preserve precedence, masking, workspace isolation, and immediate settings updates.
-      `src/workspace/server/config.ts` no longer exports a mutable `config` or reads the file at
+      `apps/server/src/workspace/server/config.ts` no longer exports a mutable `config` or reads the file at
       import: it exposes `readConfig()`, `reloadInto(target)` and the migrator hook. The runtime
-      (`src/capabilities/runtime.ts`) owns the one snapshot — `runtimeConfig()`, created on first
+      (`apps/server/src/capabilities/runtime.ts`) owns the one snapshot — `runtimeConfig()`, created on first
       use or installed via `setRuntime`, refilled in place by `reloadConfigSync`/`reloadConfig`
       so object identity survives and a settings write takes effect immediately.
       `workspace/server` re-exports the accessors, every reader (including the tests and
@@ -108,27 +108,27 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `runtimeCache()`/`runtimeConfig()`, and the holder is the assembly seam for plain-function
       call sites. Tests cover two cache instances sharing nothing, the installed cache being used
       by a request, and two server instances sharing nothing. **The included-integration list
-      stays a static composition value** (`loaded` in `src/integrations/loaded.ts`): moving it
+      stays a static composition value** (`loaded` in `apps/server/src/integrations/loaded.ts`): moving it
       through the runtime closed a cycle (runtime → loaded → extensions → the config accessor →
       runtime) and added no behavior; the explicit list is the composition step 6 retains, with
       no registry or factory to own.
 - [x] Assemble runtime services and included integrations explicitly at the server entrypoint.
       `server.ts` constructs the cache, restores it, installs the runtime (which builds the config
       snapshot), composes every route table and the websocket wiring, and only then listens. The
-      included integrations are the static composition in `src/integrations/loaded.ts` — ordinary
+      included integrations are the static composition in `apps/server/src/integrations/loaded.ts` — ordinary
       imports, nothing discovered and nothing constructed at import time. Routes read the runtime
       through `runtimeCache()`/`runtimeConfig()`; threading it as a parameter instead is a further
       refactor this item does not require.
 - [x] Separate notification/watch policy from event transport; scope and cancel all watchers.
-      `src/capabilities/watch.ts` owns the policy: the sources (change files, tmux windows), the
+      `apps/server/src/capabilities/watch.ts` owns the policy: the sources (change files, tmux windows), the
       1.5s cadence, the dedup state, and the attention edges, exposed as `watch(sink)` and
-      `forgetWatchedNews` for an action that changed the world itself. `src/capabilities/bus.ts`
+      `forgetWatchedNews` for an action that changed the world itself. `apps/server/src/capabilities/bus.ts`
       is the transport: connections, the 5s heartbeat, SSE framing, and the ref-count that forks
       the watch on the first listener and interrupts it on the last. `test/events.test.ts` pins
       the lifecycle — the watcher runs only while a page is listening and stops when it goes.
 - [x] Separate terminal-session ownership from request/PTY attachment ownership.
-      `src/terminals/server/tmux.ts` owns sessions: named per change, persistent, stopped only by
-      the lifecycle's `TerminalSessions` port. `src/terminals/server/session.ts` owns one pty per
+      `apps/server/src/terminals/server/tmux.ts` owns sessions: named per change, persistent, stopped only by
+      the lifecycle's `TerminalSessions` port. `apps/server/src/terminals/server/session.ts` owns one pty per
       connection: killed on socket close or a failed upgrade, and now registered with the
       attachment owner so the server's shutdown closes them (`closeAttachments()` from
       `server.ts`'s signal handler) while the tmux sessions and their shells survive. The module
@@ -161,10 +161,10 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [x] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
       `packages/*` construct none — `@corvi/changes` and `@corvi/workflows` use their own tagged
       domain errors. In the app, creating and hand-editing a change now fail with
-      `src/change/errors.ts`'s `InvalidChangeDraft` / `ChangeAlreadyExists` / `InvalidChangeEdit`,
-      and `src/change/routes.ts`'s `changeError` is the one place their status is decided (409 for
+      `apps/server/src/change/errors.ts`'s `InvalidChangeDraft` / `ChangeAlreadyExists` / `InvalidChangeEdit`,
+      and `apps/server/src/change/routes.ts`'s `changeError` is the one place their status is decided (409 for
       a taken id and for an edit against where the change stands, 400 otherwise). The remaining
-      taxonomy constructions in `src/change/server/*` are boundary mappers for the lifecycle's
+      taxonomy constructions in `apps/server/src/change/server/*` are boundary mappers for the lifecycle's
       typed `Readiness`/`Transition` values and provider failures (`CliError`), where a CLI/HTTP
       error is the honest shape. The two internal "could not be read back" invariants now fail
       `InternalError` (500), not a 400.
@@ -183,14 +183,14 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [x] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
       partial-failure reporting. Keep force/acknowledgement and dirty-worktree protections.
       `ChangeLifecycle` exists in `@corvi/workflows/lifecycle` with scripted-port tests, and
-      **cancel and complete now run through it** in the app: `src/change/server/cancel.ts` and
-      `src/change/server/complete.ts` map the HTTP shapes (force question, veto, loose ends,
+      **cancel and complete now run through it** in the app: `apps/server/src/change/server/cancel.ts` and
+      `apps/server/src/change/server/complete.ts` map the HTTP shapes (force question, veto, loose ends,
       after notices, the `completion.json` progress bridge) onto the workflow through the cutover
-      adapters in `src/change/lifecycle-layer.ts`; the existing cancel/ideation/completion tests
-      pass; **start now runs through it too** (`src/change/server/start.ts` maps the HTTP shape,
+      adapters in `apps/server/src/change/lifecycle-layer.ts`; the existing cancel/ideation/completion tests
+      pass; **start now runs through it too** (`apps/server/src/change/server/start.ts` maps the HTTP shape,
       drops browse links, copies tooling, and calls the Jira ticket move through the named
       `moveIssueOnStart` export, gated on the workspace's Jira enablement). **Create provisioning
-      is explicit as well** (`src/change/provisioning.ts` replaces the git `change:created`
+      is explicit as well** (`apps/server/src/change/provisioning.ts` replaces the git `change:created`
       hook), and the completion plan/run and loose-end lookups call named integration functions
       (`planIssueCompletion`/`moveIssueOnComplete`/`jiraLooseEnds`, `planIssueClose`/
       `closeIssueOnComplete`, `prLooseEnds`). A single `plannedCompletionSteps` in the adapters
@@ -201,17 +201,17 @@ Start with inspection rather than deletion: prove the boundary without changing 
       built-ins' declarations and the coupled tests. The included integrations are the whole
       lifecycle surface. The contributor surfaces followed: `titleSources`, `descriptionSections`,
       `summaryContributions` and `windowPresenters` are gone from the contract too, and
-      `src/integrations/overview.ts` composes the included jira/github-issues/github/azure-devops
+      `apps/server/src/integrations/overview.ts` composes the included jira/github-issues/github/azure-devops
       contributors explicitly (enablement-gated, in load order); the terminal presenter is the
       agents integration's direct import. **The host is gone too**: the surfaces live on the
-      included integrations' fields (`src/integrations/included.ts`), the registry is a fixed
+      included integrations' fields (`apps/server/src/integrations/included.ts`), the registry is a fixed
       normalization of that list, discovery/factories/client-chunks/`extensionPaths` and the
-      out-of-tree tests were deleted, and `src/integrations/types.ts` holds the surface types
+      out-of-tree tests were deleted, and `apps/server/src/integrations/types.ts` holds the surface types
       (no public contract). All four operations run through the workflows; the cutover adapters
-      in `src/change/lifecycle-layer.ts` are the included integrations' port implementations.
+      in `apps/server/src/change/lifecycle-layer.ts` are the included integrations' port implementations.
 - [x] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
-      **Route bodies are decoded** (`bodyAs` in `src/capabilities/effect/body.ts`; create, patch,
+      **Route bodies are decoded** (`bodyAs` in `apps/server/src/capabilities/effect/body.ts`; create, patch,
       plan, repos, cancel, complete, card actions, notes, review, azure deploy, terminal windows,
       settings) with no `as` casts left, and the create/force bodies are the canonical contract
       schemas. **Every browser call is a named method**: `packages/client` exposes the change
@@ -221,10 +221,10 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `ClientError.body` carrying a structured 409 so the dialogs read server truth. Extension
       browser halves own their DTO schemas (notes, leftovers, github-issues, jira, review, azure)
       and use `makeWireClient` for the same transport classification. No `api<T>`/`post<T>` call
-      site remains outside the retired generic helpers in `src/app-root/api.ts`.
+      site remains outside the retired generic helpers in `apps/server/src/app-root/api.ts`.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
       Feature halves exist and the host is gone: each included integration ships its client half
-      (`src/extensions/*/client.tsx`) next to its server half, the change page/settings/wizard
+      (`apps/server/src/extensions/*/client.tsx`) next to its server half, the change page/settings/wizard
       own their components, and browser network access goes through `@corvi/client`'s typed
       operations. The owner-package extraction has started: `@corvi/terminals` now owns the pure
       keyboard model (`./model`), the tmux operations over an app-supplied host (`./tmux`), and
@@ -251,20 +251,20 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 - [x] Remove out-of-tree path discovery, factories/loader machinery, and custom-module installation.
       Discovery and `install`/`installFactory` are gone;
-      `src/integrations/included.ts` is the explicit list and `src/integrations/loaded.ts`
+      `apps/server/src/integrations/included.ts` is the explicit list and `apps/server/src/integrations/loaded.ts`
       normalizes it. The host directory itself is renamed away: `src/extension-host/**` was
-      moved to `src/integrations/**` (`client.tsx`, `routes.ts`, `selectors.ts`, `effects.ts`,
+      moved to `apps/server/src/integrations/**` (`client.tsx`, `routes.ts`, `selectors.ts`, `effects.ts`,
       `services.ts`, `dispatch.ts`, `migrate.ts`).
 - [x] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
       exists only for external extension code. Preserve normal application bundling.
       `clientChunks.ts`, `vendor-jsx.ts`, the `/extensions/*/client.js` and `/vendor/*` routes and
-      the page's import map are gone; `src/integrations/client.tsx` imports the included client
+      the page's import map are gone; `apps/server/src/integrations/client.tsx` imports the included client
       halves directly.
 - [x] Replace the public extension contract/host registry with explicit included-module composition.
-      No `Extension` type, no loader: the modules import `src/integrations/types.ts`, the list is
+      No `Extension` type, no loader: the modules import `apps/server/src/integrations/types.ts`, the list is
       fixed in composition order, and a workspace's `extensions` list still gates a workspace's
       surfaces. The type barrel holds surface types only — capabilities and errors are imported
-      from `src/capabilities/` — and an unknown name in a workspace's list is named at startup.
+      from `apps/server/src/capabilities/` — and an unknown name in a workspace's list is named at startup.
 - [x] Replace generic card/hook/page plumbing where ordinary feature APIs and composition suffice.
       Hook and overview-contributor plumbing are removed; cards, pages, tabs, widgets and wizard
       steps stay as declarative fields on the included integrations, which is the retained list.
@@ -288,7 +288,7 @@ Start with inspection rather than deletion: prove the boundary without changing 
       Dependencies audited: every declared dependency of the root and of `packages/*` is imported
       somewhere in its owner. The old paths are gone (extension host and loader, client chunks,
       `extensionPaths`, the extension-paths settings UI), and the adapters that remain
-      (`src/change/lifecycle-layer.ts`, `src/change/provisioning.ts`) are the final port
+      (`apps/server/src/change/lifecycle-layer.ts`, `apps/server/src/change/provisioning.ts`) are the final port
       implementations for the included integrations, owned by this plan. The dead-file sweep was
       inconclusive by static pattern, so nothing was deleted on that basis.
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
@@ -303,7 +303,7 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `Bus`, `ExtensionStore`, `Changes`), their shapes and the `Capabilities`/`Startup`
       unions, and `@corvi/contracts/integration` owns what an included integration declares
       (`IncludedIntegration`, cards, pages, tabs, widgets, wizard steps, settings fields,
-      routes) and the overview contributor shapes; the app's `src/integrations` modules are
+      routes) and the overview contributor shapes; the app's `apps/server/src/integrations` modules are
       re-export barrels over them, and the React `WidgetComponent` stays app-side. The
       integration side is therefore package-ready. What is left is the application split:
       `apps/server` (a wholesale `src` move with `"node": true`), then `apps/web` (the browser

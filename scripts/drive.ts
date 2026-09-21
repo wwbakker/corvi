@@ -20,7 +20,7 @@ import { _electron } from "playwright";
 import { buildApp } from "./app/electron/build.ts";
 import { electronBinary } from "./app/electron/binary.ts";
 import { devAppDir } from "./app/run.ts";
-import { ID, env } from "../src/capabilities/identity.ts";
+import { ID, env } from "../apps/server/src/capabilities/identity.ts";
 
 const root = resolve(".");
 const dir = devAppDir();

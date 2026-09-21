@@ -9,6 +9,6 @@ import type { WorkspaceDto } from "./config.ts";
  *
  * Routes provide it with `Effect.provideService`; modules that may run outside a request scope
  * read it with `Effect.serviceOption` and fall back to no workspace, hence an empty env
- * override (the app's `src/capabilities/shell.ts`).
+ * override (the app's `apps/server/src/capabilities/shell.ts`).
  */
 export class Workspace extends Context.Tag("corvi/Workspace")<Workspace, WorkspaceDto>() {}
