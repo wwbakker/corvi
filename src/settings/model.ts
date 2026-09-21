@@ -7,7 +7,7 @@
 import type { SettingsViewDto } from "@corvi/contracts/api";
 import type { ConfigFileDto } from "@corvi/contracts/config";
 import type { Config, ConfigFile } from "@corvi/configuration/config";
-import type { ExtensionSetting, WorkspaceSetting } from "../domain/settings.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "@corvi/contracts/integration";
 
 /** What may be written: the config file's own shape. Everything is optional — an absent value
  * means "the default", which is what an empty file means. */

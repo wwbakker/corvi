@@ -10,7 +10,9 @@
     "./config": "./src/config.ts",
     "./terminal": "./src/terminal.ts",
     "./errors": "./src/errors.ts",
-    "./workspace": "./src/workspace.ts"
+    "./workspace": "./src/workspace.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./integration": "./src/integration.ts"
   },
   "dependencies": {
     "effect": "catalog:"

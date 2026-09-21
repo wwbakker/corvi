@@ -2,9 +2,10 @@
 
 ## Owns
 
-The shell capability: running a subprocess with the caller's environment already applied.
+The shell capability: the interface re-exported from the contract and the Node implementation.
 
-- `.`: `Shell` (the tag), `ShellShape`, `Result`. `run` requires `Workspace`
+- `.`: re-exports `Shell` (the tag), `ShellShape` and `Result` from
+  `@corvi/contracts/capabilities`; `run` requires `Workspace`
   (`@corvi/contracts/workspace`) because the environment comes from the request's workspace.
 - `./node`: `makeNodeShell(options)` — the real implementation: one spawned process per call, a
   shared concurrency gate, a timeout that kills the child, optional per-tool tracing, and the

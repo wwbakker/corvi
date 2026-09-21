@@ -87,18 +87,18 @@ export const ChangeWireSchema = Schema.Struct({
 })
 export type ChangeWireDto = typeof ChangeWireSchema.Type
 
+/** One fact on the overview's card: a coloured dot and a phrase. */
+export const SummaryFactSchema = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  state: Schema.optional(WidgetStateSchema),
+})
+export type SummaryFactDto = typeof SummaryFactSchema.Type
+
 /** The overview's card: the core's terminal fact plus what the integrations add, and the worst
  * verdict among them. */
 export const ChangeSummarySchema = Schema.Struct({
-  facts: Schema.mutable(
-    Schema.Array(
-      Schema.Struct({
-        id: Schema.String,
-        label: Schema.String,
-        state: Schema.optional(WidgetStateSchema),
-      }),
-    ),
-  ),
+  facts: Schema.mutable(Schema.Array(SummaryFactSchema)),
   state: WidgetStateSchema,
 })
 export type ChangeSummaryDto = typeof ChangeSummarySchema.Type

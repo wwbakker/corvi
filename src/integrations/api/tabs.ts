@@ -1,3 +1,2 @@
-/** A tab an extension adds to a change's page, beside the core's Dashboard. The
- * tab exists for a workspace when the extension does, and its client half exports `tab`. */
-export type ChangeTab = { id: string; title: string };
+/** A change tab, as `@corvi/contracts/integration` states it. */
+export type { ChangeTab } from "@corvi/contracts/integration";

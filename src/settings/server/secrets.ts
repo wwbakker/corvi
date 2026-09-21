@@ -12,7 +12,7 @@
  * without a server or an extension host.
  */
 
-import type { ExtensionSetting, WorkspaceSetting } from "../../domain/settings.ts";
+import type { ExtensionSetting, WorkspaceSetting } from "@corvi/contracts/integration";
 
 /** What a stored secret is replaced by, in the view the page receives. The mask is opaque to the
  * browser — it round-trips whatever it was given — so nothing on the page has to know it. */

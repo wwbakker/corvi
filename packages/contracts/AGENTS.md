@@ -4,7 +4,8 @@
 
 Canonical shared boundary values: branded IDs, decoded records, request/response schemas
 used by more than one package or across the server/client boundary, the tagged failure
-vocabulary the transport mapper reads, and the request-scoped `Workspace` tag.
+vocabulary the transport mapper reads, the request-scoped `Workspace` tag, the capability tags
+an effect may require, and the surface shapes an included integration declares.
 
 ## Does not own
 
@@ -23,6 +24,13 @@ transport boundary.
   `ConflictError`, `InternalError`, `CliError`, `DecodeError`), `IweError`, `isIweError`,
   `formatError`
 - `@corvi/contracts/workspace`: the request-scoped `Workspace` tag (`corvi/Workspace`)
+- `@corvi/contracts/capabilities`: the capability tags (`Shell`, `Cache`, `Settings`, `Bus`,
+  `ExtensionStore`, `Changes`), `ExtensionStoreShape`, `Result`, and the `Capabilities` /
+  `Startup` unions; `Workspace` is re-exported here too
+- `@corvi/contracts/integration`: what an included integration declares (`IncludedIntegration`,
+  `Card`, `Page`, `ChangeTab`, `DashboardWidget`, `WizardStep`, `ExtensionSetting`,
+  `WorkspaceSetting`, routes) and the overview contributor shapes (`TitleSource`,
+  `SummaryContributor`, `DescriptionSection`, `NamedContribution`)
 
 ## Dependencies
 

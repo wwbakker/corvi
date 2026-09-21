@@ -298,11 +298,17 @@ Start with inspection rather than deletion: prove the boundary without changing 
       place: `@corvi/contracts/errors` owns the failure vocabulary (the app's module is gone,
       every importer swept), `@corvi/contracts/workspace` owns the request-scoped `Workspace`
       tag, and `@corvi/shell` owns the `Shell` capability with its Node adapter under
-      `./node` (the app constructs it with its environment, limits and tracing). What is left is
-      the integration contract move (the declaration types and the remaining tags:
-      `Cache`, `Settings`, `Bus`, `ExtensionStore`, `Changes`) and then the application and
-      integration split: `apps/server`, `apps/web`, `apps/desktop`, and the five
-      `integrations/*` packages. The Node rule for applications is answered — rules may carry
+      `./node` (the app constructs it with its environment, limits and tracing).
+      `@corvi/contracts/capabilities` owns the capability tags (`Shell`, `Cache`, `Settings`,
+      `Bus`, `ExtensionStore`, `Changes`), their shapes and the `Capabilities`/`Startup`
+      unions, and `@corvi/contracts/integration` owns what an included integration declares
+      (`IncludedIntegration`, cards, pages, tabs, widgets, wizard steps, settings fields,
+      routes) and the overview contributor shapes; the app's `src/integrations` modules are
+      re-export barrels over them, and the React `WidgetComponent` stays app-side. The
+      integration side is therefore package-ready. What is left is the application split:
+      `apps/server` (a wholesale `src` move with `"node": true`), then `apps/web` (the browser
+      app and the feature client halves) and `apps/desktop`, and the five `integrations/*`
+      packages after that. The Node rule for applications is answered — rules may carry
       `"node": true`, and `@corvi/server`/`@corvi/desktop` do, while `@corvi/web` stays
       browser-only. Until the app packages exist, `bun run boundaries` keeps enforcing the
       declared graph among the workspaces that exist.
