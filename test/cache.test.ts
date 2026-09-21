@@ -3,7 +3,18 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, TestClock } from "effect";
-import { ageOf, invalidate, clearCache, loadCache, saveCache, swr } from "../src/capabilities/cache.ts";
+import {
+  clearCache,
+  createCache,
+  defaultCache,
+  invalidate,
+  swr,
+  type CacheStore,
+} from "../src/capabilities/cache.ts";
+import { resetRuntime, setRuntime } from "../src/capabilities/runtime.ts";
+import { Cache } from "../src/integrations/api/capabilities.ts";
+import { capabilitiesLayer } from "../src/integrations/services.ts";
+import { workspaceById } from "../src/workspace/server/index.ts";
 import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
 const file = join(tmpdir(), "corvi-cache-test.json");
@@ -33,7 +44,7 @@ test("the first caller waits, everyone after that is instant", async () => {
       yield* TestClock.adjust(999);
       expect(yield* swr("k", 1000, work())).toBe("answer 1");
       expect(calls).toBe(1);
-      expect(ageOf("k")).toBeLessThan(1000);
+      expect(defaultCache.ageOf("k")).toBeLessThan(1000);
     }),
   );
 });
@@ -114,8 +125,8 @@ test("an action forgets what it just made wrong", async () => {
   await runSwr("gh:pr:PROJ-2:/a", 60_000, async () => "other change");
 
   invalidate("gh:pr:PROJ-1");
-  expect(ageOf("gh:pr:PROJ-1:/a")).toBeUndefined();
-  expect(ageOf("gh:pr:PROJ-2:/a")).toBeDefined();
+  expect(defaultCache.ageOf("gh:pr:PROJ-1:/a")).toBeUndefined();
+  expect(defaultCache.ageOf("gh:pr:PROJ-2:/a")).toBeDefined();
 });
 
 test("the cache survives a restart, minus what is too old to trust", async () => {
@@ -126,14 +137,14 @@ test("the cache survives a restart, minus what is too old to trust", async () =>
       yield* swr("ancient", 60_000, Effect.succeed("yesterday"));
       yield* TestClock.adjust(7 * 60 * 60_000);
       yield* swr("fresh", 60_000, Effect.succeed({ runs: 2 }));
-      yield* saveCache;
+      yield* defaultCache.save();
 
       clearCache();
       // Only the entry inside the restore window comes back.
-      expect(yield* loadCache).toBe(1);
+      expect(yield* defaultCache.load()).toBe(1);
       // Restored, so the page paints from it; stale, so the first request refreshes it anyway.
       expect(yield* swr("fresh", 60_000, Effect.succeed({ runs: 99 }))).toEqual({ runs: 2 });
-      expect(ageOf("ancient")).toBeUndefined();
+      expect(defaultCache.ageOf("ancient")).toBeUndefined();
     }),
   );
 });
@@ -195,4 +206,40 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
 
   // And it is gone again afterwards.
   expect((await runSh(["sh", "-c", "echo ${CORVI_TEST_MARK:-none}"])).stdout).toBe("none");
+});
+
+test("two cache instances share nothing", async () => {
+  const first = createCache();
+  const second = createCache();
+  const value = (cache: CacheStore, answer: string): Promise<string> =>
+    Effect.runPromise(cache.swr("shared-key", 60_000, Effect.succeed(answer)));
+
+  expect(await value(first, "first's answer")).toBe("first's answer");
+  // The second instance has never seen the key, so it runs its own work.
+  expect(await value(second, "second's answer")).toBe("second's answer");
+  // And the first still answers with what it cached.
+  expect(await value(first, "unused")).toBe("first's answer");
+  expect(first.ageOf("shared-key")).toBeDefined();
+  first.clear();
+  expect(first.ageOf("shared-key")).toBeUndefined();
+  expect(second.ageOf("shared-key")).toBeDefined();
+});
+
+test("the capabilities layer reads the cache the runtime installed", async () => {
+  const instance = createCache();
+  setRuntime({ cache: instance });
+  try {
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const cache = yield* Cache;
+        return yield* cache.swr("wired", 60_000, Effect.succeed(1));
+      }).pipe(Effect.provide(capabilitiesLayer(workspaceById(undefined), "test"))),
+    );
+    // The request's cache was the installed instance, not the process default.
+    expect(instance.ageOf("wired")).toBeDefined();
+    expect(defaultCache.ageOf("wired")).toBeUndefined();
+  } finally {
+    instance.clear();
+    resetRuntime();
+  }
 });

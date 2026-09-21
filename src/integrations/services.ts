@@ -10,8 +10,8 @@ import {
 } from "./api/capabilities.ts";
 import type { Capabilities, ExtensionStoreShape } from "./api/capabilities.ts";
 import { envOf, shWithEnv } from "../capabilities/shell.ts";
-import { invalidate, swr } from "../capabilities/cache.ts";
-import { config } from "../workspace/server/index.ts";
+import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
+import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
 import { BadRequestError } from "../capabilities/effect/errors.ts";
 import {
@@ -45,15 +45,25 @@ export const ShellLive = Layer.effect(
   }),
 );
 
-export const CacheLive = Layer.succeed(Cache, {
-  swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) =>
-    swr(key, ttlMs, work),
-  invalidate: (prefix) => Effect.sync(() => invalidate(prefix)),
-});
+/** One cache instance, through the capability: the transport's behavior is the cache's, and
+ * the instance is what the server owns (the runtime-ownership work moves this construction to
+ * the entrypoint; `cacheLive(cache)` is the seam). */
+export const cacheLive = (cache: CacheStore = defaultCache): Layer.Layer<Cache> =>
+  Layer.succeed(Cache, {
+    swr: <A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>) =>
+      cache.swr(key, ttlMs, work),
+    invalidate: (prefix) => Effect.sync(() => cache.invalidate(prefix)),
+  });
+
+export const CacheLive = cacheLive();
 
 // The same refilled object every module holds by reference: a settings-page save is visible
-// through the service without restart.
-export const SettingsLive = Layer.succeed(Settings, config);
+// through the service without restart. The layer defers the read to construction, so importing
+// this module does not read the config file.
+export const SettingsLive = Layer.effect(
+  Settings,
+  Effect.sync(() => runtimeConfig()),
+);
 
 export const BusLive = Layer.succeed(Bus, {
   announce: (event) => Effect.sync(() => announce(event)),
@@ -111,7 +121,7 @@ export const capabilitiesLayer = (
 ): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     ShellLive,
-    CacheLive,
+    cacheLive(runtimeCache()),
     SettingsLive,
     BusLive,
     ChangesLive,

@@ -1,7 +1,8 @@
 import { readdir, stat } from "node:fs/promises";
 import { isAbsolute, join, normalize } from "node:path";
 import { Effect } from "effect";
-import { config, expandTilde } from "./config.ts";
+import { expandTilde } from "./config.ts";
+import { runtimeConfig } from "../../capabilities/runtime.ts";
 import type { Entry } from "../model.ts";
 import { remoteDefaultBranch } from "../../vendors/git.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
@@ -22,7 +23,7 @@ export function resolveDirectory(path: string): string {
  * for them, so the request decides what a listing carries rather than the page filtering it back
  * out — the same shape as everything else here. */
 export const browse = (
-  dir: string = config.repositoriesDirectory,
+  dir: string = runtimeConfig().repositoriesDirectory,
   hidden = false,
 ): Effect.Effect<{ path: string; entries: Entry[] }> =>
   Effect.gen(function* () {

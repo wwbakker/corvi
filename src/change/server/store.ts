@@ -9,16 +9,16 @@ import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
-import { config } from "../../workspace/server/index.ts";
+import { runtimeConfig } from "../../workspace/server/index.ts";
 import { env } from "../../capabilities/identity.ts";
 
 /** Root of the per-change directories. Override with CORVI_ROOT (tests do). */
-export const root = (): string => process.env[env("ROOT")] ?? config.changesRoot;
+export const root = (): string => process.env[env("ROOT")] ?? runtimeConfig().changesRoot;
 
 /** Where completed changes are moved. A root of its own — the archive can live outside the
  * changes root, and listing the changes root never has to filter it out. Override with
  * CORVI_ARCHIVE_ROOT (tests do). */
-export const archiveRoot = (): string => process.env[env("ARCHIVE_ROOT")] ?? config.archiveRoot;
+export const archiveRoot = (): string => process.env[env("ARCHIVE_ROOT")] ?? runtimeConfig().archiveRoot;
 
 export const changeDir = (id: string): string => join(root(), id);
 export const archiveDir = (id: string): string => join(archiveRoot(), id);

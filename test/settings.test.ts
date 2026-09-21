@@ -3,7 +3,7 @@ import { mkdtemp, rm, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../src/settings/server/index.ts";
-import { config, reloadConfigSync, type Config } from "../src/workspace/server/index.ts";
+import { runtimeConfig, reloadConfigSync, type Config } from "../src/workspace/server/index.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -22,7 +22,7 @@ const originalRoot = process.env.CORVI_ROOT;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-settings-"));
-  file = join(tmp, "config.json");
+  file = join(tmp, "runtimeConfig().json");
   process.env.CORVI_CONFIG = file;
   delete process.env.CORVI_ROOT;
   reloadConfigSync();
@@ -99,12 +99,12 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   await runEffect(writeSettings(next));
 
   // The object every module imported, not a copy of it: that is what "no restart" means.
-  expect(config.changesRoot).toBe(join(tmp, "changes"));
-  expect(config.worktreeCopy).toEqual([".idea"]);
-  expect(config.workspaces.map((w) => w.id)).toEqual(["client", "own"]);
+  expect(runtimeConfig().changesRoot).toBe(join(tmp, "changes"));
+  expect(runtimeConfig().worktreeCopy).toEqual([".idea"]);
+  expect(runtimeConfig().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
   // The shapes the page wrote land on the object every module reads, untouched.
-  expect(config.workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
-  expect(config.workspaces[1]!.extensions).toEqual(["github", "git"]);
+  expect(runtimeConfig().workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
+  expect(runtimeConfig().workspaces[1]!.extensions).toEqual(["github", "git"]);
 
   expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.
@@ -117,14 +117,14 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   expect(reloadConfigSync().notificationSound).toBe(true);
 
   await runEffect(writeSettings({ notificationSound: false }));
-  expect(config.notificationSound).toBe(false);
+  expect(runtimeConfig().notificationSound).toBe(false);
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect(written.notificationSound).toBe(false);
 
   // Handing it back to the default is writing nothing, which is what the page sends when the
   // box is ticked again.
   await runEffect(writeSettings({ notificationSound: undefined }));
-  expect(config.notificationSound).toBe(true);
+  expect(runtimeConfig().notificationSound).toBe(true);
   const cleared = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   expect("notificationSound" in cleared).toBe(false);
 });
@@ -155,7 +155,7 @@ test("the file keeps what it had, including fields the core no longer names", as
 
   // The resolved config carries the preserved keys too, which is where the jira extension's
   // legacy fallback reads them from.
-  expect((config as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
+  expect((runtimeConfig() as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
 });
 
 test("a key the file no longer has does not survive a reload", async () => {
@@ -164,13 +164,13 @@ test("a key the file no longer has does not survive a reload", async () => {
   // reload must drop what the file dropped, or the settings page cannot undo a hand edit.
   await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
   reloadConfigSync();
-  expect((config as Config & { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
+  expect((runtimeConfig() as Config & { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
     "Ready for release",
   );
 
   await Bun.write(file, JSON.stringify({}));
   reloadConfigSync();
-  expect("jiraDoneTransition" in config).toBe(false);
+  expect("jiraDoneTransition" in runtimeConfig()).toBe(false);
 });
 
 test("a workspace-level legacy jira object survives a settings save", async () => {
@@ -183,19 +183,19 @@ test("a workspace-level legacy jira object survives a settings save", async () =
     }),
   );
   reloadConfigSync();
-  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+  expect((runtimeConfig().workspaces[0] as Record<string, unknown>).jira).toEqual({
     project: "LEGACY",
     board: "B",
   });
 
-  await runEffect(writeSettings({ workspaces: [config.workspaces[0]!] }));
+  await runEffect(writeSettings({ workspaces: [runtimeConfig().workspaces[0]!] }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as {
     workspaces: Record<string, unknown>[];
   };
   // The unknown key rode through the save, which is what the jira extension reads back.
   expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
-  expect((config.workspaces[0] as Record<string, unknown>).jira).toEqual({
+  expect((runtimeConfig().workspaces[0] as Record<string, unknown>).jira).toEqual({
     project: "LEGACY",
     board: "B",
   });
@@ -279,7 +279,7 @@ test("the extensions' own settings round-trip, strings and string lists", async 
   });
   // The core carries the bag without looking inside: the object every module holds by
   // reference has it, untouched.
-  expect(config.extensionSettings).toEqual(written.extensionSettings as Config["extensionSettings"]);
+  expect(runtimeConfig().extensionSettings).toEqual(written.extensionSettings as Config["extensionSettings"]);
 
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.
@@ -343,22 +343,22 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
   expect(view.effective.workspaces?.[0]?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
   // The running config still holds the real one: the redaction copies rather than mutating the
   // object every request is reading.
-  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(config.workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
+  expect(runtimeConfig().workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
 
   // A save that sends the mask back — a page that edited anything else — keeps what is stored.
   await runEffect(writeSettings(view.file));
-  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(config.workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
+  expect(runtimeConfig().workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
   const kept = await readFile(file, "utf8");
   expect(kept).toContain("root-secret");
   expect(kept).not.toContain(MASK);
 
   // A retyped token replaces it, and an emptied field falls back to the environment.
   await runEffect(writeSettings({ extensionSettings: { jira: { token: "new-secret" } } }));
-  expect(config.extensionSettings?.["jira"]?.["token"]).toBe("new-secret");
+  expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("new-secret");
   await runEffect(writeSettings({ extensionSettings: { jira: { token: "" } } }));
-  expect(config.extensionSettings?.["jira"]?.["token"]).toBeUndefined();
+  expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBeUndefined();
 });
 
 test("a mask for a secret nothing is stored in is not written as one", async () => {
@@ -369,7 +369,7 @@ test("a mask for a secret nothing is stored in is not written as one", async () 
     writeSettings({ extensionSettings: { jira: { server: "https://x.example", token: MASK } } }),
   );
 
-  expect(config.extensionSettings?.["jira"]?.["token"]).toBeUndefined();
+  expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBeUndefined();
   expect(await readFile(file, "utf8")).not.toContain(MASK);
 });
 

@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { loadCache, saveCache } from "./capabilities/cache.ts";
+import { createCache } from "./capabilities/cache.ts";
+import { setRuntime } from "./capabilities/runtime.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
@@ -10,19 +11,25 @@ import { dashboardRoutes } from "./dashboard/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
-import { terminalSockets, type TerminalSocket } from "./terminals/server/session.ts";
+import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
 import { ID, env } from "./capabilities/identity.ts";
 
-// What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
-// `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
-const restored = await Effect.runPromise(loadCache);
+// The runtime this process owns: the cache is constructed here and restored before the server
+// listens, and requests read it through `capabilitiesLayer`. What the CLIs said last time is
+// worth keeping — restarting is normal, and without this every page waits for the CLIs again.
+const cache = createCache();
+const restored = await Effect.runPromise(cache.load());
+setRuntime({ cache });
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.
-setInterval(() => void Effect.runPromise(saveCache).catch(() => {}), 30_000).unref();
+setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).unref();
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    void Effect.runPromise(saveCache)
+    // The server takes its pty attachments with it; the tmux sessions (and the shells in them)
+    // stay for the next server.
+    closeAttachments();
+    void Effect.runPromise(cache.save())
       .catch(() => {})
       .finally(() => process.exit(0));
   });

@@ -1,6 +1,6 @@
 import { migrateExtensionSettings } from "./migrate.ts";
 import { unknownIntegrationNames } from "./included.ts";
-import { config, setMigrator } from "../workspace/server/index.ts";
+import { runtimeConfig, setMigrator } from "../workspace/server/index.ts";
 
 /**
  * The included integrations' public face: the composed list (src/integrations/included.ts) and
@@ -23,11 +23,11 @@ import { config, setMigrator } from "../workspace/server/index.ts";
 // normalized without a settings save. The config calls back here on every refill, so a settings
 // write migrates too (src/settings/server/settings.ts migrates before writing).
 setMigrator(migrateExtensionSettings);
-migrateExtensionSettings(config.workspaces);
+migrateExtensionSettings(runtimeConfig().workspaces);
 
 // A workspace's enablement list is hand-editable; a name nothing answers for is a typo worth
 // saying once at startup rather than a silently dead surface.
-for (const workspace of config.workspaces) {
+for (const workspace of runtimeConfig().workspaces) {
   for (const name of unknownIntegrationNames(workspace.extensions)) {
     console.error(
       `workspace "${workspace.id}" enables "${name}", which is not an included integration`,

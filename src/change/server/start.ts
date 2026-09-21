@@ -12,11 +12,11 @@ import {
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
 import { type Change, type ProvisionResult } from "../../domain/change.ts";
-import { extensionsFor } from "../../integrations/index.ts";
+import { extensionsFor } from "../../integrations/selectors.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
 import { moveIssueOnStart } from "../../extensions/jira/index.ts";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
-import { config, workspaceOf } from "../../workspace/server/index.ts";
+import { runtimeConfig, workspaceOf } from "../../workspace/server/index.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
 import { archiveRoot, changeDir, readChange, root } from "./store.ts";
 
@@ -64,7 +64,7 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
         Effect.catchAll((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(change, error))),
       );
 
-    if (config.worktreeCopy.length > 0) {
+    if (runtimeConfig().worktreeCopy.length > 0) {
       yield* Effect.forEach(
         outcome.repositories.filter(
           (repository) => repository.checkoutMethod === "UseNewLocationNewBranch",
@@ -73,7 +73,7 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
           copyTooling(
             repository.originalLocation,
             join(changeDir(change.id), basename(repository.originalLocation)),
-            config.worktreeCopy,
+            runtimeConfig().worktreeCopy,
           ).pipe(
             Effect.catchAll((error) =>
               Effect.sync(() =>

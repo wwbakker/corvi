@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { PLAN_FILE, type Change } from "../../domain/change.ts";
-import { config } from "../../workspace/server/index.ts";
+import { runtimeConfig } from "../../workspace/server/index.ts";
 import { changeDir } from "./store.ts";
 
 /**
@@ -17,7 +17,7 @@ import { changeDir } from "./store.ts";
  * `{title}` falls back to the id, and `{state}` to what an absent state means, so a prompting
  * typo in a template cannot leave a hole. */
 export const ideationPromptFor = (change: Change): string =>
-  config.ideationPrompt
+  runtimeConfig().ideationPrompt
     .replaceAll("{id}", change.id)
     .replaceAll("{title}", change.title ?? change.branch ?? change.id)
     .replaceAll("{plan}", join(changeDir(change.id), PLAN_FILE))

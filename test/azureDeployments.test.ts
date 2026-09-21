@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { clearCache } from "../src/capabilities/cache.ts";
-import { config, reloadConfigSync } from "../src/workspace/server/index.ts";
+import { runtimeConfig, reloadConfigSync } from "../src/workspace/server/index.ts";
 import azureDevops from "../src/extensions/azure-devops/index.ts";
 import { acceptedVersions, type Run } from "../src/extensions/azure-devops/server.ts";
 import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
@@ -15,7 +15,7 @@ import type { Az } from "../src/extensions/azure-devops/azure.ts";
 // every test: one file's answers must never leak into another's.
 beforeEach(() => clearCache());
 afterEach(() => {
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
   reloadConfigSync();
   clearCache();
 });

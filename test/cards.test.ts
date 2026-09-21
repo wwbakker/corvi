@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect, Either, Layer } from "effect";
 import { clearCache } from "../src/capabilities/cache.ts";
-import { config, type Workspace } from "../src/workspace/server/index.ts";
+import { runtimeConfig, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import type { Widget, WidgetItem } from "../src/domain/widget.ts";
 import type { Capabilities } from "../src/integrations/api/capabilities.ts";
@@ -444,12 +444,12 @@ const runRoute = <A, E>(
 /** The config is one refilled object every module holds: swap the workspaces for the body of a
  * test, and put them back so no other test inherits them. */
 const withWorkspaces = async <A>(workspaces: Workspace[], work: () => Promise<A>): Promise<A> => {
-  const before = config.workspaces;
-  config.workspaces = workspaces;
+  const before = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = workspaces;
   try {
     return await work();
   } finally {
-    config.workspaces = before;
+    runtimeConfig().workspaces = before;
   }
 };
 

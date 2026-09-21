@@ -4,10 +4,10 @@ import { guard } from "../capabilities/web.ts";
 import { platformName } from "../capabilities/os.ts";
 import {
   browse,
-  config,
   remoteBranches,
   repositoriesDirectoryOf,
   resolveDirectory,
+  runtimeConfig,
   workspaceById,
 } from "./server/index.ts";
 import { attempt, json, withWorkspaceParam, workspaceParam } from "../capabilities/web.ts";
@@ -18,7 +18,7 @@ export const workspaceRoutes = guard({
   // learns which key hints to draw. It is the server's platform — the shell the terminal
   // serves lives on this machine, so its conventions are the ones the page should hint at.
   "/api/workspaces": {
-    GET: () => json({ workspaces: config.workspaces, platform: platformName }),
+    GET: () => json({ workspaces: runtimeConfig().workspaces, platform: platformName }),
   },
 
   // Directory browser, unbounded: any absolute directory can be listed. No path parameter at

@@ -90,9 +90,9 @@ export const workspaceParam = (req: Request): string | undefined =>
 // importing this module back into their graph.
 export { bodyAs, bodyOf, bodyOrEmpty } from "./effect/body.ts";
 
-/** A sync call that throws typed errors (applyPatch, resolveDirectory) lifted into the error
- * channel at the route boundary. Anything that is not one of ours is reported like one, which is
- * the same message-and-400 `runRoute` would give an escaped throw. */
+/** A sync call that throws typed errors (resolveDirectory) lifted into the error channel at the
+ * route boundary. Anything that is not one of ours is reported like one, which is the same
+ * message-and-400 `runRoute` would give an escaped throw. */
 export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
   Effect.try({
     try: work,

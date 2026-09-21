@@ -1,7 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import { duplicateRepoNames, IDEATION, type Change, type ChangeDraft } from "../../domain/change.ts";
-import { BadRequestError, ConflictError, DecodeError } from "../../capabilities/effect/errors.ts";
+import { DecodeError } from "../../capabilities/effect/errors.ts";
+import { ChangeAlreadyExists, InvalidChangeDraft } from "../errors.ts";
 import { readChange, writeChange } from "./store.ts";
 
 /** The core's creation input: the plain draft the wizard collected and the `change:creating`
@@ -14,32 +15,32 @@ export type CreateChangeInput = ChangeDraft;
  * never bypass. */
 export const createChange = (
   input: CreateChangeInput,
-): Effect.Effect<Change, BadRequestError | ConflictError | DecodeError> =>
+): Effect.Effect<Change, InvalidChangeDraft | ChangeAlreadyExists | DecodeError> =>
   Effect.gen(function* () {
     const id = input.id.trim();
     if (!id || id !== basename(id) || id.startsWith(".")) {
-      return yield* new BadRequestError({ message: `invalid change id: ${input.id}` });
+      return yield* new InvalidChangeDraft({ message: `invalid change id: ${input.id}` });
     }
     if (yield* readChange(id)) {
-      return yield* new ConflictError({ message: `change already exists: ${id}` });
+      return yield* new ChangeAlreadyExists({ changeId: id, message: `change already exists: ${id}` });
     }
     // Two creation states: an idea, which needs nothing but a plan, and a change created ready
     // to work, which needs somewhere to work. A finished state is not something you create into.
     const state = input.state ?? "In Progress";
     if (state !== IDEATION && state !== "In Progress") {
-      return yield* new BadRequestError({
+      return yield* new InvalidChangeDraft({
         message: `a change is created as ${IDEATION} or In Progress, not ${state}`,
       });
     }
     const repos = (input.repos ?? []).map((r) => r.trim()).filter(Boolean);
     if (state !== IDEATION && repos.length === 0) {
-      return yield* new BadRequestError({ message: "select at least one repository" });
+      return yield* new InvalidChangeDraft({ message: "select at least one repository" });
     }
     // Every repository is filed in the change directory under its own name, so two paths with the
     // same name would collide there — a worktree on top of a worktree, or two browse links.
     const duplicate = duplicateRepoNames(repos);
     if (duplicate.length) {
-      return yield* new BadRequestError({
+      return yield* new InvalidChangeDraft({
         message:
           `two repositories share the name ${duplicate.join(", ")}: Corvi files each repository ` +
           `under its own name in the change directory`,

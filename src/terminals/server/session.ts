@@ -70,6 +70,17 @@ const resizeOf = (message: string): { cols: number; rows: number } | undefined =
   }
 };
 
+/** Every pty this process has attached: the attachments are the server's to close when it
+ * shuts down, while the tmux sessions — and the shells in them — stay for the next server. A
+ * session removes itself when its socket closes, so this holds only live attachments. */
+const attached = new Set<TerminalSession>();
+
+/** Close every attached pty. The server calls this on shutdown; killing an attachment never
+ * touches the session. */
+export const closeAttachments = (): void => {
+  for (const session of [...attached]) session.kill();
+};
+
 /** Start the change's tmux session under a pty, at the page's size. Throws when the runtime is
  * Bun or tmux is missing: the route turns that into the pane's error banner. */
 export const openSession = (
@@ -107,7 +118,7 @@ export const openSession = (
     onExit?.();
   });
 
-  return {
+  const session: TerminalSession = {
     attach: (toSocket, done) => {
       send = toSocket;
       onExit = done;
@@ -125,6 +136,7 @@ export const openSession = (
       }
     },
     kill: () => {
+      attached.delete(session);
       try {
         child.kill();
       } catch {
@@ -132,6 +144,8 @@ export const openSession = (
       }
     },
   };
+  attached.add(session);
+  return session;
 };
 
 /** The WebSocket handlers `server.ts` installs: one pty per connection, wired to its socket.

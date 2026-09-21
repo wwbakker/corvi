@@ -5,7 +5,7 @@ import type { Config } from "../../domain/config.ts";
 import type { Settings, SettingsView } from "../model.ts";
 import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
 import {
-  config,
+  runtimeConfig,
   configPath,
   readFileSync,
   reloadConfig,
@@ -49,7 +49,7 @@ export const settingsViewSync = (): SettingsView => {
     // The page gets a copy with the extensions' secrets masked: it is given the file and what is
     // in effect, and neither may carry a token (src/settings/server/secrets.ts).
     file: redactSecrets(file, loaded),
-    effective: redactSecrets(config, loaded),
+    effective: redactSecrets(runtimeConfig(), loaded),
     overridden: overriddenSettings(),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
@@ -159,7 +159,7 @@ export const writeSettings = (
     yield* reloadConfig;
     // The retired names fold into the extensions' own settings, in memory as on disk —
     // a page save is also a migration.
-    migrateExtensionSettings(config.workspaces);
+    migrateExtensionSettings(runtimeConfig().workspaces);
     // Everything the CLIs answered was answered for the settings just replaced: another
     // organisation, another Jira site, another set of environments. Cheaper to ask again than to
     // reason about which.

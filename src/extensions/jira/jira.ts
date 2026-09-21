@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { swr, invalidate } from "../../capabilities/cache.ts";
 import { env } from "../../capabilities/identity.ts";
-import { config, type Config } from "../../workspace/server/index.ts";
+import { runtimeConfig, type Config } from "../../workspace/server/index.ts";
 import { bagString } from "../../settings/server/legacySettings.ts";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
@@ -68,7 +68,7 @@ export function siteOfWorkspace(workspace: {
 }): Site {
   const own = workspace.extensionSettings?.jira;
   const legacy = legacySiteOfWorkspace(workspace);
-  const global = config.extensionSettings?.jira;
+  const global = runtimeConfig().extensionSettings?.jira;
   const namesOwnVariable = own?.tokenEnv !== undefined || legacy.tokenEnv !== undefined;
   // A token is never legacy: an early workspace's object could name a variable or a site, and the
   // token was the environment's either way.
@@ -92,7 +92,7 @@ export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspace
 
 /**
  * The server-wide settings this extension declares, read back with the core's legacy flat
- * `jira*` fields as the fallback: `config.extensionSettings.jira.<key>` — what the settings page
+ * `jira*` fields as the fallback: `runtimeConfig().extensionSettings.jira.<key>` — what the settings page
  * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
  * which carries the default and the environment resolution (CORVI_JIRA_ASSIGNEE and friends beat
  * the file); `legacy.ts` is where that fallback lives. A bag value that is not a string, or an
@@ -393,7 +393,7 @@ export const createIssue = (input: {
 
     if (input.assignToMe !== false) {
       // Assigning is a field like any other, but its value is an account id, not a name.
-      const account = yield* accountId(globalOf(config).assignee, site);
+      const account = yield* accountId(globalOf(runtimeConfig()).assignee, site);
       if (account) {
         yield* jiraFetch(`/rest/api/3/issue/${created.key}/assignee`, {
           site,

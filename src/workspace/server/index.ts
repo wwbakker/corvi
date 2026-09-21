@@ -9,15 +9,14 @@
  * reach into a module's server half.
  */
 export {
-  config,
   configPath,
   expandTilde,
   readFile,
   readFileSync,
-  reloadConfig,
-  reloadConfigSync,
   setMigrator,
 } from "./config.ts";
+
+export { reloadConfig, reloadConfigSync, runtimeConfig } from "../../capabilities/runtime.ts";
 
 export {
   ConfigFile,

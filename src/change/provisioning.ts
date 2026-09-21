@@ -14,7 +14,7 @@ import { messageOf } from "../capabilities/effect/support.ts";
 import { copyTooling } from "../capabilities/os.ts";
 import { isIdeation, type Change, type ProvisionResult } from "../domain/change.ts";
 import { browseRepo } from "../vendors/git.ts";
-import { config } from "../workspace/server/index.ts";
+import { runtimeConfig } from "../workspace/server/index.ts";
 import { repositoriesLayer } from "./lifecycle-layer.ts";
 import { archiveRoot, changeDir, root } from "./server/store.ts";
 
@@ -60,7 +60,7 @@ export const provisionChangeRepositories = (change: Change): Effect.Effect<Provi
             })
             .pipe(
               Effect.tap(() =>
-                copyTooling(repo, checkout, config.worktreeCopy).pipe(
+                copyTooling(repo, checkout, runtimeConfig().worktreeCopy).pipe(
                   Effect.catchAll(() => Effect.void),
                 ),
               ),

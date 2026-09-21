@@ -1,9 +1,7 @@
-import { Effect, Exit, Fiber, Option, Schedule, Stream } from "effect";
+import { Effect, Fiber } from "effect";
 import { runRoute } from "./effect/run.ts";
 import { guard, json } from "./web.ts";
-import { listChanges } from "../change/server/store.ts";
-import { allWindows } from "../terminals/server/index.ts";
-import { config } from "../workspace/server/index.ts";
+import { forgetWatchedNews, watch, type EventName } from "./watch.ts";
 
 /**
  * One connection that says when something changed, instead of every page asking whether it has.
@@ -14,16 +12,10 @@ import { config } from "../workspace/server/index.ts";
  * terminal is on screen. One `EventSource` replaces all of that: the server watches once and
  * tells whoever is listening.
  *
- * What is pushed is only the *news*, never the data. A page that hears "changes" asks for them,
- * through the same cached routes. That keeps this small — no second way to fetch anything, no
- * state to keep in sync — and means a missed event costs a refresh rather than a wrong screen.
+ * This module is the transport: the connections, the heartbeat, and the ref-count that starts
+ * the watch while anyone is listening and stops it when nobody is. What is watched, and what
+ * counts as news, lives in `./watch.ts`.
  */
-
-type EventName = "changes" | "windows" | "notify";
-
-/** One piece of news: the event name, and the data for the one event that carries any. `changes`
- * and `windows` say "something moved, fetch it", which is what keeps this stream small. */
-type News = { event: EventName; data?: string };
 
 type Client = {
   send: (event: string, data: string) => void;
@@ -32,11 +24,6 @@ type Client = {
 };
 
 const clients = new Set<Client>();
-
-/** How often the server looks. Terminals change under your hands — a command finishes, an agent
- * starts waiting — so this is a fast cadence, paid once for everybody rather than once per open
- * page. */
-const INTERVAL = Schedule.spaced("1.5 seconds");
 
 /**
  * A colon-comment down the wire now and then, which an EventSource ignores.
@@ -47,115 +34,13 @@ const INTERVAL = Schedule.spaced("1.5 seconds");
  */
 const HEARTBEAT = "5 seconds";
 
-/** What was last broadcast, to say nothing when nothing happened. Shared with `announce`, which
- * clears one event's entry so the watcher's next look says it again. */
-const last = new Map<EventName, string>();
-
-/** One channel of the watcher: read, drop consecutive duplicates (including consecutive failed
- * reads, which `Stream.changes` folds together), and say the event name when there is news.
- *
- * A read that fails — no tmux server yet, a change being written as we look — is not news: it
- * arrives as `Option.none()`, which the stream drops, and the next tick will find it. */
-const channel = (
-  event: EventName,
-  read: Effect.Effect<string, unknown>,
-): Stream.Stream<News> =>
-  Stream.repeatEffectWithSchedule(
-    Effect.gen(function* () {
-      const payload = Option.fromNullable(
-        yield* Effect.orElseSucceed(read, () => null),
-      );
-      if (Option.isNone(payload)) return Option.none();
-      if (last.get(event) === payload.value) return Option.none();
-      last.set(event, payload.value);
-      return Option.some({ event });
-    }),
-    INTERVAL,
-  ).pipe(
-    // What counts as news was decided above, against the serialized state: two ticks that read
-    // the same state both return None, and a second transition in a row is real news — a terminal
-    // that came up within the watcher's first interval goes {} -> one window with no quiet tick
-    // between, and a dedup on the event NAME would swallow it. See `startWatcher` for the
-    // first-look half of the same story.
-    Stream.filterMap((found: Option.Option<News>) => found),
-  );
-
-/**
- * The windows tick: one tmux read per interval, used for two things. The serialized read is the
- * `windows` event. The attention edges are computed against the previous successful read — keyed
- * by tmux window id, because reordering the tabs changes indices and an index-keyed diff would
- * report a window that merely moved — and only the edge into "wants you" is news. The state
- * lives in the watcher run, like `last`: a fresh watcher only seeds the picture, so a server
- * that has just started (or a page that has just connected) does not announce every waiting
- * agent it finds, and nothing that happened while nobody listened is replayed.
- */
-type Attention = { previous: Map<string, boolean>; seeded: boolean };
-
-const windowsNews = (state: Attention): Stream.Stream<News> =>
-  Stream.repeatEffectWithSchedule(
-    Effect.gen(function* () {
-      const read = yield* Effect.exit(allWindows());
-      if (!Exit.isSuccess(read)) return []; // no tmux yet, or a read being written as we look
-      const windows = read.value;
-      const news: News[] = [];
-      const serialized = JSON.stringify(windows);
-      if (last.get("windows") !== serialized) {
-        last.set("windows", serialized);
-        news.push({ event: "windows" });
-      }
-      const seen = new Set<string>();
-      for (const [change, list] of Object.entries(windows)) {
-        for (const window of list) {
-          const key = `${change}:${window.id}`;
-          seen.add(key);
-          const was = state.previous.get(key);
-          state.previous.set(key, window.attention);
-          if (state.seeded && window.attention && was === false) {
-            news.push({
-              event: "notify",
-              data: JSON.stringify({
-                change,
-                window: window.id,
-                label: window.label,
-                ...(window.note ? { note: window.note } : {}),
-                sound: config.notificationSound,
-              }),
-            });
-          }
-        }
-      }
-      // A window that is gone forgets its state: one that comes back is new again, and may
-      // notify again.
-      for (const key of [...state.previous.keys()]) if (!seen.has(key)) state.previous.delete(key);
-      state.seeded = true;
-      return news;
-    }),
-    INTERVAL,
-  ).pipe(Stream.flatMap((news) => Stream.fromIterable(news)));
-
-/** Watch the cheap, local things: the change files, and what tmux has. Neither costs a network
- * call, so this can run while anyone is connected and stop when nobody is. */
-const watchPipeline = (state: Attention): Effect.Effect<void> =>
-  Stream.merge(
-    channel("changes", Effect.map(listChanges(), (c) => JSON.stringify(c))),
-    windowsNews(state),
-  ).pipe(Stream.runForEach((news) => Effect.sync(() => broadcast(news.event, news.data))));
-
-/** The watcher's fiber, while anyone is listening. Ref-counted by the client set: started when
+/** The watch's fiber, while anyone is listening. Ref-counted by the client set: started when
  * the first client registers, interrupted when the last one is forgotten. */
 let watcher: Fiber.RuntimeFiber<void, never> | undefined;
 
 function startWatcher(): void {
   if (watcher) return;
-  // What was last seen is kept across looks but not across watchers: a fresh watcher has an
-  // empty map, so its own first look broadcasts whatever it finds — a page's own fetches can
-  // predate the stream by the width of a session starting, and a swallowed first look would
-  // leave a page sitting on stale state for ever. Always announcing costs one redundant refetch
-  // per watcher start; the silence would cost a missing navigation column. The attention picture
-  // is seeded per watcher for the same reason — and so nothing that happened while nobody was
-  // watching is announced as if it just did.
-  last.clear();
-  watcher = Effect.runFork(watchPipeline({ previous: new Map(), seeded: false }));
+  watcher = Effect.runFork(watch((news) => broadcast(news.event, news.data)));
 }
 
 function stopWatcher(): void {
@@ -187,9 +72,11 @@ function forget(client: Client): void {
  *
  * Used by the routes that make the change themselves, so your own action lands immediately. The
  * watcher would catch it anyway, which is what makes this an optimisation and not a duty: a route
- * that forgets to call it is late, not broken. */
+ * that forgets to call it is late, not broken. The watched state forgets the event too, so the
+ * watcher's next look says it again rather than deduplicating against what the action just said.
+ */
 export function announce(event: EventName): void {
-  last.delete(event);
+  forgetWatchedNews(event);
   broadcast(event);
 }
 

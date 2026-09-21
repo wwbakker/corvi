@@ -6,7 +6,7 @@ import { clearCache } from "../src/capabilities/cache.ts";
 import { azureOf } from "../src/extensions/azure-devops/azure.ts";
 import { deploySettings, deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
 import {
-  config,
+  runtimeConfig,
   extensionEnabled,
   reloadConfigSync,
   type Workspace,
@@ -27,11 +27,11 @@ const originalEnvironments = process.env.CORVI_AZURE_ENVIRONMENTS;
 
 beforeEach(() => {
   clearCache();
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
 });
 
 afterEach(() => {
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
   if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
   else process.env.CORVI_CONFIG = originalConfig;
   if (originalOrg === undefined) delete process.env.CORVI_AZURE_ORG;
@@ -51,19 +51,19 @@ test("extensionEnabled is the one enablement rule: an absent list means all of t
 });
 
 test("azureOf walks the chain one level at a time", () => {
-  config.extensionSettings = {
+  runtimeConfig().extensionSettings = {
     "azure-devops": { organization: "global-org", project: "global-proj" },
   };
 
   // The global settings bag is the first level that answers when the workspace says nothing.
-  expect(azureOf(ws(), config)).toEqual({ organization: "global-org", project: "global-proj" });
+  expect(azureOf(ws(), runtimeConfig())).toEqual({ organization: "global-org", project: "global-proj" });
 
   // The legacy per-workspace object sits above it.
   expect(
-    azureOf(ws({ azure: { organization: "legacy-org", project: "legacy-proj" } } as never), config),
+    azureOf(ws({ azure: { organization: "legacy-org", project: "legacy-proj" } } as never), runtimeConfig()),
   ).toEqual({ organization: "legacy-org", project: "legacy-proj" });
   // Half a legacy address still leaves the other half to the level below.
-  expect(azureOf(ws({ azure: { project: "legacy-proj" } } as never), config)).toEqual({
+  expect(azureOf(ws({ azure: { project: "legacy-proj" } } as never), runtimeConfig())).toEqual({
     organization: "global-org",
     project: "legacy-proj",
   });
@@ -75,14 +75,14 @@ test("azureOf walks the chain one level at a time", () => {
         azure: { organization: "legacy-org", project: "legacy-proj" },
         extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } },
       } as never),
-      config,
+      runtimeConfig(),
     ),
   ).toEqual({ organization: "own-org", project: "own-proj" });
 
   // With the global bag empty, the legacy flat field answers; with nothing at all, the empty
   // answer is what `azFor` falls back from to `az devops configure`.
-  config.extensionSettings = {};
-  expect(azureOf(ws(), config)).toEqual({ organization: "", project: "" });
+  runtimeConfig().extensionSettings = {};
+  expect(azureOf(ws(), runtimeConfig())).toEqual({ organization: "", project: "" });
 });
 
 test("deploySettingsOf reads the bag first, then the legacy flat field, then the default", () => {
@@ -105,12 +105,12 @@ test("deploySettingsOf reads the bag first, then the legacy flat field, then the
 });
 
 test("deploySettings reads the extension's own bag through the Settings capability", async () => {
-  const before = config.extensionSettings;
-  config.extensionSettings = { "azure-devops": { environments: ["dev", "accept"] } };
+  const before = runtimeConfig().extensionSettings;
+  runtimeConfig().extensionSettings = { "azure-devops": { environments: ["dev", "accept"] } };
   try {
     expect((await runEffect(deploySettings())).environments).toEqual(["dev", "accept"]);
   } finally {
-    config.extensionSettings = before;
+    runtimeConfig().extensionSettings = before;
   }
 });
 
@@ -120,7 +120,7 @@ test("a config file with only the legacy fields still works", async () => {
   const originalProject = process.env.CORVI_AZURE_PROJECT;
   const originalEnv = process.env.CORVI_AZURE_ENVIRONMENTS;
   const dir = await mkdtemp(join(tmpdir(), "corvi-azure-legacy-"));
-  process.env.CORVI_CONFIG = join(dir, "config.json");
+  process.env.CORVI_CONFIG = join(dir, "runtimeConfig().json");
   delete process.env.CORVI_AZURE_ORG;
   delete process.env.CORVI_AZURE_PROJECT;
   delete process.env.CORVI_AZURE_ENVIRONMENTS;
@@ -142,12 +142,12 @@ test("a config file with only the legacy fields still works", async () => {
     // The flat fields and the deployment conventions still resolve from a legacy-only file —
     // through the extension's own fallback read, not the resolved config, which no longer
     // types them.
-    expect(azureOf(ws(), config).organization).toBe("https://dev.azure.com/legacy");
+    expect(azureOf(ws(), runtimeConfig()).organization).toBe("https://dev.azure.com/legacy");
     expect((await runEffect(deploySettings())).environments).toEqual(["accept", "production"]);
 
     // The legacy per-workspace object still wins for project; the flat field answers organisation.
-    const client = config.workspaces[0]!;
-    expect(azureOf(client as never, config)).toEqual({
+    const client = runtimeConfig().workspaces[0]!;
+    expect(azureOf(client as never, runtimeConfig())).toEqual({
       organization: "https://dev.azure.com/legacy",
       project: "PerWorkspace",
     });
@@ -155,11 +155,11 @@ test("a config file with only the legacy fields still works", async () => {
     // The flat field carries the environment resolution, and the global bag still beats it.
     process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
     reloadConfigSync();
-    expect(azureOf(config.workspaces[0]! as never, config).organization).toBe(
+    expect(azureOf(runtimeConfig().workspaces[0]! as never, runtimeConfig()).organization).toBe(
       "https://dev.azure.com/from-env",
     );
-    config.extensionSettings = { "azure-devops": { organization: "global-org" } };
-    expect(azureOf(config.workspaces[0]! as never, config).organization).toBe("global-org");
+    runtimeConfig().extensionSettings = { "azure-devops": { organization: "global-org" } };
+    expect(azureOf(runtimeConfig().workspaces[0]! as never, runtimeConfig()).organization).toBe("global-org");
   } finally {
     if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
     else process.env.CORVI_CONFIG = originalConfig;

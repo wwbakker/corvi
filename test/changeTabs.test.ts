@@ -9,7 +9,7 @@ import { integrationRoutes } from "../src/integrations/routes.ts";
 import { changeDir, createChange } from "../src/change/server/index.ts";
 import { provisionRepo } from "../src/vendors/git.ts";
 import { visibleChangeTabs } from "../src/integrations/selectors.ts";
-import { config, workspaceById } from "../src/workspace/server/index.ts";
+import { runtimeConfig, workspaceById } from "../src/workspace/server/index.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**
@@ -69,8 +69,8 @@ const widgetsOf = async (
 };
 
 test("the tabs route lists the included tab for the workspace that has it, and hides it otherwise", async () => {
-  const saved = config.workspaces;
-  config.workspaces = [
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
     { id: "with-tab", name: "With tab", extensions: ["review"] },
     { id: "without-tab", name: "Without tab", extensions: [] },
   ];
@@ -88,13 +88,13 @@ test("the tabs route lists the included tab for the workspace that has it, and h
     // A workspace that dropped review has no tab for it, not an empty one.
     expect(await tabsOf(disabled.id)).toEqual([]);
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 
 test("the widgets route lists the included widget for the workspace that has it, and hides it otherwise", async () => {
-  const saved = config.workspaces;
-  config.workspaces = [
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
     { id: "with-widget", name: "With widget", extensions: ["notes"] },
     { id: "without-widget", name: "Without widget", extensions: [] },
   ];
@@ -112,7 +112,7 @@ test("the widgets route lists the included widget for the workspace that has it,
     // A workspace that dropped notes has no widget for it, not an empty one.
     expect(await widgetsOf(disabled.id)).toEqual([]);
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 

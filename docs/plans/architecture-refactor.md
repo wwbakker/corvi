@@ -22,7 +22,7 @@ combine this work with an Effect major upgrade, database conversion, or new agen
 
 - [x] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
       `bun run typecheck`, `bun run lint` and `bun run boundaries` pass; the full suite is
-      591 pass / 1 skip / 0 fail across 64 files (the skip is the Electron runtime test).
+      593 pass / 1 skip / 0 fail across 64 files (the skip is the Electron runtime test).
 - [x] Identify behavior tests for creation/start, review, completion/cancellation, settings,
       documents, integrations, terminal survival, and process cleanup. The coverage map lives in
       docs/design/repositories-and-changes.md ("Existing coverage to preserve").
@@ -90,12 +90,45 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 ## 4. Make construction and state ownership explicit
 
-- [ ] Replace import-time configuration reads and mutable exported configuration with a snapshot
+- [x] Replace import-time configuration reads and mutable exported configuration with a snapshot
       service. Preserve precedence, masking, workspace isolation, and immediate settings updates.
+      `src/workspace/server/config.ts` no longer exports a mutable `config` or reads the file at
+      import: it exposes `readConfig()`, `reloadInto(target)` and the migrator hook. The runtime
+      (`src/capabilities/runtime.ts`) owns the one snapshot — `runtimeConfig()`, created on first
+      use or installed via `setRuntime`, refilled in place by `reloadConfigSync`/`reloadConfig`
+      so object identity survives and a settings write takes effect immediately.
+      `workspace/server` re-exports the accessors, every reader (including the tests and
+      `SettingsLive`, which now defers its read to layer construction) goes through the runtime,
+      and precedence/masking/isolation/live-updates are pinned by `test/settings.test.ts` and
+      `test/instances.test.ts`, both green.
 - [ ] Construct caches, integration instances, and registries inside Layers, not module singletons.
+      **The cache and the config snapshot are instances the runtime owns**: `server.ts` constructs
+      the cache, restores it, and installs it with `setRuntime`; the snapshot is created/runtime-
+      installed and refilled in place on writes. `capabilitiesLayer` reads both through
+      `runtimeCache()`/`runtimeConfig()`. Tests cover two cache instances sharing nothing, the
+      installed cache being used by a request, and two server instances sharing nothing. The
+      holder is transitional: routes should be built from the runtime rather than reach for it
+      (4.96). **The included-integration list stays a static composition value** (`loaded` in
+      `src/integrations/loaded.ts`): moving it through the runtime closed a cycle (runtime →
+      loaded → extensions → the config accessor → runtime) and added no behavior; the explicit
+      list is the composition step 6 retains, with no registry or factory to own.
 - [ ] Assemble runtime services and included integrations explicitly at the server entrypoint.
-- [ ] Separate notification/watch policy from event transport; scope and cancel all watchers.
-- [ ] Separate terminal-session ownership from request/PTY attachment ownership.
+- [x] Separate notification/watch policy from event transport; scope and cancel all watchers.
+      `src/capabilities/watch.ts` owns the policy: the sources (change files, tmux windows), the
+      1.5s cadence, the dedup state, and the attention edges, exposed as `watch(sink)` and
+      `forgetWatchedNews` for an action that changed the world itself. `src/capabilities/bus.ts`
+      is the transport: connections, the 5s heartbeat, SSE framing, and the ref-count that forks
+      the watch on the first listener and interrupts it on the last. `test/events.test.ts` pins
+      the lifecycle — the watcher runs only while a page is listening and stops when it goes.
+- [x] Separate terminal-session ownership from request/PTY attachment ownership.
+      `src/terminals/server/tmux.ts` owns sessions: named per change, persistent, stopped only by
+      the lifecycle's `TerminalSessions` port. `src/terminals/server/session.ts` owns one pty per
+      connection: killed on socket close or a failed upgrade, and now registered with the
+      attachment owner so the server's shutdown closes them (`closeAttachments()` from
+      `server.ts`'s signal handler) while the tmux sessions and their shells survive. The module
+      index deliberately does not re-export the socket bridge. `test/terminal.test.ts` pins the
+      split: a terminal outlives the server (and after the restart its session has exactly one
+      client), and closing the page detaches the pty but keeps the session.
 - [x] Prove independent application instances and scoped shutdown in tests. `test/instances.test.ts`
       boots two servers with their own changes root, config, state and cache directories: a change
       written to one is invisible to the other, each reports its own config path, and stopping one
@@ -120,6 +153,14 @@ Start with inspection rather than deletion: prove the boundary without changing 
 | `pi/agent-state.ts`, agent presentation | Pi integration and agent status contracts; keep actual reporting behavior |
 
 - [ ] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
+      Inspection so far: `packages/*` construct none — `@corvi/changes` and `@corvi/workflows`
+      use their own tagged domain errors, and the app maps them at the route boundary. **The
+      first app slice is in**: creating and hand-editing a change now fail with
+      `src/change/errors.ts`'s `InvalidChangeDraft` / `ChangeAlreadyExists` / `InvalidChangeEdit`,
+      and `src/change/routes.ts`'s `changeError` is the one place their status is decided (409 for
+      a taken id and for an edit against where the change stands, 400 otherwise) — the messages
+      the tests assert are unchanged. The remaining taxonomy use is in the lifecycle/read paths
+      and the vendor adapters, where a provider failure being a CLI/HTTP error is deliberate.
 - [x] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
       Interrupted file writes: `writeAtomic` uses a unique temp per write and cleans it up on
       failure; the legacy change record now writes through it too, and `test/files.test.ts` pins
@@ -179,7 +220,9 @@ Start with inspection rather than deletion: prove the boundary without changing 
       The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
       browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
       transport behaviors moved into `ClientError` (structured error body, status-text fallback,
-      the non-JSON "older code" message) and their tests moved to the client package.
+      the non-JSON "older code" message) and their tests moved to the client package. The cache's
+      module-level `ageOf`/`loadCache`/`saveCache` exports went the same way: they are
+      `CacheStore` methods now, and the tests ask an instance (or `defaultCache`).
 
 ## 6. Remove the extension platform
 
@@ -219,12 +262,25 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 - [ ] Remove unused code, dependencies, temporary adapters, and old paths. An adapter that remains
       must have an owner, a concrete removal condition, and no new consumers.
+      **Dependencies audited**: every declared dependency of the root and of `packages/*` is
+      imported somewhere in its owner (a source string audit over all TS/TSX). The dead-file
+      sweep is inconclusive by static pattern (imports are extensionless/aliased), so nothing was
+      deleted on that basis; unused exports are being removed as replacements land (5.174).
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
+      The extracted packages' entrypoints match their `AGENTS.md` and the guide's ownership
+      table (contracts, changes, repositories, workflows, client); the configuration, terminals
+      and agents owners are still `src` modules awaiting extraction (step 3), so the check cannot
+      be completed yet. `bun run boundaries` enforces the declared graph among the workspaces.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
-      `bun run test` (which owns and cleans its resources) runs 591 pass / 1 skip / 0 fail, and
+      `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and
       the browser flows are part of it.
-- [ ] Update commands/manuals for actual behavior and package instructions for implemented ownership.
+- [x] Update commands/manuals for actual behavior and package instructions for implemented ownership.
+      Every `bun run` command used in `README.md` and `docs/manual/*.md` exists in
+      `package.json` (checked against all 20 scripts). The manual's configuration and integration
+      pages already describe included features and the workspace `extensions` list rather than
+      external plugin installation, and the only `extension:*` entries are the deliberately kept
+      Pi reporter.
 - [ ] Remove target-status caveats only once the described checks and layout exist. Delete this plan
       when complete; do not create an archive of intermediate agent reports.
 

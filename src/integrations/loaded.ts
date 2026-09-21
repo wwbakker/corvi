@@ -76,5 +76,6 @@ const normalize = (ext: IncludedIntegration): LoadedIntegration => ({
 });
 
 /** Everything included, in composition order — which is the dashboard's card order and the
- * wizard's step order within a phase. */
+ * wizard's step order within a phase. A static composition value, like the list it normalizes:
+ * there is no runtime state here to own, and importing it cannot start anything. */
 export const loaded: LoadedIntegration[] = includedIntegrations.map(normalize);

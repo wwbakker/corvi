@@ -20,7 +20,7 @@ import { planIssueCompletion } from "../src/extensions/jira/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
 import { ticketOf } from "../src/extensions/jira/jira.ts";
 import { unknownIntegrationNames } from "../src/integrations/included.ts";
-import { config, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
+import { runtimeConfig, reloadConfigSync, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 
 /**
@@ -36,7 +36,7 @@ beforeAll(async () => {
   // A config of its own: the changes root is not the only environment that leaks in. A
   // developer's own config — a workspace that names its extensions, say — would decide what
   // `extensionsFor` and the enablement rule see, and this file is about the included ones.
-  process.env.CORVI_CONFIG = join(tmp, "config.json");
+  process.env.CORVI_CONFIG = join(tmp, "runtimeConfig().json");
   reloadConfigSync();
 });
 
@@ -212,8 +212,8 @@ test("a change tab is offered only in a context that has the integration", () =>
 });
 
 test("dashboard widgets follow the enablement", () => {
-  const saved = config.workspaces;
-  config.workspaces = [
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
     { id: "with-notes", name: "Notes", extensions: ["notes"] },
     { id: "no-widgets", name: "None", extensions: [] },
   ];
@@ -225,7 +225,7 @@ test("dashboard widgets follow the enablement", () => {
     // A context without notes has no widget to show, not an empty one.
     expect(widgetsFor({ ...change, workspace: "no-widgets" })).toEqual([]);
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 
@@ -233,14 +233,14 @@ test("a completion step is planned only when the change has something for it", (
   // The jira planner: planned for a change with a ticket, absent without one, readable from
   // either place the key may live.
   const legacy = { id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" } as unknown as Change;
-  expect(planIssueCompletion(legacy, config)).toEqual({
+  expect(planIssueCompletion(legacy, runtimeConfig())).toEqual({
     id: "jira",
     label: "move PROJ-1 to Done",
     state: "waiting",
   });
   const withBag: Change = { id: "B", branch: "B", repos: [], createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
-  expect(planIssueCompletion(withBag, config)?.label).toBe("move PROJ-2 to Done");
-  expect(planIssueCompletion({ id: "C", branch: "C", repos: [], createdAt: "" }, config)).toBeUndefined();
+  expect(planIssueCompletion(withBag, runtimeConfig())?.label).toBe("move PROJ-2 to Done");
+  expect(planIssueCompletion({ id: "C", branch: "C", repos: [], createdAt: "" }, runtimeConfig())).toBeUndefined();
 
   // The github-issues planner: the label names the issue without a subprocess, so the plan is
   // honest about what is coming before anything runs.

@@ -1,5 +1,5 @@
 import type { Change } from "../../domain/change.ts";
-import { config } from "./config.ts";
+import { runtimeConfig } from "../../capabilities/runtime.ts";
 import type { Workspace } from "../../domain/config.ts";
 
 /**
@@ -9,7 +9,7 @@ import type { Workspace } from "../../domain/config.ts";
  * and asking about either is both noise on the page and most of what a refresh costs on a change
  * that has neither. This is where "which client's world is this" turns into settings.
  */
-export const workspaces = (): Workspace[] => config.workspaces;
+export const workspaces = (): Workspace[] => runtimeConfig().workspaces;
 
 /** The workspace with this id, or the first one — where every change without one belongs. */
 export function workspaceById(id?: string): Workspace {
@@ -27,4 +27,4 @@ export const extensionEnabled = (workspace: Workspace, name: string): boolean =>
 /** Where the repository browser opens for this workspace: its own setting, the global one when it
  * names none. The browser is unbounded, so this is only the starting point. */
 export const repositoriesDirectoryOf = (workspace: Workspace): string =>
-  workspace.repositoriesDirectory || config.repositoriesDirectory;
+  workspace.repositoriesDirectory || runtimeConfig().repositoriesDirectory;

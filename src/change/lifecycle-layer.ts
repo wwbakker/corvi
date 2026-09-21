@@ -39,7 +39,7 @@ import { closeIssueOnComplete, planIssueClose } from "../extensions/github-issue
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "../extensions/jira/index.ts"
 import { stopTerminal } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "../vendors/github.ts"
-import { config, workspaceById } from "../workspace/server/index.ts"
+import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
 /** The provider functions speak the old domain shape; the store keeps both in one record. */
@@ -182,7 +182,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
  * could answer differently twice would be two promises about one completion. The included steps
  * are the whole set, in load order (jira before github-issues). */
 export const plannedCompletionSteps = (change: LegacyChange): CompletionStep[] =>
-  [planIssueCompletion(change, config), planIssueClose(change)].filter(
+  [planIssueCompletion(change, runtimeConfig()), planIssueClose(change)].filter(
     (step): step is CompletionStep => Boolean(step),
   );
 

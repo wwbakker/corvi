@@ -73,7 +73,7 @@ const resolvePath = (value: string): string => {
  * in src/settings/server/legacySettings.ts. The per-workspace tolerance (skip entries without a truthy id and
  * name) is applied by workspacesFrom.
  */
-function load(): Config {
+export function readConfig(): Config {
   const file = readFileSync();
   const workspaces = workspacesFrom(file.workspaces);
   return {
@@ -132,11 +132,9 @@ function load(): Config {
 
 
 /**
- * The settings, read once at startup — and again when the settings page writes them.
- *
- * Deliberately one object that is refilled rather than replaced: every module imports this by
- * reference, and a settings page that only took effect after a restart would be a settings page
- * nobody trusts.
+ * The settings snapshot: the file and the environment resolved into what the rest of the code
+ * reads. Read by the runtime (src/capabilities/runtime.ts), which owns the one snapshot every
+ * module sees; `reloadInto` refills it in place when the settings page writes.
  *
  * The retired extension names fold into the extensions' own settings here rather than in the
  * host: the config owns the workspaces, and importing the host from the config would close a
@@ -144,7 +142,6 @@ function load(): Config {
  * setMigrator, which the host calls once its composed list — the source of the loaded names —
  * exists.
  */
-export const config: Config = load();
 
 /** The workspace migration the host injects once its list is composed. Unset in tests that
  * import the config without the host: no migration then, only the file as written. */
@@ -156,24 +153,18 @@ export const setMigrator = (
   migrator = migrate;
 }
 
-/** The same refill as an Effect, for the settings page's Effect write path. The object is
- * mutated in place (Object.assign) — modules hold it by reference. */
-export const reloadConfig = Effect.sync(() => reloadConfigSync());
-
-/** Refill the one config object in place. Sync, because every caller of the settings write is
- * synchronous today and the object identity must not change.
+/** Refill `target` in place. Sync, because every caller of the settings write is synchronous
+ * today and the object identity must not change.
  *
  * Keys the new file no longer has are removed first: the refill is Object.assign onto the one
  * object, and assign alone would leave whatever the previous file carried — a legacy field the
- * settings page emptied, say — readable for ever.
- *
- * Sync sibling of reloadConfig, which the settings write path uses. */
-export function reloadConfigSync(): Config {
-  const next = load();
-  for (const key of Object.keys(config)) {
-    if (!(key in next)) delete (config as Record<string, unknown>)[key];
+ * settings page emptied, say — readable for ever. */
+export function reloadInto(target: Config): Config {
+  const next = readConfig();
+  for (const key of Object.keys(target)) {
+    if (!(key in next)) delete (target as Record<string, unknown>)[key];
   }
-  const reloaded = Object.assign(config, next);
+  const reloaded = Object.assign(target, next);
   migrator?.(reloaded.workspaces);
   return reloaded;
 }

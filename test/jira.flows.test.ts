@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Effect, Either } from "effect";
 import { clearCache } from "../src/capabilities/cache.ts";
-import { config, type Config, type Workspace } from "../src/workspace/server/index.ts";
+import { runtimeConfig, type Config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import jiraExtension from "../src/extensions/jira/index.ts";
 import {
@@ -118,23 +118,23 @@ const setEnv = (key: string, value: string | undefined): void => {
 // The config object is shared by reference across the server; the tests mutate and restore it.
 // The legacy flat jira fields are no longer typed on the resolved config, but the loader carries
 // them through, so the fallback these tests exercise reads them through one cast.
-const legacyConfig = config as Config & { jiraAssignee?: string };
-const originalWorkspaces = config.workspaces;
+const legacyConfig = runtimeConfig() as Config & { jiraAssignee?: string };
+const originalWorkspaces = runtimeConfig().workspaces;
 const originalAssignee = legacyConfig.jiraAssignee;
-const originalExtensionSettings = config.extensionSettings;
+const originalExtensionSettings = runtimeConfig().extensionSettings;
 
 beforeEach(() => {
   clearCache();
   // Every test starts from a clean default site: what the machine's own config file happens to
   // hold is not what these tests are about, and a default leaking in would make one pass for the
   // wrong reason.
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
 });
 
 afterEach(() => {
-  config.workspaces = originalWorkspaces;
+  runtimeConfig().workspaces = originalWorkspaces;
   legacyConfig.jiraAssignee = originalAssignee;
-  config.extensionSettings = originalExtensionSettings;
+  runtimeConfig().extensionSettings = originalExtensionSettings;
   globalThis.fetch = originalFetch;
   for (const [key, value] of originalEnv) setEnv(key, value);
   fetchCalls.length = 0;
@@ -356,7 +356,7 @@ test("a bare host is asked as https, and an address that is not one is a sentenc
 // --- Site and global settings resolution ------------------------------------------------------
 
 test("siteOfWorkspace overrides the default site field by field", () => {
-  config.extensionSettings = {
+  runtimeConfig().extensionSettings = {
     jira: { server: "https://default.example", email: "default@example.com", project: "DEF", board: "1" },
   };
 
@@ -401,7 +401,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
 });
 
 test("a workspace that names its own token variable does not inherit the default's token", () => {
-  config.extensionSettings = {
+  runtimeConfig().extensionSettings = {
     jira: { server: SITE.server, email: SITE.email, token: "default-token", tokenEnv: "DEFAULT_TOKEN" },
   };
 
@@ -421,7 +421,7 @@ test("a workspace that names its own token variable does not inherit the default
 });
 
 test("siteOf and siteFor resolve a change's and an id's Jira", () => {
-  config.workspaces = [
+  runtimeConfig().workspaces = [
     { id: "client", name: "Client", extensionSettings: { jira: { project: "CLI" } } },
     { id: "other", name: "Other" },
   ];
@@ -572,7 +572,7 @@ test("a project with several boards is asked about rather than guessed, and none
 
 test("boardIssues groups sprints and the backlog, filtered to workable types", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("board-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("board-ws")];
   stubFetch((url) => {
     if (url.pathname === "/rest/agile/1.0/board/169/sprint") {
       return json({
@@ -634,7 +634,7 @@ test("boardIssues groups sprints and the backlog, filtered to workable types", a
 
 test("boardIssues answers an error string and still names the base URL when Jira fails", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("board-error-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("board-error-ws")];
   stubFetch(() => text("upstream exploded\nmore", 500, "Server Error"));
 
   const board = await runEffect(boardIssues("board-error-ws", true));
@@ -648,7 +648,7 @@ test("boardIssues answers an error string and still names the base URL when Jira
 
 test("boardIssues serves a recently read board from its cache without asking again", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("board-cache-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("board-cache-ws")];
   stubFetch((url) => {
     if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: [] });
     if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
@@ -664,7 +664,7 @@ test("boardIssues serves a recently read board from its cache without asking aga
 
 test("two workspaces on one site do not share a board", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [
+  runtimeConfig().workspaces = [
     jiraWorkspace("alpha-ws", { board: "1" }),
     jiraWorkspace("beta-ws", { board: "2" }),
   ];
@@ -687,7 +687,7 @@ test("two workspaces on one site do not share a board", async () => {
 
 test("a whole board view looks the board up once", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("lookup-ws", { board: "" })];
+  runtimeConfig().workspaces = [jiraWorkspace("lookup-ws", { board: "" })];
   stubFetch((url) => {
     if (url.pathname === "/rest/agile/1.0/board") return json({ values: [{ id: 7, name: "PROJ" }] });
     if (url.pathname === "/rest/agile/1.0/board/7/sprint") {
@@ -715,7 +715,7 @@ test("a whole board view looks the board up once", async () => {
 
 test("createIssue creates the issue, assigns it and returns what the wizard selects", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("create-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
   legacyConfig.jiraAssignee = "";
   stubFetch((url, init) => {
     const method = init?.method ?? "GET";
@@ -767,7 +767,7 @@ test("createIssue creates the issue, assigns it and returns what the wizard sele
 
 test("createIssue skips assignment when asked and omits an empty description", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("create-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
   legacyConfig.jiraAssignee = "unused@example.com";
   stubFetch((url, init) =>
     url.pathname === "/rest/api/3/issue" && init?.method === "POST"
@@ -789,7 +789,7 @@ test("createIssue skips assignment when asked and omits an empty description", a
 
 test("createIssue assigns a configured account id without looking anything up", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("create-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
   legacyConfig.jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-11" });
@@ -808,7 +808,7 @@ test("createIssue assigns a configured account id without looking anything up", 
 
 test("createIssue looks up a configured name and assigns the account it finds", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [jiraWorkspace("create-ws")];
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
   legacyConfig.jiraAssignee = "ada@example.com";
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-12" });
@@ -835,7 +835,7 @@ test("createIssue requires a summary, then a site, then a project", async () => 
   expect(fetchCalls.length).toBe(0);
 
   // Nothing configured: the answer is the site, not the project it cannot reach.
-  config.workspaces = [bareWorkspace("bare-ws")];
+  runtimeConfig().workspaces = [bareWorkspace("bare-ws")];
   const noSite = await runEither(createIssue({ summary: "No site", workspace: "bare-ws" }));
   if (Either.isLeft(noSite)) {
     expect(noSite.left.message).toBe("no Jira server for this workspace — set Server in Settings");
@@ -845,7 +845,7 @@ test("createIssue requires a summary, then a site, then a project", async () => 
   expect(fetchCalls.length).toBe(0);
 
   // A site, but no project to create an issue in.
-  config.workspaces = [jiraWorkspace("bare-ws", { project: "" })];
+  runtimeConfig().workspaces = [jiraWorkspace("bare-ws", { project: "" })];
   const noProject = await runEither(createIssue({ summary: "No project", workspace: "bare-ws" }));
   if (Either.isLeft(noProject)) {
     expect(noProject.left.message).toBe("no Jira project for this workspace — set Project in Settings");
@@ -1010,7 +1010,7 @@ const postIssues = jiraExtension.routes!.find((route) => route.method === "POST"
 
 test("an unconfigured Jira leaves the wizard's table empty, and still usable", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [bareWorkspace("bare-ws")];
+  runtimeConfig().workspaces = [bareWorkspace("bare-ws")];
   stubFetch(() => text("never", 500));
 
   const response = await runEffect(
@@ -1029,7 +1029,7 @@ test("an unconfigured Jira leaves the wizard's table empty, and still usable", a
 
 test("the wizard's create route refuses an empty summary and reports an unconfigured site", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  config.workspaces = [bareWorkspace("bare-ws")];
+  runtimeConfig().workspaces = [bareWorkspace("bare-ws")];
   stubFetch(() => json({ key: "PROJ-1" }));
 
   const empty = await runEffect(

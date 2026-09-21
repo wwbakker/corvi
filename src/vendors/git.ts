@@ -5,7 +5,7 @@ import type { Change } from "../domain/change.ts";
 import { duplicateRepoNames, isIdeation } from "../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
 import { shOrThrow } from "../capabilities/shell.ts";
-import { config } from "../workspace/server/index.ts";
+import { runtimeConfig } from "../workspace/server/index.ts";
 import { copyTooling } from "../capabilities/os.ts";
 import { writeChange, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
@@ -633,12 +633,12 @@ export const provisionRepo = (change: Change, repo: string): Effect.Effect<void,
  */
 const carryTooling = (repo: string, change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
-    if (!config.worktreeCopy.length) return;
+    if (!runtimeConfig().worktreeCopy.length) return;
     const created = yield* checkoutFor(change, repo);
     if (!created) return;
     // The copy runs as an Effect too, so its `git check-ignore` carries the workspace env
     // (src/capabilities/os.ts); its failure is reported and never fatal.
-    yield* copyTooling(repo, created, config.worktreeCopy).pipe(
+    yield* copyTooling(repo, created, runtimeConfig().worktreeCopy).pipe(
       Effect.catchAll((error) =>
         Effect.sync(() => console.error(`could not copy IDE state into ${created}:`, error))),
     );

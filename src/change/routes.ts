@@ -18,7 +18,8 @@ import {
 import { ChangeId } from "@corvi/contracts/changes";
 import { CreateChangeBodySchema, ForceBodySchema } from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { BadRequestError, type IweError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, ConflictError, isIweError, type IweError } from "../capabilities/effect/errors.ts";
+import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import type { Change } from "../domain/change.ts";
 import type { Changes } from "../integrations/api/capabilities.ts";
@@ -26,12 +27,26 @@ import { announce } from "../capabilities/bus.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
-import { attempt, bodyAs, json, withChange } from "../capabilities/web.ts";
+import { bodyAs, json, withChange } from "../capabilities/web.ts";
 import { provisionChangeRepositories } from "./provisioning.ts";
 
 // The request bodies, decoded at the boundary: the schema is the contract, and a body that does
 // not fit is the caller's 400 naming the field rather than a cast the compiler cannot check. The
 // create and force bodies are the canonical contract schemas (shared with the browser client).
+
+/** The one place a change-domain refusal becomes an HTTP status: an id already taken and an edit
+ * against where the change stands are conflicts; a draft the core refuses is the caller's 400. */
+const changeError = (error: unknown): IweError => {
+  if (error instanceof ChangeAlreadyExists) return new ConflictError({ message: error.message });
+  if (error instanceof InvalidChangeDraft) return new BadRequestError({ message: error.message });
+  if (error instanceof InvalidChangeEdit) {
+    return error.conflict
+      ? new ConflictError({ message: error.message })
+      : new BadRequestError({ message: error.message });
+  }
+  return isIweError(error) ? error : new BadRequestError({ message: messageOf(error) });
+};
+
 const PatchBody = Schema.Struct({
   state: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
@@ -53,7 +68,7 @@ export const changeRoutes = guard({
       runRoute(
         Effect.gen(function* () {
           const body = yield* bodyAs(req, CreateChangeBodySchema);
-          const change = yield* createChange(body);
+          const change = yield* createChange(body).pipe(Effect.mapError(changeError));
           // The plan the wizard collected, written as the change's own document. It is a file,
           // not a field of the draft: the agent and the dashboard edit the same file afterwards.
           if (typeof body.plan === "string" && body.plan) {
@@ -96,7 +111,10 @@ export const changeRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, PatchBody);
-          const updated = yield* attempt(() => applyPatch(c, body));
+          const updated = yield* Effect.try({
+            try: () => applyPatch(c, body),
+            catch: changeError,
+          });
           yield* writeChange(updated);
           yield* Effect.sync(() => announce("changes"));
           return json(updated);

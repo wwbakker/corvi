@@ -26,7 +26,7 @@ import type {
  */
 export const extensionsFor = (workspace: Workspace): LoadedIntegration[] => {
   const names = workspace.extensions;
-  if (!names) return loaded;
+  if (!names) return [...loaded];
   const wanted = new Set(names);
   return loaded.filter((e) => wanted.has(e.name));
 };

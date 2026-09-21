@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { ExtensionStore } from "../src/integrations/api/capabilities.ts";
 import { extensionStoreLayer } from "../src/integrations/services.ts";
 import { archiveChange, changeDir, createChange, readChange } from "../src/change/server/index.ts";
-import { config } from "../src/workspace/server/index.ts";
+import { runtimeConfig } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
 
@@ -16,18 +16,18 @@ import { runEffect } from "./helpers.ts";
  */
 
 let tmp: string;
-const savedWorkspaces = config.workspaces;
+const savedWorkspaces = runtimeConfig().workspaces;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-extension-store-"));
   process.env.CORVI_ROOT = join(tmp, "changes");
   process.env.CORVI_ARCHIVE_ROOT = join(tmp, "changes-archive");
-  config.workspaces = [{ id: "test", name: "test" }];
+  runtimeConfig().workspaces = [{ id: "test", name: "test" }];
 });
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
-  config.workspaces = savedWorkspaces;
+  runtimeConfig().workspaces = savedWorkspaces;
 });
 
 /** Run a store effect with the extension's name bound, exactly as the host binds it. */

@@ -174,6 +174,9 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await Bun.sleep(1000);
+  // The old server's attachment went with it: the session has the new server's client, and no
+  // orphaned attach client from the process that was just killed.
+  expect((await tmux("list-clients", "-t", `corvi-${id}`)).split("\n").filter(Boolean)).toHaveLength(1);
   await page.keyboard.type("echo $CORVI_SURVIVED > survived.txt\n");
   for (let i = 0; i < 30; i++) {
     if (await Bun.file(join(tmp, "changes", id, "survived.txt")).exists()) break;

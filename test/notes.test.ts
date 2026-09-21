@@ -14,7 +14,7 @@ import {
 import { dispatchIntegrationRoute, widgetsFor } from "../src/integrations/index.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import { Changes } from "../src/integrations/api/capabilities.ts";
-import { config } from "../src/workspace/server/index.ts";
+import { runtimeConfig } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
 
@@ -56,8 +56,8 @@ const ext = async (path: string, method = "GET", body?: unknown): Promise<Respon
 const textAt = (path: string): Promise<string> => Bun.file(path).text();
 
 test("the Notes widget is offered only when the extension is enabled, and its old URL falls back", () => {
-  const saved = config.workspaces;
-  config.workspaces = [
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
     { id: "with-notes", name: "With notes", extensions: ["notes"] },
     { id: "without-notes", name: "Without notes", extensions: [] },
   ];
@@ -70,7 +70,7 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
     expect(widgetsFor({ ...change, workspace: "without-notes" })).toEqual([]);
     expect(resolveChangePage("notes", [])).toEqual({ kind: "dashboard" });
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 

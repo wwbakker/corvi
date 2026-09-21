@@ -1,4 +1,4 @@
-import { config } from "../src/workspace/server/index.ts";
+import { runtimeConfig } from "../src/workspace/server/index.ts";
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -429,14 +429,14 @@ test("a change belongs to the context it was made in, and older ones to the firs
 });
 
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
-  const original = { ...config };
+  const original = { ...runtimeConfig() };
   const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
   const { azureOf } = await import("../src/extensions/azure-devops/azure.ts");
   const { extensionsFor, loaded } = await import("../src/integrations/index.ts");
   const { siteFor } = await import("../src/extensions/jira/jira.ts");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag.
-  (config as { workspaces: unknown }).workspaces = [
+  (runtimeConfig() as { workspaces: unknown }).workspaces = [
     {
       id: "client",
       name: "Acme",
@@ -468,14 +468,14 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Both
   // come from the extensions' own per-workspace settings; a workspace with none of them uses
   // whatever the CLIs themselves have configured.
-  expect(azureOf(workspaceOf(client), config).organization).toBe("https://dev.azure.com/one");
+  expect(azureOf(workspaceOf(client), runtimeConfig()).organization).toBe("https://dev.azure.com/one");
   expect(siteFor("personal")).toEqual({});
   expect(siteFor("client")).toEqual({});
 
   // A change with no workspace belongs to the first workspace.
   expect(workspaceOf(old).id).toBe("client");
 
-  (config as { workspaces: unknown }).workspaces = original.workspaces;
+  (runtimeConfig() as { workspaces: unknown }).workspaces = original.workspaces;
 });
 
 test("a legacy write materializes the new link model", async () => {
@@ -502,14 +502,14 @@ test("a change is named by its ticket, until you name it yourself", async () => 
   const { refreshTitles } = await import("../src/change/server/index.ts");
   const { clearCache } = await import("../src/capabilities/cache.ts");
   const originalFetch = globalThis.fetch;
-  const originalWorkspaces = config.workspaces;
+  const originalWorkspaces = runtimeConfig().workspaces;
   const originalToken = process.env.JIRA_API_TOKEN;
   // A Jira that answers one ticket and then cannot answer at all, so both the naming and the
   // stored name standing are exercised through the real title source.
   let failing = false;
   const asked: string[] = [];
   process.env.JIRA_API_TOKEN = "secret";
-  config.workspaces = [
+  runtimeConfig().workspaces = [
     {
       id: "jira-titles",
       name: "Jira titles",
@@ -568,7 +568,7 @@ test("a change is named by its ticket, until you name it yourself", async () => 
     expect((await runEffect(readChange(change.id)))?.title).toBe("What it is really about");
   } finally {
     globalThis.fetch = originalFetch;
-    config.workspaces = originalWorkspaces;
+    runtimeConfig().workspaces = originalWorkspaces;
     if (originalToken === undefined) delete process.env.JIRA_API_TOKEN;
     else process.env.JIRA_API_TOKEN = originalToken;
   }

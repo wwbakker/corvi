@@ -11,7 +11,7 @@ import {
 } from "../src/change/server/index.ts";
 import { plannedCompletionSteps } from "../src/change/lifecycle-layer.ts";
 import { changeDir, createChange, readChange, writeSidecar } from "../src/change/server/index.ts";
-import { config } from "../src/workspace/server/index.ts";
+import { runtimeConfig } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
 import { contentInMain, integrated } from "../src/vendors/git.ts";
@@ -98,8 +98,8 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
 test("plannedCompletionSteps: the included steps are each planned once", () => {
   // The included integrations are planned explicitly, jira before github-issues; a step must
   // not appear twice.
-  const saved = config.workspaces;
-  config.workspaces = [{ id: "test-all", name: "test" }];
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [{ id: "test-all", name: "test" }];
   try {
     const plan = plannedCompletionSteps(
       changeWith({
@@ -116,7 +116,7 @@ test("plannedCompletionSteps: the included steps are each planned once", () => {
     // Nothing for either integration to do: no contributed step at all.
     expect(plannedCompletionSteps(changeWith())).toEqual([]);
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 
