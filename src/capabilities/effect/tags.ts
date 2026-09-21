@@ -18,7 +18,7 @@ export class Workspace extends Context.Tag("corvi/Workspace")<Workspace, Workspa
  * the host provides the tag alongside the service, so requiring both is free.
  *
  * The tag lives here, next to `Workspace`, rather than in the extension contract
- * (src/extension-host/api.ts) so `sh` can read it without importing that contract — which
+ * (src/integrations/types.ts) so `sh` can read it without importing those types — which
  * re-exports `sh`'s own `Result`. api.ts re-exports it, so extension imports are unchanged. */
 export class Shell extends Context.Tag("corvi/Shell")<Shell, {
   run(cmd: readonly string[], opts?: { cwd?: string }): Effect.Effect<

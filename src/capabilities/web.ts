@@ -7,7 +7,7 @@ import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
 import { Workspace } from "./effect/tags.ts";
 import { ChangesLive } from "../extension-host/services.ts";
-import { Changes } from "../extension-host/api.ts";
+import { Changes } from "../integrations/types.ts";
 import type { Change } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
 

@@ -1,7 +1,7 @@
 /**
  * The extension-declared setting vocabulary: what an extension promises the settings page will
  * render for it. It crosses the core↔extension boundary, so it lives in the ubiquitous language;
- * the contract (`extension-host/api/settings.ts`) re-exports it for extensions.
+ * the contract (`integrations/api/settings.ts`) re-exports it for extensions.
  */
 
 /** One server-wide setting an extension declares: rendered by the settings page in a section

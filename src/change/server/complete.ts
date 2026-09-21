@@ -11,7 +11,7 @@ import type {
 import { isIdeation } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
 import { mergeReadiness, refreshReadiness, forgetPrs } from "../../vendors/github.ts";
-import type { Changes } from "../../extension-host/api/capabilities.ts";
+import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";

@@ -16,7 +16,7 @@ export { compileRoutes, type CompiledRoute } from "./registry.ts";
 
 /** Whether one compiled route fits a request, and what it captured: undefined is no fit, so
  * the caller tries the next pattern in order — the first fit wins. */
-const matchRoute = (
+export const matchRoute = (
   route: CompiledRoute,
   method: string,
   parts: readonly string[],

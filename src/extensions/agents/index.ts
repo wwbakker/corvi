@@ -1,4 +1,4 @@
-import type { Extension, TerminalPresenter } from "../../extension-host/api.ts";
+import type { IncludedIntegration, TerminalPresenter } from "../../integrations/types.ts";
 
 /**
  * What a coding agent in a tmux window is doing, as it says itself.
@@ -63,4 +63,4 @@ export const agentsWindowPresenter: TerminalPresenter = {
 export default {
   name: "agents",
   title: "Coding agents",
-} satisfies Extension;
+} satisfies IncludedIntegration;

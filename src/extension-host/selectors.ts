@@ -8,7 +8,7 @@ import type {
   DashboardWidget,
   Page,
   WizardStep,
-} from "./api.ts";
+} from "../integrations/types.ts";
 
 /**
  * The workspace queries: which extensions exist for a workspace, and one flat list per surface
@@ -86,20 +86,26 @@ export type ChangeTabInfo = ChangeTab & { extension: string };
  * client. */
 const CORE_TAB_IDS: ReadonlySet<string> = new Set(["dashboard", "terminals"]);
 
-/** The tabs a workspace's extensions add to a change's page, in load order. A tab id is the
- * tab's identity on the route and the URL, so a duplicate would be two tabs at one address:
- * the first extension to declare an id keeps it and a later one's is skipped, mirroring how a
- * duplicate extension name is resolved (registry.install). The core's own ids are reserved and
- * never offered. */
-export const changeTabsFor = (workspace: Workspace): ChangeTabInfo[] => {
+/** Drop the tabs the core owns the address for and later duplicates of one id; the first
+ * declaration wins. Pure, so the rule is testable without an integration to inject. */
+export const visibleChangeTabs = (tabs: readonly ChangeTabInfo[]): ChangeTabInfo[] => {
   const seen = new Set<string>();
-  const tabs: ChangeTabInfo[] = [];
-  for (const tab of contributed(workspace, (e) =>
-    e.changeTabs.map((t) => ({ ...t, extension: e.name })),
-  )) {
+  const visible: ChangeTabInfo[] = [];
+  for (const tab of tabs) {
     if (CORE_TAB_IDS.has(tab.id) || seen.has(tab.id)) continue;
     seen.add(tab.id);
-    tabs.push(tab);
+    visible.push(tab);
   }
-  return tabs;
+  return visible;
 };
+
+/** The tabs a workspace's integrations add to a change's page, in composition order. A tab id
+ * is the tab's identity on the route and the URL, so a duplicate would be two tabs at one
+ * address: the first integration to declare an id keeps it and a later one's is skipped. The
+ * core's own ids are reserved and never offered. */
+export const changeTabsFor = (workspace: Workspace): ChangeTabInfo[] =>
+  visibleChangeTabs(
+    contributed(workspace, (e) =>
+      e.changeTabs.map((t) => ({ ...t, extension: e.name })),
+    ),
+  );

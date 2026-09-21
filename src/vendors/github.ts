@@ -5,7 +5,7 @@ import type { WidgetItem, WidgetState } from "../domain/widget.ts";
 import { baseFor, contentInMain, remoteDefaultBranch } from "./git.ts";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, type Result } from "../capabilities/shell.ts";
-import { Changes } from "../extension-host/api/capabilities.ts";
+import { Changes } from "../integrations/api/capabilities.ts";
 import { swr, invalidate } from "../capabilities/cache.ts";
 import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
 import { cliJson, shSoft } from "../capabilities/effect/support.ts";

@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { basename } from "node:path";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Settings, Shell, Workspace, type Extension } from "../../extension-host/api.ts";
+import { Cache, Changes, Settings, Shell, Workspace, type IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
@@ -193,5 +193,5 @@ export default {
         }),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;
 

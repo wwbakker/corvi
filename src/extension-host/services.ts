@@ -9,7 +9,7 @@ import {
   Workspace,
   type Capabilities,
   type ExtensionStoreShape,
-} from "./api.ts";
+} from "../integrations/types.ts";
 import { envOf, shWithEnv } from "../capabilities/shell.ts";
 import { invalidate, swr } from "../capabilities/cache.ts";
 import { config } from "../workspace/server/index.ts";
@@ -29,7 +29,7 @@ import type { Change } from "../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../domain/config.ts";
 
 /**
- * The live layers behind the capabilities (src/extension-host/api.ts) — host-side, not part of
+ * The live layers behind the capabilities (src/integrations/types.ts) — host-side, not part of
  * the contract. One static layer per service; the request's workspace is provided alongside
  * them per request, so one service instance serves every request and `Shell` reads the
  * request's workspace at run time.

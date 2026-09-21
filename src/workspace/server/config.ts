@@ -118,8 +118,7 @@ function load(): Config {
     // Always a key, absent or not — the refill is Object.assign over the one config object, and
     // a key left out here would survive a settings write that emptied the bag.
     extensionSettings: file.extensionSettings,
-    worktreeCopy: resolveSetting({
-      env: ENV_OVERRIDES.worktreeCopy,
+    worktreeCopy: resolveSetting({      env: ENV_OVERRIDES.worktreeCopy,
       file: file.worktreeCopy,
       fallback: TOOLING,
       parse: (raw) =>
@@ -128,31 +127,9 @@ function load(): Config {
           .map((n) => n.trim())
           .filter(Boolean),
     }),
-    extensionPaths: extensionPathsFrom(file),
   };
 }
 
-/** The extension paths, resolved: the environment override (comma-separated) wins over the
- * file — an empty one counts as unset, since it names nothing — `~` is expanded, and empties
- * and duplicates are dropped. The implicit default directory is not here — it is a convention
- * the loader adds (src/extension-host/index.ts), not a decision the file records, so the settings
- * page shows exactly what was configured. */
-function extensionPathsFrom(file: ConfigFile): string[] {
-  const seen = new Set<string>();
-  const paths: string[] = [];
-  for (const item of resolveSetting<string[]>({
-    env: ENV_OVERRIDES.extensionPaths,
-    file: file.extensionPaths ?? [],
-    fallback: [],
-    parse: (raw) => (raw.trim() ? raw.split(",") : undefined),
-  })) {
-    const path = expandTilde(item.trim());
-    if (!path || seen.has(path)) continue;
-    seen.add(path);
-    paths.push(path);
-  }
-  return paths;
-}
 
 /**
  * The settings, read once at startup — and again when the settings page writes them.
@@ -162,14 +139,14 @@ function extensionPathsFrom(file: ConfigFile): string[] {
  * nobody trusts.
  *
  * The retired extension names fold into the extensions' own settings here rather than in the
- * extension host: the config owns the workspaces, and importing the host from the config would
- * close a module cycle (the host reads the config to discover out-of-tree extensions). The
- * migration lives in src/extension-host/migrate.ts and is injected by setMigrator, which the
- * host calls once its registry — the source of the loaded names — exists.
+ * host: the config owns the workspaces, and importing the host from the config would close a
+ * module cycle. The migration lives in src/extension-host/migrate.ts and is injected by
+ * setMigrator, which the host calls once its composed list — the source of the loaded names —
+ * exists.
  */
 export const config: Config = load();
 
-/** The workspace migration the host injects once its registry exists. Unset in tests that
+/** The workspace migration the host injects once its list is composed. Unset in tests that
  * import the config without the host: no migration then, only the file as written. */
 let migrator: ((workspaces: Config["workspaces"]) => void) | undefined;
 

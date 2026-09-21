@@ -7,7 +7,7 @@ import {
   Shell,
   Workspace,
   type Result,
-} from "../../extension-host/api.ts";
+} from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
 import type {
   CommitRequest,

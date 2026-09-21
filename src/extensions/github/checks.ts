@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Shell, Workspace } from "../../extension-host/api.ts";
+import { Cache, Changes, Shell, Workspace } from "../../integrations/types.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import type { Result } from "../../capabilities/shell.ts";
 

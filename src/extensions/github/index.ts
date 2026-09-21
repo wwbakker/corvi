@@ -3,11 +3,11 @@ import { Effect } from "effect";
 import { worst } from "../../domain/widget.ts";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Shell, Workspace } from "../../extension-host/api.ts";
+import { Cache, Changes, Shell, Workspace } from "../../integrations/types.ts";
 import { prItem, prSummary, createPr } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
-import type { Extension } from "../../extension-host/api.ts";
+import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 
 /**
@@ -135,4 +135,4 @@ export default {
       run: (change, action, repo) => runEffect(change, action, repo),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;

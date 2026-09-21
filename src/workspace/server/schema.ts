@@ -89,10 +89,6 @@ export const ConfigFile = Schema.Struct({
   // tolerance via workspacesFrom.
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  /** Where out-of-tree extension modules live: .ts files or directories, `~` allowed. Not
-   * validated here — a path that does not exist is logged and skipped by the loader, not a
-   * reason to reject the file. */
-  extensionPaths: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
    * one string or a list of strings per key. Not validated here — the fields are the
    * extension's own business; the core carries the bag without looking inside. */
@@ -138,7 +134,6 @@ export const Resolved = Schema.Struct({
   ideationPrompt: Schema.String,
   workspaces: Schema.Array(Workspace),
   worktreeCopy: Schema.Array(Schema.String),
-  extensionPaths: Schema.Array(Schema.String),
   extensionSettings: Schema.optional(
     Schema.mutable(
       Schema.Record({

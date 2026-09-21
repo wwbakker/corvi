@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { prItem } from "../../vendors/github.ts";
-import type { Changes } from "../../extension-host/api/capabilities.ts";
+import type { Changes } from "../../integrations/api/capabilities.ts";
 import type { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { includedDescriptionSections } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../extension-host/services.ts";

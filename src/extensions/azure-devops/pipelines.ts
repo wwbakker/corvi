@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect, Schema } from "effect";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Settings, Shell, Workspace } from "../../extension-host/api.ts";
+import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/types.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import { env } from "../../capabilities/identity.ts";
 import type { Result } from "../../capabilities/shell.ts";

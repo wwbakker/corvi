@@ -1,4 +1,3 @@
-import { basename, join } from "node:path";
 import { Effect } from "effect";
 import { BadRequestError, ConflictError, NotFoundError } from "../capabilities/effect/errors.ts";
 import {
@@ -13,8 +12,6 @@ import {
   widgetsFor,
   wizardStepsFor,
 } from "./index.ts";
-import { clientChunkPath, chunkRoot } from "./clientChunks.ts";
-import { fileResponse } from "../capabilities/files.ts";
 import { guard } from "../capabilities/web.ts";
 import { isFinished } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
@@ -154,26 +151,5 @@ export const extensionHostRoutes = guard({
           return json(yield* statusOne(req.params.card, card, c));
         }),
       ),
-  },
-
-  // The browser half of an out-of-tree extension, built at startup into the state dir and
-  // imported by the page at runtime (src/extension-host/client.tsx). Built-ins are in the page's
-  // own bundle instead; an unknown name has no chunk and answers 404.
-  "/extensions/:name/client.js": async (req) => {
-    const response = await fileResponse(clientChunkPath(req.params.name), {
-      "content-type": "text/javascript",
-    });
-    return response ?? new Response("no such extension client", { status: 404 });
-  },
-
-  // The react vendor chunks the page's import map points the out-of-tree clients at, built
-  // from the app's own react entrypoints — so an out-of-tree step resolves react to the
-  // same build the page runs (two reacts break hooks and context).
-  "/vendor/:file": async (req) => {
-    // basename: the parameter must not walk out of the vendor directory.
-    const response = await fileResponse(join(chunkRoot, "vendor", basename(req.params.file)), {
-      "content-type": "text/javascript",
-    });
-    return response ?? new Response("no such chunk", { status: 404 });
   },
 });

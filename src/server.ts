@@ -2,7 +2,6 @@ import { Effect } from "effect";
 import { loadCache, saveCache } from "./capabilities/cache.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
-import { buildClientChunks } from "./extension-host/clientChunks.ts";
 import { extensionHostRoutes } from "./extension-host/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
@@ -17,12 +16,6 @@ import { ID, env } from "./capabilities/identity.ts";
 // What the CLIs said last time. Restarting is normal — a config change, a crash, an edit while
 // `bun --hot` is not enough — and without this every page waits for the CLIs all over again.
 const restored = await Effect.runPromise(loadCache);
-
-// The browser halves of out-of-tree extensions, and the react vendor chunks they resolve
-// against, built once at startup: after the extensions have loaded (their import awaited
-// above), so the discovered client paths are known, and before the server listens, so the
-// first page never races the chunks.
-await buildClientChunks();
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.

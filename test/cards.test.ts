@@ -4,7 +4,7 @@ import { clearCache } from "../src/capabilities/cache.ts";
 import { config, type Workspace } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import type { Widget, WidgetItem } from "../src/domain/widget.ts";
-import type { Capabilities, Card } from "../src/extension-host/api.ts";
+import type { Capabilities, Card } from "../src/integrations/types.ts";
 import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
 import { repoStatusOf, runCard, statusOne } from "../src/extension-host/effects.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "../src/extensions/github/index.ts";

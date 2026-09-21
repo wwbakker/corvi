@@ -132,9 +132,12 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `summaryContributions` and `windowPresenters` are gone from the contract too, and
       `src/integrations/overview.ts` composes the included jira/github-issues/github/azure-devops
       contributors explicitly (enablement-gated, in load order); the terminal presenter is the
-      agents integration's direct import. What remains before the host can go: the
-      component-bearing presentation surface (cards, pages, tabs, widgets, wizard steps) and the
-      loader itself.
+      agents integration's direct import. **The host is gone too**: the surfaces live on the
+      included integrations' fields (`src/integrations/included.ts`), the registry is a fixed
+      normalization of that list, discovery/factories/client-chunks/`extensionPaths` and the
+      out-of-tree tests were deleted, and `src/integrations/types.ts` holds the surface types
+      (no public contract). What remains of this item is only the list of surfaces the plan's
+      step 6 describes as retained plumbing.
 - [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
@@ -142,19 +145,30 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 ## 6. Remove the extension platform
 
-- [ ] Remove out-of-tree path discovery, factories/loader machinery, and custom-module installation.
-- [ ] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
+- [x] Remove out-of-tree path discovery, factories/loader machinery, and custom-module installation.
+      `src/extension-host/discover.ts` and `install`/`installFactory` are gone;
+      `src/integrations/included.ts` is the explicit list and `registry.ts` normalizes it.
+- [x] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
       exists only for external extension code. Preserve normal application bundling.
-- [ ] Replace the public extension contract/host registry with explicit included-module composition.
-      The lifecycle and overview-contributor halves are done; the component-bearing surfaces
-      (cards, pages, tabs, widgets, wizard steps) and the loader remain.
-- [ ] Replace generic card/hook/page plumbing where ordinary feature APIs and composition suffice.
-      Hook plumbing is removed; the card/page/widget plumbing remains.
-- [ ] Remove external-loader settings/UI and obsolete tests; retain included-integration coverage.
+      `clientChunks.ts`, `vendor-jsx.ts`, the `/extensions/*/client.js` and `/vendor/*` routes and
+      the page's import map are gone; `src/extension-host/client.tsx` imports the included client
+      halves directly.
+- [x] Replace the public extension contract/host registry with explicit included-module composition.
+      No `Extension` type, no loader: the modules import `src/integrations/types.ts`, the list is
+      fixed in composition order, and a workspace's `extensions` list still gates a workspace's
+      surfaces.
+- [x] Replace generic card/hook/page plumbing where ordinary feature APIs and composition suffice.
+      Hook and overview-contributor plumbing are removed; cards, pages, tabs, widgets and wizard
+      steps stay as declarative fields on the included integrations, which is the retained list.
+- [x] Remove external-loader settings/UI and obsolete tests; retain included-integration coverage.
+      The settings page's extension-paths tab, `CORVI_EXTENSION_PATHS`/`extensionPaths`, and the
+      discovery tests are removed; the selector semantics are tested against the included
+      integrations.
 - [ ] Migrate provider metadata/documents safely if their stored layout changes. Confirm notes,
       archived documents, ticket references, and secrets remain available.
-- [ ] Keep the Pi-side reporter installation unless its integration is replaced deliberately;
-      it is not an out-of-tree Corvi plugin.
+- [x] Keep the Pi-side reporter installation unless its integration is replaced deliberately;
+      it is not an out-of-tree Corvi plugin. `scripts/extension.ts` and `test/extension.test.ts`
+      remain as they were.
 
 ## 7. Finish and verify
 

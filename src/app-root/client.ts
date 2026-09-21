@@ -6,10 +6,9 @@
  * (src/app-root/routes.ts) serves the result, falling back to index.html for the SPA's own
  * paths.
  *
- * Built lazily into the state directory — the same place the out-of-tree chunks go
- * (extension-host/clientChunks.ts) — so tests that never open a page never pay for it, and the
- * server's own startup check is what builds it in production. In development a rebuilt page is
- * picked up on the next request; in production it is built once.
+ * Built lazily into the state directory — the server's own startup check is what builds it in
+ * production — so tests that never open a page never pay for it. In development a rebuilt page
+ * is picked up on the next request; in production it is built once.
  */
 import { build } from "esbuild";
 import { cp, mkdir, readFile, readdir, stat } from "node:fs/promises";
@@ -17,7 +16,7 @@ import { basename, extname, join } from "node:path";
 import { fileResponse, writeAtomic } from "../capabilities/files.ts";
 import { stateDir } from "../capabilities/identity.ts";
 
-/** Where the built page lives, beside the out-of-tree extension chunks. */
+/** Where the built page lives. */
 export const clientDir = join(stateDir(), "client");
 
 const sourceDir = "src/app-root";

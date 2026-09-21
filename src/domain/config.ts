@@ -3,7 +3,7 @@
  *
  * These are the types the platform (`src/capabilities/effect/tags.ts`,
  * `src/capabilities/shell.ts`), the extension contract
- * (`src/extension-host/api/`) and every module speak, so they live in the ubiquitous language rather
+ * (`src/integrations/api/`) and every module speak, so they live in the ubiquitous language rather
  * than in the workspace module's server half. The loading, the file schema and the settings
  * precedence chain stay with the code that runs them (`src/workspace/server/` and
  * `src/settings/server/`).
@@ -83,11 +83,6 @@ export type Config = {
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `src/capabilities/os.ts`. */
   worktreeCopy: string[];
-  /** Where out-of-tree extension modules live: .ts files, or directories whose immediate .ts
-   * files and any `index.ts` in a subdirectory are loaded beside the built-ins (src/extension-host/index.ts). `~` is
-   * expanded and duplicates dropped; ~/.config/corvi/extensions is searched in addition, when
-   * it exists. A change here needs a restart — extensions load once, at startup. */
-  extensionPaths: string[];
   /** Settings the extensions declared, stored under their own name:
    * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
    * declaration names, which is where the extension reads it back. A value is one string or a
@@ -118,7 +113,6 @@ export type ConfigFile = {
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];
   worktreeCopy?: string[];
-  extensionPaths?: string[];
   /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
    * one string or a list of strings per key. */
   extensionSettings?: Record<string, Record<string, string | string[]>>;

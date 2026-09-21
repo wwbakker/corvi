@@ -7,15 +7,14 @@ import { runEffect } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
-  dispatchExtensionRoute,
   extensionsFor,
-  install,
   loaded,
   pagesFor,
   widgetsFor,
   wizardStepsFor,
 } from "../src/extension-host/index.ts";
-import type { Extension } from "../src/extension-host/api.ts";
+import { matchRoute } from "../src/extension-host/dispatch.ts";
+import type { CompiledRoute } from "../src/extension-host/registry.ts";
 import { planIssueClose, repoFromRemote } from "../src/extensions/github-issues/index.ts";
 import { planIssueCompletion } from "../src/extensions/jira/index.ts";
 import { refOf, refLabel } from "../src/extensions/github-issues/shared.ts";
@@ -49,71 +48,47 @@ afterAll(async () => {
 
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "test", name: "Test", ...patch });
 
-test("extension routes match :param patterns, first pattern wins", async () => {
-  const ext = install({
-    name: "test-routes",
-    title: "Routes",
-    routes: [
-      {
-        method: "GET",
-        path: "/services/:service/versions",
-        handler: (_req, params) => Effect.succeed(Response.json({ route: "versions", service: params.service })),
-      },
-      {
-        method: "GET",
-        path: "/services/:service",
-        handler: (_req, params) => Effect.succeed(Response.json({ route: "service", service: params.service })),
-      },
-      {
-        method: "POST",
-        path: "/services/:service/deploy",
-        handler: (_req, params) => Effect.succeed(Response.json({ route: "deploy", service: params.service })),
-      },
-    ],
-  });
-  try {
-    const call = (path: string, method = "GET"): Promise<unknown> | undefined =>
-      dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes/${path}`, { method }))
-        ?.then((r) => r.json());
-    // Registration order: the more specific pattern is declared first and wins.
-    expect(await call("services/web/versions")).toEqual({ route: "versions", service: "web" });
-    expect(await call("services/web")).toEqual({ route: "service", service: "web" });
-    // The method is part of the pattern.
-    expect(await call("services/web/deploy")).toBeUndefined();
-    expect(await call("services/web/deploy", "POST")).toEqual({ route: "deploy", service: "web" });
-    // No pattern of that shape: undefined, which the server turns into its 404.
-    expect(await call("other")).toBeUndefined();
-    expect(await call("services/web/versions/extra")).toBeUndefined();
-  } finally {
-    loaded.splice(loaded.indexOf(ext), 1);
-  }
+const route = (method: "GET" | "POST", path: string): CompiledRoute => ({
+  method,
+  segments: path.split("/").filter((segment) => segment !== ""),
+  handler: () => Effect.succeed(new Response()),
 });
 
-test("extension route params are percent-decoded", async () => {
-  const ext = install({
-    name: "test-routes-decode",
-    title: "Routes decode",
-    routes: [
-      {
-        method: "GET",
-        path: "/services/:service/versions",
-        handler: (_req, params) => Effect.succeed(Response.json({ service: params.service })),
-      },
-    ],
-  });
-  try {
-    const call = (path: string): Promise<unknown> | undefined =>
-      dispatchExtensionRoute(new Request(`http://localhost/api/ext/test-routes-decode/${path}`))
-        ?.then((r) => r.json());
-    // The client encodes (encodeURIComponent), and a captured segment arrives decoded, as the
-    // handlers see it elsewhere.
-    expect(await call("services/a%20b/versions")).toEqual({ service: "a b" });
-    expect(await call("services/web%2Fapi/versions")).toEqual({ service: "web/api" });
-    // A malformed escape falls back to the raw segment rather than throwing.
-    expect(await call("services/a%zz/versions")).toEqual({ service: "a%zz" });
-  } finally {
-    loaded.splice(loaded.indexOf(ext), 1);
-  }
+test("extension routes match :param patterns, first fit wins", () => {
+  const routes = [
+    route("GET", "/services/:service/versions"),
+    route("GET", "/services/:service"),
+    route("POST", "/services/:service/deploy"),
+  ];
+  const match = (method: "GET" | "POST", path: string): Record<string, string> | undefined => {
+    const parts = path.split("/");
+    for (const candidate of routes) {
+      const params = matchRoute(candidate, method, parts);
+      if (params) return params;
+    }
+    return undefined;
+  };
+  // Registration order: the more specific pattern is declared first and wins.
+  expect(match("GET", "services/web/versions")).toEqual({ service: "web" });
+  expect(match("GET", "services/web")).toEqual({ service: "web" });
+  // The method is part of the pattern.
+  expect(match("GET", "services/web/deploy")).toBeUndefined();
+  expect(match("POST", "services/web/deploy")).toEqual({ service: "web" });
+  // No pattern of that shape: undefined, which the server turns into its 404.
+  expect(match("GET", "other")).toBeUndefined();
+  expect(match("GET", "services/web/versions/extra")).toBeUndefined();
+});
+
+test("extension route params are percent-decoded", () => {
+  const candidate = route("GET", "/services/:service/versions");
+  const match = (part: string): Record<string, string> | undefined =>
+    matchRoute(candidate, "GET", ["services", part, "versions"]);
+  // The client encodes (encodeURIComponent), and a captured segment arrives decoded, as the
+  // handlers see it elsewhere.
+  expect(match("a%20b")).toEqual({ service: "a b" });
+  expect(match("web%2Fapi")).toEqual({ service: "web/api" });
+  // A malformed escape falls back to the raw segment rather than throwing.
+  expect(match("a%zz")).toEqual({ service: "a%zz" });
 });
 
 test("a remote URL is read in every shape GitHub answers to", () => {
@@ -220,80 +195,29 @@ test("an extension's page is offered only in a context that has it", () => {
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
 
-test("a change tab is offered only in a context that has the extension, and a duplicate id is owned by the first", () => {
-  const first = install({
-    name: "test-tab-first",
-    title: "First tab",
-    changeTabs: [{ id: "inspect", title: "Inspect" }],
-  });
-  const second = install({
-    name: "test-tab-second",
-    title: "Second tab",
-    // The same id as the first: a tab id is its identity on the URL, so the first owns it.
-    changeTabs: [
-      { id: "inspect", title: "Inspect again" },
-      { id: "timeline", title: "Timeline" },
-    ],
-  });
-  try {
-    const both = changeTabsFor(ws({ extensions: ["test-tab-first", "test-tab-second"] }));
-    expect(both).toEqual([
-      { id: "inspect", title: "Inspect", extension: "test-tab-first" },
-      { id: "timeline", title: "Timeline", extension: "test-tab-second" },
-    ]);
-
-    // A context that dropped the first extension gets the second's tab under that id.
-    const withoutFirst = changeTabsFor(ws({ extensions: ["test-tab-second"] }));
-    expect(withoutFirst).toEqual([
-      { id: "inspect", title: "Inspect again", extension: "test-tab-second" },
-      { id: "timeline", title: "Timeline", extension: "test-tab-second" },
-    ]);
-
-    // A context without either extension has no tab to show, not an empty one.
-    expect(changeTabsFor(ws({ extensions: [] }))).toEqual([]);
-  } finally {
-    loaded.splice(loaded.indexOf(first), 1);
-    loaded.splice(loaded.indexOf(second), 1);
-  }
+test("a change tab is offered only in a context that has the integration", () => {
+  expect(changeTabsFor(ws({ extensions: ["review"] }))).toEqual([
+    { id: "review", title: "Review changes", extension: "review" },
+  ]);
+  // A context that dropped review has no tab for it, not an empty one.
+  expect(changeTabsFor(ws({ extensions: ["notes"] }))).toEqual([]);
 });
 
-test("dashboard widgets follow the enablement, in load order, and duplicates coexist", () => {
-  const first = install({
-    name: "test-widget-first",
-    title: "First widget",
-    dashboardWidgets: [{ id: "notes", title: "First notes", column: "left" }],
-  });
-  const second = install({
-    name: "test-widget-second",
-    title: "Second widget",
-    // The same id as the first: widgets carry no address, so both render — the page keys
-    // them by extension plus id.
-    dashboardWidgets: [
-      { id: "notes", title: "Second notes" },
-      { id: "timeline", title: "Timeline" },
-    ],
-  });
+test("dashboard widgets follow the enablement", () => {
   const saved = config.workspaces;
   config.workspaces = [
-    { id: "both-widgets", name: "Both", extensions: ["test-widget-first", "test-widget-second"] },
+    { id: "with-notes", name: "Notes", extensions: ["notes"] },
     { id: "no-widgets", name: "None", extensions: [] },
   ];
   try {
     const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
-    const both = widgetsFor({ ...change, workspace: "both-widgets" });
-    // Load order, extension-keyed; the column travels with the widget.
-    expect(both).toEqual([
-      { id: "notes", title: "First notes", extension: "test-widget-first", column: "left" },
-      { id: "notes", title: "Second notes", extension: "test-widget-second" },
-      { id: "timeline", title: "Timeline", extension: "test-widget-second" },
+    expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
+      { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);
-
-    // A context without either extension has no widget to show, not an empty one.
+    // A context without notes has no widget to show, not an empty one.
     expect(widgetsFor({ ...change, workspace: "no-widgets" })).toEqual([]);
   } finally {
     config.workspaces = saved;
-    loaded.splice(loaded.indexOf(first), 1);
-    loaded.splice(loaded.indexOf(second), 1);
   }
 });
 

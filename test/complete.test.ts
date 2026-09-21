@@ -15,7 +15,6 @@ import { changeDir, createChange, readChange, writeSidecar } from "../src/change
 import { config } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
-import { install, loaded } from "../src/extension-host/registry.ts";
 import { contentInMain, integrated } from "../src/vendors/git.ts";
 
 /**

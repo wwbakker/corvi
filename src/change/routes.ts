@@ -19,7 +19,7 @@ import { runRoute } from "../capabilities/effect/run.ts";
 import { BadRequestError, type IweError } from "../capabilities/effect/errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import type { Change } from "../domain/change.ts";
-import type { Changes } from "../extension-host/api/capabilities.ts";
+import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { listLeftovers, removeLeftover } from "./server.ts";
-import type { Extension } from "../../extension-host/api.ts";
+import type { IncludedIntegration } from "../../integrations/types.ts";
 
 /**
  * The leftovers extension: the directories in the changes root that no longer belong to a
@@ -37,4 +37,4 @@ export default {
         }),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;

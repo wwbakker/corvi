@@ -7,7 +7,6 @@ import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
 import { Effect } from "effect";
 import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
 import { cancelChange } from "../src/change/server/index.ts";
-import { install, loaded } from "../src/extension-host/registry.ts";
 import type { Result } from "../src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/domain/change.ts";
 

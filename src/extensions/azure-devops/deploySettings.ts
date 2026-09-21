@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Settings } from "../../extension-host/api.ts";
+import { Settings } from "../../integrations/types.ts";
 import { bagList, bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
 import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
 

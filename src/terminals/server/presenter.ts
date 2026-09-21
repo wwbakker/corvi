@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import type { TerminalWindow } from "../../domain/terminal.ts";
-import type { TmuxWindow, WindowPresentation } from "../../extension-host/api.ts";
+import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
 import { agentsWindowPresenter } from "../../extensions/agents/index.ts";
 
 /**

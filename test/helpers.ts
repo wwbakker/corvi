@@ -6,7 +6,7 @@ import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../src/extension-host/services.ts";
-import type { Capabilities } from "../src/extension-host/api.ts";
+import type { Capabilities } from "../src/integrations/types.ts";
 import { setRepos } from "../src/vendors/git.ts";
 import { sh, type Result } from "../src/capabilities/shell.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";

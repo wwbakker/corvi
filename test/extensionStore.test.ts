@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { ExtensionStore } from "../src/extension-host/api.ts";
+import { ExtensionStore } from "../src/integrations/types.ts";
 import { extensionStoreLayer } from "../src/extension-host/services.ts";
 import { archiveChange, changeDir, createChange, readChange } from "../src/change/server/index.ts";
 import { config } from "../src/workspace/server/index.ts";

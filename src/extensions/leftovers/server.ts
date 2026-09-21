@@ -2,7 +2,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { root, changeDir } from "../../change/server/index.ts";
-import { Shell, type Result, type Workspace } from "../../extension-host/api.ts";
+import { Shell, type Result, type Workspace } from "../../integrations/types.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file } from "../../capabilities/files.ts";

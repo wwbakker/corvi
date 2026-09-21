@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { gitRun, repoItem } from "../../vendors/git.ts";
-import type { Extension } from "../../extension-host/api.ts";
+import type { IncludedIntegration } from "../../integrations/types.ts";
 
 /**
  * Local changes: the worktree card, and the change provisioning hooks.
@@ -24,4 +24,4 @@ export default {
       run: (change, action, repo) => gitRun(change, action, repo),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;

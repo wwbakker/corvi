@@ -35,6 +35,13 @@ const serverImports = (up, extra = []) => [
   `${up}extension-host/**`,
   `!${up}extension-host/client.tsx`,
   `${up}extensions/**`,
+  // An integration's browser half is browser code, next to its server half by design: the
+  // host's client registry imports the included halves directly. A file cannot be re-admitted
+  // while every parent is excluded, so its directory is re-admitted first, then the file. The
+  // server side of an integration stays restricted.
+  `!${up}extensions`,
+  `!${up}extensions/*`,
+  `!${up}extensions/*/client.tsx`,
   `!${up}**/model.ts`,
 ];
 

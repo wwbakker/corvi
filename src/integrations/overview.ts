@@ -10,7 +10,7 @@ import type { Effect } from "effect";
 import type { Change } from "../domain/change.ts";
 import type { Workspace } from "../domain/config.ts";
 import type { SummaryFact, WidgetState } from "../domain/widget.ts";
-import type { Capabilities } from "../extension-host/api/capabilities.ts";
+import type { Capabilities } from "../integrations/api/capabilities.ts";
 import { extensionEnabled } from "../workspace/server/index.ts";
 import { azureDevopsSummaryContributor } from "../extensions/azure-devops/index.ts";
 import { githubSummaryContributor } from "../extensions/github/index.ts";

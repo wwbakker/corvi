@@ -4,7 +4,7 @@ import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 // The settings vocabulary lives in the module's model.ts, so the browser bundle gets none of
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
-import type { ExtensionSetting } from "../../extension-host/api.ts";
+import type { ExtensionSetting } from "../../integrations/types.ts";
 import { CheckField, DirectoryField, Field, ListEditor, TextArea, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 
@@ -103,7 +103,6 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
   const tabs = [
     { id: "locations", label: "Locations" },
     { id: "worktrees", label: "Worktrees" },
-    { id: "extensions", label: "Extensions" },
     ...view.extensions
       .filter((extension) => extension.globalSettings.length)
       .map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
@@ -191,20 +190,6 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
               restore the defaults ({view.toolingDefault.join(" ")})
             </button>
           )}
-        </div>
-      )}
-
-      {active === "extensions" && (
-        <div className="form">
-          <ListEditor
-            label="Out-of-tree extension paths"
-            hint="TypeScript modules loaded beside the built-ins: a .ts file, or a directory whose immediate .ts files and */index.ts are loaded. ~/.config/corvi/extensions is searched as well, when it exists. Loading happens once, at startup — a change here needs a restart."
-            values={draft.extensionPaths ?? []}
-            placeholder="/home/me/my-extension"
-            locked={lock("extensionPaths")}
-            picker
-            onChange={(extensionPaths) => set({ extensionPaths })}
-          />
         </div>
       )}
 

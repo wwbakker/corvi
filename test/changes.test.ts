@@ -15,7 +15,7 @@ import {
 import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../src/vendors/git.ts";
 import { Effect } from "effect";
 import type { Change } from "../src/domain/change.ts";
-import type { TmuxWindow } from "../src/extension-host/api.ts";
+import type { TmuxWindow } from "../src/integrations/types.ts";
 import type { PresentedWindow } from "../src/terminals/server/index.ts";
 import { runEffect, runSetRepos, runSh } from "./helpers.ts";
 

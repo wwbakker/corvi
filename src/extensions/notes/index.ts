@@ -4,8 +4,8 @@ import {
   Changes,
   DecodeError,
   NotFoundError,
-  type Extension,
-} from "../../extension-host/api.ts";
+  type IncludedIntegration,
+} from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
 import { readNotes, writeNotes } from "./server.ts";
 
@@ -75,4 +75,4 @@ export default {
         ),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;

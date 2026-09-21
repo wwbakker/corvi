@@ -27,7 +27,7 @@ import githubIssues from "../src/extensions/github-issues/index.ts";
 import { clearCache } from "../src/capabilities/cache.ts";
 import { config } from "../src/workspace/server/index.ts";
 import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
-import type { Capabilities } from "../src/extension-host/api.ts";
+import type { Capabilities } from "../src/integrations/types.ts";
 import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Result } from "../src/capabilities/shell.ts";

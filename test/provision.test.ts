@@ -17,7 +17,7 @@ import { versionInLines } from "../src/extensions/azure-devops/pipelines.ts";
 import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
 import { readiness, headRef, waitingOnYou } from "../src/vendors/github.ts";
 import { presentWindow, type PresentedWindow } from "../src/terminals/server/index.ts";
-import type { TmuxWindow } from "../src/extension-host/api.ts";
+import type { TmuxWindow } from "../src/integrations/types.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 

@@ -20,7 +20,7 @@ import {
 } from "./jira.ts";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
-import { Settings, Workspace, type Capabilities, type Extension } from "../../extension-host/api.ts";
+import { Settings, Workspace, type Capabilities, type IncludedIntegration } from "../../integrations/types.ts";
 import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
 
 /**
@@ -321,4 +321,4 @@ export default {
         }),
     },
   ],
-} satisfies Extension;
+} satisfies IncludedIntegration;

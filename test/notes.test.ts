@@ -13,7 +13,7 @@ import {
 } from "../src/change/server/index.ts";
 import { dispatchExtensionRoute, widgetsFor } from "../src/extension-host/index.ts";
 import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import { Changes } from "../src/extension-host/api.ts";
+import { Changes } from "../src/integrations/types.ts";
 import { config } from "../src/workspace/server/index.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
