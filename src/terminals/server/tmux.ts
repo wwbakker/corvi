@@ -14,7 +14,7 @@ import {
   type CommandResult,
   type Host,
 } from "@corvi/terminals/tmux";
-import { CliError } from "../../capabilities/effect/errors.ts";
+import { CliError } from "@corvi/contracts/errors";
 import { ID, env } from "../../capabilities/identity.ts";
 import { sh, shOrThrow } from "../../capabilities/shell.ts";
 

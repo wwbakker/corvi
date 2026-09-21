@@ -1,5 +1,5 @@
-import { formatError, isIweError } from "./errors.ts";
-import type { IweError } from "./errors.ts";
+import { formatError, isIweError } from "@corvi/contracts/errors";
+import type { IweError } from "@corvi/contracts/errors";
 
 /**
  * The only place in the effect layer that knows what a Response is: which of our errors maps

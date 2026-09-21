@@ -22,6 +22,7 @@ packages/
   repositories/           Git repositories, branches, worktrees and local review
   terminals/              terminal sessions, windows and attachment
   agents/                 Corvi-facing agent-session capabilities
+  shell/                  subprocess execution capability
   workflows/              application operations and their required provider ports
   client/                 typed network operations for browser consumers
 integrations/
@@ -71,16 +72,26 @@ changes -> contracts
 repositories -> contracts
 terminals -> contracts
 agents -> contracts
+shell -> contracts
 workflows -> contracts, configuration, changes, repositories, terminals, agents
-integrations/* -> contracts, relevant capability APIs, workflows/ports
+integrations/* -> contracts, shell, relevant capability APIs, workflows/ports
 client -> contracts
 apps/server -> workflows, capabilities, integrations, contracts
 apps/web -> client, contracts
 apps/desktop -> web's public host contract, contracts
 ```
 
+`shell` is the subprocess capability: any layer that runs a CLI may depend on it (repositories,
+terminals, agents, workflows, `integrations/*`, `apps/server`). The provider's environment,
+limits and tracing stay with the host that constructs the Node implementation.
+
 Packages may use appropriate external libraries; OS implementations belong behind their owner's
-adapter entrypoint. Backend capabilities can require existing Effect platform services. Do not
+adapter entrypoint. Applications may import Node built-ins directly — `apps/server` hosts the
+process and the native capabilities, and `apps/desktop` is the Electron host — while `apps/web`
+is browser-only and extracted packages keep OS implementations behind their owner's `node`
+adapter entrypoint (`src/node/`). The checked graph records an application's right to Node as
+`"node": true` on its rule (`architecture.json`). Backend capabilities can require existing
+Effect platform services. Do not
 create a catch-all `core`, `common`, or `utils` workspace to bypass ownership.
 
 **Provider inversion:** when a workflow needs a provider-independent operation such as inspecting

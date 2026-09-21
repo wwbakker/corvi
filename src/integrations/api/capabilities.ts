@@ -1,12 +1,13 @@
 import { Context, Effect } from "effect";
-import { Shell, Workspace as WorkspaceTag } from "../../capabilities/effect/tags.ts";
+import { Shell } from "@corvi/shell";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import type { Config } from "@corvi/configuration/config";
 import type { Change } from "../../domain/change.ts";
-import type { DecodeError, IweError } from "../../capabilities/effect/errors.ts";
+import type { DecodeError, IweError } from "@corvi/contracts/errors";
 
 // --- Capabilities: what the host provides to every contributed effect ---------------------
 
-/** The request's workspace — the same tag the core's routes provide (src/capabilities/effect/tags.ts).
+/** The request's workspace — the same tag the core's routes provide (`@corvi/contracts/workspace`).
  * Re-exported so the contract stays the one import an extension needs. */
 export { Shell, WorkspaceTag as Workspace };
 

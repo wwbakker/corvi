@@ -11,6 +11,7 @@
         "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",
         "@corvi/repositories": "workspace:*",
+        "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
         "@corvi/workflows": "workspace:*",
         "@xterm/addon-clipboard": "^0.2.0",
@@ -78,6 +79,14 @@
     },
     "packages/repositories": {
       "name": "@corvi/repositories",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/shell": {
+      "name": "@corvi/shell",
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
@@ -178,6 +187,8 @@
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
 
     "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
+
+    "@corvi/shell": ["@corvi/shell@workspace:packages/shell"],
 
     "@corvi/terminals": ["@corvi/terminals@workspace:packages/terminals"],
 

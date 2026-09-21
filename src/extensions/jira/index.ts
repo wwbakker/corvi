@@ -3,7 +3,7 @@ import type { Change, CompletionStep } from "../../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { swr } from "../../capabilities/cache.ts";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import {
   boardIssues,
   siteOfWorkspace,

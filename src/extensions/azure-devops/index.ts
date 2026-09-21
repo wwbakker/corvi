@@ -5,7 +5,7 @@ import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import { prNumberOf } from "../../vendors/github.ts";

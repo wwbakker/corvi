@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { changeDir, readChange } from "../change/server/index.ts";
 import { ideationPromptFor } from "../change/server/index.ts";
-import { BadRequestError } from "../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { guard } from "../capabilities/web.ts";
 import {

@@ -8,7 +8,7 @@ import {
   ConflictError,
   isIweError,
   type IweError,
-} from "../../capabilities/effect/errors.ts";
+} from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
 import { type Change, type ProvisionResult } from "../../domain/change.ts";

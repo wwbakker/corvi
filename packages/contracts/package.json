@@ -8,7 +8,9 @@
     "./changes": "./src/changes.ts",
     "./api": "./src/api.ts",
     "./config": "./src/config.ts",
-    "./terminal": "./src/terminal.ts"
+    "./terminal": "./src/terminal.ts",
+    "./errors": "./src/errors.ts",
+    "./workspace": "./src/workspace.ts"
   },
   "dependencies": {
     "effect": "catalog:"

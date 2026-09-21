@@ -7,7 +7,7 @@ import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.t
 import { shOrThrow, type Result } from "../capabilities/shell.ts";
 import { Changes } from "../integrations/api/capabilities.ts";
 import { swr, invalidate } from "../capabilities/cache.ts";
-import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson, shSoft } from "../capabilities/effect/support.ts";
 
 /** `gh pr list --json` for one head. */

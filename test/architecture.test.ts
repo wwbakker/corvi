@@ -11,7 +11,12 @@ interface FixturePackage {
 }
 
 interface FixtureGraph {
-  readonly packages: Readonly<Record<string, { readonly dependsOn: readonly string[]; readonly external?: readonly string[] }>>;
+  readonly packages: Readonly<
+    Record<
+      string,
+      { readonly dependsOn: readonly string[]; readonly external?: readonly string[]; readonly node?: boolean }
+    >
+  >;
 }
 
 const contractsPackage = (
@@ -39,6 +44,21 @@ const changesPackage = (
     version: "0.0.0",
     exports: { ".": "./src/index.ts" },
     dependencies: { "@corvi/contracts": "workspace:*" },
+    ...manifest,
+  },
+  files,
+});
+
+const serverPackage = (
+  files: Record<string, string>,
+  manifest: Record<string, unknown> = {},
+): FixturePackage => ({
+  dir: "server",
+  manifest: {
+    name: "@corvi/server",
+    version: "0.0.0",
+    exports: { ".": "./src/index.ts" },
+    dependencies: {},
     ...manifest,
   },
   files,
@@ -142,6 +162,30 @@ test("a capability entrypoint may not import a Node built-in", async () => {
     contractsPackage({ "changes.ts": "export const x = 1;\n" }),
     changesPackage({ "index.ts": 'import "node:fs";\n' }),
   ]);
+  expect(problemsOf(root)).toContain("Node built-in imports belong in the node adapter entrypoint: node:fs");
+});
+
+test("an application may import a Node built-in outside a node adapter", async () => {
+  const root = await writeFixture(
+    "application-node",
+    { packages: { "@corvi/server": { dependsOn: [], node: true } } },
+    [serverPackage({ "capabilities/shell.ts": 'import { join } from "node:path";\nexport const x = join("a", "b");\n' })],
+  );
+  expect(checkArchitecture(root)).toEqual([]);
+});
+
+test("an application without the node rule still keeps Node in its adapter", async () => {
+  const root = await writeFixture(
+    "application-browser",
+    { packages: { "@corvi/web": { dependsOn: [] } } },
+    [
+      {
+        dir: "web",
+        manifest: { name: "@corvi/web", version: "0.0.0", exports: { ".": "./src/index.ts" }, dependencies: {} },
+        files: { "index.ts": 'import "node:fs";\n' },
+      },
+    ],
+  );
   expect(problemsOf(root)).toContain("Node built-in imports belong in the node adapter entrypoint: node:fs");
 });
 

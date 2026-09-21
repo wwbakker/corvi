@@ -55,6 +55,7 @@
     "@corvi/configuration": "workspace:*",
     "@corvi/contracts": "workspace:*",
     "@corvi/repositories": "workspace:*",
+    "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",
     "@corvi/workflows": "workspace:*",
     "@xterm/addon-clipboard": "^0.2.0",

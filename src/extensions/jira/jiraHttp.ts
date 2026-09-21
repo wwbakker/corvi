@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import type { Site } from "./jira.ts";
 
 /**

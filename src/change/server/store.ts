@@ -6,7 +6,7 @@ import type { Change } from "../../domain/change.ts";
 import { PLAN_FILE } from "../../domain/change.ts";
 import { projectLegacyRepositories } from "@corvi/changes/legacy";
 import { Change as ChangeSchema } from "./schema.ts";
-import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
 import { runtimeConfig } from "../../workspace/server/index.ts";

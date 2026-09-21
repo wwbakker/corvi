@@ -4,7 +4,7 @@ import { Effect } from "effect";
 import { root, changeDir } from "../../change/server/index.ts";
 import { Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import type { Result } from "../../capabilities/shell.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file } from "../../capabilities/files.ts";
 import type { Leftover } from "./shared.ts";

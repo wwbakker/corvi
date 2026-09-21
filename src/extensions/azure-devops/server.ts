@@ -8,7 +8,7 @@ import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
 import { autoDeployedApp } from "./deployConventions.ts";
 import { ago } from "../../domain/time.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 // The wire vocabulary is shared with the browser half; the types derive from the schemas there.
 import type { Buildable, Deployed, Service } from "./shared.ts";
 export type { Buildable, Deployed, Service };

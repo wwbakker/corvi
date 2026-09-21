@@ -1,0 +1,14 @@
+{
+  "name": "@corvi/shell",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/shell.ts",
+    "./node": "./src/node/shell.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:"
+  }
+}

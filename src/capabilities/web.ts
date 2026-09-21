@@ -2,7 +2,7 @@ import type { Serve } from "bun";
 import type { TerminalSocket } from "../terminals/server/session.ts";
 import { Effect } from "effect";
 import { readChange } from "../change/server/index.ts";
-import { BadRequestError, isIweError, NotFoundError, type IweError } from "./effect/errors.ts";
+import { BadRequestError, isIweError, NotFoundError, type IweError } from "@corvi/contracts/errors";
 import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
 import { Workspace } from "../integrations/api/capabilities.ts";

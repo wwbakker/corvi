@@ -1,5 +1,5 @@
 import { Effect, ParseResult, Schema } from "effect";
-import { BadRequestError, DecodeError, type IweError } from "./errors.ts";
+import { BadRequestError, DecodeError, type IweError } from "@corvi/contracts/errors";
 
 /**
  * Reading request bodies, kept free of the rest of the web plumbing: the integration modules'

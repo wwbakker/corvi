@@ -293,16 +293,19 @@ Start with inspection rather than deletion: prove the boundary without changing 
       inconclusive by static pattern, so nothing was deleted on that basis.
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
       The extracted packages' entrypoints match their `AGENTS.md` and the guide's ownership
-      table (contracts, configuration, changes, repositories, terminals, agents, workflows and
-      client). What is left is the application and integration split: `apps/server`, `apps/web`,
-      `apps/desktop`, and the five `integrations/*` packages. The gate is an ownership decision,
-      not code volume: `apps/server` becomes a workspace only after the architecture check's
-      Node rule is answered for it — today the checker allows a Node built-in only under a
-      package's `src/node/` adapter, while the server app's capability layer (`shell`, `files`,
-      `os`, `serve`, `identity`) legitimately imports Node across its files, and the five
-      integrations cannot move until the capability APIs they depend on have an owner. Until
-      that decision is made, `bun run boundaries` keeps enforcing the declared graph among the
-      workspaces that exist.
+      table (contracts, configuration, changes, repositories, terminals, agents, shell,
+      workflows and client). The interface the application and integration split needs is in
+      place: `@corvi/contracts/errors` owns the failure vocabulary (the app's module is gone,
+      every importer swept), `@corvi/contracts/workspace` owns the request-scoped `Workspace`
+      tag, and `@corvi/shell` owns the `Shell` capability with its Node adapter under
+      `./node` (the app constructs it with its environment, limits and tracing). What is left is
+      the integration contract move (the declaration types and the remaining tags:
+      `Cache`, `Settings`, `Bus`, `ExtensionStore`, `Changes`) and then the application and
+      integration split: `apps/server`, `apps/web`, `apps/desktop`, and the five
+      `integrations/*` packages. The Node rule for applications is answered — rules may carry
+      `"node": true`, and `@corvi/server`/`@corvi/desktop` do, while `@corvi/web` stays
+      browser-only. Until the app packages exist, `bun run boundaries` keeps enforcing the
+      declared graph among the workspaces that exist.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
       `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and

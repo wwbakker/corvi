@@ -5,7 +5,7 @@ import { Cache, Shell, Workspace } from "../../integrations/api/capabilities.ts"
 import type { Capabilities } from "../../integrations/api/capabilities.ts";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
-import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "../../capabilities/effect/support.ts";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
 

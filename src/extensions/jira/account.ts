@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { jiraFetch } from "./jiraHttp.ts";
 import type { Site } from "./jira.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 
 /**
  * The account to assign to: whatever is configured, or the one the token belongs to. A name is

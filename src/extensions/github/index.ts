@@ -6,7 +6,7 @@ import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import { prItem, prSummary, createPr } from "../../vendors/github.ts";
 import { checkItems } from "./checks.ts";
-import { BadRequestError, type CliError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 

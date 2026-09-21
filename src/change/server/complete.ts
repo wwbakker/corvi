@@ -33,7 +33,7 @@ import {
   isIweError,
   type CliError,
   type IweError,
-} from "../../capabilities/effect/errors.ts";
+} from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
 

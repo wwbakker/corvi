@@ -18,7 +18,7 @@ import {
 import { ChangeId } from "@corvi/contracts/changes";
 import { CreateChangeBodySchema, ForceBodySchema } from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { BadRequestError, ConflictError, isIweError, type IweError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import type { Change } from "../domain/change.ts";

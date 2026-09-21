@@ -13,7 +13,7 @@ import { envOf, shWithEnv } from "../capabilities/shell.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
-import { BadRequestError } from "../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import {
   CORE_SIDECARS,
   listExtensionFiles,

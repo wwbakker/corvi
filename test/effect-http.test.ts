@@ -10,7 +10,7 @@ import {
   formatError,
   isIweError,
   NotFoundError,
-} from "../src/capabilities/effect/errors.ts";
+} from "@corvi/contracts/errors";
 
 /**
  * http.ts is the one module that knows a Response, so every status code the UI branches on is

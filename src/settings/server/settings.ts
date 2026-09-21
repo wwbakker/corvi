@@ -18,7 +18,7 @@ import {
 import { loaded } from "../../integrations/index.ts";
 import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { invalidate } from "../../capabilities/cache.ts";
 import { TOOLING } from "../../capabilities/os.ts";

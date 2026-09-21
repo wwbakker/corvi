@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { BadRequestError } from "../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { cliJson, shSoft } from "../capabilities/effect/support.ts";
 
 /** Where a pull request sits in its stack, when it is in one. */

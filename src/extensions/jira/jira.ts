@@ -8,7 +8,7 @@ import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Board, Issue, Sprint, TicketRef } from "./shared.ts";
 

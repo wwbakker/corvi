@@ -1,7 +1,7 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import { duplicateRepoNames, IDEATION, type Change, type ChangeDraft } from "../../domain/change.ts";
-import { DecodeError } from "../../capabilities/effect/errors.ts";
+import { DecodeError } from "@corvi/contracts/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft } from "../errors.ts";
 import { readChange, writeChange } from "./store.ts";
 

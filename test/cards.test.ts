@@ -10,7 +10,8 @@ import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } fr
 import { repoStatusOf, runCard, statusOne } from "../src/integrations/effects.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "../src/extensions/github/index.ts";
 import azureDevopsExtension, { azureDevopsSummaryContributor } from "../src/extensions/azure-devops/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
+import { Shell } from "@corvi/shell";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import type { Result } from "../src/capabilities/shell.ts";
 import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";

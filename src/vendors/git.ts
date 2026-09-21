@@ -9,7 +9,7 @@ import { runtimeConfig } from "../workspace/server/index.ts";
 import { copyTooling } from "../capabilities/os.ts";
 import { writeChange, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
-import { BadRequestError, type CliError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { fs, messageOf, shSoft } from "../capabilities/effect/support.ts";
 
 /**

@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { prItem } from "../../vendors/github.ts";
 import type { Changes } from "../../integrations/api/capabilities.ts";
-import type { BadRequestError } from "../../capabilities/effect/errors.ts";
+import type { BadRequestError } from "@corvi/contracts/errors";
 import { includedDescriptionSections } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";

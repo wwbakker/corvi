@@ -1,7 +1,7 @@
 /**
  * The configuration vocabulary: what a workspace is and what the resolved config holds.
  *
- * These are the types every module speaks — the platform (`src/capabilities/effect/tags.ts`,
+ * These are the types every module speaks — the platform (`@corvi/contracts/workspace`,
  * `src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in the
  * configuration package rather than in the module that happens to read the file. The loading,
  * the file schema and the settings precedence chain are the package's `./settings` and the

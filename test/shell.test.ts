@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
 import { currentBranch } from "../src/vendors/git.ts";
 import { sh } from "../src/capabilities/shell.ts";
-import { Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 import type { Workspace } from "@corvi/configuration/config";

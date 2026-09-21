@@ -15,6 +15,10 @@ import * as ts from "typescript"
 interface GraphRule {
   readonly dependsOn: readonly string[]
   readonly external?: readonly string[]
+  /** An application may import Node built-ins anywhere: it hosts the process and the native
+   * capabilities. Extracted packages keep OS implementations behind their owner's node adapter
+   * (`src/node/`), and the browser application stays browser-only. */
+  readonly node?: boolean
 }
 
 interface ArchitectureConfig {
@@ -232,6 +236,7 @@ export const checkArchitecture = (root: string): readonly string[] => {
           continue
         }
         if (isBuiltin(specifier)) {
+          if (rule.node) continue
           const local = relative(pkg.dir, file)
           const inNodeAdapter = local.startsWith(`src${sep}node${sep}`)
           if (!inNodeAdapter)

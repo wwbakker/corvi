@@ -26,7 +26,8 @@ import {
 import githubIssues from "../src/extensions/github-issues/index.ts";
 import { clearCache } from "../src/capabilities/cache.ts";
 import { runtimeConfig } from "../src/workspace/server/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
+import { Shell } from "@corvi/shell";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import type { Capabilities } from "../src/integrations/api/capabilities.ts";
 import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/integrations/services.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";

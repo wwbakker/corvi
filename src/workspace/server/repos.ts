@@ -5,7 +5,7 @@ import { expandTilde } from "./config.ts";
 import { runtimeConfig } from "../../capabilities/runtime.ts";
 import type { Entry } from "../model.ts";
 import { remoteDefaultBranch } from "../../vendors/git.ts";
-import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { fs, shSoft } from "../../capabilities/effect/support.ts";
 
 /** An absolute directory as the browser and the settings page speak it: `~` expanded and

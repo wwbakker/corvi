@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { BadRequestError, ConflictError, NotFoundError } from "../capabilities/effect/errors.ts";
+import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
 import {
   cardForExtension,
   cardsFor,
