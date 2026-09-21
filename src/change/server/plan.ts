@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { fillBriefing } from "@corvi/agents/prompt";
 import { PLAN_FILE, type Change } from "../../domain/change.ts";
 import { runtimeConfig } from "../../workspace/server/index.ts";
 import { changeDir } from "./store.ts";
@@ -13,12 +14,13 @@ import { changeDir } from "./store.ts";
  * the setting, so what the agent is told is yours to change.
  */
 
-/** The briefing for one change: the configured template with the change's own values filled in.
- * `{title}` falls back to the id, and `{state}` to what an absent state means, so a prompting
- * typo in a template cannot leave a hole. */
+/** The briefing for one change: the configured template with the change's own values filled in
+ * (`@corvi/agents/prompt` fills them; the template is configuration). */
 export const ideationPromptFor = (change: Change): string =>
-  runtimeConfig().ideationPrompt
-    .replaceAll("{id}", change.id)
-    .replaceAll("{title}", change.title ?? change.branch ?? change.id)
-    .replaceAll("{plan}", join(changeDir(change.id), PLAN_FILE))
-    .replaceAll("{state}", change.state ?? "In Progress");
+  fillBriefing(runtimeConfig().ideationPrompt, {
+    id: change.id,
+    title: change.title,
+    branch: change.branch,
+    plan: join(changeDir(change.id), PLAN_FILE),
+    state: change.state,
+  });

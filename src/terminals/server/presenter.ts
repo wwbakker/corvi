@@ -2,15 +2,14 @@ import { Effect } from "effect";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
 import type { CommandFailure } from "@corvi/terminals/tmux";
-import { agentsWindowPresenter } from "../../extensions/agents/index.ts";
+import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { rawAllWindows, rawWindows } from "./tmux.ts";
 
 /**
  * The presentation half of the terminal: raw tmux facts in, the shape the page draws out.
  *
- * Everything here is pure, and the window presenter is the included agents integration's own,
- * imported directly rather than read through the host registry: the pipeline that lists windows
- * stays a leaf. Presenters are global — they run no effects and take no capabilities, and a
+ * Everything here is pure, and the window presenter is the agents package's own, imported
+ * directly rather than read through a registry: the pipeline that lists windows stays a leaf. Presenters are global — they run no effects and take no capabilities, and a
  * window's name cannot depend on whose client is looking at it. The core's defaults answer
  * where the presenter leaves a field alone.
  */
@@ -21,6 +20,7 @@ const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
 /** One tmux window as the page sees it, with the busy fact the overview counts — presentational
  * to the page, but the server's own accounting travels with it too. */
 export type PresentedWindow = TerminalWindow & { busy: boolean };
+
 /** The pane options any presenter declared, once each, in load order — the FORMAT asks tmux
  * for exactly these, so the raw window carries what presenters know how to read. */
 export const paneOptions = (): string[] => {

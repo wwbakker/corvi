@@ -233,9 +233,12 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `@corvi/contracts/terminal`. `@corvi/configuration` owns the config vocabulary (`./config`:
       `Workspace`, `Config`, the file shape and defaults) and the settings precedence chain
       (`./settings`); the app keeps the file I/O, the path defaults, the override variable names,
-      the migrator and the runtime snapshot. The app keeps the presenter merge, the pty spawner
-      and its environment policy, and the routes. What is not done is the target guide's
-      `apps/web` extraction, so this stays open until the application packages are split.
+      the migrator and the runtime snapshot. `@corvi/agents` owns the agent window presenter
+      (`./presenter`: the pi pane options and their status vocabulary) and the briefing fill
+      (`./prompt`). The app keeps the presenter merge, the pty spawner and its environment
+      policy, and the routes. What is not done is the target guide's `apps/server`, `apps/web`
+      and `integrations/*` split, so this stays open until the application packages exist (see
+      7.222 for the gate).
 - [x] Remove obsolete comments and exports as each implementation is replaced.
       The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
       browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
@@ -290,11 +293,16 @@ Start with inspection rather than deletion: prove the boundary without changing 
       inconclusive by static pattern, so nothing was deleted on that basis.
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
       The extracted packages' entrypoints match their `AGENTS.md` and the guide's ownership
-      table (contracts, changes, repositories, workflows, client, terminals' `./model`,
-      `./tmux`, `./session`, and configuration's `./config`, `./settings`); the agents owner is
-      still a `src` module awaiting extraction (step 3), and the configuration loader and the
-      app packages still live under `src`, so the check cannot be completed yet. `bun run
-      boundaries` enforces the declared graph among the workspaces.
+      table (contracts, configuration, changes, repositories, terminals, agents, workflows and
+      client). What is left is the application and integration split: `apps/server`, `apps/web`,
+      `apps/desktop`, and the five `integrations/*` packages. The gate is an ownership decision,
+      not code volume: `apps/server` becomes a workspace only after the architecture check's
+      Node rule is answered for it — today the checker allows a Node built-in only under a
+      package's `src/node/` adapter, while the server app's capability layer (`shell`, `files`,
+      `os`, `serve`, `identity`) legitimately imports Node across its files, and the five
+      integrations cannot move until the capability APIs they depend on have an owner. Until
+      that decision is made, `bun run boundaries` keeps enforcing the declared graph among the
+      workspaces that exist.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
       `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and

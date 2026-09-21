@@ -49,6 +49,7 @@
     "app:sandbox": "bun scripts/sandbox.ts"
   },
   "dependencies": {
+    "@corvi/agents": "workspace:*",
     "@corvi/changes": "workspace:*",
     "@corvi/client": "workspace:*",
     "@corvi/configuration": "workspace:*",
