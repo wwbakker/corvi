@@ -1,12 +1,11 @@
 /**
  * The configuration vocabulary: what a workspace is and what the resolved config holds.
  *
- * These are the types the platform (`src/capabilities/effect/tags.ts`,
- * `src/capabilities/shell.ts`), the extension contract
- * (`src/integrations/api/`) and every module speak, so they live in the ubiquitous language rather
- * than in the workspace module's server half. The loading, the file schema and the settings
- * precedence chain stay with the code that runs them (`src/workspace/server/` and
- * `src/settings/server/`).
+ * These are the types every module speaks — the platform (`src/capabilities/effect/tags.ts`,
+ * `src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in the
+ * configuration package rather than in the module that happens to read the file. The loading,
+ * the file schema and the settings precedence chain are the package's `./settings` and the
+ * app's workspace server.
  */
 
 /**

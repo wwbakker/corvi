@@ -1,7 +1,9 @@
-import { basename } from "node:path";
+import { Effect } from "effect";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
+import type { CommandFailure } from "@corvi/terminals/tmux";
 import { agentsWindowPresenter } from "../../extensions/agents/index.ts";
+import { rawAllWindows, rawWindows } from "./tmux.ts";
 
 /**
  * The presentation half of the terminal: raw tmux facts in, the shape the page draws out.
@@ -19,7 +21,6 @@ const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
 /** One tmux window as the page sees it, with the busy fact the overview counts — presentational
  * to the page, but the server's own accounting travels with it too. */
 export type PresentedWindow = TerminalWindow & { busy: boolean };
-
 /** The pane options any presenter declared, once each, in load order — the FORMAT asks tmux
  * for exactly these, so the raw window carries what presenters know how to read. */
 export const paneOptions = (): string[] => {
@@ -30,34 +31,9 @@ export const paneOptions = (): string[] => {
   return [...seen];
 };
 
-/** The tmux FORMAT for a set of pane options: the fixed fields, then one field per option.
- * Built per call, because the options depend on which extensions are loaded. `list-windows`
- * still answers in one call per session. */
-export const formatFor = (options: readonly string[]): string => {
-  const fixed =
-    "#{window_index}\t#{window_name}\t#{pane_current_command}\t#{window_active}\t#{window_activity_flag}\t#{pane_current_path}\t#{automatic-rename}\t#{window_id}";
-  return options.length ? `${fixed}\t${options.map((o) => `#{${o}}`).join("\t")}` : fixed;
-};
-
-export const parseWindow = (line: string, options: readonly string[]): TmuxWindow => {
-  const [index, name, command, active, activity, path, auto, id, ...extra] = line.split("\t");
-  const opts: Record<string, string> = {};
-  extra.forEach((value, i) => {
-    const option = options[i];
-    if (option) opts[option] = value ?? "";
-  });
-  return {
-    index: Number(index),
-    id: id ?? "",
-    name: name ?? "",
-    command: command ?? "",
-    active: active === "1",
-    activity: activity === "1",
-    directory: basename(path ?? ""),
-    named: auto === "0",
-    options: opts,
-  };
-};
+/** The tmux FORMAT for a set of pane options lives with the tmux calls
+ * (`@corvi/terminals/tmux`): the options come from the presenters, the format is tmux's own
+ * vocabulary. */
 
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */
@@ -112,3 +88,15 @@ export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
   };
 };
+
+/** The change's windows, presented: the raw facts come from `@corvi/terminals/tmux`, the
+ * presentation is this module's. A timed-out tmux fails; callers that want an empty strip on
+ * any failure (the routes) catch it themselves. */
+export const listWindows = (id: string): Effect.Effect<PresentedWindow[], CommandFailure> =>
+  Effect.map(rawWindows(id, paneOptions()), (windows) => windows.map(presentWindow));
+
+/** Every change's windows, presented, in the one call the navigation column asks for. */
+export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, CommandFailure> =>
+  Effect.map(rawAllWindows(paneOptions()), (byChange) =>
+    Object.fromEntries(Object.entries(byChange).map(([id, windows]) => [id, windows.map(presentWindow)])),
+  );

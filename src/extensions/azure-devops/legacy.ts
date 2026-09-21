@@ -1,7 +1,7 @@
-import type { Config } from "../../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import { env } from "../../capabilities/identity.ts";
 import { readFileSync } from "../../workspace/server/config.ts";
-import { resolveSetting } from "../../settings/server/legacySettings.ts";
+import { resolveSetting } from "@corvi/configuration/settings";
 
 /** The config file as written, for the legacy flat fields `load()` deletes after spreading.
  * Undefined when the file cannot be read: the chain then falls back to the bag and the

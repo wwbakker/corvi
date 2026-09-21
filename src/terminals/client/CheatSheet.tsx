@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef } from "react";
-import type { Platform } from "../model.ts";
+import type { Platform } from "@corvi/terminals/model";
 
 /** tmux keys worth knowing, since the terminal is a tmux session and nothing in the page hints
  * at that. Everything here is plain tmux: nothing Corvi invented. */

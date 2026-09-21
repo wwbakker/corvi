@@ -1,6 +1,6 @@
 import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { AgentIcon, TerminalIcon } from "../../app-root/icons.tsx";
-import type { Platform } from "../model.ts";
+import type { Platform } from "@corvi/terminals/model";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { Page } from "../../app-root/Sidebar.tsx";
 

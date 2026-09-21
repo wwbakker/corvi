@@ -1,13 +1,13 @@
 import { Effect } from "effect";
 import { Settings } from "../../integrations/api/capabilities.ts";
-import { bagList, bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
+import { bagList, bagString, resolveSetting } from "@corvi/configuration/settings";
 import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
 
 /**
  * The azure-devops extension's own server-wide deployment conventions, read back through the
  * contract.
  *
- * The chain every extension setting follows, stated once in src/settings/server/legacySettings.ts: what the
+ * The chain every extension setting follows, stated once in @corvi/configuration/settings: what the
  * settings page wrote under `extensionSettings.azure-devops` — the extension's own
  * `globalSettings` declaration — wins, and when the bag is empty the legacy flat field answers
  * (through legacy.ts), which carries the default and the environment resolution

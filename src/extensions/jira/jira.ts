@@ -3,7 +3,7 @@ import type { Change } from "../../domain/change.ts";
 import { swr, invalidate } from "../../capabilities/cache.ts";
 import { env } from "../../capabilities/identity.ts";
 import { runtimeConfig, type Config } from "../../workspace/server/index.ts";
-import { bagString } from "../../settings/server/legacySettings.ts";
+import { bagString } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";

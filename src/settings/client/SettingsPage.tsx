@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
-import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
+import { DEFAULT_WORKSPACE, type Config } from "@corvi/configuration/config";
 // The settings vocabulary lives in the module's model.ts, so the browser bundle gets none of
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";

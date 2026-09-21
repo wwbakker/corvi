@@ -20,7 +20,7 @@ import { isFinished } from "../../domain/change.ts";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
-import type { Platform } from "../../terminals/model.ts";
+import type { Platform } from "@corvi/terminals/model";
 import { CompletionCard } from "../../dashboard/client/CompletionCard.tsx";
 import { CompleteAnywayDialog } from "./CompleteAnywayDialog.tsx";
 import { CancelDialog } from "./CancelDialog.tsx";

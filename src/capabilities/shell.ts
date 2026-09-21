@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { Readable } from "node:stream";
 import { CliError } from "./effect/errors.ts";
 import { Shell, Workspace } from "./effect/tags.ts";
-import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "../domain/config.ts";
+import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "@corvi/configuration/config";
 import { childEnv } from "./env.ts";
 import { env } from "./identity.ts";
 

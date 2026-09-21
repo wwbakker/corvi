@@ -25,7 +25,7 @@ import {
 } from "../change/server/store.ts";
 import { baseFor, checkoutFor } from "../vendors/git.ts";
 import type { Change } from "../domain/change.ts";
-import type { Workspace as WorkspaceShape } from "../domain/config.ts";
+import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 
 /**
  * The live layers behind the capabilities (src/integrations/types.ts) — host-side, not part of

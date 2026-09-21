@@ -1,5 +1,5 @@
 import { loaded } from "./loaded.ts";
-import type { ConfigFile, Workspace } from "../domain/config.ts";
+import type { ConfigFile, Workspace } from "@corvi/configuration/config";
 
 /**
  * Normalize the workspaces' extension settings against what is loaded, in place.

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 
 import { defaultCache, type CacheStore } from "./cache.ts";
-import type { Config } from "../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import { readConfig, reloadInto } from "../workspace/server/config.ts";
 
 /**

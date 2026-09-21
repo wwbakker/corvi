@@ -1,6 +1,6 @@
 import type { Change } from "../../domain/change.ts";
 import { runtimeConfig } from "../../capabilities/runtime.ts";
-import type { Workspace } from "../../domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 
 /**
  * Which context a change belongs to, and what that context implies.

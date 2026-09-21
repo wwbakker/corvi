@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 import type { Change } from "../../app-root/api.ts";
-import type { Platform } from "../../terminals/model.ts";
-import { DEFAULT_WORKSPACE } from "../../domain/config.ts";
+import type { Platform } from "@corvi/terminals/model";
+import { DEFAULT_WORKSPACE } from "@corvi/configuration/config";
 
 export type Workspace = {
   id: string;

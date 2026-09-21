@@ -28,6 +28,7 @@ import {
 import {
   BadRequestError,
   DecodeError,
+  InternalError,
   NotFoundError,
   isIweError,
   type CliError,
@@ -359,7 +360,7 @@ const runCompletion = (
       yield* finalizeProgress(change.id, ref)
       const updated = yield* readChange(change.id)
       if (!updated)
-        return yield* new BadRequestError({
+        return yield* new InternalError({
           message: "the completed change could not be read back",
         })
       const notes = [

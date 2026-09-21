@@ -10,7 +10,11 @@
   "type": "module",
   "private": true,
   "workspaces": {
-    "packages": ["apps/*", "packages/*", "integrations/*"],
+    "packages": [
+      "apps/*",
+      "packages/*",
+      "integrations/*"
+    ],
     "catalog": {
       "effect": "^3.22.2"
     }
@@ -47,8 +51,10 @@
   "dependencies": {
     "@corvi/changes": "workspace:*",
     "@corvi/client": "workspace:*",
+    "@corvi/configuration": "workspace:*",
     "@corvi/contracts": "workspace:*",
     "@corvi/repositories": "workspace:*",
+    "@corvi/terminals": "workspace:*",
     "@corvi/workflows": "workspace:*",
     "@xterm/addon-clipboard": "^0.2.0",
     "@xterm/addon-fit": "^0.11.0",

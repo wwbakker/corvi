@@ -1,10 +1,10 @@
 import { Context, type Effect } from "effect";
 import type { CliError } from "./errors.ts";
-import type { Workspace as WorkspaceConfig } from "../../domain/config.ts";
+import type { Workspace as WorkspaceConfig } from "@corvi/configuration/config";
 
 /**
  * Which workspace the work in hand belongs to, for the length of one request. The tag carries
- * the workspace config object itself (the `Workspace` type in src/domain/config.ts).
+ * the workspace config object itself (the `Workspace` type in @corvi/configuration/config).
  *
  * Routes provide it with Effect.provideService; modules that may run outside a request scope
  * read it with Effect.serviceOption and fall back to no workspace, hence an empty env override

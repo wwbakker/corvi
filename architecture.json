@@ -4,7 +4,7 @@
     "@corvi/configuration": { "dependsOn": ["@corvi/contracts"] },
     "@corvi/changes": { "dependsOn": ["@corvi/contracts"] },
     "@corvi/repositories": { "dependsOn": ["@corvi/contracts"] },
-    "@corvi/terminals": { "dependsOn": ["@corvi/contracts"] },
+    "@corvi/terminals": { "dependsOn": ["@corvi/contracts"], "external": ["effect"] },
     "@corvi/agents": { "dependsOn": ["@corvi/contracts"] },
     "@corvi/workflows": {
       "dependsOn": [

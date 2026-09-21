@@ -10,7 +10,7 @@ import {
 import type {
   ConfigFile as ConfigFileVocabulary,
   Workspace as WorkspaceShape,
-} from "../../domain/config.ts";
+} from "@corvi/configuration/config";
 
 /**
  * Effect Schemas for the config layer — the JSON boundary of the config file.
@@ -23,7 +23,7 @@ import type {
 
 export { DirectoryName, EnvVarName, WorkspaceId };
 
-/** A context you work in: a client, or your own projects. Mirrors `src/domain/config.ts`'s `Workspace`. */
+/** A context you work in: a client, or your own projects. Mirrors `@corvi/configuration/config`'s `Workspace`. */
 export const Workspace = WorkspaceSchema;
 
 // The schema and the hand-written type must not drift: this line fails to compile if the
@@ -46,7 +46,7 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings page's
  * write shape (src/settings/model.ts' `Settings`), and the two must not drift: the
- * compile-time guards below pin this schema to domain/config.ts' hand-written `ConfigFile`. */
+ * compile-time guards below pin this schema to @corvi/configuration/config' hand-written `ConfigFile`. */
 export const ConfigFile = ConfigFileSchema;
 
 /** What the config file decodes to. Decode with `onExcessProperty: "preserve"` (readFile does)
@@ -57,12 +57,12 @@ export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces
   workspaces?: WorkspaceShape[];
 };
 
-// The hand-written file vocabulary in domain/config.ts and this schema must not drift:
+// The hand-written file vocabulary in @corvi/configuration/config and this schema must not drift:
 // both directions fail to compile if the schema stops describing exactly the file shape.
 const _configFileMatchesVocabulary: ConfigFileVocabulary = {} as ConfigFile;
 const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabulary;
 
-/** The resolved shape: file, environment and defaults combined — `src/domain/config.ts`'s
+/** The resolved shape: file, environment and defaults combined — `@corvi/configuration/config`'s
  * `Config`. Not a decoder of anything on disk (the resolved config is computed, never read); it
  * states the boundary a future CLI/IPC surface would emit, and pins the Workspace member to the
  * type. The azure-devops fields the core used to own are unknown keys now: the extension reads

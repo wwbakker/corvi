@@ -1,0 +1,10 @@
+{
+  "name": "@corvi/configuration",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./config": "./src/config.ts",
+    "./settings": "./src/settings.ts"
+  }
+}

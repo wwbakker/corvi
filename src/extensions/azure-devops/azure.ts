@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import type { Config } from "../../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import { Cache, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import { bagString, resolveSetting } from "../../settings/server/legacySettings.ts";
+import { bagString, resolveSetting } from "@corvi/configuration/settings";
 import { AZURE_ENV, legacyOrgProjectOf, legacyWorkspaceOf } from "./legacy.ts";
 
 /**

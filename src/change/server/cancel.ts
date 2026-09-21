@@ -15,10 +15,16 @@ import {
   type LifecycleReason,
   type Readiness,
 } from "@corvi/workflows/lifecycle";
-import { BadRequestError, NotFoundError, isIweError, type IweError } from "../../capabilities/effect/errors.ts";
+import {
+  BadRequestError,
+  InternalError,
+  NotFoundError,
+  isIweError,
+  type IweError,
+} from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Change } from "../../domain/change.ts";
-import type { Workspace as WorkspaceShape } from "../../domain/config.ts";
+import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
@@ -119,7 +125,7 @@ export const cancelChange = (
     if (outcome._tag === "Done") {
       const updated = yield* readChange(change.id);
       if (!updated)
-        return yield* new BadRequestError({ message: "the cancelled change could not be read back" });
+        return yield* new InternalError({ message: "the cancelled change could not be read back" });
       return { _tag: "Done", change: updated, loose: [...outcome.loose] } satisfies Cancelled;
     }
     if (outcome._tag === "NeedsAcknowledgement")

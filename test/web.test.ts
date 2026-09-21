@@ -64,7 +64,7 @@ test("the everything filter keeps every change, and a workspace keeps its own", 
   expect(inWorkspace([change({ workspace: "gone" }), untagged], "gone", both)).toHaveLength(1);
 });
 
-test("the default workspace is the one src/domain/config.ts defines", () => {
+test("the default workspace is the one @corvi/configuration/config defines", () => {
   expect(DEFAULT_WORKSPACE).toEqual({ id: "default", name: "Default workspace" });
   // "everything" is a filter, not a workspace: it is not one of the configured ids.
   expect(both.map((w) => w.id)).not.toContain(ALL);

@@ -1,6 +1,6 @@
 /**
- * The terminal module's public face: the tmux session handling (`tmux.ts`) and the
- * presented-window shape (`presenter.ts`).
+ * The terminal module's public face: the tmux session handling (bound in `tmux.ts` over
+ * `@corvi/terminals/tmux`) and the presented-window shape (`presenter.ts`).
  *
  * The pty bridge (`session.ts`) is deliberately **not** re-exported here. It is the socket
  * boundary, and importing it would drag node-pty into every server consumer of `stopTerminal`
@@ -15,8 +15,6 @@ export {
   sessionName,
   terminalSocketPath,
   stopTerminal,
-  listWindows,
-  allWindows,
   changeOfSession,
   newWindow,
   selectWindow,
@@ -25,4 +23,4 @@ export {
   pastePrompt,
 } from "./tmux.ts";
 
-export { presentWindow, type PresentedWindow } from "./presenter.ts";
+export { listWindows, allWindows, presentWindow, type PresentedWindow } from "./presenter.ts";

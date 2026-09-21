@@ -2,9 +2,10 @@
  * The settings module's public face: the settings file's read/write surface, and the precedence
  * chain both the config loader and the settings page read through.
  *
- * `legacySettings.ts` is a leaf shared with the workspace module's config loader and the
- * top-level deployments settings. Those import the file directly rather than through this
- * barrel, which keeps the module graph acyclic while the chain stays stated once.
+ * `@corvi/configuration/settings` is a leaf shared with the workspace module's config loader and
+ * the top-level deployments settings. Those import the package directly rather than through this
+ * barrel, which keeps the module graph acyclic while the chain stays stated once; the env
+ * variable names (`ENV_OVERRIDES`) are the app's and stay in `./legacySettings.ts`.
  */
 export {
   settingsView,
@@ -21,7 +22,6 @@ export { MASK } from "./secrets.ts";
 export type { Settings, SettingsView } from "../model.ts";
 
 export {
-  ENV_OVERRIDES,
   bagString,
   bagList,
   resolveSetting,
@@ -29,4 +29,6 @@ export {
   overriddenSettings,
   overriddenExtensionSettings,
   type SettingBag,
-} from "./legacySettings.ts";
+} from "@corvi/configuration/settings";
+
+export { ENV_OVERRIDES } from "./legacySettings.ts";

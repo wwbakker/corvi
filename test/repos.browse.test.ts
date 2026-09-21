@@ -9,7 +9,7 @@ import {
   repositoriesDirectoryOf,
   resolveDirectory,
 } from "../src/workspace/server/index.ts";
-import type { Workspace } from "../src/domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
 
 /**

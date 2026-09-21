@@ -30,7 +30,7 @@ import {
 } from "@corvi/workflows/lifecycle"
 import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
 import type { Change as LegacyChange, CompletionStep } from "../domain/change.ts"
-import type { Workspace as WorkspaceShape } from "../domain/config.ts"
+import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
 import { Shell, Workspace } from "../capabilities/effect/tags.ts"
 import { messageOf } from "../capabilities/effect/support.ts"
 import { capabilitiesLayer, ChangesLive } from "../integrations/services.ts"

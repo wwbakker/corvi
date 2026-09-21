@@ -1,9 +1,10 @@
 import { mkdir, chmod, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import type { Config } from "../../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import type { Settings, SettingsView } from "../model.ts";
-import { overriddenExtensionSettings, overriddenSettings } from "./legacySettings.ts";
+import { overriddenExtensionSettings, overriddenSettings } from "@corvi/configuration/settings";
+import { ENV_OVERRIDES } from "./legacySettings.ts";
 import {
   runtimeConfig,
   configPath,
@@ -50,7 +51,7 @@ export const settingsViewSync = (): SettingsView => {
     // in effect, and neither may carry a token (src/settings/server/secrets.ts).
     file: redactSecrets(file, loaded),
     effective: redactSecrets(runtimeConfig(), loaded),
-    overridden: overriddenSettings(),
+    overridden: overriddenSettings(ENV_OVERRIDES),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
     extensions: loaded.map((e) => ({

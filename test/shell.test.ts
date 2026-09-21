@@ -5,7 +5,7 @@ import { sh } from "../src/capabilities/shell.ts";
 import { Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
 import { workspaceById } from "../src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
-import type { Workspace } from "../src/domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 
 /**
  * The fake-Shell seam: core integration code calls the module-level `sh`, which prefers a

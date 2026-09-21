@@ -2,7 +2,7 @@ import { beforeEach, expect, test } from "bun:test";
 import { clearCache } from "../src/capabilities/cache.ts";
 import { loaded } from "../src/integrations/index.ts";
 import { migrateExtensionSettings } from "../src/integrations/migrate.ts";
-import type { Workspace } from "../src/domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 
 /**
  * The retired names fold into the extensions' own settings: `ci` becomes the two cards that

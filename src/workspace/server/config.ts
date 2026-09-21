@@ -2,9 +2,10 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
+import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "@corvi/configuration/config";
 import { ConfigFile, workspacesFrom } from "./schema.ts";
-import { ENV_OVERRIDES, resolveSetting } from "../../settings/server/legacySettings.ts";
+import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
+import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
 import {
   configDir,
@@ -70,7 +71,7 @@ const resolvePath = (value: string): string => {
 /**
  * The file and the environment, resolved into what the rest of the code reads. The precedence
  * chain — environment wins over file, file over defaults, the bag over both — is stated once,
- * in src/settings/server/legacySettings.ts. The per-workspace tolerance (skip entries without a truthy id and
+ * in @corvi/configuration/settings. The per-workspace tolerance (skip entries without a truthy id and
  * name) is applied by workspacesFrom.
  */
 export function readConfig(): Config {

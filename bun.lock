@@ -7,8 +7,10 @@
       "dependencies": {
         "@corvi/changes": "workspace:*",
         "@corvi/client": "workspace:*",
+        "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",
         "@corvi/repositories": "workspace:*",
+        "@corvi/terminals": "workspace:*",
         "@corvi/workflows": "workspace:*",
         "@xterm/addon-clipboard": "^0.2.0",
         "@xterm/addon-fit": "^0.11.0",
@@ -55,6 +57,10 @@
         "effect": "catalog:",
       },
     },
+    "packages/configuration": {
+      "name": "@corvi/configuration",
+      "version": "0.0.0",
+    },
     "packages/contracts": {
       "name": "@corvi/contracts",
       "version": "0.0.0",
@@ -64,6 +70,14 @@
     },
     "packages/repositories": {
       "name": "@corvi/repositories",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "packages/terminals": {
+      "name": "@corvi/terminals",
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
@@ -149,9 +163,13 @@
 
     "@corvi/client": ["@corvi/client@workspace:packages/client"],
 
+    "@corvi/configuration": ["@corvi/configuration@workspace:packages/configuration"],
+
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
 
     "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
+
+    "@corvi/terminals": ["@corvi/terminals@workspace:packages/terminals"],
 
     "@corvi/workflows": ["@corvi/workflows@workspace:packages/workflows"],
 

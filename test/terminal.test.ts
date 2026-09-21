@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl } from "./helpers.ts";
 import { platformName } from "../src/capabilities/os.ts";
-import { csiuFor } from "../src/terminals/model.ts";
+import { csiuFor } from "@corvi/terminals/model";
 
 /**
  * The terminal is process plumbing — a pty running tmux, spawned and cleaned up — so the only

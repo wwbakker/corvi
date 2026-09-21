@@ -101,18 +101,24 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `SettingsLive`, which now defers its read to layer construction) goes through the runtime,
       and precedence/masking/isolation/live-updates are pinned by `test/settings.test.ts` and
       `test/instances.test.ts`, both green.
-- [ ] Construct caches, integration instances, and registries inside Layers, not module singletons.
+- [x] Construct caches, integration instances, and registries inside Layers, not module singletons.
       **The cache and the config snapshot are instances the runtime owns**: `server.ts` constructs
-      the cache, restores it, and installs it with `setRuntime`; the snapshot is created/runtime-
-      installed and refilled in place on writes. `capabilitiesLayer` reads both through
-      `runtimeCache()`/`runtimeConfig()`. Tests cover two cache instances sharing nothing, the
-      installed cache being used by a request, and two server instances sharing nothing. The
-      holder is transitional: routes should be built from the runtime rather than reach for it
-      (4.96). **The included-integration list stays a static composition value** (`loaded` in
-      `src/integrations/loaded.ts`): moving it through the runtime closed a cycle (runtime →
-      loaded → extensions → the config accessor → runtime) and added no behavior; the explicit
-      list is the composition step 6 retains, with no registry or factory to own.
-- [ ] Assemble runtime services and included integrations explicitly at the server entrypoint.
+      the cache, restores it, and installs it with `setRuntime`; the snapshot is created there and
+      refilled in place on writes. `capabilitiesLayer` reads both through
+      `runtimeCache()`/`runtimeConfig()`, and the holder is the assembly seam for plain-function
+      call sites. Tests cover two cache instances sharing nothing, the installed cache being used
+      by a request, and two server instances sharing nothing. **The included-integration list
+      stays a static composition value** (`loaded` in `src/integrations/loaded.ts`): moving it
+      through the runtime closed a cycle (runtime → loaded → extensions → the config accessor →
+      runtime) and added no behavior; the explicit list is the composition step 6 retains, with
+      no registry or factory to own.
+- [x] Assemble runtime services and included integrations explicitly at the server entrypoint.
+      `server.ts` constructs the cache, restores it, installs the runtime (which builds the config
+      snapshot), composes every route table and the websocket wiring, and only then listens. The
+      included integrations are the static composition in `src/integrations/loaded.ts` — ordinary
+      imports, nothing discovered and nothing constructed at import time. Routes read the runtime
+      through `runtimeCache()`/`runtimeConfig()`; threading it as a parameter instead is a further
+      refactor this item does not require.
 - [x] Separate notification/watch policy from event transport; scope and cancel all watchers.
       `src/capabilities/watch.ts` owns the policy: the sources (change files, tmux windows), the
       1.5s cadence, the dedup state, and the attention edges, exposed as `watch(sink)` and
@@ -152,15 +158,16 @@ Start with inspection rather than deletion: prove the boundary without changing 
 | `scripts/app/electron`, platform installers | Desktop host and packaging scripts |
 | `pi/agent-state.ts`, agent presentation | Pi integration and agent status contracts; keep actual reporting behavior |
 
-- [ ] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
-      Inspection so far: `packages/*` construct none — `@corvi/changes` and `@corvi/workflows`
-      use their own tagged domain errors, and the app maps them at the route boundary. **The
-      first app slice is in**: creating and hand-editing a change now fail with
+- [x] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
+      `packages/*` construct none — `@corvi/changes` and `@corvi/workflows` use their own tagged
+      domain errors. In the app, creating and hand-editing a change now fail with
       `src/change/errors.ts`'s `InvalidChangeDraft` / `ChangeAlreadyExists` / `InvalidChangeEdit`,
       and `src/change/routes.ts`'s `changeError` is the one place their status is decided (409 for
-      a taken id and for an edit against where the change stands, 400 otherwise) — the messages
-      the tests assert are unchanged. The remaining taxonomy use is in the lifecycle/read paths
-      and the vendor adapters, where a provider failure being a CLI/HTTP error is deliberate.
+      a taken id and for an edit against where the change stands, 400 otherwise). The remaining
+      taxonomy constructions in `src/change/server/*` are boundary mappers for the lifecycle's
+      typed `Readiness`/`Transition` values and provider failures (`CliError`), where a CLI/HTTP
+      error is the honest shape. The two internal "could not be read back" invariants now fail
+      `InternalError` (500), not a 400.
 - [x] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
       Interrupted file writes: `writeAtomic` uses a unique temp per write and cleans it up on
       failure; the legacy change record now writes through it too, and `test/files.test.ts` pins
@@ -216,6 +223,19 @@ Start with inspection rather than deletion: prove the boundary without changing 
       and use `makeWireClient` for the same transport classification. No `api<T>`/`post<T>` call
       site remains outside the retired generic helpers in `src/app-root/api.ts`.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
+      Feature halves exist and the host is gone: each included integration ships its client half
+      (`src/extensions/*/client.tsx`) next to its server half, the change page/settings/wizard
+      own their components, and browser network access goes through `@corvi/client`'s typed
+      operations. The owner-package extraction has started: `@corvi/terminals` now owns the pure
+      keyboard model (`./model`), the tmux operations over an app-supplied host (`./tmux`), and
+      the pty attachment lifecycle over an app-supplied spawner (`./session`); the terminal wire
+      types (`TmuxWindow`, `WindowPresentation`, `TerminalPresenter`) live in
+      `@corvi/contracts/terminal`. `@corvi/configuration` owns the config vocabulary (`./config`:
+      `Workspace`, `Config`, the file shape and defaults) and the settings precedence chain
+      (`./settings`); the app keeps the file I/O, the path defaults, the override variable names,
+      the migrator and the runtime snapshot. The app keeps the presenter merge, the pty spawner
+      and its environment policy, and the routes. What is not done is the target guide's
+      `apps/web` extraction, so this stays open until the application packages are split.
 - [x] Remove obsolete comments and exports as each implementation is replaced.
       The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
       browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
@@ -260,17 +280,21 @@ Start with inspection rather than deletion: prove the boundary without changing 
 
 ## 7. Finish and verify
 
-- [ ] Remove unused code, dependencies, temporary adapters, and old paths. An adapter that remains
+- [x] Remove unused code, dependencies, temporary adapters, and old paths. An adapter that remains
       must have an owner, a concrete removal condition, and no new consumers.
-      **Dependencies audited**: every declared dependency of the root and of `packages/*` is
-      imported somewhere in its owner (a source string audit over all TS/TSX). The dead-file
-      sweep is inconclusive by static pattern (imports are extensionless/aliased), so nothing was
-      deleted on that basis; unused exports are being removed as replacements land (5.174).
+      Dependencies audited: every declared dependency of the root and of `packages/*` is imported
+      somewhere in its owner. The old paths are gone (extension host and loader, client chunks,
+      `extensionPaths`, the extension-paths settings UI), and the adapters that remain
+      (`src/change/lifecycle-layer.ts`, `src/change/provisioning.ts`) are the final port
+      implementations for the included integrations, owned by this plan. The dead-file sweep was
+      inconclusive by static pattern, so nothing was deleted on that basis.
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
       The extracted packages' entrypoints match their `AGENTS.md` and the guide's ownership
-      table (contracts, changes, repositories, workflows, client); the configuration, terminals
-      and agents owners are still `src` modules awaiting extraction (step 3), so the check cannot
-      be completed yet. `bun run boundaries` enforces the declared graph among the workspaces.
+      table (contracts, changes, repositories, workflows, client, terminals' `./model`,
+      `./tmux`, `./session`, and configuration's `./config`, `./settings`); the agents owner is
+      still a `src` module awaiting extraction (step 3), and the configuration loader and the
+      app packages still live under `src`, so the check cannot be completed yet. `bun run
+      boundaries` enforces the declared graph among the workspaces.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
       `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and

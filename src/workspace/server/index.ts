@@ -4,7 +4,7 @@
  * points and is not re-exported here: it runs in the browser.
  *
  * The config vocabulary (`Config`, `Workspace`, `DEFAULT_WORKSPACE`) lives in
- * `src/domain/config.ts` and is re-exported here so a consumer of this module needs one
+ * `@corvi/configuration/config` and is re-exported here so a consumer of this module needs one
  * import. Platform and the extension contract import the domain directly, because they must not
  * reach into a module's server half.
  */
@@ -43,4 +43,4 @@ export {
 
 export type { Entry } from "../model.ts";
 
-export { DEFAULT_WORKSPACE, type Config, type Workspace } from "../../domain/config.ts";
+export { DEFAULT_WORKSPACE, type Config, type Workspace } from "@corvi/configuration/config";

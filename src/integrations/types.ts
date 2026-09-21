@@ -18,7 +18,7 @@ export type {
   TmuxWindow,
   WindowPresentation,
   TerminalPresenter,
-} from "./api/terminal.ts";
+} from "@corvi/contracts/terminal";
 export type { Page } from "./api/pages.ts";
 export type { ChangeTab } from "./api/tabs.ts";
 export type { DashboardWidget, WidgetComponent } from "./api/widgets.ts";

@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import { Shell, Workspace as WorkspaceTag } from "../../capabilities/effect/tags.ts";
-import type { Config } from "../../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import type { Change } from "../../domain/change.ts";
 import type { DecodeError, IweError } from "../../capabilities/effect/errors.ts";
 

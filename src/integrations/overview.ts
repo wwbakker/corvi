@@ -8,7 +8,7 @@
  */
 import type { Effect } from "effect";
 import type { Change } from "../domain/change.ts";
-import type { Workspace } from "../domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 import type { SummaryFact, WidgetState } from "../domain/widget.ts";
 import type { Capabilities } from "../integrations/api/capabilities.ts";
 import { extensionEnabled } from "../workspace/server/index.ts";

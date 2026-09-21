@@ -1,7 +1,7 @@
 import type { Change } from "../../domain/change.ts";
-import type { Config } from "../../domain/config.ts";
+import type { Config } from "@corvi/configuration/config";
 import { env } from "../../capabilities/identity.ts";
-import { resolveSetting } from "../../settings/server/legacySettings.ts";
+import { resolveSetting } from "@corvi/configuration/settings";
 
 /**
  * The jira extension's raw reads of the fields the core used to own.

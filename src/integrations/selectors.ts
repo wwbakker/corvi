@@ -1,5 +1,5 @@
 import type { Change } from "../domain/change.ts";
-import type { Workspace } from "../domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 import { workspaceOf } from "../workspace/server/index.ts";
 import { loaded, type LoadedIntegration } from "./loaded.ts";
 import type {

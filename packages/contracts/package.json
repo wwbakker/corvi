@@ -7,7 +7,8 @@
     "./paths": "./src/paths.ts",
     "./changes": "./src/changes.ts",
     "./api": "./src/api.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./terminal": "./src/terminal.ts"
   },
   "dependencies": {
     "effect": "catalog:"

@@ -6,7 +6,7 @@
  */
 import { Schema } from "effect"
 
-/** A context you work in: a client, or your own projects. Mirrors `src/domain/config.ts`'s
+/** A context you work in: a client, or your own projects. Mirrors `@corvi/configuration/config`'s
  * `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,

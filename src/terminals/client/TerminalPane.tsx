@@ -15,7 +15,7 @@ import {
 } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { csiuFor, isNewWindowKey, type Platform } from "../model.ts";
+import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
 
 /** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
  * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
@@ -84,7 +84,7 @@ export function TerminalPane({
    * typing is a terminal you have clicked twice. */
   focusRequest?: number;
   /** The server's platform, which decides the chord: cmd-t on macOS, ctrl-alt-t on Linux (the
-   * same test the server's own key handling applies, from terminals/model.ts). */
+   * same test the server's own key handling applies, from @corvi/terminals/model). */
   platform: Platform;
   onNewWindow: () => void;
   /** How many windows this change's session has: none while one is starting, and none forever
