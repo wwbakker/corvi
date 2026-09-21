@@ -22,7 +22,7 @@ export interface StoreInterface {
   readonly create: (change: Change, repositories: readonly Repository[]) => Effect.Effect<void, ChangeStoreError>
   readonly patch: (
     changeId: ChangeId,
-    patch: { readonly phase: ChangePhase; readonly completedAt?: string },
+    patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
   ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeStoreError>
   /** A missing change reads as no links; the workflow reads the change first. */
   readonly listRepositories: (changeId: ChangeId) => Effect.Effect<readonly Repository[], RepositoryStoreError>

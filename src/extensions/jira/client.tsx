@@ -1,8 +1,11 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
-import { api, post } from "../../app-root/api.ts";
+import { makeWireClient } from "@corvi/client";
 import { branchFor } from "../../domain/change.ts";
 import type { StepComponent } from "../../integrations/client.tsx";
-import type { Board, Issue } from "./shared.ts";
+import { BoardSchema, IssueSchema, type Board, type Issue } from "./shared.ts";
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
 
 /**
  * The jira extension's wizard step: the board, filtered and grouped, plus creating an issue.
@@ -106,12 +109,15 @@ export function IssueTable({
 
   const load = (refresh = false): void => {
     setLoading(true);
-    api<Board>(
-      `/ext/jira/issues?${new URLSearchParams({
-        ...(workspace ? { workspace } : {}),
-        ...(refresh ? { refresh: "1" } : {}),
-      })}`,
-    )
+    wire
+      .request(
+        "GET",
+        `/ext/jira/issues?${new URLSearchParams({
+          ...(workspace ? { workspace } : {}),
+          ...(refresh ? { refresh: "1" } : {}),
+        })}`,
+        BoardSchema,
+      )
       .then(setBoard)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -144,7 +150,8 @@ export function IssueTable({
   const create = (input: { summary: string; description: string }): void => {
     setCreating(true);
     setError(null);
-    post<Issue>("/ext/jira/issues", { ...input, workspace })
+    wire
+      .request("POST", "/ext/jira/issues", IssueSchema, { body: { ...input, workspace } })
       .then((issue) => {
         setDialogOpen(false);
         onSelect(issue);

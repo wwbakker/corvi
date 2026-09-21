@@ -82,19 +82,22 @@ test("rejects duplicate ids, unsafe ids and changes without repositories", async
 
 test("completed changes move to the archive and stay listable", async () => {
   const change = await runEffect(createChange({ id: "PROJ-9", repos: [repo] }));
-  expect(await runEffect(listChanges())).toContainEqual(change);
+  // The record on disk carries the revision the write gave it; the created value is the draft.
+  expect(await runEffect(listChanges())).toContainEqual({ ...change, revision: 1 });
 
   await runEffect(archiveChange(change.id));
   expect(await Bun.file(join(changeDir(change.id), "change.json")).exists()).toBe(false);
   expect(await Bun.file(join(archiveDir(change.id), "change.json")).exists()).toBe(true);
 
   // Reading, writing and listing all still find it where it now lives.
-  expect(await runEffect(readChange(change.id))).toEqual(change);
+  expect(await runEffect(readChange(change.id))).toEqual({ ...change, revision: 1 });
   const completed = { ...change, completedAt: new Date().toISOString() };
   await runEffect(writeChange(completed));
-  expect(await runEffect(readChange(change.id))).toEqual(completed);
-  expect(await runEffect(listChanges())).toContainEqual(completed);
-  expect(await runEffect(listChanges())).not.toContainEqual(change);
+  // The write moved the record on again; the revision is why a transition decided on the old
+  // one would be refused instead of overwriting this.
+  expect(await runEffect(readChange(change.id))).toEqual({ ...completed, revision: 2 });
+  expect(await runEffect(listChanges())).toContainEqual({ ...completed, revision: 2 });
+  expect(await runEffect(listChanges())).not.toContainEqual({ ...change, revision: 1 });
 });
 
 test("a new worktree branches from the remote default, not a stale local main", async () => {
@@ -569,4 +572,17 @@ test("a change is named by its ticket, until you name it yourself", async () => 
     if (originalToken === undefined) delete process.env.JIRA_API_TOKEN;
     else process.env.JIRA_API_TOKEN = originalToken;
   }
+});
+
+test("a legacy write moves the record's revision", async () => {
+  const change = await runEffect(createChange({ id: "revision-legacy", repos: [repo] }));
+  const readRecord = async (): Promise<{ revision?: number }> =>
+    (await Bun.file(join(changeDir("revision-legacy"), "change.json")).json()) as {
+      revision?: number;
+    };
+  expect((await readRecord()).revision).toBe(1);
+
+  await runEffect(writeChange({ ...change, title: "Renamed by hand" }));
+  expect((await readRecord()).revision).toBe(2);
+  expect((await runEffect(readChange("revision-legacy")))?.title).toBe("Renamed by hand");
 });

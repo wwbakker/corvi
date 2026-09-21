@@ -155,7 +155,7 @@ test("the Changes layer reads a change, or answers null when there is none", asy
   const read = (id: string): Promise<unknown> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.read(id)));
 
-  expect(await read(created.id)).toEqual(created);
+  expect(await read(created.id)).toEqual({ ...created, revision: 1 });
   expect(await read("PROJ-LAYER-NOPE")).toBeNull();
 });
 

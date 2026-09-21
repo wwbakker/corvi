@@ -6,7 +6,8 @@
   "exports": {
     "./paths": "./src/paths.ts",
     "./changes": "./src/changes.ts",
-    "./api": "./src/api.ts"
+    "./api": "./src/api.ts",
+    "./config": "./src/config.ts"
   },
   "dependencies": {
     "effect": "catalog:"

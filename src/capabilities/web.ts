@@ -86,16 +86,9 @@ export const json = (data: unknown, status = 200): Response => Response.json(dat
 export const workspaceParam = (req: Request): string | undefined =>
   new URL(req.url).searchParams.get("workspace") ?? undefined;
 
-/** The request body, or a failure (a body that will not parse is the caller's mistake). */
-export const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.tryPromise({
-    try: () => req.json(),
-    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  });
-
-/** A body that is allowed to be absent or broken, read as `{}` — what `.catch(() => ({}))` did. */
-export const bodyOrEmpty = (req: Request): Effect.Effect<unknown> =>
-  Effect.promise(() => req.json().catch(() => ({})));
+// The body readers live in ./effect/body.ts so integration modules can use them without
+// importing this module back into their graph.
+export { bodyAs, bodyOf, bodyOrEmpty } from "./effect/body.ts";
 
 /** A sync call that throws typed errors (applyPatch, resolveDirectory) lifted into the error
  * channel at the route boundary. Anything that is not one of ours is reported like one, which is

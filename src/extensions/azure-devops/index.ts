@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { basename } from "node:path";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
@@ -6,6 +6,7 @@ import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/a
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
+import { bodyAs } from "../../capabilities/effect/body.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import { prNumberOf } from "../../vendors/github.ts";
 import { activeRuns, pipelineItems } from "./pipelines.ts";
@@ -23,13 +24,14 @@ import { DEPLOY_ENVIRONMENTS_ENV } from "./deploySettings.ts";
  * this module only describes it.
  */
 
-/** The request body. A body that will not parse is the caller's mistake, said as the core's
- * routes say it: a BadRequestError, which the status-code mapping turns into a 400. */
-const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.tryPromise({
-    try: () => req.json(),
-    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  });
+/** The deploy the page asks for: a version and an environment, both required by the handler. */
+const DeployBody = Schema.Union(
+  Schema.Null,
+  Schema.Struct({
+    version: Schema.optional(Schema.String),
+    environment: Schema.optional(Schema.String),
+  }),
+);
 
 /** repository > pipelines > runs, as one collapsible tree per repository. Pipelines run on the
  * PR merge ref once a PR exists, so the pull request number is looked up first through the
@@ -184,7 +186,7 @@ export default {
         Effect.gen(function* () {
           // A JSON body may be null or a primitive, not only an object: "no version or
           // environment to read" is the caller's mistake, whichever shape it arrived in.
-          const body = (yield* bodyOf(req)) as { version?: string; environment?: string } | null;
+          const body = yield* bodyAs(req, DeployBody);
           if (!body?.version || !body.environment) {
             return yield* new BadRequestError({ message: "version and environment required" });
           }

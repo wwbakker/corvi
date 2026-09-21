@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react";
-import { api, put } from "../../app-root/api.ts";
+import { makeWireClient } from "@corvi/client";
+import { TextSchema } from "@corvi/contracts/api";
 import { cached, putCached } from "../../app-root/cache.ts";
 import type { WidgetComponent } from "../../integrations/client.tsx";
 
@@ -14,6 +15,10 @@ import type { WidgetComponent } from "../../integrations/client.tsx";
  * change belongs to. */
 const url = (path: string, workspace?: string): string =>
   workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
+
+/** The transport: the same classified `ClientError` as the core client, with the DTO this
+ * extension owns. */
+const wire = makeWireClient({ baseUrl: "" });
 
 /**
  * Free-text notes for a change. Saved a moment after you stop typing and again when the widget
@@ -36,17 +41,19 @@ export function NotesCard({
   const endpoint = url(`/ext/notes/changes/${changeId}/notes`, workspace);
 
   useEffect(() => {
-    api<{ text: string }>(endpoint)
+    wire
+      .request("GET", endpoint, TextSchema)
       .then(({ text: loaded }) => {
         if (pending.current !== null) return; // do not overwrite what is being typed
-        putCached(key, loaded);
-        setText(loaded);
+        putCached(key, loaded ?? "");
+        setText(loaded ?? "");
       })
       .catch(() => {});
-  }, [endpoint]);
+  }, [endpoint, key]);
 
   const save = (value: string): Promise<void> =>
-    put<{ text: string }>(endpoint, { text: value })
+    wire
+      .request("PUT", endpoint, TextSchema, { body: { text: value } })
       .then(() => {
         putCached(key, value);
         pending.current = null;

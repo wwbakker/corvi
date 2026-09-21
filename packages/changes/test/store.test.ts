@@ -12,6 +12,7 @@ import {
   type Repository,
 } from "@corvi/contracts/changes"
 import { ChangeService } from "../src/changes.ts"
+import { ChangeStore } from "../src/store.ts"
 import { ChangeRepositories } from "../src/change-repositories.ts"
 import type { ChangeIdTaken, ChangeStoreError, DuplicateDirectoryName, RepositoryStoreError } from "../src/errors.ts"
 import { layer as servicesLayer, storeLayer } from "../src/node/index.ts"
@@ -276,4 +277,66 @@ test("a legacy edit to repos wins over a stale materialized link list", async ()
     }).pipe(Effect.provide(services(root))),
   )
   expect(links.map((repository) => repository.directoryName)).toEqual([DirectoryName.make("two")])
+})
+
+const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Either.Either<A, E>> =>
+  Effect.runPromise(
+    program.pipe(Effect.either, Effect.provide(storeLayer({ root, archiveRoot: `${root}-archive` }))),
+  )
+
+test("a write moves the revision, and a stale writer is refused", async () => {
+  const created = await Effect.runPromise(create("revisioned").pipe(Effect.provide(services(root))))
+  expect(created.revision).toBe(1)
+
+  const first = await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.transitionTo(ChangeId.make("revisioned"), "Implementation")
+    }).pipe(Effect.provide(services(root))),
+  )
+  expect(first.revision).toBe(2)
+
+  // A writer that read revision 1 is refused once revision 2 exists: the record it decided on
+  // is not the record on disk.
+  const stale = await runStore(
+    Effect.gen(function* () {
+      const store = yield* ChangeStore
+      return yield* store.patch(ChangeId.make("revisioned"), {
+        phase: "Verification",
+        expectedRevision: 1,
+      })
+    }),
+  )
+  expect(Either.isLeft(stale) && stale.left._tag).toBe("ChangeConflict")
+  if (Either.isLeft(stale) && stale.left._tag === "ChangeConflict") {
+    expect(stale.left.expected).toBe(1)
+    expect(stale.left.actual).toBe(2)
+  }
+})
+
+test("concurrent transitions cannot both win", async () => {
+  await Effect.runPromise(create("racy").pipe(Effect.provide(services(root))))
+  const outcomes = await Effect.runPromise(
+    Effect.forEach(
+      [1, 2, 3, 4],
+      () =>
+        Effect.gen(function* () {
+          const changes = yield* ChangeService
+          return yield* changes.transitionTo(ChangeId.make("racy"), "Implementation")
+        }).pipe(Effect.either),
+      { concurrency: "unbounded" },
+    ).pipe(Effect.provide(services(root))),
+  )
+  expect(outcomes.filter((outcome) => Either.isRight(outcome))).toHaveLength(1)
+  // The losers read the same revision (conflict) or read the winner's phase (invalid).
+  for (const outcome of outcomes.filter((outcome) => Either.isLeft(outcome))) {
+    expect(["ChangeConflict", "InvalidTransition"]).toContain((outcome.left as { _tag: string })._tag)
+  }
+  const read = await runEither(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.getChange(ChangeId.make("racy"))
+    }),
+  )
+  expect(Either.isRight(read) && read.right.phase).toBe("Implementation")
 })

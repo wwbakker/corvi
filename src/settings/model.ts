@@ -4,6 +4,8 @@
  * (`./server/`) imports this, and the browser half reads it without touching a server file.
  */
 
+import type { SettingsViewDto } from "@corvi/contracts/api";
+import type { ConfigFileDto } from "@corvi/contracts/config";
 import type { Config, ConfigFile } from "../domain/config.ts";
 import type { ExtensionSetting, WorkspaceSetting } from "../domain/settings.ts";
 
@@ -36,3 +38,11 @@ export type SettingsView = {
     globalSettings: ExtensionSetting[];
   }[];
 };
+
+// The hand-written vocabulary and the wire schemas must not drift: these fail to compile if
+// either stops describing exactly the other. Both directions, because the page writes the file
+// shape back to the server and reads the view shape from it.
+const _settingsMatchesDto: ConfigFile = {} as ConfigFileDto;
+const _settingsDtoMatchesSettings: ConfigFileDto = {} as ConfigFile;
+const _viewMatchesDto: SettingsView = {} as SettingsViewDto;
+const _viewDtoMatchesView: SettingsViewDto = {} as SettingsView;

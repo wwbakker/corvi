@@ -1,4 +1,12 @@
 import { Schema } from "effect";
+import {
+  ConfigFile as ConfigFileSchema,
+  DirectoryName,
+  EnvVarName,
+  Resolved as ResolvedSchema,
+  Workspace as WorkspaceSchema,
+  WorkspaceId,
+} from "@corvi/contracts/config";
 import type {
   ConfigFile as ConfigFileVocabulary,
   Workspace as WorkspaceShape,
@@ -7,50 +15,20 @@ import type {
 /**
  * Effect Schemas for the config layer — the JSON boundary of the config file.
  *
- * The file is the hand-edited source of truth (see src/settings/server/settings.ts), so these schemas describe
- * *the file as it is written*: every key optional, because an absent value means "the default",
- * and unknown keys preserved on decode, because a key Corvi does not know about was put there by
- * hand for a version of Corvi that does and losing it silently would be rude.
- *
- * The resolved shape (`src/domain/config.ts`'s `Config`) is described by `Resolved`, which is what the
- * rest of the program reads and what a future CLI `--json` or IPC surface would emit.
+ * The schemas themselves are the canonical wire contract (`@corvi/contracts/config`): the file
+ * the settings page edits and the shape a CLI/IPC surface would emit are described once. What
+ * stays here is the tolerance this layer applies — the per-item filtering a hand-mangled file
+ * deserves — and the compile-time checks that the app vocabulary and the contract do not drift.
  */
 
+export { DirectoryName, EnvVarName, WorkspaceId };
+
 /** A context you work in: a client, or your own projects. Mirrors `src/domain/config.ts`'s `Workspace`. */
-export const Workspace = Schema.Struct({
-  id: Schema.String,
-  name: Schema.String,
-  repositoriesDirectory: Schema.optional(Schema.String),
-  /** Which extensions exist here. Absent means all of them; an empty list means none. Names
-   * are validated against what is loaded by the settings write, not here: the file may be
-   * edited by hand before the extension it names exists. */
-  extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  /** Per-workspace settings declared by the extensions: `extensionSettings[name][key]`. The core
-   * carries it without looking inside; what belongs there is the extension's own declaration. */
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
-      }),
-    ),
-  ),
-  env: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))),
-});
+export const Workspace = WorkspaceSchema;
 
 // The schema and the hand-written type must not drift: this line fails to compile if the
 // schema stops describing exactly the Workspace every module reads.
 const _workspaceMatchesType: Schema.Schema<WorkspaceShape> = Workspace;
-
-/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
- * it has to be a word. The same rule src/settings/server/settings.ts enforces, as a schema. */
-export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/));
-
-/** A directory copied into a worktree is a name next to the code, not a path (see src/settings/server/settings.ts). */
-export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/));
-
-/** An environment variable name, for a workspace's `env` map. */
-export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/));
 
 /** `workspacesFrom` skips a workspace without a truthy id and name rather than rejecting the
  * file — one hand-mangled entry must not cost the rest of the configuration. That tolerance is
@@ -66,46 +44,10 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
   Boolean((w as { name?: unknown }).name);
 
 /** The config file's own shape, as it is written. Everything is optional — an absent value
- * means "the default", which is what an empty file means. This is also the settings
- * page's write shape (src/settings/model.ts' `Settings`), and the two must not drift: the
- * compile-time guards below pin this schema to domain/config.ts' hand-written
- * `ConfigFile`. */
-export const ConfigFile = Schema.Struct({
-  changesRoot: Schema.optional(Schema.String),
-  /** Where completed changes are moved; absent means `~/corvi/changes-archive`. */
-  archiveRoot: Schema.optional(Schema.String),
-  /** Directory the repository browser opens on; absent means `$HOME`. The browser is unbounded,
-   * so this is only where it starts. */
-  repositoriesDirectory: Schema.optional(Schema.String),
-  /** Whether a notification plays the system sound. Absent means yes. */
-  notificationSound: Schema.optional(Schema.Boolean),
-  /** Whether right-clicking shows the browser's own menu. Absent means yes. */
-  contextMenu: Schema.optional(Schema.Boolean),
-  /** The prompt that briefs an agent about an idea, `{id}`/`{title}`/`{plan}`/`{state}`
-   * filled in. Free text, so nothing is validated; an empty value means the default. */
-  ideationPrompt: Schema.optional(Schema.String),
-  // Passed through untouched, unvalidated, garbage entries included: dropping them here would
-  // let one hand-mangled workspace cost the rest of the file. load() applies the per-item
-  // tolerance via workspacesFrom.
-  workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
-  worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
-   * one string or a list of strings per key. Not validated here — the fields are the
-   * extension's own business; the core carries the bag without looking inside. */
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(
-          Schema.Record({
-            key: Schema.String,
-            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
-          }),
-        ),
-      }),
-    ),
-  ),
-});
+ * means "the default", which is what an empty file means. This is also the settings page's
+ * write shape (src/settings/model.ts' `Settings`), and the two must not drift: the
+ * compile-time guards below pin this schema to domain/config.ts' hand-written `ConfigFile`. */
+export const ConfigFile = ConfigFileSchema;
 
 /** What the config file decodes to. Decode with `onExcessProperty: "preserve"` (readFile does)
  * so unknown keys survive into the settings merge. `workspaces` is typed as it is consumed
@@ -120,31 +62,9 @@ export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces
 const _configFileMatchesVocabulary: ConfigFileVocabulary = {} as ConfigFile;
 const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabulary;
 
-/** The resolved shape: file, environment and defaults combined — `src/domain/config.ts`'s `Config`. Not a
- * decoder of anything on disk (the resolved config is computed, never read); it states the
- * boundary a future CLI/IPC surface would emit, and pins the Workspace member to the type.
- * The azure-devops fields the core used to own are unknown keys now: the extension reads
+/** The resolved shape: file, environment and defaults combined — `src/domain/config.ts`'s
+ * `Config`. Not a decoder of anything on disk (the resolved config is computed, never read); it
+ * states the boundary a future CLI/IPC surface would emit, and pins the Workspace member to the
+ * type. The azure-devops fields the core used to own are unknown keys now: the extension reads
  * them through its own legacy.ts, so they ride the preserve decode rather than this shape. */
-export const Resolved = Schema.Struct({
-  changesRoot: Schema.String,
-  archiveRoot: Schema.String,
-  repositoriesDirectory: Schema.String,
-  notificationSound: Schema.Boolean,
-  contextMenu: Schema.Boolean,
-  ideationPrompt: Schema.String,
-  workspaces: Schema.Array(Workspace),
-  worktreeCopy: Schema.Array(Schema.String),
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(
-          Schema.Record({
-            key: Schema.String,
-            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
-          }),
-        ),
-      }),
-    ),
-  ),
-});
+export const Resolved = ResolvedSchema;

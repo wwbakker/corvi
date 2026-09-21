@@ -23,7 +23,7 @@ import {
   type AddRepositoryInput,
   type ChangePhase,
 } from "@corvi/contracts/changes"
-import { ChangeNotFound, ChangeStoreError, RepositoryStoreError } from "../errors.ts"
+import { ChangeConflict, ChangeNotFound, ChangeStoreError, RepositoryStoreError } from "../errors.ts"
 import {
   LegacyChangeRecordFields,
   legacyStateForPhase,
@@ -166,6 +166,7 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
           phase: mapLegacyPhase(located.record.state),
           createdAt: located.record.createdAt ?? "",
           ...(located.record.completedAt ? { completedAt: located.record.completedAt } : {}),
+          revision: located.record.revision ?? 0,
         })
         return change
       })
@@ -195,6 +196,7 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
                 phase: mapLegacyPhase(record.state),
                 createdAt: record.createdAt ?? "",
                 ...(record.completedAt ? { completedAt: record.completedAt } : {}),
+                revision: record.revision ?? 0,
               }),
             )
           }
@@ -211,12 +213,19 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
 
       const patch = Effect.fn("ChangeStore.patch")(function* (
         changeId: ChangeId,
-        patch: { readonly phase: ChangePhase; readonly completedAt?: string },
+        patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
       ) {
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const located = yield* locate(changeId)
             if (!located) return yield* new ChangeNotFound({ changeId })
+            // Optimistic concurrency: a caller that read a revision writes only onto it. The
+            // check is inside the store's lock, so two writers that read the same revision
+            // cannot both win — the second is told the record moved rather than overwriting it.
+            const actual = located.record.revision ?? 0
+            if (patch.expectedRevision !== undefined && patch.expectedRevision !== actual) {
+              return yield* new ChangeConflict({ changeId, expected: patch.expectedRevision, actual })
+            }
             const next = recordFor(
               new Change({
                 changeId,
@@ -259,6 +268,7 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
               phase: patch.phase,
               createdAt: next.createdAt ?? "",
               ...(next.completedAt ? { completedAt: next.completedAt } : {}),
+              revision: next.revision ?? actual + 1,
             })
           }),
         )

@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
-import type { Change, CompletionProgress, CompletionStep } from "../../app-root/api.ts";
-import { api, post } from "../../app-root/api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { apiClient, type Change, type CompletionProgress, type CompletionStep } from "../../app-root/api.ts";
 
 const MARK: Record<CompletionStep["state"], string> = {
   waiting: "○",
@@ -49,7 +49,8 @@ export function CompletionCard({
 
   useEffect(() => {
     const load = (): Promise<void> =>
-      api<CompletionProgress | null>(`/changes/${changeId}/complete/progress`)
+      apiClient
+        .completionProgress(ChangeId.make(changeId))
         .then(setProgress)
         .catch(() => {});
     void load();
@@ -62,7 +63,8 @@ export function CompletionCard({
   // the dialog for them would un-waive nothing — the journal is where the mode lives.
   const retry = (): void => {
     setRetrying(true);
-    post<{ change: Change }>(`/changes/${changeId}/complete`, retryBody(progress))
+    apiClient
+      .complete(ChangeId.make(changeId), retryBody(progress))
       .then(({ change }) => onFinished(change))
       .catch(() => {}) // the failure lands in the progress itself, which is where it belongs
       .finally(() => setRetrying(false));

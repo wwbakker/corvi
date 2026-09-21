@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { BadRequestError, ConflictError, NotFoundError } from "../capabilities/effect/errors.ts";
 import {
   cardForExtension,
@@ -16,12 +16,15 @@ import { guard } from "../capabilities/web.ts";
 import { isFinished } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
 import {
-  bodyOrEmpty,
+  bodyAs,
   json,
   withChange,
   withWorkspaceParam,
   workspaceParam,
 } from "../capabilities/web.ts";
+
+/** The card action's argument: the repository the action is applied to, when it takes one. */
+const ActionBody = Schema.Struct({ arg: Schema.optional(Schema.String) });
 
 // What is deployed where lives under the azure-devops extension's namespace
 // (/api/ext/azure-devops/…): the implementation (extensions/azure-devops/server.ts) lives with
@@ -141,7 +144,7 @@ export const integrationRoutes = guard({
           if (isFinished(c)) {
             return yield* new ConflictError({ message: `${c.id} is finished` });
           }
-          const body = (yield* bodyOrEmpty(req)) as { arg?: string };
+          const body = yield* bodyAs(req, ActionBody);
           yield* runCard(req.params.card, card, c, req.params.action, body.arg);
           // Per-repository components answer with the rows of the repository acted on; the
           // argument of every such action is that repository.

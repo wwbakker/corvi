@@ -1,4 +1,3 @@
-import { basename } from "node:path";
 import { Effect, Either, Layer, Ref } from "effect";
 import type {
   Change,
@@ -6,7 +5,6 @@ import type {
   CompletionProgress,
   CompletionReason,
   CompletionRefusal,
-  CompletionStep,
 } from "../../domain/change.ts";
 import { isIdeation } from "../../domain/change.ts";
 import type { MergeReadiness } from "../../vendors/github.ts";
@@ -36,7 +34,7 @@ import {
   type IweError,
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import { lifecycleLayer, plannedCompletionSteps } from "../lifecycle-layer.ts";
+import { lifecycleLayer } from "../lifecycle-layer.ts";
 
 // The page reads the same completion types; they live in the domain so both halves agree.
 export type { Completion, CompletionReason, CompletionRefusal };
@@ -144,29 +142,6 @@ export const progressOf = (id: string): Effect.Effect<CompletionProgress | null>
 const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
   Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
     undefined);
-
-/** The work a completion is about to do, named before it starts so the page can show what is
- * still coming rather than only what has happened. The extensions' steps sit between the merges
- * and the worktrees: a ticket is closed while the worktrees still exist to inspect, and no
- * directory has moved yet. */
-// Pure and synchronous: nothing for an Effect to wrap.
-export function stepsFor(
-  change: Change,
-  completion: Completion,
-  contributed: CompletionStep[] = plannedCompletionSteps(change),
-): CompletionStep[] {
-  return [
-    ...completion.toMerge.map(({ repo, number }) => ({
-      id: `merge:${repo}`,
-      label: `merge ${basename(repo)} #${number}`,
-      state: "waiting" as const,
-    })),
-    ...contributed,
-    { id: "worktrees", label: "remove the worktrees", state: "waiting" as const },
-    { id: "terminal", label: "close the terminal", state: "waiting" as const },
-    { id: "archive", label: "archive the change", state: "waiting" as const },
-  ];
-}
 
 /** The completion journal while the workflow runs: the page polls `completion.json`, so this
  * adapter keeps writing that shape from the workflow's steps. */

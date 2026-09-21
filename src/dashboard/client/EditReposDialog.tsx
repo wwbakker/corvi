@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post, type ApiError, type Change, type RepoState, type Selection } from "../../app-root/api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { apiClient, type Change, type RepoState, type Selection } from "../../app-root/api.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 
 /**
@@ -34,7 +35,8 @@ export function EditReposDialog({
     if (!open) return;
     // Start from what the change has now, every time the dialog is opened.
     setError(null);
-    api<RepoState[]>(`/changes/${changeId}/repos`)
+    apiClient
+      .repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
         setDraft(repos.map((r) => ({ path: r.path, direct: r.direct, base: r.base })));
@@ -45,15 +47,16 @@ export function EditReposDialog({
   const save = (force = false): void => {
     setBusy(true);
     setError(null);
-    post<Change>(`/changes/${changeId}/repos`, {
-      repos: draft.map((d) => d.path),
-      direct: draft.filter((d) => d.direct).map((d) => d.path),
-      base: Object.fromEntries(draft.filter((d) => d.base).map((d) => [d.path, d.base!])),
-      force,
-    })
+    apiClient
+      .setRepositories(ChangeId.make(changeId), {
+        repos: draft.map((d) => d.path),
+        direct: draft.filter((d) => d.direct).map((d) => d.path),
+        base: Object.fromEntries(draft.filter((d) => d.base).map((d) => [d.path, d.base!])),
+        force,
+      })
       .then(onSaved)
-      .catch((e: ApiError) => {
-        const needsForce = (e.body as { needsForce?: string[] })?.needsForce;
+      .catch((e: unknown) => {
+        const needsForce = (e as { body?: { needsForce?: string[] } }).body?.needsForce;
         // Unpushed commits: ask once, then repeat the same edit with force.
         if (needsForce?.length) {
           if (
@@ -68,7 +71,7 @@ export function EditReposDialog({
           setError(null);
           return;
         }
-        setError(e.message);
+        setError(e instanceof Error ? e.message : String(e));
       })
       .finally(() => setBusy(false));
   };

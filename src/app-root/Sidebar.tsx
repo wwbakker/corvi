@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, type Change } from "./api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { apiClient, type Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
 import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
@@ -130,7 +131,8 @@ export function Sidebar({
     let alive = true;
     const load = (): void =>
       active.forEach((c) =>
-        api<ChangeSummary>(`/changes/${c.id}/summary`)
+        apiClient
+          .summary(ChangeId.make(c.id))
           .then((s) => alive && setSummaries((all) => ({ ...all, [c.id]: s })))
           .catch(() => {}),
       );

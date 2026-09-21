@@ -11,35 +11,16 @@ import {
 } from "../../capabilities/effect/errors.ts";
 import { messageOf } from "../../capabilities/effect/support.ts";
 import { copyTooling } from "../../capabilities/os.ts";
-import { IDEATION, type Change, type ProvisionResult } from "../../domain/change.ts";
+import { type Change, type ProvisionResult } from "../../domain/change.ts";
 import { extensionsFor } from "../../integrations/index.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
 import { moveIssueOnStart } from "../../extensions/jira/index.ts";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
 import { config, workspaceOf } from "../../workspace/server/index.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
-import { archiveRoot, changeDir, readChange, root, writeChange } from "./store.ts";
+import { archiveRoot, changeDir, readChange, root } from "./store.ts";
 
 /**
- * Start an idea's work: leave `Ideation` for `In Progress`.
- *
- * The state move is all this does. What a start implies — creating each repository's checkout,
- * moving the ticket to In Progress — belongs to the `change:started` hooks, so the core never
- * learns what a ticket is, and a failure there is reported rather than undoing the start. That is
- * the same bargain creating a change makes: the record is written first and always survives.
- */
-export const startChange = (change: Change): Effect.Effect<Change, ConflictError> =>
-  Effect.gen(function* () {
-    if (change.state !== IDEATION) {
-      return yield* new ConflictError({
-        message: `${change.id} has already started (${change.state ?? "In Progress"})`,
-      });
-    }
-    const started: Change = { ...change, state: "In Progress" };
-    yield* writeChange(started);
-    return started;
-  });
-
 /** What a workflow start produced: the started record and the per-target report the page shows. */
 export type Started = { readonly change: Change; readonly provision: ProvisionResult[] };
 

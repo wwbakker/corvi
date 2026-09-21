@@ -1,4 +1,5 @@
 import { CHANGE_STATES, IDEATION, isIdeation, type Change, type ChangeState } from "../domain/change.ts";
+import { makeChangesClient } from "@corvi/client";
 import type {
   Completion,
   CompletionProgress,
@@ -53,42 +54,9 @@ export type Completed = { change: Change; notes: string[] };
 /** A cancelled change and what cancelling deliberately left behind. */
 export type Cancelled = { change: Change; loose: string[] };
 
-/** Errors carry the response body, so a caller can react to more than the message. */
-export type ApiError = Error & { status: number; body: unknown };
-
-export async function api<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
-    ...init,
-    headers: init?.body ? { "content-type": "application/json" } : undefined,
-  });
-  // A route the server does not have falls through to the app's own HTML, which arrives as a
-  // perfectly good 200. Parsing that as JSON produces a browser's idea of a parse error —
-  // Safari's is "The string did not match the expected pattern" — and the page then shows it
-  // as though the server had said something. It has not: it is out of date.
-  if (!res.headers.get("content-type")?.includes("json")) {
-    throw Object.assign(
-      new Error(`the server has no ${path} — it is probably running older code, restart it`),
-      { status: res.status, body: undefined },
-    ) as ApiError;
-  }
-  const body = await res.json();
-  if (!res.ok) {
-    const message = (body as { error?: string }).error ?? res.statusText;
-    throw Object.assign(new Error(message), { status: res.status, body }) as ApiError;
-  }
-  return body as T;
-}
-
-export const patch = <T,>(path: string, body: unknown): Promise<T> =>
-  api<T>(path, { method: "PATCH", body: JSON.stringify(body) });
-
-export const put = <T,>(path: string, body: unknown): Promise<T> =>
-  api<T>(path, { method: "PUT", body: JSON.stringify(body) });
-
-export const del = <T,>(path: string): Promise<T> => api<T>(path, { method: "DELETE" });
-
-export const post = <T,>(path: string, body: unknown): Promise<T> =>
-  api<T>(path, { method: "POST", body: JSON.stringify(body) });
-
 /** A request cancelled because its card went away is not an error worth showing. */
 export const aborted = (e: unknown): boolean => e instanceof Error && e.name === "AbortError";
+
+/** One typed client for the page, relative to the origin that served it: the read operations the
+ * change page and the overview use. */
+export const apiClient = makeChangesClient({ baseUrl: "" });

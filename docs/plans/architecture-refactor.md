@@ -20,15 +20,22 @@ combine this work with an Effect major upgrade, database conversion, or new agen
 
 ## 1. Establish the executable baseline
 
-- [ ] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
-- [ ] Identify behavior tests for creation/start, review, completion/cancellation, settings,
-      documents, integrations, terminal survival, and process cleanup.
-- [ ] Separate behavior assertions from tests tied to global registries, private exports, and
+- [x] Run and record the full typecheck, lint, and test baseline, including skips/platform gaps.
+      `bun run typecheck`, `bun run lint` and `bun run boundaries` pass; the full suite is
+      591 pass / 1 skip / 0 fail across 64 files (the skip is the Electron runtime test).
+- [x] Identify behavior tests for creation/start, review, completion/cancellation, settings,
+      documents, integrations, terminal survival, and process cleanup. The coverage map lives in
+      docs/design/repositories-and-changes.md ("Existing coverage to preserve").
+- [x] Separate behavior assertions from tests tied to global registries, private exports, and
       custom-extension loading. Plan replacement coverage before deleting coupled tests.
-- [ ] Author representative contracts and typechecked callers for repository queries, change
+      The loader/registry is gone; selector tests assert the included integrations, and the pure
+      rules (matchRoute, visibleChangeTabs, plannedCompletionSteps) carry the rest.
+- [x] Author representative contracts and typechecked callers for repository queries, change
       associations/storage, working-directory resolution, and the lifecycle/terminal boundary.
-- [ ] Owner review of the contracts, dependency graph, and deliberate behavior differences before
-      moving files or starting package implementation.
+      `packages/contracts` plus the design prototypes under docs/design/repositories-and-changes
+      are the typechecked callers.
+- [x] Owner review of the contracts, dependency graph, and deliberate behavior differences before
+      moving files or starting package implementation. Reviewed and accepted by the owner.
 
 The [repository/change design](../design/repositories-and-changes.md) is the step-1 deliverable.
 It contains the behavior-test map and minimum next slice. Implementation baseline `3391c8d`:
@@ -46,9 +53,10 @@ same implementation dependencies.
       explicit package exports, and per-package TypeScript checks.
 - [x] Add a checked dependency graph: no cycles, undeclared dependencies, deep imports, or bypass
       aliases. Include negative fixtures and type-only/dynamic import coverage.
-- [ ] Add browser import/bundle isolation and Node/Electron package-resolution smoke tests.
-      Contracts bundle and Node resolution are covered in `test/contracts.test.ts`; app bundles and
-      Electron resolution come with those packages.
+- [x] Add browser import/bundle isolation and Node/Electron package-resolution smoke tests.
+      Contracts bundle and Node resolution are covered in `test/contracts.test.ts`;
+      `test/bundle.test.ts` builds the page and asserts no Node builtin reaches the browser
+      bundle. Electron resolution remains the documented skip in `test/node-runtime.test.ts`.
 - [x] Keep one root verification command running every package/app test with owned-resource cleanup.
       Change CI and the PR checklist to use the safe test wrapper rather than bare `bun test`.
 - [x] Extract canonical shared boundary schemas without pulling runtime code into contracts.
@@ -60,7 +68,7 @@ Do not scaffold empty integrations or weaken current lint rules before replaceme
 - [x] Extract worktree inspection/parsing behind `repositories`' public API.
 - [x] Separate Git facts from change-directory selection and dashboard presentation.
 - [x] Supply process/filesystem dependencies through Layers; no optional live fallback.
-- [ ] Extract the change-owned association projection/update and migrate association data explicitly
+- [x] Extract the change-owned association projection/update and migrate association data explicitly
       before enabling directory-bound workflows. Created and adopted worktrees both retain a path;
       unresolved legacy ownership must not become automatic cleanup authority. The store writes a
       legacy-compatible record: `repositories` materializes on write, `repos`/`direct` stay in
@@ -88,7 +96,11 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Assemble runtime services and included integrations explicitly at the server entrypoint.
 - [ ] Separate notification/watch policy from event transport; scope and cancel all watchers.
 - [ ] Separate terminal-session ownership from request/PTY attachment ownership.
-- [ ] Prove independent application instances and scoped shutdown in tests.
+- [x] Prove independent application instances and scoped shutdown in tests. `test/instances.test.ts`
+      boots two servers with their own changes root, config, state and cache directories: a change
+      written to one is invisible to the other, each reports its own config path, and stopping one
+      leaves the other serving its own state. The remaining ownership work (snapshot, Layers,
+      watchers, terminal sessions) is what the other step-4 items cover.
 
 ## 5. Extract remaining capabilities and workflows
 
@@ -108,8 +120,19 @@ Start with inspection rather than deletion: prove the boundary without changing 
 | `pi/agent-state.ts`, agent presentation | Pi integration and agent status contracts; keep actual reporting behavior |
 
 - [ ] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
-- [ ] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
-- [ ] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
+- [x] Protect concurrent change updates and interrupted file writes; test guarantees explicitly.
+      Interrupted file writes: `writeAtomic` uses a unique temp per write and cleans it up on
+      failure; the legacy change record now writes through it too, and `test/files.test.ts` pins
+      both guarantees. Concurrent updates: the record carries a `revision` (in the wire schema
+      and the domain type), the new store's `patch` compares the caller's `expectedRevision`
+      under its lock and fails `ChangeConflict` rather than overwriting, `ChangeService` passes
+      the revision it read, and the legacy store bumps the revision on every write so a
+      transition that raced an edit conflicts instead of clobbering it. Tested in
+      `packages/changes/test/store.test.ts` (stale writer, four concurrent transitions → one
+      winner) and `test/changes.test.ts` (revision moves on a legacy write). Caveat, recorded in
+      the store comment: two concurrent legacy edits remain last-writer-wins, and there is no
+      cross-process locking.
+- [x] Migrate create/start/complete/cancel as callable workflows, preserving step ordering and
       partial-failure reporting. Keep force/acknowledgement and dirty-worktree protections.
       `ChangeLifecycle` exists in `@corvi/workflows/lifecycle` with scripted-port tests, and
       **cancel and complete now run through it** in the app: `src/change/server/cancel.ts` and
@@ -136,12 +159,27 @@ Start with inspection rather than deletion: prove the boundary without changing 
       included integrations' fields (`src/integrations/included.ts`), the registry is a fixed
       normalization of that list, discovery/factories/client-chunks/`extensionPaths` and the
       out-of-tree tests were deleted, and `src/integrations/types.ts` holds the surface types
-      (no public contract). What remains of this item is only the list of surfaces the plan's
-      step 6 describes as retained plumbing.
-- [ ] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
+      (no public contract). All four operations run through the workflows; the cutover adapters
+      in `src/change/lifecycle-layer.ts` are the included integrations' port implementations.
+- [x] Replace caller-selected `api<T>` casts and route-body casts with authoritative codecs and
       named client methods. Generated clients are optional; duplicate schemas are not.
+      **Route bodies are decoded** (`bodyAs` in `src/capabilities/effect/body.ts`; create, patch,
+      plan, repos, cancel, complete, card actions, notes, review, azure deploy, terminal windows,
+      settings) with no `as` casts left, and the create/force bodies are the canonical contract
+      schemas. **Every browser call is a named method**: `packages/client` exposes the change
+      reads and writes (`create`/`start`/`complete`/`cancel`/`rename`/`setRepositories`/
+      `cardAction`/`cardRepoAction`/`windowAction` included), settings, workspaces, terminals,
+      wizard, pages and the directory browser — all decoded against contract schemas, with
+      `ClientError.body` carrying a structured 409 so the dialogs read server truth. Extension
+      browser halves own their DTO schemas (notes, leftovers, github-issues, jira, review, azure)
+      and use `makeWireClient` for the same transport classification. No `api<T>`/`post<T>` call
+      site remains outside the retired generic helpers in `src/app-root/api.ts`.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
-- [ ] Remove obsolete comments and exports as each implementation is replaced.
+- [x] Remove obsolete comments and exports as each implementation is replaced.
+      The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
+      browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
+      transport behaviors moved into `ClientError` (structured error body, status-text fallback,
+      the non-JSON "older code" message) and their tests moved to the client package.
 
 ## 6. Remove the extension platform
 
@@ -168,8 +206,11 @@ Start with inspection rather than deletion: prove the boundary without changing 
       The settings page's extension-paths tab, `CORVI_EXTENSION_PATHS`/`extensionPaths`, and the
       discovery tests are removed; the selector semantics are tested against the included
       integrations.
-- [ ] Migrate provider metadata/documents safely if their stored layout changes. Confirm notes,
-      archived documents, ticket references, and secrets remain available.
+- [x] Migrate provider metadata/documents safely if their stored layout changes. Confirm notes,
+      archived documents, ticket references, and secrets remain available. The notes sidecar
+      migration (`readSidecar`), archive readability (`test/changes.test.ts`), ticket keys
+      (`test/extensions.test.ts`, `test/jira.flows.test.ts`) and secret masking
+      (`test/settings.test.ts`) are all covered.
 - [x] Keep the Pi-side reporter installation unless its integration is replaced deliberately;
       it is not an out-of-tree Corvi plugin. `scripts/extension.ts` and `test/extension.test.ts`
       remain as they were.
@@ -179,8 +220,10 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [ ] Remove unused code, dependencies, temporary adapters, and old paths. An adapter that remains
       must have an owner, a concrete removal condition, and no new consumers.
 - [ ] Check every public entrypoint against the API checklist and actual dependency graph.
-- [ ] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
+- [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
+      `bun run test` (which owns and cleans its resources) runs 591 pass / 1 skip / 0 fail, and
+      the browser flows are part of it.
 - [ ] Update commands/manuals for actual behavior and package instructions for implemented ownership.
 - [ ] Remove target-status caveats only once the described checks and layout exist. Delete this plan
       when complete; do not create an archive of intermediate agent reports.

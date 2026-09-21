@@ -1,5 +1,6 @@
 import { type JSX, useCallback, useState } from "react";
-import { aborted, api, post, type CardInfo, type Widget } from "../../app-root/api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { aborted, apiClient, type CardInfo, type Widget } from "../../app-root/api.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { usePolled } from "../../app-root/poll.ts";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
@@ -11,7 +12,8 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
 
   const load = useCallback(
     (signal?: AbortSignal): Promise<void> =>
-      api<Widget>(`/changes/${changeId}/${info.name}`, { signal })
+      apiClient
+        .card(ChangeId.make(changeId), info.name, { signal })
         .then(setWidget)
         .catch((e: Error) => {
           if (aborted(e)) return;
@@ -31,7 +33,8 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
 
   const act = (actionId: string, arg?: string): Promise<void> => {
     setBusy(true);
-    return post<Widget>(`/changes/${changeId}/${info.name}/${actionId}`, { arg })
+    return apiClient
+      .cardAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then(setWidget)
       .catch((e: Error) => setWidget({ ...widget!, state: "error", summary: e.message }))
       .finally(() => setBusy(false));

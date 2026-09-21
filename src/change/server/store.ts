@@ -8,7 +8,7 @@ import { projectLegacyRepositories } from "@corvi/changes/legacy";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "../../capabilities/effect/errors.ts";
 import { fs } from "../../capabilities/effect/support.ts";
-import { file, write } from "../../capabilities/files.ts";
+import { file, write, writeAtomic } from "../../capabilities/files.ts";
 import { config } from "../../workspace/server/index.ts";
 import { env } from "../../capabilities/identity.ts";
 
@@ -84,11 +84,21 @@ export const writeChange = (change: Change): Effect.Effect<void> =>
   Effect.gen(function* () {
     const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
+    // The record's revision moves on every write, whichever store writes it: the lifecycle's
+    // optimistic check compares it, so an edit that lands between a transition's read and its
+    // write makes that transition conflict rather than overwrite the edit. The revision on disk
+    // is authoritative; a fresh record starts at 1.
+    const prior = yield* readChange(change.id).pipe(
+      Effect.map((current) => Number((current as { revision?: unknown } | null)?.revision ?? 0)),
+      Effect.catchAll(() =>
+        Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0)),
+      ),
+    );
     // Materialize the new link model on every write, from the same `repos`/`direct` the old app
     // maintains: whichever writer touched the record, both readers see the same links. The old
     // schema preserves unknown fields, so the added key is ignored on its side.
-    const record = { ...change, repositories: projectLegacyRepositories(change) };
-    yield* fs(() => write(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
+    const record = { ...change, revision: prior + 1, repositories: projectLegacyRepositories(change) };
+    yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
   });
 
 /** A file beside change.json — notes, completion progress — which therefore travels into the

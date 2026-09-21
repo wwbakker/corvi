@@ -1,8 +1,21 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post } from "../../app-root/api.ts";
+import { makeWireClient } from "@corvi/client";
+import { Schema } from "effect";
+import { TextSchema } from "@corvi/contracts/api";
 import type { Change } from "../../domain/change.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
-import type { CommitResult, FileChange, LocalStatus, Selection } from "./shared.ts";
+import {
+  CommitResultSchema,
+  LocalStatusSchema,
+  type CommitResult,
+  type FileChange,
+  type LocalStatus,
+  type Selection,
+} from "./shared.ts";
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
+const commitResultsSchema = Schema.mutable(Schema.Array(CommitResultSchema));
 
 /** The word for a status letter, so a row reads as English rather than as porcelain. */
 const statusWord = (letter: string): string =>
@@ -140,7 +153,12 @@ export function LocalPane({
     const load = (): Promise<(false | void)[]> =>
       Promise.all(
         repos.map((repo) =>
-          api<LocalStatus>(url(`/ext/review/changes/${changeId}/local?path=${encodeURIComponent(repo)}`, workspace))
+          wire
+            .request(
+              "GET",
+              url(`/ext/review/changes/${changeId}/local?path=${encodeURIComponent(repo)}`, workspace),
+              LocalStatusSchema,
+            )
             .then((next) => alive && setStatuses((all) => ({ ...all, [repo]: next })))
             .catch((e: Error) => alive && setError(e.message)),
         ),
@@ -162,8 +180,9 @@ export function LocalPane({
   useEffect(() => {
     if (!selected) return setDiff(null);
     const query = `path=${encodeURIComponent(selected.repo)}&file=${encodeURIComponent(selected.file)}&staged=${selected.staged ? 1 : 0}`;
-    api<{ text: string }>(url(`/ext/review/changes/${changeId}/local/diff?${query}`, workspace))
-      .then((r) => setDiff(r.text))
+    wire
+      .request("GET", url(`/ext/review/changes/${changeId}/local/diff?${query}`, workspace), TextSchema)
+      .then((r) => setDiff(r.text ?? ""))
       .catch((e: Error) => setError(e.message));
   }, [changeId, selected?.repo, selected?.file, selected?.staged, fingerprint, workspace]);
 
@@ -184,7 +203,13 @@ export function LocalPane({
     setPushing(true);
     setError(null);
     setNotice(null);
-    post<CommitResult[]>(url(`/ext/review/changes/${changeId}/push`, workspace), { repos: behind.map((s) => s.repo) })
+    wire
+      .request(
+        "POST",
+        url(`/ext/review/changes/${changeId}/push`, workspace),
+        commitResultsSchema,
+        { body: { repos: behind.map((s) => s.repo) } },
+      )
       .then((results) => {
         const failed = results.filter((r) => !r.ok);
         // The failures are the news; the successes are visible in the counts going away.

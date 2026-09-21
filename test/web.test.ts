@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import type { Change } from "../src/domain/change.ts";
-import { aborted, api, del, patch, post, put, type ApiError } from "../src/app-root/api.ts";
+import { aborted } from "../src/app-root/api.ts";
 import { stateClass } from "../src/app-root/stateClass.ts";
 import { changeNav, resolveChangePage } from "../src/change-page/client/changeTabs.ts";
 import { moment } from "../src/app-root/moment.ts";
@@ -193,128 +193,6 @@ test("a preference is written with the attributes that survive a fresh port", ()
 test("a preference written and read back is the value that was set", () => {
   setPref("corvi:workspace", "My Client / team");
   expect(getPref("corvi:workspace")).toBe("My Client / team");
-});
-
-// The API client is shared by every page, so its response handling is stubbed at `fetch` rather
-// than driven through a server. Each call records what it asked for.
-type FetchCall = { url: string; init?: RequestInit };
-let calls: FetchCall[] = [];
-const realFetch = globalThis.fetch;
-
-const stubFetch = (respond: (url: string, init?: RequestInit) => Response): void => {
-  calls = [];
-  globalThis.fetch = ((input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const url =
-      typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    calls.push({ url, init });
-    return Promise.resolve(respond(url, init));
-  }) as typeof fetch;
-};
-
-const json = (body: unknown, status = 200): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
-
-beforeEach(() => {
-  calls = [];
-});
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
-
-test("a JSON body comes back parsed, from /api", async () => {
-  stubFetch(() => json({ workspaces: [{ id: "default" }] }));
-  expect(await api<{ workspaces: unknown[] }>("/workspaces")).toEqual({
-    workspaces: [{ id: "default" }],
-  });
-  expect(calls[0]!.url).toBe("/api/workspaces");
-});
-
-test("a POST body is sent as JSON with the content type it needs", async () => {
-  stubFetch(() => json({ ok: true }));
-  await post("/changes", { id: "PROJ-1" });
-  expect(calls[0]!.url).toBe("/api/changes");
-  expect(calls[0]!.init?.method).toBe("POST");
-  expect(calls[0]!.init?.body).toBe('{"id":"PROJ-1"}');
-  expect(calls[0]!.init?.headers).toEqual({ "content-type": "application/json" });
-});
-
-test("PATCH, PUT and DELETE carry their method, and DELETE carries no body", async () => {
-  stubFetch(() => json({ ok: true }));
-  await patch("/changes/PROJ-1", { title: "renamed" });
-  await put("/changes/PROJ-1/notes", { notes: "hi" });
-  await del("/changes/PROJ-1/notes");
-
-  expect(calls.map((c) => c.init?.method)).toEqual(["PATCH", "PUT", "DELETE"]);
-  expect(calls[0]!.init?.body).toBe('{"title":"renamed"}');
-  expect(calls[1]!.init?.body).toBe('{"notes":"hi"}');
-  // No body means no content-type, so a DELETE cannot be mistaken for a payload.
-  expect(calls[2]!.init?.body).toBeUndefined();
-  expect(calls[2]!.init?.headers).toBeUndefined();
-});
-
-test("a non-JSON response is read as an out-of-date server, not a parse error", async () => {
-  stubFetch(
-    () =>
-      new Response("<html>the app</html>", {
-        status: 200,
-        headers: { "content-type": "text/html" },
-      }),
-  );
-
-  const error = await api("/settings").then(
-    () => null,
-    (e: unknown) => e as ApiError,
-  );
-  expect(error).toBeInstanceOf(Error);
-  expect(error!.message).toBe(
-    "the server has no /settings — it is probably running older code, restart it",
-  );
-  expect(error!.status).toBe(200);
-  // The HTML is not a body the caller can use, so the error does not pretend it is JSON.
-  expect(error!.body).toBeUndefined();
-});
-
-test("a missing content type is also treated as no such route", async () => {
-  stubFetch(() => new Response("plain", { status: 404 }));
-  const error = await api("/nope").then(
-    () => null,
-    (e: unknown) => e as ApiError,
-  );
-  expect(error!.status).toBe(404);
-  expect(error!.message).toContain("the server has no /nope");
-});
-
-test("a JSON error body names the failure and rides along with its status", async () => {
-  stubFetch(() => json({ error: "branch already exists" }, 409));
-  const error = await api("/changes").then(
-    () => null,
-    (e: unknown) => e as ApiError,
-  );
-  expect(error!.message).toBe("branch already exists");
-  expect(error!.status).toBe(409);
-  expect(error!.body).toEqual({ error: "branch already exists" });
-});
-
-test("a JSON error without an error field falls back to the status text", async () => {
-  stubFetch(
-    () =>
-      new Response(JSON.stringify({ detail: "no message here" }), {
-        status: 500,
-        statusText: "Internal Server Error",
-        headers: { "content-type": "application/json; charset=utf-8" },
-      }),
-  );
-  const error = await api("/changes").then(
-    () => null,
-    (e: unknown) => e as ApiError,
-  );
-  expect(error!.message).toBe("Internal Server Error");
-  expect(error!.status).toBe(500);
-  expect(error!.body).toEqual({ detail: "no message here" });
 });
 
 test("only an abort is an abort", () => {

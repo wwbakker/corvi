@@ -1,16 +1,12 @@
 import { type JSX, useEffect, useState } from "react";
+import { ChangeId } from "@corvi/contracts/changes";
 import {
-  api,
-  patch,
-  post,
+  apiClient,
   CHANGE_STATES,
   IDEATION,
   isIdeation,
-  type ApiError,
   type ChangeState,
   type Change,
-  type Cancelled,
-  type Completed,
   type Completion,
   type CompletionRefusal,
   type CardInfo,
@@ -37,6 +33,10 @@ import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
 import { PlanCard } from "./PlanCard.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../integrations/client.tsx";
+
+/** The message to show for whatever a request threw: typed client errors and plain errors both
+ * carry one. */
+const failureMessage = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 export function ChangeView({
   id,
@@ -120,17 +120,21 @@ export function ChangeView({
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
   useEffect(() => {
-    api<Change>(`/changes/${id}`)
+    apiClient
+      .read(ChangeId.make(id))
       .then(setChange)
       .catch((e: Error) => setError(e.message));
-    api<CardInfo[]>(`/changes/${id}/integrations`)
+    apiClient
+      .cards(ChangeId.make(id))
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
-    api<{ tabs: ChangeTabInfo[] }>(`/changes/${id}/tabs`)
-      .then(({ tabs }) => setTabs(tabs))
+    apiClient
+      .tabs(ChangeId.make(id))
+      .then(setTabs)
       .catch((e: Error) => setError(e.message));
-    api<{ widgets: WidgetInfo[] }>(`/changes/${id}/widgets`)
-      .then(({ widgets }) => setWidgets(widgets))
+    apiClient
+      .widgets(ChangeId.make(id))
+      .then(setWidgets)
       .catch((e: Error) => setError(e.message));
   }, [id]);
 
@@ -139,7 +143,8 @@ export function ChangeView({
     if (change?.completedAt) return;
     const ac = new AbortController();
     const load = (): Promise<void> =>
-      api<Completion>(`/changes/${id}/complete`, { signal: ac.signal })
+      apiClient
+        .completion(ChangeId.make(id), { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
     void load();
@@ -166,15 +171,17 @@ export function ChangeView({
 
   // Re-read the change and remount the cards: its repository list just changed.
   const reload = (): void => {
-    api<Change>(`/changes/${id}`)
+    apiClient
+      .read(ChangeId.make(id))
       .then(setChange)
       .catch((e: Error) => setError(e.message));
     setGeneration((g) => g + 1);
   };
 
   const copyDescription = (): Promise<void> =>
-    api<{ text: string }>(`/changes/${id}/description`)
-      .then(({ text }) => navigator.clipboard.writeText(text))
+    apiClient
+      .description(ChangeId.make(id))
+      .then(({ text }) => navigator.clipboard.writeText(text ?? ""))
       .then(() => {
         setNotice("Pull request description copied");
         setTimeout(() => setNotice(null), 2500);
@@ -190,13 +197,14 @@ export function ChangeView({
   const complete = (force = false): void => {
     setCompleting(true);
     setError(null);
-    post<Completed>(`/changes/${id}/complete`, { ...(force ? { force: true } : {}) })
+    apiClient
+      .complete(ChangeId.make(id), force ? { force: true } : {})
       .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         setRefusal(null);
       })
-      .catch((e: ApiError) => {
+      .catch((e: unknown) => {
         const refusal = completionRefusal(e);
         if (refusal) {
           setRefusal(refusal);
@@ -204,7 +212,7 @@ export function ChangeView({
         }
         // Where a started completion stopped is in the completion card, which reads it from
         // disk; this is only for a refusal before anything started.
-        setError(e.message);
+        setError(failureMessage(e));
       })
       .finally(() => setCompleting(false));
   };
@@ -217,7 +225,8 @@ export function ChangeView({
   const startWork = (): void => {
     setStarting(true);
     setError(null);
-    post<{ change: Change; provision: ProvisionResult[] }>(`/changes/${id}/start`, {})
+    apiClient
+      .start(ChangeId.make(id))
       .then(({ change: updated, provision }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -248,7 +257,8 @@ export function ChangeView({
     }
     setCancelling(true);
     setError(null);
-    post<Cancelled>(`/changes/${id}/cancel`, { force })
+    apiClient
+      .cancel(ChangeId.make(id), { force })
       .then(({ change: updated, loose }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -256,7 +266,7 @@ export function ChangeView({
         setCancelWarning(null);
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })
-      .catch((e: ApiError) => {
+      .catch((e: unknown) => {
         const needsForce = cancelNeedsForce(e);
         // Commits nobody else has. The branch survives, so this is recoverable — by someone who
         // knows the branch is there, which is worth one question, asked in the dialog.
@@ -266,7 +276,7 @@ export function ChangeView({
           return;
         }
         setCancelWarning(null);
-        setError(e.message);
+        setError(failureMessage(e));
       })
       .finally(() => setCancelling(false));
   };
@@ -444,7 +454,8 @@ export function ChangeView({
                     if (next === (change.title ?? "")) return;
                     // A name the ticket suggested is not a fact: renaming it stops it being
                     // refreshed from Jira, and clearing it hands the name back.
-                    patch<Change>(`/changes/${id}`, { title: next })
+                    apiClient
+                      .rename(ChangeId.make(id), { title: next })
                       .then((updated) => {
                         setChange(updated);
                         onChanged();
@@ -461,7 +472,8 @@ export function ChangeView({
                 disabled={idea}
                 // Your own view of where the change stands; completing it sets "Completed".
                 onChange={(e) =>
-                  patch<Change>(`/changes/${id}`, { state: e.target.value as ChangeState })
+                  apiClient
+                    .rename(ChangeId.make(id), { state: e.target.value as ChangeState })
                     .then((updated) => {
                       setChange(updated);
                       onChanged(); // the navigation column and the overview list states too

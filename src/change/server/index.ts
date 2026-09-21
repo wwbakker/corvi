@@ -28,20 +28,19 @@ export {
 
 export { createChange, type CreateChangeInput } from "./create.ts";
 
-export { startChange, startChangeWithWorkflow, type Started } from "./start.ts";
+export { startChangeWithWorkflow, type Started } from "./start.ts";
 
 export {
   completeChange,
   completionOf,
   progressOf,
-  stepsFor,
   verdict,
   type Completion,
   type CompletionReason,
   type CompletionRefusal,
 } from "./complete.ts";
 
-export { cancelChange, looseEnds, type Cancelled, type NeedsForce } from "./cancel.ts";
+export { cancelChange, type Cancelled, type NeedsForce } from "./cancel.ts";
 
 export { refreshTitles } from "./titles.ts";
 

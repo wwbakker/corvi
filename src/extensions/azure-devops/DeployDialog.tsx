@@ -1,20 +1,15 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post } from "../../app-root/api.ts";
+import { makeWireClient } from "@corvi/client";
+import { Schema } from "effect";
 import { moment } from "../../app-root/moment.ts";
 import { Progress } from "../../app-root/Progress.tsx";
+import { BuildableSchema, type Buildable } from "./shared.ts";
 
-export type Buildable = {
-  runId: number;
-  buildNumber: string;
-  version?: string;
-  branch: string;
-  finishedAt?: string;
-  url?: string;
-  deployedTo: string[];
-  running?: boolean;
-  startedAt?: string;
-  expectedMs?: number;
-};
+export type { Buildable };
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
+const buildablesSchema = Schema.mutable(Schema.Array(BuildableSchema));
 
 /**
  * Starting a deploy: which version, and where to.
@@ -66,9 +61,12 @@ export function DeployDialog({
     setEnvironment(preset?.environment ?? environments[0] ?? "");
     // Read at the moment it opens, not from the row: a row is up to half a minute old, and this
     // is the decision, not the display.
-    api<Buildable[]>(
-      `/ext/azure-devops/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
-    )
+    wire
+      .request(
+        "GET",
+        `/ext/azure-devops/services/${encodeURIComponent(service)}/versions${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        buildablesSchema,
+      )
       .then((found) => {
         setVersions(found);
         // The first one with a version, not the first row: a build still in progress is shown
@@ -109,10 +107,13 @@ export function DeployDialog({
     if (!service) return;
     setBusy(true);
     setError(null);
-    post<{ runId: number }>(
-      `/ext/azure-devops/services/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
-      { version, environment },
-    )
+    wire
+      .request(
+        "POST",
+        `/ext/azure-devops/services/${encodeURIComponent(service)}/deploy${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+        Schema.Struct({ runId: Schema.Number }),
+        { body: { version, environment } },
+      )
       .then(() => {
         onStarted(`deploying ${version} to ${environment}`);
         onClose();

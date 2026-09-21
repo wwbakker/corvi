@@ -35,7 +35,7 @@ beforeAll(async () => {
   process.env.CORVI_ARCHIVE_ROOT = join(tmp, "archive");
   // A config of its own: the changes root is not the only environment that leaks in. A
   // developer's own config — a workspace that names its extensions, say — would decide what
-  // `looseEnds` and `extensionsFor` see, and this file is about the built-ins.
+  // `extensionsFor` and the enablement rule see, and this file is about the included ones.
   process.env.CORVI_CONFIG = join(tmp, "config.json");
   reloadConfigSync();
 });

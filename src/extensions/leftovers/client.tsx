@@ -1,7 +1,12 @@
 import { type JSX, useEffect, useState } from "react";
+import { makeWireClient } from "@corvi/client";
+import { Schema } from "effect";
 import type { PageComponent, PageProps } from "../../integrations/client.tsx";
-import { api, del } from "../../app-root/api.ts";
-import type { Leftover } from "./shared.ts";
+import { LeftoverSchema, type Leftover } from "./shared.ts";
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTO. */
+const wire = makeWireClient({ baseUrl: "" });
+const leftoversSchema = Schema.mutable(Schema.Array(LeftoverSchema));
 
 const size = (kb: number): string =>
   kb >= 1024 * 1024
@@ -29,7 +34,8 @@ export function LeftoversPage({ workspace }: PageProps): JSX.Element {
   const query = workspace ? `?workspace=${encodeURIComponent(workspace)}` : "";
 
   useEffect(() => {
-    api<Leftover[]>(`/ext/leftovers/list${query}`)
+    wire
+      .request("GET", `/ext/leftovers/list${query}`, leftoversSchema)
       .then(setLeftovers)
       .catch((e: Error) => setError(e.message));
   }, [query]);
@@ -45,7 +51,8 @@ export function LeftoversPage({ workspace }: PageProps): JSX.Element {
       return;
     }
     setBusy(name);
-    del<Leftover[]>(`/ext/leftovers/list/${encodeURIComponent(name)}${query}`)
+    wire
+      .request("DELETE", `/ext/leftovers/list/${encodeURIComponent(name)}${query}`, leftoversSchema)
       .then(setLeftovers)
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(null));

@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   BadRequestError,
   DecodeError,
@@ -7,6 +7,7 @@ import {
 import { Changes } from "../../integrations/api/capabilities.ts";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
+import { bodyAs } from "../../capabilities/effect/body.ts";
 import { commitChange, fileDiff, localChanges, pushChange } from "./server.ts";
 import type { CommitRequest } from "./shared.ts";
 
@@ -20,13 +21,14 @@ import type { CommitRequest } from "./shared.ts";
  * `Changes` store, exactly as the dispatcher's `/api/ext/review/...` namespace promises.
  */
 
-/** The request body. A body that will not parse is the caller's mistake, said as the core's
- * routes say it: a BadRequestError, which the status-code mapping turns into a 400. */
-const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.tryPromise({
-    try: () => req.json(),
-    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  });
+/** The commit the page sends: one message, the files ticked in each repository. */
+const CommitBody = Schema.Struct({
+  message: Schema.String,
+  files: Schema.Record({ key: Schema.String, value: Schema.mutable(Schema.Array(Schema.String)) }),
+});
+const PushBody = Schema.Struct({
+  repos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+});
 
 /** Find the change a route is about through the `Changes` capability, or answer 404: the
  * extension never reaches the change store itself. */
@@ -91,7 +93,8 @@ export default {
       handler: (req, params) =>
         withChange(params.id!, (change) =>
           Effect.gen(function* () {
-            return Response.json(yield* commitChange(change, (yield* bodyOf(req)) as CommitRequest));
+            const body = yield* bodyAs(req, CommitBody);
+            return Response.json(yield* commitChange(change, body));
           }),
         ),
     },
@@ -102,7 +105,7 @@ export default {
       handler: (req, params) =>
         withChange(params.id!, (change) =>
           Effect.gen(function* () {
-            const body = (yield* bodyOf(req)) as { repos?: string[] };
+            const body = yield* bodyAs(req, PushBody);
             return Response.json(yield* pushChange(change, body.repos ?? change.repos));
           }),
         ),

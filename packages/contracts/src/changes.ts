@@ -23,6 +23,9 @@ export class Change extends Schema.Class<Change>("Change")({
   phase: ChangePhase,
   createdAt: Schema.String,
   completedAt: Schema.optional(Schema.String),
+  /** How many times the record has been written; absent on records written before revisioning,
+   * which count as 0. Writers may pass the revision they read and be refused when it moved. */
+  revision: Schema.optional(Schema.Number),
 }) {}
 
 export type ChangeFilter = "Active" | "Archived"

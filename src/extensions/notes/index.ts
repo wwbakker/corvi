@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   BadRequestError,
   DecodeError,
@@ -7,6 +7,7 @@ import {
 import { Changes } from "../../integrations/api/capabilities.ts";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
+import { bodyAs } from "../../capabilities/effect/body.ts";
 import { readNotes, writeNotes } from "./server.ts";
 
 /**
@@ -18,14 +19,6 @@ import { readNotes, writeNotes } from "./server.ts";
  * extension's own `ExtensionStore`, and a change whose notes predate the store still shows its
  * old sidecar through the `Changes.readSidecar` migration access — see ./server.ts.
  */
-
-/** The request body. A body that will not parse is the caller's mistake, said as the core's
- * routes say it: a BadRequestError, which the status-code mapping turns into a 400. */
-const bodyOf = (req: Request): Effect.Effect<unknown, BadRequestError> =>
-  Effect.tryPromise({
-    try: () => req.json(),
-    catch: (e) => new BadRequestError({ message: e instanceof Error ? e.message : String(e) }),
-  });
 
 /** Find the change a route is about through the `Changes` capability, or answer 404. */
 const withChange = <E, R>(
@@ -67,7 +60,7 @@ export default {
       handler: (req, params) =>
         withChange(params.id!, (change) =>
           Effect.gen(function* () {
-            const body = (yield* bodyOf(req)) as { text?: string };
+            const body = yield* bodyAs(req, Schema.Struct({ text: Schema.optional(Schema.String) }));
             const text = body.text ?? "";
             yield* writeNotes(change, text);
             return Response.json({ text });

@@ -13,11 +13,11 @@ import {
   ideationPromptFor,
   readChange,
   readSidecar,
-  startChange,
+  startChangeWithWorkflow,
   writeSidecar,
 } from "../src/change/server/index.ts";
 import { provisionChangeRepositories } from "../src/change/provisioning.ts";
-import { checkoutFor, unlinkRepo } from "../src/vendors/git.ts";
+import { checkoutFor } from "../src/vendors/git.ts";
 import { isIdeation, slugFor } from "../src/domain/change.ts";
 import type { Change } from "../src/domain/change.ts";
 import { runCancel, runEffect, runSetRepos, runSh } from "./helpers.ts";
@@ -91,11 +91,13 @@ test("an idea is created without repositories and carries a plan", async () => {
 
 test("starting is a real transition, and only from an idea", async () => {
   const idea = await runEffect(createChange({ id: "idea-start", state: "Ideation" }));
-  const started = await runEffect(startChange(idea));
-  expect(started.state).toBe("In Progress");
+  const started = await runEffect(startChangeWithWorkflow(idea));
+  expect(started.change.state).toBe("In Progress");
   expect((await runEffect(readChange("idea-start")))?.state).toBe("In Progress");
   // Starting twice would claim work that already happened (and provision a second time).
-  await expect(runEffect(startChange(started))).rejects.toThrow(/already started/);
+  await expect(runEffect(startChangeWithWorkflow(started.change))).rejects.toThrow(
+    /already started/,
+  );
 });
 
 test("a change created ready to work still needs a repository", async () => {
@@ -127,10 +129,8 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout).toBe("main");
 
   // Starting replaces the link with the checkout the change asked for.
-  const started = await runEffect(startChange(idea));
-  await runEffect(unlinkRepo(started, repo));
-  await runEffect(provisionChangeRepositories(started));
-  expect(await runEffect(checkoutFor(started, repo))).toBeDefined();
+  const started = await runEffect(startChangeWithWorkflow(idea));
+  expect(await runEffect(checkoutFor(started.change, repo))).toBeDefined();
   // The path is the same; a real worktree now, not a symlink.
   expect((await lstat(link)).isDirectory()).toBe(true);
 });

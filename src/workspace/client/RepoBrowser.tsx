@@ -1,5 +1,5 @@
 import { type JSX, useCallback, useEffect, useState } from "react";
-import { api, type Branches, type Listing, type Selection } from "../../app-root/api.ts";
+import { apiClient, type Branches, type Listing, type Selection } from "../../app-root/api.ts";
 import { DirectoryListing } from "./DirectoryListing.tsx";
 import { fetchListing } from "./repoListing.ts";
 
@@ -55,7 +55,8 @@ export function RepoBrowser({
     for (const { path } of selected) {
       if (branches[path]) continue;
       setBranches((known) => ({ ...known, [path]: { branches: [] } })); // claim it, fetch once
-      api<Branches>(`/repos/branches?path=${encodeURIComponent(path)}`)
+      apiClient
+        .branches(path)
         .then((found) => setBranches((known) => ({ ...known, [path]: found })))
         .catch(() => {});
     }

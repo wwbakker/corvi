@@ -76,6 +76,9 @@ export const layer = Layer.effect(
       return yield* store.patch(changeId, {
         phase,
         ...(isTerminal(phase) ? { completedAt: now() } : {}),
+        // Optimistic concurrency: the write lands only if the record is still the one this
+        // transition was decided on; another writer's commit is a conflict, not a lost update.
+        expectedRevision: change.revision ?? 0,
       })
     })
 

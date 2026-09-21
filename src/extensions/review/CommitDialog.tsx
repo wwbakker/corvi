@@ -1,6 +1,11 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { post } from "../../app-root/api.ts";
-import type { CommitResult, FileChange } from "./shared.ts";
+import { makeWireClient } from "@corvi/client";
+import { Schema } from "effect";
+import { CommitResultSchema, type CommitResult, type FileChange } from "./shared.ts";
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
+const commitResultsSchema = Schema.mutable(Schema.Array(CommitResultSchema));
 
 /** What the dialog is offered: the repositories with something in them, and their files. */
 export type Candidate = { repo: string; name: string; files: FileChange[] };
@@ -88,7 +93,10 @@ export function CommitDialog({
         c.files.map((f) => f.path).filter((path) => picked.has(key(c.repo, path))),
       ]),
     );
-    post<CommitResult[]>(url(`/ext/review/changes/${changeId}/commit`, workspace), { message, files })
+    wire
+      .request("POST", url(`/ext/review/changes/${changeId}/commit`, workspace), commitResultsSchema, {
+        body: { message, files },
+      })
       .then((next) => {
         setResults(next);
         onCommitted(next);

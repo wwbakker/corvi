@@ -14,7 +14,9 @@ utilities only; no Node, Bun, or native imports.
 
 - `@corvi/contracts/paths`: `AbsolutePath`
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
-- `@corvi/contracts/api`: `RepositoryView` and `StartOutcome` wire schemas
+- `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
+  (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view, workspaces)
+- `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names
 
 ## Dependencies
 

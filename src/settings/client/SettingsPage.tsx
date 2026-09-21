@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, put } from "../../app-root/api.ts";
+import { apiClient } from "../../app-root/api.ts";
 import { DEFAULT_WORKSPACE, type Config } from "../../domain/config.ts";
 // The settings vocabulary lives in the module's model.ts, so the browser bundle gets none of
 // the server's file handling with it.
@@ -40,7 +40,8 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
   const [tab, setTab] = useState("locations");
 
   useEffect(() => {
-    api<SettingsView>("/settings")
+    apiClient
+      .settings()
       .then((v) => {
         setView(v);
         setDraft(v.file);
@@ -84,7 +85,8 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
   const save = (): void => {
     setSaving(true);
     setError(undefined);
-    put<SettingsView>("/settings", draft)
+    apiClient
+      .writeSettings(draft)
       .then((v) => {
         setView(v);
         setDraft(v.file);

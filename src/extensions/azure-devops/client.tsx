@@ -1,25 +1,15 @@
 import { type JSX, useEffect, useState } from "react";
+import { makeWireClient } from "@corvi/client";
 import type { PageComponent } from "../../integrations/client.tsx";
-import { api } from "../../app-root/api.ts";
 import { moment } from "../../app-root/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
 import { autoDeployedApp } from "./deployConventions.ts";
+import { ServicesResponseSchema, type Deployed, type Service } from "./shared.ts";
 
-export type Deployed = {
-  environment: string;
-  version?: string;
-  at?: string;
-  state: string;
-  detail: string;
-  url?: string;
-};
+export type { Deployed, Service };
 
-export type Service = {
-  name: string;
-  pipeline: { id: number; name: string };
-  build?: { id: number; name: string };
-  environments: Deployed[];
-};
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
 
 /**
  * What is deployed where: one row per service, one column per environment.
@@ -43,9 +33,12 @@ export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Elem
 
   useEffect(() => {
     const load = (): Promise<void> =>
-      api<{ services: Service[]; error?: string }>(
-        `/ext/azure-devops/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
-      )
+      wire
+        .request(
+          "GET",
+          `/ext/azure-devops/services${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
+          ServicesResponseSchema,
+        )
         .then((r) => {
           setServices(r.services);
           setError(r.error ?? null);

@@ -3,14 +3,13 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import type { Change, CompletionStep } from "../src/domain/change.ts";
-import type { ApiError } from "../src/app-root/api.ts";
 import {
   completeChange,
   completionOf,
   progressOf,
-  stepsFor,
   verdict,
 } from "../src/change/server/index.ts";
+import { plannedCompletionSteps } from "../src/change/lifecycle-layer.ts";
 import { changeDir, createChange, readChange, writeSidecar } from "../src/change/server/index.ts";
 import { config } from "../src/workspace/server/index.ts";
 import { Effect } from "effect";
@@ -96,74 +95,26 @@ test("verdict: every repository must be ready, and unsafe work blocks the whole 
   });
 });
 
-test("stepsFor: merges first, then the contributed steps, then the core teardown", () => {
-  const step = (id: string): CompletionStep => ({ id, label: id, state: "waiting" });
-  const plan = stepsFor(
-    changeWith({ repos: ["/parent/myrepo"] }),
-    { ready: true, reasons: [], tagged: [], toMerge: [{ repo: "/parent/myrepo", number: 7 }] },
-    [step("jira"), step("close-issue")],
-  );
-
-  expect(plan.map((s) => s.id)).toEqual([
-    "merge:/parent/myrepo",
-    "jira",
-    "close-issue",
-    "worktrees",
-    "terminal",
-    "archive",
-  ]);
-  // The label names the repository, not its whole path.
-  expect(plan[0]!.label).toBe("merge myrepo #7");
-  expect(plan.every((s) => s.state === "waiting")).toBe(true);
-});
-
-test("stepsFor: a change with nothing to merge still plans the teardown", () => {
-  const plan = stepsFor(changeWith(), { ready: true, reasons: [], tagged: [], toMerge: [] }, []);
-  expect(plan.map((s) => s.id)).toEqual(["worktrees", "terminal", "archive"]);
-});
-
-test("stepsFor: the change's own extensions plan their steps when none are passed", () => {
-  // The default argument reads the live workspace config, so pin a workspace that enables every
-  // extension: the plan is what the change's own extensions say, not this machine's settings.
+test("plannedCompletionSteps: the included steps are each planned once", () => {
+  // The included integrations are planned explicitly, jira before github-issues; a step must
+  // not appear twice.
   const saved = config.workspaces;
   config.workspaces = [{ id: "test-all", name: "test" }];
   try {
-    const plan = stepsFor(
-      changeWith({ extensions: { jira: { key: "PROJ-9" } } }),
-      { ready: true, reasons: [], tagged: [], toMerge: [] },
-    );
-    expect(plan.map((s) => s.id)).toEqual(["jira", "worktrees", "terminal", "archive"]);
-    expect(plan[0]!.label).toContain("PROJ-9");
-  } finally {
-    config.workspaces = saved;
-  }
-});
-
-test("stepsFor: the included steps are each planned once with every extension enabled", () => {
-  // The included integrations are planned by name and skipped in the registry pass; a name left
-  // out of the skip list would plan the same step twice.
-  const saved = config.workspaces;
-  config.workspaces = [{ id: "test-all", name: "test" }];
-  try {
-    const plan = stepsFor(
+    const plan = plannedCompletionSteps(
       changeWith({
         extensions: {
           jira: { key: "PROJ-9" },
           "github-issues": { repo: "acme/myrepo", number: 42 },
         },
       }),
-      { ready: true, reasons: [], tagged: [], toMerge: [] },
     );
-    expect(plan.map((s) => s.id)).toEqual([
-      "jira",
-      "github-issues",
-      "worktrees",
-      "terminal",
-      "archive",
-    ]);
-    expect(plan.filter((s) => s.id === "jira")).toHaveLength(1);
-    expect(plan.filter((s) => s.id === "github-issues")).toHaveLength(1);
+    expect(plan.map((s) => s.id)).toEqual(["jira", "github-issues"]);
+    expect(plan[0]!.label).toBe("move PROJ-9 to Done");
     expect(plan[1]!.label).toBe("close myrepo#42");
+    expect(plan.every((s) => s.state === "waiting")).toBe(true);
+    // Nothing for either integration to do: no contributed step at all.
+    expect(plannedCompletionSteps(changeWith())).toEqual([]);
   } finally {
     config.workspaces = saved;
   }
@@ -804,12 +755,14 @@ test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog",
   const { completionRefusal, cancelNeedsForce } = await import(
     "../src/change-page/client/refusals.ts"
   );
-  const apiError = (status: number, body: unknown): ApiError =>
-    Object.assign(new Error("boom"), { status, body }) as ApiError;
+  const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
+    status,
+    body,
+  });
 
   expect(
     completionRefusal(
-      apiError(409, {
+      failure(409, {
         reasons: [{ text: "orders: no pull request", kind: "forceable" }],
         toMerge: [{ repo: "/repos/orders", number: 7 }],
       }),
@@ -819,19 +772,19 @@ test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog",
     toMerge: [{ repo: "/repos/orders", number: 7 }],
   });
   // A 409 without a toMerge still opens the dialog, with nothing to merge.
-  expect(completionRefusal(apiError(409, { reasons: [{ text: "x", kind: "hard" }] }))).toEqual({
+  expect(completionRefusal(failure(409, { reasons: [{ text: "x", kind: "hard" }] }))).toEqual({
     reasons: [{ text: "x", kind: "hard" }],
     toMerge: [],
   });
   // No reasons, or not a 409: banner news, not a dialog.
-  expect(completionRefusal(apiError(409, { reasons: [] }))).toBeUndefined();
+  expect(completionRefusal(failure(409, { reasons: [] }))).toBeUndefined();
   expect(
-    completionRefusal(apiError(400, { reasons: [{ text: "x", kind: "hard" }] })),
+    completionRefusal(failure(400, { reasons: [{ text: "x", kind: "hard" }] })),
   ).toBeUndefined();
 
-  expect(cancelNeedsForce(apiError(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
-  expect(cancelNeedsForce(apiError(409, { needsForce: [] }))).toBeUndefined();
-  expect(cancelNeedsForce(apiError(400, { needsForce: ["orders"] }))).toBeUndefined();
+  expect(cancelNeedsForce(failure(409, { needsForce: ["orders"] }))).toEqual(["orders"]);
+  expect(cancelNeedsForce(failure(409, { needsForce: [] }))).toBeUndefined();
+  expect(cancelNeedsForce(failure(400, { needsForce: ["orders"] }))).toBeUndefined();
 });
 
 test("retryBody: a retry keeps the forced mode the journal recorded", async () => {

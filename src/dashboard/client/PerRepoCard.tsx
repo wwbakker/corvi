@@ -1,10 +1,9 @@
 import { type JSX, useCallback, useState } from "react";
+import { ChangeId } from "@corvi/contracts/changes";
 import {
   aborted,
-  api,
-  post,
+  apiClient,
   type CardInfo,
-  type RepoItems,
   type WidgetItem,
 } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
@@ -46,9 +45,8 @@ export function PerRepoCard({
 
   const loadRepo = useCallback(
     (repo: string, signal?: AbortSignal): Promise<void> =>
-      api<RepoItems>(`/changes/${changeId}/${info.name}/repo?path=${encodeURIComponent(repo)}`, {
-        signal,
-      })
+      apiClient
+        .cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
         .then((r) => {
           putCached(key(repo), r.items);
           setItems((all) => ({ ...all, [repo]: r.items }));
@@ -74,7 +72,8 @@ export function PerRepoCard({
 
   const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
     setBusy(repo);
-    return post<RepoItems>(`/changes/${changeId}/${info.name}/${actionId}`, { arg })
+    return apiClient
+      .cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then((r) => {
         putCached(key(repo), r.items);
         setItems((all) => ({ ...all, [repo]: r.items }));

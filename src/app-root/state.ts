@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
-import { api, post, type Change } from "./api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import type { WindowActionBodyDto } from "@corvi/contracts/api";
+import { apiClient, type Change } from "./api.ts";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 
@@ -21,7 +23,8 @@ export function useWindows(): {
 
   const load = useCallback(
     () =>
-      api<Record<string, TerminalWindow[]>>("/terminals")
+      apiClient
+        .terminals()
         .then(setWindows)
         .catch(() => {}), // no tmux server yet: the next tick will find it
     [],
@@ -33,8 +36,9 @@ export function useWindows(): {
   useServerEvent("windows", load);
 
   const act = useCallback(
-    (id: string, body: { action: "new" | "select" | "move"; index?: number; from?: number; to?: number }) =>
-      post<TerminalWindow[]>(`/changes/${id}/terminal/windows`, body)
+    (id: string, body: WindowActionBodyDto) =>
+      apiClient
+        .windowAction(ChangeId.make(id), body)
         .then((next) => setWindows((all) => ({ ...all, [id]: next })))
         .catch(() => {}),
     [],
@@ -75,7 +79,8 @@ export function useTerminal(
 
   useEffect(() => {
     if (!id || archived || !wanted) return;
-    api<{ url: string }>(`/changes/${id}/terminal`)
+    apiClient
+      .terminalUrl(ChangeId.make(id))
       .then((r) => setUrl(r.url))
       .catch((e: Error) => setError(e.message));
   }, [id, archived, wanted]);
@@ -96,7 +101,8 @@ export function useChanges(): {
 
   const reload = useCallback(
     () =>
-      api<Change[]>("/changes")
+      apiClient
+        .list()
         .then(setChanges)
         .catch((e: Error) => setError(e.message)),
     [],

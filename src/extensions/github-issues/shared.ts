@@ -1,20 +1,22 @@
+import { Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
 
 /**
- * The github-issues extension's vocabulary, shared between its two halves. Types only, so the
- * client half can import this file without importing anything that runs on the server.
+ * The github-issues extension's vocabulary, shared between its two halves. The schemas are the
+ * one statement of the wire shapes; the types are derived from them, and both halves use those.
  */
 
 /** An issue as Corvi reads it, flattened from what `gh` answers. */
-export type GitHubIssue = {
-  number: number;
-  title: string;
+export const GitHubIssueSchema = Schema.Struct({
+  number: Schema.Number,
+  title: Schema.String,
   /** GitHub's own: "open" or "closed". */
-  state: string;
-  url?: string;
-  assignees: string[];
-  labels: string[];
-};
+  state: Schema.String,
+  url: Schema.optional(Schema.String),
+  assignees: Schema.mutable(Schema.Array(Schema.String)),
+  labels: Schema.mutable(Schema.Array(Schema.String)),
+});
+export type GitHubIssue = typeof GitHubIssueSchema.Type;
 
 /** What the extension writes into a change's `extensions` bag: which repository, which issue.
  * The repository is the source path, so a renamed GitHub repository still resolves. */

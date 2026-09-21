@@ -12,7 +12,8 @@ by callers (`api<T>(path)`-style generics are not part of the API).
 
 ## Public entrypoints
 
-- `@corvi/client`: `makeChangesClient` and `ChangesClient`.
+- `@corvi/client`: `makeChangesClient`/`ChangesClient`, `makeWireClient`/`WireClient` (for
+  extension-local DTOs), `directoryListingQuery`, `ClientError` (status and structured body)
 
 ## Dependencies
 

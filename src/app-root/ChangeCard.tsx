@@ -1,5 +1,6 @@
 import { type JSX, useCallback, useState } from "react";
-import { api, type Change } from "./api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { apiClient, type Change } from "./api.ts";
 import type { ChangeSummary } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { moment } from "./moment.ts";
@@ -36,7 +37,8 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
 
   const load = useCallback(
     (signal: AbortSignal): Promise<void> =>
-      api<ChangeSummary>(`/changes/${change.id}/summary`, { signal })
+      apiClient
+        .summary(ChangeId.make(change.id), { signal })
         .then(setSummary)
         .catch(() => {}),
     [change.id],

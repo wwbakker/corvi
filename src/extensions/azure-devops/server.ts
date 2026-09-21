@@ -9,6 +9,9 @@ import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipeli
 import { autoDeployedApp } from "./deployConventions.ts";
 import { ago } from "../../domain/time.ts";
 import { BadRequestError } from "../../capabilities/effect/errors.ts";
+// The wire vocabulary is shared with the browser half; the types derive from the schemas there.
+import type { Buildable, Deployed, Service } from "./shared.ts";
+export type { Buildable, Deployed, Service };
 
 /**
  * What is deployed where.
@@ -26,25 +29,6 @@ import { BadRequestError } from "../../capabilities/effect/errors.ts";
  * enabled per workspace, so a context without it never starts an `az` process: there is no
  * separate "this context has no pipelines" flag to check.
  */
-export type Deployed = {
-  environment: string;
-  version?: string;
-  /** When that deploy finished, or started if it is still going. */
-  at?: string;
-  /** Green when it is deployed, amber while it is deploying, red when the last attempt failed. */
-  state: WidgetState;
-  detail: string;
-  url?: string;
-};
-
-export type Service = {
-  /** What the pipelines call it: `example-service`. */
-  name: string;
-  pipeline: { id: number; name: string };
-  /** The build pipeline this deploys, when there is one by the expected name. */
-  build?: { id: number; name: string };
-  environments: Deployed[];
-};
 
 export type Run = {
   id: number;
@@ -79,26 +63,6 @@ const RunsSchema = Schema.Array(
     ),
   }),
 );
-
-/** A build that produced something deployable: what it was called, and what it made. */
-export type Buildable = {
-  runId: number;
-  buildNumber: string;
-  /** Undefined while the build is still running: the version is scraped from its logs, which do
-   * not exist yet. */
-  version?: string;
-  branch: string;
-  finishedAt?: string;
-  url?: string;
-  /** Where this version already is, so a version you are about to deploy says so first. */
-  deployedTo: string[];
-  /** Still building: shown so a deploy in progress does not look like it fell off the list, but
-   * not something you can pick — there is no version yet to deploy. */
-  running?: boolean;
-  startedAt?: string;
-  /** The recent average for this pipeline, for the same progress bar the GitHub card draws. */
-  expectedMs?: number;
-};
 
 type Capabilities = Shell | Workspace | Cache | Settings;
 

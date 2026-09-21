@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { api, type Change, type ProvisionResult } from "./api.ts";
+import { apiClient, type Change, type ProvisionResult } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
@@ -268,7 +268,8 @@ function App(): JSX.Element {
   // Read here rather than in the settings page, because the page has to behave by it either way.
   const [contextMenu, setContextMenu] = useState(true);
   const reloadSettings = useCallback((): void => {
-    api<SettingsView>("/settings")
+    apiClient
+      .settings()
       .then((view) => setContextMenu(view.effective.contextMenu))
       .catch(() => {
         // A settings file that cannot be read leaves the default: a menu, like any browser.

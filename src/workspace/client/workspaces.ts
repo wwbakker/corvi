@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../../app-root/api.ts";
+import { apiClient } from "../../app-root/api.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 import type { Change } from "../../app-root/api.ts";
 import type { Platform } from "../../terminals/model.ts";
@@ -53,7 +53,8 @@ export function useWorkspaces(): {
   // Read again after the settings page writes them: a context that has just been renamed should
   // not still be in the switcher under its old name.
   const reload = (): Promise<void> =>
-    api<{ workspaces: Workspace[]; platform: Platform }>("/workspaces")
+    apiClient
+      .workspaces()
       .then(({ workspaces: next, platform: told }) => {
         setWorkspaces(next);
         setPlatform(told);
@@ -99,11 +100,10 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
   useEffect(() => {
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
-    api<{ pages: PageInfo[] }>(
-      `/pages${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
-    )
-      .then((r) => {
-        if (alive) setPages(r.pages);
+    apiClient
+      .pages(workspaceId)
+      .then((pages) => {
+        if (alive) setPages(pages);
       })
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
     return () => {
@@ -111,10 +111,9 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
     };
   }, [workspaceId]);
   const reload = useCallback(() => {
-    api<{ pages: PageInfo[] }>(
-      `/pages${workspaceId ? `?workspace=${encodeURIComponent(workspaceId)}` : ""}`,
-    )
-      .then((r) => setPages(r.pages))
+    apiClient
+      .pages(workspaceId)
+      .then(setPages)
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
   }, [workspaceId]);
   return { pages, reload };

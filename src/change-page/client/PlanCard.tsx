@@ -1,5 +1,6 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post, put } from "../../app-root/api.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { apiClient } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
 
 /**
@@ -34,20 +35,21 @@ export function PlanCard({
   const [notice, setNotice] = useState<string | null>(null);
   // Read by the unmount effect, which must not re-run on every keystroke.
   const pending = useRef<string | null>(null);
-  const endpoint = `/changes/${changeId}/plan`;
 
   useEffect(() => {
-    api<{ text: string }>(endpoint)
+    apiClient
+      .plan(ChangeId.make(changeId))
       .then(({ text: fromDisk }) => {
         if (pending.current !== null) return; // do not overwrite what is being typed
-        putCached(key, fromDisk);
-        setText(fromDisk);
+        putCached(key, fromDisk ?? "");
+        setText(fromDisk ?? "");
       })
       .catch(() => {});
-  }, [endpoint]);
+  }, [changeId, key]);
 
   const save = (value: string): Promise<void> =>
-    put<{ text: string }>(endpoint, { text: value })
+    apiClient
+      .writePlan(ChangeId.make(changeId), value)
       .then(() => {
         putCached(key, value);
         pending.current = null;
@@ -79,7 +81,8 @@ export function PlanCard({
    * so this works without opening the terminal first; the text is not submitted — the agent's
    * editor holds it for you to read. */
   const brief = (): void => {
-    post(`/changes/${changeId}/terminal/prompt`, {})
+    apiClient
+      .briefAgent(ChangeId.make(changeId))
       .then(() => {
         setNotice("Prompt pasted into the terminal");
         setTimeout(() => setNotice(null), 2500);

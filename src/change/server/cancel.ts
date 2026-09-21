@@ -19,9 +19,6 @@ import { BadRequestError, NotFoundError, isIweError, type IweError } from "../..
 import { messageOf } from "../../capabilities/effect/support.ts";
 import type { Change } from "../../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "../../domain/config.ts";
-import { capabilitiesLayer } from "../../integrations/services.ts";
-import { prLooseEnds } from "../../extensions/github/index.ts";
-import { jiraLooseEnds } from "../../extensions/jira/index.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
@@ -136,19 +133,3 @@ export const cancelChange = (
   );
 };
 
-/**
- * What cancelling deliberately leaves alone, said out loud.
- *
- * A cancelled change that quietly leaves an open pull request and a ticket in progress is a
- * change that comes back to you in a week as somebody else's question. The included integrations
- * are called by name, in load order (github's pull requests before jira's ticket). A lookup that
- * fails contributes nothing: cancelling must never fail because a vendor is unreachable.
- */
-export const looseEnds = (change: Change): Effect.Effect<string[]> =>
-  Effect.map(
-    Effect.catchAll(
-      Effect.provide(prLooseEnds(change), capabilitiesLayer(workspaceOf(change), "github")),
-      () => Effect.succeed([] as string[]),
-    ),
-    (pullRequests) => [...pullRequests, ...jiraLooseEnds(change)],
-  );

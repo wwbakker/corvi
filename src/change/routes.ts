@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import {
   applyPatch,
   cancelChange,
@@ -15,6 +15,8 @@ import {
   writeChange,
   writeSidecar,
 } from "../change/server/index.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { CreateChangeBodySchema, ForceBodySchema } from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { BadRequestError, type IweError } from "../capabilities/effect/errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
@@ -24,8 +26,23 @@ import { announce } from "../capabilities/bus.ts";
 import { repoStates, setRepos } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
-import { attempt, bodyOf, bodyOrEmpty, json, withChange } from "../capabilities/web.ts";
+import { attempt, bodyAs, json, withChange } from "../capabilities/web.ts";
 import { provisionChangeRepositories } from "./provisioning.ts";
+
+// The request bodies, decoded at the boundary: the schema is the contract, and a body that does
+// not fit is the caller's 400 naming the field rather than a cast the compiler cannot check. The
+// create and force bodies are the canonical contract schemas (shared with the browser client).
+const PatchBody = Schema.Struct({
+  state: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
+});
+const TextBody = Schema.Struct({ text: Schema.optional(Schema.String) });
+const ReposBody = Schema.Struct({
+  repos: Schema.mutable(Schema.Array(Schema.String)),
+  direct: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  base: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
+  force: Schema.optional(Schema.Boolean),
+});
 
 export const changeRoutes = guard({
   "/api/changes": {
@@ -35,9 +52,7 @@ export const changeRoutes = guard({
     POST: (req) =>
       runRoute(
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as Parameters<typeof createChange>[0] & {
-            plan?: string;
-          };
+          const body = yield* bodyAs(req, CreateChangeBodySchema);
           const change = yield* createChange(body);
           // The plan the wizard collected, written as the change's own document. It is a file,
           // not a field of the draft: the agent and the dashboard edit the same file afterwards.
@@ -80,7 +95,7 @@ export const changeRoutes = guard({
     PATCH: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as { state?: string; title?: string };
+          const body = yield* bodyAs(req, PatchBody);
           const updated = yield* attempt(() => applyPatch(c, body));
           yield* writeChange(updated);
           yield* Effect.sync(() => announce("changes"));
@@ -107,8 +122,8 @@ export const changeRoutes = guard({
               message: "this change is finished: its plan is read-only",
             });
           }
-          const body = (yield* bodyOrEmpty(req)) as { text?: string };
-          const text = typeof body.text === "string" ? body.text : "";
+          const body = yield* bodyAs(req, TextBody);
+          const text = body.text ?? "";
           yield* writeSidecar(c.id, PLAN_FILE, text);
           yield* Effect.sync(() => announce("changes"));
           return json({ text });
@@ -122,12 +137,7 @@ export const changeRoutes = guard({
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as {
-            repos: string[];
-            direct?: string[];
-            base?: Record<string, string>;
-            force?: boolean;
-          };
+          const body = yield* bodyAs(req, ReposBody);
           const result = yield* setRepos(c, body.repos, body.force, body.direct, body.base);
           // 409: nothing was changed, the browser should ask about the unpushed work first.
           return result._tag === "NeedsForce"
@@ -156,7 +166,7 @@ export const changeRoutes = guard({
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOrEmpty(req)) as { force?: boolean };
+          const body = yield* bodyAs(req, ForceBodySchema);
           const result = yield* cancelChange(c, body.force === true);
           // The same protocol a repository removal uses: ask once, then repeat with force.
           return result._tag === "NeedsForce"
@@ -187,10 +197,7 @@ export const changeRoutes = guard({
     // server truth rather than the poll. One check per request, fetches included.
     POST: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.flatMap(
-          bodyOrEmpty(req),
-          (body) => completePost(c, body as { force?: boolean }),
-        ),
+        Effect.flatMap(bodyAs(req, ForceBodySchema), (body) => completePost(c, body)),
       ),
   },
 });

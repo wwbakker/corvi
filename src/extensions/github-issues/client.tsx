@@ -1,8 +1,9 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { api, post } from "../../app-root/api.ts";
+import { makeWireClient } from "@corvi/client";
+import { Schema } from "effect";
 import { branchFor } from "../../domain/change.ts";
 import type { StepComponent } from "../../integrations/client.tsx";
-import { KEY, type GitHubIssue } from "./shared.ts";
+import { GitHubIssueSchema, KEY, type GitHubIssue } from "./shared.ts";
 
 /**
  * The github-issues extension's wizard step: the open issues of the repositories picked on the
@@ -12,6 +13,17 @@ import { KEY, type GitHubIssue } from "./shared.ts";
  */
 
 type Listing = { repository?: string; issues: GitHubIssue[] };
+
+/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
+const wire = makeWireClient({ baseUrl: "" });
+const ListingSchema = Schema.Struct({
+  repository: Schema.optional(Schema.String),
+  issues: Schema.mutable(Schema.Array(GitHubIssueSchema)),
+});
+const CreatedIssueSchema = Schema.Struct({
+  repository: Schema.String,
+  issue: GitHubIssueSchema,
+});
 
 function NewIssueDialog({
   open,
@@ -97,12 +109,15 @@ export const step: StepComponent = ({ ctx }) => {
   const load = (path: string): void => {
     setLoading(true);
     setError(null);
-    api<Listing>(
-      `/ext/${KEY}/issues?${new URLSearchParams({
-        repo: path,
-        ...(ctx.workspace ? { workspace: ctx.workspace } : {}),
-      })}`,
-    )
+    wire
+      .request(
+        "GET",
+        `/ext/${KEY}/issues?${new URLSearchParams({
+          repo: path,
+          ...(ctx.workspace ? { workspace: ctx.workspace } : {}),
+        })}`,
+        ListingSchema,
+      )
       .then(setListing)
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -128,10 +143,8 @@ export const step: StepComponent = ({ ctx }) => {
     if (!chosen) return;
     setCreating(true);
     setError(null);
-    post<{ repository: string; issue: GitHubIssue }>(`/ext/${KEY}/issues`, {
-      repo: chosen,
-      ...input,
-    })
+    wire
+      .request("POST", `/ext/${KEY}/issues`, CreatedIssueSchema, { body: { repo: chosen, ...input } })
       .then(({ issue }) => {
         setDialogOpen(false);
         select(issue);

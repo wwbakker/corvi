@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { api, post, type Change, type Created, type Selection } from "../app-root/api.ts";
+import { apiClient, type Change, type Created, type Selection } from "../app-root/api.ts";
 import { slugFor } from "../domain/change.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepInfo } from "../integrations/client.tsx";
@@ -53,8 +53,9 @@ export function Wizard({
   useEffect(() => {
     let alive = true;
     setSteps(undefined);
-    api<{ steps: StepInfo[] }>(`/wizard${chosen ? `?workspace=${encodeURIComponent(chosen)}` : ""}`)
-      .then((s) => alive && setSteps(s.steps))
+    apiClient
+      .wizardSteps(chosen)
+      .then((steps) => alive && setSteps(steps))
       .catch((e: Error) => alive && setError(e.message));
     return () => {
       alive = false;
@@ -91,7 +92,8 @@ export function Wizard({
   const create = (): void => {
     setBusy(true);
     setError(null);
-    post<Created>("/changes", toChangeDraft(draft, chosen))
+    apiClient
+      .create(toChangeDraft(draft, chosen))
       .then((created) => onCreated(created.change, created.provision))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));

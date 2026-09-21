@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { changeDir, readChange } from "../change/server/index.ts";
 import { ideationPromptFor } from "../change/server/index.ts";
 import { BadRequestError } from "../capabilities/effect/errors.ts";
@@ -15,7 +15,15 @@ import {
   terminalSocketPath,
 } from "./server/index.ts";
 import { openSession, terminalUnavailable, type TerminalSocket, type TerminalSession } from "./server/session.ts";
-import { bodyOf, json, withChange } from "../capabilities/web.ts";
+import { bodyAs, json, withChange } from "../capabilities/web.ts";
+
+/** A window action: what to do, with the indices the action needs. */
+const WindowBody = Schema.Struct({
+  action: Schema.String,
+  index: Schema.optional(Schema.Number),
+  from: Schema.optional(Schema.Number),
+  to: Schema.optional(Schema.Number),
+});
 
 /** The change's directory, or undefined when it cannot have a terminal: it does not exist, or
  * it has moved to the archive. The check lives here, where the change is read. */
@@ -103,12 +111,7 @@ export const terminalsRoutes = guard({
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const body = (yield* bodyOf(req)) as {
-            action: "new" | "select" | "move";
-            index?: number;
-            from?: number;
-            to?: number;
-          };
+          const body = yield* bodyAs(req, WindowBody);
           if (body.action === "new") yield* newWindow(c.id, changeDir(c.id));
           else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
           else if (body.action === "move") {

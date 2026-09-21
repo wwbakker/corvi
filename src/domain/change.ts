@@ -181,6 +181,9 @@ export type Change = {
   /** Set when the change was finished, whichever way: completed (pull requests merged, ticket
    * closed) or cancelled (worktrees removed, nothing merged). */
   completedAt?: string;
+  /** How many times the record has been written, as the store keeps it. Read back with the
+   * change so a writer can say which revision it decided on. */
+  revision?: number;
 };
 
 /** One thing completing a change does, and how it went. Written to disk as it happens: a
