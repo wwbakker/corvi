@@ -93,6 +93,12 @@ export type SettingsHolder = {
   readonly globalSettings?: readonly SettingDeclaration[];
 };
 
+/** An index that can only become this object's own property: `__proto__`, `constructor` and
+ * `prototype` are inherited, so writing through one reaches `Object.prototype` instead of the
+ * bag. A declaration may name what it likes; it never writes through the prototype. */
+const ownIndex = (name: string): boolean =>
+  name !== "__proto__" && name !== "constructor" && name !== "prototype";
+
 /** The same, for the fields the extensions declare: a setting whose `env` names a variable
  * that is set is shown locked, with the variable named. */
 export function overriddenExtensionSettings(
@@ -102,7 +108,9 @@ export function overriddenExtensionSettings(
   for (const extension of extensions) {
     for (const field of extension.globalSettings ?? []) {
       const override = envOverride(field.env);
-      if (override) (found[extension.name] ??= {})[field.key] = override;
+      if (override && ownIndex(extension.name) && ownIndex(field.key)) {
+        (found[extension.name] ??= {})[field.key] = override;
+      }
     }
   }
   return found;

@@ -1,4 +1,5 @@
 /** Pure rules for the change lifecycle and its repository links. */
+import { trimLeadingSeparators, trimTrailingSeparators } from "@corvi/contracts/paths"
 import type { Change, ChangePhase, Repository, RepositoryState } from "@corvi/contracts/changes"
 
 export const isTerminal = (phase: ChangePhase): boolean =>
@@ -25,7 +26,7 @@ export const stateOf = (change: Change): RepositoryState =>
       : "Active"
 
 const join = (left: string, right: string): string =>
-  `${left.replace(/[\\/]+$/, "")}/${right.replace(/^[\\/]+/, "")}`
+  `${trimTrailingSeparators(left)}/${trimLeadingSeparators(right)}`
 
 /** New-location checkouts live under the workspace; the original-location methods stay put. */
 export const checkoutLocationOf = (change: Change, repository: Repository): string =>

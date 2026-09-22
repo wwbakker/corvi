@@ -1,4 +1,4 @@
-import { baseName } from "./path.ts";
+import { baseName } from "@corvi/contracts/paths";
 import { Effect, Schema } from "effect";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";

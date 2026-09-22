@@ -29,7 +29,7 @@ declared environment variables) or the git/GitHub side: pull-request numbers com
 ## Dependencies
 
 `@corvi/contracts`, `@corvi/configuration`, `@corvi/github` and `@corvi/shell`. No Node
-built-ins outside a local path helper, and no application imports.
+built-ins — path text runs through `@corvi/contracts/paths` — and no application imports.
 
 ## Verification
 

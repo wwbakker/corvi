@@ -6,6 +6,8 @@
  */
 import { Schema } from "effect"
 
+import { baseName } from "@corvi/contracts/paths"
+
 import {
   Change,
   ChangeId,
@@ -54,14 +56,12 @@ export const mapLegacyPhase = (state: string | undefined): ChangePhase => {
   }
 }
 
-const basename = (path: string): string => path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path
-
 /** One link per source repository; in-place sources keep using their own checkout. */
 export const projectLegacyRepositories = (record: LegacyChangeRecord): readonly Repository[] => {
   const seen = new Set<string>()
   const links: Repository[] = []
   for (const originalLocation of record.repos ?? []) {
-    const directoryName = basename(originalLocation)
+    const directoryName = baseName(originalLocation)
     if (seen.has(directoryName)) continue
     seen.add(directoryName)
     links.push(

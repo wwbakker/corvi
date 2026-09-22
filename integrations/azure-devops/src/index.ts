@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { baseName } from "./path.ts";
+import { baseName } from "@corvi/contracts/paths";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, GitFacts, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";

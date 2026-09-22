@@ -1,4 +1,4 @@
-import { baseName } from "./path.ts";
+import { baseName } from "@corvi/contracts/paths";
 import { Effect, Either, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";

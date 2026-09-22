@@ -13,6 +13,7 @@ import type {
   CompletionReasonDto,
   CompletionStepDto,
 } from "@corvi/contracts/api";
+import { baseName } from "@corvi/contracts/paths";
 
 /** The change record, as `change.json` holds it. */
 export type Change = ChangeWireDto;
@@ -100,13 +101,6 @@ export function branchFor(key: string, summary: string): string {
   return `${key}-${slugify(summary)}`.slice(0, 60).replace(/-+$/, "");
 }
 
-/** The name a repository path is filed under: its last component, trailing separators ignored.
- * Split by hand rather than with node:path, because this half of the domain is also bundled for
- * the browser. */
-function repoNameOf(path: string): string {
-  return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() ?? path;
-}
-
 /** Repository names that appear more than once in a list of repository paths. Every repository a
  * change touches is filed in the change directory under its own name — a worktree, or the link an
  * idea and an in-place checkout use — so two paths with the same last component would collide
@@ -114,7 +108,7 @@ function repoNameOf(path: string): string {
 export function duplicateRepoNames(repos: string[]): string[] {
   const counts = new Map<string, number>();
   for (const repo of repos) {
-    const name = repoNameOf(repo);
+    const name = baseName(repo);
     counts.set(name, (counts.get(name) ?? 0) + 1);
   }
   return [...counts].filter(([, count]) => count > 1).map(([name]) => name);
