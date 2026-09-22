@@ -10,7 +10,7 @@ import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/er
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
 import { runtimeConfig } from "../../workspace/server/index.ts";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 
 /** Root of the per-change directories. Override with CORVI_ROOT (tests do). */
 export const root = (): string => process.env[env("ROOT")] ?? runtimeConfig().changesRoot;

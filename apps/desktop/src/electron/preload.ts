@@ -1,14 +1,14 @@
 /**
  * The app window's side of the page contract, as a preload script.
  *
- * With `contextIsolation` on (the BrowserWindow's setting, scripts/app/electron/main.ts) the
+ * With `contextIsolation` on (the BrowserWindow's setting, apps/desktop/src/electron/main.ts) the
  * page and the main process share nothing; this bridge is the only door, and it exposes exactly
  * two things: the notification the page asks for, and the callback a notification click calls.
  * The page keeps `openWindow` as the one navigation entry point (apps/web/src/app-root/app.tsx).
  */
 import { contextBridge, ipcRenderer } from "electron";
 import type { HostPlatform, CorviHost } from "@corvi/web/host";
-import { ID } from "../../../apps/server/src/capabilities/identity.ts";
+import { ID } from "@corvi/configuration/node";
 
 // A click can arrive before the page has mounted its handler — a fresh launch, a reload — so the
 // click is held until a callback exists. The preload runs before the page's own scripts, which is

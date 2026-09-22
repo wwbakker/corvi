@@ -17,10 +17,10 @@ import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { _electron } from "playwright";
-import { buildApp } from "./app/electron/build.ts";
-import { electronBinary } from "./app/electron/binary.ts";
-import { devAppDir } from "./app/run.ts";
-import { ID, env } from "../apps/server/src/capabilities/identity.ts";
+import { buildApp } from "@corvi/desktop/build";
+import { electronBinary } from "@corvi/desktop/binary";
+import { devAppDir } from "@corvi/desktop/run";
+import { ID, env } from "@corvi/configuration/node";
 
 const root = resolve(".");
 const dir = devAppDir();

@@ -7,16 +7,16 @@ import { shSoft } from "./effect/support.ts";
 // --- Platform facts -----------------------------------------------------------
 
 /**
- * The one place platform ifs live: everything else imports the answer instead of asking
- * `process.platform` itself, so a new platform means editing this file and the callers it
- * names, not grepping the tree for assumptions.
+ * The platform facts (`isMac`, `isLinux`, `platformName`) live in
+ * `@corvi/configuration/node`, where the desktop host can reach them too; this module
+ * re-exports them beside the process questions (`commandAvailable`) so the server's callers
+ * keep one import. Everything else imports the answer instead of asking `process.platform`
+ * itself, so a new platform means editing the facts, not grepping the tree for assumptions.
  */
 
-/** macOS, where the native app and `open -a` live. */
-export const isMac = process.platform === "darwin";
-
-/** Linux. Anything else (Windows) is unsupported and gets neither platform's favours. */
-export const isLinux = process.platform === "linux";
+/** Platform facts from the configuration package: the one statement of them, re-exported so
+ * the server's callers keep one import. */
+export { isLinux, isMac, platformName } from "@corvi/configuration/node";
 
 /** Whether a command could actually run: is it on PATH right now? Synchronous, because the only
  * things asking are building a menu and can wait a microsecond; a stale answer would offer an
@@ -31,10 +31,6 @@ export const commandAvailable = (command: string): boolean =>
       return false;
     }
   });
-
-/** The platform as one word, for whoever is told only once: the client reads it from
- * /api/workspaces and switches its key hints and shortcuts on it. */
-export const platformName = isMac ? "mac" : isLinux ? "linux" : "other";
 
 // --- IDE tooling carried into a new worktree ------------------------------------
 

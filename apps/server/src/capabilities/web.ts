@@ -1,13 +1,13 @@
 import type { Serve } from "bun";
 import type { TerminalSocket } from "../terminals/server/session.ts";
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { readChange } from "../change/server/index.ts";
 import { BadRequestError, isIweError, NotFoundError, type IweError } from "@corvi/contracts/errors";
 import { messageOf } from "./effect/support.ts";
 import { runRoute } from "./effect/run.ts";
 import { Workspace } from "../integrations/api/capabilities.ts";
-import { ChangesLive } from "../integrations/services.ts";
-import { Changes } from "../integrations/api/capabilities.ts";
+import { ChangesLive, GitFactsLive } from "../integrations/services.ts";
+import { Changes, type GitFacts } from "../integrations/api/capabilities.ts";
 import type { Change } from "../domain/change.ts";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
 
@@ -103,7 +103,7 @@ export const attempt = <A>(work: () => A): Effect.Effect<A, IweError> =>
  * the workspace the change belongs to. The change says which; nothing has to be passed. */
 export const withChange = (
   id: string,
-  effect: (change: Change) => Effect.Effect<Response, unknown, Changes>,
+  effect: (change: Change) => Effect.Effect<Response, unknown, Changes | GitFacts>,
 ): Promise<Response> => runRoute(withChangeEffect(id, effect));
 
 /** `withChange`'s effect, kept apart from running it: a test provides its own Shell layer and
@@ -111,12 +111,12 @@ export const withChange = (
  * CLI instead of the real one. */
 export const withChangeEffect = (
   id: string,
-  effect: (change: Change) => Effect.Effect<Response, unknown, Changes>,
+  effect: (change: Change) => Effect.Effect<Response, unknown, Changes | GitFacts>,
 ): Effect.Effect<Response, unknown> =>
   Effect.flatMap(readChange(id), (change) => {
     if (!change) return Effect.fail(new NotFoundError({ message: `no such change: ${id}` }));
     return Effect.provideService(effect(change), Workspace, workspaceOf(change));
-  }).pipe(Effect.provide(ChangesLive));
+  }).pipe(Effect.provide(Layer.merge(ChangesLive, GitFactsLive)));
 
 /** The same, for the requests that are not about a change: the browser says which context it is
  * in, because that is where the choice lives. */

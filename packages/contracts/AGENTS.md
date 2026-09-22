@@ -25,8 +25,8 @@ transport boundary.
   `formatError`
 - `@corvi/contracts/workspace`: the request-scoped `Workspace` tag (`corvi/Workspace`)
 - `@corvi/contracts/capabilities`: the capability tags (`Shell`, `Cache`, `Settings`, `Bus`,
-  `ExtensionStore`, `Changes`), `ExtensionStoreShape`, `Result`, and the `Capabilities` /
-  `Startup` unions; `Workspace` is re-exported here too
+  `ExtensionStore`, `Changes`, `GitFacts`), `ExtensionStoreShape`, `Result`, and the
+  `Capabilities` / `Startup` unions; `Workspace` is re-exported here too
 - `@corvi/contracts/integration`: what an included integration declares (`IncludedIntegration`,
   `Card`, `Page`, `ChangeTab`, `DashboardWidget`, `WizardStep`, `ExtensionSetting`,
   `WorkspaceSetting`, routes) and the overview contributor shapes (`TitleSource`,

@@ -15,7 +15,7 @@ import {
   type PtySpawner,
 } from "@corvi/terminals/session";
 import { childEnv } from "../../capabilities/env.ts";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { commandAvailable } from "../../capabilities/os.ts";
 import { attachCommand } from "./tmux.ts";
 

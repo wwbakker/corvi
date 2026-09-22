@@ -1,14 +1,14 @@
-import { basename } from "node:path";
+import { baseName } from "./path.ts";
 import { Effect, Either, Schema } from "effect";
-import type { Change } from "../domain/change.ts";
-import type { WidgetItem, WidgetState } from "../domain/widget.ts";
-import { baseFor, contentInMain, remoteDefaultBranch } from "./git.ts";
+import type { ChangeWireDto as Change } from "@corvi/contracts/api";
+import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
-import { shOrThrow, type Result } from "../capabilities/shell.ts";
-import { Changes } from "../integrations/api/capabilities.ts";
-import { swr, invalidate } from "../capabilities/cache.ts";
+import { shOrThrow, type Result } from "./shell.ts";
+import { Changes, GitFacts } from "@corvi/contracts/capabilities";
+import { swr, invalidate } from "./cache.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
-import { cliJson, shSoft } from "../capabilities/effect/support.ts";
+import { cliJson } from "@corvi/shell/cli";
+import { shSoft } from "./shell.ts";
 
 /** `gh pr list --json` for one head. */
 const PrSchema = Schema.Struct({
@@ -120,13 +120,14 @@ export function headRef(branch: string, upstream?: string, remoteDefault?: strin
   return name || branch;
 }
 
-const pushedAs = (worktree: string, repo: string, branch: string): Effect.Effect<string> =>
+const pushedAs = (worktree: string, repo: string, branch: string): Effect.Effect<string, never, GitFacts> =>
   Effect.gen(function* () {
     const r = yield* shSoft(
       ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", `${branch}@{upstream}`],
       worktree,
     );
-    return headRef(branch, r.stdout || undefined, yield* remoteDefaultBranch(repo));
+    const facts = yield* GitFacts;
+    return headRef(branch, r.stdout || undefined, yield* facts.remoteDefaultBranch(repo));
   });
 
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
@@ -136,7 +137,7 @@ type FoundPr = { worktree: string; head: string; prs: Pr[] };
 const prQuery = (
   change: Change,
   repo: string,
-): Effect.Effect<FoundPr | undefined, BadRequestError, Changes> =>
+): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) return undefined;
@@ -171,7 +172,7 @@ const prQuery = (
  */
 const PR_TTL = 20_000;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes> =>
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -288,18 +289,18 @@ const prDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details> =>
+): Effect.Effect<Details, never, Changes | GitFacts> =>
   swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
 
 const readDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details> =>
+): Effect.Effect<Details, never, Changes | GitFacts> =>
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean): Effect.Effect<Result> =>
+    const ask = (withStack: boolean): Effect.Effect<Result, never, Changes | GitFacts> =>
       shSoft(
         [
           "gh",
@@ -341,7 +342,7 @@ const readDetails = (
 export const prNumberOf = (
   change: Change,
   repo: string,
-): Effect.Effect<number | undefined, never, Changes> =>
+): Effect.Effect<number | undefined, never, Changes | GitFacts> =>
   Effect.map(
     Effect.orElseSucceed(prSummary(change, repo), () => undefined),
     (summary) => summary?.number,
@@ -350,7 +351,7 @@ export const prNumberOf = (
 export const prSummary = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes> =>
+): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes | GitFacts> =>
   Effect.gen(function* () {
     const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
     const pr = found?.prs[0];
@@ -367,7 +368,7 @@ export const prSummary = (
 export const prItem = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; item: WidgetItem }, BadRequestError, Changes> =>
+): Effect.Effect<{ number?: number; item: WidgetItem }, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
@@ -440,7 +441,7 @@ export const forgetPrs = (change: Change): Effect.Effect<void> =>
 export const refreshReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError, Changes> =>
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     yield* shSoft(["git", "fetch", "--quiet", "origin"], repo);
     return yield* mergeReadiness(change, repo);
@@ -450,9 +451,9 @@ export const refreshReadiness = (
 export const mergeReadiness = (
   change: Change,
   repo: string,
-): Effect.Effect<MergeReadiness, BadRequestError, Changes> =>
+): Effect.Effect<MergeReadiness, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
-    const name = basename(repo);
+    const name = baseName(repo);
     const found = yield* prQuery(change, repo);
     if (!found) return { ready: false, reason: `${name}: no worktree` };
     const pr = found.prs[0];
@@ -463,8 +464,9 @@ export const mergeReadiness = (
     // repository reads as merged rather than blocked. An open PR asserts "under review"
     // and still gates, even on an integrated branch.
     if (!pr || pr.state === "CLOSED") {
-      const base = yield* baseFor(change, repo);
-      if (yield* contentInMain(repo, change.branch, base)) {
+      const facts = yield* GitFacts;
+      const base = yield* facts.baseFor(change, repo);
+      if (yield* facts.contentInMain(repo, change.branch, base)) {
         return { ready: true, merged: true };
       }
       return {
@@ -497,7 +499,7 @@ export const mergePr = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<string | undefined, BadRequestError | CliError, Changes> =>
+): Effect.Effect<string | undefined, BadRequestError | CliError, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) {
@@ -511,7 +513,7 @@ export const mergePr = (
     }
     // Returns a note when the merge did not simply happen: a queued stack has not landed yet.
     const note = yield* mergeStacked(worktree, stacked, number);
-    return note && `${basename(repo)} #${number}: ${note}`;
+    return note && `${baseName(repo)} #${number}: ${note}`;
   });
 
 /** The repository as `owner/name` when this pull request belongs to a stack, otherwise nothing. */
@@ -537,7 +539,7 @@ const isStacked = (
 export const createPr = (
   change: Change,
   repo: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes> =>
+): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) {
@@ -547,9 +549,10 @@ export const createPr = (
     // A change stacked on another one's branch must open its pull request against that branch:
     // against main the diff would contain the other change's commits as well. GitHub retargets
     // the pull request to main by itself once the base branch merges.
-    const base = yield* baseFor(change, repo);
+    const facts = yield* GitFacts;
+    const base = yield* facts.baseFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
-    const against = target && (yield* remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
+    const against = target && (yield* facts.remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
     yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);
     if (against.length) {
       const view = yield* shSoft(["gh", "pr", "view", "--json", "number", "-q", ".number"], worktree);

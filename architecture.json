@@ -56,7 +56,8 @@
     },
     "@corvi/github": {
       "dependsOn": [
-        "@corvi/contracts"
+        "@corvi/contracts",
+        "@corvi/shell"
       ]
     },
     "@corvi/jira": {
@@ -66,7 +67,8 @@
     },
     "@corvi/azure-devops": {
       "dependsOn": [
-        "@corvi/contracts"
+        "@corvi/contracts",
+        "@corvi/github"
       ]
     },
     "@corvi/pi": {
@@ -109,7 +111,8 @@
     "@corvi/desktop": {
       "dependsOn": [
         "@corvi/web",
-        "@corvi/contracts"
+        "@corvi/contracts",
+        "@corvi/configuration"
       ],
       "node": true
     }

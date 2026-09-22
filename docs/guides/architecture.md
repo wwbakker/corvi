@@ -74,11 +74,11 @@ terminals -> contracts
 agents -> contracts
 shell -> contracts
 workflows -> contracts, configuration, changes, repositories, terminals, agents
-integrations/* -> contracts, shell, relevant capability APIs, workflows/ports
+integrations/* -> contracts, configuration, shell, relevant capability APIs, workflows/ports
 client -> contracts
 apps/server -> workflows, capabilities, integrations, contracts
 apps/web -> client, contracts, changes, terminals
-apps/desktop -> web's public host contract, contracts
+apps/desktop -> web's public host contract, contracts, configuration
 ```
 
 `shell` is the subprocess capability: any layer that runs a CLI may depend on it (repositories,

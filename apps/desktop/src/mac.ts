@@ -5,7 +5,7 @@
  *   bun run app:uninstall
  *
  * The bundle is built by @electron/packager from a small directory holding the built main and
- * preload (scripts/app/electron/build.ts). The checkout to serve is written into that app's
+ * preload (apps/desktop/src/electron/build.ts). The checkout to serve is written into that app's
  * package.json — the `IWERoot` of the Swift app's Info.plist, in the one place both platforms
  * already look — so moving the repository is a reinstall, not a rebuild.
  *
@@ -16,9 +16,9 @@ import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { packager } from "@electron/packager";
-import { sh } from "../sh.ts";
+import { sh } from "./exec.ts";
 import { buildApp } from "./electron/build.ts";
-import { ID, PRODUCT } from "../../apps/server/src/capabilities/identity.ts";
+import { ID, PRODUCT } from "@corvi/configuration/node";
 
 const NAME = PRODUCT;
 /** The bundle identifier macOS keys permissions, notifications and Apple Events by. */

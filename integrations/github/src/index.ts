@@ -1,14 +1,14 @@
-import { basename } from "node:path";
+import { baseName } from "./path.ts";
 import { Effect } from "effect";
-import { worst } from "../../domain/widget.ts";
-import type { Change } from "../../domain/change.ts";
-import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import { prItem, prSummary, createPr } from "../../vendors/github.ts";
+import { worst } from "@corvi/contracts/display";
+import type { ChangeWireDto as Change } from "@corvi/contracts/api";
+import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { prItem, prSummary, createPr } from "./client.ts";
 import { checkItems } from "./checks.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
-import type { IncludedIntegration } from "../../integrations/types.ts";
-import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
+import type { IncludedIntegration } from "@corvi/contracts/integration";
+import type { SummaryContribution, SummaryContributor } from "@corvi/contracts/integration";
 
 /**
  * Pull requests and the checks they report, per repository: whether this change is green, from
@@ -25,12 +25,12 @@ import type { SummaryContribution, SummaryContributor } from "../../integrations
 const repoItem = (
   change: Change,
   repo: string,
-): Effect.Effect<WidgetItem, BadRequestError, Changes | Shell | Workspace | Cache> =>
+): Effect.Effect<WidgetItem, BadRequestError, Changes | Shell | Workspace | Cache | GitFacts | GitFacts> =>
   Effect.gen(function* () {
     const { number, item: pr } = yield* prItem(change, repo);
     const checks = number ? yield* checkItems(change, repo, number) : [];
     const item: WidgetItem = {
-      label: basename(repo),
+      label: baseName(repo),
       state: worstItem([pr, ...checks]),
       children: [{ ...pr, children: checks.length ? checks : undefined }],
     };
@@ -55,7 +55,7 @@ const runEffect = (
   change: Change,
   action: string,
   repo?: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes | Shell | Workspace | Cache> =>
+): Effect.Effect<void, BadRequestError | CliError, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     if (action !== "create") {
       return yield* new BadRequestError({ message: `unknown github action: ${action}` });
@@ -73,7 +73,7 @@ const runEffect = (
  */
 const summaryContribution = (
   change: Change,
-): Effect.Effect<SummaryContribution, unknown, Changes | Shell | Workspace | Cache> =>
+): Effect.Effect<SummaryContribution, unknown, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     const perRepo = yield* Effect.forEach(
       change.repos,
@@ -110,14 +110,14 @@ export const githubSummaryContributor: SummaryContributor = { facts: summaryCont
  */
 export const prLooseEnds = (
   change: Change,
-): Effect.Effect<string[], never, Changes | Shell | Workspace | Cache> =>
+): Effect.Effect<string[], never, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.map(
     Effect.forEach(
       change.repos,
       (repo) =>
         Effect.map(
           Effect.orElseSucceed(prSummary(change, repo), () => undefined),
-          (summary) => (summary?.number ? `${basename(repo)} #${summary.number} is still open` : undefined),
+          (summary) => (summary?.number ? `${baseName(repo)} #${summary.number} is still open` : undefined),
         ),
       { concurrency: "unbounded" },
     ),

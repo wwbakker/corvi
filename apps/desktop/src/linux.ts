@@ -4,7 +4,7 @@
  *   bun run app:install
  *   bun run app:uninstall
  *
- * The window is the built Electron app in `$XDG_DATA_HOME/corvi/app` (scripts/app/electron),
+ * The window is the built Electron app in `$XDG_DATA_HOME/corvi/app` (apps/desktop/src/electron),
  * launched with the checkout's own Electron. The window manages the server the same way it does
  * on macOS: it starts one of its own — on a fresh port, picked at launch, so what it starts is
  * always its own — and stops it again when the window closes. The pid-file the window writes
@@ -18,13 +18,13 @@
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { sh } from "../sh.ts";
+import { sh } from "./exec.ts";
 import { buildApp } from "./electron/build.ts";
-import { ID, PRODUCT, dataDir, stateDir } from "../../apps/server/src/capabilities/identity.ts";
+import { ID, PRODUCT, dataDir, stateDir } from "@corvi/configuration/node";
 
 /** What it is called in the app grid and in its own title bar. */
 const NAME = PRODUCT;
-/** The window's application id / WM_CLASS — Electron sets both from the app name (scripts/app/electron/main.ts),
+/** The window's application id / WM_CLASS — Electron sets both from the app name (apps/desktop/src/electron/main.ts),
  * and StartupWMClass must match. */
 const APP_ID = ID;
 const root = resolve(".");
@@ -76,7 +76,7 @@ async function icons(): Promise<boolean> {
  * port is not written in anywhere: the window picks a fresh one at each launch, so the server
  * behind it is always one that window started. */
 const launcher = (): string => `#!/bin/sh
-# The Corvi app on Linux: opens the window (an Electron app built from scripts/app/electron),
+# The Corvi app on Linux: opens the window (an Electron app built from apps/desktop/src/electron),
 # which starts a server of its own — on a fresh port, picked at launch, so what it starts is
 # always its own — and stops it again when the window closes.
 #

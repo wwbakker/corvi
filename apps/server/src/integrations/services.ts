@@ -4,12 +4,14 @@ import {
   Cache,
   Changes,
   ExtensionStore,
+  GitFacts,
   Shell,
   Settings,
   Workspace,
 } from "./api/capabilities.ts";
 import type { Capabilities, ExtensionStoreShape } from "./api/capabilities.ts";
 import { envOf, shWithEnv } from "../capabilities/shell.ts";
+import { contentInMain, remoteDefaultBranch } from "../vendors/git.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
@@ -115,12 +117,22 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
  * the four services, and the single-writer `ExtensionStore` bound to the extension whose
  * contribution is running. Contributed effects run through this, so their requirements are
  * satisfied wherever the host runs them — cards, hooks, lookups, steps, routes. */
+/** The repository facts (`GitFacts`) from the app's git layer: an integration asks the host
+ * for what a branch is based on and whether its content landed, rather than importing the git
+ * module. */
+export const GitFactsLive = Layer.succeed(GitFacts, {
+  baseFor: (change, repo) => baseFor(change, repo),
+  remoteDefaultBranch,
+  contentInMain,
+});
+
 export const capabilitiesLayer = (
   workspace: WorkspaceShape,
   extension?: string,
 ): Layer.Layer<Capabilities> =>
   Layer.mergeAll(
     ShellLive,
+    GitFactsLive,
     cacheLive(runtimeCache()),
     SettingsLive,
     BusLive,

@@ -1,5 +1,5 @@
 import { beforeEach, expect, test } from "bun:test";
-import { checkItems, groupChecks, type Check } from "../apps/server/src/extensions/github/checks.ts";
+import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { WidgetItem } from "../apps/server/src/domain/widget.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";

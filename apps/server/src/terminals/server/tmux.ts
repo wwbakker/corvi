@@ -15,7 +15,7 @@ import {
   type Host,
 } from "@corvi/terminals/tmux";
 import { CliError } from "@corvi/contracts/errors";
-import { ID, env } from "../../capabilities/identity.ts";
+import { ID, env } from "@corvi/configuration/node";
 import { sh, shOrThrow } from "../../capabilities/shell.ts";
 
 /** The package names only the failure fields it reads; the app's CLI failure carries them all,

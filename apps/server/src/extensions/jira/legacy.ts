@@ -1,6 +1,6 @@
 import type { Change } from "../../domain/change.ts";
 import type { Config } from "@corvi/configuration/config";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { resolveSetting } from "@corvi/configuration/settings";
 
 /**

@@ -1,0 +1,17 @@
+{
+  "name": "@corvi/github",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./issues": "./src/issues.ts",
+    "./checks": "./src/checks.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "@corvi/shell": "workspace:*",
+    "effect": "catalog:"
+  }
+}

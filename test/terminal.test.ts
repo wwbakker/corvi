@@ -596,7 +596,7 @@ test.skipIf(!usable)("a window tab dragged onto another takes its place", async 
 test.skipIf(!usable)("a window that starts waiting is announced, and the notice opens it", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   // Stand in for the app's host: the real window exposes `window.corviHost` from its preload
-  // (scripts/app/electron/preload.ts), a browser has none, so the test installs the same shape
+  // (apps/desktop/src/electron/preload.ts), a browser has none, so the test installs the same shape
   // and keeps the open-window callback the page registers on mount.
   await page.addInitScript(() => {
     const store: unknown[] = [];
@@ -773,7 +773,7 @@ test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", 
 
 test.skipIf(!usable)("the page copies and pastes through the system clipboard", async () => {
   // ttyd's page owned these chords; with xterm.js in the page they are ours. The browser
-  // permission is granted here the way the app grants it (scripts/app/electron/main.ts).
+  // permission is granted here the way the app grants it (apps/desktop/src/electron/main.ts).
   const page = await browser.newPage({
     viewport: { width: 1200, height: 800 },
     permissions: ["clipboard-read", "clipboard-write"],

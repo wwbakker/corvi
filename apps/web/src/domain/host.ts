@@ -8,7 +8,7 @@
  * (apps/web/src/app-root/notify.tsx), which is the same entry point a click uses.
  *
  * This file is the vocabulary both sides speak; the transport is the preload's
- * `contextBridge` (`window.corviHost`, scripts/app/electron/preload.ts), and nothing here runs.
+ * `contextBridge` (`window.corviHost`, apps/desktop/src/electron/preload.ts), and nothing here runs.
  */
 
 /** One window that has started wanting the user, in the shape the host shows it. */

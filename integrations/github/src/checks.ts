@@ -1,9 +1,9 @@
 import { Effect, Schema } from "effect";
-import type { Change } from "../../domain/change.ts";
-import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import { cliJson } from "../../capabilities/effect/support.ts";
-import type { Result } from "../../capabilities/shell.ts";
+import type { ChangeWireDto as Change } from "@corvi/contracts/api";
+import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { cliJson } from "@corvi/shell/cli";
+import type { Result } from "@corvi/contracts/capabilities";
 
 export type Check = {
   name: string;
@@ -58,7 +58,7 @@ export const checkItems = (
   change: Change,
   repo: string,
   number: number,
-): Effect.Effect<WidgetItem[], never, Changes | Shell | Workspace | Cache> =>
+): Effect.Effect<WidgetItem[], never, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     const cache = yield* Cache;
     return yield* cache.swr(

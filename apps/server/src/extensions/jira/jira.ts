@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
 import { swr, invalidate } from "../../capabilities/cache.ts";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { runtimeConfig, type Config } from "../../workspace/server/index.ts";
 import { bagString } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";

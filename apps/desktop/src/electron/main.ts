@@ -11,8 +11,8 @@
  * own Node (`ELECTRON_RUN_AS_NODE`), not on Bun the user has installed
  * (docs/manual/install.md).
  *
- * Built by scripts/app/electron/build.ts into main.cjs/preload.cjs and run either from a packaged
- * bundle (scripts/app/mac.ts, scripts/app/linux.ts) or straight from the checkout
+ * Built by apps/desktop/src/electron/build.ts into main.cjs/preload.cjs and run either from a packaged
+ * bundle (apps/desktop/src/mac.ts, apps/desktop/src/linux.ts) or straight from the checkout
  * (`bun run app:run`). The checkout to serve is read from the app package.json's `corviRoot`,
  * which is why moving the repository is a reinstall rather than a rebuild.
  */
@@ -34,7 +34,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 import type { HostNotice } from "@corvi/web/host";
-import { ID, PRODUCT, env, stateDir } from "../../../apps/server/src/capabilities/identity.ts";
+import { ID, PRODUCT, env, stateDir } from "@corvi/configuration/node";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
  * all one colour instead of a white flash. Same value as the hosts this replaced. */
@@ -63,7 +63,7 @@ const copyName = app.getName();
 /**
  * What this copy is called in the process. `corvi` rather than the product name so Wayland's
  * app_id and X11's WM_CLASS match `StartupWMClass=corvi` in the desktop entry
- * (scripts/app/linux.ts) — the same promise `GLib.set_prgname` + `Gdk.set_program_class` kept
+ * (apps/desktop/src/linux.ts) — the same promise `GLib.set_prgname` + `Gdk.set_program_class` kept
  * for the Python window.
  */
 app.setName(ID);
@@ -437,7 +437,7 @@ const createWindow = (): BrowserWindow => {
       ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }
       : {}),
     webPreferences: {
-      // `app.getAppPath()`, not `__dirname`: the bundler (scripts/app/electron/build.ts) writes
+      // `app.getAppPath()`, not `__dirname`: the bundler (apps/desktop/src/electron/build.ts) writes
       // the source directory into __dirname at build time, and the app does not run from there.
       preload: join(app.getAppPath(), "preload.cjs"),
       contextIsolation: true,

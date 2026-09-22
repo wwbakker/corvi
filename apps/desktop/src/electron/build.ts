@@ -12,7 +12,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { ID } from "../../../apps/server/src/capabilities/identity.ts";
+import { ID } from "@corvi/configuration/node";
 
 export async function buildApp(outDir: string, root: string): Promise<void> {
   mkdirSync(outDir, { recursive: true });

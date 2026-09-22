@@ -18,7 +18,7 @@ import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "@corvi/con
 import { Shell, type Result } from "@corvi/shell";
 import { makeNodeShell, type TraceEntry } from "@corvi/shell/node";
 import { childEnv } from "./env.ts";
-import { env } from "./identity.ts";
+import { env } from "@corvi/configuration/node";
 
 export type { Result };
 

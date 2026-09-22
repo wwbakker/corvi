@@ -2,13 +2,13 @@ import { Effect, Schema } from "effect";
 import { basename } from "node:path";
 import type { Change } from "../../domain/change.ts";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
+import { Cache, Changes, GitFacts, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { deployments, versionsFor, deploy } from "./server.ts";
-import { prNumberOf } from "../../vendors/github.ts";
+import { prNumberOf } from "@corvi/github/client";
 import { activeRuns, pipelineItems } from "./pipelines.ts";
 import { AZURE_ENV } from "./legacy.ts";
 import { DEPLOY_ENVIRONMENTS_ENV } from "./deploySettings.ts";
@@ -39,7 +39,7 @@ const DeployBody = Schema.Union(
 const repoItem = (
   change: Change,
   repo: string,
-): Effect.Effect<WidgetItem[], never, Shell | Workspace | Cache | Settings | Changes> =>
+): Effect.Effect<WidgetItem[], never, Shell | Workspace | Cache | Settings | GitFacts | Changes> =>
   Effect.gen(function* () {
     const number = yield* prNumberOf(change, repo);
     const { items } = yield* pipelineItems(change, repo, number);
@@ -72,7 +72,7 @@ const worstItem = (items: WidgetItem[]): WidgetState =>
  */
 const summaryContribution = (
   change: Change,
-): Effect.Effect<SummaryContribution, unknown, Shell | Workspace | Cache | Settings | Changes> =>
+): Effect.Effect<SummaryContribution, unknown, Shell | Workspace | Cache | Settings | GitFacts | Changes> =>
   Effect.gen(function* () {
     const perRepo = yield* Effect.forEach(
       change.repos,

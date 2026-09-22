@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { cliJson, shSoft } from "../capabilities/effect/support.ts";
+import { cliJson } from "@corvi/shell/cli";
+import { shSoft } from "./shell.ts";
 
 /** Where a pull request sits in its stack, when it is in one. */
 export type Stack = { number: number; size: number; position: number };

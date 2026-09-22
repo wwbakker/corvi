@@ -7,6 +7,7 @@ export {
   Cache,
   Changes,
   ExtensionStore,
+  GitFacts,
   Settings,
   Shell,
   Workspace,

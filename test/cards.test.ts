@@ -6,9 +6,9 @@ import type { Change } from "../apps/server/src/domain/change.ts";
 import type { Widget, WidgetItem } from "../apps/server/src/domain/widget.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import type { Card } from "../apps/server/src/integrations/types.ts";
-import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
 import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integrations/effects.ts";
-import githubExtension, { githubSummaryContributor, prLooseEnds } from "../apps/server/src/extensions/github/index.ts";
+import githubExtension, { githubSummaryContributor, prLooseEnds } from "@corvi/github";
 import azureDevopsExtension, { azureDevopsSummaryContributor } from "../apps/server/src/extensions/azure-devops/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
@@ -430,7 +430,7 @@ const extLayer = (shell: FakeShell, workspaceId?: string): Layer.Layer<Capabilit
     CacheLive,
     SettingsLive,
     BusLive,
-    ChangesLive,
+    ChangesLive, GitFactsLive,
     Layer.succeed(WorkspaceTag, workspaceById(workspaceId)),
     extensionStoreLayer("test"),
   );

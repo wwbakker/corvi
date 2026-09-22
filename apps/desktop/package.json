@@ -1,0 +1,18 @@
+{
+  "name": "@corvi/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./build": "./src/electron/build.ts",
+    "./binary": "./src/electron/binary.ts",
+    "./run": "./src/run.ts"
+  },
+  "dependencies": {
+    "@corvi/configuration": "workspace:*",
+    "@corvi/web": "workspace:*",
+    "@electron/packager": "20.3.0",
+    "electron": "44.3.0",
+    "esbuild": "^0.28.2"
+  }
+}

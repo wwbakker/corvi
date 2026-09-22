@@ -7,8 +7,9 @@ import type {
   CompletionRefusal,
 } from "../../domain/change.ts";
 import { isIdeation } from "../../domain/change.ts";
-import type { MergeReadiness } from "../../vendors/github.ts";
-import { mergeReadiness, refreshReadiness, forgetPrs } from "../../vendors/github.ts";
+import type { MergeReadiness } from "@corvi/github/client";
+import { mergeReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
+import type { GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
@@ -83,7 +84,7 @@ const completionOfRepo = (
   change: Change,
   repo: string,
   fresh: boolean,
-): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes> =>
+): Effect.Effect<{ repo: string; readiness: MergeReadiness; unsafe: Unsafe | undefined }, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     return {
       repo,
@@ -95,7 +96,7 @@ const completionOfRepo = (
 export const completionOf = (
   change: Change,
   fresh = false,
-): Effect.Effect<Completion, CliError | BadRequestError, Changes> =>
+): Effect.Effect<Completion, CliError | BadRequestError, Changes | GitFacts> =>
   // An idea has nothing to complete: no pull requests, no checkouts. Answered without the CLI
   // lookups, which would find nothing and cost a call per repository. Hard: starting the work
   // is the only way out of Ideation, and no override waives it.

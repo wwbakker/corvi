@@ -1,9 +1,9 @@
 import type { IncludedIntegration } from "./types.ts";
 import agents from "../extensions/agents/index.ts";
 import git from "../extensions/git/index.ts";
-import github from "../extensions/github/index.ts";
+import github from "@corvi/github";
 import jira from "../extensions/jira/index.ts";
-import githubIssues from "../extensions/github-issues/index.ts";
+import githubIssues from "@corvi/github/issues";
 import azureDevops from "../extensions/azure-devops/index.ts";
 import leftovers from "../extensions/leftovers/index.ts";
 import review from "../extensions/review/index.ts";

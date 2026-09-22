@@ -8,7 +8,8 @@
   },
   "exports": {
     "./host": "./src/domain/host.ts",
-    "./chrome": "./src/domain/chrome.ts"
+    "./chrome": "./src/domain/chrome.ts",
+    "./build": "./src/node/build.ts"
   },
   "dependencies": {
     "@corvi/changes": "workspace:*",

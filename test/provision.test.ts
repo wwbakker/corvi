@@ -15,7 +15,7 @@ import {
 import { isMac } from "../apps/server/src/capabilities/os.ts";
 import { versionInLines } from "../apps/server/src/extensions/azure-devops/pipelines.ts";
 import { deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
-import { readiness, headRef, waitingOnYou } from "../apps/server/src/vendors/github.ts";
+import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";

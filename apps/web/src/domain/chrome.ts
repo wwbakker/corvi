@@ -3,7 +3,7 @@
  * that sit in it (docs/manual/interface.md).
  *
  * One copy of the numbers, because two processes lay the same band out: the main process places
- * the traffic lights in the window (scripts/app/electron/main.ts) and the page draws the row
+ * the traffic lights in the window (apps/desktop/src/electron/main.ts) and the page draws the row
  * under them (apps/web/src/app-root/app.tsx, which hands the height to the CSS as `--titlebar-height`).
  * A mismatch is a strip whose contents sit beside the buttons instead of below them.
  *

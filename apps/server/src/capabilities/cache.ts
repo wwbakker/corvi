@@ -16,7 +16,7 @@
  */
 
 import { join } from "node:path";
-import { cacheDir, env } from "./identity.ts";
+import { cacheDir, env } from "@corvi/configuration/node";
 import { mkdir } from "node:fs/promises";
 import { Clock, Deferred, Effect, Exit, pipe } from "effect";
 import { fs } from "./effect/support.ts";

@@ -41,9 +41,9 @@
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
     "extension:uninstall": "bun scripts/extension.ts uninstall",
-    "app:install": "bun run build:web && bun scripts/app.ts install",
-    "app:uninstall": "bun scripts/app.ts uninstall",
-    "app:run": "bun run build:web && bun scripts/app.ts run",
+    "app:install": "bun run build:web && bun apps/desktop/src/install.ts install",
+    "app:uninstall": "bun apps/desktop/src/install.ts uninstall",
+    "app:run": "bun run build:web && bun apps/desktop/src/install.ts run",
     "app:permissions": "bun scripts/permissions.ts",
     "app:drive": "bun scripts/drive.ts",
     "app:sandbox": "bun scripts/sandbox.ts",
@@ -51,18 +51,18 @@
     "dev:web": "bun apps/web/src/node/build.ts --watch"
   },
   "dependencies": {
+    "@corvi/desktop": "workspace:*",
+    "@corvi/github": "workspace:*",
     "@corvi/web": "workspace:*"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@effect/language-service": "^0.87.2",
-    "@electron/packager": "20.3.0",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@types/ws": "^8.18.1",
-    "electron": "44.3.0",
     "eslint": "^10.10.0",
     "playwright": "^1.63.0",
     "typescript-eslint": "^8.70.0"

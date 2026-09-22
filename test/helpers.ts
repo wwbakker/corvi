@@ -11,7 +11,7 @@ import { setRepos } from "../apps/server/src/vendors/git.ts";
 import { sh, type Result } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
-import { CacheLive, ChangesLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
+import { CacheLive, ChangesLive, GitFactsLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
 import type { CliError } from "@corvi/contracts/errors";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
@@ -272,6 +272,7 @@ export const runWithShell = <A, E, R>(
         CacheLive,
         SettingsLive,
         ChangesLive,
+        GitFactsLive,
       ),
     ),
   );
@@ -295,6 +296,7 @@ export const runRouteWithShell = (
         CacheLive,
         SettingsLive,
         ChangesLive,
+        GitFactsLive,
       ),
     ),
   );

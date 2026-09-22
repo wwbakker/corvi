@@ -5,24 +5,35 @@
     "": {
       "name": "corvi",
       "dependencies": {
+        "@corvi/desktop": "workspace:*",
+        "@corvi/github": "workspace:*",
         "@corvi/web": "workspace:*",
       },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^0.85.1",
         "@effect/language-service": "^0.87.2",
-        "@electron/packager": "20.3.0",
         "@eslint/js": "^10.0.1",
         "@types/bun": "latest",
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "@types/ws": "^8.18.1",
-        "electron": "44.3.0",
         "eslint": "^10.10.0",
         "playwright": "^1.63.0",
         "typescript-eslint": "^8.70.0",
       },
       "peerDependencies": {
         "typescript": "^6.0.3",
+      },
+    },
+    "apps/desktop": {
+      "name": "@corvi/desktop",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/configuration": "workspace:*",
+        "@corvi/web": "workspace:*",
+        "@electron/packager": "20.3.0",
+        "electron": "44.3.0",
+        "esbuild": "^0.28.2",
       },
     },
     "apps/server": {
@@ -34,6 +45,7 @@
         "@corvi/client": "workspace:*",
         "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",
+        "@corvi/github": "workspace:*",
         "@corvi/repositories": "workspace:*",
         "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
@@ -59,6 +71,15 @@
         "esbuild": "^0.28.2",
         "react": "^19.3.0",
         "react-dom": "^19.3.0",
+      },
+    },
+    "integrations/github": {
+      "name": "@corvi/github",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "@corvi/shell": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "packages/agents": {
@@ -206,6 +227,10 @@
     "@corvi/configuration": ["@corvi/configuration@workspace:packages/configuration"],
 
     "@corvi/contracts": ["@corvi/contracts@workspace:packages/contracts"],
+
+    "@corvi/desktop": ["@corvi/desktop@workspace:apps/desktop"],
+
+    "@corvi/github": ["@corvi/github@workspace:integrations/github"],
 
     "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
 

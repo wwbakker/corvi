@@ -10,7 +10,7 @@
 import { readFile } from "node:fs/promises";
 import { basename, extname, join, resolve } from "node:path";
 import { fileResponse } from "../capabilities/files.ts";
-import { env } from "../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 
 const contentType: Record<string, string> = {
   ".js": "text/javascript",

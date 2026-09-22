@@ -11,7 +11,7 @@ import {
   repoFromUrl,
   waitingOnYou,
   type MergeReadiness,
-} from "../apps/server/src/vendors/github.ts";
+} from "@corvi/github/client";
 import {
   closeIssueOnComplete,
   createIssue,
@@ -22,21 +22,21 @@ import {
   planIssueClose,
   repoFromRemote,
   viewIssue,
-} from "../apps/server/src/extensions/github-issues/index.ts";
-import githubIssues from "../apps/server/src/extensions/github-issues/index.ts";
+} from "@corvi/github/issues";
+import githubIssues from "@corvi/github/issues";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
-import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /**
- * `apps/server/src/vendors/github.ts` and the github-issues extension, driven through the fake-Shell
+ * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
  * seam. The core functions reach `gh` and `git` through `sh`, which prefers a Shell in context;
  * the extension functions take the `Shell` and `Cache` services directly, so the layers below
  * provide the whole capability union with a scripted Shell in place of the live one.
@@ -156,7 +156,7 @@ const runEither = <A, E, R>(
           Layer.succeed(WorkspaceTag, workspaceById(undefined)),
           CacheLive,
           SettingsLive,
-          ChangesLive,
+          ChangesLive, GitFactsLive,
         ),
       ),
     ),
@@ -169,7 +169,7 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     CacheLive,
     SettingsLive,
     BusLive,
-    ChangesLive,
+    ChangesLive, GitFactsLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
     extensionStoreLayer("test"),
   );

@@ -80,6 +80,16 @@ export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
  * the one read a migration needs. An integration can find a change and where its worktree is
  * without importing a module's server half. Deliberately read-only: there is no write, complete
  * or cancel. */
+
+/** The repository facts an integration may ask the host for: what a branch is based on, the
+ * repository's default branch, and whether a branch's content already landed in a base. The host
+ * implements it from its own git layer, so integrations never reach into the application. */
+export class GitFacts extends Context.Tag("corvi/GitFacts")<GitFacts, {
+  baseFor(change: ChangeWireDto, repo: string): Effect.Effect<string | undefined>;
+  remoteDefaultBranch(repo: string): Effect.Effect<string | undefined>;
+  contentInMain(repo: string, branch: string, base: string | undefined): Effect.Effect<boolean>;
+}>() {}
+
 export class Changes extends Context.Tag("corvi/Changes")<Changes, {
   /** The change with this id, or null when no change.json exists for it. */
   read(id: string): Effect.Effect<ChangeWireDto | null, DecodeError>;
@@ -101,7 +111,15 @@ export class Changes extends Context.Tag("corvi/Changes")<Changes, {
 
 /** The union the host provides. An effect may require any subset — requiring less is
  * assignable to requiring the union, so handlers declare only what they use. */
-export type Capabilities = Workspace | Shell | Cache | Settings | Bus | ExtensionStore | Changes;
+export type Capabilities =
+  | Workspace
+  | Shell
+  | Cache
+  | Settings
+  | Bus
+  | ExtensionStore
+  | Changes
+  | GitFacts;
 
 /** What an integration's *load* may require: everything but the request `Workspace`, which
  * does not exist at startup. The loader provides the default workspace alongside the services,

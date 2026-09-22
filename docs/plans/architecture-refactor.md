@@ -155,7 +155,7 @@ Start with inspection rather than deletion: prove the boundary without changing 
 | `dashboard/server`, lifecycle contribution orchestration | Workflow/read-model composition, not a generic plugin host |
 | `app-root`, feature clients, extension clients, wizard | Web shell and feature directories consuming the typed client |
 | `server.ts`, routes, SSE/socket hosting | Server application; transport adapters call workflows |
-| `scripts/app/electron`, platform installers | Desktop host and packaging scripts |
+| `apps/desktop/src/electron`, platform installers | Desktop host and packaging scripts |
 | `pi/agent-state.ts`, agent presentation | Pi integration and agent status contracts; keep actual reporting behavior |
 
 - [x] Replace HTTP-shaped internal errors with domain errors and boundary mapping.
@@ -232,9 +232,15 @@ Start with inspection rather than deletion: prove the boundary without changing 
       and the provider wire schemas in `@corvi/contracts/integrations/*`. Assets are built
       ahead of time — `bun run build:web` bundles `apps/web/src` into `apps/web/dist`, and the
       server only serves that directory (`CORVI_WEB_DIST` overrides it) — with
-      `app:install`/`app:run`/`dev`/`test` building it first. The full suite is green. What
-      remains for this item is `apps/desktop` (today `scripts/app/**`, still importing the
-      checkout relatively) and the five provider integration packages.
+      `app:install`/`app:run`/`dev`/`test` building it first. `apps/desktop` is a workspace too
+      (`src/electron/**`, the installers, `"node": true`), implements `@corvi/web`'s host
+      contract and starts the server as a process boundary. The full suite is green. What
+      remains for this item is `jira` and `azure-devops` (`pi`/`opencode` have no server code
+      yet, and the guide says not to scaffold empty packages). `@corvi/github` is extracted:
+      the `gh` client (moved out of `vendors/github.ts`), the PR/checks and issues integrations,
+      the package's own Shell-based CLI helpers, the `Cache` capability, and the `GitFacts`
+      port the app implements from `src/vendors/git.ts`; the app and its tests import the
+      package's entrypoints.
 - [x] Remove obsolete comments and exports as each implementation is replaced.
       The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
       browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
@@ -306,9 +312,23 @@ Start with inspection rather than deletion: prove the boundary without changing 
       built ahead of time into `apps/web/dist` and served by the server as files (no bundler at
       request time, no `apps/server -> apps/web` import). The Node rule for applications is
       answered — rules may carry `"node": true`, and `@corvi/server`/`@corvi/desktop` do,
-      while `@corvi/web` stays browser-only. What is left is `apps/desktop` (today
-      `scripts/app/**`) and the five `integrations/*` packages, and `bun run boundaries`
-      enforces the declared graph among the workspaces that exist.
+      while `@corvi/web` stays browser-only. `apps/desktop` is extracted (Electron host,
+      installers, implements the host contract, starts the server as a process boundary). What
+      is left is the provider integrations, which need three decisions before moving: how an
+      integration reads its settings without the app's `runtimeConfig()` (`jira` and
+      `azure-devops` call it today — the host should pass the resolved values, or the
+      `Settings` capability should carry them), and whether `integrations/* -> @corvi/configuration`
+      is allowed for the settings helpers they already import (`resolveSetting`, `bagString`,
+      `bagList`). The github split proved the pattern: `@corvi/shell/cli` owns `cliJson` and a
+      `soft` wrapper; `@corvi/github` has its own `src/shell.ts` over the `Shell` capability,
+      reads the `Cache` capability, and asks the host for repository facts through the
+      `GitFacts` capability (`@corvi/contracts/capabilities`), which `apps/server` implements
+      from `src/vendors/git.ts` in `capabilitiesLayer`. `jira` and `azure-devops` follow the
+      same shape: move their server halves into `integrations/*`, replace `runtimeConfig()` /
+      `workspaceOf` / `readFileSync()` with the `Settings` capability (or values the host
+      passes in), depend on `@corvi/configuration` for the settings helpers, and let
+      `azure-devops` import `prNumberOf` over the recorded `azure-devops -> github` edge.
+      `bun run boundaries` keeps enforcing the declared graph among the workspaces that exist.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
       `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and

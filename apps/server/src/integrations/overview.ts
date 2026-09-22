@@ -14,11 +14,11 @@ import type {
 } from "@corvi/contracts/integration";
 import { extensionEnabled } from "../workspace/server/index.ts";
 import { azureDevopsSummaryContributor } from "../extensions/azure-devops/index.ts";
-import { githubSummaryContributor } from "../extensions/github/index.ts";
+import { githubSummaryContributor } from "@corvi/github";
 import {
   githubIssuesDescriptionSection,
   githubIssuesTitleSource,
-} from "../extensions/github-issues/index.ts";
+} from "@corvi/github/issues";
 import { jiraDescriptionSection, jiraTitleSource } from "../extensions/jira/index.ts";
 
 export type {

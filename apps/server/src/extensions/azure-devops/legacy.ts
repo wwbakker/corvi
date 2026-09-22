@@ -1,5 +1,5 @@
 import type { Config } from "@corvi/configuration/config";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 import { readFileSync } from "../../workspace/server/config.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 

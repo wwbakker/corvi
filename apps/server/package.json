@@ -13,6 +13,7 @@
     "@corvi/client": "workspace:*",
     "@corvi/configuration": "workspace:*",
     "@corvi/contracts": "workspace:*",
+    "@corvi/github": "workspace:*",
     "@corvi/repositories": "workspace:*",
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",

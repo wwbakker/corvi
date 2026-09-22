@@ -35,3 +35,13 @@ export const dataDir = (): string =>
 export const defaultChangesRoot = (): string => join(homedir(), ID, "changes");
 /** Completed changes: a setting of its own, not a child of the changes root. */
 export const defaultArchiveRoot = (): string => join(homedir(), ID, "changes-archive");
+
+/** macOS, where the native app and `open -a` live. */
+export const isMac = process.platform === "darwin";
+
+/** Linux. Anything else (Windows) is unsupported and gets neither platform's favours. */
+export const isLinux = process.platform === "linux";
+
+/** The platform as one word, for whoever is told only once: the client reads it from
+ * /api/workspaces and switches its key hints and shortcuts on it. */
+export const platformName = isMac ? "mac" : isLinux ? "linux" : "other";

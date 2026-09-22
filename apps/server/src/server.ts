@@ -12,7 +12,7 @@ import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
 import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
-import { ID, env } from "./capabilities/identity.ts";
+import { ID, env } from "@corvi/configuration/node";
 
 // The runtime this process owns: the cache is constructed here and restored before the server
 // listens, and requests read it through `capabilitiesLayer`. What the CLIs said last time is

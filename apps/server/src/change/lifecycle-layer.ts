@@ -34,12 +34,12 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
 import { Shell } from "@corvi/shell"
 import { Workspace } from "@corvi/contracts/workspace"
 import { messageOf } from "../capabilities/effect/support.ts"
-import { capabilitiesLayer, ChangesLive } from "../integrations/services.ts"
-import { prLooseEnds } from "../extensions/github/index.ts"
-import { closeIssueOnComplete, planIssueClose } from "../extensions/github-issues/index.ts"
+import { capabilitiesLayer, ChangesLive, GitFactsLive } from "../integrations/services.ts"
+import { prLooseEnds } from "@corvi/github"
+import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "../extensions/jira/index.ts"
 import { stopTerminal } from "../terminals/server/index.ts"
-import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "../vendors/github.ts"
+import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "@corvi/github/client"
 import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
@@ -153,7 +153,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const observed = yield* (fresh
               ? refreshReadiness(legacy, link.originalLocation)
               : mergeReadiness(legacy, link.originalLocation)
-            ).pipe(Effect.provide(ChangesLive), Effect.mapError((e) => providerError("readiness", e)))
+            ).pipe(Effect.provide(Layer.merge(ChangesLive, GitFactsLive)), Effect.mapError((e) => providerError("readiness", e)))
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
@@ -166,7 +166,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const link = yield* linkFor(change, repository.repositoryId)
             const legacy = yield* legacyFor(change)
             return yield* mergePr(legacy, link.originalLocation, number).pipe(
-              Effect.provide(ChangesLive),
+              Effect.provide(Layer.merge(ChangesLive, GitFactsLive)),
               Effect.mapError((e) => providerError("merge", e)),
             )
           }),

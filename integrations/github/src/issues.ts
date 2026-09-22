@@ -1,12 +1,12 @@
 import { Context, Effect, Option, Schema } from "effect";
-import type { Change, CompletionStep } from "../../domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import type { Capabilities } from "../../integrations/api/capabilities.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
-import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
+import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
+import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Shell, Workspace } from "@corvi/contracts/capabilities";
+import type { Capabilities } from "@corvi/contracts/capabilities";
+import type { IncludedIntegration } from "@corvi/contracts/integration";
+import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
-import { cliJson } from "../../capabilities/effect/support.ts";
+import { cliJson } from "@corvi/shell/cli";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "@corvi/contracts/integrations/github-issues";
 
 /**

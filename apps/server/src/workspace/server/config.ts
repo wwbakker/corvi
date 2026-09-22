@@ -12,7 +12,7 @@ import {
   defaultArchiveRoot,
   defaultChangesRoot,
   env,
-} from "../../capabilities/identity.ts";
+} from "@corvi/configuration/node";
 
 // Pure sync path logic; nothing to wrap in an Effect.
 export const configPath = (): string =>

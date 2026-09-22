@@ -4,7 +4,7 @@
  *
  * The server runs on Electron's own Node, started by the app as
  * `env CORVI_PORT=… NODE_ENV=production ELECTRON_RUN_AS_NODE=1 …`
- * (scripts/app/electron/main.ts), so the server's `process.env` carries the launcher's variables.
+ * (apps/desktop/src/electron/main.ts), so the server's `process.env` carries the launcher's variables.
  * Children must not inherit them: with `ELECTRON_RUN_AS_NODE=1` any Electron binary started in a
  * terminal — `code .`, `electron .`, a VS Code task — silently runs as plain Node;
  * `NODE_ENV=production` changes other tools' behaviour; and `CORVI_PORT`/`CORVI_ROOT` point a server
@@ -20,7 +20,7 @@
  * terminal adds the change's context (`CORVI_CHANGE_ID`, `CORVI_CHANGE_DIR`) rather than leaving it
  * to accident.
  */
-import { ENV_PREFIX } from "./identity.ts";
+import { ENV_PREFIX } from "@corvi/configuration/node";
 
 export const childEnv = (
   base: Record<string, string | undefined>,

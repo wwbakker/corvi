@@ -3,7 +3,7 @@ import { Effect, Schema } from "effect";
 import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
 import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
 import { cliJson } from "../../capabilities/effect/support.ts";
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 import type { Result } from "../../capabilities/shell.ts";
 import { azFor, type Az } from "./azure.ts";
 

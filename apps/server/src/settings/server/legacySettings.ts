@@ -1,4 +1,4 @@
-import { env } from "../../capabilities/identity.ts";
+import { env } from "@corvi/configuration/node";
 
 /**
  * The environment variables the app's settings can be overridden with, by config field.

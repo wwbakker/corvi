@@ -1,7 +1,8 @@
 import { basename } from "node:path";
 import { Effect } from "effect";
 import type { Change } from "../../domain/change.ts";
-import { prItem } from "../../vendors/github.ts";
+import { prItem } from "@corvi/github/client";
+import type { GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import type { BadRequestError } from "@corvi/contracts/errors";
 import { includedDescriptionSections } from "../../integrations/overview.ts";
@@ -27,7 +28,7 @@ export function describeChange(
   return `${heading}\n${links.join("\n")}\n`;
 }
 
-export const prDescription = (change: Change): Effect.Effect<string, BadRequestError, Changes> =>
+export const prDescription = (change: Change): Effect.Effect<string, BadRequestError, Changes | GitFacts> =>
   Effect.gen(function* () {
     // The heading, one contributed part per extension that claims this change, joined with
     // " - ". A section that fails is absent, not a failed request.

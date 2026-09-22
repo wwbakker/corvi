@@ -5,23 +5,23 @@
  *   bun run app:uninstall
  *   bun run app:run        — the same window straight from the checkout, nothing installed
  *
- * The window is one Electron main process (scripts/app/electron/main.ts) on both platforms. The
- * install builds it into a bundle: a macOS `.app` (scripts/app/mac.ts) or, on Linux, a desktop
- * entry, an icon and a launcher (scripts/app/linux.ts). Either way, clicking it starts the app's
+ * The window is one Electron main process (apps/desktop/src/electron/main.ts) on both platforms. The
+ * install builds it into a bundle: a macOS `.app` (apps/desktop/src/mac.ts) or, on Linux, a desktop
+ * entry, an icon and a launcher (apps/desktop/src/linux.ts). Either way, clicking it starts the app's
  * own server — on a fresh port, picked at launch, so what it starts is always its own — and
  * shows the page. It is still only a window onto the same HTTP server any browser can open,
  * which is the point: the app is a convenience, not the product.
  */
 import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { isLinux, isMac } from "../apps/server/src/capabilities/os.ts";
-import { electronBinary } from "./app/electron/binary.ts";
-import { sh } from "./sh.ts";
+import { isLinux, isMac } from "@corvi/configuration/node";
+import { electronBinary } from "./electron/binary.ts";
+import { sh } from "./exec.ts";
 
 const root = resolve(".");
 
 /** The Electron binary this checkout installed, in the platform's own layout
- * (scripts/app/electron/binary.ts). Electron 44 downloads it lazily, so a fresh
+ * (apps/desktop/src/electron/binary.ts). Electron 44 downloads it lazily, so a fresh
  * `bun install` can leave it missing until first use; installing is where that belongs, with the
  * error visible, rather than at the first click of the app. */
 const installedElectron = (): string => electronBinary(root);
@@ -58,7 +58,7 @@ async function verify(): Promise<void> {
   await ensureElectron();
   // Verify the same build the release uses, not a separate bundler configuration.
   try {
-    const { buildWeb } = await import("../apps/web/src/node/build.ts");
+    const { buildWeb } = await import("@corvi/web/build");
     await buildWeb();
   } catch (e) {
     console.error(e instanceof Error ? (e.stack ?? e.message) : String(e));
@@ -69,7 +69,7 @@ async function verify(): Promise<void> {
 
 const command = process.argv[2];
 const usage = (): void => {
-  console.error("usage: bun scripts/app.ts install|uninstall|run");
+  console.error("usage: bun apps/desktop/src/install.ts install|uninstall|run");
   process.exit(1);
 };
 
@@ -79,15 +79,15 @@ if (command === "install") {
     process.exit(1);
   }
   await verify();
-  if (isMac) await (await import("./app/mac.ts")).install(root);
-  else await (await import("./app/linux.ts")).install();
+  if (isMac) await (await import("./mac.ts")).install(root);
+  else await (await import("./linux.ts")).install();
 } else if (command === "uninstall") {
-  if (isMac) await (await import("./app/mac.ts")).uninstall();
-  else if (isLinux) await (await import("./app/linux.ts")).uninstall();
+  if (isMac) await (await import("./mac.ts")).uninstall();
+  else if (isLinux) await (await import("./linux.ts")).uninstall();
   else {
     console.error("unsupported platform: the app is built for macOS and Linux");
     process.exit(1);
   }
 } else if (command === "run") {
-  await (await import("./app/run.ts")).run();
+  await (await import("./run.ts")).run();
 } else usage();
