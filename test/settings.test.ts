@@ -270,14 +270,16 @@ test("the extensions' own settings round-trip, strings and string lists", async 
     },
   }));
 
-  const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  const written = JSON.parse(await readFile(file, "utf8")) as {
+    extensionSettings?: Config["extensionSettings"];
+  };
   expect(written.extensionSettings).toEqual({
     jira: { assignee: "me@example.com" },
     "azure-devops": { environments: ["dev", "accept"], pipeline: ["build-", "deploy-"] },
   });
   // The core carries the bag without looking inside: the object every module holds by
   // reference has it, untouched.
-  expect(runtimeConfig().extensionSettings).toEqual(written.extensionSettings as Config["extensionSettings"]);
+  expect(runtimeConfig().extensionSettings).toEqual(written.extensionSettings);
 
   // A later save keeps what the extensions wrote, and clearing a field means unset: the empty
   // string goes, the list stays.

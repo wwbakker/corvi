@@ -84,6 +84,7 @@ export const legacyConfig = (): Config & LegacyFlatSettings =>
  * it here. */
 export type LegacyWorkspaceKeys = {
   readonly jira?: unknown;
+  readonly azure?: unknown;
 };
 
 export const legacyWorkspace = (workspace: object): LegacyWorkspaceKeys =>
