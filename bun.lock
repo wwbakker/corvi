@@ -6,9 +6,14 @@
       "name": "corvi",
       "dependencies": {
         "@corvi/azure-devops": "workspace:*",
+        "@corvi/client": "workspace:*",
+        "@corvi/configuration": "workspace:*",
+        "@corvi/contracts": "workspace:*",
         "@corvi/desktop": "workspace:*",
         "@corvi/github": "workspace:*",
         "@corvi/jira": "workspace:*",
+        "@corvi/shell": "workspace:*",
+        "@corvi/terminals": "workspace:*",
         "@corvi/web": "workspace:*",
       },
       "devDependencies": {
@@ -19,8 +24,11 @@
         "@types/react": "^19.3.0",
         "@types/react-dom": "^19.3.0",
         "@types/ws": "^8.18.1",
+        "effect": "catalog:",
         "eslint": "^10.10.0",
         "playwright": "^1.63.0",
+        "react": "^19.3.0",
+        "react-dom": "^19.3.0",
         "typescript-eslint": "^8.70.0",
       },
       "peerDependencies": {
