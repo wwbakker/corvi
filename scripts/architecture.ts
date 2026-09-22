@@ -1,8 +1,9 @@
 /** Checked workspace dependency graph.
  *
  * The allowed graph lives in `architecture.json` at the root of the tree being checked; a fixture
- * root may carry its own. This checks configured edges, declared dependencies, deep imports,
- * relative escapes, external imports, and cycles. Type-only and dynamic imports count.
+ * root may carry its own. This checks configured edges, rules without packages, declared
+ * dependencies, deep imports, relative escapes, external imports, and cycles. Type-only and
+ * dynamic imports count.
  *
  * `bun run boundaries` checks this repository; `checkArchitecture(root)` returns violations so
  * tests can exercise negative fixtures.
@@ -187,6 +188,10 @@ export const checkArchitecture = (root: string): readonly string[] => {
     for (const target of rule.dependsOn)
       if (!config.packages[target]) problems.push(`architecture.json: ${pkg.name} depends on unknown ${target}`)
   }
+
+  for (const name of Object.keys(config.packages))
+    if (!byName.has(name))
+      problems.push(`architecture.json: rule for ${name} has no workspace package`)
 
   const visiting = new Set<string>()
   const visited = new Set<string>()

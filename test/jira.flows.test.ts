@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Effect, Either } from "effect";
-import { Settings } from "@corvi/contracts/capabilities";
+import { Cache, Settings } from "@corvi/contracts/capabilities";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { CacheLive } from "../apps/server/src/integrations/services.ts";
 import { runtimeConfig, type Config, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import jiraExtension from "@corvi/jira";
@@ -57,8 +58,12 @@ const text = (body: string, status = 200, statusText?: string): Response =>
 
 const noContent = (): Response => new Response(null, { status: 204 });
 
-const runEither = <A, E>(effect: Effect.Effect<A, E, Settings>): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.either(Effect.provideService(effect, Settings, runtimeConfig())));
+const runEither = <A, E>(
+  effect: Effect.Effect<A, E, Settings | Cache>,
+): Promise<Either.Either<A, E>> =>
+  Effect.runPromise(
+    Effect.either(Effect.provide(Effect.provideService(effect, Settings, runtimeConfig()), CacheLive)),
+  );
 
 /** What was sent as authorization, which is the whole of what basic auth is. */
 const authHeader = (call: FetchCall): string =>
@@ -663,6 +668,24 @@ test("boardIssues serves a recently read board from its cache without asking aga
   expect(fetchCalls.length).toBe(afterFirst);
 });
 
+test("boardIssues with force forgets the cached board and asks again", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("board-force-ws")];
+  stubFetch((url) => {
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint") return json({ values: [] });
+    if (url.pathname === "/rest/api/3/search/jql") return json({ issues: [] });
+    return text("unexpected", 500);
+  });
+
+  await runEffect(boardIssues("board-force-ws"));
+  const afterFirst = fetchCalls.length;
+  await runEffect(boardIssues("board-force-ws", true));
+
+  // The refresh drops the cached board first, so the same queries run again rather than the
+  // cache answering the demand for fresh data.
+  expect(fetchCalls.length).toBeGreaterThan(afterFirst);
+});
+
 test("two workspaces on one site do not share a board", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [
@@ -904,6 +927,41 @@ test("moveIssue lists the available transitions when the name is not one of them
   } else {
     throw new Error("expected the move to fail");
   }
+});
+
+test("moving an issue forgets the cached reads, so the new status shows up", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  stubFetch((url, init) => {
+    if (url.pathname === "/rest/api/3/search/jql") {
+      return json({
+        issues: [
+          {
+            key: "PROJ-1",
+            fields: { summary: "One", status: { name: "In Progress" }, issuetype: { name: "Story" } },
+          },
+        ],
+      });
+    }
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions") {
+      return (init?.method ?? "GET") === "POST"
+        ? noContent()
+        : json({ transitions: [{ id: "31", name: "Done" }] });
+    }
+    return text("unexpected", 500);
+  });
+
+  await runEffect(issuesByKeys(["PROJ-1"], SITE));
+  const afterFirst = fetchCalls.length;
+  await runEffect(issuesByKeys(["PROJ-1"], SITE));
+  // The second read is served from the cache.
+  expect(fetchCalls.length).toBe(afterFirst);
+
+  await runEffect(moveIssue("PROJ-1", "Done", SITE));
+
+  await runEffect(issuesByKeys(["PROJ-1"], SITE));
+  // The move forgets the cached reads: the status we would otherwise keep showing is the one we
+  // just changed.
+  expect(fetchCalls.length).toBeGreaterThan(afterFirst);
 });
 
 // --- Reading issues ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import type { WidgetStateDto as WidgetState } from "@corvi/contracts/api";
-import { Cache, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { Cache, Settings, Shell, Workspace, invalidate, swr } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
 import type { Result } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
@@ -77,20 +77,10 @@ const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace
     );
   });
 
-const cached = <A>(
-  key: string,
-  ttlMs: number,
-  work: Effect.Effect<A, never, Shell | Workspace>,
-): Effect.Effect<A, never, Capabilities> =>
-  Effect.flatMap(Cache, (cache) => cache.swr(key, ttlMs, work));
-
-const invalidateCache = (prefix: string): Effect.Effect<void, never, Cache> =>
-  Effect.flatMap(Cache, (cache) => cache.invalidate(prefix));
-
 /** Every pipeline in the project, which is how the deploy ones are found at all. Rarely changes;
  * shared with anything else that asks. */
 const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> =>
-  cached(
+  swr(
     `az:${az.key}:pipelines`,
     5 * 60_000,
     Effect.gen(function* () {
@@ -109,7 +99,7 @@ const allPipelines = (az: Az): Effect.Effect<Definition[], never, Capabilities> 
 /** Runs of one pipeline, with the parameters they were given. Short-lived: a deploy you just
  * triggered should appear on the next look. */
 const runsOf = (az: Az, pipelineId: number): Effect.Effect<Run[], never, Capabilities> =>
-  cached(
+  swr(
     `az:${az.key}:deploys:${pipelineId}`,
     15_000,
     Effect.gen(function* () {
@@ -484,6 +474,6 @@ export const deploy = (
       });
     }
     // The page asks Azure again on its next tick; forget what we knew a moment ago.
-    yield* invalidateCache(`az:${az.key}:deploys:${pipeline.id}`);
+    yield* invalidate(`az:${az.key}:deploys:${pipeline.id}`);
     return { runId: run.id, url: buildUrl(run.id, az) };
   });

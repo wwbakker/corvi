@@ -1,6 +1,5 @@
 import { Effect } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
-import { swr, invalidate } from "./cache.ts";
 import { env } from "@corvi/configuration/node";
 import type { ResolvedDto } from "@corvi/contracts/config";
 import { bagString } from "@corvi/configuration/settings";
@@ -8,7 +7,7 @@ import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "@corvi/configuration/workspaces";
-import { Settings } from "@corvi/contracts/capabilities";
+import { Cache, Settings, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { messageOf } from "@corvi/shell/cli";
 import type { Board, Issue, Sprint, TicketRef } from "@corvi/contracts/integrations/jira";
@@ -208,7 +207,7 @@ const search = (jql: string, site: Site, limit = 100): Effect.Effect<Issue[], Ba
  * request per sprint on every visit. The failure is a `BadRequestError`, which `swr` carries
  * through, so "has 3 boards" reaches the page rather than going quiet.
  */
-const boardId = (site: Site): Effect.Effect<string, BadRequestError> =>
+const boardId = (site: Site): Effect.Effect<string, BadRequestError, Cache> =>
   Effect.gen(function* () {
     // The site before the board: "set Project or Board" is not the answer for a workspace that has
     // no server at all, and this runs before any request would have said so.
@@ -249,7 +248,7 @@ const boardId = (site: Site): Effect.Effect<string, BadRequestError> =>
     );
   });
 
-export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError> =>
+export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError, Cache> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ values?: { id: number; name: string; state: string }[] }>(
       `/rest/agile/1.0/board/${yield* boardId(site)}/sprint`,
@@ -261,7 +260,7 @@ export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequest
 
 /** The issues of one sprint, named after it: the board view groups by sprint, and the sprint an
  * issue is in is the query that found it. */
-const issuesInSprint = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError> =>
+const issuesInSprint = (sprint: Sprint, site: Site): Effect.Effect<Issue[], BadRequestError, Cache> =>
   Effect.gen(function* () {
     const json = yield* jiraFetch<{ issues?: IssueJson[] }>(
       `/rest/agile/1.0/board/${yield* boardId(site)}/sprint/${sprint.id}/issue`,
@@ -296,7 +295,7 @@ const workable = (issues: Issue[]): Issue[] => {
 /** Everything on the board worth picking: open sprints plus the un-sprinted backlog. An error
  * string rather than a failure, because a broken or unconfigured Jira must still leave you able
  * to type a change id by hand. */
-const readBoard = (site: Site): Effect.Effect<Board> =>
+const readBoard = (site: Site): Effect.Effect<Board, never, Cache> =>
   Effect.map(
     Effect.catchAll(
       Effect.gen(function* () {
@@ -310,7 +309,7 @@ const readBoard = (site: Site): Effect.Effect<Board> =>
         const board: Board = { issues, sprints: sprintNames(issues) };
         return board;
       }),
-      (e): Effect.Effect<Board> => Effect.succeed({ issues: [], sprints: [], error: messageOf(e) }),
+      (e): Effect.Effect<Board, never, Cache> => Effect.succeed({ issues: [], sprints: [], error: messageOf(e) }),
     ),
     (board): Board => ({ ...board, baseUrl: siteBaseUrl(site) }),
   );
@@ -325,12 +324,12 @@ const boardViewKey = (site: Site): string => `jira:${siteKey(site)}:board-view`;
 export const boardIssues = (
   workspaceId?: string,
   force = false,
-): Effect.Effect<Board, never, Settings> =>
+): Effect.Effect<Board, never, Settings | Cache> =>
   Effect.gen(function* () {
     const settings = yield* Settings;
     const site = siteFor(settings, workspaceId);
     const key = boardViewKey(site);
-    if (force) invalidate(key);
+    if (force) yield* invalidate(key);
     return yield* swr(key, ISSUE_TTL, readBoard(site));
   });
 
@@ -364,7 +363,7 @@ export const createIssue = (input: {
   assignToMe?: boolean;
   /** Which context it belongs to, and therefore which Jira it is created in. */
   workspace?: string;
-}): Effect.Effect<Issue, BadRequestError, Settings> =>
+}): Effect.Effect<Issue, BadRequestError, Settings | Cache> =>
   Effect.gen(function* () {
     const summary = input.summary.trim();
     if (!summary) {
@@ -410,7 +409,7 @@ export const createIssue = (input: {
       }
     }
 
-    invalidate(boardViewKey(site)); // the new issue must show up in the table straight away
+    yield* invalidate(boardViewKey(site)); // the new issue must show up in the table straight away
     return { key: created.key, summary, assignee: "", status: "", type, sprint: "" };
   });
 
@@ -426,7 +425,7 @@ export const moveIssue = (
   key: string,
   status: string,
   site: Site = {},
-): Effect.Effect<void, BadRequestError> =>
+): Effect.Effect<void, BadRequestError, Cache> =>
   Effect.gen(function* () {
     const { transitions = [] } = yield* jiraFetch<{
       transitions?: { id: string; name: string; to?: { name?: string } }[];
@@ -448,7 +447,7 @@ export const moveIssue = (
       method: "POST",
       body: { transition: { id: found.id } },
     });
-    invalidate("jira:"); // the status we would otherwise keep showing is the one we just changed
+    yield* invalidate("jira:"); // the status we would otherwise keep showing is the one we just changed
   });
 
 /**
@@ -458,7 +457,7 @@ export const moveIssue = (
 export const issuesByKeys = (
   keys: string[],
   site: Site = {},
-): Effect.Effect<Map<string, Issue>> =>
+): Effect.Effect<Map<string, Issue>, never, Cache> =>
   Effect.gen(function* () {
     if (keys.length === 0) return new Map();
     // A ticket's summary and status change a few times a day at most, and the same keys are asked

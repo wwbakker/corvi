@@ -6,7 +6,7 @@
  * (`apps/server/src/integrations/services.ts`). `Shell`'s Node implementation is `@corvi/shell`, which
  * re-exports the tag for callers that want one import.
  */
-import { Context, type Effect } from "effect";
+import { Context, Effect } from "effect";
 
 import type { ChangeWireDto } from "./api.ts";
 import type { ResolvedDto } from "./config.ts";
@@ -42,6 +42,18 @@ export class Cache extends Context.Tag("corvi/Cache")<Cache, {
   swr<A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   invalidate(prefix: string): Effect.Effect<void>;
 }>() {}
+
+/** Use the answer cache without resolving it first: `swr` reads through the capability and
+ * `invalidate` drops what an action has just made wrong. Both require `Cache` — there is no
+ * uncached fallback; a caller outside the host's composition provides the capability. */
+export const swr = <A, E, R>(
+  key: string,
+  ttlMs: number,
+  work: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E, R | Cache> => Effect.flatMap(Cache, (cache) => cache.swr(key, ttlMs, work));
+
+export const invalidate = (prefix: string): Effect.Effect<void, never, Cache> =>
+  Effect.flatMap(Cache, (cache) => cache.invalidate(prefix));
 
 /** The settings in effect — the same refilled object every module holds, so a settings-page
  * save is visible without restart. Read-only by convention. */

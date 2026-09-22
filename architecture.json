@@ -75,16 +75,6 @@
         "@corvi/shell"
       ]
     },
-    "@corvi/pi": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
-    },
-    "@corvi/opencode": {
-      "dependsOn": [
-        "@corvi/contracts"
-      ]
-    },
     "@corvi/server": {
       "dependsOn": [
         "@corvi/contracts",
@@ -98,8 +88,6 @@
         "@corvi/github",
         "@corvi/jira",
         "@corvi/azure-devops",
-        "@corvi/pi",
-        "@corvi/opencode",
         "@corvi/shell"
       ],
       "node": true

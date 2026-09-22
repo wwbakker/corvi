@@ -40,3 +40,6 @@ and custom runtime infrastructure are not templates for Corvi.
 4. **Skills:** define the needed Pi/OpenCode behavior before introducing a shared skill model.
 
 These gates do not block package extraction. They do block inventing behavior for future features.
+When the Pi and OpenCode integrations are implemented, they become `integrations/pi` and
+`integrations/opencode` workspace packages with their dependency edges recorded in
+`architecture.json`.

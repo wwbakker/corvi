@@ -34,12 +34,14 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
 import { Shell } from "@corvi/shell"
 import { Workspace } from "@corvi/contracts/workspace"
 import { messageOf } from "../capabilities/effect/support.ts"
-import { capabilitiesLayer, ChangesLive, GitFactsLive } from "../integrations/services.ts"
+import { capabilitiesLayer, cacheLive, ChangesLive, GitFactsLive } from "../integrations/services.ts"
 import { prLooseEnds } from "@corvi/github"
 import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira"
 import { stopTerminal } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "@corvi/github/client"
+import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities"
+import { runtimeCache } from "../capabilities/runtime.ts"
 import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
@@ -101,8 +103,9 @@ const repositoriesOverShell: Layer.Layer<Repositories> = repositoriesCapabilityL
 )
 
 /** The GitHub vendor behind the pull-request port. `fresh` is the click path: it forgets the
- * change's cached reads and fetches before deciding. Only `Changes` is provided here — never a
- * Shell — so a scripted Shell in context still sees every command. */
+ * change's cached reads and fetches before deciding. Only the read models and the answer cache
+ * are provided here — never a Shell — so a scripted Shell in context still sees every
+ * command. */
 export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepositories> =>
   Layer.effect(
     PullRequests,
@@ -144,6 +147,12 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
           ),
         )
 
+      /** What the provider code needs from the host: the read models it reads through and the
+       * answer cache it invalidates. Built per call, so the cache is the one the runtime holds
+       * then. */
+      const providerNeeds = (): Layer.Layer<Cache | Changes | GitFacts> =>
+        Layer.mergeAll(ChangesLive, GitFactsLive, cacheLive(runtimeCache()))
+
       return {
         readiness: ({ change, repository, fresh }) =>
           Effect.gen(function* () {
@@ -153,23 +162,22 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const observed = yield* (fresh
               ? refreshReadiness(legacy, link.originalLocation)
               : mergeReadiness(legacy, link.originalLocation)
-            ).pipe(Effect.provide(Layer.merge(ChangesLive, GitFactsLive)), Effect.mapError((e) => providerError("readiness", e)))
+            ).pipe(Effect.mapError((e) => providerError("readiness", e)))
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
                 : { repository, number: observed.number, ready: true, merged: false }
               : { repository, number: 0, ready: false, merged: false, reason: observed.reason }
             return state
-          }),
+          }).pipe(Effect.provide(providerNeeds())),
         merge: ({ change, repository, number }) =>
           Effect.gen(function* () {
             const link = yield* linkFor(change, repository.repositoryId)
             const legacy = yield* legacyFor(change)
             return yield* mergePr(legacy, link.originalLocation, number).pipe(
-              Effect.provide(Layer.merge(ChangesLive, GitFactsLive)),
               Effect.mapError((e) => providerError("merge", e)),
             )
-          }),
+          }).pipe(Effect.provide(providerNeeds())),
         /** Loose ends are collected through the issues bridge below, which already covers the
          * pull-request lines the old `looseEnds` contributors produce; returning them here too
          * would list each one twice. */

@@ -12,10 +12,12 @@ import {
   type CacheStore,
 } from "../apps/server/src/capabilities/cache.ts";
 import { resetRuntime, setRuntime } from "../apps/server/src/capabilities/runtime.ts";
+import type { ChangeWireDto } from "@corvi/contracts/api";
+import { forgetPrs } from "@corvi/github/client";
 import { Cache } from "../apps/server/src/integrations/api/capabilities.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
+import { runEffect, runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
 
 const file = join(tmpdir(), "corvi-cache-test.json");
 process.env.CORVI_CACHE = file;
@@ -127,6 +129,24 @@ test("an action forgets what it just made wrong", async () => {
   invalidate("gh:pr:PROJ-1");
   expect(defaultCache.ageOf("gh:pr:PROJ-1:/a")).toBeUndefined();
   expect(defaultCache.ageOf("gh:pr:PROJ-2:/a")).toBeDefined();
+});
+
+test("forgetPrs forgets a change's cached pull-request reads", async () => {
+  const change: ChangeWireDto = {
+    id: "PROJ-3",
+    branch: "PROJ-3-thing",
+    repos: [],
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  await runSwr("gh:pr:PROJ-3:/a", 60_000, async () => "no pull request");
+  await runSwr("gh:pr:PROJ-4:/a", 60_000, async () => "other change");
+
+  // Through the capability, as the click paths call it — the invalidation has to run, not be
+  // assembled and dropped.
+  await runEffect(forgetPrs(change));
+
+  expect(defaultCache.ageOf("gh:pr:PROJ-3:/a")).toBeUndefined();
+  expect(defaultCache.ageOf("gh:pr:PROJ-4:/a")).toBeDefined();
 });
 
 test("the cache survives a restart, minus what is too old to trust", async () => {

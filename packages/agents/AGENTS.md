@@ -13,9 +13,8 @@ Corvi-facing agent session identity, supported capabilities, prompts and status.
 ## Does not own
 
 A provider's SDK types, the assumption that every agent is a terminal, or the decision to
-start anything. Provider packages (`@corvi/pi`, `@corvi/opencode`) will depend on contracts,
-not on this package; the terminal is where a session happens to live today, not what an agent
-is. The app composes the presenter into the window pipeline
+start anything. A provider's agent integration depends on contracts, not on this package; the
+terminal is where a session happens to live today, not what an agent is. The app composes the presenter into the window pipeline
 (`apps/server/src/terminals/server/presenter.ts`) and supplies the resolved plan path and configured
 template.
 

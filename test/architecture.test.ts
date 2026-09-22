@@ -211,6 +211,20 @@ test("a configured dependency cycle fails", async () => {
   expect(problemsOf(root)).toContain("dependency cycle");
 });
 
+test("a rule for a package that does not exist fails", async () => {
+  const root = await writeFixture(
+    "phantom",
+    {
+      packages: {
+        "@corvi/contracts": { dependsOn: [], external: ["effect"] },
+        "@corvi/ghost": { dependsOn: ["@corvi/contracts"] },
+      },
+    },
+    [contractsPackage({ "changes.ts": "export const x = 1;\n" })],
+  );
+  expect(problemsOf(root)).toContain("rule for @corvi/ghost has no workspace package");
+});
+
 test("type-only and dynamic imports count as dependencies", async () => {
   const root = await writeFixture("kinds", graph, [
     contractsPackage({ "changes.ts": "export const x = 1;\n" }),

@@ -1,7 +1,7 @@
 import { baseName } from "./path.ts";
 import { Effect, Schema } from "effect";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
-import { Cache, Changes, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
 import { env } from "@corvi/configuration/node";
 import type { Result } from "@corvi/contracts/capabilities";
@@ -65,13 +65,6 @@ const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace
     );
   });
 
-const cached = <A>(
-  key: string,
-  ttlMs: number,
-  work: Effect.Effect<A, never, Shell | Workspace | Cache>,
-): Effect.Effect<A, never, Shell | Workspace | Cache> =>
-  Effect.flatMap(Cache, (cache) => cache.swr(key, ttlMs, work));
-
 /** A queued or running build is pending; anything but success is a problem worth a red dot. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function runState(run: Run): WidgetState {
@@ -119,7 +112,7 @@ const listDefinitions = (
   az: Az,
   repo: string,
 ): Effect.Effect<Definition[], never, Shell | Workspace | Cache> =>
-  cached(
+  swr(
     `az:${az.key}:definitions:${folderFor(repo)}`,
     DEFINITIONS_TTL,
     Effect.gen(function* () {
@@ -147,7 +140,7 @@ const runsFor = (
     // once and answered once.
     const results = yield* Effect.all(
       refs.map((ref) =>
-        cached(
+        swr(
           `az:${az.key}:runs:${ref}`,
           RUNS_TTL,
           shResult([
@@ -223,7 +216,7 @@ export const expectedDuration = (
   az: Az,
   definitionId: number,
 ): Effect.Effect<number | undefined, never, Shell | Workspace | Cache> =>
-  cached(
+  swr(
     `az:${az.key}:duration:${definitionId}`,
     DEFINITIONS_TTL,
     Effect.gen(function* () {

@@ -4,8 +4,7 @@ import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
 import { shOrThrow, type Result } from "./shell.ts";
-import { Changes, GitFacts } from "@corvi/contracts/capabilities";
-import { swr, invalidate } from "./cache.ts";
+import { Cache, Changes, GitFacts, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
 import { shSoft } from "./shell.ts";
@@ -172,7 +171,7 @@ const prQuery = (
  */
 const PR_TTL = 20_000;
 
-const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts> =>
+const shownPr = (change: Change, repo: string): Effect.Effect<FoundPr | undefined, BadRequestError, Changes | GitFacts | Cache> =>
   swr(`gh:pr:${change.id}:${repo}`, PR_TTL, prQuery(change, repo));
 
 /** Owner and name from a pull request URL, so counting threads costs no extra lookup. */
@@ -289,14 +288,14 @@ const prDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details, never, Changes | GitFacts> =>
+): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
   swr(`gh:details:${url}`, PR_TTL, readDetails(worktree, url, number));
 
 const readDetails = (
   worktree: string,
   url: string,
   number: number,
-): Effect.Effect<Details, never, Changes | GitFacts> =>
+): Effect.Effect<Details, never, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
@@ -342,7 +341,7 @@ const readDetails = (
 export const prNumberOf = (
   change: Change,
   repo: string,
-): Effect.Effect<number | undefined, never, Changes | GitFacts> =>
+): Effect.Effect<number | undefined, never, Changes | GitFacts | Cache> =>
   Effect.map(
     Effect.orElseSucceed(prSummary(change, repo), () => undefined),
     (summary) => summary?.number,
@@ -351,7 +350,7 @@ export const prNumberOf = (
 export const prSummary = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes | GitFacts> =>
+): Effect.Effect<{ number?: number; unresolved: number; checks: WidgetState }, never, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     const found = yield* Effect.orElseSucceed(shownPr(change, repo), () => undefined);
     const pr = found?.prs[0];
@@ -368,7 +367,7 @@ export const prSummary = (
 export const prItem = (
   change: Change,
   repo: string,
-): Effect.Effect<{ number?: number; item: WidgetItem }, BadRequestError, Changes | GitFacts> =>
+): Effect.Effect<{ number?: number; item: WidgetItem }, BadRequestError, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
@@ -430,8 +429,8 @@ export type MergeReadiness =
 /** Forget this change's cached pull-request reads: an action just made them wrong. Called once
  * per click path, before the fresh readiness check, so the dialog and the page that follows it
  * are not painting the state that was just superseded. */
-export const forgetPrs = (change: Change): Effect.Effect<void> =>
-  Effect.sync(() => invalidate(`gh:pr:${change.id}:`));
+export const forgetPrs = (change: Change): Effect.Effect<void, never, Cache> =>
+  invalidate(`gh:pr:${change.id}:`);
 
 /** A readiness check against freshly fetched refs: the branch may have merged upstream
  * seconds ago, and the local remote-tracking refs would still say otherwise. Fetches first,

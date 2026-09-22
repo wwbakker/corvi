@@ -29,13 +29,13 @@ integrations/
   github/                 pull requests, issues, checks and stacks
   jira/                   Jira issues and transitions
   azure-devops/           pipelines, builds and deployments
-  pi/                     Pi-specific status and session integration
-  opencode/               OpenCode integration, when implemented
 ```
 
 All entries under `apps/*`, `packages/*`, and `integrations/*` are ordinary Bun workspaces once
 extracted. Integrations have no special loader or privilege level. Create packages when their
-responsibility is implemented; do not scaffold empty future packages.
+responsibility is implemented; do not scaffold empty future packages. Corvi's Pi reporter is the
+one integration outside the workspaces: `pi/agent-state.ts` runs inside Pi and is installed into
+Pi's extensions directory by `scripts/extension.ts`.
 
 Git, worktrees, and changes are fundamental. GitHub is not. Keep Git semantics explicit rather
 than inventing a generic version-control framework. Do not create a universal provider API for
@@ -124,8 +124,8 @@ Required as packages are extracted:
 - Cross-package imports use package names. Ban relative/absolute source-path imports and
   TypeScript aliases that bypass exports. Apply the graph to type-only and dynamic imports too.
 - Record allowed edges and external allowlists in the root `architecture.json`; `bun run boundaries`
-  checks resolved imports against it and reports cycles, undeclared dependencies, deep imports,
-  relative escapes, and forbidden built-ins.
+  checks resolved imports against it and reports cycles, rules without packages, undeclared
+  dependencies, deep imports, relative escapes, and forbidden built-ins.
 - Check resolved dependencies for forbidden edges and cycles. Package manifests alone are not
   enforcement; hoisting can hide undeclared dependencies.
 - Bundle browser entrypoints in tests and reject Node, PTY, backend and unintended integration

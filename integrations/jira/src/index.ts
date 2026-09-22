@@ -1,7 +1,6 @@
 import { Effect, Either } from "effect";
 import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
-import { swr } from "./cache.ts";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import {
@@ -20,7 +19,7 @@ import {
 } from "./jira.ts";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
-import { Settings, Workspace } from "@corvi/contracts/capabilities";
+import { Cache, Settings, Workspace, swr } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
 import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
@@ -55,7 +54,7 @@ const stateOf = (status: string): WidgetState => {
 };
 
 /** The widget: a failure is a red card rather than a failed request. */
-const status = (change: Change, site: Site, key: string): Effect.Effect<Widget> =>
+const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, never, Cache> =>
   Effect.gen(function* () {
     const found = yield* Effect.either(
       swr(
