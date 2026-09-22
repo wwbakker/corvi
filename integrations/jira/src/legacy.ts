@@ -1,5 +1,4 @@
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
-import type { Config } from "@corvi/configuration/config";
 import { env } from "@corvi/configuration/node";
 import { resolveSetting } from "@corvi/configuration/settings";
 
@@ -9,8 +8,8 @@ import { resolveSetting } from "@corvi/configuration/settings";
  * The core no longer types or writes them, but every file boundary decodes with unknown keys
  * preserved, so a change.json, a config.json or a workspace entry written before the
  * `extensions` bag existed still carries them at runtime. These are the one place the jira
- * extension names them, and the one narrow cast each read needs; nothing else in the extension
- * — and nothing in the core — reaches for a legacy field.
+ * extension names them; nothing else in the extension — and nothing in the core — reaches for
+ * a legacy field.
  */
 
 /** The environment variables the extension's declared settings name, so the settings page's
@@ -28,29 +27,32 @@ export const legacyTicketOf = (change: Change): string | undefined => {
   return typeof value === "string" && value.trim() ? value : undefined;
 };
 
+/** The flat fields older config files still carry, as the preserve decode leaves them on the
+ * object: this type is their declaration, so a reader of them needs no cast. */
+export type LegacyFlatSettings = {
+  jiraAssignee?: string;
+  jiraStartTransition?: string;
+  jiraDoneTransition?: string;
+};
+
 /** The legacy flat jira settings, as the config still holds them. The environment variable beats
  * the file, exactly as the resolved chain did before the fields left the core. */
 // Pure and synchronous: nothing for an Effect to wrap.
-export const legacyGlobalOf = (config: Config): {
+export const legacyGlobalOf = (config: LegacyFlatSettings): {
   assignee: string;
   startTransition: string;
   doneTransition: string;
 } => {
-  const legacy = config as Config & {
-    jiraAssignee?: string;
-    jiraStartTransition?: string;
-    jiraDoneTransition?: string;
-  };
   return {
-    assignee: resolveSetting({ env: JIRA_ENV.assignee, file: legacy.jiraAssignee, fallback: "" }),
+    assignee: resolveSetting({ env: JIRA_ENV.assignee, file: config.jiraAssignee, fallback: "" }),
     startTransition: resolveSetting({
       env: JIRA_ENV.startTransition,
-      file: legacy.jiraStartTransition,
+      file: config.jiraStartTransition,
       fallback: "In Progress",
     }),
     doneTransition: resolveSetting({
       env: JIRA_ENV.doneTransition,
-      file: legacy.jiraDoneTransition,
+      file: config.jiraDoneTransition,
       fallback: "Done",
     }),
   };

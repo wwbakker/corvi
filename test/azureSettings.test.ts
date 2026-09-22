@@ -11,7 +11,7 @@ import {
   reloadConfigSync,
   type Workspace,
 } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect } from "./helpers.ts";
+import { runEffect, withRuntimeConfig } from "./helpers.ts";
 // The app sets the config's workspace migrator when its integration list is composed; importing
 // the composition root makes the legacy per-workspace `azure` objects fold as they do in production.
 import "../apps/server/src/integrations/index.ts";
@@ -118,13 +118,12 @@ test("deploySettingsOf reads the bag, then the declared environment variable, th
 });
 
 test("deploySettings reads the extension's own bag through the Settings capability", async () => {
-  const before = runtimeConfig().extensionSettings;
-  runtimeConfig().extensionSettings = { "azure-devops": { environments: ["dev", "accept"] } };
-  try {
-    expect((await runEffect(deploySettings())).environments).toEqual(["dev", "accept"]);
-  } finally {
-    runtimeConfig().extensionSettings = before;
-  }
+  await withRuntimeConfig(
+    { extensionSettings: { "azure-devops": { environments: ["dev", "accept"] } } },
+    async () => {
+      expect((await runEffect(deploySettings())).environments).toEqual(["dev", "accept"]);
+    },
+  );
 });
 
 test("a config file with only the legacy fields still works", async () => {
@@ -162,7 +161,7 @@ test("a config file with only the legacy fields still works", async () => {
 
     // The legacy per-workspace object still wins for project; the flat field answers organisation.
     const client = runtimeConfig().workspaces[0]!;
-    expect(azureOf(client as never, runtimeConfig())).toEqual({
+    expect(azureOf(client, runtimeConfig())).toEqual({
       organization: "https://dev.azure.com/legacy",
       project: "PerWorkspace",
     });
@@ -171,11 +170,11 @@ test("a config file with only the legacy fields still works", async () => {
     // page has written a value.
     runtimeConfig().extensionSettings = {};
     process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
-    expect(azureOf(runtimeConfig().workspaces[0]! as never, runtimeConfig()).organization).toBe(
+    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe(
       "https://dev.azure.com/from-env",
     );
     runtimeConfig().extensionSettings = { "azure-devops": { organization: "global-org" } };
-    expect(azureOf(runtimeConfig().workspaces[0]! as never, runtimeConfig()).organization).toBe("global-org");
+    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe("global-org");
   } finally {
     if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
     else process.env.CORVI_CONFIG = originalConfig;

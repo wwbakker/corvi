@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { Effect, Either, Layer } from "effect";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { runtimeConfig, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { Widget, WidgetItem } from "../apps/server/src/domain/widget.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
@@ -14,7 +14,7 @@ import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import { fakeShell, runEffect, runWithShell, TestError, type FakeShell } from "./helpers.ts";
+import { fakeShell, runEffect, runWithShell, TestError, withRuntimeConfig, type FakeShell } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -442,18 +442,6 @@ const runRoute = <A, E>(
 ): Promise<Either.Either<A, E>> =>
   Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell, workspaceId))));
 
-/** The config is one refilled object every module holds: swap the workspaces for the body of a
- * test, and put them back so no other test inherits them. */
-const withWorkspaces = async <A>(workspaces: Workspace[], work: () => Promise<A>): Promise<A> => {
-  const before = runtimeConfig().workspaces;
-  runtimeConfig().workspaces = workspaces;
-  try {
-    return await work();
-  } finally {
-    runtimeConfig().workspaces = before;
-  }
-};
-
 const jsonOf = async <A>(result: Either.Either<Response, A>): Promise<unknown> => {
   if (Either.isLeft(result)) throw result.left;
   return result.right.json();
@@ -468,7 +456,7 @@ test("the services route answers for a workspace that enabled azure-devops", asy
       "azure-devops": { organization: "https://dev.azure.com/acme", project: "acme-proj" },
     },
   };
-  const result = await withWorkspaces([workspace], () =>
+  const result = await withRuntimeConfig({ workspaces: [workspace] }, () =>
     runRoute(
       shell,
       servicesRoute.handler(
@@ -496,11 +484,13 @@ test("an absent workspace parameter means the first context", async () => {
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
-  const result = await withWorkspaces(
-    [
-      { id: "first", name: "First" },
-      { id: "second", name: "Second" },
-    ],
+  const result = await withRuntimeConfig(
+    {
+      workspaces: [
+        { id: "first", name: "First" },
+        { id: "second", name: "Second" },
+      ],
+    },
     () =>
       runRoute(
         shell,

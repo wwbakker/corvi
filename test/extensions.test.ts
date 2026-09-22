@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changeDir, createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
-import { runEffect } from "./helpers.ts";
+import { runEffect, withRuntimeConfig } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
@@ -211,22 +211,23 @@ test("a change tab is offered only in a context that has the integration", () =>
   expect(changeTabsFor(ws({ extensions: ["notes"] }))).toEqual([]);
 });
 
-test("dashboard widgets follow the enablement", () => {
-  const saved = runtimeConfig().workspaces;
-  runtimeConfig().workspaces = [
-    { id: "with-notes", name: "Notes", extensions: ["notes"] },
-    { id: "no-widgets", name: "None", extensions: [] },
-  ];
-  try {
-    const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
-    expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
-      { id: "notes", title: "Notes", extension: "notes", column: "left" },
-    ]);
-    // A context without notes has no widget to show, not an empty one.
-    expect(widgetsFor({ ...change, workspace: "no-widgets" })).toEqual([]);
-  } finally {
-    runtimeConfig().workspaces = saved;
-  }
+test("dashboard widgets follow the enablement", async () => {
+  await withRuntimeConfig(
+    {
+      workspaces: [
+        { id: "with-notes", name: "Notes", extensions: ["notes"] },
+        { id: "no-widgets", name: "None", extensions: [] },
+      ],
+    },
+    () => {
+      const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
+      expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
+        { id: "notes", title: "Notes", extension: "notes", column: "left" },
+      ]);
+      // A context without notes has no widget to show, not an empty one.
+      expect(widgetsFor({ ...change, workspace: "no-widgets" })).toEqual([]);
+    },
+  );
 });
 
 test("a completion step is planned only when the change has something for it", () => {

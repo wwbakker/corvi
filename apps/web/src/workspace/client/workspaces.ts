@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
-import type { Change } from "../../app-root/api.ts";
 import type { Platform } from "@corvi/terminals/model";
 import { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
 
@@ -123,9 +122,14 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
  * Which context a change belongs to. A change that names none belongs to the first context,
  * which is where a change written outside any workspace sits.
  */
-export const workspaceOf = (change: Change, workspaces: Workspace[]): string =>
-  change.workspace ?? workspaces[0]?.id ?? ALL;
+export const workspaceOf = (
+  change: { readonly workspace?: string },
+  workspaces: Workspace[],
+): string => change.workspace ?? workspaces[0]?.id ?? ALL;
 
 /** The changes of one context, or all of them. */
-export const inWorkspace = (changes: Change[], chosen: string, workspaces: Workspace[]): Change[] =>
-  chosen === ALL ? changes : changes.filter((c) => workspaceOf(c, workspaces) === chosen);
+export const inWorkspace = <T extends { readonly workspace?: string }>(
+  changes: T[],
+  chosen: string,
+  workspaces: Workspace[],
+): T[] => (chosen === ALL ? changes : changes.filter((c) => workspaceOf(c, workspaces) === chosen));

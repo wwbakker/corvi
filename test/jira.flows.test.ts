@@ -3,7 +3,7 @@ import { Effect, Either } from "effect";
 import { Cache, Settings } from "@corvi/contracts/capabilities";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { CacheLive } from "../apps/server/src/integrations/services.ts";
-import { runtimeConfig, type Config, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import { runtimeConfig, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import jiraExtension from "@corvi/jira";
 import {
@@ -22,7 +22,7 @@ import {
 } from "@corvi/jira/jira";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { runEffect } from "./helpers.ts";
+import { legacyConfig, runEffect } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -122,11 +122,10 @@ const setEnv = (key: string, value: string | undefined): void => {
 };
 
 // The config object is shared by reference across the server; the tests mutate and restore it.
-// The legacy flat jira fields are no longer typed on the resolved config, but the loader carries
-// them through, so the fallback these tests exercise reads them through one cast.
-const legacyConfig = runtimeConfig() as Config & { jiraAssignee?: string };
+// The preserved flat jira fields are typed for what they are by legacyConfig() in
+// test/helpers.ts, so the fallback these tests exercise reads them without a cast here.
 const originalWorkspaces = runtimeConfig().workspaces;
-const originalAssignee = legacyConfig.jiraAssignee;
+const originalAssignee = legacyConfig().jiraAssignee;
 const originalExtensionSettings = runtimeConfig().extensionSettings;
 
 beforeEach(() => {
@@ -139,7 +138,7 @@ beforeEach(() => {
 
 afterEach(() => {
   runtimeConfig().workspaces = originalWorkspaces;
-  legacyConfig.jiraAssignee = originalAssignee;
+  legacyConfig().jiraAssignee = originalAssignee;
   runtimeConfig().extensionSettings = originalExtensionSettings;
   globalThis.fetch = originalFetch;
   for (const [key, value] of originalEnv) setEnv(key, value);
@@ -450,7 +449,7 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
     jiraAssignee: "flat@example.com",
     jiraStartTransition: "Start",
     jiraDoneTransition: "Done",
-  } as unknown as Config;
+  };
   expect(globalOf(flat)).toEqual({
     assignee: "flat@example.com",
     startTransition: "Start",
@@ -463,7 +462,7 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
     extensionSettings: {
       jira: { assignee: "bag@example.com", startTransition: "  ", doneTransition: ["Done", "Closed"] },
     },
-  } as unknown as Config;
+  };
   expect(globalOf(bagged)).toEqual({
     assignee: "bag@example.com",
     startTransition: "Start",
@@ -471,7 +470,7 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
   });
 
   // A value with text is used as written: the trim is only the emptiness test.
-  const spaced = { ...flat, extensionSettings: { jira: { assignee: "  bag  " } } } as unknown as Config;
+  const spaced = { ...flat, extensionSettings: { jira: { assignee: "  bag  " } } };
   expect(globalOf(spaced).assignee).toBe("  bag  ");
 
   // The environment variable still beats the legacy flat field, exactly as the resolved chain
@@ -740,7 +739,7 @@ test("a whole board view looks the board up once", async () => {
 test("createIssue creates the issue, assigns it and returns what the wizard selects", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig.jiraAssignee = "";
+  legacyConfig().jiraAssignee = "";
   stubFetch((url, init) => {
     const method = init?.method ?? "GET";
     if (url.pathname === "/rest/api/3/myself") return json({ accountId: "acc-me" });
@@ -792,7 +791,7 @@ test("createIssue creates the issue, assigns it and returns what the wizard sele
 test("createIssue skips assignment when asked and omits an empty description", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig.jiraAssignee = "unused@example.com";
+  legacyConfig().jiraAssignee = "unused@example.com";
   stubFetch((url, init) =>
     url.pathname === "/rest/api/3/issue" && init?.method === "POST"
       ? json({ key: "PROJ-10" })
@@ -814,7 +813,7 @@ test("createIssue skips assignment when asked and omits an empty description", a
 test("createIssue assigns a configured account id without looking anything up", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig.jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
+  legacyConfig().jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-11" });
     if (url.pathname.endsWith("/assignee")) return noContent();
@@ -833,7 +832,7 @@ test("createIssue assigns a configured account id without looking anything up", 
 test("createIssue looks up a configured name and assigns the account it finds", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig.jiraAssignee = "ada@example.com";
+  legacyConfig().jiraAssignee = "ada@example.com";
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-12" });
     if (url.pathname === "/rest/api/3/user/search") return json([{ accountId: "acc-search", displayName: "Ada" }]);

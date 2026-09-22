@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../apps/server/src/settings/server/index.ts";
 import { runtimeConfig, reloadConfigSync, type Config } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect } from "./helpers.ts";
+import { legacyConfig, legacyWorkspace, runEffect } from "./helpers.ts";
 
 /**
  * The settings page writes the file the whole program reads, so the two things worth testing are
@@ -155,7 +155,7 @@ test("the file keeps what it had, including fields the core no longer names", as
 
   // The resolved config carries the preserved keys too, which is where the jira extension's
   // legacy fallback reads them from.
-  expect((runtimeConfig() as Config & { jiraAssignee?: string }).jiraAssignee).toBe("me@example.com");
+  expect(legacyConfig().jiraAssignee).toBe("me@example.com");
 });
 
 test("a key the file no longer has does not survive a reload", async () => {
@@ -164,9 +164,7 @@ test("a key the file no longer has does not survive a reload", async () => {
   // reload must drop what the file dropped, or the settings page cannot undo a hand edit.
   await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
   reloadConfigSync();
-  expect((runtimeConfig() as Config & { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
-    "Ready for release",
-  );
+  expect(legacyConfig().jiraDoneTransition).toBe("Ready for release");
 
   await Bun.write(file, JSON.stringify({}));
   reloadConfigSync();
@@ -183,7 +181,7 @@ test("a workspace-level legacy jira object survives a settings save", async () =
     }),
   );
   reloadConfigSync();
-  expect((runtimeConfig().workspaces[0] as Record<string, unknown>).jira).toEqual({
+  expect(legacyWorkspace(runtimeConfig().workspaces[0]!).jira).toEqual({
     project: "LEGACY",
     board: "B",
   });
@@ -195,7 +193,7 @@ test("a workspace-level legacy jira object survives a settings save", async () =
   };
   // The unknown key rode through the save, which is what the jira extension reads back.
   expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
-  expect((runtimeConfig().workspaces[0] as Record<string, unknown>).jira).toEqual({
+  expect(legacyWorkspace(runtimeConfig().workspaces[0]!).jira).toEqual({
     project: "LEGACY",
     board: "B",
   });

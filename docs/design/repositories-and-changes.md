@@ -5,12 +5,11 @@ Status: implemented. The port lives in `@corvi/repositories`, the workflows in
 specification the implementation follows.
 
 The sketches below follow the shape of `opencode/packages/core/src/git.ts`: values and errors
-first, then the service interface, then the Layer that implements it. They are Effect 3 design
-prototypes, not production code. The canonical schemas live in `packages/contracts`, and the
-first capability packages are `packages/changes`, `packages/repositories`, and
-`packages/workflows`, with the browser operations in `packages/client`; the typechecked
-prototypes in `docs/design/repositories-and-changes/` mirror them and `bun run typecheck`
-checks both. No application code imports the prototypes.
+first, then the service interface, then the Layer that implements it. They are specification,
+not production code: the canonical schemas live in `packages/contracts`, the capability packages
+are `packages/changes`, `packages/repositories` and `packages/workflows`, and the browser
+operations live in `packages/client`. Where an implemented public API differs from a sketch
+below, the exported API is authoritative.
 
 A change owns its repository links, and the `repositories` capability performs checkout work on
 concrete locations. The workflow reads the change and its links and calls checkouts with concrete
@@ -736,7 +735,7 @@ so the result is either `Started` or `PartiallyStarted` with a journal entry per
 Completion and cancellation are callable workflows over the same capabilities. They are the only
 writers of terminal phases. `assess*` is the page's read; the mutating operations recheck their
 facts before acting, because an earlier assessment is not authorization to delete against stale
-state. The typechecked prototype is `docs/design/repositories-and-changes/lifecycle.ts`.
+state. The implementation is `@corvi/workflows/lifecycle`.
 
 ## Values
 ```ts

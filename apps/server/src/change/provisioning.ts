@@ -1,8 +1,8 @@
 /** Provisioning a freshly created change, explicitly.
  *
- * This is what the git extension's `change:created` hook used to do: an idea gets a browse
+ * An idea gets a browse
  * symlink per repository, a started creation gets the real checkout. The Git work goes through
- * the `repositories` capability; the link, the tooling copy, and the per-extension report stay
+ * the `repositories` capability; the link, the tooling copy, and the per-integration report stay
  * here, where the change directory and the configured tooling live.
  */
 import { basename, join } from "node:path";
@@ -25,8 +25,8 @@ const errorDetail = (error: unknown): string =>
 
 /**
  * Give the change its presence: browse it as an idea, or check it out as started work. A failure
- * stops the remaining repositories and is reported once for `git`, exactly as the extension's
- * after-hook result was; creation itself already happened and survives it.
+ * stops the remaining repositories and is reported once under the `git` integration; creation
+ * itself already happened and survives it.
  */
 export const provisionChangeRepositories = (change: Change): Effect.Effect<ProvisionResult[]> =>
   Effect.gen(function* () {

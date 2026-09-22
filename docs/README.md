@@ -27,8 +27,7 @@ when they exist. Historical implementation choices do not override these rules.
 
 [Repository capabilities and change workflows](design/repositories-and-changes.md) documents the
 contracts as implemented: links owned by `changes`, checkout work in `repositories`, the read and
-start workflows, the transport contract, and the behavior-test map. Its TypeScript prototypes
-live under `design/repositories-and-changes/` and are checked by `bun run typecheck`.
+start workflows, the transport contract, and the behavior-test map.
 
 ## For users
 

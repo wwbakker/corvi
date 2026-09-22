@@ -159,10 +159,22 @@ A cohesive module may contain several related operations. Split when a distinct 
 boundary becomes clearer, not to reach a file-count or line-count target. Tests may inspect
 package-local implementation details without publishing them.
 
-Browser code is similarly grouped under `apps/web/src/features/{changes,repositories,terminals,
-agents,settings}`. Keep a feature's views, state, and request hooks together. Use deeper groups
-such as `changes/creation` and `changes/lifecycle` when needed. Shared UI primitives live under
-`shared/ui`; application navigation and composition live under `shell`.
+Browser code lives in `apps/web/src`, grouped by feature: `change-page`, `dashboard`,
+`settings`, `terminals`, `wizard` and `workspace` each keep that feature's views, state and
+request hooks together, with its browser half under `client/` (at the directory root for
+`wizard`). Where a feature has vocabulary of its own, a `model.ts` beside the half re-exports
+the contract it lives in, as `settings/model.ts` and `workspace/model.ts` do. The server half
+sits in the like-named directory under `apps/server/src` where the feature has one — `settings/server`, `terminals/server`,
+`dashboard/server`, `workspace/server` — and `change-page` and the wizard are answered by the
+change capability (`apps/server/src/change/server`) instead. Add a deeper group once a
+feature's browser half grows a second distinct concept, the way a package does above.
+`app-root` is the page's composition root and holds the pieces every feature draws from —
+navigation, icons, action menus. `domain` holds the pure vocabulary shared between features:
+no I/O, no Effect, no ambient process. `integrations` holds the included integrations'
+browser halves, `client.tsx` composing each `<name>/client.tsx`; `node` is the script that
+bundles the tree ahead of time, not browser code. `bun run lint` enforces the half boundary:
+a browser half may import a server module only with `import type`, which erases before the
+bundle sees it.
 
 ## Composition and execution
 

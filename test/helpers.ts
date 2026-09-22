@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
+import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { setRepos } from "../apps/server/src/vendors/git.ts";
@@ -16,6 +17,7 @@ import type { CliError } from "@corvi/contracts/errors";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
+import type { LegacyFlatSettings } from "@corvi/jira/legacy";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
@@ -68,6 +70,51 @@ export const testRun = (): string => {
 export const testTempDir = async (label: string): Promise<string> => {
   const token = testRun();
   return mkdtemp(join(tmpdir(), `corvi-${token}-${label}-`));
+};
+
+/** The process's config snapshot, with the flat keys older files still carry: the preserve
+ * decode keeps them on the object and `Config` does not type them. Production reads them where
+ * it needs them in its own package (`@corvi/jira/legacy`'s fallback); a test that asserts they
+ * survive a write reads them here, where the one cast lives. */
+export const legacyConfig = (): Config & LegacyFlatSettings =>
+  runtimeConfig() as Config & LegacyFlatSettings;
+
+/** The per-workspace legacy keys an older file still carries on an entry: the loader preserves
+ * them on read and no production type declares them, so a test that asserts one survived reads
+ * it here. */
+export type LegacyWorkspaceKeys = {
+  readonly jira?: unknown;
+};
+
+export const legacyWorkspace = (workspace: object): LegacyWorkspaceKeys =>
+  workspace as LegacyWorkspaceKeys;
+
+/** What a test may state on the config snapshot for a body: any resolved field, plus the
+ * preserved flat keys `legacyConfig` reads. */
+export type RuntimeConfigPatch = Partial<Config> & LegacyFlatSettings;
+
+/** Run `body` with `patch` applied to the one config object every module holds by reference,
+ * then put each patched key back exactly as it was — own property restored if the object had
+ * one, absent key removed if it did not — even when the body throws, so a failed expectation
+ * cannot leak a workspace into the next test. One body at a time: a file's tests run in order,
+ * so a test that patches wraps its own body rather than a hook. */
+export const withRuntimeConfig = async <T>(
+  patch: RuntimeConfigPatch,
+  body: () => Promise<T> | T,
+): Promise<T> => {
+  const config = runtimeConfig();
+  const saved = (Object.keys(patch) as (keyof RuntimeConfigPatch)[]).map(
+    (key) => [key, Object.getOwnPropertyDescriptor(config, key)] as const,
+  );
+  Object.assign(config, patch);
+  try {
+    return await body();
+  } finally {
+    for (const [key, descriptor] of saved) {
+      if (descriptor === undefined) delete (config as Record<string, unknown>)[key];
+      else Object.defineProperty(config, key, descriptor);
+    }
+  }
 };
 
 /** Environment for a spawned test server: the OS picks the port (`CORVI_PORT=0`), and every

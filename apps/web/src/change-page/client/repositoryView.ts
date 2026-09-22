@@ -1,4 +1,4 @@
-/** The checkouts card's view model: repository facts, no extension host. */
+/** The checkouts card's view model: repository facts only. */
 import type { RepositoryViewDto } from "@corvi/contracts/api";
 
 export type CheckoutRow = {

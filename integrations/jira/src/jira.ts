@@ -6,6 +6,7 @@ import { bagString } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
+import type { LegacyFlatSettings } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "@corvi/configuration/workspaces";
 import { Cache, Settings, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError } from "@corvi/contracts/errors";
@@ -92,6 +93,14 @@ export const siteOf = (settings: ResolvedDto, change: { workspace?: string }): S
 export const siteFor = (settings: ResolvedDto, workspaceId?: string): Site =>
   siteOfWorkspace(settings, workspaceById(settings.workspaces, workspaceId));
 
+/** What `globalOf` reads from a config: this integration's own server-wide bag and the flat
+ * fields older files still carry (`LegacyFlatSettings`). The resolved settings the `Settings`
+ * capability holds and the app's `Config` both satisfy it, so a caller passes whichever it
+ * holds, and a reader that states only these fields is a reader that typechecks as itself. */
+export type GlobalSettings = {
+  extensionSettings?: ResolvedDto["extensionSettings"];
+} & LegacyFlatSettings;
+
 /**
  * The server-wide settings this integration declares (`globalSettings`), read back from the
  * resolved settings' `extensionSettings.jira` bag — what the settings page writes — with the
@@ -101,7 +110,7 @@ export const siteFor = (settings: ResolvedDto, workspaceId?: string): Site =>
  * means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function globalOf(settings: ResolvedDto): {
+export function globalOf(settings: GlobalSettings): {
   assignee: string;
   startTransition: string;
   doneTransition: string;

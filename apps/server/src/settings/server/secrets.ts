@@ -7,9 +7,9 @@
  * never carried the token cannot leak it, and a save that does not retype it cannot delete it.
  *
  * Three things are deliberately not this file's business: which field is a secret (the
- * declarations say), where it is read (the extension reads its own bag), and what a mask means
+ * declarations say), where it is read (each integration reads its own bag), and what a mask means
  * beyond round-tripping. What is here is the two transformations, pure, so a test can drive them
- * without a server or an extension host.
+ * directly.
  */
 
 import type { ExtensionSetting, WorkspaceSetting } from "@corvi/contracts/integration";

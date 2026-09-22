@@ -1,9 +1,11 @@
-/** The cutover adapters: the included integrations behind the lifecycle's ports.
+/** The application's implementations of the lifecycle workflow's ports.
  *
- * This is the bridge while the extension host still owns the provider code. Each adapter has a
- * named removal condition: when the included integrations become packages with explicit ports
- * (plan step 6), these layers are replaced, not extended. Nothing here imports a workflow
- * implementation from an integration.
+ * The workflow declares its ports (`ChangeLifecycle`, `Issues`, `PullRequests`,
+ * `TerminalSessions`); this module answers them by composing capability layers with the included
+ * integrations' named exports (`@corvi/jira`, `@corvi/github`) and the runtime's config and
+ * cache. It is composition, not policy: a port is answered here by wiring, and an integration
+ * grows a named export rather than a hook. Nothing here imports a workflow implementation from
+ * an integration.
  */
 import { Effect, Layer, Option } from "effect"
 
