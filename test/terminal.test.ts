@@ -1,4 +1,4 @@
-import { test, expect, beforeAll, afterAll } from "bun:test";
+import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
@@ -36,9 +36,15 @@ async function waitFor(what: string, read: () => Promise<boolean>): Promise<void
   if (!(await until(read, true))) throw new Error(`timed out waiting for ${what}`);
 }
 
-/** The file a typed command was supposed to write: what proves the command ran. */
-const waitForFile = (path: string): Promise<void> =>
-  waitFor(`the command to write ${path}`, () => Bun.file(path).exists());
+/** The file a typed command was supposed to write: what proves the command ran. With `expect`,
+ * the wait is for that exact content — and without it, for any content at all. A file exists as
+ * soon as the shell opens it for the redirect, a moment before the command has written a byte,
+ * so existence is not completion and a test that reads early reads an empty file. */
+const waitForFile = (path: string, want?: string): Promise<void> =>
+  waitFor(`the command to write ${path}`, async () => {
+    const text = await Bun.file(path).text().catch(() => "");
+    return want === undefined ? text.length > 0 : text === want;
+  });
 
 /** The pane has drawn its first line — the shell's prompt — so a command typed now is read by a
  * shell that is ready for it. Read from tmux's own screen buffer: the terminal is drawn to a
@@ -51,11 +57,15 @@ const waitForPrompt = (target = session): Promise<void> =>
   );
 
 /** The shell echoed what was typed or pasted into it: the input has arrived at the pty. The tty
- * echoes as the bytes land, so this is what to wait for before pressing Enter behind a paste. */
-const echoInPane = (text: string): Promise<void> =>
-  waitFor(`the pane to show ${text}`, async () =>
-    (await tmux("capture-pane", "-p", "-t", session)).includes(text),
-  );
+ * echoes as the bytes land, so this is what to wait for before pressing Enter behind a paste.
+ * `-J` joins wrapped lines: a long command's echo breaks across the grid wherever the prompt
+ * and the width leave off, and an un-joined capture splits the very words being looked for. A
+ * timeout prints the pane, so a failure says what did arrive. */
+const echoInPane = async (text: string): Promise<void> => {
+  const capture = async (): Promise<string> => tmux("capture-pane", "-p", "-J", "-t", session);
+  const found = await until(async () => (await capture()).includes(text), true);
+  if (!found) throw new Error(`timed out waiting for the pane to show ${text}; the pane held:\n${await capture()}`);
+};
 
 /** The tmux clients attached to a session: one per open terminal's pty. */
 const clientCount = async (target: string): Promise<number> =>
@@ -146,6 +156,18 @@ beforeAll(async () => {
     body: JSON.stringify({ id, repos: [repo] }),
   });
   browser = await chromium.launch();
+  // The hook carries its own waits — a server that answers within a minute (waitForUrl), a
+  // browser to launch — so its budget is theirs rather than the suite's 30-second default for a
+  // test. A hook that times out is reported as one unnamed failure with every terminal test gone.
+}, 120_000);
+
+afterEach(async () => {
+  // A test that fails mid-way must not leave its page open: the page's pty keeps its tmux client
+  // attached, and the next test's client-count gates could never be satisfied. The tests close
+  // their own pages; this is the net under them, so one failure stays one failure.
+  for (const context of browser?.contexts() ?? []) {
+    for (const page of context.pages()) await page.close().catch(() => undefined);
+  }
 });
 
 afterAll(async () => {
@@ -157,7 +179,9 @@ afterAll(async () => {
   server?.kill();
   await tmux("kill-server"); // ours alone: named by -S, the socket this file gave the server
   await rm(tmp, { recursive: true, force: true });
-});
+  // Its own budget too: closing a browser, a server and a tmux server is work the 30-second
+  // default does not owe, and a timeout here would fail a run whose tests all passed.
+}, 60_000);
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
   const key = (
@@ -197,7 +221,7 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   // fresh one that happens to have the same windows. The write beside it is the proof the line
   // ran before the server goes away under it.
   await page.keyboard.type(`export CORVI_SURVIVED=yes; echo set > ${join(tmp, "survived-set.txt")}\n`);
-  await waitForFile(join(tmp, "survived-set.txt"));
+  await waitForFile(join(tmp, "survived-set.txt"), "set\n");
 
   // Restart, as happens constantly while working on Corvi itself.
   server.kill();
@@ -215,7 +239,7 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   // orphaned attach client from the process that was just killed.
   expect(await until(() => clientCount(`corvi-${id}`), 1)).toBe(1);
   await page.keyboard.type("echo $CORVI_SURVIVED > survived.txt\n");
-  await waitForFile(join(tmp, "changes", id, "survived.txt"));
+  await waitForFile(join(tmp, "changes", id, "survived.txt"), "yes\n");
   expect(await Bun.file(join(tmp, "changes", id, "survived.txt")).text()).toBe("yes\n");
   await page.close();
 }, 60_000);
@@ -238,7 +262,7 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await page.locator(".terminal-screen").click();
   await waitForPrompt(`corvi-${second}`);
   await page.keyboard.type("pwd > second.txt\n");
-  await waitForFile(join(tmp, "changes", second, "second.txt"));
+  await waitForFile(join(tmp, "changes", second, "second.txt"), `${join(tmp, "changes", second)}\n`);
   expect(await Bun.file(join(tmp, "changes", second, "second.txt")).text()).toBe(
     `${join(tmp, "changes", second)}\n`,
   );
@@ -252,7 +276,7 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await page.locator(".terminal-screen").click();
   await waitForPrompt();
   await page.keyboard.type("pwd > back.txt\n");
-  await waitForFile(join(tmp, "changes", id, "back.txt"));
+  await waitForFile(join(tmp, "changes", id, "back.txt"), `${join(tmp, "changes", id)}\n`);
   expect(await Bun.file(join(tmp, "changes", id, "back.txt")).text()).toBe(
     `${join(tmp, "changes", id)}\n`,
   );
@@ -276,7 +300,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await waitForPrompt();
 
   await page.keyboard.type("pwd > out.txt\n");
-  await waitForFile(join(tmp, "changes", id, "out.txt"));
+  await waitForFile(join(tmp, "changes", id, "out.txt"), `${join(tmp, "changes", id)}\n`);
   expect(await Bun.file(join(tmp, "changes", id, "out.txt")).text()).toBe(
     `${join(tmp, "changes", id)}\n`,
   );
@@ -421,7 +445,10 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   // An absolute path, because the session's active window may be any window the tests above left
   // behind, in whatever directory it had walked to.
   const out = join(tmp, "changes", id, "pane-env.txt");
-  await page.keyboard.type(`env > ${out}\n`);
+  // The output is published in one move: the file appears only once `env` has finished writing
+  // it. What the environment holds is what this test asserts on, so its content cannot be the
+  // wait — and a file read early is empty, which would read as "the env was never set".
+  await page.keyboard.type(`env > ${out}.tmp && mv ${out}.tmp ${out}\n`);
   await waitForFile(out);
   const env = await Bun.file(out).text();
   // Line-anchored: the suite's own `npm_lifecycle_script` ("export CORVI_ROOT=\"$ROOT\" …") rides
@@ -687,12 +714,12 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   await page.locator(".terminal-screen").click();
   await waitForPrompt();
   await page.keyboard.type(`echo ready > ${join(tmp, "terminal-ready.txt")}\n`);
-  await waitForFile(join(tmp, "terminal-ready.txt"));
+  await waitForFile(join(tmp, "terminal-ready.txt"), "ready\n");
 
   await page.locator(".toast-close").click();
   await page.locator(".toast").waitFor({ state: "detached" });
   await page.keyboard.type(`echo typed > ${join(tmp, "typed-after-toast.txt")}\n`);
-  await waitForFile(join(tmp, "typed-after-toast.txt"));
+  await waitForFile(join(tmp, "typed-after-toast.txt"), "typed\n");
 
   // Looking straight at it is the one silent case: the watcher still reports the edge, and the
   // page holds its tongue because you are looking at it. The name is put back first — it replaces
@@ -843,6 +870,15 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await dragAcrossScreen();
   expect(await markerSoon()).toContain("MARKER-42");
 
+  // tmux is not a clipboard writer from here on. The shift-drag below reaches tmux as well as
+  // xterm, and tmux answers a drag on the cells the first drag already covered with a copy of
+  // its own — an OSC 52 that the page writes into the system clipboard whenever it happens to
+  // arrive. It arrived two milliseconds after the payload the paste below checks was written,
+  // which pasted tmux's word instead of the command. The chord and the middle click that follow
+  // have nothing of their own to do with tmux's clipboard, so the two stop racing for it; the
+  // tmux half of the story is the drag above, asserted, and the option this test read as `on`.
+  await tmux("set-option", "-s", "set-clipboard", "off");
+
   // The browser's own selection is still a modifier away, because mouse mode is on. Which
   // modifier is xterm.js's (SelectionService.shouldForceSelection): shift everywhere but macOS,
   // where it is option — the same chord the cheat sheet gives, and the only one a Mac has. All
@@ -864,13 +900,27 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   // left behind, in whatever directory it had walked to.
   const pasted = join(tmp, "changes", id, "pasted.txt");
   await page.evaluate((path) => navigator.clipboard.writeText(`echo PASTED > ${path}`), pasted);
+  // The clipboard must still hold what was just written when the chord reads it: that read is
+  // the whole of the paste, and a clipboard clobbered in between pastes someone else's text.
+  expect(await clipboard()).toBe(`echo PASTED > ${pasted}`);
   await page.locator(".terminal-screen").click();
+  expect(await page.evaluate(() => document.hasFocus())).toBe(true);
   await page.keyboard.press("Control+Shift+V");
   // The clipboard read is asynchronous; Enter before it lands would execute an empty line — so
-  // wait for the pasted text to appear in the pane, which is the shell having received it.
-  await echoInPane("echo PASTED >");
+  // wait for the pasted text to appear in the pane, which is the shell having received it. A
+  // failure says what the page saw instead: focus (the chord needs the terminal to have it) and
+  // the clipboard the chord would have read.
+  try {
+    await echoInPane("echo PASTED >");
+  } catch (error) {
+    const probe = await page.evaluate(async () => ({
+      focus: document.hasFocus(),
+      clipboard: await navigator.clipboard.readText().catch((e) => `read failed: ${e}`),
+    }));
+    throw new Error(`${String(error)}\nafter the chord the page saw: ${JSON.stringify(probe)}`);
+  }
   await page.keyboard.press("Enter");
-  await waitForFile(pasted);
+  await waitForFile(pasted, "PASTED\n");
   expect(await Bun.file(pasted).text()).toBe("PASTED\n");
 
   // Middle-click pastes the system clipboard too, not tmux's newest buffer: the page takes the
@@ -881,7 +931,7 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   // The clipboard read is asynchronous here too; Enter before it lands runs an empty line.
   await echoInPane("echo MIDDLE >");
   await page.keyboard.press("Enter");
-  await waitForFile(middle);
+  await waitForFile(middle, "MIDDLE\n");
   expect(await Bun.file(middle).text()).toBe("MIDDLE\n");
   await page.close();
 }, 60_000);
