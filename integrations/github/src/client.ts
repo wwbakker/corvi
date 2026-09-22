@@ -159,10 +159,13 @@ const prQuery = (
     );
     if (r.code !== 0) {
       // `??` after an index would never fire: an empty stderr's first line is `""`, not
-      // undefined. The fallback needs `||`, or a silent `gh` failure reaches the page as an
-      // empty sentence — which the transport boundary then renders as the error's type name.
-      const firstLine = r.stderr.split("\n")[0]?.trim() || "gh failed";
-      return yield* new BadRequestError({ message: firstLine });
+      // undefined. `||` over both streams — `gh` can put an error on stdout — and then the
+      // exit code: a `gh` that fails without a word must still reach the page as a sentence
+      // naming the command and how it failed, not an empty line or a bare fallback.
+      const reason = r.stderr.split("\n")[0]?.trim() || r.stdout.split("\n")[0]?.trim();
+      return yield* new BadRequestError({
+        message: reason || `gh pr list exited with code ${r.code}`,
+      });
     }
     const prs = yield* cliJson(Schema.Array(PrSchema), [] as Pr[])(r.stdout);
     return { worktree, head, prs };

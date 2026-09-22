@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
+import { soft } from "@corvi/shell/cli";
+import { CliError } from "@corvi/contracts/errors";
 import { currentBranch } from "../apps/server/src/vendors/git.ts";
 import { sh } from "../apps/server/src/capabilities/shell.ts";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
@@ -62,4 +64,28 @@ test("a CLI spawn inherits neither the launcher's variables nor passes them to t
     if (previous.electron === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
     else process.env.ELECTRON_RUN_AS_NODE = previous.electron;
   }
+});
+
+test("soft: a CliError with an empty stderr still reports its message", async () => {
+  // The Result-branching contract keeps the sentence: "no Shell in context" and a timeout name
+  // themselves in `message`, not `stderr`, and dropping it here hands the page an empty line —
+  // which the transport boundary then renders as the error's type name.
+  const result = await Effect.runPromise(
+    soft(
+      Effect.fail(
+        new CliError({
+          tool: "gh",
+          command: "gh pr list",
+          stderr: "",
+          exitCode: 127,
+          message: "gh pr list failed: no Shell in context",
+        }),
+      ),
+    ),
+  );
+  expect(result).toEqual({
+    code: 127,
+    stdout: "",
+    stderr: "gh pr list failed: no Shell in context",
+  });
 });

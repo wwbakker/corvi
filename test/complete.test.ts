@@ -339,16 +339,16 @@ test("completeChange: a provider failure that said nothing says what failed, not
   });
   // `gh` failing without a word used to reach the boundary as an empty message, which the
   // transport rendered as the error's type name — the page said "ProviderError". The response
-  // must say what failed instead. (Nothing is journalled: the assessment fails before the
-  // completion starts, which is the same rule a refusal follows.)
-  await expect(runWithShell(shell, completeChange(change))).rejects.toThrow(/gh failed/);
+  // must name the command and how it failed instead. (Nothing is journalled: the assessment
+  // fails before the completion starts, which is the same rule a refusal follows.)
+  await expect(runWithShell(shell, completeChange(change))).rejects.toThrow(/gh pr list exited with code 1/);
 });
 
 test("providerError: an inner error with nothing to say gets the operation's words", () => {
   // A TaggedError without a message stringifies to its type name; the wrapper must not hand
   // an empty sentence — or that name — to the boundary.
   expect(providerError("jira", "complete", new Error("")).message).toBe("jira complete failed");
-  expect(providerError("github", "merge", new Error("gh exploded")).message).toBe("gh exploded");
+  expect(providerError("github", "merge", new Error("gh exploded")).message).toBe("github merge: gh exploded");
 });
 
 test("completeChange: every step is journaled as it runs and the change is archived", async () => {

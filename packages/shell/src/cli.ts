@@ -23,9 +23,11 @@ export const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback
 
 /** The Result-branching contract: non-zero exits are data, so a timed-out CLI — the one failure
  * `Shell.run` raises — surfaces as exit code 124 with its message, which Result-branching
- * callers branch on. */
+ * callers branch on. The stderr falls back to the message: a `CliError` can carry its sentence
+ * with nothing on stderr at all (a timeout names itself; a refused call names what was
+ * missing), and dropping it here would hand the page an empty line where the reason was. */
 export const soft = <R>(work: Effect.Effect<Result, CliError, R>): Effect.Effect<Result, never, R> =>
-  Effect.catchAll(work, (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+  Effect.catchAll(work, (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr || e.message }));
 
 /** A failure's message: every typed error carries the sentence the user sees, and anything else
  * falls back to `String(e)`. */

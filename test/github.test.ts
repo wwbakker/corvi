@@ -336,11 +336,12 @@ test("prItem: a gh error is the row, using only the first line of stderr", async
 
 test("prItem: a gh error with empty stderr still gets a sentence, not an empty row", async () => {
   // The first line of an empty stderr is `""`, not undefined: the fallback has to be `||`, or
-  // the row — and every error built from this message — would be empty.
+  // the row — and every error built from this message — would be empty. What it says names the
+  // command and the exit code, which is what the next diagnosis needs.
   const repo = "/repos/item-silent";
   const shell = ghShell({ repo, prListCode: 1, prListStderr: "" });
   const { item } = await runWithShell(shell, prItem(change(), repo));
-  expect(item).toMatchObject({ label: "pull request", detail: "gh failed", state: "error" });
+  expect(item).toMatchObject({ label: "pull request", detail: "gh pr list exited with code 1", state: "error" });
 });
 
 test("prItem: no worktree and no pull request are different rows", async () => {

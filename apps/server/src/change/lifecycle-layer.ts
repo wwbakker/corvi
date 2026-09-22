@@ -63,17 +63,19 @@ const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChan
   ...(change.completedAt ? { completedAt: change.completedAt } : {}),
 })
 
-/** A provider failure the page can read: the inner error's sentence when it has one, and the
- * operation's own words when it does not — an inner error with an empty message (a TaggedError
+/** A provider failure the page can read: it always names the operation, and carries the inner
+ * error's sentence when there is one — an inner error with an empty message (a TaggedError
  * without one, a CLI that said nothing) would otherwise reach the transport boundary as an
  * empty string, which is rendered as the error's type name instead of what failed. */
-export const providerError = (provider: string, operation: string, error: unknown): ProviderError =>
-  new ProviderError({
+export const providerError = (provider: string, operation: string, error: unknown): ProviderError => {
+  const detail = messageOf(error)
+  return new ProviderError({
     provider,
     operation,
-    message: messageOf(error) || `${provider} ${operation} failed`,
+    message: detail ? `${provider} ${operation}: ${detail}` : `${provider} ${operation} failed`,
     cause: error,
   })
+}
 
 /** Git commands through the app's Shell when one is in context — tests script it, and a host
  * may provide it — and through the direct spawner otherwise, mirroring `sh`'s own fallback. */

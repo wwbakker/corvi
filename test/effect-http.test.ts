@@ -1,7 +1,8 @@
 import { test, expect } from "bun:test";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { runRoute } from "../apps/server/src/capabilities/effect/run.ts";
+import { Shell } from "@corvi/contracts/capabilities";
 import {
   BadRequestError,
   CliError,
@@ -113,4 +114,15 @@ test("runRoute handles a defect that is not an Error", async () => {
   const response = await runRoute(Effect.die("plain defect"));
   expect(response.status).toBe(400);
   expect(await response.json()).toEqual({ error: "plain defect" });
+});
+
+test("runRoute hands the effect the host's Shell", async () => {
+  // The route envelopes deliberately leave `Shell` open — a test scripts its own runner — so
+  // the host closes it here: an integration's `sh` with no service in context answers a result
+  // of exit 127 with an *empty* stderr, and the page would show a bare "gh failed" for a CLI
+  // that was never spawned.
+  const response = await runRoute(
+    Effect.map(Effect.serviceOption(Shell), (shell) => Response.json({ shell: Option.isSome(shell) })),
+  );
+  expect(await response.json()).toEqual({ shell: true });
 });
