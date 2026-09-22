@@ -9,7 +9,7 @@ import {
   progressOf,
   verdict,
 } from "../apps/server/src/change/server/index.ts";
-import { plannedCompletionSteps } from "../apps/server/src/change/lifecycle-layer.ts";
+import { plannedCompletionSteps, providerError } from "../apps/server/src/change/lifecycle-layer.ts";
 import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
@@ -183,6 +183,8 @@ type CompletionShellOptions = {
   cherry?: string[];
   /** How `gh pr merge` answers. */
   merge?: { code: number; stderr?: string };
+  /** How `gh pr list` answers when it fails; absent means it lists `pr`. */
+  prList?: { code: number; stderr?: string };
 };
 
 /** A scripted shell for the completion lookups: git for the worktree and its status, gh for the
@@ -214,7 +216,9 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
       return opts.beyond === undefined ? { code: 128, stderr: "unknown revision" } : String(opts.beyond);
     }
     if (line.startsWith("git cherry ")) return (opts.cherry ?? []).join("\n");
-    if (line.startsWith("gh pr list")) return JSON.stringify(opts.pr ? [opts.pr] : []);
+    if (line.startsWith("gh pr list")) {
+      return opts.prList ?? JSON.stringify(opts.pr ? [opts.pr] : []);
+    }
     if (line.startsWith("gh repo view")) return "";
     if (line.startsWith("gh pr merge")) return opts.merge ?? { code: 0 };
     if (line.startsWith("git worktree remove --force")) return "";
@@ -321,6 +325,30 @@ test("completeChange: a step that fails stops where it stands and journals it", 
   expect(stopped.finishedAt).toBeTruthy();
   // Still where it was, not archived: a failed completion changed nothing on disk.
   expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+});
+
+test("completeChange: a provider failure that said nothing says what failed, not its type", async () => {
+  const repo = join(tmp, "silent-repo");
+  const change = await runEffect(
+    createChange({ id: "PROJ-SILENT", branch: "PROJ-SILENT", repos: [repo] }),
+  );
+  const shell = completionShell({
+    worktree: join(tmp, "wt-silent"),
+    branch: change.branch,
+    prList: { code: 1, stderr: "" },
+  });
+  // `gh` failing without a word used to reach the boundary as an empty message, which the
+  // transport rendered as the error's type name — the page said "ProviderError". The response
+  // must say what failed instead. (Nothing is journalled: the assessment fails before the
+  // completion starts, which is the same rule a refusal follows.)
+  await expect(runWithShell(shell, completeChange(change))).rejects.toThrow(/gh failed/);
+});
+
+test("providerError: an inner error with nothing to say gets the operation's words", () => {
+  // A TaggedError without a message stringifies to its type name; the wrapper must not hand
+  // an empty sentence — or that name — to the boundary.
+  expect(providerError("jira", "complete", new Error("")).message).toBe("jira complete failed");
+  expect(providerError("github", "merge", new Error("gh exploded")).message).toBe("gh exploded");
 });
 
 test("completeChange: every step is journaled as it runs and the change is archived", async () => {

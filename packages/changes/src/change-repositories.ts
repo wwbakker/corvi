@@ -36,13 +36,18 @@ export const layer = Layer.effect(
         return yield* new DuplicateDirectoryName({
           changeId: input.changeId,
           directoryName: input.directoryName,
+          message: `change ${input.changeId} already has a repository in ${input.directoryName}`,
         })
       return yield* store.addRepository(input)
     })
 
     const removeRepository = Effect.fn("ChangeRepositories.removeRepository")(function* (input: RepositoryRef) {
       const removed = yield* store.removeRepository(input.changeId, input.repositoryId)
-      if (!removed) return yield* new RepositoryNotFound(input)
+      if (!removed)
+        return yield* new RepositoryNotFound({
+          ...input,
+          message: `repository ${input.repositoryId} is not part of change ${input.changeId}`,
+        })
     })
 
     return { listRepositories, addRepository, removeRepository }

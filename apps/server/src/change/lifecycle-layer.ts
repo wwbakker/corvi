@@ -63,8 +63,17 @@ const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChan
   ...(change.completedAt ? { completedAt: change.completedAt } : {}),
 })
 
-const providerError = (operation: string, error: unknown): ProviderError =>
-  new ProviderError({ provider: "github", operation, message: messageOf(error), cause: error })
+/** A provider failure the page can read: the inner error's sentence when it has one, and the
+ * operation's own words when it does not — an inner error with an empty message (a TaggedError
+ * without one, a CLI that said nothing) would otherwise reach the transport boundary as an
+ * empty string, which is rendered as the error's type name instead of what failed. */
+export const providerError = (provider: string, operation: string, error: unknown): ProviderError =>
+  new ProviderError({
+    provider,
+    operation,
+    message: messageOf(error) || `${provider} ${operation} failed`,
+    cause: error,
+  })
 
 /** Git commands through the app's Shell when one is in context — tests script it, and a host
  * may provide it — and through the direct spawner otherwise, mirroring `sh`'s own fallback. */
@@ -119,7 +128,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
         repositoryId: string,
       ): Effect.Effect<Repository, ProviderError> =>
         links.listRepositories(change.changeId).pipe(
-          Effect.mapError((error) => providerError("resolve", error)),
+          Effect.mapError((error) => providerError("github", "resolve", error)),
           Effect.flatMap((all) => {
             const found = all.find((entry) => entry.repositoryId === repositoryId)
             return found
@@ -138,13 +147,13 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
        * new model does not carry; the record is the source until integrations become packages. */
       const legacyFor = (change: CorviChange): Effect.Effect<LegacyChange, ProviderError> =>
         readChange(change.changeId).pipe(
-          Effect.mapError((error) => providerError("read", error)),
+          Effect.mapError((error) => providerError("github", "read", error)),
           Effect.flatMap((record) =>
             record
               ? Effect.succeed(record)
               : links.listRepositories(change.changeId).pipe(
                   Effect.map((all) => toLegacy(change, all)),
-                  Effect.mapError((error) => providerError("resolve", error)),
+                  Effect.mapError((error) => providerError("github", "resolve", error)),
                 ),
           ),
         )
@@ -164,7 +173,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const observed = yield* (fresh
               ? refreshReadiness(legacy, link.originalLocation)
               : mergeReadiness(legacy, link.originalLocation)
-            ).pipe(Effect.mapError((e) => providerError("readiness", e)))
+            ).pipe(Effect.mapError((e) => providerError("github", "readiness", e)))
             const state: PullRequestState = observed.ready
               ? observed.merged
                 ? { repository, number: 0, ready: true, merged: true }
@@ -177,7 +186,7 @@ export const pullRequestsLayer = (): Layer.Layer<PullRequests, never, ChangeRepo
             const link = yield* linkFor(change, repository.repositoryId)
             const legacy = yield* legacyFor(change)
             return yield* mergePr(legacy, link.originalLocation, number).pipe(
-              Effect.mapError((e) => providerError("merge", e)),
+              Effect.mapError((e) => providerError("github", "merge", e)),
             )
           }).pipe(Effect.provide(providerNeeds())),
         /** Loose ends are collected through the issues bridge below, which already covers the
@@ -207,7 +216,7 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
       const legacyFor = (change: CorviChange): Effect.Effect<LegacyChange, ProviderError> =>
         readChange(change.changeId).pipe(
           Effect.mapError(
-            (error) => new ProviderError({ provider: "issues", operation: "read", message: error.message, cause: error }),
+            (error) => providerError("issues", "read", error),
           ),
           Effect.flatMap((record) =>
             record
@@ -215,8 +224,7 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
               : links.listRepositories(change.changeId).pipe(
                   Effect.map((all) => toLegacy(change, all)),
                   Effect.mapError(
-                    (error) =>
-                      new ProviderError({ provider: "issues", operation: "resolve", message: error.message, cause: error }),
+                    (error) => providerError("issues", "resolve", error),
                   ),
                 ),
           ),
@@ -238,30 +246,14 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
             if (stepId === "jira") {
               yield* moveIssueOnComplete(legacy).pipe(
                 Effect.provide(capabilitiesLayer(workspace, "jira")),
-                Effect.mapError(
-                  (error) =>
-                    new ProviderError({
-                      provider: "jira",
-                      operation: "complete",
-                      message: messageOf(error),
-                      cause: error,
-                    }),
-                ),
+                Effect.mapError((error) => providerError("jira", "complete", error)),
               )
               return undefined
             }
             if (stepId === "github-issues") {
               return yield* closeIssueOnComplete(legacy).pipe(
                 Effect.provide(capabilitiesLayer(workspace, "github-issues")),
-                Effect.mapError(
-                  (error) =>
-                    new ProviderError({
-                      provider: "github-issues",
-                      operation: "complete",
-                      message: messageOf(error),
-                      cause: error,
-                    }),
-                ),
+                Effect.mapError((error) => providerError("github-issues", "complete", error)),
               )
             }
             return undefined

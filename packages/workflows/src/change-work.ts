@@ -135,7 +135,12 @@ export const layer = Layer.effect(
     const startChange = Effect.fn("ChangeWork.startChange")(function* (changeId: ChangeId) {
       const change = yield* changes.getChange(changeId)
       if (change.phase !== "Ideation")
-        return yield* new InvalidTransition({ changeId, from: change.phase, to: "Implementation" })
+        return yield* new InvalidTransition({
+          changeId,
+          from: change.phase,
+          to: "Implementation",
+          message: `change ${changeId} cannot start: its phase is ${change.phase}`,
+        })
 
       // Persist first: the change survives provisioning that fails part way.
       const started = yield* changes.transitionTo(changeId, "Implementation")

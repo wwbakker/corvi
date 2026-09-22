@@ -78,11 +78,13 @@ const asIwe = (error: unknown): IweError => {
   if (typeof error === "object" && error !== null && "_tag" in error) {
     const tag = String((error as { _tag: unknown })._tag);
     const raw = "message" in error ? (error as { message: unknown }).message : undefined;
+    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
+    // foreign tagged error, never the first choice — it would show the page the type name.
     const message = raw ? String(raw) : tag;
     return tag === "ChangeNotFound" ? new NotFoundError({ message }) : new BadRequestError({ message });
-  }
+  };
   return new BadRequestError({ message: messageOf(error) });
-};;
+};
 
 export const cancelChange = (
   change: Change,

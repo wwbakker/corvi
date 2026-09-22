@@ -218,13 +218,19 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const located = yield* locate(changeId)
-            if (!located) return yield* new ChangeNotFound({ changeId })
+            if (!located)
+              return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
             // Optimistic concurrency: a caller that read a revision writes only onto it. The
             // check is inside the store's lock, so two writers that read the same revision
             // cannot both win — the second is told the record moved rather than overwriting it.
             const actual = located.record.revision ?? 0
             if (patch.expectedRevision !== undefined && patch.expectedRevision !== actual) {
-              return yield* new ChangeConflict({ changeId, expected: patch.expectedRevision, actual })
+              return yield* new ChangeConflict({
+                changeId,
+                expected: patch.expectedRevision,
+                actual,
+                message: `change ${changeId} moved on: expected revision ${patch.expectedRevision}, found ${actual}`,
+              })
             }
             const next = recordFor(
               new Change({

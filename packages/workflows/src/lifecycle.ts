@@ -25,6 +25,9 @@ import { CheckoutError, Repositories } from "@corvi/repositories"
 
 export class ChangeOperationInProgress extends Data.TaggedError("ChangeOperationInProgress")<{
   readonly changeId: ChangeId
+  /** The sentence the user sees: an error without one reaches a transport boundary as an empty
+   * string, which is rendered as the error's type name instead. */
+  readonly message: string
 }> {}
 
 export class ProviderError extends Data.TaggedError("ProviderError")<{
@@ -362,7 +365,14 @@ export const layer = Layer.effect(
           set.has(changeId) ? [false, set] : [true, new Set(set).add(changeId)],
         ).pipe(
           Effect.flatMap((acquired) =>
-            acquired ? Effect.void : Effect.fail(new ChangeOperationInProgress({ changeId })),
+            acquired
+              ? Effect.void
+              : Effect.fail(
+                  new ChangeOperationInProgress({
+                    changeId,
+                    message: `change ${changeId} already has an operation in progress`,
+                  }),
+                ),
           ),
         ),
         () => work,

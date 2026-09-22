@@ -311,6 +311,8 @@ test("a write moves the revision, and a stale writer is refused", async () => {
   if (Either.isLeft(stale) && stale.left._tag === "ChangeConflict") {
     expect(stale.left.expected).toBe(1)
     expect(stale.left.actual).toBe(2)
+    // The sentence the user sees, not just the tag: an empty one renders as the type name.
+    expect(stale.left.message).toContain("revision")
   }
 })
 

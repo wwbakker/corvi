@@ -33,7 +33,8 @@ export const layer = Layer.effect(
 
     const getChange = Effect.fn("Change.getChange")(function* (changeId: ChangeId) {
       const change = yield* store.read(changeId)
-      if (!change) return yield* new ChangeNotFound({ changeId })
+      if (!change)
+        return yield* new ChangeNotFound({ changeId, message: `change ${changeId} was not found` })
       return change
     })
 
@@ -44,7 +45,8 @@ export const layer = Layer.effect(
 
     const createChange = Effect.fn("Change.createChange")(function* (input: CreateChangeInput) {
       const existing = yield* store.read(input.changeId)
-      if (existing) return yield* new ChangeIdTaken({ changeId: input.changeId })
+      if (existing)
+        return yield* new ChangeIdTaken({ changeId: input.changeId, message: `change ${input.changeId} already exists` })
       const change = new Change({
         changeId: input.changeId,
         title: input.title,
@@ -72,7 +74,12 @@ export const layer = Layer.effect(
     ) {
       const change = yield* getChange(changeId)
       if (!allowedTransition(change.phase, phase))
-        return yield* new InvalidTransition({ changeId, from: change.phase, to: phase })
+        return yield* new InvalidTransition({
+          changeId,
+          from: change.phase,
+          to: phase,
+          message: `change ${changeId} cannot move from ${change.phase} to ${phase}`,
+        })
       return yield* store.patch(changeId, {
         phase,
         ...(isTerminal(phase) ? { completedAt: now() } : {}),

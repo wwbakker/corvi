@@ -239,10 +239,16 @@ const acknowledgementsFor = (reasons: readonly LifecycleReason[]): readonly Ackn
       : [],
   )
 
-const errorDetail = (error: unknown): string =>
-  typeof error === "object" && error !== null && "message" in error
-    ? String((error as { message: unknown }).message)
-    : String(error)
+/** The sentence a failed step records in the journal: the error's own when it has one, and
+ * never empty — `finalizeProgress` drops an empty `error`, which would leave a failed
+ * completion saying nothing at all. */
+const errorDetail = (error: unknown): string => {
+  const own =
+    typeof error === "object" && error !== null && "message" in error
+      ? String((error as { message: unknown }).message)
+      : ""
+  return own || String(error) || "the operation failed"
+}
 
 /** The transport boundary for this operation: capability failures become the taxonomy the route
  * mapper knows; the workflow and capability errors stay typed behind it. */
@@ -251,6 +257,8 @@ const asIwe = (error: unknown): IweError => {
   if (typeof error === "object" && error !== null && "_tag" in error) {
     const tag = String((error as { _tag: unknown })._tag)
     const raw = "message" in error ? (error as { message: unknown }).message : undefined
+    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
+    // foreign tagged error, never the first choice — it would show the page the type name.
     const message = raw ? String(raw) : tag
     return tag === "ChangeNotFound"
       ? new NotFoundError({ message })

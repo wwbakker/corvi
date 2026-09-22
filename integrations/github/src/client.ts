@@ -158,7 +158,11 @@ const prQuery = (
       worktree,
     );
     if (r.code !== 0) {
-      return yield* new BadRequestError({ message: r.stderr.split("\n")[0] ?? "gh failed" });
+      // `??` after an index would never fire: an empty stderr's first line is `""`, not
+      // undefined. The fallback needs `||`, or a silent `gh` failure reaches the page as an
+      // empty sentence — which the transport boundary then renders as the error's type name.
+      const firstLine = r.stderr.split("\n")[0]?.trim() || "gh failed";
+      return yield* new BadRequestError({ message: firstLine });
     }
     const prs = yield* cliJson(Schema.Array(PrSchema), [] as Pr[])(r.stdout);
     return { worktree, head, prs };

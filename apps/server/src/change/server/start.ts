@@ -36,6 +36,8 @@ const asIwe = (change: Change, error: unknown): IweError => {
         message: `${change.id} has already started (${change.state ?? "In Progress"})`,
       });
     }
+    // Our typed errors carry the sentence the user sees; the tag is a last resort for a
+    // foreign tagged error, never the first choice — it would show the page the type name.
     return new BadRequestError({ message: raw ? String(raw) : tag });
   }
   return new BadRequestError({ message: messageOf(error) });
