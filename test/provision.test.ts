@@ -312,7 +312,7 @@ test("a review thread you answered last is not waiting on you", () => {
 
 test("what an environment holds is the newest run that was sent to it", async () => {
   const { latestFor, versionIn, serviceName } = await import("@corvi/azure-devops/server");
-  const settings = deploySettingsOf(undefined, {});
+  const settings = deploySettingsOf(undefined);
   const run = (
     id: number,
     environment: string,

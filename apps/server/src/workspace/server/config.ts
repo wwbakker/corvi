@@ -74,15 +74,56 @@ const resolvePath = (value: string): string => {
  * in @corvi/configuration/settings. The per-workspace tolerance (skip entries without a truthy id and
  * name) is applied by workspacesFrom.
  */
+/**
+ * Fold the retired flat `azure*` fields into the azure-devops global settings bag, so they keep
+ * resolving as ordinary settings (and show up on the settings page), and the resolved config no
+ * longer carries them. The bag wins where it already speaks: a value the page wrote is never
+ * overwritten by a legacy field. Called on every load and by the settings page's read, so a
+ * hand-edited file is migrated before anything resolves it.
+ */
+export const foldLegacyAzure = (file: ConfigFile): void => {
+  const legacy = file as ConfigFile & {
+    azureOrganization?: string;
+    azureProject?: string;
+    azureDeploy?: {
+      pipeline?: readonly [string, string];
+      versionParameter?: string;
+      environmentParameter?: string;
+      environments?: string[];
+    };
+  };
+  const mutable = file as {
+    extensionSettings?: Record<string, Record<string, string | string[]>>;
+  };
+  const bags = (mutable.extensionSettings ??= {});
+  const bag = (bags["azure-devops"] ??= {});
+  const put = (key: string, value: string | string[] | undefined): void => {
+    if (bag[key] === undefined && value !== undefined) bag[key] = value;
+  };
+  put("organization", legacy.azureOrganization);
+  put("project", legacy.azureProject);
+  const deploy = legacy.azureDeploy;
+  put("pipeline", deploy?.pipeline ? [...deploy.pipeline] : undefined);
+  put("versionParameter", deploy?.versionParameter);
+  put("environmentParameter", deploy?.environmentParameter);
+  put("environments", deploy?.environments);
+  delete legacy.azureOrganization;
+  delete legacy.azureProject;
+  delete legacy.azureDeploy;
+  if (Object.keys(bag).length === 0) delete bags["azure-devops"];
+};
+
 export function readConfig(): Config {
   const file = readFileSync();
+  // The retired flat azure fields fold into the extension's bag before anything resolves the
+  // config, so nothing has to read them where they were written.
+  foldLegacyAzure(file);
   const workspaces = workspacesFrom(file.workspaces);
   return {
     // The file's unknown keys ride along into the resolved config: every boundary that decodes a
     // file keeps the keys it does not know about, and an extension's legacy fallback (the jira
-    // extension's `legacy.ts`, the azure-devops extension's `legacy.ts`) reads a field the core
-    // used to own from here — including the retired flat `azure*` fields, which stay readable
-    // where they were written. Every known field below overrides its raw counterpart.
+    // extension's `legacy.ts`) reads a field the core used to own from here. Every known field
+    // below overrides its raw counterpart.
     ...file,
     changesRoot: resolvePath(
       resolveSetting({

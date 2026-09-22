@@ -2,60 +2,58 @@ import { Effect } from "effect";
 import type { Config } from "@corvi/configuration/config";
 import { Cache, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { bagString, resolveSetting } from "@corvi/configuration/settings";
-import { AZURE_ENV, legacyOrgProjectOf, legacyWorkspaceOf } from "./legacy.ts";
+import { AZURE_ENV } from "./env.ts";
 
 /**
  * Which Azure DevOps this workspace means, read through the contract.
  *
  * The chain, stated once: the per-workspace settings bag (`extensionSettings.azure-devops`,
- * what the settings page writes) wins; when it is empty the legacy per-workspace `azure`
- * object answers (through legacy.ts); then the global settings bag; then the legacy flat
- * field, which carries the default and the environment resolution (CORVI_AZURE_ORG and friends
- * beat the file); and finally whatever `az devops configure` holds, reached through `azFor`
- * when this answers empty.
+ * what the settings page writes) wins; then the global settings bag, whose declared `env`
+ * (CORVI_AZURE_ORG / CORVI_AZURE_PROJECT) answers when the bag is empty; and finally whatever
+ * `az devops configure` holds, reached through `azFor` when this answers empty.
  */
 
 export type AzureSite = { organization: string; project: string };
 
-/** The per-workspace fields of the chain: the extension's own bag, then the legacy object. */
+/** The per-workspace fields of the chain: the extension's own bag. */
 const workspaceSite = (workspace: {
   extensionSettings?: Record<string, Record<string, string>>;
-  azure?: unknown;
 }): { organization?: string; project?: string } => {
   const own = workspace.extensionSettings?.["azure-devops"];
-  const legacy = legacyWorkspaceOf(workspace);
   return {
-    organization: bagString(own, "organization") ?? legacy.organization,
-    project: bagString(own, "project") ?? legacy.project,
+    organization: bagString(own, "organization"),
+    project: bagString(own, "project"),
   };
 };
 
-/** The global fields of the chain: the extension's own bag, then the legacy flat field. */
+/** The global fields of the chain: the extension's own bag, then its declared environment
+ * variables. */
 const globalSite = (
   settings: Config,
 ): { organization: string; project: string } => {
   const bag = settings.extensionSettings?.["azure-devops"];
-  const legacy = legacyOrgProjectOf(settings);
   return {
     organization: resolveSetting({
       bag: bagString(bag, "organization"),
-      fallback: legacy.organization,
+      env: AZURE_ENV.organization,
+      fallback: "",
     }),
     project: resolveSetting({
       bag: bagString(bag, "project"),
-      fallback: legacy.project,
+      env: AZURE_ENV.project,
+      fallback: "",
     }),
   };
 };
 
 /**
- * Azure DevOps for this workspace: the per-workspace bag first, then the legacy per-workspace
- * object, then the global bag, then the legacy flat field. Empty answers are what `azFor`
- * falls back from to `az devops configure`.
+ * Azure DevOps for this workspace: the per-workspace bag first, then the global bag with its
+ * declared environment variables. Empty answers are what `azFor` falls back from to
+ * `az devops configure`.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function azureOf(
-  workspace: { extensionSettings?: Record<string, Record<string, string>>; azure?: unknown },
+  workspace: { extensionSettings?: Record<string, Record<string, string>> },
   settings: Config,
 ): AzureSite {
   const own = workspaceSite(workspace);
@@ -67,8 +65,8 @@ export function azureOf(
 }
 
 /** The organisation and project every workspace falls back to: the global settings bag, then
- * the legacy flat field (which resolves CORVI_AZURE_ORG / CORVI_AZURE_PROJECT), then whatever `az
- * devops configure` holds (azDefaults below). */
+ * its declared environment variables, then whatever `az devops configure` holds (azDefaults
+ * below). */
 const globalAzure = (
   settings: Config,
 ): { organization: string; project: string } => globalSite(settings);
@@ -109,8 +107,8 @@ const loadDefaults = (): Effect.Effect<
     const read = (key: string): string | undefined =>
       new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
     const global = globalAzure(yield* Settings);
-    // The configuration chain's end: the azure-devops settings (bag, then the legacy flat
-    // field, which resolves the environment variable), then what the CLI itself holds.
+    // The configuration chain's end: the azure-devops settings (bag, then the environment
+    // variable the declaration names), then what the CLI itself holds.
     return {
       organization: global.organization || read("organization"),
       project: global.project || read("project"),

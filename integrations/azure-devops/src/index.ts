@@ -10,7 +10,7 @@ import { bodyAs } from "@corvi/contracts/body";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import { prNumberOf } from "@corvi/github/client";
 import { activeRuns, pipelineItems } from "./pipelines.ts";
-import { AZURE_ENV } from "./legacy.ts";
+import { AZURE_ENV } from "./env.ts";
 import { DEPLOY_ENVIRONMENTS_ENV } from "./deploySettings.ts";
 
 /**
@@ -133,7 +133,7 @@ export default {
   // workspace and stored under `extensionSettings.azure-devops`. The deployment conventions
   // (pipeline, versionParameter, environmentParameter, environments) are read back by
   // ./deploySettings.ts; organisation and project by ./azure.ts, which adds the per-workspace
-  // override above and the legacy `azure*` fields as the chain's fallback. An environment
+  // override above and its declared environment variables as the chain's fallback. An environment
   // variable keeps beating the page: the field shows locked when CORVI_AZURE_* is set.
   globalSettings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: AZURE_ENV.organization },

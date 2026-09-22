@@ -1,5 +1,6 @@
 import { loaded } from "./loaded.ts";
 import type { ConfigFile, Workspace } from "@corvi/configuration/config";
+import { foldLegacyAzure } from "../workspace/server/config.ts";
 
 /**
  * Normalize the workspaces' extension settings against what is loaded, in place.
@@ -14,10 +15,9 @@ import type { ConfigFile, Workspace } from "@corvi/configuration/config";
  *   legacy per-workspace `azure` object (`false`, or `{ organization, project }`) folds into
  *   the same bag (`false` additionally materializes an explicit extensions list without
  *   `azure-devops`, because naming some is the whole list);
- * - the legacy flat `azureOrganization`/`azureProject`/`azureDeploy` fields are left to the
- *   extension's own fallback read (azure-devops/legacy.ts) rather than copied: the resolved
- *   config keeps the file's unknown keys, so they stay readable where they were written
- *   until that fallback is removed.
+ * - the legacy flat `azureOrganization`/`azureProject`/`azureDeploy` fields fold into the
+ *   global `extensionSettings.azure-devops` bag (the config loader's `foldLegacyAzure`), so
+ *   they resolve as ordinary settings and leave the resolved config.
  *
  * A workspace with an explicit `extensions` list holding none of the retired names is never
  * touched. Everything else is left exactly as it was. Run after the built-ins load and after
@@ -31,6 +31,7 @@ import type { ConfigFile, Workspace } from "@corvi/configuration/config";
  * read hands the page one shape to edit and write back.
  */
 export function migrateFileSettings(file: ConfigFile): ConfigFile {
+  foldLegacyAzure(file);
   if (file.extensionSettings?.["deployments"] !== undefined) {
     const { ["deployments"]: legacy, ...rest } = file.extensionSettings;
     file.extensionSettings = {

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Settings } from "@corvi/contracts/capabilities";
 import { bagList, bagString, resolveSetting } from "@corvi/configuration/settings";
-import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
+import { AZURE_ENV } from "./env.ts";
 
 /**
  * The azure-devops extension's own server-wide deployment conventions, read back through the
@@ -9,10 +9,9 @@ import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
  *
  * The chain every extension setting follows, stated once in @corvi/configuration/settings: what the
  * settings page wrote under `extensionSettings.azure-devops` — the extension's own
- * `globalSettings` declaration — wins, and when the bag is empty the legacy flat field answers
- * (through legacy.ts), which carries the default and the environment resolution
- * (CORVI_AZURE_ENVIRONMENTS beats the file). A bag value that is not the right shape, or an empty
- * one, is not set: empty means unset.
+ * `globalSettings` declaration — wins, and when the bag is empty the environment variable the
+ * declaration names answers (CORVI_AZURE_ENVIRONMENTS), then the default. A bag value that is
+ * not the right shape, or an empty one, is not set: empty means unset.
  *
  * Organisation and project are not here: they belong to the extension's `azure.ts`, whose chain
  * also carries the per-workspace override.
@@ -40,38 +39,39 @@ const FALLBACK: DeploySettings = {
 
 export function deploySettingsOf(
   bag: Record<string, string | string[]> | undefined,
-  legacy: {
-    pipeline?: readonly [string, string];
-    versionParameter?: string;
-    environmentParameter?: string;
-    environments?: string[];
-  },
 ): DeploySettings {
   const pipeline = bagList(bag, "pipeline");
   return {
     pipeline: resolveSetting<readonly [string, string]>({
       bag: pipeline && pipeline.length === 2 ? [pipeline[0]!, pipeline[1]!] : undefined,
-      fallback: legacy.pipeline ?? FALLBACK.pipeline,
+      fallback: FALLBACK.pipeline,
     }),
     versionParameter: resolveSetting({
       bag: bagString(bag, "versionParameter"),
-      fallback: legacy.versionParameter ?? FALLBACK.versionParameter,
+      fallback: FALLBACK.versionParameter,
     }),
     environmentParameter: resolveSetting({
       bag: bagString(bag, "environmentParameter"),
-      fallback: legacy.environmentParameter ?? FALLBACK.environmentParameter,
+      fallback: FALLBACK.environmentParameter,
     }),
     environments: resolveSetting({
       bag: bagList(bag, "environments"),
-      fallback: legacy.environments ?? FALLBACK.environments,
+      env: AZURE_ENV.environments,
+      fallback: FALLBACK.environments,
+      parse: (raw) =>
+        raw
+          .split(",")
+          .map((environment) => environment.trim())
+          .filter(Boolean),
     }),
   };
 }
 
-/** The deployment conventions in effect: the extension's own bag, then the legacy flat field. */
+/** The deployment conventions in effect: the extension's own bag, then its declared environment
+ * variables. */
 export const deploySettings = (): Effect.Effect<DeploySettings, never, Settings> =>
   Effect.map(Settings, (settings) =>
-    deploySettingsOf(settings.extensionSettings?.["azure-devops"], legacyDeployOf(settings)),
+    deploySettingsOf(settings.extensionSettings?.["azure-devops"]),
   );
 
 /** The environment variable the `environments` declaration names, so the settings page's lock
