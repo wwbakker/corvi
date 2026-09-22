@@ -3,8 +3,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { azureOf } from "../apps/server/src/extensions/azure-devops/azure.ts";
-import { deploySettings, deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
+import { azureOf } from "@corvi/azure-devops/azure";
+import { deploySettings, deploySettingsOf } from "@corvi/azure-devops/deploySettings";
 import {
   runtimeConfig,
   extensionEnabled,

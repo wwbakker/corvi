@@ -1,8 +1,8 @@
 # Repository capabilities and change workflows
 
-Status: proposed step-1 design. No workspace packages or production APIs
-are implemented. This is the contract specification for the first slice, not another migration
-plan; execution remains in the [architecture refactor plan](../plans/architecture-refactor.md).
+Status: implemented. The port lives in `@corvi/repositories`, the workflows in
+`@corvi/workflows`, and the application composes them; this document remains the contract
+specification the implementation follows.
 
 The sketches below follow the shape of `opencode/packages/core/src/git.ts`: values and errors
 first, then the service interface, then the Layer that implements it. They are Effect 3 design

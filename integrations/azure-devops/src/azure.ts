@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { Config } from "@corvi/configuration/config";
-import { Cache, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
+import { Cache, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { bagString, resolveSetting } from "@corvi/configuration/settings";
 import { AZURE_ENV, legacyOrgProjectOf, legacyWorkspaceOf } from "./legacy.ts";
 

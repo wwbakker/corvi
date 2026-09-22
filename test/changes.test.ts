@@ -431,9 +431,9 @@ test("a change belongs to the context it was made in, and older ones to the firs
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
   const original = { ...runtimeConfig() };
   const { extensionEnabled, workspaceOf } = await import("../apps/server/src/workspace/server/index.ts");
-  const { azureOf } = await import("../apps/server/src/extensions/azure-devops/azure.ts");
+  const { azureOf } = await import("@corvi/azure-devops/azure");
   const { extensionsFor, loaded } = await import("../apps/server/src/integrations/index.ts");
-  const { siteFor } = await import("../apps/server/src/extensions/jira/jira.ts");
+  const { siteFor } = await import("@corvi/jira/jira");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag.
   (runtimeConfig() as { workspaces: unknown }).workspaces = [
@@ -469,8 +469,8 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   // come from the extensions' own per-workspace settings; a workspace with none of them uses
   // whatever the CLIs themselves have configured.
   expect(azureOf(workspaceOf(client), runtimeConfig()).organization).toBe("https://dev.azure.com/one");
-  expect(siteFor("personal")).toEqual({});
-  expect(siteFor("client")).toEqual({});
+  expect(siteFor(runtimeConfig(), "personal")).toEqual({});
+  expect(siteFor(runtimeConfig(), "client")).toEqual({});
 
   // A change with no workspace belongs to the first workspace.
   expect(workspaceOf(old).id).toBe("client");

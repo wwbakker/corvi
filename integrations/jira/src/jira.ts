@@ -1,15 +1,16 @@
 import { Effect } from "effect";
-import type { Change } from "../../domain/change.ts";
-import { swr, invalidate } from "../../capabilities/cache.ts";
+import type { ChangeWireDto as Change } from "@corvi/contracts/api";
+import { swr, invalidate } from "./cache.ts";
 import { env } from "@corvi/configuration/node";
-import { runtimeConfig, type Config } from "../../workspace/server/index.ts";
+import type { ResolvedDto } from "@corvi/contracts/config";
 import { bagString } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
 import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
-import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
+import { workspaceById, workspaceOf } from "@corvi/configuration/workspaces";
+import { Settings } from "@corvi/contracts/capabilities";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { messageOf } from "../../capabilities/effect/support.ts";
+import { messageOf } from "@corvi/shell/cli";
 import type { Board, Issue, Sprint, TicketRef } from "@corvi/contracts/integrations/jira";
 
 export type { Issue, Sprint } from "@corvi/contracts/integrations/jira";
@@ -61,14 +62,14 @@ export type Site = {
  * inherit the default site's stored token — which is what would send one client's token to
  * another, with no way for the workspace to say otherwise.
  */
-export function siteOfWorkspace(workspace: {
+export function siteOfWorkspace(settings: ResolvedDto, workspace: {
   extensionSettings?: Record<string, Record<string, string>>;
   /** The legacy per-workspace site object, preserved on a workspace written before the bag. */
   jira?: unknown;
 }): Site {
   const own = workspace.extensionSettings?.jira;
   const legacy = legacySiteOfWorkspace(workspace);
-  const global = runtimeConfig().extensionSettings?.jira;
+  const global = settings.extensionSettings?.jira;
   const namesOwnVariable = own?.tokenEnv !== undefined || legacy.tokenEnv !== undefined;
   // A token is never legacy: an early workspace's object could name a variable or a site, and the
   // token was the environment's either way.
@@ -86,9 +87,11 @@ export function siteOfWorkspace(workspace: {
 }
 
 // Pure and synchronous: nothing for an Effect to wrap.
-export const siteOf = (change: { workspace?: string }): Site => siteOfWorkspace(workspaceOf(change as never));
+export const siteOf = (settings: ResolvedDto, change: { workspace?: string }): Site =>
+  siteOfWorkspace(settings, workspaceOf(settings.workspaces, change));
 // Pure and synchronous: nothing for an Effect to wrap.
-export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspaceById(workspaceId));
+export const siteFor = (settings: ResolvedDto, workspaceId?: string): Site =>
+  siteOfWorkspace(settings, workspaceById(settings.workspaces, workspaceId));
 
 /**
  * The server-wide settings this extension declares, read back with the core's legacy flat
@@ -99,7 +102,7 @@ export const siteFor = (workspaceId?: string): Site => siteOfWorkspace(workspace
  * empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function globalOf(settings: Config): {
+export function globalOf(settings: ResolvedDto): {
   assignee: string;
   startTransition: string;
   doneTransition: string;
@@ -319,9 +322,13 @@ const boardViewKey = (site: Site): string => `jira:${siteKey(site)}:board-view`;
  * wizard re-reads on every visit, and one cache means `invalidate` and the tests' `clearCache`
  * reach it. `force` is the refresh button: it waits for the current answer rather than racing a
  * background one. */
-export const boardIssues = (workspaceId?: string, force = false): Effect.Effect<Board> =>
+export const boardIssues = (
+  workspaceId?: string,
+  force = false,
+): Effect.Effect<Board, never, Settings> =>
   Effect.gen(function* () {
-    const site = siteFor(workspaceId);
+    const settings = yield* Settings;
+    const site = siteFor(settings, workspaceId);
     const key = boardViewKey(site);
     if (force) invalidate(key);
     return yield* swr(key, ISSUE_TTL, readBoard(site));
@@ -357,13 +364,13 @@ export const createIssue = (input: {
   assignToMe?: boolean;
   /** Which context it belongs to, and therefore which Jira it is created in. */
   workspace?: string;
-}): Effect.Effect<Issue, BadRequestError> =>
+}): Effect.Effect<Issue, BadRequestError, Settings> =>
   Effect.gen(function* () {
     const summary = input.summary.trim();
     if (!summary) {
       return yield* new BadRequestError({ message: "summary required" });
     }
-    const site = siteFor(input.workspace);
+    const site = siteFor(yield* Settings, input.workspace);
     // The site first: a workspace with nothing configured must be told that, not that its project
     // is missing — the project is only unreachable because the site is.
     const check = siteCheck(site);
@@ -393,7 +400,7 @@ export const createIssue = (input: {
 
     if (input.assignToMe !== false) {
       // Assigning is a field like any other, but its value is an account id, not a name.
-      const account = yield* accountId(globalOf(runtimeConfig()).assignee, site);
+      const account = yield* accountId(globalOf(yield* Settings).assignee, site);
       if (account) {
         yield* jiraFetch(`/rest/api/3/issue/${created.key}/assignee`, {
           site,

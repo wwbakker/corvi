@@ -12,11 +12,11 @@ can be understood without reading their implementations.
 - [Style](docs/guides/style.md): code and documentation conventions.
 - [Testing](docs/guides/testing.md): verification and resource safety.
 
-These guides define the **accepted target**, not a claim that the refactor is implemented.
-The [refactor plan](docs/plans/architecture-refactor.md) tracks adoption. For repository/change
-work, also read the [concrete contract design](docs/design/repositories-and-changes.md) and its
-review status. Existing source layout, comments, and tests are evidence of behavior, not exceptions
-to the target architecture.
+These guides define the **accepted layout**, and the implementation matches it: the application
+lives in `apps/*`, capabilities in `packages/*`, integrations in `integrations/*`, and
+`bun run boundaries` enforces the graph. For repository/change work, also read the
+[concrete contract design](docs/design/repositories-and-changes.md). Comments and tests are
+evidence of behavior; they do not override the target architecture.
 
 ## Before implementation
 

@@ -2,14 +2,11 @@
 
 ## Architecture and implementation status
 
-The guides define Corvi's accepted architecture for the refactor. The implementation still uses
-`src/` and has not yet adopted the workspace layout. Do not infer that a package, API example,
-or boundary check described as a target already exists.
-
-The [refactor plan](plans/architecture-refactor.md) is the implementation checklist. The
+The guides define Corvi's accepted architecture, and the implementation now matches it: the
+application lives in `apps/*`, shared capabilities in `packages/*`, provider integrations in
+`integrations/*`, and `bun run boundaries` enforces the declared dependency graph. The
 [architecture decisions](decisions/architecture.md) state the selected direction and its limits.
-Existing custom-extension machinery is scheduled for removal; there is no external extension API
-to preserve or develop.
+There is no external extension API; the retired custom-extension machinery is gone.
 
 ## For contributors and agents
 
@@ -26,13 +23,12 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 Read architecture and API design before changing a public surface. Read local package instructions
 when they exist. Historical implementation choices do not override these rules.
 
-## Design for the first slice
+## Repository and change contracts
 
-[Repository capabilities and change workflows](design/repositories-and-changes.md) specifies the
-first slice's contracts: links owned by `changes`, checkout work in `repositories`, the read and
+[Repository capabilities and change workflows](design/repositories-and-changes.md) documents the
+contracts as implemented: links owned by `changes`, checkout work in `repositories`, the read and
 start workflows, the transport contract, and the behavior-test map. Its TypeScript prototypes
-live under `design/repositories-and-changes/` and are checked by `bun run typecheck`; no
-production package, adapter, or prototype test is implemented.
+live under `design/repositories-and-changes/` and are checked by `bun run typecheck`.
 
 ## For users
 

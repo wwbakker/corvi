@@ -1,13 +1,13 @@
 import { Effect, Schema } from "effect";
-import type { WidgetState } from "../../domain/widget.ts";
-import { Cache, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import { cliJson } from "../../capabilities/effect/support.ts";
-import type { Result } from "../../capabilities/shell.ts";
+import type { WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { cliJson } from "@corvi/shell/cli";
+import type { Result } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
 import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";
-import { ago } from "../../domain/time.ts";
+import { ago } from "@corvi/contracts/display";
 import { BadRequestError } from "@corvi/contracts/errors";
 // The wire vocabulary is shared with the browser half; the types derive from the schemas there.
 import type { Buildable, Deployed, Service } from "@corvi/contracts/integrations/azure-devops";

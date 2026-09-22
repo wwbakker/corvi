@@ -16,9 +16,9 @@ import {
 import { matchRoute } from "../apps/server/src/integrations/dispatch.ts";
 import type { CompiledRoute } from "../apps/server/src/integrations/loaded.ts";
 import { planIssueClose, repoFromRemote } from "@corvi/github/issues";
-import { planIssueCompletion } from "../apps/server/src/extensions/jira/index.ts";
+import { planIssueCompletion } from "@corvi/jira";
 import { refOf, refLabel } from "@corvi/contracts/integrations/github-issues";
-import { ticketOf } from "../apps/server/src/extensions/jira/jira.ts";
+import { ticketOf } from "@corvi/jira/jira";
 import { unknownIntegrationNames } from "../apps/server/src/integrations/included.ts";
 import { runtimeConfig, reloadConfigSync, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";

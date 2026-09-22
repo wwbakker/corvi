@@ -54,9 +54,10 @@ first run has the settings page at `/settings` for the paths and integrations, a
 - [Architecture](docs/guides/architecture.md), [API design](docs/guides/api-design.md), and the
   other [contributor guides](docs/README.md).
 
-The architecture guides define the accepted modular redesign. The implementation still uses
-`src/`; the [refactor plan](docs/plans/architecture-refactor.md) tracks adoption. Included
-integrations will become ordinary workspace packages, not a third-party extension platform.
+The architecture guides define the accepted layout, and the implementation matches it: the
+application is `apps/server`, `apps/web` and `apps/desktop`, shared capabilities are `packages/*`,
+provider integrations are `integrations/*`, and `bun run boundaries` enforces the graph. There is
+no third-party extension platform.
 
 ## Development
 

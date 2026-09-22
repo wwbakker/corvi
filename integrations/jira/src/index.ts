@@ -1,7 +1,7 @@
 import { Effect, Either } from "effect";
-import type { Change, CompletionStep } from "../../domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { swr } from "../../capabilities/cache.ts";
+import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
+import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { swr } from "./cache.ts";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import {
@@ -20,10 +20,10 @@ import {
 } from "./jira.ts";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
-import { Settings, Workspace } from "../../integrations/api/capabilities.ts";
-import type { Capabilities } from "../../integrations/api/capabilities.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
-import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
+import { Settings, Workspace } from "@corvi/contracts/capabilities";
+import type { Capabilities } from "@corvi/contracts/capabilities";
+import type { IncludedIntegration } from "@corvi/contracts/integration";
+import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
 
 /**
  * The jira extension: a self-describing value.
@@ -150,7 +150,7 @@ export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequest
     const workspace = yield* Workspace;
     const settings = yield* Settings;
     const global = globalOf(settings);
-    const site = siteOfWorkspace(workspace);
+    const site = siteOfWorkspace(settings, workspace);
     const account = yield* accountId(global.assignee, site);
     if (account) {
       yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
@@ -184,7 +184,7 @@ export const moveIssueOnComplete = (change: Change): Effect.Effect<void, BadRequ
   Effect.gen(function* () {
     const key = ticketOf(change);
     if (!key) return;
-    const site = siteOfWorkspace(yield* Workspace);
+    const site = siteOfWorkspace(yield* Settings, yield* Workspace);
     const { doneTransition } = globalOf(yield* Settings);
     yield* moveIssue(key, doneTransition, site);
   });
@@ -200,7 +200,7 @@ export const jiraTitleSource: TitleSource = {
   applies: (change) => Boolean(ticketOf(change)),
   lookup: (changes) =>
     Effect.gen(function* () {
-      const site = siteOfWorkspace(yield* Workspace);
+      const site = siteOfWorkspace(yield* Settings, yield* Workspace);
       const keys = [
         ...new Set(changes.map((c) => ticketOf(c)).filter((k): k is string => Boolean(k))),
       ];
@@ -221,7 +221,7 @@ export const jiraDescriptionSection: DescriptionSection = {
     Effect.gen(function* () {
       const key = ticketOf(change);
       if (!key) return undefined;
-      const issue = yield* issueByKey(key, siteOfWorkspace(yield* Workspace));
+      const issue = yield* issueByKey(key, siteOfWorkspace(yield* Settings, yield* Workspace));
       return issue?.summary ? `${key} - ${issue.summary}` : key;
     }),
 };
@@ -271,7 +271,7 @@ export default {
             };
           }
           // The widget is a display, so it may be a minute old; the completion step is not.
-          return yield* status(change, siteOfWorkspace(yield* Workspace), key);
+          return yield* status(change, siteOfWorkspace(yield* Settings, yield* Workspace), key);
         }),
     },
   ],

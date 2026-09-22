@@ -11,8 +11,8 @@ import {
   versionInLines,
   versionOf,
   type Run,
-} from "../apps/server/src/extensions/azure-devops/pipelines.ts";
-import { azDefaults, azFor, type Az } from "../apps/server/src/extensions/azure-devops/azure.ts";
+} from "@corvi/azure-devops/pipelines";
+import { azDefaults, azFor, type Az } from "@corvi/azure-devops/azure";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../apps/server/src/domain/widget.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";

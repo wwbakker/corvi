@@ -9,7 +9,7 @@ import type { Card } from "../apps/server/src/integrations/types.ts";
 import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
 import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integrations/effects.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "@corvi/github";
-import azureDevopsExtension, { azureDevopsSummaryContributor } from "../apps/server/src/extensions/azure-devops/index.ts";
+import azureDevopsExtension, { azureDevopsSummaryContributor } from "@corvi/azure-devops";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";

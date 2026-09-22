@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { Effect, Either } from "effect";
+import { Settings } from "@corvi/contracts/capabilities";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig, type Config, type Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import jiraExtension from "../apps/server/src/extensions/jira/index.ts";
+import jiraExtension from "@corvi/jira";
 import {
   boardIssues,
   createIssue,
@@ -17,9 +18,9 @@ import {
   siteOf,
   siteOfWorkspace,
   ticketOf,
-} from "../apps/server/src/extensions/jira/jira.ts";
-import { jiraFetch } from "../apps/server/src/extensions/jira/jiraHttp.ts";
-import { accountId } from "../apps/server/src/extensions/jira/account.ts";
+} from "@corvi/jira/jira";
+import { jiraFetch } from "@corvi/jira/jiraHttp";
+import { accountId } from "@corvi/jira/account";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -56,8 +57,8 @@ const text = (body: string, status = 200, statusText?: string): Response =>
 
 const noContent = (): Response => new Response(null, { status: 204 });
 
-const runEither = <A, E>(effect: Effect.Effect<A, E, never>): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.either(effect));
+const runEither = <A, E>(effect: Effect.Effect<A, E, Settings>): Promise<Either.Either<A, E>> =>
+  Effect.runPromise(Effect.either(Effect.provideService(effect, Settings, runtimeConfig())));
 
 /** What was sent as authorization, which is the whole of what basic auth is. */
 const authHeader = (call: FetchCall): string =>
@@ -361,7 +362,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
   };
 
   // Nothing of its own: everything comes from the default.
-  expect(siteOfWorkspace({})).toEqual({
+  expect(siteOfWorkspace(runtimeConfig(), {})).toEqual({
     server: "https://default.example",
     email: "default@example.com",
     project: "DEF",
@@ -372,7 +373,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
 
   // Its own bag wins where it speaks, and inherits where it is silent.
   expect(
-    siteOfWorkspace({ extensionSettings: { jira: { project: "PROJ", token: "own-token" } } }),
+    siteOfWorkspace(runtimeConfig(), { extensionSettings: { jira: { project: "PROJ", token: "own-token" } } }),
   ).toEqual({
     server: "https://default.example",
     email: "default@example.com",
@@ -387,7 +388,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
     extensionSettings: { jira: { project: "BAG" } },
     jira: { project: "LEGACY", board: "7", tokenEnv: "LEGACY_TOKEN", configFile: "/old.yml" },
   };
-  expect(siteOfWorkspace(legacy)).toEqual({
+  expect(siteOfWorkspace(runtimeConfig(), legacy)).toEqual({
     server: "https://default.example",
     email: "default@example.com",
     project: "BAG",
@@ -397,7 +398,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
   });
 
   // `false` and a non-object are no site of their own, not a site with everything absent.
-  expect(siteOfWorkspace({ jira: false }).project).toBe("DEF");
+  expect(siteOfWorkspace(runtimeConfig(), { jira: false }).project).toBe("DEF");
 });
 
 test("a workspace that names its own token variable does not inherit the default's token", () => {
@@ -406,11 +407,11 @@ test("a workspace that names its own token variable does not inherit the default
   };
 
   // Silent about the credential: the default site's token is the one that applies.
-  expect(siteOfWorkspace({}).token).toBe("default-token");
+  expect(siteOfWorkspace(runtimeConfig(), {}).token).toBe("default-token");
 
   // It says where its credential comes from, so the default's stored token is not also its own —
   // otherwise one client's token would be sent to another with no way to say otherwise.
-  expect(siteOfWorkspace({ extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } })).toEqual({
+  expect(siteOfWorkspace(runtimeConfig(), { extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } })).toEqual({
     server: SITE.server,
     email: SITE.email,
     project: undefined,
@@ -425,9 +426,9 @@ test("siteOf and siteFor resolve a change's and an id's Jira", () => {
     { id: "client", name: "Client", extensionSettings: { jira: { project: "CLI" } } },
     { id: "other", name: "Other" },
   ];
-  expect(siteOf({ workspace: "client" }).project).toBe("CLI");
-  expect(siteFor("client").project).toBe("CLI");
-  expect(siteFor("other")).toEqual({
+  expect(siteOf(runtimeConfig(), { workspace: "client" }).project).toBe("CLI");
+  expect(siteFor(runtimeConfig(), "client").project).toBe("CLI");
+  expect(siteFor(runtimeConfig(), "other")).toEqual({
     server: undefined,
     email: undefined,
     project: undefined,
@@ -436,7 +437,7 @@ test("siteOf and siteFor resolve a change's and an id's Jira", () => {
     token: undefined,
   });
   // An unknown id falls back to the first workspace, where a change without one lives.
-  expect(siteFor("nope").project).toBe("CLI");
+  expect(siteFor(runtimeConfig(), "nope").project).toBe("CLI");
 });
 
 test("globalOf lets the settings bag win and treats an empty or non-string value as unset", () => {

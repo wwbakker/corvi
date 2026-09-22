@@ -9,11 +9,13 @@
   },
   "dependencies": {
     "@corvi/agents": "workspace:*",
+    "@corvi/azure-devops": "workspace:*",
     "@corvi/changes": "workspace:*",
     "@corvi/client": "workspace:*",
     "@corvi/configuration": "workspace:*",
     "@corvi/contracts": "workspace:*",
     "@corvi/github": "workspace:*",
+    "@corvi/jira": "workspace:*",
     "@corvi/repositories": "workspace:*",
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",

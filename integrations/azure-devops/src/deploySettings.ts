@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { Settings } from "../../integrations/api/capabilities.ts";
+import { Settings } from "@corvi/contracts/capabilities";
 import { bagList, bagString, resolveSetting } from "@corvi/configuration/settings";
 import { AZURE_ENV, legacyDeployOf } from "./legacy.ts";
 

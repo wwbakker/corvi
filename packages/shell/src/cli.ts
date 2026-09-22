@@ -26,3 +26,7 @@ export const cliJson = <A, I, B extends A>(schema: Schema.Schema<A, I>, fallback
  * callers branch on. */
 export const soft = <R>(work: Effect.Effect<Result, CliError, R>): Effect.Effect<Result, never, R> =>
   Effect.catchAll(work, (e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr }));
+
+/** A failure's message: every typed error carries the sentence the user sees, and anything else
+ * falls back to `String(e)`. */
+export const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));

@@ -48,7 +48,7 @@ consistent across hosts; platform differences are deliberate adapter behavior.
   refactor. Preserve useful constraints when changing code; update them rather than deleting them.
 - Do not claim guarantees the implementation does not establish. Put important guarantees in
   tests as well as contracts.
-- Guides state current rules. Manuals describe current product behavior. The refactor plan owns
+- Guides state current rules. Manuals describe current product behavior. Plans once owned
   temporary migration details. Do not duplicate the same rule across all three.
 - A package's `AGENTS.md` should briefly list ownership, non-ownership, public entrypoints,
   allowed dependencies, non-obvious invariants, and verification. Link repository-wide guidance.

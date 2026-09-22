@@ -18,9 +18,9 @@ Read [AGENTS.md](AGENTS.md) and the [documentation index](docs/README.md) before
 
 ## Design and scope
 
-The [architecture](docs/guides/architecture.md) is the accepted refactor target; adoption is tracked
-in the [plan](docs/plans/architecture-refactor.md). Public API changes need an explicit contract,
-not just an implementation that satisfies one caller. Keep behavior changes identifiable and
+The [architecture](docs/guides/architecture.md) is the accepted layout, and `bun run boundaries`
+enforces its graph. Public API changes need an explicit contract, not just an implementation that
+satisfies one caller. Keep behavior changes identifiable and
 request approval for changes to ownership or dependency rules.
 
 Internal interfaces can change. Preserve user-facing behavior and data unless a change or

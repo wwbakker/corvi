@@ -15,7 +15,8 @@
     "./integration": "./src/integration.ts",
     "./display": "./src/display.ts",
     "./integrations/*": "./src/integrations/*.ts",
-    "./settings-view": "./src/settings-view.ts"
+    "./settings-view": "./src/settings-view.ts",
+    "./body": "./src/body.ts"
   },
   "dependencies": {
     "effect": "catalog:"

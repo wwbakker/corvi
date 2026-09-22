@@ -81,15 +81,9 @@ export function readConfig(): Config {
     // The file's unknown keys ride along into the resolved config: every boundary that decodes a
     // file keeps the keys it does not know about, and an extension's legacy fallback (the jira
     // extension's `legacy.ts`, the azure-devops extension's `legacy.ts`) reads a field the core
-    // used to own from here. Every known field below overrides its raw counterpart — and the
-    // retired top-level keys are deleted after spreading, so `in` checks and `Object.keys`
-    // cannot mistake a legacy field for a live one.
+    // used to own from here — including the retired flat `azure*` fields, which stay readable
+    // where they were written. Every known field below overrides its raw counterpart.
     ...file,
-    ...({ azureOrganization: undefined, azureProject: undefined, azureDeploy: undefined } as {
-      azureOrganization?: undefined;
-      azureProject?: undefined;
-      azureDeploy?: undefined;
-    }),
     changesRoot: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.changesRoot,

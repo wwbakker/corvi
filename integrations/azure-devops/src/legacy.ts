@@ -1,18 +1,7 @@
 import type { Config } from "@corvi/configuration/config";
 import { env } from "@corvi/configuration/node";
-import { readFileSync } from "../../workspace/server/config.ts";
-import { resolveSetting } from "@corvi/configuration/settings";
 
-/** The config file as written, for the legacy flat fields `load()` deletes after spreading.
- * Undefined when the file cannot be read: the chain then falls back to the bag and the
- * environment alone. */
-const readLegacyFile = (): Record<string, unknown> | undefined => {
-  try {
-    return readFileSync() as unknown as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-};
+import { resolveSetting } from "@corvi/configuration/settings";
 
 /**
  * The azure-devops extension's raw reads of the fields the core used to own.
@@ -50,13 +39,13 @@ export const legacyWorkspaceOf = (workspace: object): {
   return { organization: str(site.organization), project: str(site.project) };
 };
 
-/** The legacy flat organisation/project settings, as the config file still holds them. The
- * environment variable beats the file, exactly as the resolved chain did before the fields
- * left the core. Read from the file, not the resolved config: `load()` deletes the retired
- * keys after spreading, so they are only visible where they were written. */
+/** The legacy flat organisation/project settings, as the resolved config still carries them
+ * (every file boundary keeps unknown keys, so a config written before these fields left the
+ * core still has them). The environment variable beats the value, exactly as the resolved
+ * chain did before the fields left the core. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const legacyOrgProjectOf = (config: Config): { organization: string; project: string } => {
-  const legacy = (readLegacyFile() ?? config) as Config & {
+  const legacy = config as Config & {
     azureOrganization?: string;
     azureProject?: string;
   };
@@ -74,8 +63,8 @@ export const legacyOrgProjectOf = (config: Config): { organization: string; proj
   };
 };
 
-/** The legacy flat deployment conventions, as the config file still holds them: read from the
- * file, like the organisation and project above. */
+/** The legacy flat deployment conventions, as the resolved config still carries them, like
+ * the organisation and project above. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const legacyDeployOf = (config: Config): {
   pipeline?: readonly [string, string];
@@ -83,8 +72,7 @@ export const legacyDeployOf = (config: Config): {
   environmentParameter?: string;
   environments?: string[];
 } => {
-  void config;
-  const legacy = (readLegacyFile() ?? {}) as {
+  const legacy = config as {
     azureDeploy?: {
       pipeline?: readonly [string, string];
       versionParameter?: string;

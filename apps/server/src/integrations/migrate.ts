@@ -15,8 +15,9 @@ import type { ConfigFile, Workspace } from "@corvi/configuration/config";
  *   the same bag (`false` additionally materializes an explicit extensions list without
  *   `azure-devops`, because naming some is the whole list);
  * - the legacy flat `azureOrganization`/`azureProject`/`azureDeploy` fields are left to the
- *   extension's own fallback read (azure-devops/legacy.ts) rather than copied: they stay
- *   readable where they are until that fallback is removed.
+ *   extension's own fallback read (azure-devops/legacy.ts) rather than copied: the resolved
+ *   config keeps the file's unknown keys, so they stay readable where they were written
+ *   until that fallback is removed.
  *
  * A workspace with an explicit `extensions` list holding none of the retired names is never
  * touched. Everything else is left exactly as it was. Run after the built-ins load and after

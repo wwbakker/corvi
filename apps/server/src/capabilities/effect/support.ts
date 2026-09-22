@@ -15,11 +15,8 @@ export const shSoft = (cmd: string[], cwd?: string): Effect.Effect<Result> =>
 
 /** `--json` output through the Schema, re-exported from `@corvi/shell/cli` so the app's
  * callers keep one import while the helpers become package-owned. */
-export { cliJson } from "@corvi/shell/cli";
+export { cliJson, messageOf } from "@corvi/shell/cli";
 
-/** A failure's message: every typed error carries the sentence the user sees, and anything else
- * falls back to `String(e)`. */
-export const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** Filesystem failures are defects, not domain errors — the directories we read and write are
  * ours, so the raw rejection escapes as a defect. */

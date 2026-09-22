@@ -1,0 +1,21 @@
+{
+  "name": "@corvi/azure-devops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.ts",
+    "./pipelines": "./src/pipelines.ts",
+    "./legacy": "./src/legacy.ts",
+    "./deploySettings": "./src/deploySettings.ts",
+    "./azure": "./src/azure.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "@corvi/configuration": "workspace:*",
+    "@corvi/github": "workspace:*",
+    "@corvi/shell": "workspace:*",
+    "effect": "catalog:"
+  }
+}

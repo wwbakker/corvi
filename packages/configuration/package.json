@@ -6,7 +6,8 @@
   "exports": {
     "./config": "./src/config.ts",
     "./settings": "./src/settings.ts",
-    "./node": "./src/node/identity.ts"
+    "./node": "./src/node/identity.ts",
+    "./workspaces": "./src/workspaces.ts"
   },
   "dependencies": {
     "@corvi/contracts": "workspace:*"

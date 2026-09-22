@@ -62,13 +62,17 @@
     },
     "@corvi/jira": {
       "dependsOn": [
-        "@corvi/contracts"
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/shell"
       ]
     },
     "@corvi/azure-devops": {
       "dependsOn": [
         "@corvi/contracts",
-        "@corvi/github"
+        "@corvi/configuration",
+        "@corvi/github",
+        "@corvi/shell"
       ]
     },
     "@corvi/pi": {

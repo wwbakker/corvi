@@ -13,13 +13,13 @@ import type {
   TitleSource,
 } from "@corvi/contracts/integration";
 import { extensionEnabled } from "../workspace/server/index.ts";
-import { azureDevopsSummaryContributor } from "../extensions/azure-devops/index.ts";
+import { azureDevopsSummaryContributor } from "@corvi/azure-devops";
 import { githubSummaryContributor } from "@corvi/github";
 import {
   githubIssuesDescriptionSection,
   githubIssuesTitleSource,
 } from "@corvi/github/issues";
-import { jiraDescriptionSection, jiraTitleSource } from "../extensions/jira/index.ts";
+import { jiraDescriptionSection, jiraTitleSource } from "@corvi/jira";
 
 export type {
   DescriptionSection,

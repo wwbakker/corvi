@@ -1,8 +1,8 @@
 # Architecture
 
-Status: accepted target. The workspace layout below is not implemented yet. Follow the
-[refactor plan](../plans/architecture-refactor.md); do not treat existing dependency exceptions
-as rules for new code. The [decisions](../decisions/architecture.md) record scope and rationale.
+Status: accepted and implemented. The layout below is the workspace as checked;
+`bun run boundaries` enforces the declared graph. The [decisions](../decisions/architecture.md)
+record scope and rationale.
 
 ## Structure
 

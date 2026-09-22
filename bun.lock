@@ -5,8 +5,10 @@
     "": {
       "name": "corvi",
       "dependencies": {
+        "@corvi/azure-devops": "workspace:*",
         "@corvi/desktop": "workspace:*",
         "@corvi/github": "workspace:*",
+        "@corvi/jira": "workspace:*",
         "@corvi/web": "workspace:*",
       },
       "devDependencies": {
@@ -41,11 +43,13 @@
       "version": "0.0.0",
       "dependencies": {
         "@corvi/agents": "workspace:*",
+        "@corvi/azure-devops": "workspace:*",
         "@corvi/changes": "workspace:*",
         "@corvi/client": "workspace:*",
         "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",
         "@corvi/github": "workspace:*",
+        "@corvi/jira": "workspace:*",
         "@corvi/repositories": "workspace:*",
         "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
@@ -73,10 +77,31 @@
         "react-dom": "^19.3.0",
       },
     },
+    "integrations/azure-devops": {
+      "name": "@corvi/azure-devops",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/configuration": "workspace:*",
+        "@corvi/contracts": "workspace:*",
+        "@corvi/github": "workspace:*",
+        "@corvi/shell": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
     "integrations/github": {
       "name": "@corvi/github",
       "version": "0.0.0",
       "dependencies": {
+        "@corvi/contracts": "workspace:*",
+        "@corvi/shell": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
+    "integrations/jira": {
+      "name": "@corvi/jira",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",
         "@corvi/shell": "workspace:*",
         "effect": "catalog:",
@@ -220,6 +245,8 @@
 
     "@corvi/agents": ["@corvi/agents@workspace:packages/agents"],
 
+    "@corvi/azure-devops": ["@corvi/azure-devops@workspace:integrations/azure-devops"],
+
     "@corvi/changes": ["@corvi/changes@workspace:packages/changes"],
 
     "@corvi/client": ["@corvi/client@workspace:packages/client"],
@@ -231,6 +258,8 @@
     "@corvi/desktop": ["@corvi/desktop@workspace:apps/desktop"],
 
     "@corvi/github": ["@corvi/github@workspace:integrations/github"],
+
+    "@corvi/jira": ["@corvi/jira@workspace:integrations/jira"],
 
     "@corvi/repositories": ["@corvi/repositories@workspace:packages/repositories"],
 

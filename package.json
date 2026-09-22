@@ -51,8 +51,10 @@
     "dev:web": "bun apps/web/src/node/build.ts --watch"
   },
   "dependencies": {
+    "@corvi/azure-devops": "workspace:*",
     "@corvi/desktop": "workspace:*",
     "@corvi/github": "workspace:*",
+    "@corvi/jira": "workspace:*",
     "@corvi/web": "workspace:*"
   },
   "devDependencies": {

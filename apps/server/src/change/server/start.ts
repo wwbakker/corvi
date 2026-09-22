@@ -14,7 +14,7 @@ import { copyTooling } from "../../capabilities/os.ts";
 import { type Change, type ProvisionResult } from "../../domain/change.ts";
 import { extensionsFor } from "../../integrations/selectors.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
-import { moveIssueOnStart } from "../../extensions/jira/index.ts";
+import { moveIssueOnStart } from "@corvi/jira";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
 import { runtimeConfig, workspaceOf } from "../../workspace/server/index.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";

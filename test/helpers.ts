@@ -24,7 +24,7 @@ import {
   deploy,
   versionsFor,
   type Buildable,
-} from "../apps/server/src/extensions/azure-devops/server.ts";
+} from "@corvi/azure-devops/server";
 
 
 /** Whether this process has written the run's pid-file yet. */

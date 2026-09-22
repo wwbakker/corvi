@@ -1,12 +1,12 @@
 import { Effect, Schema } from "effect";
-import { basename } from "node:path";
-import type { Change } from "../../domain/change.ts";
-import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, GitFacts, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
-import type { SummaryContribution, SummaryContributor } from "../../integrations/overview.ts";
+import { baseName } from "./path.ts";
+import type { ChangeWireDto as Change } from "@corvi/contracts/api";
+import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Changes, GitFacts, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
+import type { IncludedIntegration } from "@corvi/contracts/integration";
+import type { SummaryContribution, SummaryContributor } from "@corvi/contracts/integration";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { bodyAs } from "../../capabilities/effect/body.ts";
+import { bodyAs } from "@corvi/contracts/body";
 import { deployments, versionsFor, deploy } from "./server.ts";
 import { prNumberOf } from "@corvi/github/client";
 import { activeRuns, pipelineItems } from "./pipelines.ts";
@@ -45,7 +45,7 @@ const repoItem = (
     const { items } = yield* pipelineItems(change, repo, number);
     if (items.length === 0) return [];
     return [{
-      label: basename(repo),
+      label: baseName(repo),
       state: worstItem(items),
       children: items,
     }];

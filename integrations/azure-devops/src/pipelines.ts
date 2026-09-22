@@ -1,10 +1,10 @@
-import { basename } from "node:path";
+import { baseName } from "./path.ts";
 import { Effect, Schema } from "effect";
-import type { WidgetItem, WidgetState } from "../../domain/widget.ts";
-import { Cache, Changes, Settings, Shell, Workspace } from "../../integrations/api/capabilities.ts";
-import { cliJson } from "../../capabilities/effect/support.ts";
+import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
+import { Cache, Changes, Settings, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { cliJson } from "@corvi/shell/cli";
 import { env } from "@corvi/configuration/node";
-import type { Result } from "../../capabilities/shell.ts";
+import type { Result } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
@@ -99,7 +99,7 @@ export const refsFor = (branch: string, pr?: number): string[] =>
 
 /** Azure DevOps pipeline folders mirror the service directories of a monorepo (`\service-x`),
  * which is how runs are attributed to a repository: `repository.name` comes back null. */
-export const folderFor = (repo: string): string => `\\${basename(repo)}`;
+export const folderFor = (repo: string): string => `\\${baseName(repo)}`;
 
 // Pure and synchronous: nothing for an Effect to wrap.
 

@@ -1,6 +1,8 @@
 # Architecture decisions
 
-Status: accepted target; implementation is tracked in the [refactor plan](../plans/architecture-refactor.md).
+Status: accepted and implemented: the application lives in `apps/*`, shared capabilities in
+`packages/*`, provider integrations in `integrations/*`, and `bun run boundaries` enforces the
+declared graph.
 
 | Decision | Reason and boundary |
 | --- | --- |
