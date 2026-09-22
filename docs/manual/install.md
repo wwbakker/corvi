@@ -13,8 +13,9 @@ bun install --frozen-lockfile
 bun run dev
 ```
 
-Development serves `http://127.0.0.1:4000`. The server runs with `node --watch`; the browser UI is
-rebuilt as sources change. Refresh the page after UI changes.
+Development serves `http://127.0.0.1:4000`. The page is built ahead of time: `bun run dev`
+builds it first (`bun run build:web`, into `apps/web/dist`), and `bun run dev:web` watches the
+page's sources and rebuilds as you edit. The server itself only serves the built files.
 
 Electron and node-pty are installed with the project. The pinned node-pty version includes
 prebuilds for supported macOS/Linux x64/arm64 platforms. Do not assume unsupported platforms can
@@ -37,7 +38,7 @@ started development server. tmux sessions survive application/server shutdown.
 | --- | --- | --- |
 | Start | `bun run dev` | App icon or launcher |
 | Port | 4000 by default | Fresh port each launch |
-| Source changes | Server watches; UI rebuilds | Picked up on next launch |
+| Source changes | Server watches; rebuild the page with `bun run dev:web` | Picked up on next launch |
 | Logs | Starting terminal | Platform log file |
 
 The installed app records the checkout it runs from. Reinstall after moving the checkout or
@@ -79,9 +80,10 @@ is a secure context for browser APIs and does not require TLS.
 
 ## Troubleshooting and development tools
 
-A server that cannot build the page should report a startup failure. Check the log and run
-`bun install --frozen-lockfile` in the correct checkout. A non-JSON API response can indicate an
-outdated server; confirm which instance you are using rather than stopping a process by port.
+A server that cannot find a built page should report a startup failure. Check the log and run
+`bun run build:web` in the correct checkout (the installers and `bun run dev` do it first). A
+non-JSON API response can indicate an outdated server; confirm which instance you are using
+rather than stopping a process by port.
 
 For screenshots, browser checks, and isolated desktop testing, see [the interface](interface.md#checking-the-interface)
 and the contributor [testing guide](../guides/testing.md). Never automate the installed app as a

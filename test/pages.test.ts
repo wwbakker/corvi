@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
-import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../apps/server/src/domain/chrome.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
 /**
  * Every page, in the engine the app renders in.
@@ -310,7 +310,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   await strip.locator(".window-tab.overview").waitFor();
 
   expect(await strip.locator(".subject").count()).toBe(0);
-  // The name went to the window's title (apps/server/src/app-root/app.tsx), which the OS window switcher reads:
+  // The name went to the window's title (apps/web/src/app-root/app.tsx), which the OS window switcher reads:
   // it arrives with the change's record rather than with the page, so it is waited for.
   await page.waitForFunction(() => document.title === "Anonymise customer names");
   expect(await page.title()).toBe("Anonymise customer names");
@@ -353,7 +353,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
 }, 30_000);
 
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
-  // The host bridge is what says the page is inside the app window (apps/server/src/domain/host.ts), and only
+  // The host bridge is what says the page is inside the app window (apps/web/src/domain/host.ts), and only
   // then is the first row chrome as well: what you drag the window by, and clear of the traffic
   // lights the main process placed in it (docs/manual/interface.md). Injected rather than
   // driven through Electron, because the page's half of the contract is what is being checked — the
@@ -463,7 +463,7 @@ test.skipIf(!usable)("New starts an idea from the column or the overview", async
 
 test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard", async () => {
   // The promise this change is about: leaving /new loses nothing. The form lives in the App
-  // (apps/server/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
+  // (apps/web/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");

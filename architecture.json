@@ -101,7 +101,9 @@
     "@corvi/web": {
       "dependsOn": [
         "@corvi/client",
-        "@corvi/contracts"
+        "@corvi/contracts",
+        "@corvi/changes",
+        "@corvi/terminals"
       ]
     },
     "@corvi/desktop": {

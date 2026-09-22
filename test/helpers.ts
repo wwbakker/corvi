@@ -19,7 +19,7 @@ import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/extensions/review/server.ts";
-import type { LocalStatus } from "../apps/server/src/extensions/review/shared.ts";
+import type { LocalStatus } from "@corvi/contracts/integrations/review";
 import {
   deploy,
   versionsFor,

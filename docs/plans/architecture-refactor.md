@@ -221,24 +221,20 @@ Start with inspection rather than deletion: prove the boundary without changing 
       `ClientError.body` carrying a structured 409 so the dialogs read server truth. Extension
       browser halves own their DTO schemas (notes, leftovers, github-issues, jira, review, azure)
       and use `makeWireClient` for the same transport classification. No `api<T>`/`post<T>` call
-      site remains outside the retired generic helpers in `apps/server/src/app-root/api.ts`.
+      site remains outside the retired generic helpers in `apps/web/src/app-root/api.ts`.
 - [ ] Move UI to feature ownership; keep host access behind a typed platform interface.
-      Feature halves exist and the host is gone: each included integration ships its client half
-      (`apps/server/src/extensions/*/client.tsx`) next to its server half, the change page/settings/wizard
-      own their components, and browser network access goes through `@corvi/client`'s typed
-      operations. The owner-package extraction has started: `@corvi/terminals` now owns the pure
-      keyboard model (`./model`), the tmux operations over an app-supplied host (`./tmux`), and
-      the pty attachment lifecycle over an app-supplied spawner (`./session`); the terminal wire
-      types (`TmuxWindow`, `WindowPresentation`, `TerminalPresenter`) live in
-      `@corvi/contracts/terminal`. `@corvi/configuration` owns the config vocabulary (`./config`:
-      `Workspace`, `Config`, the file shape and defaults) and the settings precedence chain
-      (`./settings`); the app keeps the file I/O, the path defaults, the override variable names,
-      the migrator and the runtime snapshot. `@corvi/agents` owns the agent window presenter
-      (`./presenter`: the pi pane options and their status vocabulary) and the briefing fill
-      (`./prompt`). The app keeps the presenter merge, the pty spawner and its environment
-      policy, and the routes. What is not done is the target guide's `apps/server`, `apps/web`
-      and `integrations/*` split, so this stays open until the application packages exist (see
-      7.222 for the gate).
+      The split is done for the server and the web application: `apps/server` is a workspace
+      (`"node": true`) with the runtime and the capabilities, and `@corvi/web` owns the page
+      composition root, every feature's client half, the included integrations' client halves,
+      and the public host contract (`./host`, `./chrome`) the desktop app will implement. The
+      browser half imports no server module by value: the change rules it needs live in
+      `@corvi/changes/record`, the widget/display/terminal vocabulary in `@corvi/contracts`,
+      and the provider wire schemas in `@corvi/contracts/integrations/*`. Assets are built
+      ahead of time — `bun run build:web` bundles `apps/web/src` into `apps/web/dist`, and the
+      server only serves that directory (`CORVI_WEB_DIST` overrides it) — with
+      `app:install`/`app:run`/`dev`/`test` building it first. The full suite is green. What
+      remains for this item is `apps/desktop` (today `scripts/app/**`, still importing the
+      checkout relatively) and the five provider integration packages.
 - [x] Remove obsolete comments and exports as each implementation is replaced.
       The legacy `stepsFor` planner, the phase-only `startChange`, `looseEnds`, and the generic
       browser helpers (`api`/`post`/`put`/`patch`/`del`/`ApiError`) are gone; the helpers'
@@ -258,7 +254,7 @@ Start with inspection rather than deletion: prove the boundary without changing 
 - [x] Remove arbitrary client-chunk builds, dynamic UI imports, and vendor import-map support that
       exists only for external extension code. Preserve normal application bundling.
       `clientChunks.ts`, `vendor-jsx.ts`, the `/extensions/*/client.js` and `/vendor/*` routes and
-      the page's import map are gone; `apps/server/src/integrations/client.tsx` imports the included client
+      the page's import map are gone; `apps/web/src/integrations/client.tsx` imports the included client
       halves directly.
 - [x] Replace the public extension contract/host registry with explicit included-module composition.
       No `Extension` type, no loader: the modules import `apps/server/src/integrations/types.ts`, the list is
@@ -304,14 +300,15 @@ Start with inspection rather than deletion: prove the boundary without changing 
       unions, and `@corvi/contracts/integration` owns what an included integration declares
       (`IncludedIntegration`, cards, pages, tabs, widgets, wizard steps, settings fields,
       routes) and the overview contributor shapes; the app's `apps/server/src/integrations` modules are
-      re-export barrels over them, and the React `WidgetComponent` stays app-side. The
-      integration side is therefore package-ready. What is left is the application split:
-      `apps/server` (a wholesale `src` move with `"node": true`), then `apps/web` (the browser
-      app and the feature client halves) and `apps/desktop`, and the five `integrations/*`
-      packages after that. The Node rule for applications is answered — rules may carry
-      `"node": true`, and `@corvi/server`/`@corvi/desktop` do, while `@corvi/web` stays
-      browser-only. Until the app packages exist, `bun run boundaries` keeps enforcing the
-      declared graph among the workspaces that exist.
+      re-export barrels over them. The application split is in place: `apps/server` is a
+      workspace (`"node": true`) holding hosting, the capabilities and the feature server
+      halves; `@corvi/web` holds the browser application and the browser platform adapter,
+      built ahead of time into `apps/web/dist` and served by the server as files (no bundler at
+      request time, no `apps/server -> apps/web` import). The Node rule for applications is
+      answered — rules may carry `"node": true`, and `@corvi/server`/`@corvi/desktop` do,
+      while `@corvi/web` stays browser-only. What is left is `apps/desktop` (today
+      `scripts/app/**`) and the five `integrations/*` packages, and `bun run boundaries`
+      enforces the declared graph among the workspaces that exist.
 - [x] Run the full suite, typecheck, lint, boundary checks, browser flows, and runtime smoke tests.
       Report skipped platforms and any baseline failures; do not hide them with weaker tests.
       `bun run test` (which owns and cleans its resources) runs 593 pass / 1 skip / 0 fail, and

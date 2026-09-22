@@ -7,7 +7,7 @@ import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { DescriptionSection, TitleSource } from "../../integrations/overview.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "../../capabilities/effect/support.ts";
-import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "./shared.ts";
+import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "@corvi/contracts/integrations/github-issues";
 
 /**
  * Task boards for repositories that live on GitHub: issues picked in the wizard, followed on

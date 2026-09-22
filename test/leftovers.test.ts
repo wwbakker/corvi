@@ -6,7 +6,7 @@ import { Effect } from "effect";
 import { createChange, archiveChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
 import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
-import type { Leftover } from "../apps/server/src/extensions/leftovers/shared.ts";
+import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**

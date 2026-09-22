@@ -359,7 +359,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
 
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("../apps/server/src/domain/change.ts");
-  const { stateClass } = await import("../apps/server/src/app-root/stateClass.ts");
+  const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");
 
   // The lifecycle, which the select offers in this order and the lists sort by; the overview
   // and the navigation column group `Ideation` into its own block rather than interleaving it.
@@ -406,7 +406,7 @@ test("every change's windows come back from one call, and other sessions are not
 });
 
 test("a change belongs to the context it was made in, and older ones to the first", async () => {
-  const { inWorkspace, workspaceOf, ALL } = await import("../apps/server/src/workspace/client/workspaces.ts");
+  const { inWorkspace, workspaceOf, ALL } = await import("../apps/web/src/workspace/client/workspaces.ts");
   const workspaces = [
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },

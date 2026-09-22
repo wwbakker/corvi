@@ -5,7 +5,7 @@ import azureDevops from "../apps/server/src/extensions/azure-devops/index.ts";
 import { acceptedVersions, type Run } from "../apps/server/src/extensions/azure-devops/server.ts";
 import { deploySettingsOf } from "../apps/server/src/extensions/azure-devops/deploySettings.ts";
 import { runVersionsFor } from "./helpers.ts";
-import { autoDeployedApp } from "../apps/server/src/extensions/azure-devops/deployConventions.ts";
+import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";
 import type { Az } from "../apps/server/src/extensions/azure-devops/azure.ts";
 
 // `acceptedVersions` is pure and synchronous on purpose: the one thing that would otherwise need

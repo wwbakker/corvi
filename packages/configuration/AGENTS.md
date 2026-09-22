@@ -28,7 +28,8 @@ runtime holds.
 
 ## Dependencies
 
-None. `resolveSetting` reads `process.env` by name; no Node imports and nothing browser-unsafe.
+`@corvi/contracts` (the default workspace value and the shared schema it is typed against).
+`resolveSetting` reads `process.env` by name; no Node imports and nothing browser-unsafe.
 
 ## Verification
 

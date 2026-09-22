@@ -747,7 +747,7 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
     };
   });
   expect(overflowY).toBe("hidden");
-  // xterm's own stylesheet is part of the page's (apps/server/src/app-root/styles.css imports it, and the build
+  // xterm's own stylesheet is part of the page's (apps/web/src/app-root/styles.css imports it, and the build
   // inlines it). It is the one thing the measurements above cannot see: without it the screen is not
   // positioned and the terminal draws over nothing — an empty page — while every box here still
   // measures correctly. `position: relative` on the screen is xterm's rule, not ours.

@@ -77,13 +77,18 @@ workflows -> contracts, configuration, changes, repositories, terminals, agents
 integrations/* -> contracts, shell, relevant capability APIs, workflows/ports
 client -> contracts
 apps/server -> workflows, capabilities, integrations, contracts
-apps/web -> client, contracts
+apps/web -> client, contracts, changes, terminals
 apps/desktop -> web's public host contract, contracts
 ```
 
 `shell` is the subprocess capability: any layer that runs a CLI may depend on it (repositories,
 terminals, agents, workflows, `integrations/*`, `apps/server`). The provider's environment,
 limits and tracing stay with the host that constructs the Node implementation.
+
+The browser application is built ahead of time: `bun run build:web` bundles `apps/web/src` into
+`apps/web/dist`, and `apps/server` serves that directory (`CORVI_WEB_DIST` names another one).
+The server does not import the web application, and the desktop host imports `@corvi/web`'s
+public host contract (`./host`, `./chrome`) rather than reaching into its sources.
 
 Packages may use appropriate external libraries; OS implementations belong behind their owner's
 adapter entrypoint. Applications may import Node built-ins directly — `apps/server` hosts the

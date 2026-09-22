@@ -15,7 +15,7 @@ import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./h
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import type { FileChange } from "../apps/server/src/extensions/review/shared.ts";
+import type { FileChange } from "@corvi/contracts/integrations/review";
 
 /**
  * Editing the repositories of a change moves real worktrees around, and the ways it can go wrong

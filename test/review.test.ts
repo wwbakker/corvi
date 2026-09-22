@@ -6,10 +6,10 @@ import { createChange } from "../apps/server/src/change/server/index.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { changeTabsFor, dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
 import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
-import { resolveChangePage } from "../apps/server/src/change-page/client/changeTabs.ts";
+import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import type { CommitResult, LocalStatus } from "../apps/server/src/extensions/review/shared.ts";
+import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
 import { runEffect, runSh } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
@@ -227,7 +227,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../apps/server/src/extensions/review/LocalPane.tsx");
+  const { summarise } = await import("../apps/web/src/extensions/review/LocalPane.tsx");
   const status = (files: unknown[], unpushed = 0): LocalStatus => ({
     repo: "/r",
     name: "r",

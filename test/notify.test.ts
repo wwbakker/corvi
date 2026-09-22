@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { noticeText, shouldNotify } from "../apps/server/src/app-root/notify.tsx";
+import { noticeText, shouldNotify } from "../apps/web/src/app-root/notify.tsx";
 
 /**
  * The page's half of the notification decision. The rule is deliberately "everything except

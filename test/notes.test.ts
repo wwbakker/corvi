@@ -12,7 +12,7 @@ import {
   writeSidecar,
 } from "../apps/server/src/change/server/index.ts";
 import { dispatchIntegrationRoute, widgetsFor } from "../apps/server/src/integrations/index.ts";
-import { resolveChangePage } from "../apps/server/src/change-page/client/changeTabs.ts";
+import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
 import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";

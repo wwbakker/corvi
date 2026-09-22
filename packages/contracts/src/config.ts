@@ -30,6 +30,11 @@ export const Workspace = Schema.Struct({
 })
 export type WorkspaceDto = typeof Workspace.Type
 
+/** The workspace a change without one belongs to: the first one, which for everybody who has
+ * not configured any is the only one. There is no such thing as no workspaces: a machine that
+ * has not configured any gets this one. */
+export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" }
+
 /** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
  * it has to be a word. */
 export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))

@@ -34,10 +34,7 @@ export type Workspace = {
   env?: Record<string, string>;
 };
 
-/** The workspace a change without one belongs to: the first one, which for everybody who has
- * not configured any is the only one. There is no such thing as no workspaces: a machine that
- * has not configured any gets this one. */
-export const DEFAULT_WORKSPACE: Workspace = { id: "default", name: "Default workspace" };
+export { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
 
 /**
  * What Corvi tells an agent when you brief it about an idea: the plan path and the rule for the

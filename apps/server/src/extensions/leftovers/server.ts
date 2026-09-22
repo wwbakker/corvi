@@ -7,7 +7,7 @@ import type { Result } from "../../capabilities/shell.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file } from "../../capabilities/files.ts";
-import type { Leftover } from "./shared.ts";
+import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 
 /**
  * Directories in the changes root that no longer belong to a change, and their removal.

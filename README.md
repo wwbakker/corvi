@@ -61,10 +61,14 @@ integrations will become ordinary workspace packages, not a third-party extensio
 ## Development
 
 ```bash
-bun run dev          # the server, rebuilding the page as you edit
+bun run dev          # the server, with the page built first
+bun run dev:web      # watch the page and rebuild as you edit
 bun run test         # the full suite with isolated data and owned-resource cleanup
 bun run typecheck && bun run lint
 ```
+
+The page is built ahead of time: `bun run build:web` writes `apps/web/dist`, and the server
+serves it (`bun run dev` builds first).
 
 [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`AGENTS.md`](AGENTS.md) hold the working rules;
 [`docs/`](docs/README.md) explains how the documentation is split.

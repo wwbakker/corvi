@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
-import type { Listing } from "../apps/server/src/app-root/api.ts";
+import type { Listing } from "../apps/web/src/app-root/api.ts";
 
 /**
  * The directory browser's routes and the settings picker that drives them.

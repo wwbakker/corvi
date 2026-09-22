@@ -10,9 +10,9 @@ import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.
 import { workspaceById, workspaceOf } from "../../workspace/server/index.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import type { Board, Issue, Sprint, TicketRef } from "./shared.ts";
+import type { Board, Issue, Sprint, TicketRef } from "@corvi/contracts/integrations/jira";
 
-export type { Issue, Sprint } from "./shared.ts";
+export type { Issue, Sprint } from "@corvi/contracts/integrations/jira";
 
 /**
  * The change's ticket key, from wherever this extension put it.
@@ -33,7 +33,7 @@ export const ticketOf = (change: Change): string | undefined =>
  * by field, so a second client states the fields that differ rather than all of them. The token
  * may be stored here or read from an environment variable the site names.
  *
- * This type holds a secret, so it stays server-side: it is not in `shared.ts`, whose whole purpose
+ * This type holds a secret, so it stays server-side: it is not in the shared wire vocabulary, whose whole purpose
  * is to be importable by the browser half, and no route hands the page one.
  */
 export type Site = {

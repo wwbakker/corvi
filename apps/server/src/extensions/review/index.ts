@@ -9,7 +9,7 @@ import type { IncludedIntegration } from "../../integrations/types.ts";
 import type { Change } from "../../domain/change.ts";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { commitChange, fileDiff, localChanges, pushChange } from "./server.ts";
-import type { CommitRequest } from "./shared.ts";
+import type { CommitRequest } from "@corvi/contracts/integrations/review";
 
 /**
  * The review extension: the change's local-changes tab — what is uncommitted across the change,

@@ -6,11 +6,11 @@ import type { Result } from "../../capabilities/shell.ts";
 import { azFor, type Az } from "./azure.ts";
 import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
-import { autoDeployedApp } from "./deployConventions.ts";
+import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";
 import { ago } from "../../domain/time.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 // The wire vocabulary is shared with the browser half; the types derive from the schemas there.
-import type { Buildable, Deployed, Service } from "./shared.ts";
+import type { Buildable, Deployed, Service } from "@corvi/contracts/integrations/azure-devops";
 export type { Buildable, Deployed, Service };
 
 /**

@@ -32,8 +32,8 @@ import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSyn
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { TRAFFIC_LIGHTS } from "../../../apps/server/src/domain/chrome.ts";
-import type { HostNotice } from "../../../apps/server/src/domain/host.ts";
+import { TRAFFIC_LIGHTS } from "@corvi/web/chrome";
+import type { HostNotice } from "@corvi/web/host";
 import { ID, PRODUCT, env, stateDir } from "../../../apps/server/src/capabilities/identity.ts";
 
 /** The page's own background, so the window, its frame and the gap before the first paint are
@@ -353,7 +353,7 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
 // --- The page's own right-click menu ------------------------------------------
 
 /** Whether the page's setting wants a browser menu on right-click. The setting is in the server's
- * config, which this process does not read, so the page says so (`apps/server/src/domain/host.ts`). Chromium's
+ * config, which this process does not read, so the page says so (`@corvi/web/host`). Chromium's
  * own menu is not Electron's to draw, so the host draws the handful of things a page needs. */
 let contextMenu = true;
 
@@ -430,8 +430,8 @@ const createWindow = (): BrowserWindow => {
     show: false,
     backgroundColor: BACKGROUND,
     title: DEFAULT_TITLE,
-    // No title bar of the platform's: the page's first row is the window's (apps/server/src/domain/chrome.ts,
-    // apps/server/src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
+    // No title bar of the platform's: the page's first row is the window's (@corvi/web/chrome,
+    // apps/web/src/app-root/styles.css), and macOS keeps its traffic lights, placed where that row expects
     // them. Linux is left as it is — its compositor draws no decorations for this app to remove.
     ...(isMac
       ? { titleBarStyle: "hidden" as const, trafficLightPosition: TRAFFIC_LIGHTS.position }

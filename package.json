@@ -27,10 +27,10 @@
     "node-pty"
   ],
   "scripts": {
-    "dev": "node --watch apps/server/src/server.ts",
+    "dev": "bun run build:web && node --watch apps/server/src/server.ts",
     "start": "NODE_ENV=production node apps/server/src/server.ts",
-    "test": "CORVI_TEST_RUN=\"${CORVI_TEST_RUN:-$(date +%s).$$}\"; export CORVI_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/corvi-$CORVI_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/corvi-$CORVI_TEST_RUN-root-XXXXXX\"); export CORVI_ROOT=\"$ROOT\" CORVI_ARCHIVE_ROOT=\"$ROOT-archive\" CORVI_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$CORVI_TEST_RUN\"; exit $status' EXIT; bun test --timeout 30000 --parallel",
-    "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; CORVI_ROOT=\"${TMPDIR:-/tmp}/corvi-test-root\" CORVI_ARCHIVE_ROOT=\"${TMPDIR:-/tmp}/corvi-test-archive\" CORVI_CONFIG=\"${TMPDIR:-/tmp}/corvi-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/corvi-test-state\" bun test --coverage --timeout 30000",
+    "test": "CORVI_TEST_RUN=\"${CORVI_TEST_RUN:-$(date +%s).$$}\"; export CORVI_TEST_RUN; echo $$ > \"${TMPDIR:-/tmp}/corvi-$CORVI_TEST_RUN.pid\"; ROOT=$(mktemp -d \"${TMPDIR:-/tmp}/corvi-$CORVI_TEST_RUN-root-XXXXXX\"); export CORVI_ROOT=\"$ROOT\" CORVI_ARCHIVE_ROOT=\"$ROOT-archive\" CORVI_CONFIG=\"$ROOT/config.json\" XDG_STATE_HOME=\"$ROOT/state\"; trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run=\"$CORVI_TEST_RUN\"; exit $status' EXIT; bun run build:web && bun test --timeout 30000 --parallel",
+    "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; CORVI_ROOT=\"${TMPDIR:-/tmp}/corvi-test-root\" CORVI_ARCHIVE_ROOT=\"${TMPDIR:-/tmp}/corvi-test-archive\" CORVI_CONFIG=\"${TMPDIR:-/tmp}/corvi-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/corvi-test-state\" bun run build:web && bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
     "boundaries": "bun scripts/architecture.ts",
@@ -41,14 +41,18 @@
     "icons": "bun scripts/icons.ts",
     "extension:install": "bun scripts/extension.ts install",
     "extension:uninstall": "bun scripts/extension.ts uninstall",
-    "app:install": "bun scripts/app.ts install",
+    "app:install": "bun run build:web && bun scripts/app.ts install",
     "app:uninstall": "bun scripts/app.ts uninstall",
-    "app:run": "bun scripts/app.ts run",
+    "app:run": "bun run build:web && bun scripts/app.ts run",
     "app:permissions": "bun scripts/permissions.ts",
     "app:drive": "bun scripts/drive.ts",
-    "app:sandbox": "bun scripts/sandbox.ts"
+    "app:sandbox": "bun scripts/sandbox.ts",
+    "build:web": "bun apps/web/src/node/build.ts",
+    "dev:web": "bun apps/web/src/node/build.ts --watch"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@corvi/web": "workspace:*"
+  },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.85.1",
     "@effect/language-service": "^0.87.2",

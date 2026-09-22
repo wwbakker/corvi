@@ -43,11 +43,10 @@ async function ensureElectron(): Promise<void> {
 }
 
 /**
- * The app is only as good as its page, and the page is built on demand: a bundle that cannot
- * resolve `react` comes back from the production server as an empty 200 — a black window, with
- * no error anywhere. Build it here instead, where the errors print. A fresh checkout without
- * `bun install` is the common way to get here, so that runs first; `bun build` then says
- * exactly which import did not resolve.
+ * The app is only as good as its page, and the page is built ahead of time: a bundle that
+ * cannot resolve `react` never gets written, and an app whose page was never built serves
+ * nothing. Build it here instead, where the errors print. A fresh checkout without
+ * `bun install` is the common way to get here, so that runs first.
  */
 async function verify(): Promise<void> {
   const installed = await sh(["bun", "install"]);
@@ -57,10 +56,10 @@ async function verify(): Promise<void> {
     process.exit(1);
   }
   await ensureElectron();
-  // Verify the same esbuild path the server uses, not a separate bundler configuration.
+  // Verify the same build the release uses, not a separate bundler configuration.
   try {
-    const { ensureClient } = await import("../apps/server/src/app-root/client.ts");
-    await ensureClient();
+    const { buildWeb } = await import("../apps/web/src/node/build.ts");
+    await buildWeb();
   } catch (e) {
     console.error(e instanceof Error ? (e.stack ?? e.message) : String(e));
     console.error("the page does not build — the app would be a black window; fix the errors above and reinstall");

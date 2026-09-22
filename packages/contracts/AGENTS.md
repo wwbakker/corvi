@@ -31,6 +31,11 @@ transport boundary.
   `Card`, `Page`, `ChangeTab`, `DashboardWidget`, `WizardStep`, `ExtensionSetting`,
   `WorkspaceSetting`, routes) and the overview contributor shapes (`TitleSource`,
   `SummaryContributor`, `DescriptionSection`, `NamedContribution`)
+- `@corvi/contracts/display`: `ago`, `worst`
+- `@corvi/contracts/settings-view`: `Settings`, `SettingsView`
+- `@corvi/contracts/integrations/*`: the provider wire schemas both halves decode
+  (`azure-devops` — including the pipeline naming conventions — `github-issues`, `jira`,
+  `leftovers`, `review`)
 
 ## Dependencies
 

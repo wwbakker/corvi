@@ -53,7 +53,7 @@ export const terminalsRoutes = guard({
     try {
       session = openSession(id, dir, { cols: cols || 80, rows: rows || 24 });
     } catch (e) {
-      // The client reads `{ error }` (apps/server/src/app-root/api.ts); this is the one failure that never
+      // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }

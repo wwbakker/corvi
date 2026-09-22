@@ -71,10 +71,10 @@ console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers re
   const page = await fetch(`${server.url}`).then((r) => r.text()).catch(() => "");
   if (!page.includes("<!doctype html>") || page.includes("Build Failed")) {
     console.error(
-      `the page did not build — ${server.url} served ${page.length} bytes that are not the app`,
+      `the page was not built — ${server.url} served ${page.length} bytes that are not the app`,
     );
     console.error(
-      "usually dependencies: run `bun install` in the checkout. The esbuild error is above — the app writes it to its own log.",
+      "build it with `bun run build:web` (or `bun run app:install`, which does), then start the server again.",
     );
     process.exit(1);
   }

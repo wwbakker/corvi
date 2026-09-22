@@ -12,7 +12,10 @@
     "./errors": "./src/errors.ts",
     "./workspace": "./src/workspace.ts",
     "./capabilities": "./src/capabilities.ts",
-    "./integration": "./src/integration.ts"
+    "./integration": "./src/integration.ts",
+    "./display": "./src/display.ts",
+    "./integrations/*": "./src/integrations/*.ts",
+    "./settings-view": "./src/settings-view.ts"
   },
   "dependencies": {
     "effect": "catalog:"

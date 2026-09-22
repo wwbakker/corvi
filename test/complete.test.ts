@@ -606,7 +606,7 @@ test("CompleteAnywayDialog: every reason needs its own acknowledge", async () =>
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog, canCompleteAnyway } = await import(
-    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const refusal = {
     reasons: [
@@ -642,7 +642,7 @@ test("CompleteAnywayDialog: hard reasons offer no override button", async () => 
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog } = await import(
-    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
@@ -664,7 +664,7 @@ test("CompleteAnywayDialog: says which pull requests will still be merged", asyn
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { CompleteAnywayDialog } = await import(
-    "../apps/server/src/change-page/client/CompleteAnywayDialog.tsx"
+    "../apps/web/src/change-page/client/CompleteAnywayDialog.tsx"
   );
   const html = renderToStaticMarkup(
     createElement(CompleteAnywayDialog, {
@@ -687,7 +687,7 @@ test("CompleteAnywayDialog: says which pull requests will still be merged", asyn
 test("CancelDialog: the confirm waits for the acknowledge the server names", async () => {
   const { createElement } = await import("react");
   const { renderToStaticMarkup } = await import("react-dom/server");
-  const { CancelDialog } = await import("../apps/server/src/change-page/client/CancelDialog.tsx");
+  const { CancelDialog } = await import("../apps/web/src/change-page/client/CancelDialog.tsx");
   const render = (props: {
     needsForce: string[];
     acked: boolean;
@@ -719,7 +719,7 @@ test("CancelDialog: the confirm waits for the acknowledge the server names", asy
 });
 
 test("overrideNote: only a finished forced completion says it completed with overrides", async () => {
-  const { overrideNote } = await import("../apps/server/src/dashboard/client/CompletionCard.tsx");
+  const { overrideNote } = await import("../apps/web/src/dashboard/client/CompletionCard.tsx");
   const step = { id: "check", label: "check", state: "done" as const };
 
   // Finished and forced: the note names what was overridden.
@@ -753,7 +753,7 @@ test("overrideNote: only a finished forced completion says it completed with ove
 
 test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog", async () => {
   const { completionRefusal, cancelNeedsForce } = await import(
-    "../apps/server/src/change-page/client/refusals.ts"
+    "../apps/web/src/change-page/client/refusals.ts"
   );
   const failure = (status: number, body: unknown): { status: number; body: unknown } => ({
     status,
@@ -788,7 +788,7 @@ test("completionRefusal/cancelNeedsForce: only a structured 409 opens a dialog",
 });
 
 test("retryBody: a retry keeps the forced mode the journal recorded", async () => {
-  const { retryBody } = await import("../apps/server/src/dashboard/client/CompletionCard.tsx");
+  const { retryBody } = await import("../apps/web/src/dashboard/client/CompletionCard.tsx");
   expect(retryBody(null)).toEqual({});
   expect(retryBody({ startedAt: "t", forced: true, steps: [] })).toEqual({ force: true });
   expect(retryBody({ startedAt: "t", forced: false, steps: [] })).toEqual({});

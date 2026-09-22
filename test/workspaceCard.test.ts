@@ -1,8 +1,8 @@
 import { test, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WorkspaceCard, enablementPatch } from "../apps/server/src/workspace/client/WorkspaceCard.tsx";
-import type { KnownExtension } from "../apps/server/src/settings/client/SettingsFields.tsx";
+import { WorkspaceCard, enablementPatch } from "../apps/web/src/workspace/client/WorkspaceCard.tsx";
+import type { KnownExtension } from "../apps/web/src/settings/client/SettingsFields.tsx";
 import type { Workspace } from "@corvi/configuration/config";
 
 /**

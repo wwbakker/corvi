@@ -12,7 +12,7 @@ import type {
   CommitResult,
   FileChange,
   LocalStatus,
-} from "./shared.ts";
+} from "@corvi/contracts/integrations/review";
 
 /**
  * The review extension's server half: what is uncommitted across a change, the diff of one file,
