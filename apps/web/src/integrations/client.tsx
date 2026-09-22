@@ -1,11 +1,11 @@
 import { type JSX, type ComponentType } from "react";
 import type { Change, Selection } from "../app-root/api.ts";
-import * as azureDevopsClient from "../extensions/azure-devops/client.tsx";
-import * as githubIssuesClient from "../extensions/github-issues/client.tsx";
-import * as jiraClient from "../extensions/jira/client.tsx";
-import * as leftoversClient from "../extensions/leftovers/client.tsx";
-import * as notesClient from "../extensions/notes/client.tsx";
-import * as reviewClient from "../extensions/review/client.tsx";
+import * as azureDevopsClient from "./azure-devops/client.tsx";
+import * as githubIssuesClient from "./github-issues/client.tsx";
+import * as jiraClient from "./jira/client.tsx";
+import * as leftoversClient from "./leftovers/client.tsx";
+import * as notesClient from "./notes/client.tsx";
+import * as reviewClient from "./review/client.tsx";
 
 /**
  * The client halves of the included integrations, and the hosts that render them.

@@ -373,7 +373,7 @@ test("two repositories with the same name are refused, at creation and at an edi
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../apps/server/src/extensions/review/server.ts");
+  const { parseStatus } = await import("../apps/server/src/integrations/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
   await runEffect(provisionChangeRepositories(change));

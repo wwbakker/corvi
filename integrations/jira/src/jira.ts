@@ -94,12 +94,12 @@ export const siteFor = (settings: ResolvedDto, workspaceId?: string): Site =>
   siteOfWorkspace(settings, workspaceById(settings.workspaces, workspaceId));
 
 /**
- * The server-wide settings this extension declares, read back with the core's legacy flat
- * `jira*` fields as the fallback: `runtimeConfig().extensionSettings.jira.<key>` — what the settings page
- * writes under `globalSettings` — wins, and when the bag is empty the legacy field answers,
- * which carries the default and the environment resolution (CORVI_JIRA_ASSIGNEE and friends beat
- * the file); `legacy.ts` is where that fallback lives. A bag value that is not a string, or an
- * empty one, is not set: empty means unset.
+ * The server-wide settings this integration declares (`globalSettings`), read back from the
+ * resolved settings' `extensionSettings.jira` bag — what the settings page writes — with the
+ * core's legacy flat `jira*` fields as the fallback. The fallback carries the default and the
+ * environment resolution (CORVI_JIRA_ASSIGNEE and friends beat the file); `legacy.ts` is where
+ * that fallback lives. A bag value that is not a string, or an empty one, is not set: empty
+ * means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function globalOf(settings: ResolvedDto): {

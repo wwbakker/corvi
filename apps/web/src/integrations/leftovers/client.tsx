@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { makeWireClient } from "@corvi/client";
 import { Schema } from "effect";
-import type { PageComponent, PageProps } from "../../integrations/client.tsx";
+import type { PageComponent, PageProps } from "../client.tsx";
 import { LeftoverSchema, type Leftover } from "@corvi/contracts/integrations/leftovers";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTO. */

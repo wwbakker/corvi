@@ -16,7 +16,7 @@ provides.
 
 The application's git layer or its git commands' environment; `apps/server` implements
 `GitFacts` from `src/vendors/git.ts` and provides it in `capabilitiesLayer`. The client halves
-of the cards/issue UI live in `@corvi/web` (`apps/web/src/extensions/*/client.tsx`).
+of the cards/issue UI live in `@corvi/web` (`apps/web/src/integrations/*/client.tsx`).
 
 ## Public entrypoints
 

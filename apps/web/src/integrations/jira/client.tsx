@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { makeWireClient } from "@corvi/client";
 import { branchFor } from "../../domain/change.ts";
-import type { StepComponent } from "../../integrations/client.tsx";
+import type { StepComponent } from "../client.tsx";
 import { BoardSchema, IssueSchema, type Board, type Issue } from "@corvi/contracts/integrations/jira";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */

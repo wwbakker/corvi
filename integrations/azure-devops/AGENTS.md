@@ -4,8 +4,9 @@
 
 Azure DevOps as a Corvi integration: the `az` client (`src/azure.ts`), pipeline and build reads
 (`src/pipelines.ts`), deployable builds and deployments (`src/server.ts`), deploy conventions
-and settings (`src/deploySettings.ts`), and the legacy settings reads (`src/legacy.ts`). It
-contributes the pipelines card, the deployments page, their routes, and the summary facts.
+and settings (`src/deploySettings.ts`), and the environment names its settings declare
+(`src/env.ts`). It contributes the pipelines card, the deployments page, their routes, and the
+summary facts.
 
 Settings resolve through the `Settings` capability and `@corvi/configuration/settings`; the
 pipeline naming conventions and the wire schemas live in
@@ -13,9 +14,9 @@ pipeline naming conventions and the wire schemas live in
 
 ## Does not own
 
-The application's config file (the resolved config keeps the file's unknown keys, which is
-where the legacy `azure*` fields are read from) or the git/GitHub side: pull-request numbers
-come from `@corvi/github/client` over the recorded integration-to-integration edge.
+The application's config file (settings arrive through the `Settings` capability as bags and
+declared environment variables) or the git/GitHub side: pull-request numbers come from
+`@corvi/github/client` over the recorded integration-to-integration edge.
 
 ## Public entrypoints
 
@@ -23,7 +24,7 @@ come from `@corvi/github/client` over the recorded integration-to-integration ed
   (`azureDevopsSummaryContributor`, …)
 - `@corvi/azure-devops/server`: `deploy`, `deployments`, `versionsFor`, build helpers
 - `@corvi/azure-devops/pipelines`: `activeRuns`, `pipelineItems`, `versionInLines`, …
-- `@corvi/azure-devops/azure`, `@corvi/azure-devops/deploySettings`, `@corvi/azure-devops/legacy`
+- `@corvi/azure-devops/azure`, `@corvi/azure-devops/deploySettings`
 
 ## Dependencies
 

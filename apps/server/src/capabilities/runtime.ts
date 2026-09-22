@@ -7,11 +7,10 @@ import { readConfig, reloadInto } from "../workspace/server/config.ts";
 /**
  * The process's runtime: the instances the entrypoint constructs once and every request reads.
  *
- * A holder rather than a value threaded through every route while the composition root is being
- * reworked (docs/plans/architecture-refactor.md, step 4): the server installs the cache it built,
- * and the config snapshot is created on first use (or installed, as tests do) and refilled in
- * place by the settings write. The next step is for routes to be built from the runtime instead
- * of reaching for it.
+ * A holder rather than a value threaded through every route: the server installs the cache it
+ * built, and the config snapshot is created on first use (or installed, as tests do) and refilled
+ * in place by the settings write. Routes reach for the runtime through its accessors instead of
+ * receiving it as a parameter.
  */
 export type Runtime = {
   readonly cache: CacheStore;

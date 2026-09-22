@@ -186,10 +186,10 @@ export const createCache = (): CacheStore => {
   return { swr, ageOf, invalidate, clear, load, save };
 };
 
-/** The process's default cache: what the current composition provides through `CacheLive`.
- * Constructed here until the runtime owns the instance (docs/plans/architecture-refactor.md,
- * step 4). Anything that needs the file or an age asks this instance for it — `loadCache`,
- * `saveCache` and `ageOf` are instance methods, not exports. */
+/** The process's default cache, the fallback for a run outside the composition root (a test or
+ * a script); the server installs the cache it built with `setRuntime`. Anything that needs the
+ * file or an age asks its instance for it — `loadCache`, `saveCache` and `ageOf` are instance
+ * methods, not exports. */
 export const defaultCache: CacheStore = createCache();
 
 export const swr = <T, E, R>(

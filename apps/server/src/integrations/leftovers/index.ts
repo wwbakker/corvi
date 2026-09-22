@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { listLeftovers, removeLeftover } from "./server.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
+import type { IncludedIntegration } from "../types.ts";
 
 /**
  * The leftovers extension: the directories in the changes root that no longer belong to a

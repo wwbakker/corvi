@@ -20,7 +20,7 @@ export type Workspace = {
   /** Where the repository browser opens in this context: the global setting when it is absent.
    * The browser can walk anywhere from there — this only picks the starting point. */
   repositoriesDirectory?: string;
-  /** Which extensions exist here, by name (see apps/server/src/extensions/). Absent means all of them. */
+  /** Which extensions exist here, by name (see apps/server/src/integrations/). Absent means all of them. */
   extensions?: string[];
   /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
    * holds the field the extension's `workspaceSettings` declaration names, which is where the

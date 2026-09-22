@@ -1,16 +1,18 @@
 import tseslint from "typescript-eslint";
 
 /**
- * Explicit function types and source-layout import guards. These rules do not yet enforce
- * the workspace dependency graph in docs/guides/architecture.md. Keep their protections until
- * package-boundary and bundle checks replace them (docs/plans/architecture-refactor.md).
- * Patterns match import specifiers, not resolved files; type-only imports are currently exempt.
+ * Explicit function types and source-layout import guards. The workspace dependency graph in
+ * docs/guides/architecture.md is enforced by `bun run boundaries`, and the bundle test keeps
+ * Node out of the browser build. These rules additionally guard the browser/server split within
+ * an application. Patterns match import specifiers, not resolved files; type-only imports are
+ * currently exempt.
  */
 
 /**
  * The server trees a browser half may not import by value, as specifiers relative to it. `up` is
  * the path from the half's directory back to `src/`: `../` from the module-root halves
- * `apps/server/apps/web/apps/web/src/app-root/**` and `apps/server/src/wizard/**`, `../../` from `src/<module>/client/**`. `extra`
+ * `apps/web/src/app-root/**` and `apps/web/src/wizard/**`, `../../` from `src/<module>/client/**`
+ * and the integrations' browser halves. `extra`
  * carries patterns that only make sense at one depth — a client half's own server directory is
  * the sibling `../server/**`, and every browser half's own route table is a sibling specifier
  * (`./routes.ts` at the module root, `../routes.ts` one directory down). The
@@ -33,15 +35,13 @@ const serverImports = (up, extra = []) => [
   // parent is excluded), then its contents are restricted again and the one file re-admitted.
   `!${up}integrations`,
   `${up}integrations/**`,
+  // An integration's browser half is browser code: the host's client registry imports the
+  // included halves directly. A file cannot be re-admitted while every parent is excluded, so
+  // its directory is re-admitted first, then the half itself. Everything else under
+  // integrations/ — the host's dispatch — stays restricted.
+  `!${up}integrations/*`,
   `!${up}integrations/client.tsx`,
-  `${up}extensions/**`,
-  // An integration's browser half is browser code, next to its server half by design: the
-  // host's client registry imports the included halves directly. A file cannot be re-admitted
-  // while every parent is excluded, so its directory is re-admitted first, then the file. The
-  // server side of an integration stays restricted.
-  `!${up}extensions`,
-  `!${up}extensions/*`,
-  `!${up}extensions/*/client.tsx`,
+  `!${up}integrations/*/client.tsx`,
   `!${up}**/model.ts`,
 ];
 
@@ -53,10 +53,10 @@ const browserBoundary = (up, extra = []) => [
       {
         group: serverImports(up, extra),
         message:
-          "a browser half (apps/server/apps/web/apps/web/src/app-root/**, apps/server/src/wizard/** or src/<module>/client/**) " +
-          "may only import server " +
+          "a browser half (apps/web/src/app-root/**, apps/web/src/wizard/**, an integration's " +
+          "browser half or src/<module>/client/**) may only import server " +
           "modules with `import type`, which is erased before the bundle sees it. The pure " +
-          "domain under apps/server/src/domain/ (and a module's model.ts) is importable by value; put " +
+          "domain under src/domain/ (and a module's model.ts) is importable by value; put " +
           "new shared vocabulary there.",
         allowTypeImports: true,
       },
@@ -139,8 +139,8 @@ export default tseslint.config(
   {
     // The wizard's browser half sits at the module root (`Wizard.tsx`, with `index.ts` as its
     // barrel) rather than under `client/`, so it needs its own block. It is one level below
-    // `src/` like `apps/server/apps/web/apps/web/src/app-root/**`, so backend modules are `../` away and there is no sibling
-    // server directory to name.
+    // `src/` like `apps/web/src/app-root/**`, so backend modules are `../` away and there is no
+    // sibling server directory to name.
     files: ["apps/web/src/wizard/**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,
@@ -151,12 +151,12 @@ export default tseslint.config(
     },
   },
   {
-    // An extension's browser code is its `client.tsx` and the `.tsx` siblings beside it (the
-    // shared pure `.ts` files are vocabulary, not a half). The extension's server half shares
-    // the directory as `index.ts`, `server.ts` and their `.ts` helpers; the generic
+    // An integration's browser code is its `client.tsx` and the `.tsx` siblings beside it (the
+    // shared pure `.ts` files are vocabulary, not a half). A server half sharing the directory
+    // would appear as `index.ts`, `server.ts` and their `.ts` helpers; the generic
     // `${up}*/server/**` catches a `server/` directory but not the `server.ts` file, so both
-    // halves are named explicitly as sibling specifiers.
-    files: ["apps/web/src/extensions/**/*.tsx"],
+    // are named explicitly as sibling specifiers the half may not import by value.
+    files: ["apps/web/src/integrations/*/*.tsx"],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: { ecmaFeatures: { jsx: true } },

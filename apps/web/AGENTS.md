@@ -4,7 +4,7 @@
 
 The browser application and the browser platform adapter: the page composition root
 (`src/app-root/**`), the client halves of the features (`src/*/client/**`, `src/wizard`,
-`src/extensions/*/client.tsx`), the client registry that binds the included integrations'
+`src/integrations/*/client.tsx`), the client registry that binds the included integrations'
 components (`src/integrations/client.tsx`), and the public host contract the desktop app
 implements (`./host`, `./chrome`).
 

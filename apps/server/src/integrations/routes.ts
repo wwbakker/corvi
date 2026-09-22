@@ -26,9 +26,9 @@ import {
 /** The card action's argument: the repository the action is applied to, when it takes one. */
 const ActionBody = Schema.Struct({ arg: Schema.optional(Schema.String) });
 
-// What is deployed where lives under the azure-devops extension's namespace
-// (/api/ext/azure-devops/…): the implementation (extensions/azure-devops/server.ts) lives with
-// the extension, the routes and the page are the extension's own.
+// What is deployed where lives under the azure-devops integration's namespace
+// (/api/ext/azure-devops/…): the implementation (integrations/azure-devops/src/server.ts) lives
+// with the integration, the routes and the page are its own.
 
 export const integrationRoutes = guard({
   // The steps the "Create change" wizard has in the context you are in: the extensions'

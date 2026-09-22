@@ -4,8 +4,8 @@
  * Every setting that has both a flat config field and an extension bag entry follows the same
  * chain: what the settings page wrote under `extensionSettings[name][key]` (the bag) wins; when
  * the bag is empty the flat field answers, and that field itself resolves as environment
- * variable → config file → vendor default. Every reader — the extension reads (the azure-devops
- * extension's own settings read in apps/server/src/extensions/azure-devops/, through its legacy.ts) and the
+ * variable → config file → vendor default. Every reader — the integration reads (the azure-devops
+ * settings in `integrations/azure-devops/`, through `azure.ts` and `deploySettings.ts`) and the
  * flat-field reads (`readConfig` in the app's workspace server) — goes through `resolveSetting`.
  *
  * A caller hands `resolveSetting` whichever levels it holds: the config loader holds the file

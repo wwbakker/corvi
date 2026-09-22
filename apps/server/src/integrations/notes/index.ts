@@ -4,8 +4,8 @@ import {
   DecodeError,
   NotFoundError,
 } from "@corvi/contracts/errors";
-import { Changes } from "../../integrations/api/capabilities.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
+import { Changes } from "../api/capabilities.ts";
+import type { IncludedIntegration } from "../types.ts";
 import type { Change } from "../../domain/change.ts";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { readNotes, writeNotes } from "./server.ts";

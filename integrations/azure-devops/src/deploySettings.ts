@@ -17,8 +17,8 @@ import { AZURE_ENV } from "./env.ts";
  * also carries the per-workspace override.
  *
  * The exception is `pipeline`: the list holds exactly two names — how a build pipeline is named,
- * and its deploy twin — so a bag list that is not two names reads as not set and the legacy
- * field answers whole.
+ * and its deploy twin — so a bag list that is not two names reads as not set and the default
+ * answers whole.
  */
 
 export type DeploySettings = {

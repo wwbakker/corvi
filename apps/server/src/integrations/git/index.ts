@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { gitRun, repoItem } from "../../vendors/git.ts";
-import type { IncludedIntegration } from "../../integrations/types.ts";
+import type { IncludedIntegration } from "../types.ts";
 
 /**
  * Local changes: the worktree card, and the change provisioning hooks.

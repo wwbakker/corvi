@@ -227,7 +227,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../apps/web/src/extensions/review/LocalPane.tsx");
+  const { summarise } = await import("../apps/web/src/integrations/review/LocalPane.tsx");
   const status = (files: unknown[], unpushed = 0): LocalStatus => ({
     repo: "/r",
     name: "r",

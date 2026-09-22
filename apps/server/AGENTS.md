@@ -4,8 +4,8 @@
 
 HTTP, SSE and WebSocket hosting, and the backend composition: the capability layer
 (`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/settings`,
-`src/terminals`, `src/workspace`, `src/wizard` server halves), the included integrations
-(`src/extensions/**`) and the contract dispatch that exposes them (`src/integrations/**`).
+`src/terminals`, `src/workspace`, `src/wizard` server halves), and the included integrations
+(`src/integrations/**`: their server halves and the contract dispatch that exposes them).
 
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 

@@ -15,7 +15,7 @@ are pure over those values.
 ## Does not own
 
 The application's runtime config object, the change store, or the web page. The client half of
-the wizard/page lives in `@corvi/web` (`apps/web/src/extensions/jira/client.tsx`).
+the wizard/page lives in `@corvi/web` (`apps/web/src/integrations/jira/client.tsx`).
 
 ## Public entrypoints
 

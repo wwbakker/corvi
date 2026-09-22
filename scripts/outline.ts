@@ -4,7 +4,7 @@
  * implementation.
  *
  *   bun run outline apps/server/src/domain/change.ts  # one file
- *   bun run outline apps/server/src/extensions          # a directory: its index.ts, or its .ts files
+ *   bun run outline apps/server/src/integrations        # a directory: its index.ts, or its .ts files
  *   bun run outline apps/server/src/domain/change.ts apps/server/src/capabilities/shell.ts  # several
  *
  * The types come from the compiler, not from a mirror kept in step by hand: an Effect signature

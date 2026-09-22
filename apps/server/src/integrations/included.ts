@@ -1,13 +1,13 @@
 import type { IncludedIntegration } from "./types.ts";
-import agents from "../extensions/agents/index.ts";
-import git from "../extensions/git/index.ts";
+import agents from "./agents/index.ts";
+import git from "./git/index.ts";
 import github from "@corvi/github";
 import jira from "@corvi/jira";
 import githubIssues from "@corvi/github/issues";
 import azureDevops from "@corvi/azure-devops";
-import leftovers from "../extensions/leftovers/index.ts";
-import review from "../extensions/review/index.ts";
-import notes from "../extensions/notes/index.ts";
+import leftovers from "./leftovers/index.ts";
+import review from "./review/index.ts";
+import notes from "./notes/index.ts";
 
 /**
  * The integrations that ship with Corvi, in order: the agents' furniture first (it is what

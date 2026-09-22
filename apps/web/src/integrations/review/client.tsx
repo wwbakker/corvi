@@ -1,4 +1,4 @@
-import type { TabComponent } from "../../integrations/client.tsx";
+import type { TabComponent } from "../client.tsx";
 import { LocalPane } from "./LocalPane.tsx";
 
 /**

@@ -27,9 +27,7 @@ evidence of behavior; they do not override the target architecture.
 3. Keep behavior changes separate from structural changes. Internal APIs may be replaced;
    preserve user workflows and safety. Identify data migrations explicitly.
 4. Ask before changing package ownership, dependency direction, architectural rules, or
-   unresolved product behavior. Do not approve your own exception by editing a guide.repository/change
-   work, also read the [concrete contract design](docs/design/repositories-and-changes.md) and its
-   review status. Existing source layout, comments, and tests are evidence of behavior, not exceptions
+   unresolved product behavior. Do not approve your own exception by editing a guide.
 
 ## Non-negotiable boundaries
 
@@ -74,7 +72,8 @@ Do not claim target boundary checks exist before they are implemented.
 
 ## Documentation maintenance
 
-Keep current rules in the guides, user behavior in the manual, and migration work in the plan.
+Keep current rules in the guides and user behavior in the manual; migration work belongs in one
+current plan, deleted when complete.
 Do not accumulate session narratives, archived plans, or repeated explanations in code comments.
 Add a short package-local `AGENTS.md` when a package is extracted: owns, does not own, public
 entrypoints, dependencies, invariants, and verification. Link shared rules instead of copying them.

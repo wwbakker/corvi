@@ -1,4 +1,4 @@
-import type { IncludedIntegration } from "../../integrations/types.ts";
+import type { IncludedIntegration } from "../types.ts";
 
 /**
  * Coding agents: the status furniture of the windows they sit in — what they are called, which

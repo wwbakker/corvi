@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { makeWireClient } from "@corvi/client";
 import { Schema } from "effect";
 import { branchFor } from "../../domain/change.ts";
-import type { StepComponent } from "../../integrations/client.tsx";
+import type { StepComponent } from "../client.tsx";
 import { GitHubIssueSchema, KEY, type GitHubIssue } from "@corvi/contracts/integrations/github-issues";
 
 /**

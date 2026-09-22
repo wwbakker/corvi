@@ -1,6 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { makeWireClient } from "@corvi/client";
-import type { PageComponent } from "../../integrations/client.tsx";
+import type { PageComponent } from "../client.tsx";
 import { moment } from "../../app-root/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
 import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";

@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState, type KeyboardEvent } from "react
 import { makeWireClient } from "@corvi/client";
 import { TextSchema } from "@corvi/contracts/api";
 import { cached, putCached } from "../../app-root/cache.ts";
-import type { WidgetComponent } from "../../integrations/client.tsx";
+import type { WidgetComponent } from "../client.tsx";
 
 /**
  * The notes extension's browser half: the change's Notes widget on its dashboard. The widget

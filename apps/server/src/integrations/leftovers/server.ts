@@ -2,7 +2,7 @@ import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 import { root, changeDir } from "../../change/server/index.ts";
-import { Shell, Workspace } from "../../integrations/api/capabilities.ts";
+import { Shell, Workspace } from "../api/capabilities.ts";
 import type { Result } from "../../capabilities/shell.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
