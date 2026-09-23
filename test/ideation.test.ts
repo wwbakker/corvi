@@ -20,7 +20,7 @@ import { provisionChangeRepositories } from "../apps/server/src/change/provision
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { isIdeation, slugFor } from "../apps/server/src/domain/change.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { runCancel, runEffect, runSetRepos, runSh } from "./helpers.ts";
+import { checkoutsOf, runCancel, runEffect, runSetRepos, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
@@ -76,7 +76,7 @@ test("an idea is created without repositories and carries a plan", async () => {
     createChange({ id: "idea-one", title: "Ideation Stage", state: "Ideation" }),
   );
   expect(idea.state).toBe("Ideation");
-  expect(idea.repos).toEqual([]);
+  expect(((idea).checkouts ?? []).map((spec) => spec.path)).toEqual([]);
   expect(idea.title).toBe("Ideation Stage");
   // Typed, not taken from a ticket: no title source may overwrite it later.
   expect(idea.titleEdited).toBe(true);
@@ -92,8 +92,8 @@ test("an idea is created without repositories and carries a plan", async () => {
 test("starting is a real transition, and only from an idea", async () => {
   const idea = await runEffect(createChange({ id: "idea-start", state: "Ideation" }));
   const started = await runEffect(startChangeWithWorkflow(idea));
-  expect(started.change.state).toBe("In Progress");
-  expect((await runEffect(readChange("idea-start")))?.state).toBe("In Progress");
+  expect(started.change.state).toBe("Implementation");
+  expect((await runEffect(readChange("idea-start")))?.state).toBe("Implementation");
   // Starting twice would claim work that already happened (and provision a second time).
   await expect(runEffect(startChangeWithWorkflow(started.change))).rejects.toThrow(
     /already started/,
@@ -104,10 +104,10 @@ test("a change created ready to work still needs a repository", async () => {
   await expect(runEffect(createChange({ id: "no-repos" }))).rejects.toThrow(
     "at least one repository",
   );
-  // A finished state is not something you create into; only Ideation and In Progress are.
+  // A finished state is not something you create into; only Ideation and Implementation are.
   await expect(
     runEffect(createChange({ id: "already-done", state: "Completed" })),
-  ).rejects.toThrow(/Ideation or In Progress/);
+  ).rejects.toThrow(/Ideation or Implementation/);
 });
 
 test("an idea browses its repositories, and starting creates the checkout", async () => {
@@ -117,7 +117,7 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
       id: "idea-browse",
       title: "Browse the code",
       state: "Ideation",
-      repos: [repo],
+      checkouts: checkoutsOf([repo]),
     }),
   );
 
@@ -139,7 +139,7 @@ test("the briefing names the change, its state and its plan", () => {
   const idea: Change = {
     id: "idea-prompt",
     branch: "idea-prompt",
-    repos: [],
+    checkouts: checkoutsOf([]),
     title: "Prompt Me",
     state: "Ideation",
     createdAt: "2026-01-01T00:00:00Z",
@@ -156,7 +156,7 @@ test("the briefing names the change, its state and its plan", () => {
 test("cancelling an idea drops its browse links", async () => {
   const repo = await clonedRepo("ideation-cancel");
   const idea = await runEffect(
-    createChange({ id: "idea-cancel", state: "Ideation", repos: [repo] }),
+    createChange({ id: "idea-cancel", state: "Ideation", checkouts: checkoutsOf([repo]) }),
   );
   await runEffect(provisionChangeRepositories(idea));
   expect((await lstat(join(changeDir(idea.id), basename(repo)))).isSymbolicLink()).toBe(true);
@@ -175,7 +175,7 @@ test("adding a repository to an idea links it rather than cutting a branch", asy
   const repo = await clonedRepo("ideation-add");
   const idea = await runEffect(createChange({ id: "idea-add", state: "Ideation" }));
 
-  const updated = await runSetRepos(idea, [repo]);
+  const updated = await runSetRepos(idea, checkoutsOf([repo]));
   expect("change" in updated).toBe(true);
   const change = (updated as { change: Change }).change;
 

@@ -9,7 +9,6 @@ import {
   DirectoryName,
   Repository,
   RepositoryId,
-  type CheckoutMethod,
 } from "@corvi/contracts/changes"
 import {
   CheckoutError,
@@ -45,13 +44,20 @@ const change = (phase: Change["phase"]): Change =>
     createdAt: "2026-01-01T00:00:00.000Z",
   })
 
-const link = (directoryName: string, checkoutMethod: CheckoutMethod): Repository =>
+const link = (
+  directoryName: string,
+  location: Repository["location"] = "new",
+  branch: Repository["branch"] = { kind: "change" },
+  extras: { readonly base?: string; readonly target?: string } = {},
+): Repository =>
   new Repository({
     changeId: ChangeId.make("example"),
     repositoryId: RepositoryId.make(directoryName),
     directoryName: DirectoryName.make(directoryName),
     originalLocation: `/sources/${directoryName}`,
-    checkoutMethod,
+    location,
+    branch,
+    ...extras,
   })
 
 const script = (overrides: Partial<Script> = {}): Script => ({
@@ -84,7 +90,13 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
         Layer.succeed(ChangeRepositories, {
           listRepositories: () => Effect.succeed(state.links),
           addRepository: (input) =>
-            Effect.succeed(new Repository({ ...input, repositoryId: RepositoryId.make("link") })),
+            Effect.succeed(
+              new Repository({
+                ...input,
+                repositoryId: RepositoryId.make("link"),
+                directoryName: DirectoryName.make("link"),
+              }),
+            ),
           removeRepository: () => Effect.void,
         }),
         Layer.succeed(Repositories, {
@@ -93,7 +105,10 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           assessRemoval: () => Effect.succeed({ _tag: "Safe" as const }),
           removeBranchIfIntegrated: () => Effect.succeed("deleted" as const),
           provisionLinkedWorktree: (input) => {
-            state.calls.push(`add ${input.directory}`)
+            state.calls.push(
+              `worktree ${input.directory} ${input.branch} ${input.createMissing ? "create" : "attach"}` +
+                (input.base ? ` from ${input.base}` : ""),
+            )
             return state.failAddFor && String(input.directory).endsWith(`/${state.failAddFor}`)
               ? Effect.fail(
                   new CheckoutError({
@@ -105,7 +120,10 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
               : Effect.void
           },
           provisionInPlace: (input) => {
-            state.calls.push(`switch ${input.branch}`)
+            state.calls.push(
+              `in-place ${input.branch} ${input.createMissing ? "create" : "attach"}` +
+                (input.base ? ` from ${input.base}` : ""),
+            )
             return Effect.succeed("created" as const)
           },
           switchBranch: (input) => {
@@ -144,7 +162,7 @@ const work = Effect.gen(function* () {
 })
 
 test("inspectChangeRepositories joins the change, its links, and the checkout facts", async () => {
-  const expected = link("repo", "UseNewLocationNewBranch")
+  const expected = link("repo")
   const state = script({
     change: change("Implementation"),
     links: [expected],
@@ -171,7 +189,7 @@ test("inspectChangeRepositories joins the change, its links, and the checkout fa
 test("inspection failures propagate", async () => {
   const state = script({
     change: change("Implementation"),
-    links: [link("repo", "UseNewLocationNewBranch")],
+    links: [link("repo")],
     inspectFailure: new CheckoutError({
       operation: "inspect",
       directory: "/workspace/example/repo",
@@ -204,7 +222,7 @@ test("startChange refuses a change that is not an idea", async () => {
 })
 
 test("startChange persists the phase before provisioning", async () => {
-  const state = script({ links: [link("repo", "UseNewLocationNewBranch")] })
+  const state = script({ links: [link("repo")] })
   await run(
     state,
     Effect.gen(function* () {
@@ -213,15 +231,18 @@ test("startChange persists the phase before provisioning", async () => {
     }),
   )
   expect(state.calls[0]).toBe("transition Implementation")
-  expect(state.calls[1]).toBe("add /workspace/example/repo")
+  expect(state.calls[1]).toBe("worktree /workspace/example/repo example create")
 })
 
-test("each checkout method maps to its operation", async () => {
+test("each checkout spec maps to its operation", async () => {
   const state = script({
     links: [
-      link("in-place", "UseOriginalLocationOriginalBranch"),
-      link("switched", "UseOriginalLocationNewBranch"),
-      link("linked", "UseNewLocationNewBranch"),
+      link("adopted", "original", { kind: "current" }),
+      link("switched", "original"),
+      link("moved", "original", { kind: "existing", name: "feature" }),
+      link("linked"),
+      link("attached", "new", { kind: "existing", name: "feature" }),
+      link("stacked", "new", { kind: "change" }, { base: "feature-a" }),
     ],
   })
   await run(
@@ -233,14 +254,38 @@ test("each checkout method maps to its operation", async () => {
   )
   expect(state.calls).toEqual([
     "transition Implementation",
-    "switch example",
-    "add /workspace/example/linked",
+    // Adopting what the checkout has checked out is no work at all.
+    "in-place example create",
+    "in-place feature attach",
+    "worktree /workspace/example/linked example create",
+    "worktree /workspace/example/attached feature attach",
+    "worktree /workspace/example/stacked example create from feature-a",
   ])
+})
+
+test("a stored spec no validation would allow fails its own repository", async () => {
+  // (new, current) is refused at the wire; a record written by hand can still hold one, and
+  // then it is that repository's failure, not the start's.
+  const state = script({ links: [link("impossible", "new", { kind: "current" })] })
+  const result = await run(
+    state,
+    Effect.gen(function* () {
+      const changeWork = yield* work
+      return yield* changeWork.startChange(ChangeId.make("example"))
+    }),
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result) && result.right._tag === "PartiallyStarted") {
+    expect(result.right.failures).toHaveLength(1)
+    expect(describeProvisionError(result.right.failures[0]!.error)).toBe(
+      "a new worktree cannot use the branch a source checkout has checked out",
+    )
+  }
 })
 
 test("a failed provision is PartiallyStarted with a journal entry per repository", async () => {
   const state = script({
-    links: [link("good", "UseNewLocationNewBranch"), link("bad", "UseNewLocationNewBranch")],
+    links: [link("good"), link("bad")],
     failAddFor: "bad",
   })
   const result = await run(
@@ -264,7 +309,7 @@ test("a failed provision is PartiallyStarted with a journal entry per repository
 })
 
 test("a clean start is Started", async () => {
-  const state = script({ links: [link("repo", "UseNewLocationNewBranch")] })
+  const state = script({ links: [link("repo")] })
   const result = await run(
     state,
     Effect.gen(function* () {

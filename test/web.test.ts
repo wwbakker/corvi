@@ -1,4 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
+import { checkoutsOf } from "./helpers.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { aborted } from "../apps/web/src/app-root/api.ts";
 import { stateClass } from "../apps/web/src/app-root/stateClass.ts";
@@ -28,7 +29,7 @@ import {
 const change = (fields: Partial<Change> = {}): Change => ({
   id: "PROJ-1",
   branch: "PROJ-1-x",
-  repos: ["/repos/example-api"],
+  checkouts: checkoutsOf(["/repos/example-api"]),
   createdAt: "2024-01-02T03:04:05Z",
   ...fields,
 });
@@ -71,14 +72,14 @@ test("the default workspace is the one @corvi/configuration/config defines", () 
 });
 
 test("a state becomes one class, lowercased with spaces as dashes", () => {
-  expect(stateClass("In Progress")).toBe("state-in-progress");
-  expect(stateClass("Awaiting Review")).toBe("state-awaiting-review");
+  expect(stateClass("Implementation")).toBe("state-implementation");
+  expect(stateClass("Verification")).toBe("state-verification");
   expect(stateClass("Blocked")).toBe("state-blocked");
   expect(stateClass("Completed")).toBe("state-completed");
   expect(stateClass("Cancelled")).toBe("state-cancelled");
-  // Absent means the default state: "In Progress".
-  expect(stateClass()).toBe("state-in-progress");
-  expect(stateClass(undefined)).toBe("state-in-progress");
+  // Absent means the default state: "Implementation".
+  expect(stateClass()).toBe("state-implementation");
+  expect(stateClass(undefined)).toBe("state-implementation");
   // A state an extension wrote is still a safe class name: runs of whitespace collapse to one
   // dash each, not one per character.
   expect(stateClass("Some  Weird\tState")).toBe("state-some-weird-state");

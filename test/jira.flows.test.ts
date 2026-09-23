@@ -22,7 +22,7 @@ import {
 } from "@corvi/jira/jira";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { legacyConfig, runEffect } from "./helpers.ts";
+import { checkoutsOf, legacyConfig, runEffect  } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -99,7 +99,7 @@ const bareWorkspace = (id: string): Workspace => ({
 const change = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-1",
   branch: "PROJ-1-thing",
-  repos: [],
+  checkouts: checkoutsOf([]),
   createdAt: "2026-01-01T00:00:00.000Z",
   ...over,
 });

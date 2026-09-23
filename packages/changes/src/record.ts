@@ -8,15 +8,26 @@
 import type {
   ChangeSummaryDto,
   ChangeWireDto,
+  CheckoutSpecDto,
   CompletionDto,
   CompletionProgressDto,
   CompletionReasonDto,
   CompletionStepDto,
 } from "@corvi/contracts/api";
+import { effectiveBranchOf, type EffectiveBranch } from "@corvi/contracts/changes";
 import { baseName } from "@corvi/contracts/paths";
+
+export { effectiveBranchOf, type EffectiveBranch };
 
 /** The change record, as `change.json` holds it. */
 export type Change = ChangeWireDto;
+
+/** One repository's checkout spec, as the record and the wire carry it. */
+export type CheckoutSpec = CheckoutSpecDto;
+
+/** The record format this version writes. A record without `formatVersion` is format 1 and is
+ * migrated on read; a record carrying more than this is read best-effort and never written. */
+export const FORMAT_VERSION = 2;
 
 /**
  * Where a change stands, as you see it. Kept by hand rather than derived: the tools disagree
@@ -32,8 +43,8 @@ export type Change = ChangeWireDto;
  */
 export const CHANGE_STATES = [
   "Ideation",
-  "In Progress",
-  "Awaiting Review",
+  "Implementation",
+  "Verification",
   "Blocked",
   "Completed",
   "Cancelled",
@@ -47,7 +58,7 @@ export const IDEATION: ChangeState = "Ideation";
 /** Whether this change is still an idea: no work has started, so there is no branch or worktree
  * to reason about, only the plan. */
 export const isIdeation = (change: Pick<Change, "state">): boolean =>
-  (change.state ?? "In Progress") === IDEATION;
+  (change.state ?? "Implementation") === IDEATION;
 
 /** The file an idea's plan lives in, at the change root. Its name is what the agent is told and
  * what the dashboard edits, so it is stated once — and it is a core sidecar, so it archives with
@@ -62,7 +73,7 @@ export const FINISHED_STATES: ChangeState[] = ["Completed", "Cancelled"];
  * whichever way — and the state says which way. An idea is not finished: it is work you have
  * not started, not work that is over. */
 export const isFinished = (change: Pick<Change, "state" | "completedAt">): boolean =>
-  Boolean(change.completedAt) || FINISHED_STATES.includes(change.state ?? "In Progress");
+  Boolean(change.completedAt) || FINISHED_STATES.includes(change.state ?? "Implementation");
 
 /**
  * The order the lists show changes in: by state, then newest first.
@@ -73,7 +84,7 @@ export const isFinished = (change: Pick<Change, "state" | "completedAt">): boole
  * the navigation column group them out, so this rank only orders them among themselves.
  */
 export function byWorkOrder(a: Change, b: Change): number {
-  const rank = (c: Change): number => CHANGE_STATES.indexOf(c.state ?? "In Progress");
+  const rank = (c: Change): number => CHANGE_STATES.indexOf(c.state ?? "Implementation");
   return rank(a) - rank(b) || b.createdAt.localeCompare(a.createdAt);
 }
 
@@ -114,9 +125,34 @@ export function duplicateRepoNames(repos: string[]): string[] {
   return [...counts].filter(([, count]) => count > 1).map(([name]) => name);
 }
 
+/** This change's spec for one source repository, or undefined when the path is not in it. */
+export const specFor = (change: Pick<Change, "checkouts">, path: string): CheckoutSpec | undefined =>
+  (change.checkouts ?? []).find((spec) => spec.path === path);
+
+/** The source repositories this change touches, as paths. */
+export const repoPathsOf = (change: Pick<Change, "checkouts">): string[] =>
+  (change.checkouts ?? []).map((spec) => spec.path);
+
+/** What a pull request merges into: the spec's `target`, else the `base` it branched from — one
+ * field served both roles before they were split, so a spec without `target` still means it.
+ * Undefined leaves the caller at the repository's default branch. */
+export const targetOf = (spec: CheckoutSpec): string | undefined => spec.target ?? spec.base;
+
+/** The combination that cannot exist, said once: a new worktree cannot take over the branch a
+ * source checkout has checked out, and an existing branch must be named. Returns the sentence
+ * refusing the spec, or undefined when it stands. */
+export const checkoutSpecProblem = (
+  spec: Pick<CheckoutSpec, "location" | "branch">,
+): string | undefined =>
+  spec.location === "new" && spec.branch.kind === "current"
+    ? "a new worktree cannot use the branch a source checkout has checked out"
+    : spec.branch.kind === "existing" && !spec.branch.name.trim()
+      ? "an existing branch must be named"
+      : undefined;
+
 /** What the creation input is: what the "New idea" wizard collected. Everything but the id
  * is optional, because the core fills the gaps (branch defaults to the id, state to
- * "In Progress", createdAt to now).
+ * "Implementation", createdAt to now).
  *
  * `state: "Ideation"` is what makes an idea: no repositories are required, and the change is
  * written without a branch or worktree — starting it is what provisions those. Any other state
@@ -134,15 +170,12 @@ export type ChangeDraft = {
   title?: string;
   /** Branch used in every repo worktree of this change. Defaults to the id. */
   branch?: string;
-  /** Absolute paths to the source repositories this change touches. */
-  repos?: string[];
-  /** The subset of `repos` worked on in place. */
-  direct?: string[];
-  /** Branch each repository's work started from, keyed by repository path. */
-  base?: Record<string, string>;
+  /** What each source repository's checkout looks like: where it lives, which branch it uses,
+   * and what its branch starts from and merges into. */
+  checkouts?: CheckoutSpec[];
   /** Which context this change belongs to. Absent belongs to the first workspace. */
   workspace?: string;
-  /** The state to create it in. Absent means "In Progress"; `Ideation` makes an idea. */
+  /** The state to create it in. Absent means "Implementation"; `Ideation` makes an idea. */
   state?: ChangeState;
   /** Each extension's own data about this change, keyed by extension name. */
   extensions?: Record<string, unknown>;

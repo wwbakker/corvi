@@ -12,6 +12,8 @@ import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
 import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
+import { migrateStoredRecords } from "@corvi/changes/node";
+import { archiveRoot, root } from "./change/server/store.ts";
 import { ID, env } from "@corvi/configuration/node";
 
 // The runtime this process owns: the cache is constructed here and restored before the server
@@ -20,6 +22,13 @@ import { ID, env } from "@corvi/configuration/node";
 const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
+
+// One sweep of the record formats at startup: a change.json still in format 1 is projected to
+// the current one before the first request. Reported and never fatal — every read migrates
+// lazily anyway — and the sweep is what makes one shape on disk the normal state.
+void Effect.runPromise(
+  migrateStoredRecords({ root: root(), archiveRoot: archiveRoot() }),
+).catch((error) => console.error("could not migrate change records:", error));
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.

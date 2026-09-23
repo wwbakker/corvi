@@ -7,6 +7,15 @@ import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
  * Edits the repository list of a change as a draft: nothing is created or removed until OK.
  * Cancel throws the draft away.
  */
+// Pure and synchronous: nothing for an Effect to wrap.
+const sameSpec = (a: Selection, b: Selection): boolean =>
+  a.location === b.location &&
+  a.branch.kind === b.branch.kind &&
+  (a.branch.kind === "existing" && b.branch.kind === "existing"
+    ? a.branch.name === b.branch.name
+    : true) &&
+  (a.base ?? "") === (b.base ?? "") &&
+  (a.target ?? "") === (b.target ?? "");
 export function EditReposDialog({
   changeId,
   workspace,
@@ -39,7 +48,15 @@ export function EditReposDialog({
       .repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
-        setDraft(repos.map((r) => ({ path: r.path, direct: r.direct, base: r.base })));
+        setDraft(
+          repos.map((r) => ({
+            path: r.path,
+            location: r.location,
+            branch: r.branch,
+            base: r.base,
+            target: r.target,
+          })),
+        );
       })
       .catch((e: Error) => setError(e.message));
   }, [open, changeId]);
@@ -48,21 +65,17 @@ export function EditReposDialog({
     setBusy(true);
     setError(null);
     apiClient
-      .setRepositories(ChangeId.make(changeId), {
-        repos: draft.map((d) => d.path),
-        direct: draft.filter((d) => d.direct).map((d) => d.path),
-        base: Object.fromEntries(draft.filter((d) => d.base).map((d) => [d.path, d.base!])),
-        force,
-      })
+      .setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
       .then(onSaved)
       .catch((e: unknown) => {
         const needsForce = (e as { body?: { needsForce?: string[] } }).body?.needsForce;
-        // Unpushed commits: ask once, then repeat the same edit with force.
+        // Work worth a look before it goes: ask once, then repeat the same edit with force.
         if (needsForce?.length) {
           if (
             window.confirm(
-              `${needsForce.join(", ")}: commits that were never pushed. ` +
-                `The worktree goes, the branch is kept. Continue?`,
+              `${needsForce.join(", ")}: uncommitted changes or commits that were never pushed. ` +
+                `A worktree goes, its branch stays unless its work landed; a checkout used where ` +
+                `it is, is left exactly as it is. Nothing in the source repository is deleted. Continue?`,
             )
           ) {
             save(true);
@@ -78,9 +91,9 @@ export function EditReposDialog({
 
   const has = (path: string): boolean => draft.some((d) => d.path === path);
   const dropped = current.filter((r) => !has(r.path));
-  // A repository whose mode changed counts as added: it is set up again the other way.
+  // A repository whose spec changed counts as added: it is set up again the new way.
   const added = draft.filter(
-    (d) => !current.some((r) => r.path === d.path && r.direct === d.direct),
+    (d) => !current.some((r) => r.path === d.path && sameSpec(r, d)),
   );
 
   return (
@@ -90,7 +103,9 @@ export function EditReposDialog({
       <RepoBrowser
         workspace={workspace}
         selected={draft}
-        onAdd={(path) => setDraft(has(path) ? draft : [...draft, { path, direct: false }])}
+        onAdd={(path) =>
+          setDraft(has(path) ? draft : [...draft, { path, location: "new", branch: { kind: "change" } }])
+        }
         onRemove={(path) => setDraft(draft.filter((d) => d.path !== path))}
         onChange={(path, patch) =>
           setDraft(draft.map((d) => (d.path === path ? { ...d, ...patch } : d)))

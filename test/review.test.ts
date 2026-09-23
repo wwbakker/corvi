@@ -10,7 +10,7 @@ import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
-import { runEffect, runSh } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
@@ -42,7 +42,7 @@ async function clonedRepo(name: string): Promise<string> {
 }
 
 const changeFor = async (id: string, repos: string[]): Promise<Change> =>
-  runEffect(createChange({ id, branch: `${id}-work`, repos }));
+  runEffect(createChange({ id, branch: `${id}-work`, checkouts: checkoutsOf(repos) }));
 
 /** Call the extension's own namespace (the path after `/api/ext/review/`), as the page does. */
 const ext = async (

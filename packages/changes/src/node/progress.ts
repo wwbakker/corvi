@@ -5,7 +5,8 @@ import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
 
 import type { ChangeId } from "@corvi/contracts/changes"
-import { ChangeStoreError } from "../errors.ts"
+import { ChangeFormatTooNew, ChangeStoreError } from "../errors.ts"
+import { FORMAT_VERSION } from "../record.ts"
 import { OperationProgress, type OperationStep } from "../progress.ts"
 
 const Steps = Schema.Array(
@@ -32,6 +33,43 @@ export const layer = (options: { readonly root: string }): Layer.Layer<Operation
         readonly step: OperationStep
       }) {
         const path = fileFor(input.changeId)
+        // The downgrade fence reaches the journal too: a change this version cannot write is
+        // left exactly as a newer Corvi left it, journal included.
+        const recordText = yield* Effect.tryPromise({
+          try: () => readFile(join(options.root, input.changeId, "change.json"), "utf8"),
+          catch: (cause: unknown) => cause,
+        }).pipe(
+          Effect.catchAll((cause: unknown) =>
+            isNotFound(cause)
+              ? Effect.succeed(undefined)
+              : Effect.fail(
+                  new ChangeStoreError({
+                    changeId: input.changeId,
+                    operation: "read",
+                    message: `could not read the change record for ${input.changeId}`,
+                    cause,
+                  }),
+                ),
+          ),
+        )
+        const recordFormat =
+          recordText === undefined
+            ? FORMAT_VERSION
+            : yield* Schema.decodeUnknown(
+                Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+              )(recordText).pipe(
+                Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
+                Effect.orElseSucceed(() => 1),
+              )
+        if (recordFormat > FORMAT_VERSION)
+          return yield* new ChangeFormatTooNew({
+            changeId: input.changeId,
+            recordFormat,
+            appFormat: FORMAT_VERSION,
+            message:
+              `change ${input.changeId} was written by a newer version of Corvi ` +
+              `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
+          })
         yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const existing = yield* Effect.tryPromise({

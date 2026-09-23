@@ -17,7 +17,7 @@ import { forgetPrs } from "@corvi/github/client";
 import { Cache } from "../apps/server/src/integrations/api/capabilities.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError } from "./helpers.ts";
+import { checkoutsOf, runEffect, runEffectWith, runEffectWithTestClock, runSh, runSwr, TestError  } from "./helpers.ts";
 
 const file = join(tmpdir(), "corvi-cache-test.json");
 process.env.CORVI_CACHE = file;
@@ -135,7 +135,7 @@ test("forgetPrs forgets a change's cached pull-request reads", async () => {
   const change: ChangeWireDto = {
     id: "PROJ-3",
     branch: "PROJ-3-thing",
-    repos: [],
+    checkouts: checkoutsOf([]),
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   await runSwr("gh:pr:PROJ-3:/a", 60_000, async () => "no pull request");

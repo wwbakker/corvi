@@ -1,7 +1,7 @@
 /** Wire schemas shared by the server routes and the browser client. */
 import { Schema } from "effect"
 
-import { Change, DirectoryName, RepositoryId } from "./changes.ts"
+import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, RepositoryId } from "./changes.ts"
 import { ConfigFile, Resolved, Workspace } from "./config.ts"
 
 export const RepositoryViewSchema = Schema.Struct({
@@ -55,25 +55,34 @@ export type StartOutcomeDto = typeof StartOutcomeSchema.Type
 export const WidgetStateSchema = Schema.Literal("ok", "pending", "warn", "none", "error")
 export type WidgetStateDto = typeof WidgetStateSchema.Type
 
-export const ChangeStateSchema = Schema.Literal(
-  "Ideation",
-  "In Progress",
-  "Awaiting Review",
-  "Blocked",
-  "Completed",
-  "Cancelled",
-)
-export type ChangeStateDto = typeof ChangeStateSchema.Type
+/** Where a change stands. One vocabulary everywhere — record, code, and page (the phase names
+ * were renamed in record format v2: "In Progress" is "Implementation", "Awaiting Review" is
+ * "Verification"). */
+export const ChangeStateSchema = ChangePhase
+export type ChangeStateDto = ChangePhase
 
-/** The change record: what change.json holds, what the store decodes, and what the routes
- * serve. Decode keeps unknown keys (`onExcessProperty: "preserve"` at the decode sites): a
- * record carries whatever wrote it, so rewriting one must not drop fields. */
+/** One repository's checkout spec: where it lives, which branch it uses, and the two branch
+ * questions split apart — `base` is where a created branch starts, `target` is what a pull
+ * request merges into. This shape is the record's `checkouts` entry, the create body's entry,
+ * and the setRepos body's entry; one shape everywhere. */
+export const CheckoutSpecSchema = Schema.Struct({
+  path: Schema.String,
+  location: CheckoutLocation,
+  branch: BranchPlan,
+  base: Schema.optional(Schema.String),
+  target: Schema.optional(Schema.String),
+})
+export type CheckoutSpecDto = typeof CheckoutSpecSchema.Type
+
+/** The change record: what change.json holds (record format `FORMAT_VERSION`), what the store
+ * decodes, and what the routes serve. Decode keeps unknown keys (`onExcessProperty: "preserve"`
+ * at the decode sites): a record carries whatever wrote it, so rewriting one must not drop
+ * fields. */
 export const ChangeWireSchema = Schema.Struct({
   id: Schema.String,
   branch: Schema.String,
-  repos: Schema.mutable(Schema.Array(Schema.String)),
-  base: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))),
-  direct: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** This change's checkouts, one spec per source repository. */
+  checkouts: Schema.optional(Schema.mutable(Schema.Array(CheckoutSpecSchema))),
   workspace: Schema.optional(Schema.String),
   extensions: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
   title: Schema.optional(Schema.String),
@@ -84,6 +93,9 @@ export const ChangeWireSchema = Schema.Struct({
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
+  /** The record format's version. Absent is format 1 (the pre-checkouts record), which the
+   * store migrates on read; a record from a newer Corvi is read best-effort and never written. */
+  formatVersion: Schema.optional(Schema.Number),
 })
 export type ChangeWireDto = typeof ChangeWireSchema.Type
 
@@ -139,9 +151,11 @@ export type ChangeWidgetsResponseDto = typeof ChangeWidgetsResponseSchema.Type
 
 export const RepoStateSchema = Schema.Struct({
   path: Schema.String,
-  name: Schema.String,
-  direct: Schema.Boolean,
+  location: CheckoutLocation,
+  branch: BranchPlan,
   base: Schema.optional(Schema.String),
+  target: Schema.optional(Schema.String),
+  name: Schema.String,
   unsafe: Schema.optional(Schema.Struct({ kind: Schema.String, text: Schema.String })),
 })
 export type RepoStateDto = typeof RepoStateSchema.Type
@@ -332,15 +346,20 @@ export const CreateChangeBodySchema = Schema.Struct({
   id: Schema.String,
   title: Schema.optional(Schema.String),
   branch: Schema.optional(Schema.String),
-  repos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  direct: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  base: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))),
+  checkouts: Schema.optional(Schema.mutable(Schema.Array(CheckoutSpecSchema))),
   workspace: Schema.optional(Schema.String),
   state: Schema.optional(ChangeStateSchema),
   extensions: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
   plan: Schema.optional(Schema.String),
 })
 export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type
+
+/** The repository list of a change, edited as a whole: the dialog sends the specs it wants. */
+export const ReposBodySchema = Schema.Struct({
+  checkouts: Schema.mutable(Schema.Array(CheckoutSpecSchema)),
+  force: Schema.optional(Schema.Boolean),
+})
+export type ReposBodyDto = typeof ReposBodySchema.Type
 
 /** `force` on a completion, cancel or repository removal: ask once, repeat with force. */
 export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) })

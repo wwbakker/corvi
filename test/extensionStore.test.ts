@@ -8,7 +8,7 @@ import { extensionStoreLayer } from "../apps/server/src/integrations/services.ts
 import { archiveChange, changeDir, createChange, readChange } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { runEffect } from "./helpers.ts";
+import { checkoutsOf, runEffect  } from "./helpers.ts";
 
 /**
  * The single-writer `ExtensionStore`: the namespaced files and the bag entry an extension
@@ -40,7 +40,7 @@ test("ExtensionStore.update replaces the extension's bag entry and leaves the re
   const change = await runEffect(
     createChange({
       id: "PROJ-5",
-      repos: ["/r"],
+      checkouts: checkoutsOf(["/r"]),
       extensions: { keep: { a: 1 }, mine: { old: true } },
     }),
   );
@@ -59,14 +59,14 @@ test("ExtensionStore.update replaces the extension's bag entry and leaves the re
   // Everything the store does not own is exactly as it was.
   expect(onDisk.branch).toBe(change.branch);
   expect(onDisk.createdAt).toBe(change.createdAt);
-  expect(onDisk.repos).toEqual(["/r"]);
+  expect(((onDisk).checkouts ?? []).map((spec) => spec.path)).toEqual(["/r"]);
 });
 
 test("two updates through separate ExtensionStore layers both survive", async () => {
   const change = await runEffect(
     createChange({
       id: "PROJ-5b",
-      repos: ["/r"],
+      checkouts: checkoutsOf(["/r"]),
       extensions: { keep: { a: 1 } },
     }),
   );
@@ -98,7 +98,7 @@ test("two updates through separate ExtensionStore layers both survive", async ()
 });
 
 test("store files land under extensions/<name>/ and are still readable after the change is archived", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-6", repos: ["/r"] }));
+  const change = await runEffect(createChange({ id: "PROJ-6", checkouts: checkoutsOf(["/r"]) }));
 
   await runStore(
     "mine",
@@ -139,7 +139,7 @@ test("store files land under extensions/<name>/ and are still readable after the
 });
 
 test("ExtensionStore rejects a path that escapes the extension's directory", async () => {
-  const change: Change = await runEffect(createChange({ id: "PROJ-7", repos: ["/r"] }));
+  const change: Change = await runEffect(createChange({ id: "PROJ-7", checkouts: checkoutsOf(["/r"]) }));
 
   await expect(
     runStore(

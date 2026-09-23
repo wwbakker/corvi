@@ -17,7 +17,7 @@ import { Effect } from "effect";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
-import { runEffect, runSetRepos, runSh, withRuntimeConfig } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSetRepos, runSh, withRuntimeConfig  } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
@@ -48,7 +48,7 @@ afterAll(async () => {
 });
 
 test("create change, provision a worktree, report status, remove it", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-1", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-1", checkouts: checkoutsOf([repo]) }));
   expect(change.branch).toBe("PROJ-1");
   expect(await runEffect(listChanges())).toHaveLength(1);
 
@@ -59,7 +59,7 @@ test("create change, provision a worktree, report status, remove it", async () =
   // The worktree lives in the change directory, with the change's own state.
   // realpath on both sides: macOS temp dirs are symlinks into /private.
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   const found = await runEffect(checkoutFor(change, repo));
   expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
   expect(await Bun.file(join(found!, "README.md")).text()).toBe("hi\n");
@@ -74,14 +74,35 @@ test("create change, provision a worktree, report status, remove it", async () =
 });
 
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
-  await runEffect(createChange({ id: "PROJ-2", repos: [repo] }));
-  expect(runEffect(createChange({ id: "PROJ-2", repos: [repo] }))).rejects.toThrow("already exists");
-  expect(runEffect(createChange({ id: "../escape", repos: [repo] }))).rejects.toThrow("invalid change id");
+  await runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }));
+  expect(runEffect(createChange({ id: "PROJ-2", checkouts: checkoutsOf([repo]) }))).rejects.toThrow("already exists");
+  expect(runEffect(createChange({ id: "../escape", checkouts: checkoutsOf([repo]) }))).rejects.toThrow("invalid change id");
   expect(runEffect(createChange({ id: "PROJ-3" }))).rejects.toThrow("at least one repository");
 });
 
+test("a creation cannot put a new worktree on a checkout's current branch", async () => {
+  // The one cell of the location × branch product that cannot exist: the branch a source
+  // checkout has checked out is live there, and cannot also live in a worktree.
+  await expect(
+    runEffect(
+      createChange({
+        id: "PROJ-IMPOSSIBLE",
+        checkouts: [{ path: repo, location: "new", branch: { kind: "current" } }],
+      }),
+    ),
+  ).rejects.toThrow(/cannot use the branch/);
+  await expect(
+    runEffect(
+      createChange({
+        id: "PROJ-UNNAMED",
+        checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "" } }],
+      }),
+    ),
+  ).rejects.toThrow(/must be named/);
+});
+
 test("completed changes move to the archive and stay listable", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-9", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-9", checkouts: checkoutsOf([repo]) }));
   // The record on disk carries the revision the write gave it; the created value is the draft.
   expect(await runEffect(listChanges())).toContainEqual({ ...change, revision: 1 });
 
@@ -118,9 +139,9 @@ test("a new worktree branches from the remote default, not a stale local main", 
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "two"], other);
   await runSh(["git", "push", "-q", "origin", "main"], other);
 
-  const change = await runEffect(createChange({ id: "PROJ-REMOTE", repos: [clone] }));
+  const change = await runEffect(createChange({ id: "PROJ-REMOTE", checkouts: checkoutsOf([clone]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   const worktree = (await runEffect(checkoutFor(change, clone)))!;
   expect(await Bun.file(join(worktree, "f.txt")).text()).toBe("one\ntwo\n");
@@ -134,10 +155,10 @@ test("a worktree branch does not track the branch it started from", async () => 
   await runSh(["git", "clone", "--quiet", origin, clone]);
 
   const change = await runEffect(
-    createChange({ id: "PROJ-TRACK-WT", branch: "PROJ-TRACK-WT-work", repos: [clone] }),
+    createChange({ id: "PROJ-TRACK-WT", branch: "PROJ-TRACK-WT-work", checkouts: checkoutsOf([clone]) }),
   );
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   const worktree = (await runEffect(checkoutFor(change, clone)))!;
 
   const upstream = await runSh(
@@ -166,10 +187,10 @@ test("a repository with no remote starts the worktree from its own default branc
   await runSh(["git", "switch", "-q", "side-work"], local);
 
   const change = await runEffect(
-    createChange({ id: "PROJ-LOCAL", branch: "PROJ-LOCAL-work", repos: [local] }),
+    createChange({ id: "PROJ-LOCAL", branch: "PROJ-LOCAL-work", checkouts: checkoutsOf([local]) }),
   );
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   const worktree = (await runEffect(checkoutFor(change, local)))!;
   expect(await Bun.file(join(worktree, "main.txt")).text()).toBe("the default branch\n");
@@ -182,32 +203,32 @@ test("commits on a repository with no remote still ask before a removal", async 
   // only on that branch: a removal asks rather than assuming they landed somewhere.
   const local = await makeRepo("no-remote-work");
   const change = await runEffect(
-    createChange({ id: "PROJ-NOREMOTE", branch: "PROJ-NOREMOTE-work", repos: [local] }),
+    createChange({ id: "PROJ-NOREMOTE", branch: "PROJ-NOREMOTE-work", checkouts: checkoutsOf([local]) }),
   );
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   const worktree = (await runEffect(checkoutFor(change, local)))!;
   await Bun.write(join(worktree, "work.txt"), "only here\n");
   await runSh(["git", "add", "."], worktree);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "work"], worktree);
 
   expect((await runEffect(unsafeToRemove(change, local)))?.kind).toBe("unpushed");
-  expect(await runSetRepos(change, [], false)).toEqual({ needsForce: ["no-remote-work"] });
+  expect(await runSetRepos(change, checkoutsOf([]), false)).toEqual({ needsForce: ["no-remote-work"] });
   // Asked, not done: the worktree and its commit are still there.
   expect(await runEffect(checkoutFor(change, local))).toBe(worktree);
 });
 
 test("a change starts in progress and completing it is what sets Completed", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-STATE", repos: [repo] }));
-  expect(change.state).toBe("In Progress");
+  const change = await runEffect(createChange({ id: "PROJ-STATE", checkouts: checkoutsOf([repo]) }));
+  expect(change.state).toBe("Implementation");
 
   // Completing writes the state along with the timestamp; here just the shape of that write.
-  await runEffect(writeChange({ ...change, state: "Awaiting Review" }));
-  expect((await runEffect(readChange(change.id)))?.state).toBe("Awaiting Review");
+  await runEffect(writeChange({ ...change, state: "Verification" }));
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Verification");
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
-  const { setRepos, isDirect } = await import("../apps/server/src/vendors/git.ts");
+  const { setRepos, isInPlace } = await import("../apps/server/src/vendors/git.ts");
   const clean = await makeRepo("clean");
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
@@ -215,12 +236,11 @@ test("a repository used in place is linked and switched, dirty ones are left alo
   const change = await runEffect(createChange({
     id: "PROJ-DIRECT",
     branch: "PROJ-DIRECT-work",
-    repos: [clean, dirty],
-    direct: [clean, dirty],
+    checkouts: checkoutsOf([clean, dirty], [clean, dirty]),
   }));
-  expect(isDirect(change, clean)).toBe(true);
+  expect(isInPlace(change, clean)).toBe(true);
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   // Both are linked from the change directory, so it still shows everything the change touches.
   for (const repo of [clean, dirty]) {
@@ -232,7 +252,7 @@ test("a repository used in place is linked and switched, dirty ones are left alo
   expect(await Bun.file(join(dirty, "scratch.txt")).text()).toBe("half-finished work\n");
 
   // Dropping it removes the link only: the checkout and its branch stay.
-  const result = await runEffect(setRepos(change, [dirty], true, [dirty]));
+  const result = await runEffect(setRepos(change, checkoutsOf([dirty], [dirty]), true));
   expect(result._tag).toBe("Done");
   expect(await Bun.file(join(changeDir(change.id), "clean")).exists()).toBe(false);
   expect(await runEffect(currentBranch(clean))).toBe("PROJ-DIRECT-work");
@@ -253,26 +273,25 @@ test("a worktree starts from the base branch it was given, not the remote defaul
   const change = await runEffect(createChange({
     id: "PROJ-STACK",
     branch: "PROJ-STACK-second",
-    repos: [clone],
-    base: { [clone]: "origin/PROJ-1-first" },
+    checkouts: checkoutsOf([clone], [], { [clone]: "origin/PROJ-1-first" }),
   }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   // The file only the base branch has must be there: the new branch grew out of it.
   const worktree = (await runEffect(checkoutFor(change, clone)))!;
   expect(await Bun.file(join(worktree, "first.txt")).text()).toBe("work of the change below\n");
 
   // And a change without a base still starts from the remote default, which has no such file.
-  const plain = await runEffect(createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", repos: [clone] }));
+  const plain = await runEffect(createChange({ id: "PROJ-PLAIN", branch: "PROJ-PLAIN-x", checkouts: checkoutsOf([clone]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(plain.repos, (repo) => provisionRepo(plain, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((plain).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(plain, repo), { concurrency: 1 }));
   const plainTree = (await runEffect(checkoutFor(plain, clone)))!;
   expect(await Bun.file(join(plainTree, "first.txt")).exists()).toBe(false);
 });
 
 test("a completed change is listed once, even when its directory is left behind", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-TWICE", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-TWICE", checkouts: checkoutsOf([repo]) }));
   await runEffect(archiveChange(change.id));
   // A terminal, or a build, writing into the change's original path recreates it after the
   // archive moved.
@@ -285,7 +304,7 @@ test("a completed change is listed once, even when its directory is left behind"
 
 test("a completion is only journaled once it will run", async () => {
   const { completeChange, progressOf } = await import("../apps/server/src/change/server/index.ts");
-  const change = await runEffect(createChange({ id: "PROJ-EARLY", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-EARLY", checkouts: checkoutsOf([repo]) }));
 
   // Nothing yet: a change that was never completed has no record at all.
   expect(await runEffect(progressOf(change.id))).toBeNull();
@@ -295,7 +314,7 @@ test("a completion is only journaled once it will run", async () => {
   const outcome = await runEffect(completeChange(change));
   expect(outcome._tag).toBe("NotReady");
   expect(await runEffect(progressOf(change.id))).toBeNull();
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
 
 test("the overview counts windows that are running something, not windows", async () => {
@@ -365,8 +384,8 @@ test("a change may be blocked, which is active but not workable", async () => {
   // and the navigation column group `Ideation` into its own block rather than interleaving it.
   expect(CHANGE_STATES).toEqual([
     "Ideation",
-    "In Progress",
-    "Awaiting Review",
+    "Implementation",
+    "Verification",
     "Blocked",
     "Completed",
     "Cancelled",
@@ -375,7 +394,7 @@ test("a change may be blocked, which is active but not workable", async () => {
 
   // The server accepts it, and the overview counts it among the active changes: blocked work is
   // work you still have.
-  const change = await runEffect(createChange({ id: "PROJ-BLOCKED", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-BLOCKED", checkouts: checkoutsOf([repo]) }));
   const blocked = { ...change, state: "Blocked" as const };
   await runEffect(writeChange(blocked));
   expect((await runEffect(readChange(change.id)))?.state).toBe("Blocked");
@@ -481,24 +500,24 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
   );
 });
 
-test("a legacy write materializes the new link model", async () => {
+test("a write persists the checkout specs as they stand", async () => {
   const change: Change = {
-    id: "legacy-links",
-    branch: "legacy-links",
-    repos: [join(tmp, "repo-a"), join(tmp, "repo-b")],
-    direct: [join(tmp, "repo-b")],
-    state: "In Progress",
+    id: "spec-links",
+    branch: "spec-links",
+    checkouts: checkoutsOf([join(tmp, "repo-a"), join(tmp, "repo-b")], [join(tmp, "repo-b")]),
+    state: "Implementation",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   await Effect.runPromise(writeChange(change));
   const record = (await Bun.file(join(changeDir(change.id), "change.json")).json()) as {
-    repositories?: { originalLocation: string; checkoutMethod: string }[];
+    formatVersion?: number;
+    checkouts?: { path: string; location: string; branch: { kind: string } }[];
   };
-  expect(record.repositories?.map((link) => link.originalLocation)).toEqual(change.repos);
-  expect(record.repositories?.map((link) => link.checkoutMethod)).toEqual([
-    "UseNewLocationNewBranch",
-    "UseOriginalLocationNewBranch",
-  ]);
+  expect(record.formatVersion).toBe(2);
+  expect(record.checkouts?.map((spec) => spec.path)).toEqual(
+    (change.checkouts ?? []).map((spec) => spec.path),
+  );
+  expect(record.checkouts?.map((spec) => spec.location)).toEqual(["new", "original"]);
 });
 
 test("a change is named by its ticket, until you name it yourself", async () => {
@@ -546,7 +565,7 @@ test("a change is named by its ticket, until you name it yourself", async () => 
     const change = await runEffect(
       createChange({
         id: "PROJ-NAMED",
-        repos: [repo],
+        checkouts: checkoutsOf([repo]),
         workspace: "jira-titles",
         extensions: { jira: { key: "PROJ-7" } },
       }),
@@ -578,7 +597,7 @@ test("a change is named by its ticket, until you name it yourself", async () => 
 });
 
 test("a legacy write moves the record's revision", async () => {
-  const change = await runEffect(createChange({ id: "revision-legacy", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "revision-legacy", checkouts: checkoutsOf([repo]) }));
   const readRecord = async (): Promise<{ revision?: number }> =>
     (await Bun.file(join(changeDir("revision-legacy"), "change.json")).json()) as {
       revision?: number;

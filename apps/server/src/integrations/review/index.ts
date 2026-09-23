@@ -106,7 +106,12 @@ export default {
         withChange(params.id!, (change) =>
           Effect.gen(function* () {
             const body = yield* bodyAs(req, PushBody);
-            return Response.json(yield* pushChange(change, body.repos ?? change.repos));
+            return Response.json(
+              yield* pushChange(
+                change,
+                body.repos ?? (change.checkouts ?? []).map((spec) => spec.path),
+              ),
+            );
           }),
         ),
     },

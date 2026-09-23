@@ -10,7 +10,6 @@ import {
   DirectoryName,
   Repository,
   RepositoryId,
-  type CheckoutMethod,
   type RepositoryRef,
 } from "@corvi/contracts/changes"
 import { Repositories, type RemovalAssessment } from "@corvi/repositories"
@@ -55,13 +54,18 @@ const change = (phase: Change["phase"]): Change =>
     createdAt: "2026-01-01T00:00:00.000Z",
   })
 
-const link = (directoryName: string, checkoutMethod: CheckoutMethod): Repository =>
+const link = (
+  directoryName: string,
+  location: Repository["location"] = "new",
+  branch: Repository["branch"] = { kind: "change" },
+): Repository =>
   new Repository({
     changeId: ChangeId.make("demo"),
     repositoryId: RepositoryId.make(directoryName),
     directoryName: DirectoryName.make(directoryName),
     originalLocation: `/sources/${directoryName}`,
-    checkoutMethod,
+    location,
+    branch,
   })
 
 const ref = (repositoryId: string): RepositoryRef => ({
@@ -71,7 +75,7 @@ const ref = (repositoryId: string): RepositoryRef => ({
 
 const script = (overrides: Partial<Script> = {}): Script => ({
   change: change("Implementation"),
-  links: [link("created", "UseNewLocationNewBranch"), link("borrowed", "UseOriginalLocationNewBranch")],
+  links: [link("created"), link("borrowed", "original")],
   calls: [],
   steps: [],
   readiness: [
@@ -106,7 +110,13 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
         Layer.succeed(ChangeRepositories, {
           listRepositories: () => Effect.succeed(state.links),
           addRepository: (input) =>
-            Effect.succeed(new Repository({ ...input, repositoryId: RepositoryId.make("link") })),
+            Effect.succeed(
+              new Repository({
+                ...input,
+                repositoryId: RepositoryId.make("link"),
+                directoryName: DirectoryName.make("link"),
+              }),
+            ),
           removeRepository: () => Effect.void,
         }),
         Layer.succeed(Repositories, {

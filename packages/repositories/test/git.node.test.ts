@@ -417,6 +417,7 @@ test("provisionLinkedWorktree creates a worktree on a new branch from the remote
         source: AbsolutePath.make(dir),
         directory: AbsolutePath.make(worktree),
         branch: "feature",
+        createMissing: true,
       })
     }),
   )
@@ -431,6 +432,7 @@ test("provisionInPlace creates the branch in place and leaves a dirty checkout a
       return yield* repositories.provisionInPlace({
         source: AbsolutePath.make(dir),
         branch: "feature",
+        createMissing: true,
       })
     }),
   )
@@ -443,6 +445,7 @@ test("provisionInPlace creates the branch in place and leaves a dirty checkout a
       return yield* repositories.provisionInPlace({
         source: AbsolutePath.make(dir),
         branch: "feature",
+        createMissing: true,
       })
     }),
   )
@@ -456,6 +459,7 @@ test("provisionInPlace creates the branch in place and leaves a dirty checkout a
       return yield* repositories.provisionInPlace({
         source: AbsolutePath.make(dirtyDir),
         branch: "feature",
+        createMissing: true,
       })
     }),
   )

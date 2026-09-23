@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { checkoutsOf } from "./helpers.ts";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,8 +30,8 @@ beforeAll(async () => {
         id: "demo",
         title: "Demo",
         branch: "demo",
-        repos: ["/sources/repo"],
-        state: "In Progress",
+        checkouts: checkoutsOf(["/sources/repo"]),
+        state: "Implementation",
         createdAt: "2026-01-01T00:00:00.000Z",
       },
       null,

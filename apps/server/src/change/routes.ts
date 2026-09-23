@@ -16,9 +16,10 @@ import {
   writeSidecar,
 } from "../change/server/index.ts";
 import { ChangeId } from "@corvi/contracts/changes";
-import { CreateChangeBodySchema, ForceBodySchema } from "@corvi/contracts/api";
+import { CreateChangeBodySchema, ForceBodySchema, ReposBodySchema } from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
+import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import type { Change } from "../domain/change.ts";
@@ -35,9 +36,11 @@ import { provisionChangeRepositories } from "./provisioning.ts";
 // create and force bodies are the canonical contract schemas (shared with the browser client).
 
 /** The one place a change-domain refusal becomes an HTTP status: an id already taken and an edit
- * against where the change stands are conflicts; a draft the core refuses is the caller's 400. */
+ * against where the change stands are conflicts; a draft the core refuses is the caller's 400;
+ * a record from a newer Corvi is a conflict with the version that can edit it. */
 const changeError = (error: unknown): IweError => {
   if (error instanceof ChangeAlreadyExists) return new ConflictError({ message: error.message });
+  if (error instanceof ChangeFormatTooNew) return new ConflictError({ message: error.message });
   if (error instanceof InvalidChangeDraft) return new BadRequestError({ message: error.message });
   if (error instanceof InvalidChangeEdit) {
     return error.conflict
@@ -52,12 +55,6 @@ const PatchBody = Schema.Struct({
   title: Schema.optional(Schema.String),
 });
 const TextBody = Schema.Struct({ text: Schema.optional(Schema.String) });
-const ReposBody = Schema.Struct({
-  repos: Schema.mutable(Schema.Array(Schema.String)),
-  direct: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  base: Schema.optional(Schema.Record({ key: Schema.String, value: Schema.String })),
-  force: Schema.optional(Schema.Boolean),
-});
 
 export const changeRoutes = guard({
   "/api/changes": {
@@ -149,15 +146,17 @@ export const changeRoutes = guard({
       ),
   },
 
-  // The repository list of a change, edited as a whole: the dialog sends the list it wants.
+  // The repository list of a change, edited as a whole: the dialog sends the specs it wants.
   "/api/changes/:id/repos": {
     GET: (req) => withChange(req.params.id, (c) => Effect.map(repoStates(c), json)),
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
-          const body = yield* bodyAs(req, ReposBody);
-          const result = yield* setRepos(c, body.repos, body.force, body.direct, body.base);
-          // 409: nothing was changed, the browser should ask about the unpushed work first.
+          const body = yield* bodyAs(req, ReposBodySchema);
+          const result = yield* setRepos(c, body.checkouts, body.force).pipe(
+            Effect.mapError(changeError),
+          );
+          // 409: nothing was changed, the browser should ask about the work left behind first.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
             : json(result.change);

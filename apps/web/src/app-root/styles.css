@@ -197,7 +197,7 @@ a {
   border-radius: 0 6px 6px 0;
 }
 
-.sidebar .entry.change.state-in-progress {
+.sidebar .entry.change.state-implementation {
   border-left-color: var(--warn);
 }
 
@@ -209,7 +209,7 @@ a {
   border-left-color: var(--ideation);
 }
 
-.sidebar .entry.change.state-awaiting-review {
+.sidebar .entry.change.state-verification {
   border-left-color: var(--info);
 }
 
@@ -370,7 +370,7 @@ body.resizing {
 }
 
 /* A change's dot carries its state, in the colours the rest of the app uses for it. */
-.sidebar .dot.state-in-progress {
+.sidebar .dot.state-implementation {
   background: var(--warn);
 }
 
@@ -382,7 +382,7 @@ body.resizing {
   background: var(--ideation);
 }
 
-.sidebar .dot.state-awaiting-review {
+.sidebar .dot.state-verification {
   background: var(--info);
 }
 
@@ -923,7 +923,7 @@ dialog textarea.message {
 
 .panes {
   display: grid;
-  grid-template-columns: 1fr 320px;
+  grid-template-columns: 1fr 360px;
   gap: 16px;
 }
 
@@ -997,6 +997,7 @@ dialog textarea.message {
 .selected-pane {
   border-left: 1px solid var(--line);
   padding-left: 16px;
+  min-width: 0;
 }
 
 .tag {
@@ -1109,11 +1110,11 @@ dialog.wide {
   color: var(--ideation);
 }
 
-.state-in-progress {
+.state-implementation {
   color: var(--warn);
 }
 
-.state-awaiting-review {
+.state-verification {
   color: var(--info);
 }
 
@@ -1134,11 +1135,11 @@ select.state-ideation {
   border-color: var(--ideation);
 }
 
-select.state-in-progress {
+select.state-implementation {
   border-color: var(--warn);
 }
 
-select.state-awaiting-review {
+select.state-verification {
   border-color: var(--info);
 }
 
@@ -1501,8 +1502,9 @@ textarea.plan {
   white-space: nowrap;
 }
 
-/* A selected repository: what it is on the first line, how it is set up on the second.
- * Qualified with the list, which sets its own display on every row. */
+/* A selected repository: what it is on the first line, and its questions below — each field
+ * named, with its explanation an icon away. Qualified with the list, which sets its own display
+ * on every row. */
 .entries li.selection {
   display: block;
   padding: 8px 0;
@@ -1514,22 +1516,49 @@ textarea.plan {
   gap: 8px;
 }
 
-.selection .row + .row {
-  margin-top: 6px;
-}
-
 .selection .path {
   flex: 1;
+  overflow-wrap: anywhere;
+}
+
+/* The fields: two columns, each named above its select. minmax(0, …) so a long branch name
+ * cannot push a column past the pane — the select ellipsizes instead, and the full name is
+ * still the option's own text in the open list. */
+.selection .fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 10px;
+  margin-top: 8px;
+}
+
+.selection .field {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.selection .field .caption {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* The explanation of the field beside its name: present, but only on asking. */
+.selection .field .info {
+  cursor: help;
+  opacity: 0.7;
+  font-size: 11px;
 }
 
 .selection select {
   font-size: 13px;
   padding: 2px 6px;
-}
-
-.selection select.base {
-  flex: 1;
+  width: 100%;
   min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
 }
 
 /* The ⋯ button on a widget row: present, but not competing with the row's own text. */
@@ -1719,11 +1748,11 @@ dialog progress {
   border-color: var(--ideation);
 }
 
-.badge.state-in-progress {
+.badge.state-implementation {
   border-color: var(--warn);
 }
 
-.badge.state-awaiting-review {
+.badge.state-verification {
   border-color: var(--info);
 }
 

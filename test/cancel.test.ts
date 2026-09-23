@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../apps/server/src/change/server/index.ts";
 import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { Effect } from "effect";
-import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
+import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../apps/server/src/domain/change.ts";
@@ -50,7 +50,7 @@ test("the order the lists show changes in", () => {
   const at = (id: string, state: Change["state"], createdAt: string): Change => ({
     id,
     branch: id,
-    repos: [],
+    checkouts: checkoutsOf([]),
     state,
     createdAt,
   });
@@ -58,10 +58,10 @@ test("the order the lists show changes in", () => {
   // else, then what is stuck.
   const sorted = [
     at("stuck", "Blocked", "2026-01-05T00:00:00Z"),
-    at("older", "In Progress", "2026-01-01T00:00:00Z"),
+    at("older", "Implementation", "2026-01-01T00:00:00Z"),
     at("idea", "Ideation", "2026-01-02T00:00:00Z"),
-    at("review", "Awaiting Review", "2026-01-04T00:00:00Z"),
-    at("newer", "In Progress", "2026-01-03T00:00:00Z"),
+    at("review", "Verification", "2026-01-04T00:00:00Z"),
+    at("newer", "Implementation", "2026-01-03T00:00:00Z"),
   ]
     .sort(byWorkOrder)
     .map((c) => c.id);
@@ -73,12 +73,12 @@ test("the order the lists show changes in", () => {
     .map((c) => c.id)).toEqual(["none", "b"]);
 
   // The select offers them in the same order the lists sort by: one order, used twice.
-  expect(CHANGE_STATES.slice(0, 3)).toEqual(["Ideation", "In Progress", "Awaiting Review"]);
+  expect(CHANGE_STATES.slice(0, 3)).toEqual(["Ideation", "Implementation", "Verification"]);
 });
 
 test("a change is over when it was completed or cancelled", () => {
-  const base = { id: "x", branch: "x", repos: [], createdAt: "2026-01-01T00:00:00Z" };
-  expect(isFinished({ ...base, state: "In Progress" })).toBe(false);
+  const base = { id: "x", branch: "x", checkouts: checkoutsOf([]), createdAt: "2026-01-01T00:00:00Z" };
+  expect(isFinished({ ...base, state: "Implementation" })).toBe(false);
   expect(isFinished({ ...base, state: "Blocked" })).toBe(false);
   expect(isFinished({ ...base, state: "Completed" })).toBe(true);
   expect(isFinished({ ...base, state: "Cancelled" })).toBe(true);
@@ -88,9 +88,9 @@ test("a change is over when it was completed or cancelled", () => {
 
 test("cancelling takes back the worktree and leaves the branch", async () => {
   const repo = await clonedRepo("cancel-plain");
-  const change = await runEffect(createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
 
   const result = await runCancel(change);
@@ -113,9 +113,9 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
 
 test("what would be lost stops it, and what is recoverable asks first", async () => {
   const repo = await clonedRepo("cancel-work");
-  const change = await runEffect(createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // Uncommitted: nowhere else, and no question makes it recoverable.
@@ -150,7 +150,7 @@ test("a change cannot be declared finished by hand", async () => {
   const change = await runEffect(createChange({
     id: "PROJ-HAND",
     branch: "PROJ-HAND-x",
-    repos: [await clonedRepo("cancel-byhand")],
+    checkouts: checkoutsOf([await clonedRepo("cancel-byhand")]),
   }));
 
   expect(() => applyPatch(change, { state: "Completed" })).toThrow(/completing or cancelling/);
@@ -177,7 +177,7 @@ test("a change that is over is read, not acted on", async () => {
   const { repoStatusOf, cardForExtension } = await import("../apps/server/src/integrations/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
-  const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", checkouts: checkoutsOf([repo]) }));
 
   const git = cardForExtension("git")!;
   const live = await runEffect(repoStatusOf("git", git, change, repo));
@@ -197,11 +197,11 @@ test("what cancelling leaves alone is said out loud", async () => {
   const change = await runEffect(createChange({
     id: "PROJ-LOOSE",
     branch: "PROJ-LOOSE-x",
-    repos: [repo],
+    checkouts: checkoutsOf([repo]),
     extensions: { jira: { key: "PROJ-LOOSE" } },
   }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
 
   const result = (await runCancel(change)) as { loose: string[] };
   // The ticket and the branch: a cancelled change that quietly leaves those behind comes back in

@@ -45,8 +45,8 @@ export const prDescription = (change: Change): Effect.Effect<string, BadRequestE
     const heading = parts.filter((p): p is string => Boolean(p)).join(" - ") || undefined;
 
     const links = yield* Effect.forEach(
-      change.repos,
-      (repo) => Effect.map(prItem(change, repo), (found) => found.item.url ?? basename(repo)),
+      change.checkouts ?? [],
+      (spec) => Effect.map(prItem(change, spec.path), (found) => found.item.url ?? basename(spec.path)),
       // Unbounded concurrency is deliberate: these per-repo lookups are independent.
       { concurrency: "unbounded" },
     );

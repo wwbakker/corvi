@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
 /**
@@ -61,12 +61,12 @@ beforeAll(async () => {
   url = await waitForUrl(server);
   const first = await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
+    body: JSON.stringify({ id, branch: `${id}-x`, checkouts: checkoutsOf([repo]) }),
   });
   expect(first.ok).toBe(true);
   const second = await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id: other, branch: `${other}-x`, repos: [repo] }),
+    body: JSON.stringify({ id: other, branch: `${other}-x`, checkouts: checkoutsOf([repo]) }),
   });
   expect(second.ok).toBe(true);
 });
@@ -512,6 +512,110 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   await page.getByRole("button", { name: "Discard" }).click();
   await page.waitForSelector(".change-card");
   expect(await row.count()).toBe(0);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)(
+  "the repository browser asks where the checkout lives and which branch it uses",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".change-card");
+
+    await page.locator(".sidebar .ideas-row .create").click();
+    await page.waitForSelector(".wizard");
+    // Straight to the repositories step: the wizard opens wherever the integrations' issue steps
+    // end, and this is about the browser, not the idea's fields.
+    await page.locator(".steps button.step", { hasText: "Repositories" }).click();
+    await page.waitForSelector(".browser");
+
+    // The fixture repository is in the configured start directory, one Add away.
+    await page
+      .locator(".listing .entries li", { hasText: "example-api" })
+      .getByRole("button", { name: "Add", exact: true })
+      .click();
+    const row = page.locator(".selected-pane li.selection");
+    await row.waitFor();
+
+    // Every field is named, with its explanation an icon away: the two questions and the two
+    // branch questions say which is which instead of reading as anonymous boxes.
+    expect((await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim())).toEqual([
+      "Checkout",
+      "Branch",
+      "Starts from",
+      "Merges into",
+    ]);
+    expect(await row.locator(".field .info[title]").count()).toBe(4);
+
+    // The two questions, as the selects say them — and where the row starts: a worktree on the
+    // change's own branch.
+    const location = row.locator("select").nth(0);
+    const branchKind = row.locator("select").nth(1);
+    expect(await location.inputValue()).toBe("new");
+    expect((await location.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
+      "New worktree",
+      "In place",
+    ]);
+    expect(await branchKind.inputValue()).toBe("change");
+    expect((await branchKind.locator("option").allInnerTexts()).map((s) => s.trim())).toEqual([
+      "New branch",
+      "Current branch",
+      "Existing branch",
+    ]);
+
+    // A new worktree cannot adopt the branch a source checkout has checked out: the option says
+    // why instead of being offered. The disabled attribute is what the browser enforces.
+    const current = branchKind.locator("option", { hasText: "Current branch" });
+    expect(await current.getAttribute("disabled")).not.toBeNull();
+    expect(await current.getAttribute("title")).toBe(
+      "a new worktree cannot use the branch a source checkout has checked out",
+    );
+
+    // A created branch starts somewhere and merges somewhere; an existing branch is named
+    // instead of started.
+    expect(await row.locator("select.base").count()).toBe(1);
+    expect(await row.locator("select.name").count()).toBe(0);
+    expect(await row.locator("select.target").count()).toBe(1);
+    await branchKind.selectOption("existing");
+    expect(await row.locator("select.name").count()).toBe(1);
+    expect(await row.locator("select.base").count()).toBe(0);
+    expect(await row.locator("select.target").count()).toBe(1);
+    expect((await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim())).toEqual([
+      "Checkout",
+      "Branch",
+      "Branch name",
+      "Merges into",
+    ]);
+
+    // In place, the current branch becomes the offer — and taking it drops both branch pickers:
+    // what a pull request merges into is the one branch question left.
+    await location.selectOption("original");
+    expect(await current.getAttribute("disabled")).toBeNull();
+    await branchKind.selectOption("current");
+    expect(await row.locator("select.name").count()).toBe(0);
+    expect(await row.locator("select.base").count()).toBe(0);
+    expect(await row.locator("select.target").count()).toBe(1);
+
+    // Going back to a worktree cannot keep it: the row falls back to the change's own branch.
+    await location.selectOption("new");
+    expect(await branchKind.inputValue()).toBe("change");
+    await page.close();
+  },
+  30_000,
+);
+
+test.skipIf(!usable)("the state selector speaks the record's vocabulary", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".change-tabs select");
+  const options = (await page.locator(".change-tabs select option").allInnerTexts()).map((s) =>
+    s.trim(),
+  );
+  // The words are the record's: the rename of record format v2 reaches the page.
+  expect(options).toContain("Implementation");
+  expect(options).toContain("Verification");
+  expect(options).not.toContain("In Progress");
+  expect(options).not.toContain("Awaiting Review");
   await page.close();
 }, 30_000);
 

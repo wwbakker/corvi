@@ -71,20 +71,25 @@ export interface Interface {
     readonly repository: AbsolutePath
     readonly branch: string
   }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
-  /** Creates the linked worktree the change asked for: an existing branch is attached, a missing
-   * one is created from `base` (the repository default when absent) after a fetch. */
+  /** Creates the linked worktree the change asked for. With `createMissing`, a missing branch
+   * is created from `base` (the repository default when absent) after a fetch; without it an
+   * existing branch is attached — local, or remote-only as a tracking branch — and a name that
+   * exists nowhere is an error rather than silently created. */
   readonly provisionLinkedWorktree: (input: {
     readonly source: AbsolutePath
     readonly directory: AbsolutePath
     readonly branch: string
     readonly base?: string
+    readonly createMissing: boolean
   }) => Effect.Effect<void, NotARepository | CheckoutError>
-  /** Switches the source checkout itself to the change's branch, creating it when needed; a
-   * dirty checkout is left exactly as it is. */
+  /** Switches the source checkout itself to the given branch. With `createMissing`, a missing
+   * branch is created from `base`; without it the branch — local, or remote-only as a tracking
+   * branch — is only switched to. A dirty checkout is left exactly as it is. */
   readonly provisionInPlace: (input: {
     readonly source: AbsolutePath
     readonly branch: string
     readonly base?: string
+    readonly createMissing: boolean
   }) => Effect.Effect<InPlaceOutcome, NotARepository | CheckoutError>
 }
 
@@ -320,13 +325,17 @@ export const layer = Layer.effect(
       readonly directory: AbsolutePath
       readonly branch: string
       readonly base?: string
+      readonly createMissing: boolean
     }) {
       const repository = yield* discover(input.source, "add-worktree")
       // A checkout already at the destination is the state this wanted.
       const existing = yield* inspect(git.repo.discover(input.directory), input.source)
       if (existing) return
-      const exists = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
-      if (exists) {
+      // An existing branch is only ever attached: `git worktree add` attaches a local branch, or
+      // creates a tracking branch for a remote-only name, and refuses a name that is nowhere.
+      const attachable =
+        !input.createMissing || (yield* inspect(git.history.branchExists(repository, input.branch), input.source))
+      if (attachable) {
         yield* inspect(
           git.worktree.add({
             repository,
@@ -358,11 +367,18 @@ export const layer = Layer.effect(
       readonly source: AbsolutePath
       readonly branch: string
       readonly base?: string
+      readonly createMissing: boolean
     }) {
       const repository = yield* discover(input.source, "switch")
       const current = yield* inspect(git.history.branch(repository), input.source)
       if (current === input.branch) return "already" as const
       if (yield* inspect(git.status.dirty(repository), input.source)) return "skipped-dirty" as const
+      if (!input.createMissing) {
+        // Attach-only: `git switch` moves to a local branch, or creates a tracking branch for a
+        // remote-only name, and refuses a name that is nowhere.
+        yield* inspect(git.sync.switchToBranch(repository, { branch: input.branch }), input.source)
+        return "switched" as const
+      }
       const exists = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
       if (exists) {
         yield* inspect(git.sync.switchToBranch(repository, { branch: input.branch }), input.source)

@@ -59,6 +59,13 @@ script isolates data and cleans up owned test resources. Report failures and ski
 For documentation changes, also check local links and remove references to deleted guidance.
 Do not claim target boundary checks exist before they are implemented.
 
+When the change affects the UI, look at it before calling it done: run an isolated instance and
+capture the surfaces (`bun run shot` against it; `CORVI_HEADED=1` when shots come out stale).
+Judge what you see as a user would — every control named, nothing truncated into a scrollbar —
+and fix the UI when it does not read. A screenshot that contradicts the page is a capture
+problem first: a window other windows cover stops painting, and the shot then serves an old
+frame. Check the live DOM before distrusting it.
+
 ## Safety
 
 - Tests must use isolated change/config/cache paths and a private tmux socket.

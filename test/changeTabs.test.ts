@@ -10,7 +10,7 @@ import { changeDir, createChange } from "../apps/server/src/change/server/index.
 import { provisionRepo } from "../apps/server/src/vendors/git.ts";
 import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
 import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, runSh } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 
 /**
  * E2's new surface and capability, with no consumer yet: the change-tab route and the read-only
@@ -76,10 +76,10 @@ test("the tabs route lists the included tab for the workspace that has it, and h
   ];
   try {
     const enabled = await runEffect(
-      createChange({ id: "PROJ-TAB-ON", repos: [repo], workspace: "with-tab" }),
+      createChange({ id: "PROJ-TAB-ON", checkouts: checkoutsOf([repo]), workspace: "with-tab" }),
     );
     const disabled = await runEffect(
-      createChange({ id: "PROJ-TAB-OFF", repos: [repo], workspace: "without-tab" }),
+      createChange({ id: "PROJ-TAB-OFF", checkouts: checkoutsOf([repo]), workspace: "without-tab" }),
     );
 
     expect(await tabsOf(enabled.id)).toEqual([
@@ -100,10 +100,10 @@ test("the widgets route lists the included widget for the workspace that has it,
   ];
   try {
     const enabled = await runEffect(
-      createChange({ id: "PROJ-WIDGET-ON", repos: [repo], workspace: "with-widget" }),
+      createChange({ id: "PROJ-WIDGET-ON", checkouts: checkoutsOf([repo]), workspace: "with-widget" }),
     );
     const disabled = await runEffect(
-      createChange({ id: "PROJ-WIDGET-OFF", repos: [repo], workspace: "without-widget" }),
+      createChange({ id: "PROJ-WIDGET-OFF", checkouts: checkoutsOf([repo]), workspace: "without-widget" }),
     );
 
     expect(await widgetsOf(enabled.id)).toEqual([
@@ -140,18 +140,20 @@ const runChanges = <A, E>(effect: Effect.Effect<A, E, Changes>): Promise<A> =>
   Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined))));
 
 test("the Changes layer answers the base branch through the contract", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-LAYER-BASE", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-LAYER-BASE", checkouts: checkoutsOf([repo]) }));
   const base = (c: typeof change): Promise<string | undefined> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.base(c, repo)));
 
   // No base chosen and no remote on this repository: its own default branch is what is left.
   expect(await base(change)).toBe("main");
   // What the change chose answers without asking git, so a stacked change keeps its base.
-  expect(await base({ ...change, base: { [repo]: "origin/release" } })).toBe("origin/release");
+  expect(
+    await base({ ...change, checkouts: checkoutsOf([repo], [], { [repo]: "origin/release" }) }),
+  ).toBe("origin/release");
 });
 
 test("the Changes layer reads a change, or answers null when there is none", async () => {
-  const created = await runEffect(createChange({ id: "PROJ-LAYER-READ", repos: [repo] }));
+  const created = await runEffect(createChange({ id: "PROJ-LAYER-READ", checkouts: checkoutsOf([repo]) }));
   const read = (id: string): Promise<unknown> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.read(id)));
 
@@ -160,7 +162,7 @@ test("the Changes layer reads a change, or answers null when there is none", asy
 });
 
 test("the Changes layer finds a change's checkout, and answers undefined where it is not set up", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-LAYER-WT", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-LAYER-WT", checkouts: checkoutsOf([repo]) }));
   const checkout = (): Promise<string | undefined> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.checkout(change, repo)));
 
@@ -168,7 +170,7 @@ test("the Changes layer finds a change's checkout, and answers undefined where i
   expect(await checkout()).toBeUndefined();
 
   await Effect.runPromise(
-    Effect.forEach(change.repos, (r) => provisionRepo(change, r), { concurrency: 1 }),
+    Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (r) => provisionRepo(change, r), { concurrency: 1 }),
   );
   const found = await checkout();
   // realpath on both sides: macOS temp dirs are symlinks into /private.

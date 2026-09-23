@@ -75,8 +75,8 @@ const summaryContribution = (
 ): Effect.Effect<SummaryContribution, unknown, Shell | Workspace | Cache | Settings | GitFacts | Changes> =>
   Effect.gen(function* () {
     const perRepo = yield* Effect.forEach(
-      change.repos,
-      (repo) =>
+      change.checkouts ?? [],
+      ({ path: repo }) =>
         Effect.gen(function* () {
           const number = yield* prNumberOf(change, repo);
           return yield* activeRuns(change, repo, number);

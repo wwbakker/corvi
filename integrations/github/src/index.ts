@@ -76,8 +76,8 @@ const summaryContribution = (
 ): Effect.Effect<SummaryContribution, unknown, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.gen(function* () {
     const perRepo = yield* Effect.forEach(
-      change.repos,
-      (repo) =>
+      change.checkouts ?? [],
+      ({ path: repo }) =>
         Effect.gen(function* () {
           const { unresolved, checks } = yield* prSummary(change, repo);
           return { unresolved, checks };
@@ -113,8 +113,8 @@ export const prLooseEnds = (
 ): Effect.Effect<string[], never, Changes | Shell | Workspace | Cache | GitFacts> =>
   Effect.map(
     Effect.forEach(
-      change.repos,
-      (repo) =>
+      change.checkouts ?? [],
+      ({ path: repo }) =>
         Effect.map(
           Effect.orElseSucceed(prSummary(change, repo), () => undefined),
           (summary) => (summary?.number ? `${baseName(repo)} #${summary.number} is still open` : undefined),

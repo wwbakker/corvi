@@ -33,7 +33,7 @@ import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionS
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -49,7 +49,7 @@ beforeEach(() => clearCache());
 const change = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-1",
   branch: "feature",
-  repos: [],
+  checkouts: checkoutsOf([]),
   createdAt: "2026-01-01T00:00:00.000Z",
   ...over,
 });
@@ -575,7 +575,13 @@ test("createPr targets the base branch and ties the new pull request into its st
       return undefined;
     },
   });
-  await runWithShell(shell, createPr(change({ base: { [repo]: "origin/PROJ-0" } }), repo));
+  await runWithShell(
+    shell,
+    createPr(
+      change({ checkouts: [{ path: repo, location: "new", branch: { kind: "change" }, base: "origin/PROJ-0" }] }),
+      repo,
+    ),
+  );
   const lines = shell.calls.map((c) => c.cmd.join(" "));
   // A change stacked on another branch must open against it, not against main.
   expect(lines).toContain("gh pr create --fill --base PROJ-0");

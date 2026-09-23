@@ -68,10 +68,13 @@ export function Wizard({
   const changeStep = issueSteps.length;
   const reposStep = changeStep + 1;
 
-  // Added as a worktree off the remote default; both are changed per repository afterwards.
+  // Added as a worktree off the remote default with the change's branch; both are changed per
+  // repository afterwards.
   const addRepo = (path: string): void =>
     onChange({
-      repos: repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }],
+      repos: repos.some((r) => r.path === path)
+        ? repos
+        : [...repos, { path, location: "new", branch: { kind: "change" } }],
     });
   const removeRepo = (path: string): void => onChange({ repos: repos.filter((r) => r.path !== path) });
   const changeRepo = (path: string, patch: Partial<Selection>): void =>
@@ -206,11 +209,12 @@ export function Wizard({
           {step === reposStep && (
             <div className="form wide">
               <p className="hint">
-                Select the repositories this change touches. Each one is set up on{" "}
-                <code>{branch || id || "the branch"}</code>: as a <b>worktree</b>, a separate checkout
-                in the change directory, or <b>in place</b>, which puts the repository's own checkout
-                on that branch and links it here. The second box is the branch the work starts from —
-                the remote default, unless this change builds on another one.
+                Select the repositories this change touches. Each one answers two questions: where
+                its checkout lives — a <b>new worktree</b> in the change directory, or the
+                repository's own checkout <b>in place</b> — and which branch it uses: the change's
+                own (<code>{branch || id || "the branch"}</code>), an <b>existing branch</b>, or the
+                checkout's <b>current branch</b>. A new branch starts where <i>starts from</i> says,
+                and a pull request merges into <i>merges into</i>.
               </p>
               <RepoBrowser
                 workspace={chosen}

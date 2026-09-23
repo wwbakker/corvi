@@ -7,7 +7,7 @@ import { createChange, archiveChange, changeDir, readChange } from "../apps/serv
 import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
 import type { Leftover } from "@corvi/contracts/integrations/leftovers";
-import { runEffect, runSh } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 
 /**
  * The leftovers extension, through the dispatcher the server uses: `/api/ext/leftovers/…` is
@@ -50,10 +50,10 @@ const remove = (name: string): Promise<Response> =>
   )!;
 
 test("the extension lists directories left by finished changes, and only those", async () => {
-  const active = await runEffect(createChange({ id: "PROJ-ALIVE", repos: [repo] }));
+  const active = await runEffect(createChange({ id: "PROJ-ALIVE", checkouts: checkoutsOf([repo]) }));
 
   // A change that was completed: change.json moved to the archive, the directory stayed.
-  const done = await runEffect(createChange({ id: "PROJ-DONE", repos: [repo] }));
+  const done = await runEffect(createChange({ id: "PROJ-DONE", checkouts: checkoutsOf([repo]) }));
   await runEffect(archiveChange(done.id));
   await Bun.write(join(changeDir(done.id), "target", "build.jar"), "artifact\n");
 
@@ -81,9 +81,9 @@ test("the extension lists directories left by finished changes, and only those",
 });
 
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
-  const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", repos: [repo] }));
+  const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(change.repos, (r) => provisionRepo(change, r), { concurrency: 1 }));
+  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (r) => provisionRepo(change, r), { concurrency: 1 }));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   expect(worktree).toBe(await realpath(join(changeDir(change.id), basename(repo))));

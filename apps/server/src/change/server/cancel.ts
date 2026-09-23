@@ -115,7 +115,7 @@ export const cancelChange = (
     // The change directory's browse links: an idea's symlinks are Corvi's own, so they go before
     // the checkout removal, which then finds nothing at that path rather than failing on a
     // directory Git does not know as a worktree. A real worktree is untouched by this.
-    yield* Effect.forEach(change.repos, (repo) => unlinkRepo(change, repo), {
+    yield* Effect.forEach(change.checkouts ?? [], (spec) => unlinkRepo(change, spec.path), {
       concurrency: 1,
       discard: true,
     });

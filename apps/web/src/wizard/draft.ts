@@ -110,9 +110,13 @@ export function toChangeDraft(draft: Draft, workspace?: string): ChangeDraft & {
     // The starting text of PLAN.md, then the agent's and yours to shape.
     plan: draft.description,
     workspace,
-    repos: draft.repos.map((r) => r.path),
-    direct: draft.repos.filter((r) => r.direct).map((r) => r.path),
-    base: Object.fromEntries(draft.repos.filter((r) => r.base).map((r) => [r.path, r.base!])),
+    checkouts: draft.repos.map((r) => ({
+      path: r.path,
+      location: r.location,
+      branch: r.branch,
+      ...(r.base !== undefined ? { base: r.base } : {}),
+      ...(r.target !== undefined ? { target: r.target } : {}),
+    })),
     // Each step's pick, under the extension's own name: the core stores it and never looks
     // inside.
     extensions: draft.payloads,

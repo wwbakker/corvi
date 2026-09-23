@@ -15,7 +15,8 @@ import { contentInMain, remoteDefaultBranch } from "../vendors/git.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
-import { BadRequestError } from "@corvi/contracts/errors";
+import { BadRequestError, ConflictError, type IweError } from "@corvi/contracts/errors";
+import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import {
   CORE_SIDECARS,
   listExtensionFiles,
@@ -25,7 +26,7 @@ import {
   setExtensionData,
   writeExtensionFile,
 } from "../change/server/store.ts";
-import { baseFor, checkoutFor } from "../vendors/git.ts";
+import { baseFor, checkoutFor, targetFor } from "../vendors/git.ts";
 import type { Change } from "../domain/change.ts";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 
@@ -101,13 +102,28 @@ export const ChangesLive = Layer.succeed(Changes, {
 export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<ExtensionStore> => {
   const unbound = <A>(): Effect.Effect<A, BadRequestError> =>
     Effect.fail(new BadRequestError({ message: "ExtensionStore has no extension in context" }));
+  // The fence's refusal is the transport's conflict: the capability contract speaks the error
+  // taxonomy, and "written by a newer Corvi" is a 409 with its message, like every other refusal.
+  const fenced = (message: string): IweError => new ConflictError({ message });
   const store: ExtensionStoreShape = {
     update: (change, data) =>
-      extension ? setExtensionData(change, extension, data) : unbound(),
+      extension
+        ? setExtensionData(change, extension, data).pipe(
+            Effect.mapError((error): IweError =>
+              error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
+            ),
+          )
+        : unbound(),
     read: (change, path) =>
       extension ? readExtensionFile(change, extension, path) : unbound(),
     write: (change, path, text) =>
-      extension ? writeExtensionFile(change, extension, path, text) : unbound(),
+      extension
+        ? writeExtensionFile(change, extension, path, text).pipe(
+            Effect.mapError((error): IweError =>
+              error instanceof ChangeFormatTooNew ? fenced(error.message) : error,
+            ),
+          )
+        : unbound(),
     list: (change) => (extension ? listExtensionFiles(change, extension) : unbound()),
   };
   return Layer.succeed(ExtensionStore, store);
@@ -121,7 +137,7 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
  * for what a branch is based on and whether its content landed, rather than importing the git
  * module. */
 export const GitFactsLive = Layer.succeed(GitFacts, {
-  baseFor: (change, repo) => baseFor(change, repo),
+  targetFor: (change, repo) => targetFor(change, repo),
   remoteDefaultBranch,
   contentInMain,
 });

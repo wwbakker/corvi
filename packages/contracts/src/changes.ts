@@ -44,22 +44,48 @@ export type RepositoryId = typeof RepositoryId.Type
 export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"))
 export type DirectoryName = typeof DirectoryName.Type
 
-export const CheckoutMethod = Schema.Literal(
-  "UseOriginalLocationOriginalBranch",
-  "UseOriginalLocationNewBranch",
-  "UseNewLocationNewBranch",
+/** Where a checkout lives: a worktree Corvi owns under the change (`new`), or the repository's
+ * own checkout (`original`), which Corvi only links for reading. */
+export const CheckoutLocation = Schema.Literal("new", "original")
+export type CheckoutLocation = typeof CheckoutLocation.Type
+
+/** Which branch a checkout uses: the change's own (created from `base` when missing, attached
+ * when present), the branch the checkout has right now (adopted untouched), or an existing
+ * branch by name (attached or switched to; never created). */
+export const BranchPlan = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("change") }),
+  Schema.Struct({ kind: Schema.Literal("current") }),
+  Schema.Struct({ kind: Schema.Literal("existing"), name: Schema.String }),
 )
-export type CheckoutMethod = typeof CheckoutMethod.Type
+export type BranchPlan = typeof BranchPlan.Type
 
 export class Repository extends Schema.Class<Repository>("Repository")({
   changeId: ChangeId,
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
   originalLocation: Schema.String,
-  checkoutMethod: CheckoutMethod,
+  location: CheckoutLocation,
+  branch: BranchPlan,
+  /** Where a `change` branch starts; only meaningful for that branch kind. */
+  base: Schema.optional(Schema.String),
+  /** What a pull request merges into; falls back to `base`, then the repository default. */
+  target: Schema.optional(Schema.String),
 }) {}
 
 export type RepositoryState = "Concept" | "Active" | "Archived"
+
+/** Which branch a checkout's facts follow: the change's own branch, a named existing branch, or
+ * whatever the checkout has checked out now — which is observed live at read time, never
+ * recorded. */
+export type EffectiveBranch =
+  | { readonly _tag: "Recorded"; readonly name: string }
+  | { readonly _tag: "Observed" }
+
+// Pure and synchronous: nothing for an Effect to wrap.
+export const effectiveBranchOf = (changeBranch: string, branch: BranchPlan): EffectiveBranch =>
+  branch.kind === "current"
+    ? { _tag: "Observed" }
+    : { _tag: "Recorded", name: branch.kind === "existing" ? branch.name : changeBranch }
 
 export type RepositoryRef = {
   readonly changeId: ChangeId
@@ -68,7 +94,11 @@ export type RepositoryRef = {
 
 export type AddRepositoryInput = {
   readonly changeId: ChangeId
-  readonly directoryName: DirectoryName
+  /** The source repository's checkout; the link's directory name and id derive from its last
+   * component, so re-reading a record yields the same links every time. */
   readonly originalLocation: string
-  readonly checkoutMethod: CheckoutMethod
+  readonly location: CheckoutLocation
+  readonly branch: BranchPlan
+  readonly base?: string
+  readonly target?: string
 }

@@ -14,7 +14,7 @@ import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import { fakeShell, runEffect, runWithShell, TestError, withRuntimeConfig, type FakeShell } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -30,7 +30,7 @@ beforeEach(() => {
 const change = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-1",
   branch: "PROJ-1-thing",
-  repos: [],
+  checkouts: checkoutsOf([]),
   createdAt: "2026-01-01T00:00:00Z",
   ...over,
 });
@@ -102,7 +102,7 @@ test("the github card draws repository > pull request > checks", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   expect(items).toHaveLength(1);
   const repoRow = items[0]!;
   expect(repoRow.label).toBe("example-api");
@@ -146,7 +146,7 @@ test("the azure-devops card draws repository > pipeline > run", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   expect(items).toHaveLength(1);
   const repoRow = items[0]!;
   expect(repoRow.label).toBe("example-api");
@@ -196,7 +196,7 @@ test("a finished build carries the moment to read, a running one counts in its b
     return undefined;
   });
 
-  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   const runs = items[0]!.children![0]!.children!;
   // Newest first, and only the finished one carries a moment to read: a running build's age is its
   // progress bar, which counts from the same start time.
@@ -223,7 +223,7 @@ test("the azure-devops card answers empty when it found no pipelines", async () 
 
   // A repository built by GitHub Actions, or by pipelines in another project, has nothing here
   // to show: the GitHub card carries the checks, and this card stays silent.
-  const items = await runWithShell(shell, azure.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, azure.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   expect(items).toEqual([]);
 });
 
@@ -235,7 +235,7 @@ test("a repository with no worktree reads as no worktree, not as a failed lookup
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "pull request", detail: "no worktree", state: "none" });
   expect(items[0]!.state).toBe("none");
@@ -250,7 +250,7 @@ test("a pushed branch with no pull request offers to create one", async () => {
     return undefined;
   });
 
-  const items = await runWithShell(shell, github.repoStatus!(change({ repos: [orderRepo] }), orderRepo));
+  const items = await runWithShell(shell, github.repoStatus!(change({ checkouts: checkoutsOf([orderRepo]) }), orderRepo));
   const prRow = items[0]!.children![0]!;
   expect(prRow).toMatchObject({ label: "no pull request", detail: "not pushed yet", state: "none" });
   expect(prRow.actions).toEqual([{ id: "create", label: "Push & create PR", arg: orderRepo }]);
@@ -262,7 +262,7 @@ test("the github create action pushes and opens the pull request", async () => {
     return checkedOut(line) ?? undefined;
   });
 
-  await runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "create", orderRepo));
+  await runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", orderRepo));
   const lines = shell.calls.map((c) => c.cmd.join(" "));
   expect(lines).toContain(`git push -u origin ${branch}`);
   expect(lines).toContain("gh pr create --fill");
@@ -271,9 +271,9 @@ test("the github create action pushes and opens the pull request", async () => {
 test("the github card refuses an action it does not know, and create without a repository", async () => {
   const shell = fakeShell();
   await expect(
-    runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "bogus", orderRepo)),
+    runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "bogus", orderRepo)),
   ).rejects.toThrow("unknown github action: bogus");
-  await expect(runWithShell(shell, github.run!(change({ repos: [orderRepo] }), "create", undefined))).rejects.toThrow(
+  await expect(runWithShell(shell, github.run!(change({ checkouts: checkoutsOf([orderRepo]) }), "create", undefined))).rejects.toThrow(
     "repo required",
   );
   expect(shell.calls).toEqual([]);
@@ -325,7 +325,7 @@ test("the github summary names open comments and takes the checks' verdict", asy
   const shell = summaryShell(0, 1);
   const summary = await runWithShell(
     shell,
-    githubSummaryContributor.facts(change({ repos: [orderRepo] })),
+    githubSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(summary.facts).toEqual([
     { id: "unresolved", label: "1 unresolved comment", state: "warn" },
@@ -337,7 +337,7 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
   const { clearCache } = await import("../apps/server/src/capabilities/cache.ts");
   const one = await runWithShell(
     summaryShell(1, 0),
-    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(one.facts).toEqual([{ id: "pipelines", label: "1 pipeline active", state: "pending" }]);
   // A pipeline in flight is pending whatever the last checks said.
@@ -348,7 +348,7 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
   clearCache();
   const two = await runWithShell(
     summaryShell(2, 0),
-    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(two.facts.map((f) => f.label)).toEqual(["2 pipelines active"]);
 });
@@ -356,14 +356,14 @@ test("the azure-devops summary counts active pipelines, in the singular and plur
 test("an idle inbox and idle pipelines contribute nothing but the idle line", async () => {
   const githubSummary = await runWithShell(
     summaryShell(0, 0),
-    githubSummaryContributor.facts(change({ repos: [orderRepo] })),
+    githubSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(githubSummary.facts).toEqual([]);
   expect(githubSummary.state).toBe("ok");
 
   const azureSummary = await runWithShell(
     summaryShell(0, 0),
-    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(azureSummary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
   expect(azureSummary.state).toBeUndefined();
@@ -377,7 +377,7 @@ test("a vendor being down loses the facts, not the summary", async () => {
   });
   const summary = await runWithShell(
     shell,
-    azureDevopsSummaryContributor.facts(change({ repos: [orderRepo] })),
+    azureDevopsSummaryContributor.facts(change({ checkouts: checkoutsOf([orderRepo]) })),
   );
   expect(summary.facts).toEqual([{ id: "pipelines", label: "pipelines idle", state: "none" }]);
   expect(summary.state).toBeUndefined();
@@ -405,7 +405,7 @@ test("loose ends name each open pull request, and a failed lookup contributes no
 
   const ends = await runWithShell(
     shell,
-    prLooseEnds(change({ repos: [orderRepo, brokenRepo, goneRepo] })),
+    prLooseEnds(change({ checkouts: checkoutsOf([orderRepo, brokenRepo, goneRepo]) })),
   );
   // One line per repository that has a pull request; a down vendor and a missing worktree are
   // not loose ends worth failing a cancellation over.

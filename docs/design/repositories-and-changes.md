@@ -186,19 +186,25 @@ export type RepositoryId = typeof RepositoryId.Type
 export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"))
 export type DirectoryName = typeof DirectoryName.Type
 
-export const CheckoutMethod = Schema.Literal(
-  "UseOriginalLocationOriginalBranch",
-  "UseOriginalLocationNewBranch",
-  "UseNewLocationNewBranch",
+export const CheckoutLocation = Schema.Literal("new", "original")
+export type CheckoutLocation = typeof CheckoutLocation.Type
+
+export const BranchPlan = Schema.Union(
+  Schema.Struct({ kind: Schema.Literal("change") }),
+  Schema.Struct({ kind: Schema.Literal("current") }),
+  Schema.Struct({ kind: Schema.Literal("existing"), name: Schema.String }),
 )
-export type CheckoutMethod = typeof CheckoutMethod.Type
+export type BranchPlan = typeof BranchPlan.Type
 
 export class Repository extends Schema.Class<Repository>("Repository")({
   changeId: ChangeId,
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
   originalLocation: Schema.String,
-  checkoutMethod: CheckoutMethod,
+  location: CheckoutLocation,
+  branch: BranchPlan,
+  base: Schema.optional(Schema.String),
+  target: Schema.optional(Schema.String),
 }) {}
 
 export type RepositoryState = "Concept" | "Active" | "Archived"
@@ -211,12 +217,20 @@ export const stateOf = (change: Change): RepositoryState =>
       ? "Archived"
       : "Active"
 
-/** New-location checkouts live under the workspace, named after the repository; the two
+/** New-location checkouts live under the workspace, named after the repository; the
  * original-location methods keep using the source checkout. */
 export const checkoutLocationOf = (change: Change, repository: Repository): string =>
-  repository.checkoutMethod === "UseNewLocationNewBranch"
+  repository.location === "new"
     ? join(change.workspaceLocation, repository.directoryName)
     : repository.originalLocation
+
+/** Which branch a checkout's facts follow: the change's own, a named existing branch, or
+ * whatever the checkout has checked out now — observed live at read time, never recorded. */
+export type EffectiveBranch =
+  | { readonly _tag: "Recorded"; readonly name: string }
+  | { readonly _tag: "Observed" }
+
+export const effectiveBranchOf = (changeBranch: string, branch: BranchPlan): EffectiveBranch
 
 export type RepositoryRef = {
   readonly changeId: ChangeId
@@ -225,9 +239,12 @@ export type RepositoryRef = {
 
 export type AddRepositoryInput = {
   readonly changeId: ChangeId
-  readonly directoryName: DirectoryName
+  /** The link's directory name and id derive from this path's last component. */
   readonly originalLocation: string
-  readonly checkoutMethod: CheckoutMethod
+  readonly location: CheckoutLocation
+  readonly branch: BranchPlan
+  readonly base?: string
+  readonly target?: string
 }
 ```
 
@@ -302,10 +319,13 @@ export const layer = Layer.effect(
 )
 ```
 
-The store keeps one legacy-compatible record per change: `repositories` materializes the link
-list, `repos`/`direct` are derived from it, and when the old app edits those fields they win and
-the links are re-projected until the next write. A terminal transition archives the change
-directory.
+The store keeps one record per change, `change.json`, in the versioned format the record schema
+(`@corvi/contracts/api`'s `ChangeWireDto`) describes: the change's fields and one `checkouts`
+entry per source repository — the same spec the wire carries — stamped with `formatVersion`. A
+record without the stamp is format 1 and is migrated in place on its next read (atomically, and
+once at startup); a record carrying more than this version writes is read best-effort and never
+written — the downgrade fence refuses every write with `ChangeFormatTooNew`. A terminal
+transition archives the change directory.
 
 # Repositories (Git)
 
@@ -374,12 +394,15 @@ export interface Interface {
 }
 ```
 
-The checkout-method enum is application policy and stays in `changes`; mapping
-`UseOriginalLocation*` to `provisionInPlace`, and `UseNewLocation*` to
-`provisionLinkedWorktree`, happens in the workflow. The capability only knows concrete sources and
-destinations; base selection (`origin/<default>`, else a local `main`/`master`) and the fetch are
-its own. `InPlaceOutcome` is `already | switched | created | skipped-dirty`, so a dirty checkout is
-reported rather than touched.
+The checkout policy is application policy and stays in `changes`; the link's location and branch
+kind map to the capability's concrete inputs in the workflow: `location: original` goes to
+`provisionInPlace`, `location: new` to `provisionLinkedWorktree`, `branch.kind: current` to
+neither (the checkout is adopted untouched), `branch.kind: change` passes `createMissing: true`
+and the link's `base`, and `branch.kind: existing` passes `createMissing: false` and the named
+branch. The capability only knows concrete sources and destinations; base selection
+(`origin/<default>`, else a local `main`/`master`) and the fetch are its own. `InPlaceOutcome` is
+`already | switched | created | skipped-dirty`, so a dirty checkout is reported rather than
+touched.
 
 ## Service and implementation
 ```ts
@@ -663,24 +686,20 @@ export const layer = Layer.effect(
       )
     })
 
-    // The checkout policy belongs to the application, so the enum-to-operation mapping is here.
+    // The checkout policy belongs to the application: the link's location and branch kind map
+    // to the capability's concrete inputs here, and nowhere else.
     const provisionLink = (change: Change, repository: Repository) => {
-      switch (repository.checkoutMethod) {
-        case "UseOriginalLocationOriginalBranch":
-          return Effect.void
-        case "UseOriginalLocationNewBranch":
-          return repositories
-            .provisionInPlace({
-              source: AbsolutePath.make(repository.originalLocation),
-              branch: change.branch,
-            })
-            .pipe(Effect.asVoid)
-        case "UseNewLocationNewBranch":
-          return repositories.provisionLinkedWorktree({
-            source: AbsolutePath.make(repository.originalLocation),
-            directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
-            branch: change.branch,
-          })
+      switch (repository.branch.kind) {
+        case "current":
+          return Effect.void // adopting what the checkout has is no work at all
+        case "change":
+          return repository.location === "original"
+            ? repositories.provisionInPlace({ source, branch: change.branch, createMissing: true, base: repository.base }).pipe(Effect.asVoid)
+            : repositories.provisionLinkedWorktree({ source, directory, branch: change.branch, createMissing: true, base: repository.base })
+        case "existing":
+          return repository.location === "original"
+            ? repositories.provisionInPlace({ source, branch: repository.branch.name, createMissing: false }).pipe(Effect.asVoid)
+            : repositories.provisionLinkedWorktree({ source, directory, branch: repository.branch.name, createMissing: false })
       }
     }
 

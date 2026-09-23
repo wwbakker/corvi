@@ -13,7 +13,7 @@ import { plannedCompletionSteps, providerError } from "../apps/server/src/change
 import { changeDir, createChange, readChange, writeSidecar } from "../apps/server/src/change/server/index.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
-import { fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
 import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
 
 /**
@@ -36,8 +36,8 @@ afterAll(async () => {
 const changeWith = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-x",
   branch: "PROJ-x",
-  repos: [],
-  state: "In Progress",
+  checkouts: checkoutsOf([]),
+  state: "Implementation",
   createdAt: new Date().toISOString(),
   ...over,
 });
@@ -122,7 +122,7 @@ test("plannedCompletionSteps: the included steps are each planned once", () => {
 
 test("progressOf: no record is none, and a half-written record reads as none", async () => {
   const change = await runEffect(
-    createChange({ id: "PROJ-PROGRESS", branch: "PROJ-PROGRESS", repos: [join(tmp, "r")] }),
+    createChange({ id: "PROJ-PROGRESS", branch: "PROJ-PROGRESS", checkouts: checkoutsOf([join(tmp, "r")]) }),
   );
   expect(await runEffect(progressOf(change.id))).toBeNull();
 
@@ -228,7 +228,7 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
 
 test("completionOf: a live look at one repository becomes the change's verdict", async () => {
   const repo = join(tmp, "ready-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-ready" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-ready" });
   const shell = completionShell({
     worktree: join(tmp, "wt-ready"),
     branch: change.branch,
@@ -244,7 +244,7 @@ test("completionOf: a live look at one repository becomes the change's verdict",
 
 test("completionOf: a pull request merged by hand leaves nothing to merge", async () => {
   const repo = join(tmp, "merged-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-merged" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-merged" });
   const shell = completionShell({
     worktree: join(tmp, "wt-merged"),
     branch: change.branch,
@@ -260,7 +260,7 @@ test("completionOf: a pull request merged by hand leaves nothing to merge", asyn
 
 test("completionOf: no worktree and no pull request each block, and say which", async () => {
   const noWorktree = join(tmp, "nowt-repo");
-  const first = changeWith({ repos: [noWorktree], branch: "PROJ-nowt" });
+  const first = changeWith({ checkouts: checkoutsOf([noWorktree]), branch: "PROJ-nowt" });
   expect(await runWithShell(completionShell({}), completionOf(first))).toEqual({
     ready: false,
     reasons: [`${basename(noWorktree)}: no worktree`],
@@ -269,7 +269,7 @@ test("completionOf: no worktree and no pull request each block, and say which", 
   });
 
   const noPr = join(tmp, "nopr-repo");
-  const second = changeWith({ repos: [noPr], branch: "PROJ-nopr" });
+  const second = changeWith({ checkouts: checkoutsOf([noPr]), branch: "PROJ-nopr" });
   expect(
     await runWithShell(
       completionShell({ worktree: join(tmp, "wt-nopr"), branch: second.branch, pr: null }),
@@ -285,7 +285,7 @@ test("completionOf: no worktree and no pull request each block, and say which", 
 
 test("completionOf: work the remote never saw blocks an otherwise approved change", async () => {
   const repo = join(tmp, "dirty-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-dirty" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-dirty" });
   const shell = completionShell({
     worktree: join(tmp, "wt-dirty"),
     branch: change.branch,
@@ -302,7 +302,7 @@ test("completionOf: work the remote never saw blocks an otherwise approved chang
 test("completeChange: a step that fails stops where it stands and journals it", async () => {
   const repo = join(tmp, "fail-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-FAIL", branch: "PROJ-FAIL", repos: [repo] }),
+    createChange({ id: "PROJ-FAIL", branch: "PROJ-FAIL", checkouts: checkoutsOf([repo]) }),
   );
   const shell = completionShell({
     worktree: join(tmp, "wt-fail"),
@@ -324,13 +324,13 @@ test("completeChange: a step that fails stops where it stands and journals it", 
   expect(stopped.error).toContain("not mergeable");
   expect(stopped.finishedAt).toBeTruthy();
   // Still where it was, not archived: a failed completion changed nothing on disk.
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
 
 test("completeChange: a provider failure that said nothing says what failed, not its type", async () => {
   const repo = join(tmp, "silent-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-SILENT", branch: "PROJ-SILENT", repos: [repo] }),
+    createChange({ id: "PROJ-SILENT", branch: "PROJ-SILENT", checkouts: checkoutsOf([repo]) }),
   );
   const shell = completionShell({
     worktree: join(tmp, "wt-silent"),
@@ -354,7 +354,7 @@ test("providerError: an inner error with nothing to say gets the operation's wor
 test("completeChange: every step is journaled as it runs and the change is archived", async () => {
   const repo = join(tmp, "ok-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-OK", branch: "PROJ-OK", repos: [repo] }),
+    createChange({ id: "PROJ-OK", branch: "PROJ-OK", checkouts: checkoutsOf([repo]) }),
   );
   await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
@@ -456,7 +456,7 @@ test("integrated: the simulated merge is asked once per pair of tips, and again 
 
 test("completionOf: a branch whose content is in main reads as merged without a PR", async () => {
   const repo = join(tmp, "integrated-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-integrated" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-integrated" });
   const shell = completionShell({
     worktree: join(tmp, "wt-integrated"),
     branch: change.branch,
@@ -473,7 +473,7 @@ test("completionOf: a branch whose content is in main reads as merged without a 
 
 test("completionOf: a closed PR whose content landed elsewhere reads as merged", async () => {
   const repo = join(tmp, "closed-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-closed" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-closed" });
   const shell = completionShell({
     worktree: join(tmp, "wt-closed"),
     branch: change.branch,
@@ -491,7 +491,7 @@ test("completionOf: a closed PR whose content landed elsewhere reads as merged",
 
 test("completionOf: an open unapproved PR still gates on an integrated branch", async () => {
   const repo = join(tmp, "open-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-open" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-open" });
   const shell = completionShell({
     worktree: join(tmp, "wt-open"),
     branch: change.branch,
@@ -508,7 +508,7 @@ test("completionOf: an open unapproved PR still gates on an integrated branch", 
 
 test("completionOf: fresh fetches before reading, so a just-merged branch is seen", async () => {
   const repo = join(tmp, "fresh-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-fresh" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-fresh" });
   const shell = completionShell({
     worktree: join(tmp, "wt-fresh"),
     branch: change.branch,
@@ -523,7 +523,7 @@ test("completionOf: fresh fetches before reading, so a just-merged branch is see
 
 test("completionOf: a pull request that needs no review is ready to merge", async () => {
   const repo = join(tmp, "noreview-ready-repo");
-  const change = changeWith({ repos: [repo], branch: "PROJ-noreview" });
+  const change = changeWith({ checkouts: checkoutsOf([repo]), branch: "PROJ-noreview" });
   const shell = completionShell({
     worktree: join(tmp, "wt-noreview-ready"),
     branch: change.branch,
@@ -541,7 +541,7 @@ test("completionOf: a pull request that needs no review is ready to merge", asyn
 test("completeChange: a pull request that needs no review completes and is merged", async () => {
   const repo = join(tmp, "noreview-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-NOREVIEW", branch: "PROJ-NOREVIEW", repos: [repo] }),
+    createChange({ id: "PROJ-NOREVIEW", branch: "PROJ-NOREVIEW", checkouts: checkoutsOf([repo]) }),
   );
   await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
@@ -562,7 +562,7 @@ test("completeChange: a pull request that needs no review completes and is merge
 test("completeChange: force completes despite an unapproved PR, and journals the override", async () => {
   const repo = join(tmp, "force-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-FORCE", branch: "PROJ-FORCE", repos: [repo] }),
+    createChange({ id: "PROJ-FORCE", branch: "PROJ-FORCE", checkouts: checkoutsOf([repo]) }),
   );
   await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
@@ -587,7 +587,7 @@ test("completeChange: force completes despite an unapproved PR, and journals the
 test("completeChange: without force an unready change is a refusal, and nothing is written", async () => {
   const repo = join(tmp, "refuse-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-REFUSE", branch: "PROJ-REFUSE", repos: [repo] }),
+    createChange({ id: "PROJ-REFUSE", branch: "PROJ-REFUSE", checkouts: checkoutsOf([repo]) }),
   );
   const shell = completionShell({
     worktree: join(tmp, "wt-refuse"),
@@ -603,13 +603,13 @@ test("completeChange: without force an unready change is a refusal, and nothing 
   // A refusal is a dialog, not a completion that started and stopped: no journal for it, and the
   // change is untouched.
   expect(await runEffect(progressOf(change.id))).toBeNull();
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
 
 test("completeChange: force still refuses uncommitted work", async () => {
   const repo = join(tmp, "dirty-force-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-DIRTYFORCE", branch: "PROJ-DIRTYFORCE", repos: [repo] }),
+    createChange({ id: "PROJ-DIRTYFORCE", branch: "PROJ-DIRTYFORCE", checkouts: checkoutsOf([repo]) }),
   );
   await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
   const shell = completionShell({
@@ -621,7 +621,7 @@ test("completeChange: force still refuses uncommitted work", async () => {
   await expect(runWithShell(shell, completeChange(change, true))).rejects.toThrow(
     /uncommitted changes/,
   );
-  expect((await runEffect(readChange(change.id)))?.state).toBe("In Progress");
+  expect((await runEffect(readChange(change.id)))?.state).toBe("Implementation");
 });
 
 test("completeChange: force still refuses an idea", async () => {
@@ -825,7 +825,7 @@ test("retryBody: a retry keeps the forced mode the journal recorded", async () =
 test("completeChange: the readiness check runs once per call", async () => {
   const repo = join(tmp, "once-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-ONCE", branch: "PROJ-ONCE", repos: [repo] }),
+    createChange({ id: "PROJ-ONCE", branch: "PROJ-ONCE", checkouts: checkoutsOf([repo]) }),
   );
   const shell = completionShell({
     worktree: join(tmp, "wt-once"),
@@ -879,7 +879,7 @@ test("the complete route drives readiness through the scripted CLI", async () =>
   const { completePost } = await import("../apps/server/src/change/routes.ts");
   const repo = join(tmp, "route-cli-repo");
   const change = await runEffect(
-    createChange({ id: "PROJ-ROUTECLI", branch: "PROJ-ROUTECLI", repos: [repo] }),
+    createChange({ id: "PROJ-ROUTECLI", branch: "PROJ-ROUTECLI", checkouts: checkoutsOf([repo]) }),
   );
   const shell = completionShell({
     worktree: join(tmp, "wt-routecli"),
