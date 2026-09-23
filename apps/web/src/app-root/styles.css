@@ -37,6 +37,15 @@
   --diff-add: #7ee787;
   --diff-del: #ffa198;
 
+  /* The Markdown editor's syntax: the plan, the notes and the wizard's description read as
+     source. Seeded from the palette above — the info blue, the diff green, the purple, the two
+     greys — so these are the theme's own colors until someone deliberately retunes them. */
+  --md-heading: #6cb6ff; /* headings, and keywords in code */
+  --md-code: #7ee787;    /* code as written: inline code, a fence without a language */
+  --md-link: #a371f7;    /* links and labels, strings and entities */
+  --md-quote: #8b93a1;   /* quotes and comments */
+  --md-mark: #565f6c;    /* the marks: # ** []() fence lines, punctuation */
+
   /* Edges, and the tones derived rather than named: a rule that wants something between two
      surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
      one where it was — a control's face has to be visible on a card. */
@@ -1205,16 +1214,12 @@ button.create:hover:not(:disabled) {
   margin-bottom: 12px;
 }
 
-textarea.notes,
-textarea.plan {
+/* The Markdown editor's block: the view paints its own well, border and monospace face
+   (apps/web/src/editor/client/theme.ts); this sizes its box. */
+.md-editor {
+  display: block;
   width: 100%;
-  font: inherit;
-  color: var(--text);
-  background: var(--well);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px;
-  resize: vertical;
+  min-width: 0;
 }
 
 /* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than

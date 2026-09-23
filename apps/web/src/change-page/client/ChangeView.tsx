@@ -526,18 +526,13 @@ export function ChangeView({
       )}
       {active.kind === "dashboard" && (
         <div className="widgets">
-          {/* The left column is the change's documents: the plan and any widget that declares
-              itself one. The right holds the status — completion, the cards, the other widgets —
-              every card the full width of its column. An empty side is dropped rather than
+          {/* The left column is the change's documents: any widget that declares itself one. The
+              right holds the status — completion, the cards, the other widgets — every card the
+              full width of its column. An empty side is dropped rather than
               given half the window by the grid. */}
           <div className="column documents">
-            {/* The plan is the change's own document: it stays visible once the work starts, and
-                is a read-only record once the change is over. */}
-            {change && (
-              <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
-            )}
             {(infos ?? []).filter((i) => i.column === "left").map(card)}
-            {/* Client-drawn documents, after the plan: textareas and other client state a polled
+            {/* Client-drawn documents: textareas and other client state a polled
                 card cannot hold. Deliberately not keyed by generation — a remount after a merge
                 would drop in-flight typing. Nothing to hand a widget before the change loads,
                 so they wait for it; the cards do not. */}
@@ -573,6 +568,15 @@ export function ChangeView({
           </div>
         </div>
       )}
+      {/* The plan is the change's own document: it stays visible once the work starts, and is a
+          read-only record once the change is over. Its own tab — a document of the change, not
+          a card beside its status — between the dashboard and the tabs extensions contribute. */}
+      {active.kind === "plan" &&
+        (change ? (
+          <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
+        ) : (
+          <p className="hint">loading…</p>
+        ))}
       {/* An extension's own tab. It gets the change, which may still be loading: nothing to
           hand it means a hint rather than a crash. */}
       {active.kind === "tab" &&

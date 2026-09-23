@@ -3,6 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
+import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
 /**
@@ -169,7 +170,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
   // keystroke. It must be smaller than the title and take no space of its own.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-  const card = page.locator(".widget:has(textarea.notes)");
+  const card = page.locator(".widget:has(.md-editor)");
   await card.waitFor();
   const heading = card.locator("h3");
   const height = (): Promise<number> =>
@@ -178,7 +179,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
     card.evaluate((section) => section.getBoundingClientRect().height);
 
   const before = { heading: await height(), card: await cardHeight() };
-  await card.locator("textarea.notes").fill("a note");
+  await fillEditor(card.locator(".md-editor"), "a note");
   await card.locator("h3 .summary", { hasText: "unsaved" }).waitFor();
 
   expect(await height()).toBe(before.heading);
@@ -191,14 +192,14 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the documents sit left of the status cards", async () => {
-  // The dashboard's two regions: the change's documents (the plan, notes) on the left, the
-  // status cards on the right. At this width both are present, so the grid has two columns and
+  // The dashboard's two regions: the change's documents (notes and any document widget) on the
+  // left, the status cards on the right — the plan is a tab of its own now. At this width both
+  // are present, so the grid has two columns and
   // the status region starts where the documents end.
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   const documents = page.locator(".column.documents");
-  await documents.locator("textarea.plan").waitFor();
-  await documents.locator("textarea.notes").waitFor();
+  await documents.locator(".md-editor").waitFor();
   const status = page.locator(".column.status");
   await status.locator(".widget").first().waitFor();
   expect(await status.locator(".widget").count()).toBeGreaterThan(0);
@@ -234,14 +235,14 @@ test.skipIf(!usable)("switching changes shows the new change's notes, not the on
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-  const notes = page.locator("textarea.notes");
+  const notes = page.locator(".md-editor");
   await notes.waitFor();
   /** The notes card's text, once it is what it should be; the load is asynchronous like every
    * other, so this is the page's own answer after a bounded wait rather than immediately. */
   const notesAre = async (want: string): Promise<string> => {
     let shown = "";
     for (let i = 0; i < 25; i++) {
-      shown = await notes.inputValue();
+      shown = await editorText(notes);
       if (shown === want) break;
       await Bun.sleep(200);
     }
@@ -251,7 +252,7 @@ test.skipIf(!usable)("switching changes shows the new change's notes, not the on
 
   // Type into it, then switch before the debounced save has landed: the in-flight text must not
   // be inherited by the change you open.
-  await notes.fill("typed into the change you leave");
+  await fillEditor(notes, "typed into the change you leave");
   await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
   await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
   expect(await notesAre(opened)).toBe(opened);
@@ -277,21 +278,21 @@ test.skipIf(!usable)("a read from the change you left does not land on the one y
     },
   );
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
-  await page.locator("textarea.notes").waitFor();
+  await page.locator(".md-editor").waitFor();
   await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
   await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
 
   // The change you opened answered first, and stays: the late answer is for a page that is gone.
-  const notes = page.locator("textarea.notes");
+  const notes = page.locator(".md-editor");
   let shown = "";
   for (let i = 0; i < 25; i++) {
-    shown = await notes.inputValue();
+    shown = await editorText(notes);
     if (shown === "notes of the change you open") break;
     await Bun.sleep(200);
   }
   expect(shown).toBe("notes of the change you open");
   await Bun.sleep(2000); // past the held response
-  expect(await notes.inputValue()).toBe("notes of the change you open");
+  expect(await editorText(notes)).toBe("notes of the change you open");
   await page.close();
 }, 30_000);
 
@@ -476,7 +477,7 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
 
   await page.locator(".steps button.step", { hasText: "Idea" }).click();
   await page.getByLabel("Title").fill("A half-written idea");
-  await page.getByLabel("Description").fill("The first paragraph of the plan.");
+  await fillEditor(page.locator(".form .md-editor"), "The first paragraph of the plan.");
 
   // The row says what the draft is called while it is being typed.
   const row = page.locator(".sidebar .entry.change.state-ideation");
@@ -498,7 +499,9 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   expect(new URL(page.url()).pathname).toBe("/new");
   expect((await page.locator(".steps button.step.active").innerText()).trim()).toContain("Idea");
   expect(await page.getByLabel("Title").inputValue()).toBe("A half-written idea");
-  expect(await page.getByLabel("Description").inputValue()).toBe("The first paragraph of the plan.");
+  expect(await editorText(page.locator(".form .md-editor"))).toBe(
+    "The first paragraph of the plan.",
+  );
 
   // The other way in — the New button — opens the same draft, not a second, empty one.
   await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();

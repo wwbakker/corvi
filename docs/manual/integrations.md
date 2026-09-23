@@ -67,7 +67,7 @@ not zero. Unstaging and discarding are not currently provided by this view.
 The dashboard's **Notes** card saves shortly after typing stops, on blur, and when navigating
 away. Current storage is `extensions/notes/notes.md` under the change directory, so notes travel
 with the archive. A root-level `notes.md` remains a fallback for existing data; new saves use the
-namespaced file. The plan and notes occupy the document column, separate from status cards.
+namespaced file. Notes occupy the document column, separate from status cards.
 
 ## Azure DevOps
 

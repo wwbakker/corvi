@@ -12,17 +12,19 @@ Ideas are separate from work in progress. An unfinished wizard appears as **New 
 title you typed; opening it restores its draft. Only one destination is highlighted: a terminal
 window, a change view, or the draft being edited.
 
-Selecting a change opens its dashboard. **Dashboard** and **Review changes** are views of that
-change; terminal windows can also be opened directly from the navigation column. Each view has
-a URL, so deep links, reload, and browser Back work.
+Selecting a change opens its dashboard. **Dashboard**, **Plan** and **Review changes** are views
+of that change; terminal windows can also be opened directly from the navigation column. Each
+view has a URL, so deep links, reload, and browser Back work.
 
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
 new-window control creates another window, normally in the current window's working directory.
 
 ## Change views
 
-A change's name, state, and actions remain accessible above its content. The dashboard places
-plan/notes documents in the left column and status cards in the right; narrow windows stack the
+A change's name, state, and actions remain accessible above its content. The **Plan** tab writes
+`PLAN.md` as Markdown source — the markup stays visible, in a monospace face, colored as an
+editor colors it. The dashboard places notes documents in the left column and status cards in
+the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
 whole page. Returning to a view can show cached data while it refreshes.
 

@@ -2,16 +2,18 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import { apiClient } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
+import { MarkdownEditor } from "../../editor/client/MarkdownEditor.tsx";
 
 /**
  * The plan of a change: the document the human and the agent shape before any work exists, and
  * that stays readable — and editable — once the work has started. It is the change's own file,
- * not a phase's, so it does not disappear when the state moves on.
+ * not a phase's, so it does not disappear when the state moves on. Its own tab now, where the
+ * Markdown source can be given room.
  *
- * A textarea with the notes widget's contract — load, debounce, flush on blur and on unmount,
- * never overwrite what is being typed — because it is the same kind of thing. It reads and writes
- * `PLAN.md` at the change root through the change's own route, so the file the agent edits and
- * the file here are one file.
+ * The Markdown source editor with the notes widget's contract — load, debounce, flush on blur and
+ * on unmount, never overwrite what is being typed — because it is the same kind of thing. It
+ * reads and writes `PLAN.md` at the change root through the change's own route, so the file the
+ * agent edits and the file here are one file.
  *
  * The briefing button beside the heading pastes the configured prompt into the change's terminal,
  * and is offered only while the change is an idea: the prompt is about shaping a plan before the
@@ -103,13 +105,12 @@ export function PlanCard({
           </button>
         )}
       </h3>
-      <textarea
-        className="plan"
-        rows={16}
+      <MarkdownEditor
+        rows={24}
         value={text}
         readOnly={readOnly}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."
-        onChange={(e) => change(e.target.value)}
+        onChange={change}
         onBlur={() => pending.current !== null && void save(text)}
       />
     </section>
