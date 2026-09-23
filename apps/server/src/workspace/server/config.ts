@@ -2,8 +2,14 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "@corvi/configuration/config";
-import { ConfigFile, workspacesFrom } from "./schema.ts";
+import {
+  DEFAULT_IDEATION_PROMPT,
+  DEFAULT_WORKSPACE,
+  type Config,
+  type SettingsOverrides,
+  type Workspace,
+} from "@corvi/configuration/config";
+import { ConfigFile, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
@@ -38,6 +44,13 @@ const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "repositoriesDirect
  */
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
   Schema.decodeUnknown(Schema.parseJson(ConfigFile), { onExcessProperty: "preserve" })(text).pipe(
+    // The one shape: a workspace written before `settings` existed folds into it here, so
+    // everything downstream — resolution, the settings page's read, the write's secret lookup —
+    // sees the same shape a hand edit in either form would mean.
+    Effect.map((file) => {
+      for (const workspace of file.workspaces ?? []) foldWorkspaceSettings(workspace);
+      return file;
+    }),
     // Tolerance the manual documents: an invalid config file reads as "nothing configured".
     Effect.orElseSucceed(() => ({})),
   );
@@ -70,10 +83,32 @@ const resolvePath = (value: string): string => {
 
 /**
  * The file and the environment, resolved into what the rest of the code reads. The precedence
- * chain — environment wins over file, file over defaults, the bag over both — is stated once,
- * in @corvi/configuration/settings. The per-workspace tolerance (skip entries without a truthy id and
- * name) is applied by workspacesFrom.
+ * chain — environment variable > workspace > global > default — is stated once, in
+ * @corvi/configuration/settings. The global fields below carry the global scope's answer
+ * (environment > file > default); each workspace's `settings` hold its overrides, with the
+ * paths resolved like the global ones. The per-workspace tolerance (skip entries without a
+ * truthy id and name) is applied by workspacesFrom.
  */
+
+/** A workspace whose path overrides are resolved like the global ones: `~` expanded and made
+ * absolute. A relative one is dropped rather than thrown out of the load: one hand-mangled
+ * workspace must not cost the rest of the configuration (the tolerance `workspacesFrom`
+ * states). */
+const withResolvedPaths = (workspace: Workspace): Workspace => {
+  const settings = workspace.settings;
+  if (!settings) return workspace;
+  const next: SettingsOverrides = { ...settings };
+  for (const key of ["changesRoot", "archiveRoot", "repositoriesDirectory"] as const) {
+    const value = next[key];
+    if (value === undefined) continue;
+    try {
+      next[key] = resolvePath(value);
+    } catch {
+      delete next[key];
+    }
+  }
+  return { ...workspace, settings: next };
+};
 /**
  * Fold the retired flat `azure*` fields into the azure-devops global settings bag, so they keep
  * resolving as ordinary settings (and show up on the settings page), and the resolved config no
@@ -118,7 +153,7 @@ export function readConfig(): Config {
   // The retired flat azure fields fold into the extension's bag before anything resolves the
   // config, so nothing has to read them where they were written.
   foldLegacyAzure(file);
-  const workspaces = workspacesFrom(file.workspaces);
+  const workspaces = workspacesFrom(file.workspaces).map(withResolvedPaths);
   return {
     // The file's unknown keys ride along into the resolved config: every boundary that decodes a
     // file keeps the keys it does not know about, and an extension's legacy fallback (the jira
@@ -128,34 +163,38 @@ export function readConfig(): Config {
     changesRoot: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.changesRoot,
-        file: file.changesRoot,
+        global: file.changesRoot,
         fallback: defaults.changesRoot,
       }),
     ),
     archiveRoot: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.archiveRoot,
-        file: file.archiveRoot,
+        global: file.archiveRoot,
         fallback: defaults.archiveRoot,
       }),
     ),
     repositoriesDirectory: resolvePath(
       resolveSetting({
         env: ENV_OVERRIDES.repositoriesDirectory,
-        file: file.repositoriesDirectory,
+        global: file.repositoriesDirectory,
         fallback: defaults.repositoriesDirectory,
       }),
     ),
-    notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
-    contextMenu: resolveSetting({ file: file.contextMenu, fallback: true }),
-    ideationPrompt: resolveSetting({ file: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
+    notificationSound: resolveSetting({ global: file.notificationSound, fallback: true }),
+    contextMenu: resolveSetting({ global: file.contextMenu, fallback: true }),
+    ideationPrompt: resolveSetting({ global: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and
     // a key left out here would survive a settings write that emptied the bag.
     extensionSettings: file.extensionSettings,
-    worktreeCopy: resolveSetting({      env: ENV_OVERRIDES.worktreeCopy,
-      file: file.worktreeCopy,
+    // The global entries of the environment every CLI runs with, `~` expanded at use; a
+    // workspace's own entries override them key by key (settingsFor).
+    env: { ...(file.env ?? {}) },
+    worktreeCopy: resolveSetting({
+      env: ENV_OVERRIDES.worktreeCopy,
+      global: file.worktreeCopy,
       fallback: TOOLING,
       parse: (raw) =>
         raw

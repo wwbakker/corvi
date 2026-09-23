@@ -1,6 +1,6 @@
 import type { Change } from "../domain/change.ts";
 import type { Workspace } from "@corvi/configuration/config";
-import { workspaceOf } from "../workspace/server/index.ts";
+import { extensionNamesFor, workspaceOf } from "../workspace/server/index.ts";
 import { loaded, type LoadedIntegration } from "./loaded.ts";
 import type {
   Card,
@@ -21,15 +21,21 @@ import type {
 /**
  * Which extensions exist for this workspace.
  *
- * A workspace that names none has all of them, which is what an unconfigured machine gets.
- * Enablement is the extensions list alone.
+ * The workspace's `extensions` list overrides the global one, and no list at all — at either
+ * level — means every extension, which is what an unconfigured machine gets. Enablement is the
+ * extensions list alone.
  */
 export const extensionsFor = (workspace: Workspace): LoadedIntegration[] => {
-  const names = workspace.extensions;
+  const names = namesFor(workspace);
   if (!names) return [...loaded];
   const wanted = new Set(names);
   return loaded.filter((e) => wanted.has(e.name));
 };
+
+/** The enablement list in effect for this workspace: its own, the global one when it names
+ * none. The one rule, from `@corvi/configuration/workspaces`. */
+const namesFor = (workspace: Workspace): readonly string[] | undefined =>
+  extensionNamesFor(workspace);
 
 /** One surface across a workspace's extensions, concatenated in load order. */
 const contributed = <T>(

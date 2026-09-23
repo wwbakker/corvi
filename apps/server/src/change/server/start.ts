@@ -18,7 +18,7 @@ import { moveIssueOnStart } from "@corvi/jira";
 import { unlinkRepo, browseRepo } from "../../vendors/git.ts";
 import { runtimeConfig, workspaceOf } from "../../workspace/server/index.ts";
 import { changeWorkLayer } from "../lifecycle-layer.ts";
-import { archiveRoot, changeDir, readChange, root } from "./store.ts";
+import { changeDir, changePairs, readChange } from "./store.ts";
 
 /**
 /** What a workflow start produced: the started record and the per-target report the page shows. */
@@ -72,7 +72,7 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
         (repository) =>
           copyTooling(
             repository.originalLocation,
-            join(changeDir(change.id), basename(repository.originalLocation)),
+            join(changeDir(change), basename(repository.originalLocation)),
             runtimeConfig().worktreeCopy,
           ).pipe(
             Effect.catchAll((error) =>
@@ -125,5 +125,5 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
 
     return { change: updated, provision: reports };
   }).pipe(
-    Effect.provide(changeWorkLayer({ root: root(), archiveRoot: archiveRoot() })),
+    Effect.provide(changeWorkLayer(changePairs())),
   );

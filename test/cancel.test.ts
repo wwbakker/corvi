@@ -102,7 +102,7 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   expect(isFinished(cancelled)).toBe(true);
   expect(await runEffect(checkoutFor(cancelled, repo))).toBeUndefined();
   // Archived, and still readable: what was abandoned is worth being able to look up.
-  expect(await Bun.file(join(changeDir("PROJ-CANCEL"), "change.json")).exists()).toBe(false);
+  expect(await Bun.file(join(changeDir({ id: "PROJ-CANCEL" }), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange("PROJ-CANCEL")))?.state).toBe("Cancelled");
 
   // Nothing was committed on it, so the branch had nothing to add and went with the worktree —

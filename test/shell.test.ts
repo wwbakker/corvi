@@ -50,7 +50,11 @@ test("a CLI spawn inherits neither the launcher's variables nor passes them to t
   process.env.CORVI_PORT = "4000";
   process.env.ELECTRON_RUN_AS_NODE = "1";
   try {
-    const workspace: Workspace = { id: "env-test", name: "Env test", env: { MY_OWN: "yes" } };
+    const workspace: Workspace = {
+      id: "env-test",
+      name: "Env test",
+      settings: { env: { MY_OWN: "yes" } },
+    };
     const result = await Effect.runPromise(
       Effect.provide(
         sh(["sh", "-c", "echo $CORVI_PORT:$ELECTRON_RUN_AS_NODE:$MY_OWN"]),

@@ -2,10 +2,10 @@ import { Effect } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import { env } from "@corvi/configuration/node";
 import type { ResolvedDto } from "@corvi/contracts/config";
-import { bagString } from "@corvi/configuration/settings";
+import { bagString, resolveSetting } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
-import { legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
+import { JIRA_ENV, legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
 import type { LegacyFlatSettings } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "@corvi/configuration/workspaces";
 import { Cache, Settings, invalidate, swr } from "@corvi/contracts/capabilities";
@@ -21,6 +21,8 @@ export type { Issue, Sprint } from "@corvi/contracts/integrations/jira";
  * The wizard's step writes the `extensions` bag; an early change record may carry the legacy
  * `jira` field instead, so both are read, the bag first. This is the one function that knows
  * about either, and the legacy read goes through `legacy.ts`, the one place that names it.
+ * A written bag entry shadows the legacy field for good; clearing the link would have to remove
+ * both, or the old key answers again through the fallback below.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const ticketOf = (change: Change): string | undefined =>
@@ -52,7 +54,7 @@ export type Site = {
 
 /**
  * This workspace's Jira, from the settings this extension itself declares: the fields under
- * `workspace.extensionSettings.jira`, which the settings page renders from `workspaceSettings`,
+ * `workspace.settings.extensionSettings.jira`, which the settings page renders from `settings`,
  * and — for a workspace written before the bag — the legacy `workspace.jira` object, read through
  * `legacy.ts`. Either of those answers before the config root's bag, so a workspace overrides the
  * default site field by field.
@@ -62,12 +64,8 @@ export type Site = {
  * inherit the default site's stored token — which is what would send one client's token to
  * another, with no way for the workspace to say otherwise.
  */
-export function siteOfWorkspace(settings: ResolvedDto, workspace: {
-  extensionSettings?: Record<string, Record<string, string>>;
-  /** The legacy per-workspace site object, preserved on a workspace written before the bag. */
-  jira?: unknown;
-}): Site {
-  const own = workspace.extensionSettings?.jira;
+export function siteOfWorkspace(settings: ResolvedDto, workspace: WorkspaceSource): Site {
+  const own = workspace.settings?.extensionSettings?.jira;
   const legacy = legacySiteOfWorkspace(workspace);
   const global = settings.extensionSettings?.jira;
   const namesOwnVariable = own?.tokenEnv !== undefined || legacy.tokenEnv !== undefined;
@@ -101,27 +99,42 @@ export type GlobalSettings = {
   extensionSettings?: ResolvedDto["extensionSettings"];
 } & LegacyFlatSettings;
 
+/** A workspace's own jira bag, as much of it as these reads need: `settings.extensionSettings.jira`
+ * — the workspace's overrides of the declared settings — plus the legacy per-workspace `jira`
+ * object a workspace written before the bag still carries. */
+export type WorkspaceSource = {
+  settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> };
+  /** The legacy per-workspace site object, preserved on a workspace written before the bag. */
+  jira?: unknown;
+};
+
 /**
- * The server-wide settings this integration declares (`globalSettings`), read back from the
- * resolved settings' `extensionSettings.jira` bag — what the settings page writes — with the
- * core's legacy flat `jira*` fields as the fallback. The fallback carries the default and the
- * environment resolution (CORVI_JIRA_ASSIGNEE and friends beat the file); `legacy.ts` is where
- * that fallback lives. A bag value that is not a string, or an empty one, is not set: empty
- * means unset.
+ * The settings this integration declares (assignee and the transitions), read back down the one
+ * chain: the declared environment variable (CORVI_JIRA_ASSIGNEE and friends) wins at every
+ * scope, then the workspace's bag entry, then the global bag, and finally the core's legacy flat
+ * `jira*` fields — whose own resolution carries the default (`legacy.ts`). A bag value that is
+ * not a string, or an empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function globalOf(settings: GlobalSettings): {
+export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource): {
   assignee: string;
   startTransition: string;
   doneTransition: string;
 } {
+  const own = workspace?.settings?.extensionSettings?.jira;
   const bag = settings.extensionSettings?.jira;
-  const own = (key: string): string | undefined => bagString(bag, key);
   const legacy = legacyGlobalOf(settings);
+  const field = (variable: string, key: string, fallback: string): string =>
+    resolveSetting({
+      env: variable,
+      workspace: bagString(own, key),
+      global: bagString(bag, key),
+      fallback,
+    });
   return {
-    assignee: own("assignee") ?? legacy.assignee,
-    startTransition: own("startTransition") ?? legacy.startTransition,
-    doneTransition: own("doneTransition") ?? legacy.doneTransition,
+    assignee: field(JIRA_ENV.assignee, "assignee", legacy.assignee),
+    startTransition: field(JIRA_ENV.startTransition, "startTransition", legacy.startTransition),
+    doneTransition: field(JIRA_ENV.doneTransition, "doneTransition", legacy.doneTransition),
   };
 }
 
@@ -378,7 +391,9 @@ export const createIssue = (input: {
     if (!summary) {
       return yield* new BadRequestError({ message: "summary required" });
     }
-    const site = siteFor(yield* Settings, input.workspace);
+    const settings = yield* Settings;
+    const workspace = workspaceById(settings.workspaces, input.workspace);
+    const site = siteOfWorkspace(settings, workspace);
     // The site first: a workspace with nothing configured must be told that, not that its project
     // is missing — the project is only unreachable because the site is.
     const check = siteCheck(site);
@@ -408,7 +423,7 @@ export const createIssue = (input: {
 
     if (input.assignToMe !== false) {
       // Assigning is a field like any other, but its value is an account id, not a name.
-      const account = yield* accountId(globalOf(yield* Settings).assignee, site);
+      const account = yield* accountId(globalOf(settings, workspace).assignee, site);
       if (account) {
         yield* jiraFetch(`/rest/api/3/issue/${created.key}/assignee`, {
           site,

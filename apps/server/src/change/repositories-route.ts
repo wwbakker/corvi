@@ -14,7 +14,7 @@ import { ChangeWork, layer as changeWorkLayer, type RepositoryView } from "@corv
 import { InternalError, NotFoundError } from "@corvi/contracts/errors"
 import { runRoute } from "../capabilities/effect/run.ts"
 import { guard, json } from "../capabilities/web.ts"
-import { archiveRoot, root } from "./server/store.ts"
+import { changePairs } from "./server/store.ts"
 
 const toDto = (view: RepositoryView): RepositoryViewDto => ({
   repositoryId: view.repository.repositoryId,
@@ -32,9 +32,9 @@ const param = (req: Request, name: string): string =>
 const sliceLayer = (): Layer.Layer<ChangeWork> =>
   changeWorkLayer.pipe(
     Layer.provide(changesNodeLayer),
-    Layer.provide(storeLayer({ root: root(), archiveRoot: archiveRoot() })),
+    Layer.provide(storeLayer({ roots: changePairs() })),
     Layer.provide(repositoriesNodeLayer),
-    Layer.provide(progressLayer({ root: root() })),
+    Layer.provide(progressLayer({ roots: changePairs() })),
   )
 
 export const inspectRepositories = (req: Request): Promise<Response> =>

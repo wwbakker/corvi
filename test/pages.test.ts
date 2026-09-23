@@ -116,6 +116,42 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
   expect(complaints).toEqual([]);
 }, 120_000);
 
+test.skipIf(!usable)("the cards offer their editors, and a finished change offers none", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".widget");
+
+  // The three cards that own something editable: the repository list and the two ticket links.
+  await page.waitForSelector('button[title="Edit Local changes"]');
+  expect(await page.locator('button[title="Edit Jira"]').count()).toBe(1);
+  expect(await page.locator('button[title="Edit GitHub issues"]').count()).toBe(1);
+
+  // The editor opens over its picker, and Escape closes it again.
+  await page.locator('button[title="Edit Jira"]').click();
+  await page.waitForSelector("dialog[open] .issues");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector("dialog[open]", { state: "hidden" });
+  await page.close();
+
+  // A finished change is a record: nothing on its page offers an edit.
+  const done = "PROJ-PAGES-DONE";
+  const created = await fetch(`${url}/api/changes`, {
+    method: "POST",
+    body: JSON.stringify({ id: done, checkouts: [], state: "Ideation" }),
+  });
+  expect(created.ok).toBe(true);
+  const cancelled = await fetch(`${url}/api/changes/${done}/cancel`, {
+    method: "POST",
+    body: JSON.stringify({ force: true }),
+  });
+  expect(cancelled.ok).toBe(true);
+  const closed = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await closed.goto(`${url}/changes/${done}`, { waitUntil: "domcontentloaded" });
+  await closed.waitForSelector(".widget");
+  expect(await closed.locator('button[title^="Edit "]').count()).toBe(0);
+  await closed.close();
+}, 120_000);
+
 test.skipIf(!usable)("the settings page reads and writes", async () => {
   // The page whose failure mode is a sentence about nothing: /api/settings answering with the
   // app's own HTML, parsed as JSON.
@@ -125,12 +161,12 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   expect(await page.locator(".error-banner").count()).toBe(0);
 
   // One section at a time: the page opens on the first tab, and the Jira field is not there
-  // until its tab is chosen.
-  expect((await page.locator(".tabs .tab.current").innerText()).trim()).toBe("Locations");
+  // until its tab is chosen. The scope bar (Global and the workspaces) is its own tab row above.
+  expect((await page.locator(".tabs.sections .tab.current").innerText()).trim()).toBe("Locations");
   expect(await page.getByLabel("Transition on completing one").count()).toBe(0);
 
   // The extension's settings are on its own tab now, so the page has to be asked for it.
-  await page.locator(".tabs .tab", { hasText: "Jira" }).click();
+  await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
   await page.getByLabel("Transition on completing one").fill("Ready for release");
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
@@ -138,7 +174,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   // The window's own section, whose one setting so far is the right-click menu: taking it away is
   // the decision that gets written down, since a menu is the default.
   const box = page.getByLabel("Right-click menu");
-  await page.locator(".tabs .tab", { hasText: "Window" }).click();
+  await page.locator(".tabs.sections .tab", { hasText: "Window" }).click();
   await box.uncheck();
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });

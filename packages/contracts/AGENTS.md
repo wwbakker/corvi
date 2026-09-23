@@ -29,8 +29,8 @@ transport boundary.
   `Cache` required), `ExtensionStoreShape`, `Result`, and the
   `Capabilities` / `Startup` unions; `Workspace` is re-exported here too
 - `@corvi/contracts/integration`: what an included integration declares (`IncludedIntegration`,
-  `Card`, `Page`, `ChangeTab`, `DashboardWidget`, `WizardStep`, `ExtensionSetting`,
-  `WorkspaceSetting`, routes) and the overview contributor shapes (`TitleSource`,
+  `Card`, `Page`, `ChangeTab`, `DashboardWidget`, `WizardStep`, `ExtensionSetting`, routes) and
+  the overview contributor shapes (`TitleSource`,
   `SummaryContributor`, `DescriptionSection`, `NamedContribution`)
 - `@corvi/contracts/display`: `ago`, `worst`
 - `@corvi/contracts/settings-view`: `Settings`, `SettingsView`

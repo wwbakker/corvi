@@ -97,7 +97,7 @@ test("the change reads hit their named paths and decode their payloads", async (
           state: "none",
         })
       if (url.endsWith("/integrations"))
-        return Response.json([{ name: "git", title: "Local changes", perRepo: false, column: "right" }])
+        return Response.json([{ name: "git", title: "Local changes", perRepo: false, column: "right", editable: true }])
       if (url.endsWith("/tabs"))
         return Response.json({ tabs: [{ id: "review", title: "Review changes", extension: "review" }] })
       if (url.endsWith("/widgets"))
@@ -116,6 +116,7 @@ test("the change reads hit their named paths and decode their payloads", async (
   expect((await client.read(ChangeId.make("a"))).id).toBe("a")
   expect((await client.summary(ChangeId.make("a"))).state).toBe("none")
   expect((await client.cards(ChangeId.make("a")))[0]?.name).toBe("git")
+  expect((await client.cards(ChangeId.make("a")))[0]?.editable).toBe(true)
   expect((await client.tabs(ChangeId.make("a")))[0]?.id).toBe("review")
   expect((await client.widgets(ChangeId.make("a")))[0]?.column).toBe("left")
   expect((await client.repoStates(ChangeId.make("a")))[0]?.path).toBe("/r")
@@ -243,6 +244,7 @@ test("the settings view and the workspaces decode", async () => {
       ideationPrompt: "p",
       workspaces: [],
       worktreeCopy: [],
+      env: {},
     },
     overridden: {},
     overriddenExtensions: {},
@@ -251,8 +253,7 @@ test("the settings view and the workspaces decode", async () => {
       {
         name: "jira",
         title: "Jira",
-        workspaceSettings: [],
-        globalSettings: [{ key: "site", label: "Site" }],
+        settings: [{ key: "site", label: "Site" }],
       },
     ],
   }

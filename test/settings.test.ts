@@ -74,16 +74,20 @@ test("what cannot be written", () => {
   ]);
   expect(problems({ worktreeCopy: [".idea", ".bsp"] })).toEqual([]);
 
-  expect(problems({ workspaces: [{ id: "c", name: "C", env: { "not a name": "x" } }] })).toEqual([
-    'C: "not a name" is not an environment variable name',
+  expect(
+    problems({ workspaces: [{ id: "c", name: "C", settings: { env: { "not a name": "x" } } }] }),
+  ).toEqual(['C: "not a name" is not an environment variable name']);
+  // The global env map follows the same rule, without a workspace's prefix.
+  expect(problems({ env: { "not a name": "x" } })).toEqual([
+    '"not a name" is not an environment variable name',
   ]);
 
   // A context's own repositories directory follows the same rule as the global one.
   expect(
-    problems({ workspaces: [{ id: "c", name: "C", repositoriesDirectory: "relative" }] }),
-  ).toEqual(["C: repositories directory must be an absolute path"]);
+    problems({ workspaces: [{ id: "c", name: "C", settings: { repositoriesDirectory: "relative" } }] }),
+  ).toEqual(["C: repositoriesDirectory must be an absolute path"]);
   expect(
-    problems({ workspaces: [{ id: "c", name: "C", repositoriesDirectory: "~/Repos/acme" }] }),
+    problems({ workspaces: [{ id: "c", name: "C", settings: { repositoriesDirectory: "~/Repos/acme" } }] }),
   ).toEqual([]);
 });
 
@@ -92,8 +96,8 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
     changesRoot: join(tmp, "changes"),
     worktreeCopy: [".idea"],
     workspaces: [
-      { id: "client", name: "Client", extensionSettings: { jira: { project: "PROJ" } } },
-      { id: "own", name: "My own", extensions: ["github", "git"] },
+      { id: "client", name: "Client", settings: { extensionSettings: { jira: { project: "PROJ" } } } },
+      { id: "own", name: "My own", settings: { extensions: ["github", "git"] } },
     ],
   };
   await runEffect(writeSettings(next));
@@ -103,8 +107,8 @@ test("writing takes effect without a restart, and refuses what is wrong", async 
   expect(runtimeConfig().worktreeCopy).toEqual([".idea"]);
   expect(runtimeConfig().workspaces.map((w) => w.id)).toEqual(["client", "own"]);
   // The shapes the page wrote land on the object every module reads, untouched.
-  expect(runtimeConfig().workspaces[0]!.extensionSettings).toEqual({ jira: { project: "PROJ" } });
-  expect(runtimeConfig().workspaces[1]!.extensions).toEqual(["github", "git"]);
+  expect(runtimeConfig().workspaces[0]!.settings?.extensionSettings).toEqual({ jira: { project: "PROJ" } });
+  expect(runtimeConfig().workspaces[1]!.settings?.extensions).toEqual(["github", "git"]);
 
   expect(runEffect(writeSettings({ workspaces: [{ id: "", name: "Nameless" }] }))).rejects.toThrow(/no id/);
   // Refused means unchanged, not half written.
@@ -235,7 +239,9 @@ test("an extension setting the environment overrides is reported as locked too",
     // environment variable is set is locked by name. The site comes first — it is what the rest
     // of the section is about — and the token is the one secret at both levels.
     const jira = view.extensions.find((e) => e.name === "jira");
-    expect(jira?.globalSettings.map((f) => f.key)).toEqual([
+    // One declaration list renders at both scopes: the site first — it is what the rest of the
+    // section is about — and the token is the one secret.
+    expect(jira?.settings.map((f) => f.key)).toEqual([
       "server",
       "email",
       "project",
@@ -246,16 +252,7 @@ test("an extension setting the environment overrides is reported as locked too",
       "startTransition",
       "doneTransition",
     ]);
-    expect(jira?.workspaceSettings.map((f) => f.key)).toEqual([
-      "server",
-      "email",
-      "project",
-      "board",
-      "token",
-      "tokenEnv",
-    ]);
-    expect(jira?.globalSettings.filter((f) => f.secret).map((f) => f.key)).toEqual(["token"]);
-    expect(jira?.workspaceSettings.filter((f) => f.secret).map((f) => f.key)).toEqual(["token"]);
+    expect(jira?.settings.filter((f) => f.secret).map((f) => f.key)).toEqual(["token"]);
     expect(view.overriddenExtensions.jira).toEqual({ assignee: "CORVI_JIRA_ASSIGNEE" });
   } finally {
     delete process.env.CORVI_JIRA_ASSIGNEE;
@@ -313,12 +310,12 @@ test("the settings read migrates the retired names before the page edits them", 
 
   const view = settingsViewSync();
   const written = view.file.workspaces ?? [];
-  expect(written.find((w) => w.id === "old")?.extensions).toEqual([
+  expect(written.find((w) => w.id === "old")?.settings?.extensions).toEqual([
     "github",
     "azure-devops",
     "git",
   ]);
-  expect(written.find((w) => w.id === "no-pipes")?.extensions).not.toContain("azure-devops");
+  expect(written.find((w) => w.id === "no-pipes")?.settings?.extensions).not.toContain("azure-devops");
   expect(view.file.extensionSettings?.["azure-devops"]).toMatchObject({
     organization: "bag-org",
   });
@@ -330,7 +327,7 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
     writeSettings({
       extensionSettings: { jira: { server: "https://x.example", token: "root-secret" } },
       workspaces: [
-        { id: "client", name: "Client", extensionSettings: { jira: { token: "client-secret" } } },
+        { id: "client", name: "Client", settings: { extensionSettings: { jira: { token: "client-secret" } } } },
       ],
     }),
   );
@@ -339,17 +336,17 @@ test("a declared secret never reaches the page, and not retyping it keeps it", a
   // The mask where a secret is stored, at both levels, in the file and in what is in effect.
   expect(view.file.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
   expect(view.effective.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
-  expect(view.file.workspaces?.[0]?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
-  expect(view.effective.workspaces?.[0]?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  expect(view.file.workspaces?.[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
+  expect(view.effective.workspaces?.[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe(MASK);
   // The running config still holds the real one: the redaction copies rather than mutating the
   // object every request is reading.
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(runtimeConfig().workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
 
   // A save that sends the mask back — a page that edited anything else — keeps what is stored.
   await runEffect(writeSettings(view.file));
   expect(runtimeConfig().extensionSettings?.["jira"]?.["token"]).toBe("root-secret");
-  expect(runtimeConfig().workspaces[0]?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
+  expect(runtimeConfig().workspaces[0]?.settings?.extensionSettings?.["jira"]?.["token"]).toBe("client-secret");
   const kept = await readFile(file, "utf8");
   expect(kept).toContain("root-secret");
   expect(kept).not.toContain(MASK);

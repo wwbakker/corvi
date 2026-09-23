@@ -1,0 +1,12 @@
+{
+  "name": "@corvi/pi",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./agent-state": "./src/agent-state.ts"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.87.1"
+  }
+}

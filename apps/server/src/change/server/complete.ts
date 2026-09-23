@@ -12,7 +12,7 @@ import { mergeReadiness, refreshReadiness, forgetPrs } from "@corvi/github/clien
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";
 import type { Changes } from "../../integrations/api/capabilities.ts";
 import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
-import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
+import { changePairs, readChange, readSidecar, writeSidecar } from "./store.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { ChangeRepositories } from "@corvi/changes/repositories";
 import { ChangeFormatTooNew, ChangeStoreError } from "@corvi/changes/errors";
@@ -279,12 +279,12 @@ export const completeChange = (
       steps: [],
     })
     const workspace = workspaceOf(change)
-    const roots = { root: root(), archiveRoot: archiveRoot() }
+    const roots = changePairs()
     const layer = Layer.merge(
       lifecycleLayer(workspace, roots, {
         progress: completionProgressLayer(change.id, ref),
       }),
-      changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+      changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
     )
     return yield* runCompletion(change, ref, force).pipe(Effect.provide(layer))
   })

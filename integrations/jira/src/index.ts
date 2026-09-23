@@ -2,7 +2,7 @@ import { Effect, Either } from "effect";
 import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
-import { BadRequestError } from "@corvi/contracts/errors";
+import { BadRequestError, NotFoundError } from "@corvi/contracts/errors";
 import {
   boardIssues,
   siteOfWorkspace,
@@ -14,12 +14,15 @@ import {
   issueFrom,
   moveIssue,
   ticketOf,
+  type GlobalSettings,
   type IssueJson,
   type Site,
 } from "./jira.ts";
+import type { ResolvedDto } from "@corvi/contracts/config";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
 import { Cache, Settings, Workspace, swr } from "@corvi/contracts/capabilities";
+import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
 import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
@@ -96,10 +99,10 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, 
     };
   });
 
-/** The site, as the settings page renders it: the fields the page edits, worded once so both
- * levels say the same thing. The token is the one secret, and it is the same field at both
- * levels — the server masks it in what it sends and keeps what it holds when the mask comes back
- * (apps/server/src/settings/server/secrets.ts). */
+/** The site, as the settings page renders it: the fields the page edits, worded once — the same
+ * declaration renders at both scopes, the global level and every workspace's overrides. The
+ * token is the one secret — the server masks it in what it sends and keeps what it holds when
+ * the mask comes back (apps/server/src/settings/server/secrets.ts). */
 const siteFields = {
   server: {
     key: "server",
@@ -148,7 +151,7 @@ export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequest
     if (!key) return;
     const workspace = yield* Workspace;
     const settings = yield* Settings;
-    const global = globalOf(settings);
+    const global = globalOf(settings, workspace);
     const site = siteOfWorkspace(settings, workspace);
     const account = yield* accountId(global.assignee, site);
     if (account) {
@@ -164,16 +167,19 @@ export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequest
     }
   });
 
-/** Completing closes the ticket: the plan is pure given the config, the run moves it. */
+/** Completing closes the ticket: the plan is pure given the config, the run moves it. The
+ * transition resolves for the change's own workspace, so the label names what will happen. */
 export const planIssueCompletion = (
   change: Change,
-  appConfig: Parameters<typeof globalOf>[0],
+  appConfig: GlobalSettings & { workspaces?: ResolvedDto["workspaces"] },
 ): CompletionStep | undefined => {
   const key = ticketOf(change);
+  const workspaces = appConfig.workspaces ?? [];
+  const workspace = workspaces.find((one) => one.id === change.workspace) ?? workspaces[0];
   return key
     ? {
         id: "jira",
-        label: `move ${key} to ${globalOf(appConfig).doneTransition}`,
+        label: `move ${key} to ${globalOf(appConfig, workspace).doneTransition}`,
         state: "waiting",
       }
     : undefined;
@@ -183,8 +189,9 @@ export const moveIssueOnComplete = (change: Change): Effect.Effect<void, BadRequ
   Effect.gen(function* () {
     const key = ticketOf(change);
     if (!key) return;
-    const site = siteOfWorkspace(yield* Settings, yield* Workspace);
-    const { doneTransition } = globalOf(yield* Settings);
+    const workspace = yield* Workspace;
+    const site = siteOfWorkspace(yield* Settings, workspace);
+    const { doneTransition } = globalOf(yield* Settings, workspace);
     yield* moveIssue(key, doneTransition, site);
   });
 
@@ -229,20 +236,10 @@ export default {
   name: "jira",
   title: "Jira",
 
-  // The per-workspace fields override the default site below, field by field: a second client
-  // states what differs, and an empty field inherits.
-  workspaceSettings: [
-    { ...siteFields.server, placeholder: "the default site" },
-    { ...siteFields.email, placeholder: "the default site" },
-    { ...siteFields.project, placeholder: "the default setting" },
-    { ...siteFields.board, placeholder: "from the project" },
-    siteFields.token,
-    siteFields.tokenEnv,
-  ],
-
-  // The default site, and the server-wide settings that are not about one Jira: these are the
-  // values every workspace starts from.
-  globalSettings: [
+  // The default site and the settings that are not about one Jira: every declared setting,
+  // at both scopes — a workspace overrides any of them, key by key, and an empty field
+  // inherits.
+  settings: [
     siteFields.server,
     siteFields.email,
     { ...siteFields.project, placeholder: "PROJ" },
@@ -257,6 +254,8 @@ export default {
   cards: [
     {
       title: "Jira",
+      // The link can be repointed at another issue: the editor is its client half's `edit`.
+      editable: true,
       status: (change) =>
         Effect.gen(function* () {
           const key = ticketOf(change);
@@ -279,9 +278,10 @@ export default {
   // told exists. Its id is the payload key the step writes the picked issue under.
   wizardSteps: [{ id: "jira", title: "Jira", phase: "issue" }],
 
-  // The two routes the wizard's step fetches: the board, and creating an issue into it. An
+  // The routes the wizard's step fetches: the board, and creating an issue into it. An
   // error string rather than a failed request, so a broken or unconfigured Jira still leaves
-  // you able to type a change id by hand.
+  // you able to type a change id by hand. The third route is the card's editor: the link a
+  // change carries, repointed.
   routes: [
     {
       method: "GET",
@@ -319,6 +319,44 @@ export default {
             workspace: body.workspace,
           });
           return Response.json(issue, { status: 201 });
+        }),
+    },
+    {
+      // The link, repointed: this extension's bag entry is replaced in one write. What the
+      // change's completion later does — the transition, the loose ends — follows this key.
+      // A finished change is a record: its completion has already moved its ticket.
+      method: "PUT",
+      path: "/changes/:id/link",
+      handler: (req, params) =>
+        Effect.gen(function* () {
+          const id = params["id"] ?? "";
+          const changes = yield* Changes;
+          const change = yield* changes.read(id);
+          if (!change) {
+            return yield* new NotFoundError({ message: `no such change: ${id}` });
+          }
+          if (change.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is finished: its links are read-only",
+            });
+          }
+          const body = yield* Effect.orElseSucceed(
+            Effect.tryPromise({
+              try: () => req.json() as Promise<{ key?: string }>,
+              catch: () => undefined,
+            }),
+            () => ({}) as { key?: string },
+          );
+          const key = body.key?.trim();
+          if (!key) {
+            return yield* new BadRequestError({ message: "key required" });
+          }
+          // The bag entry shadows the legacy `jira` field for good (see `ticketOf`). Clearing
+          // the link — deliberately not this route — must remove both, or the old key answers.
+          const store = yield* ExtensionStore;
+          const updated = yield* store.update(change, { key });
+          yield* (yield* Bus).announce("changes");
+          return Response.json(updated);
         }),
     },
   ],

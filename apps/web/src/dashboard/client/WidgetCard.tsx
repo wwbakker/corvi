@@ -1,14 +1,31 @@
 import { type JSX, useCallback, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { aborted, apiClient, type CardInfo, type Widget } from "../../app-root/api.ts";
+import { aborted, apiClient, type CardInfo, type Change, type Widget } from "../../app-root/api.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { usePolled } from "../../app-root/poll.ts";
+import { useCardEditor } from "./CardEditor.tsx";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
 /** One card, loading and refreshing itself: a slow CLI delays its own widget and nothing else. */
-export function WidgetCard({ changeId, info }: { changeId: string; info: CardInfo }): JSX.Element {
+export function WidgetCard({
+  changeId,
+  change,
+  workspace,
+  info,
+  onSaved,
+}: {
+  changeId: string;
+  /** The change itself, once it has loaded: the editor needs it, the rows do not. */
+  change?: Change;
+  /** The change's context, for its editor's fetches. */
+  workspace?: string;
+  info: CardInfo;
+  /** The editor wrote the change: this is where it goes. */
+  onSaved: (change: Change) => void;
+}): JSX.Element {
   const [widget, setWidget] = useCached<Widget>(`${changeId}:${info.name}`);
   const [busy, setBusy] = useState(false);
+  const editor = useCardEditor({ info, change, workspace, onSaved });
 
   const load = useCallback(
     (signal?: AbortSignal): Promise<void> =>
@@ -46,6 +63,7 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
         <Dot state={widget?.state} />
         {info.title}
         {refreshing && <Refreshing />}
+        {editor.button}
       </h3>
       {/* The summary is only worth the line while loading, or when it carries an error. */}
       {(!widget || widget.state === "error") && (
@@ -54,6 +72,7 @@ export function WidgetCard({ changeId, info }: { changeId: string; info: CardInf
       {(widget?.items ?? []).map((item) => (
         <Item key={item.label} item={item} busy={busy} onAction={act} />
       ))}
+      {editor.dialog}
     </section>
   );
 }

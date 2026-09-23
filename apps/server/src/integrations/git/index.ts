@@ -20,6 +20,8 @@ export default {
   cards: [
     {
       title: "Local changes",
+      // The repository editor is its client half's `edit`; the card only says it has one.
+      editable: true,
       repoStatus: (change, repo) => Effect.map(repoItem(change, repo), (item) => [item]),
       run: (change, action, repo) => gitRun(change, action, repo),
     },

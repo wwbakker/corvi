@@ -31,6 +31,8 @@ export type CardInfo = {
   title: string;
   perRepo: boolean;
   column: "left" | "right";
+  /** The card's client half ships an editor; the page draws the pencil for it. */
+  editable?: boolean;
 };
 export type RepoItems = { items: WidgetItem[] };
 export type RepoState = {

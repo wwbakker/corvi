@@ -14,6 +14,6 @@ export type {
 export type { Page } from "./api/pages.ts";
 export type { ChangeTab } from "./api/tabs.ts";
 export type { DashboardWidget } from "./api/widgets.ts";
-export type { ExtensionSetting, WorkspaceSetting } from "./api/settings.ts";
+export type { ExtensionSetting } from "./api/settings.ts";
 export type { RouteError, RouteHandler, RequestMethod } from "./api/routes.ts";
 export type { IncludedIntegration } from "@corvi/contracts/integration";

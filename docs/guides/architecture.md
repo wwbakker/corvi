@@ -29,13 +29,18 @@ integrations/
   github/                 pull requests, issues, checks and stacks
   jira/                   Jira issues and transitions
   azure-devops/           pipelines, builds and deployments
+  pi/                     pi's agent-state reporter (runs inside pi)
+  opencode/               opencode's agent-state reporter (runs inside opencode)
 ```
 
 All entries under `apps/*`, `packages/*`, and `integrations/*` are ordinary Bun workspaces once
 extracted. Integrations have no special loader or privilege level. Create packages when their
-responsibility is implemented; do not scaffold empty future packages. Corvi's Pi reporter is the
-one integration outside the workspaces: `pi/agent-state.ts` runs inside Pi and is installed into
-Pi's extensions directory by `scripts/extension.ts`.
+responsibility is implemented; do not scaffold empty future packages. The agent reporters
+(`integrations/pi`, `integrations/opencode`) are ordinary workspace packages too, even though they
+run inside their agent rather than in Corvi's server: `bun run extension:install:pi` and
+`bun run extension:install:opencode` symlink their entry file into the agent's plugin directory.
+Their only dependency is type-only on their agent's SDK, and they speak the reporter protocol
+stated in docs/manual/terminals.md.
 
 Git, worktrees, and changes are fundamental. GitHub is not. Keep Git semantics explicit rather
 than inventing a generic version-control framework. Do not create a universal provider API for
@@ -213,5 +218,6 @@ setting definitions remain useful, but do not require a universal contribution r
 optional integrations report their availability; they do not silently masquerade as empty data.
 
 Third-party loading, public extension compatibility, dynamic client chunks, and hot replacement
-are out of scope. Code hosted by another product, such as Corvi's Pi reporter, is an integration
+are out of scope. Code hosted by another product, such as Corvi's agent reporters
+(`integrations/pi`, `integrations/opencode`), is an integration
 adapter; removing Corvi's plugin host does not mean removing that adapter.

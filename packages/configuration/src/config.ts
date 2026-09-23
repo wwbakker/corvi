@@ -2,39 +2,93 @@
  * The configuration vocabulary: what a workspace is and what the resolved config holds.
  *
  * These are the types every module speaks — the platform (`@corvi/contracts/workspace`,
- * `apps/server/src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in the
- * configuration package rather than in the module that happens to read the file. The loading,
+ * `apps/server/src/capabilities/shell.ts`), the integration contract, and the loaders — so they live in
+ * the configuration package rather than in the module that happens to read the file. The loading,
  * the file schema and the settings precedence chain are the package's `./settings` and the
  * app's workspace server.
  */
 
 /**
- * A context you work in: a client, or your own projects. Which changes you are looking at, and —
- * from stage two — where its repositories live and which integrations apply, since a personal
- * project has no Jira issue and no Azure pipeline and should not be asked about either.
+ * The settings, complete: every setting Corvi knows, in the one shape both levels hold. At the
+ * global level these are the settings; inside a workspace they are the overrides of them, key by
+ * key. Every key is optional — an absent value means "not set" and the next level down answers.
+ */
+export type SettingsOverrides = {
+  /** Where per-change directories (worktrees, change.json) are created. */
+  changesRoot?: string;
+  /** Where completed changes are moved, so the changes root holds the work in flight. A
+   * setting of its own rather than a child of `changesRoot`: an archive can live on another
+   * disk, and listing the changes root never has to filter it out. */
+  archiveRoot?: string;
+  /** Directory the repository browser opens on. The browser is unbounded — it can walk anywhere
+   * under `/` from here — so this is a starting point, not a boundary. */
+  repositoriesDirectory?: string;
+  /** Whether a notification plays the system sound; the settings page's one notification
+   * decision so far. */
+  notificationSound?: boolean;
+  /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
+   * app window because Electron has none of its own. A page that handles its own right-click (the
+   * terminal, whose menu is tmux's) is untouched either way. See docs/manual/interface.md. */
+  contextMenu?: boolean;
+  /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
+   * `{title}`, `{plan}` and `{state}` filled in. An empty value means `DEFAULT_IDEATION_PROMPT`. */
+  ideationPrompt?: string;
+  /** IDE and build-tool directories copied from the repository into a new worktree, with the
+   * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
+  worktreeCopy?: string[];
+  /** Which extensions exist here, by name (see apps/server/src/integrations/). Absent means all
+   * of them; an empty list means none. */
+  extensions?: string[];
+  /** Settings the extensions declared: `extensionSettings[name][key]` holds the field the
+   * extension's `settings` declaration names, which is where the extension reads it back. A
+   * value is one string or a list of them. The core carries the bag without looking inside. */
+  extensionSettings?: Record<string, Record<string, string | string[]>>;
+  /**
+   * Added to the environment of every CLI run in this scope. This is how two clients stop
+   * fighting over one login: `GH_CONFIG_DIR` for another GitHub account, `AZURE_CONFIG_DIR` for
+   * another tenant, `JIRA_API_TOKEN` for another site. Entries resolve per key: a workspace
+   * entry beats the global one for its key and leaves the others inherited. `~` is expanded.
+   */
+  env?: Record<string, string>;
+};
+
+/**
+ * A context you work in: a client, or your own projects. Which changes you are looking at, and
+ * where its repositories live and which integrations apply, since a personal project has no Jira
+ * issue and no Azure pipeline and should not be asked about either. An identity plus a scope:
+ * `settings` overrides the global settings key by key.
  */
 export type Workspace = {
   /** Stable, and recorded in a change: renaming the name must not orphan anything. */
   id: string;
   name: string;
-  /** Where the repository browser opens in this context: the global setting when it is absent.
-   * The browser can walk anywhere from there — this only picks the starting point. */
-  repositoriesDirectory?: string;
-  /** Which extensions exist here, by name (see apps/server/src/integrations/). Absent means all of them. */
-  extensions?: string[];
-  /** Per-workspace settings declared by the extensions themselves: `extensionSettings[name][key]`
-   * holds the field the extension's `workspaceSettings` declaration names, which is where the
-   * extension reads it back. The core only carries it. */
-  extensionSettings?: Record<string, Record<string, string>>;
-  /**
-   * Added to the environment of every CLI run for this workspace. This is how two clients stop
-   * fighting over one login: `GH_CONFIG_DIR` for another GitHub account, `AZURE_CONFIG_DIR` for
-   * another tenant, `JIRA_API_TOKEN` for another site. `~` is expanded.
-   */
-  env?: Record<string, string>;
+  /** This workspace's settings: the same shape as the global level, overriding it key by key. */
+  settings?: SettingsOverrides;
 };
 
 export { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
+
+/**
+ * What applies in one scope: every setting resolved down the chain (environment variable >
+ * workspace > global > default), record-shaped settings (`extensionSettings`, `env`) merged per
+ * key. `settingsFor` (`./settings`) computes it from the resolved config and a workspace.
+ */
+export type EffectiveSettings = {
+  changesRoot: string;
+  archiveRoot: string;
+  repositoriesDirectory: string;
+  notificationSound: boolean;
+  contextMenu: boolean;
+  ideationPrompt: string;
+  worktreeCopy: string[];
+  /** Which extensions exist here; `undefined` means all of them. */
+  extensions?: string[];
+  /** The extension bags, merged per extension and per key across the two levels. */
+  extensionSettings: Record<string, Record<string, string | string[]>>;
+  /** The environment added to every CLI run here, `~` expanded at use: the global entries and
+   * the workspace's, the workspace's winning per key. */
+  env: Record<string, string>;
+};
 
 /**
  * What Corvi tells an agent when you brief it about an idea: the plan path and the rule for the
@@ -50,8 +104,12 @@ export const DEFAULT_IDEATION_PROMPT =
   "change is in Ideation, {plan} is the only file you should write — do not modify any repository. " +
   "Ask questions, propose options, and update the plan when we agree.";
 
-/** File-based config, read once at startup. Environment variables still win, so tests and
- * one-off runs need no file. */
+/**
+ * File-based config, read once at startup and resolved into what the rest of the code reads:
+ * the global scope's answers (environment variable → file → default) on the top level, and each
+ * workspace's overrides beside them. `settingsFor` (`./settings`) resolves one scope from the
+ * two. Environment variables still win, so tests and one-off runs need no file.
+ */
 export type Config = {
   /** Where per-change directories (worktrees, change.json) are created. */
   changesRoot: string;
@@ -73,18 +131,23 @@ export type Config = {
    * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means
    * `DEFAULT_IDEATION_PROMPT`. */
   ideationPrompt: string;
-  /** The contexts you switch between. Never empty: when nothing is configured, the default
-   * workspace stands in. */
-  workspaces: Workspace[];
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
   worktreeCopy: string[];
-  /** Settings the extensions declared, stored under their own name:
-   * `extensionSettings[name][key]` holds the field the extension's `globalSettings`
-   * declaration names, which is where the extension reads it back. A value is one string or a
-   * list of them. The core carries the bag without looking inside; the flat settings are the
-   * fallback the extension reads go through when the bag is empty. */
+  /** Which extensions exist at the global level. Absent means all of them; an empty list means
+   * none. A workspace's own list overrides it. */
+  extensions?: string[];
+  /** The global extension settings bag: `extensionSettings[name][key]` holds the field the
+   * extension's `settings` declaration names, which is where the extension reads it back. A
+   * value is one string or a list of them. The core carries the bag without looking inside; a
+   * workspace's bag overrides it key by key. */
   extensionSettings?: Record<string, Record<string, string | string[]>>;
+  /** The global entries of the environment added to every CLI run, `~` expanded at use. A
+   * workspace's `env` overrides them key by key. */
+  env: Record<string, string>;
+  /** The contexts you switch between. Never empty: when nothing is configured, the default
+   * workspace stands in. Each one's `settings` holds its overrides. */
+  workspaces: Workspace[];
 };
 
 /**
@@ -93,23 +156,8 @@ export type Config = {
  * module's `Settings`). The Effect Schema that decodes it lives in
  * `apps/server/src/workspace/server/schema.ts`, which checks itself against this type.
  */
-export type ConfigFile = {
-  changesRoot?: string;
-  archiveRoot?: string;
-  /** Directory the repository browser opens on; see `Config.repositoriesDirectory`. Absent means
-   * `$HOME`. */
-  repositoriesDirectory?: string;
-  notificationSound?: boolean;
-  /** Whether right-clicking shows the browser's own menu; see `Config.contextMenu`. An absent value
-   * means yes. */
-  contextMenu?: boolean;
-  /** The prompt that briefs an agent about an idea; see `Config.ideationPrompt`. */
-  ideationPrompt?: string;
+export type ConfigFile = SettingsOverrides & {
   /** The contexts you switch between, as the file holds them. Decoded with the per-item
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];
-  worktreeCopy?: string[];
-  /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
-   * one string or a list of strings per key. */
-  extensionSettings?: Record<string, Record<string, string | string[]>>;
 };
