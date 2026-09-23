@@ -197,7 +197,7 @@ a {
   border-radius: 0 6px 6px 0;
 }
 
-.sidebar .entry.change.state-in-progress {
+.sidebar .entry.change.state-implementation {
   border-left-color: var(--warn);
 }
 
@@ -209,7 +209,7 @@ a {
   border-left-color: var(--ideation);
 }
 
-.sidebar .entry.change.state-awaiting-review {
+.sidebar .entry.change.state-verification {
   border-left-color: var(--info);
 }
 
@@ -370,7 +370,7 @@ body.resizing {
 }
 
 /* A change's dot carries its state, in the colours the rest of the app uses for it. */
-.sidebar .dot.state-in-progress {
+.sidebar .dot.state-implementation {
   background: var(--warn);
 }
 
@@ -382,7 +382,7 @@ body.resizing {
   background: var(--ideation);
 }
 
-.sidebar .dot.state-awaiting-review {
+.sidebar .dot.state-verification {
   background: var(--info);
 }
 
@@ -1109,11 +1109,11 @@ dialog.wide {
   color: var(--ideation);
 }
 
-.state-in-progress {
+.state-implementation {
   color: var(--warn);
 }
 
-.state-awaiting-review {
+.state-verification {
   color: var(--info);
 }
 
@@ -1134,11 +1134,11 @@ select.state-ideation {
   border-color: var(--ideation);
 }
 
-select.state-in-progress {
+select.state-implementation {
   border-color: var(--warn);
 }
 
-select.state-awaiting-review {
+select.state-verification {
   border-color: var(--info);
 }
 
@@ -1719,11 +1719,11 @@ dialog progress {
   border-color: var(--ideation);
 }
 
-.badge.state-in-progress {
+.badge.state-implementation {
   border-color: var(--warn);
 }
 
-.badge.state-awaiting-review {
+.badge.state-verification {
   border-color: var(--info);
 }
 

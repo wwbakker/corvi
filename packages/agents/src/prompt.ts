@@ -30,4 +30,4 @@ export const fillBriefing = (template: string, facts: BriefingFacts): string =>
     .replaceAll("{id}", facts.id)
     .replaceAll("{title}", facts.title ?? facts.branch ?? facts.id)
     .replaceAll("{plan}", facts.plan)
-    .replaceAll("{state}", facts.state ?? "In Progress");
+    .replaceAll("{state}", facts.state ?? "Implementation");

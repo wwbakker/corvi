@@ -474,7 +474,7 @@ export function ChangeView({
               )}
               <select
                 className={stateClass(change.state)}
-                value={change.state ?? "In Progress"}
+                value={change.state ?? "Implementation"}
                 // An idea's state is not yours to pick: starting the work is what leaves it, and
                 // that does more than a word (see the actions).
                 disabled={idea}

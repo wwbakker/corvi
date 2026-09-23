@@ -72,14 +72,14 @@ test("the default workspace is the one @corvi/configuration/config defines", () 
 });
 
 test("a state becomes one class, lowercased with spaces as dashes", () => {
-  expect(stateClass("In Progress")).toBe("state-in-progress");
-  expect(stateClass("Awaiting Review")).toBe("state-awaiting-review");
+  expect(stateClass("Implementation")).toBe("state-implementation");
+  expect(stateClass("Verification")).toBe("state-verification");
   expect(stateClass("Blocked")).toBe("state-blocked");
   expect(stateClass("Completed")).toBe("state-completed");
   expect(stateClass("Cancelled")).toBe("state-cancelled");
   // Absent means the default state: "Implementation".
-  expect(stateClass()).toBe("state-in-progress");
-  expect(stateClass(undefined)).toBe("state-in-progress");
+  expect(stateClass()).toBe("state-implementation");
+  expect(stateClass(undefined)).toBe("state-implementation");
   // A state an extension wrote is still a safe class name: runs of whitespace collapse to one
   // dash each, not one per character.
   expect(stateClass("Some  Weird\tState")).toBe("state-some-weird-state");
