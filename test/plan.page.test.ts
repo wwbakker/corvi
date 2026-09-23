@@ -33,7 +33,8 @@ let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 
-/** The plan the change is created with: something every colored role touches. */
+/** The plan the change is created with: something every colored role touches, fenced code
+ * included. */
 const source = [
   "# The plan",
   "",
@@ -43,6 +44,10 @@ const source = [
   "",
   "- one",
   "- two",
+  "",
+  "```json",
+  '{ "id": "improve-plan-view", "state": "Ideation" }',
+  "```",
   "",
 ].join("\n");
 
@@ -146,6 +151,13 @@ test.skipIf(!usable)(
       expect(look(">")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
       expect(look("quoted")).toEqual({ color: quote, weight: "400", style: "italic", decoration: "none" });
       expect(look("-")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
+      // In a fence whose language the editor knows, the grammar colors the code through the same
+      // roles: a key in the keyword blue, a literal purple, the punctuation around them dim —
+      // `brace` and `separator` reach `punctuation` through their parents.
+      expect(look('"id"')).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
+      expect(look('"improve-plan-view"')).toEqual({ color: link, weight: "400", style: "normal", decoration: "none" });
+      expect(look("{")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
+      expect(look("}")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
     } finally {
       await page.close();
     }

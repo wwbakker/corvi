@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+  markdownHighlighting,
   roleStyles,
   tokenRoles,
   type TokenRole,
@@ -45,11 +46,26 @@ test("emphasis is weight, slant and strike rather than color", () => {
   expect(roleOf("strikethrough")).toBe("strikethrough");
 });
 
+test("code in a known fence wears the same roles", () => {
+  // The fenced languages' grammars speak in their own tags, mapped onto the same roles:
+  // keywords and names share the heading's blue without its weight, literals the link purple
+  // (strings and their subtags reach it through `string`), punctuation and operators the dim
+  // marks. Their subtags — `definitionKeyword`, `separator`, `brace`, `attributeValue` and the
+  // rest — reach these entries through their parents' chain, which the plan tab's page test
+  // pins end to end.
+  expect(roleOf("keyword")).toBe("keyword");
+  expect(roleOf("propertyName")).toBe("keyword");
+  expect(roleOf("tagName")).toBe("keyword");
+  expect(roleOf("punctuation")).toBe("mark");
+  expect(roleOf("operator")).toBe("mark");
+});
+
 test("a role's style is its token's color, with nothing invented at the call site", () => {
   expect(roleStyles.heading).toEqual({ color: "var(--md-heading)", fontWeight: "bold" });
   expect(roleStyles.code).toEqual({ color: "var(--md-code)" });
   expect(roleStyles.link).toEqual({ color: "var(--md-link)" });
   expect(roleStyles.quote).toEqual({ color: "var(--md-quote)", fontStyle: "italic" });
+  expect(roleStyles.keyword).toEqual({ color: "var(--md-heading)" });
   expect(roleStyles.strong).toEqual({ fontWeight: "bold" });
   expect(roleStyles.emphasis).toEqual({ fontStyle: "italic" });
   expect(roleStyles.strikethrough).toEqual({ textDecorationLine: "line-through" });
@@ -68,4 +84,15 @@ test("ordinary text wears no role at all", () => {
   // default color, so structure is the exception rather than the rule.
   expect(roleOf("content")).toBeUndefined();
   expect(roleOf("list")).toBeUndefined();
+  expect(roleOf("name")).toBeUndefined();
+});
+
+test("the marks are styled last, so a mark sheds its content's decoration", () => {
+  // A mark carries its construct's tag as well — the `**` of strong text is `strong` too — and
+  // the generated rules resolve that by order: the mark's rule comes after every other, so it
+  // decides the color and takes the weight, slant and strike back off the punctuation.
+  const rules = markdownHighlighting.module?.getRules() ?? "";
+  expect(rules.indexOf("var(--md-heading)")).toBeLessThan(rules.lastIndexOf("var(--md-mark)"));
+  expect(rules.indexOf("var(--md-link)")).toBeLessThan(rules.lastIndexOf("var(--md-mark)"));
+  expect(rules.indexOf("font-weight: bold")).toBeLessThan(rules.lastIndexOf("font-weight: normal"));
 });

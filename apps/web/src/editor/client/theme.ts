@@ -21,6 +21,7 @@ export type TokenRole =
   | "code"
   | "link"
   | "quote"
+  | "keyword"
   | "mark";
 
 /** The CSS a role paints. */
@@ -40,8 +41,12 @@ export const roleStyles: Readonly<Record<TokenRole, RoleStyle>> = {
   code: { color: "var(--md-code)" },
   link: { color: "var(--md-link)" },
   quote: { color: "var(--md-quote)", fontStyle: "italic" },
-  // A construct's marks — `#`, `**`, `[]()`, the fence lines — not its content: dimmed, and
-  // stripped of the content's weight, slant and strike so the punctuation reads as punctuation.
+  // Code's own structure — keywords and names, tag names — in the heading's blue, without its
+  // weight.
+  keyword: { color: "var(--md-heading)" },
+  // A construct's marks — `#`, `**`, `[]()`, the fence lines, and code's punctuation and
+  // operators — not its content: dimmed, and stripped of the content's weight, slant and strike
+  // so the punctuation reads as punctuation.
   mark: {
     color: "var(--md-mark)",
     fontWeight: "normal",
@@ -51,12 +56,14 @@ export const roleStyles: Readonly<Record<TokenRole, RoleStyle>> = {
 };
 
 /**
- * Which role each syntax tag plays. The tags are the ones `@lezer/markdown` puts on its tree —
- * a mark carries both its own `processingInstruction` tag and the tag of the construct it opens
- * (the `#` of a heading is `heading1` *and* `processingInstruction`), so the mark entries come
- * last in the highlight style below: on a combined tag, the later definition wins, and the mark
- * must win for the punctuation to stay dim and unstyled. Unlisted tags — ordinary paragraph
- * text above all — wear the editor's default color.
+ * Which role each syntax tag plays. The tags are the ones `@lezer/markdown` and the fenced
+ * languages' grammars put on their trees — a mark carries both its own `processingInstruction`
+ * tag and the tag of the construct it opens (the `#` of a heading is `heading1` *and*
+ * `processingInstruction`), so the mark entries come last in the highlight style below: on a
+ * combined tag, the later definition wins, and the mark must win for the punctuation to stay dim
+ * and unstyled. A grammar's subtags — `lineComment`, `separator`, `brace`, `definitionKeyword` —
+ * reach their parent's entry here through the tag's own parent chain. Unlisted tags — ordinary
+ * paragraph text above all — wear the editor's default color.
  */
 export const tokenRoles: ReadonlyMap<Tag, TokenRole> = new Map<Tag, TokenRole>([
   [tags.heading1, "heading"],
@@ -76,10 +83,18 @@ export const tokenRoles: ReadonlyMap<Tag, TokenRole> = new Map<Tag, TokenRole>([
   [tags.character, "link"],
   [tags.quote, "quote"],
   [tags.comment, "quote"],
+  // Code, in a fence whose language the editor knows (languages.ts): keywords and names wear the
+  // heading's blue, literals the link purple (strings and their subtags reach it through the
+  // entries above), comments the quote grey.
+  [tags.keyword, "keyword"],
+  [tags.propertyName, "keyword"],
+  [tags.tagName, "keyword"],
   // The marks, last: see above.
   [tags.processingInstruction, "mark"],
   [tags.escape, "mark"],
   [tags.contentSeparator, "mark"],
+  [tags.punctuation, "mark"],
+  [tags.operator, "mark"],
 ]);
 
 /** The highlight style the editor installs, built from the two tables above. */
