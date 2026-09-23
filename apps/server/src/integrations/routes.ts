@@ -92,6 +92,8 @@ export const integrationRoutes = guard({
               // Per-repository components are fetched a repository at a time by the browser.
               perRepo: Boolean(card.repoStatus),
               column: card.column ?? "right",
+              // The pencil the page draws for a card whose content can be edited.
+              editable: Boolean(card.editable),
             })),
           ),
         ),

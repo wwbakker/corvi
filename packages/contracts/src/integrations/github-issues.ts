@@ -19,8 +19,13 @@ export const GitHubIssueSchema = Schema.Struct({
 export type GitHubIssue = typeof GitHubIssueSchema.Type;
 
 /** What the extension writes into a change's `extensions` bag: which repository, which issue.
- * The repository is the source path, so a renamed GitHub repository still resolves. */
-export type IssueRef = { repo: string; number: number };
+ * The repository is the source path, so a renamed GitHub repository still resolves. It is also
+ * the link route's body: one shape for the bag entry and the wire. */
+export const IssueRefSchema = Schema.Struct({
+  repo: Schema.String,
+  number: Schema.Number,
+});
+export type IssueRef = typeof IssueRefSchema.Type;
 
 /** The bag key, which is also the extension's name. */
 export const KEY = "github-issues";

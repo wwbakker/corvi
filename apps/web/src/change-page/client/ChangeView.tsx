@@ -160,21 +160,28 @@ export function ChangeView({
       <PerRepoCard
         key={`${info.name}-${generation}`}
         changeId={id}
+        change={change}
         workspace={change?.workspace}
         info={info}
         repos={change ? repoPathsOf(change) : []}
-        onReposChanged={reload}
+        onSaved={saved}
       />
     ) : (
-      <WidgetCard key={`${info.name}-${generation}`} changeId={id} info={info} />
+      <WidgetCard
+        key={`${info.name}-${generation}`}
+        changeId={id}
+        change={change}
+        workspace={change?.workspace}
+        info={info}
+        onSaved={saved}
+      />
     );
 
-  // Re-read the change and remount the cards: its repository list just changed.
-  const reload = (): void => {
-    apiClient
-      .read(ChangeId.make(id))
-      .then(setChange)
-      .catch((e: Error) => setError(e.message));
+  // A card's editor saved: the change it wrote is the response, the lists elsewhere are stale,
+  // and the cards remount to re-read the world — which is also what closes the editor's dialog.
+  const saved = (updated: Change): void => {
+    setChange(updated);
+    onChanged();
     setGeneration((g) => g + 1);
   };
 

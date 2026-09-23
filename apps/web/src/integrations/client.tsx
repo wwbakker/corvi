@@ -2,6 +2,7 @@ import { type JSX, type ComponentType } from "react";
 import type { Change, Selection } from "../app-root/api.ts";
 import * as azureDevopsClient from "./azure-devops/client.tsx";
 import * as githubIssuesClient from "./github-issues/client.tsx";
+import * as gitClient from "./git/client.tsx";
 import * as jiraClient from "./jira/client.tsx";
 import * as leftoversClient from "./leftovers/client.tsx";
 import * as notesClient from "./notes/client.tsx";
@@ -53,11 +54,26 @@ export type TabComponent = ComponentType<{ change: Change; workspace?: string }>
 /** What a dashboard widget gets: the same props as a change tab, on the dashboard instead. */
 export type WidgetComponent = ComponentType<{ change: Change; workspace?: string }>;
 
+/** What a card's editor gets: the change it edits and the workspace that change belongs to,
+ * the dialog's open state, and the two exits — nothing changed (`onClose`), or the change as
+ * the write returned it (`onSaved`). The editor fetches through its own extension's routes, as
+ * a wizard step does. */
+export type EditComponent = ComponentType<{
+  change: Change;
+  workspace?: string;
+  open: boolean;
+  onClose: () => void;
+  onSaved: (change: Change) => void;
+}>;
+
 export type ClientModule = {
   step?: StepComponent;
   page?: PageComponent;
   tab?: TabComponent;
   widget?: WidgetComponent;
+  /** The editor behind the card's pencil. A card is editable when its declaration says so
+   * (`CardInfo.editable`) and its integration ships this. */
+  edit?: EditComponent;
 };
 
 /** One extension's client-drawn widget on a change's dashboard. */
@@ -74,10 +90,15 @@ const clients: Record<string, ClientModule> = {
   jira: jiraClient,
   "github-issues": githubIssuesClient,
   "azure-devops": azureDevopsClient,
+  git: gitClient,
   leftovers: leftoversClient,
   review: reviewClient,
   notes: notesClient,
 };
+
+/** The editor an integration's client half ships for its card, when it has one. */
+export const editorOf = (extension: string): EditComponent | undefined =>
+  clients[extension]?.edit;
 
 /** One integration's step. The server only offers steps whose integration is enabled and every
  * included step ships a client half; a disagreement is said rather than rendered blank. */

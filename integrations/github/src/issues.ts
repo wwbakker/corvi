@@ -2,10 +2,11 @@ import { Context, Effect, Option, Schema } from "effect";
 import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Shell, Workspace } from "@corvi/contracts/capabilities";
+import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
 import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
-import { BadRequestError, type CliError } from "@corvi/contracts/errors";
+import { BadRequestError, NotFoundError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
 import { refLabel, refOf, KEY, type GitHubIssue, type IssueRef } from "@corvi/contracts/integrations/github-issues";
 
@@ -307,6 +308,8 @@ export default {
   cards: [
     {
       title: "GitHub issues",
+      // The link can be repointed at another issue: the editor is its client half's `edit`.
+      editable: true,
       status: (change) => {
         const ref = refOf(change);
         if (!ref) {
@@ -328,8 +331,9 @@ export default {
   wizardSteps: [{ id: KEY, title: "GitHub issue", phase: "repos" }],
 
   // Completing a change closes the issue, after the merges and before the worktrees go.
-  // The two routes the wizard's step fetches: a repository's open issues, and creating one.
-  // Their failures are taxonomy errors, so the host maps them to status codes itself.
+  // The routes the wizard's step fetches: a repository's open issues, and creating one — plus
+  // the card's editor, which repoints the link. Their failures are taxonomy errors, so the host
+  // maps them to status codes itself.
   routes: [
     {
       method: "GET",
@@ -356,6 +360,42 @@ export default {
           }
           const created = yield* createIssue(body.repo, body.title.trim(), body.description);
           return Response.json(created, { status: 201 });
+        }),
+    },
+    {
+      // The link, repointed: this extension's bag entry is replaced in one write. What the
+      // change's completion later closes follows this ref. A finished change is a record: its
+      // completion has already closed its issue.
+      method: "PUT",
+      path: "/changes/:id/link",
+      handler: (req, params) =>
+        Effect.gen(function* () {
+          const id = params["id"] ?? "";
+          const changes = yield* Changes;
+          const change = yield* changes.read(id);
+          if (!change) {
+            return yield* new NotFoundError({ message: `no such change: ${id}` });
+          }
+          if (change.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is finished: its links are read-only",
+            });
+          }
+          const body = yield* Effect.orElseSucceed(
+            Effect.tryPromise({
+              try: () => req.json() as Promise<{ repo?: string; number?: number }>,
+              catch: () => undefined,
+            }),
+            () => ({}) as { repo?: string; number?: number },
+          );
+          const repo = body.repo?.trim();
+          if (!repo || typeof body.number !== "number") {
+            return yield* new BadRequestError({ message: "repository and issue number required" });
+          }
+          const store = yield* ExtensionStore;
+          const updated = yield* store.update(change, { repo, number: body.number });
+          yield* (yield* Bus).announce("changes");
+          return Response.json(updated);
         }),
     },
   ],

@@ -2,7 +2,7 @@ import { Effect, Either } from "effect";
 import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
-import { BadRequestError } from "@corvi/contracts/errors";
+import { BadRequestError, NotFoundError } from "@corvi/contracts/errors";
 import {
   boardIssues,
   siteOfWorkspace,
@@ -20,6 +20,7 @@ import {
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
 import { Cache, Settings, Workspace, swr } from "@corvi/contracts/capabilities";
+import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
 import type { IncludedIntegration } from "@corvi/contracts/integration";
 import type { DescriptionSection, TitleSource } from "@corvi/contracts/integration";
@@ -257,6 +258,8 @@ export default {
   cards: [
     {
       title: "Jira",
+      // The link can be repointed at another issue: the editor is its client half's `edit`.
+      editable: true,
       status: (change) =>
         Effect.gen(function* () {
           const key = ticketOf(change);
@@ -279,9 +282,10 @@ export default {
   // told exists. Its id is the payload key the step writes the picked issue under.
   wizardSteps: [{ id: "jira", title: "Jira", phase: "issue" }],
 
-  // The two routes the wizard's step fetches: the board, and creating an issue into it. An
+  // The routes the wizard's step fetches: the board, and creating an issue into it. An
   // error string rather than a failed request, so a broken or unconfigured Jira still leaves
-  // you able to type a change id by hand.
+  // you able to type a change id by hand. The third route is the card's editor: the link a
+  // change carries, repointed.
   routes: [
     {
       method: "GET",
@@ -319,6 +323,44 @@ export default {
             workspace: body.workspace,
           });
           return Response.json(issue, { status: 201 });
+        }),
+    },
+    {
+      // The link, repointed: this extension's bag entry is replaced in one write. What the
+      // change's completion later does — the transition, the loose ends — follows this key.
+      // A finished change is a record: its completion has already moved its ticket.
+      method: "PUT",
+      path: "/changes/:id/link",
+      handler: (req, params) =>
+        Effect.gen(function* () {
+          const id = params["id"] ?? "";
+          const changes = yield* Changes;
+          const change = yield* changes.read(id);
+          if (!change) {
+            return yield* new NotFoundError({ message: `no such change: ${id}` });
+          }
+          if (change.completedAt) {
+            return yield* new BadRequestError({
+              message: "this change is finished: its links are read-only",
+            });
+          }
+          const body = yield* Effect.orElseSucceed(
+            Effect.tryPromise({
+              try: () => req.json() as Promise<{ key?: string }>,
+              catch: () => undefined,
+            }),
+            () => ({}) as { key?: string },
+          );
+          const key = body.key?.trim();
+          if (!key) {
+            return yield* new BadRequestError({ message: "key required" });
+          }
+          // The bag entry shadows the legacy `jira` field for good (see `ticketOf`). Clearing
+          // the link — deliberately not this route — must remove both, or the old key answers.
+          const store = yield* ExtensionStore;
+          const updated = yield* store.update(change, { key });
+          yield* (yield* Bus).announce("changes");
+          return Response.json(updated);
         }),
     },
   ],

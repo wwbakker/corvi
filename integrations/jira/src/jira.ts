@@ -21,6 +21,8 @@ export type { Issue, Sprint } from "@corvi/contracts/integrations/jira";
  * The wizard's step writes the `extensions` bag; an early change record may carry the legacy
  * `jira` field instead, so both are read, the bag first. This is the one function that knows
  * about either, and the legacy read goes through `legacy.ts`, the one place that names it.
+ * A written bag entry shadows the legacy field for good; clearing the link would have to remove
+ * both, or the old key answers again through the fallback below.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const ticketOf = (change: Change): string | undefined =>

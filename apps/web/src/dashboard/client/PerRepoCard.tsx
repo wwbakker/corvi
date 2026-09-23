@@ -4,10 +4,11 @@ import {
   aborted,
   apiClient,
   type CardInfo,
+  type Change,
   type WidgetItem,
 } from "../../app-root/api.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
-import { EditReposDialog } from "./EditReposDialog.tsx";
+import { useCardEditor } from "./CardEditor.tsx";
 import { usePolled } from "../../app-root/poll.ts";
 import { Dot, Item, Refreshing } from "./WidgetRows.tsx";
 
@@ -22,17 +23,21 @@ const nameOf = (repo: string): string => repo.split("/").pop() ?? repo;
  */
 export function PerRepoCard({
   changeId,
+  change,
   workspace,
   info,
   repos,
-  onReposChanged,
+  onSaved,
 }: {
   changeId: string;
-  /** The change's context, for the repository dialog's browser. */
+  /** The change itself, once it has loaded: the editor needs it, the rows do not. */
+  change?: Change;
+  /** The change's context, for its editor's browser and fetches. */
   workspace?: string;
   info: CardInfo;
   repos: string[];
-  onReposChanged: () => void;
+  /** The editor wrote the change: this is where it goes. */
+  onSaved: (change: Change) => void;
 }): JSX.Element {
   const key = (repo: string): string => `${changeId}:${info.name}:${repo}`;
   // undefined while that repository is still loading; seeded from the cache so coming back to a
@@ -41,7 +46,7 @@ export function PerRepoCard({
     Object.fromEntries(repos.map((repo) => [repo, cached<WidgetItem[]>(key(repo))])),
   );
   const [busy, setBusy] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
+  const editor = useCardEditor({ info, change, workspace, onSaved });
 
   const loadRepo = useCallback(
     (repo: string, signal?: AbortSignal): Promise<void> =>
@@ -95,15 +100,7 @@ export function PerRepoCard({
         <Dot state={loaded.length ? worstOf(all) : undefined} />
         {info.title}
         {refreshing && <Refreshing />}
-        {/* The repository list belongs to the change, and git is the component that shows it. */}
-        {info.name === "git" && (
-          <>
-            <span className="spacer" />
-            <button className="icon" title="Edit repositories" onClick={() => setEditing(true)}>
-              ✎
-            </button>
-          </>
-        )}
+        {editor.button}
       </h3>
       {/* No summary once everything is in: the rows already say it. */}
       {loaded.length < repos.length && (
@@ -128,15 +125,7 @@ export function PerRepoCard({
           </div>
         ),
       )}
-      {info.name === "git" && (
-        <EditReposDialog
-          changeId={changeId}
-          workspace={workspace}
-          open={editing}
-          onClose={() => setEditing(false)}
-          onSaved={onReposChanged}
-        />
-      )}
+      {editor.dialog}
     </section>
   );
 }

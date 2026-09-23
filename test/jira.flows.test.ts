@@ -1,9 +1,21 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect, Either } from "effect";
 import { Cache, Settings } from "@corvi/contracts/capabilities";
+import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { CacheLive } from "../apps/server/src/integrations/services.ts";
-import { runtimeConfig, type Workspace } from "../apps/server/src/workspace/server/index.ts";
+import { CacheLive, capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import {
+  createChange,
+  readChange,
+  writeChange,
+} from "../apps/server/src/change/server/index.ts";
+import {
+  runtimeConfig,
+  workspaceById,
+  type Workspace,
+} from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import jiraExtension from "@corvi/jira";
 import {
@@ -22,7 +34,7 @@ import {
 } from "@corvi/jira/jira";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { checkoutsOf, legacyConfig, runEffect  } from "./helpers.ts";
+import { checkoutsOf, legacyConfig, runEffect, testTempDir  } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -144,6 +156,19 @@ afterEach(() => {
   for (const [key, value] of originalEnv) setEnv(key, value);
   fetchCalls.length = 0;
   clearCache();
+});
+
+// The link route writes the change record, so its tests own a change root of their own — a
+// store write must never reach whatever root the rest of the run points at.
+let linkRoot: string;
+
+beforeAll(async () => {
+  linkRoot = await testTempDir("jira-link");
+  process.env.CORVI_ROOT = join(linkRoot, "changes");
+});
+
+afterAll(async () => {
+  await rm(linkRoot, { recursive: true, force: true });
 });
 
 // --- jiraFetch: URL, auth and error mapping ---------------------------------------------------
@@ -1128,4 +1153,98 @@ test("ticketOf reads this extension's bag first and an early record's field seco
   expect(ticketOf({ ...withLegacy("OLD-1"), extensions: { jira: {} } })).toBe("OLD-1");
   expect(ticketOf(withLegacy("OLD-1"))).toBe("OLD-1");
   expect(ticketOf(change())).toBeUndefined();
+});
+
+// --- the link route --------------------------------------------------------------------------
+
+const putLink = jiraExtension.routes!.find((route) => route.method === "PUT")!;
+
+/** The link route's effect, run as the dispatcher runs it: every capability provided, with the
+ * extension's name bound to its `ExtensionStore`. */
+const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira")));
+
+/** The same, capturing a refusal instead of rejecting with it. */
+const runLinkEither = <A, E>(
+  effect: Effect.Effect<A, E, Capabilities>,
+): Promise<Either.Either<A, E>> =>
+  Effect.runPromise(
+    Effect.either(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira"))),
+  );
+
+test("the link route repoints a change, and the new key answers past the legacy field", async () => {
+  const created = await runEffect(
+    createChange({
+      id: "PROJ-LINK",
+      state: "Ideation",
+      checkouts: checkoutsOf([]),
+      extensions: { jira: { key: "PROJ-1" } },
+    }),
+  );
+  // An early record's legacy field, so the repoint proves a written bag entry shadows it for
+  // good — the fallback never answers again.
+  await runEffect(writeChange({ ...created, jira: "OLD-1" } as unknown as Change));
+
+  const response = await runLink(
+    putLink.handler(
+      new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "PROJ-2" }) }),
+      { id: "PROJ-LINK" },
+    ),
+  );
+  expect(response.status).toBe(200);
+  const updated = (await response.json()) as Change;
+  expect(updated.extensions).toEqual({ jira: { key: "PROJ-2" } });
+  expect(ticketOf(updated)).toBe("PROJ-2");
+
+  // On disk, where the next read looks.
+  expect(ticketOf((await runEffect(readChange("PROJ-LINK")))!)).toBe("PROJ-2");
+});
+
+test("the link route refuses a finished change: its completion already moved its ticket", async () => {
+  const created = await runEffect(
+    createChange({
+      id: "PROJ-LINK-DONE",
+      state: "Ideation",
+      checkouts: checkoutsOf([]),
+      extensions: { jira: { key: "PROJ-1" } },
+    }),
+  );
+  await runEffect(
+    writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }),
+  );
+
+  const either = await runLinkEither(
+    putLink.handler(
+      new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "PROJ-2" }) }),
+      { id: "PROJ-LINK-DONE" },
+    ),
+  );
+  if (Either.isLeft(either)) {
+    expect(either.left._tag).toBe("BadRequestError");
+  } else {
+    throw new Error("expected the finished change to refuse the write");
+  }
+  // The link stands as it was.
+  expect(ticketOf((await runEffect(readChange("PROJ-LINK-DONE")))!)).toBe("PROJ-1");
+});
+
+test("the link route 404s an unknown change and refuses a body with no key", async () => {
+  const missing = await runLinkEither(
+    putLink.handler(
+      new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "PROJ-2" }) }),
+      { id: "PROJ-LINK-GONE" },
+    ),
+  );
+  expect(Either.isLeft(missing) && missing.left._tag).toBe("NotFoundError");
+
+  await runEffect(
+    createChange({ id: "PROJ-LINK-KEY", state: "Ideation", checkouts: checkoutsOf([]) }),
+  );
+  const blank = await runLinkEither(
+    putLink.handler(
+      new Request("http://x/link", { method: "PUT", body: JSON.stringify({ key: "   " }) }),
+      { id: "PROJ-LINK-KEY" },
+    ),
+  );
+  expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
 });

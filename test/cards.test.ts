@@ -1,4 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect, Either, Layer } from "effect";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
@@ -8,13 +10,15 @@ import type { Capabilities } from "../apps/server/src/integrations/api/capabilit
 import type { Card } from "../apps/server/src/integrations/types.ts";
 import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
 import { repoStatusOf, runCard, statusOne } from "../apps/server/src/integrations/effects.ts";
+import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
+import { createChange } from "../apps/server/src/change/server/index.ts";
 import githubExtension, { githubSummaryContributor, prLooseEnds } from "@corvi/github";
 import azureDevopsExtension, { azureDevopsSummaryContributor } from "@corvi/azure-devops";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
  * The cards' server half: the GitHub tree and the Azure DevOps tree the dashboard draws, the
@@ -740,4 +744,47 @@ test("a card with no actions fails rather than silently doing nothing", async ()
   await expect(runEffect(runCard("test", card(), change(), "act", undefined))).rejects.toThrow(
     "Card has no actions",
   );
+});
+
+// --- the cards route's own surface ------------------------------------------------------------
+
+// The cards route reads a real change, so its tests own a change root of their own.
+let cardsRoot: string;
+
+beforeAll(async () => {
+  cardsRoot = await testTempDir("cards-editable");
+  process.env.CORVI_ROOT = join(cardsRoot, "changes");
+});
+
+afterAll(async () => {
+  await rm(cardsRoot, { recursive: true, force: true });
+});
+
+/** The cards route as server.ts mounts it, called with the path parameter Bun would have
+ * filled in (the pattern test/changeTabs.test.ts sets for the guarded routes). */
+const cardsOf = async (id: string): Promise<{ name: string; editable?: boolean }[]> => {
+  const route = integrationRoutes["/api/changes/:id/integrations"] as unknown as {
+    GET: (req: Request, srv: unknown) => Promise<Response>;
+  };
+  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/integrations`), {
+    params: { id },
+  });
+  const response = await route.GET(req, undefined);
+  expect(response.status).toBe(200);
+  return (await response.json()) as { name: string; editable?: boolean }[];
+};
+
+test("the cards route says which cards are editable", async () => {
+  await runEffect(
+    createChange({ id: "PROJ-CARDS-EDIT", state: "Ideation", checkouts: checkoutsOf([]) }),
+  );
+  const editable = Object.fromEntries(
+    (await cardsOf("PROJ-CARDS-EDIT")).map((c) => [c.name, c.editable]),
+  );
+  // The cards whose client half ships an editor — the repository list and the two ticket links.
+  expect(editable["git"]).toBe(true);
+  expect(editable["jira"]).toBe(true);
+  expect(editable["github-issues"]).toBe(true);
+  // And a card without one says so, rather than leaving the page to guess.
+  expect(editable["azure-devops"]).toBe(false);
 });
