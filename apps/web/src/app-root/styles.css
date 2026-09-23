@@ -37,6 +37,15 @@
   --diff-add: #7ee787;
   --diff-del: #ffa198;
 
+  /* The Markdown editor's syntax: the plan, the notes and the wizard's description read as
+     source. Seeded from the palette above — the info blue, the diff green, the purple, the two
+     greys — so these are the theme's own colors until someone deliberately retunes them. */
+  --md-heading: #6cb6ff; /* headings, and keywords in code */
+  --md-code: #7ee787;    /* code as written: inline code, a fence without a language */
+  --md-link: #a371f7;    /* links and labels, strings and entities */
+  --md-quote: #8b93a1;   /* quotes and comments */
+  --md-mark: #565f6c;    /* the marks: # ** []() fence lines, punctuation */
+
   /* Edges, and the tones derived rather than named: a rule that wants something between two
      surfaces mixes here instead of choosing a hex of its own. The percentages are what put each
      one where it was — a control's face has to be visible on a card. */
@@ -46,6 +55,8 @@
   --selection: color-mix(in srgb, var(--accent) 35%, transparent);/* the row or tab you are on */
   --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent);      /* a notice, a diff's added line */
   --error-wash: color-mix(in srgb, var(--error) 15%, transparent);/* a failure, a removed line */
+  --active-wash: color-mix(in srgb, var(--text) 5%, transparent); /* the caret's line, an echo of
+                                                                    a selection, a trailing space */
   --scrim: rgb(0 0 0 / 0.5);                                      /* behind a dialog */
   --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }
@@ -473,9 +484,17 @@ body.resizing {
 }
 
 /* The change's pages put their own row directly under this one, so the two are flush: the sticky
-   offsets are then the row heights themselves, with no gap for content to scroll through. */
+   offsets are then the row heights themselves, with no gap for content to scroll through. The
+   flush frame has no page padding to bleed out of either: the row takes the window's width with
+   the padding back on itself, and still no gap below — the two tab rows are one block of chrome.
+   (The terminal page dresses its own row further down.) */
 .content:not(.flush) .page > header.change-bar {
   margin-bottom: 0;
+}
+
+.content.flush .page:not(.terminal-page) > header.change-bar {
+  margin: 0;
+  padding-inline: 24px;
 }
 
 /* In the app window the row is chrome as well as a page header: dragging it moves the window.
@@ -1205,16 +1224,66 @@ button.create:hover:not(:disabled) {
   margin-bottom: 12px;
 }
 
-textarea.notes,
-textarea.plan {
+/* The Markdown editor's box: the view paints its own well, border and monospace face
+   (apps/web/src/editor/client/theme.ts); this sizes its box — a rows-sized one whose corner
+   drags it taller (the textarea this replaced was resizable too), or one that takes what its
+   container has left. */
+.md-editor {
+  display: block;
   width: 100%;
-  font: inherit;
-  color: var(--text);
-  background: var(--well);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px;
+  min-width: 0;
   resize: vertical;
+  overflow: hidden;
+}
+
+.md-editor.fill {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
+/* The plan is the tab's content rather than a card on it, and the content is all editor: it
+   takes the flush frame the terminal takes (app.tsx gives the page its padding back), fills
+   what the tab row leaves, and touches the edges — no border, no rounding, as the terminal's
+   screen does on its page. */
+.plan-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.plan-page .cm-editor {
+  border: 0;
+  border-radius: 0;
+}
+
+/* What the plan's heading carried besides the title — the unsaved mark, the briefing button —
+   over the editor's top-right corner rather than a row above it: the frame is all editor. The
+   button is opaque and takes the clicks; the quiet marks are painted on and let them through to
+   the editor underneath. The right margin keeps the cluster clear of the editor's scrollbar,
+   which takes the frame's edge when the plan outgrows the window. */
+.plan-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.plan-toolbar button {
+  pointer-events: auto;
+}
+
+.plan-toolbar .summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin: 0;
 }
 
 /* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than
@@ -1230,7 +1299,9 @@ textarea.plan {
 /* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
    sticky, right under the window's row — the two together are the page's chrome, and the content
    scrolls under them rather than past them. The tabs inside keep their own dress, without the line
-   they carry in a page that has no row above them. */
+   they carry in a page that has no row above them. In the flush frame there is no page padding to
+   bleed out of and no gap below to give away: the row is the window's full width and what fills the
+   tab starts on its edge. */
 .change-tabs {
   position: sticky;
   top: var(--titlebar-height);
@@ -1244,6 +1315,10 @@ textarea.plan {
   padding-inline: 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+.content.flush .change-tabs {
+  margin: 0;
 }
 
 .change-tabs .tabs {
@@ -1290,6 +1365,15 @@ textarea.plan {
   min-height: 0;
   height: 100dvh;
   overflow: hidden;
+}
+
+/* In the flush frame — the terminal's and the plan's — the page is the chain that hands what is
+   left of the window to the view that fills it. */
+.content.flush > .page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .page.terminal-page {

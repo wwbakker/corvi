@@ -21,7 +21,7 @@ its title. Reopening restores the fields and selections. **Discard** removes it;
 the application forgets it. No server-side change exists until **Create idea**.
 
 Creating an idea writes its record and `PLAN.md`. Selected repositories are linked for browsing;
-no branch/worktree is created and no ticket moves. The **Plan** card edits the same file an agent
+no branch/worktree is created and no ticket moves. The **Plan** tab edits the same file an agent
 can read. **Brief the agent** pastes the configured briefing into the change's terminal.
 
 **Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
@@ -93,8 +93,8 @@ copy failure does not make worktree creation fail.
 
 ## Dashboard and review
 
-The dashboard shows the plan and notes beside independently loaded integration status cards:
-local worktrees, Jira, GitHub pull requests/checks, and Azure pipeline runs where enabled.
+The dashboard shows the notes beside independently loaded integration status cards: local
+worktrees, Jira, GitHub pull requests/checks, and Azure pipeline runs where enabled.
 Narrow windows stack documents before status cards.
 
 A card that owns something editable carries a pencil in its header, the same way the Local
@@ -102,6 +102,10 @@ changes card's repository editor does. The Jira and GitHub issues cards re-point
 another issue through it: the board or issue list again, and what the change's completion later
 moves or closes follows the new link. The old ticket is left where it is. A finished change is a
 record — its cards carry no pencil, and its links are read-only.
+
+The **Plan** tab holds the change's own document, between the dashboard and the tabs extensions
+contribute: `PLAN.md` as Markdown source, in the same editor the notes are written in. A finished
+change's plan is a read-only record.
 
 The **Review changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
 push actions are described in [integrations and included features](integrations.md#review-changes).
