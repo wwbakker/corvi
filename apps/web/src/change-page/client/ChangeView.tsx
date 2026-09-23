@@ -220,7 +220,7 @@ export function ChangeView({
   /**
    * Start an idea's work: the state moves to In Progress, and the server's start hooks create
    * the checkouts and move the ticket. The terminal stays where it is — the change directory and
-   * its pi session are unchanged, so the conversation continues.
+   * its agent session are unchanged, so the conversation continues.
    */
   const startWork = (): void => {
     setStarting(true);

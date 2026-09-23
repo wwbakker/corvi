@@ -1,0 +1,12 @@
+{
+  "name": "@corvi/opencode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./agent-state": "./src/agent-state.ts"
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.18.32"
+  }
+}

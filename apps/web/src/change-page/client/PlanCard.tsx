@@ -15,7 +15,7 @@ import { cached, putCached } from "../../app-root/cache.ts";
  *
  * The briefing button beside the heading pastes the configured prompt into the change's terminal,
  * and is offered only while the change is an idea: the prompt is about shaping a plan before the
- * work starts. Corvi cannot enforce "only the plan changes" (pi has no sandbox, and a symlinked
+ * work starts. Corvi cannot enforce "only the plan changes" (the agent has no sandbox, and a symlinked
  * repository cannot be made read-only), so it says so to the agent instead.
  */
 export function PlanCard({
