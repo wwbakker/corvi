@@ -1,4 +1,6 @@
-import { beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
+import { rm } from "node:fs/promises";
+import { join } from "node:path";
 import { Effect, Either, Layer } from "effect";
 import {
   createPr,
@@ -24,16 +26,18 @@ import {
   viewIssue,
 } from "@corvi/github/issues";
 import githubIssues from "@corvi/github/issues";
+import { refOf } from "@corvi/contracts/integrations/github-issues";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
-import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, capabilitiesLayer, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -43,6 +47,19 @@ import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers
  */
 
 beforeEach(() => clearCache());
+
+// The link route writes the change record, so its tests own a change root of their own — a
+// store write must never reach whatever root the rest of the run points at.
+let linkRoot: string;
+
+beforeAll(async () => {
+  linkRoot = await testTempDir("gh-link");
+  process.env.CORVI_ROOT = join(linkRoot, "changes");
+});
+
+afterAll(async () => {
+  await rm(linkRoot, { recursive: true, force: true });
+});
 
 // --- Drivetrain -------------------------------------------------------------------------------
 
@@ -1017,6 +1034,110 @@ test("the POST route refuses a missing repository, a blank title and an unreadab
     postIssues.handler(new Request("http://x/issues", { method: "POST", body: "not json" })),
   );
   expect(Either.isLeft(junk) && junk.left._tag).toBe("BadRequestError");
+});
+
+// --- github-issues: the link route ------------------------------------------------------------
+
+const putLink = githubIssues.routes!.find((r) => r.method === "PUT")!;
+
+/** The link route's effect, run as the dispatcher runs it: every capability provided, with the
+ * extension's name bound to its `ExtensionStore`. */
+const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
+  Effect.runPromise(
+    Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")),
+  );
+
+/** The same, capturing a refusal instead of rejecting with it. */
+const runLinkEither = <A, E>(
+  effect: Effect.Effect<A, E, Capabilities>,
+): Promise<Either.Either<A, E>> =>
+  Effect.runPromise(
+    Effect.either(
+      Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")),
+    ),
+  );
+
+test("the link route repoints a change, and refOf reads the new ref", async () => {
+  const created = await runLink(
+    createChange({
+      id: "PROJ-GH-LINK",
+      checkouts: checkoutsOf(["/r/x"]),
+      extensions: { "github-issues": { repo: "/r/x", number: 7 } },
+    }),
+  );
+
+  const response = await runLink(
+    putLink.handler(
+      new Request("http://x/link", {
+        method: "PUT",
+        body: JSON.stringify({ repo: "/r/x", number: 8 }),
+      }),
+      { id: "PROJ-GH-LINK" },
+    ),
+  );
+  expect(response.status).toBe(200);
+  const updated = (await response.json()) as Change;
+  expect(refOf(updated)).toEqual({ repo: "/r/x", number: 8 });
+
+  // On disk, where the next read looks.
+  expect(refOf((await runLink(readChange("PROJ-GH-LINK")))!)).toEqual({ repo: "/r/x", number: 8 });
+});
+
+test("the link route refuses a finished change: its completion already closed its issue", async () => {
+  const created = await runLink(
+    createChange({
+      id: "PROJ-GH-LINK-DONE",
+      checkouts: checkoutsOf(["/r/x"]),
+      extensions: { "github-issues": { repo: "/r/x", number: 7 } },
+    }),
+  );
+  await runLink(
+    writeChange({ ...created, state: "Completed", completedAt: "2026-01-02T00:00:00.000Z" }),
+  );
+
+  const either = await runLinkEither(
+    putLink.handler(
+      new Request("http://x/link", {
+        method: "PUT",
+        body: JSON.stringify({ repo: "/r/x", number: 8 }),
+      }),
+      { id: "PROJ-GH-LINK-DONE" },
+    ),
+  );
+  if (Either.isLeft(either)) {
+    expect(either.left._tag).toBe("BadRequestError");
+  } else {
+    throw new Error("expected the finished change to refuse the write");
+  }
+  // The link stands as it was.
+  expect(refOf((await runLink(readChange("PROJ-GH-LINK-DONE")))!)).toEqual({
+    repo: "/r/x",
+    number: 7,
+  });
+});
+
+test("the link route 404s an unknown change and refuses a body without a ref", async () => {
+  const missing = await runLinkEither(
+    putLink.handler(
+      new Request("http://x/link", {
+        method: "PUT",
+        body: JSON.stringify({ repo: "/r/x", number: 8 }),
+      }),
+      { id: "PROJ-GH-LINK-GONE" },
+    ),
+  );
+  expect(Either.isLeft(missing) && missing.left._tag).toBe("NotFoundError");
+
+  await runLink(createChange({ id: "PROJ-GH-LINK-KEY", checkouts: checkoutsOf(["/r/x"]) }));
+  for (const body of [{ number: 8 }, { repo: "  " }, { repo: "/r/x" }, { repo: "/r/x", number: "8" }]) {
+    const blank = await runLinkEither(
+      putLink.handler(
+        new Request("http://x/link", { method: "PUT", body: JSON.stringify(body) }),
+        { id: "PROJ-GH-LINK-KEY" },
+      ),
+    );
+    expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
+  }
 });
 
 test("mergeReadiness: content in main reads as merged without a PR", async () => {

@@ -97,6 +97,12 @@ The dashboard shows the plan and notes beside independently loaded integration s
 local worktrees, Jira, GitHub pull requests/checks, and Azure pipeline runs where enabled.
 Narrow windows stack documents before status cards.
 
+A card that owns something editable carries a pencil in its header, the same way the Local
+changes card's repository editor does. The Jira and GitHub issues cards re-point their change at
+another issue through it: the board or issue list again, and what the change's completion later
+moves or closes follows the new link. The old ticket is left where it is. A finished change is a
+record — its cards carry no pencil, and its links are read-only.
+
 The **Review changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
 push actions are described in [integrations and included features](integrations.md#review-changes).
 Repository menus can open the relevant checkout in the file manager or IntelliJ when available.

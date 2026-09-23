@@ -121,6 +121,8 @@ export const CardInfoSchema = Schema.Struct({
   title: Schema.String,
   perRepo: Schema.Boolean,
   column: Schema.Literal("left", "right"),
+  /** The card declares an editor (`Card.editable`); the editor itself is client code. */
+  editable: Schema.optional(Schema.Boolean),
 })
 export type CardInfoDto = typeof CardInfoSchema.Type
 

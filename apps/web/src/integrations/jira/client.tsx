@@ -1,16 +1,19 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
 import { makeWireClient } from "@corvi/client";
+import { ChangeWireSchema } from "@corvi/contracts/api";
 import { branchFor } from "../../domain/change.ts";
-import type { StepComponent } from "../client.tsx";
+import type { EditComponent, StepComponent } from "../client.tsx";
 import { BoardSchema, IssueSchema, type Board, type Issue } from "@corvi/contracts/integrations/jira";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
 const wire = makeWireClient({ baseUrl: "" });
 
 /**
- * The jira extension's wizard step: the board, filtered and grouped, plus creating an issue.
- * Picking one writes this extension's payload (`extensions.jira = { key }`), prefills the
- * change id and branch, and names the ticket the details step shows.
+ * The jira extension's two screens: the wizard's issue step — the board, filtered and grouped,
+ * plus creating an issue — and the Jira card's editor, which is the same table pointed at the
+ * link of an existing change. Picking an issue in the wizard writes this extension's payload
+ * (`extensions.jira = { key }`), prefills the change id and branch, and names the ticket the
+ * details step shows; picking one in the editor replaces that payload through the link route.
  */
 
 /** Native <dialog>: modal behaviour, focus trap and Escape come from the platform. */
@@ -89,6 +92,9 @@ export function IssueTable({
   workspace,
   selectedKey,
   onSelect,
+  hint =
+    "Pick the issue this change implements, create a new one, or skip and name the change " +
+    "yourself on the next step.",
 }: {
   /** Whose Jira: a second client is a second site, and its board is not this one's. */
   workspace?: string;
@@ -96,6 +102,8 @@ export function IssueTable({
    * draft is reopened, and the row that was picked is found by its key. */
   selectedKey: string | null;
   onSelect: (issue: Issue | null) => void;
+  /** What to say under the create button: the wizard's next step is not the editor's. */
+  hint?: string;
 }): JSX.Element {
   const [board, setBoard] = useState<Board>({ issues: [], sprints: [] });
   const [loading, setLoading] = useState(true);
@@ -168,10 +176,7 @@ export function IssueTable({
       <button type="button" onClick={() => setDialogOpen(true)}>
         Create new issue
       </button>
-      <p className="hint">
-        Pick the issue this change implements, create a new one, or skip and name the change
-        yourself on the next step.
-      </p>
+      <p className="hint">{hint}</p>
 
       <div className="filters">
         <input
@@ -288,4 +293,76 @@ export const step: StepComponent = ({ ctx }) => {
   };
 
   return <IssueTable workspace={ctx.workspace} selectedKey={selectedKey} onSelect={select} />;
+};
+
+/**
+ * The Jira card's editor: the board again, repointing a live change at another issue. The save
+ * is this extension's own route; what the change's completion later moves follows the new key,
+ * and the old ticket is left where it is.
+ */
+export const edit: EditComponent = ({ change, workspace, open, onClose, onSaved }) => {
+  const ref = useRef<HTMLDialogElement>(null);
+  // The pick in the dialog — null while nothing new is picked. The current link stays marked
+  // (the table falls back to it) but is not a pick, so OK stays shut until the link really
+  // changes.
+  const [picked, setPicked] = useState<Issue | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const currentKey = (change.extensions?.["jira"] as { key?: string } | undefined)?.key ?? null;
+
+  useEffect(() => {
+    const dialog = ref.current;
+    if (!dialog) return;
+    if (open && !dialog.open) {
+      // A fresh question every time it opens: Cancel throws the draft away.
+      setPicked(null);
+      setError(null);
+      dialog.showModal();
+    }
+    if (!open && dialog.open) dialog.close();
+  }, [open]);
+
+  const save = (): void => {
+    if (!picked) return;
+    setBusy(true);
+    setError(null);
+    wire
+      .request("PUT", `/ext/jira/changes/${encodeURIComponent(change.id)}/link`, ChangeWireSchema, {
+        body: { key: picked.key },
+      })
+      .then((updated) => {
+        setPicked(null);
+        onClose();
+        onSaved(updated);
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <dialog ref={ref} className="wide" onCancel={onClose} onClose={onClose}>
+      <h3>Jira link</h3>
+      {error && <div className="error-banner">{error}</div>}
+      <IssueTable
+        workspace={workspace}
+        selectedKey={picked?.key ?? currentKey}
+        onSelect={setPicked}
+        hint="Pick the issue this change is about."
+      />
+      <div className="dialog-actions">
+        <button type="button" onClick={onClose} disabled={busy}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="primary"
+          disabled={!picked || picked.key === currentKey || busy}
+          onClick={save}
+        >
+          {busy ? "Linking…" : "OK"}
+        </button>
+      </div>
+    </dialog>
+  );
 };

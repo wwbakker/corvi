@@ -39,6 +39,10 @@ export type Card = {
     action: string,
     arg: string | undefined,
   ) => Effect.Effect<void, unknown, Capabilities>;
+  /** The card's content can be edited by the user — the page shows the pencil for it. The
+   * editor itself is this integration's client half (`edit`), and its save goes through the
+   * integration's own route; this only says there is one. */
+  editable?: true;
 };
 
 /** A page the sidebar offers: served at `/<id>`, rendered by the integration's client half
