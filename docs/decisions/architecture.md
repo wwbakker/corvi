@@ -34,12 +34,14 @@ and custom runtime infrastructure are not templates for Corvi.
 
 1. **Terminal resume:** reattach a live session, recreate one after termination/reboot, or resume
    its agent conversation? These remain separate capabilities even if one button composes them.
-2. **OpenCode support:** interactive terminal integration, programmatic control, or both?
+2. **OpenCode support:** answered by the `opencode-support` change — interactive terminal
+   integration (the agent-state reporter). Programmatic control remains a separate future
+   decision.
 3. **Status-triggered actions:** failure reporting, retry/duplicate policy, ordering, and whether
    any action is a precondition for a transition. Do not hide these choices in event handlers.
 4. **Skills:** define the needed Pi/OpenCode behavior before introducing a shared skill model.
 
 These gates do not block package extraction. They do block inventing behavior for future features.
-When the Pi and OpenCode integrations are implemented, they become `integrations/pi` and
+When the Pi and OpenCode integrations were implemented, they became the `integrations/pi` and
 `integrations/opencode` workspace packages with their dependency edges recorded in
 `architecture.json`.

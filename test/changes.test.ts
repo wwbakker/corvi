@@ -343,7 +343,7 @@ test("the overview counts windows that are running something, not windows", asyn
     busy({}), // no session, or tmux told us nothing
   ]).toEqual([false, false, true, true, false]);
 
-  // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
+  // An agent says what it is doing, and is believed: an agent at its prompt is `node`, which would
   // otherwise count as work for as long as the window stayed open.
   expect([
     busy({ command: "node", options: { "@agent_status": "working" } }),
@@ -356,7 +356,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
-  const presented = (option: string): PresentedWindow =>
+  const presented = (options: Record<string, string>): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -366,14 +366,21 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       activity: false,
       directory: "example-api",
       named: false,
-      options: { "@agent_status": option },
+      options,
     });
-  // What pi's busy-title extension sets with `tmux set -p @agent_status ...`.
-  expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
-  expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
+  // What an agent's reporter sets with `tmux set -p @agent_status ...`.
+  expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });
+  expect(presented({ "@agent_status": "waiting" })).toMatchObject({ label: "example-api - (agent waiting)", icon: "agent", state: "idle" });
+  // The reporter also says who it is, and the name goes in the label.
+  expect(presented({ "@agent_status": "working", "@agent_name": "pi" })).toMatchObject({
+    label: "example-api - (pi working)",
+  });
+  expect(presented({ "@agent_status": "waiting", "@agent_name": "opencode" })).toMatchObject({
+    label: "example-api - (opencode waiting)",
+  });
   // Unset, or set to something else by something else: no claim is made about the window.
-  expect(presented("")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
-  expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented({ "@agent_status": "" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented({ "@agent_status": "busy" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
 test("a change may be blocked, which is active but not workable", async () => {

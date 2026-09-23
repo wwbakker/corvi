@@ -65,7 +65,7 @@ const merged = (raw: TmuxWindow): WindowPresentation =>
  * - the composed name appends what is running, unless it is a plain shell or already the
  *   whole label — so a prompt reads as a place, not a program;
  * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
- *   believed over its process name (pi at its prompt is `node`).
+ *   believed over its process name (an agent at its prompt is `node`).
  *
  * Pure, and exported for the tests: the page renders exactly what this says.
  */

@@ -178,16 +178,17 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
   // An agent is `node` to tmux, which says nothing; what it says about itself replaces that,
-  // read from the `@agent_status` pane option the agents extension declares.
+  // read from the `@agent_status` pane option the reporters write. A reporter that names itself
+  // (`@agent_name`) is called by its name — "pi working", "opencode waiting" — otherwise "agent".
   const working = w({ command: "node", options: { "@agent_status": "working" } });
-  expect(working.label).toBe("example-api - (pi working)");
+  expect(working.label).toBe("example-api - (agent working)");
   expect(working.icon).toBe("agent");
   expect(working.state).toBe("ok");
   expect(working.busy).toBe(true);
   // Working is not wanting: nothing to notify about until it stops.
   expect(working.attention).toBe(false);
   const waiting = w({ command: "node", options: { "@agent_status": "waiting" } });
-  expect(waiting.label).toBe("example-api - (pi waiting)");
+  expect(waiting.label).toBe("example-api - (agent waiting)");
   expect(waiting.state).toBe("idle");
   expect(waiting.busy).toBe(false);
   // Waiting is what notifications are for, and the agent's own words ride along beside it.
@@ -198,7 +199,7 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   });
   expect(said.attention).toBe(true);
   expect(said.note).toBe("I fixed the layout.");
-  // A session pi has named is called that, not "example-api - (pi working)": the state is left to
+  // A session the agent has named is called that, not "example-api - (agent working)": the state is left to
   // the icon's colour, so the label does not have to repeat it.
   const named = w({
     command: "node",

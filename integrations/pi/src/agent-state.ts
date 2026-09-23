@@ -1,10 +1,12 @@
 /**
- * Agent state: publishes whether pi is working or waiting for you, why it is waiting, and what
- * the session is called, so anything outside the terminal can tell the difference — Corvi's
- * window strip and its notifications, a tmux status line, another program.
+ * Agent state: publishes whether pi is working or waiting for you, why it is waiting, what the
+ * session is called, and that it is pi — so anything outside the terminal can tell the
+ * difference — Corvi's window strip and its notifications, a tmux status line, another program.
  *
- * The state is a tmux pane option, `@agent_status`; the session's name is `@agent_session_name`;
- * the first sentence of the last answer is `@agent_last_message`:
+ * The state is a tmux pane option, `@agent_status`; the agent's name is `@agent_name`; the
+ * session's name is `@agent_session_name`; the first sentence of the last answer is
+ * `@agent_last_message`. The vocabulary and the writer/reader rules are the reporter protocol in
+ * docs/manual/terminals.md — this file is pi's reporter, `integrations/opencode` is opencode's.
  *
  *   tmux display -p '#{@agent_status}'          # this pane: working | waiting | unset
  *   tmux display -p '#{@agent_session_name}'    # this pane: the session's name, or empty
@@ -17,8 +19,8 @@
  * seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
  * it when the pane dies, so a crashed agent leaves nothing stale behind.
  *
- * Install it with `bun run extension:install` in the Corvi repository, which symlinks this file
- * into `~/.pi/agent/extensions/`.
+ * Install it with `bun run extension:install:pi` in the Corvi repository, which symlinks this
+ * file into `~/.pi/agent/extensions/`.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -105,7 +107,9 @@ export default function (pi: ExtensionAPI): void {
   });
 
   // A session that has just started is waiting for its first prompt, and has said nothing yet.
+  // Who is speaking never changes — said here, with the rest of the opening state.
   pi.on("session_start", async () => {
+    publish("@agent_name", "pi");
     lastSentence = "";
     publishState("waiting");
     publishName();
@@ -119,7 +123,7 @@ export default function (pi: ExtensionAPI): void {
   // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
     if (!pane) return;
-    for (const option of ["@agent_status", "@agent_session_name", "@agent_last_message"]) {
+    for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
       void pi.exec("tmux", ["set", "-p", "-t", pane, "-u", option]).catch(() => {});
     }
   });
