@@ -60,7 +60,9 @@ reasons rather than hidden: the page is where it gets fixed.
 
 Saving applies settings without an application restart and clears affected cached answers. Empty
 fields mean unset and show the applicable fallback as a placeholder. Fields controlled by an
-environment variable are locked and name that variable.
+environment variable are locked and name that variable. Each save keeps the file it replaces as
+`config.json.bak` beside it — one generation, owner-only — so a save that went wrong is a copy
+away from undone.
 
 The server validates paths, workspace names/IDs, environment names, and worktree-copy names.
 Relative location paths and entries such as `../.ssh` in `worktreeCopy` are refused. Saving

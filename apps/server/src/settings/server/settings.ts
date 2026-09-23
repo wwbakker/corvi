@@ -1,4 +1,4 @@
-import { mkdir, chmod, writeFile } from "node:fs/promises";
+import { mkdir, chmod, copyFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
@@ -138,6 +138,20 @@ function prune(value: unknown): unknown {
  * locking and the empty-field-means-unset pruning still apply, and a masked secret is the stored
  * value rather than the mask (apps/server/src/settings/server/secrets.ts).
  */
+/** Keep one generation of the config beside it: `config.json.bak` holds what the next save
+ * replaces. A first save has nothing to keep; anything else that stops the copy stops the save,
+ * because overwriting the only copy of a file that may hold a token is not a failure worth
+ * having. */
+const backupConfig = (): Promise<void> => {
+  const backup = `${configPath()}.bak`;
+  return copyFile(configPath(), backup).then(
+    () => chmod(backup, 0o600),
+    (e: NodeJS.ErrnoException) => {
+      if (e.code !== "ENOENT") throw e;
+    },
+  );
+};
+
 export const writeSettings = (
   next: Settings,
 ): Effect.Effect<SettingsView, BadRequestError> =>
@@ -152,6 +166,7 @@ export const writeSettings = (
     const stored = readFileSync();
     const merged = prune({ ...stored, ...keepStoredSecrets(next, stored, loaded) }) as Settings;
     yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
+    yield* fs(backupConfig);
     // 0600 because the file may now hold a token: `writeFile`'s mode only applies when it creates
     // the file, so an existing one is chmodded too rather than keeping whatever it had.
     yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 }));

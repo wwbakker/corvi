@@ -129,6 +129,15 @@ test("silencing notifications is a decision the file keeps; absent means sound",
   expect("notificationSound" in cleared).toBe(false);
 });
 
+test("each save keeps the file it replaces as config.json.bak", async () => {
+  await runEffect(writeSettings({ notificationSound: true }));
+  await runEffect(writeSettings({ notificationSound: false }));
+  // The replaced version, exactly as it was — one generation, owner-only.
+  const backup: { notificationSound?: boolean } = JSON.parse(await readFile(`${file}.bak`, "utf8"));
+  expect(backup.notificationSound).toBe(true);
+  expect((await stat(`${file}.bak`)).mode & 0o777).toBe(0o600);
+});
+
 test("the file keeps what it had, including fields the core no longer names", async () => {
   // A legacy-only config file: the flat jira fields left the schema when the extension took them
   // over, so a settings-page write must carry them through the preserve decode rather than drop
