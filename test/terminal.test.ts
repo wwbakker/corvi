@@ -973,6 +973,10 @@ test.skipIf(!usable)("the action menu lists the actions and pastes one without s
     join(tmp, "actions", "say-hello.md"),
     `---\nlabel: Say hello\nkind: prompt\ntarget: active\n---\necho menu-ran > ${ranFile}\n`,
   );
+  // The session and its window first (every test starts with none): the pane option below is
+  // set on this test's own window — or on no window at all, and the menu then sees a plain
+  // shell and offers nothing to paste.
+  await seedSession();
   // The window presents as an agent to the menu: `@agent_status` is exactly what pi's own
   // busy-title extension publishes (packages/agents/src/presenter.ts), and the menu's filter
   // keys on the icon it produces. "working" rather than "waiting" — a waiting window wants the
