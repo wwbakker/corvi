@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Effect, Layer } from "effect"
@@ -36,7 +36,11 @@ let tmp: string
 let repo: string
 
 beforeAll(async () => {
-  tmp = await mkdtemp(join(tmpdir(), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-git-`))
+  // macOS: `$TMPDIR` is a symlink (`/var/...` is `/private/var/...`) and git reports the physical
+  // path it resolves to — `git rev-parse --show-toplevel` and `git worktree list` both do. A
+  // fixture made under the logical spelling would then be compared against its own shadow, so
+  // make the two spellings the same: temp where git reports. The paths under test are git's own.
+  tmp = await mkdtemp(join(await realpath(tmpdir()), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-git-`))
   repo = join(tmp, "repo")
   execFileSync("git", ["init", "-b", "main", repo])
   await writeFile(join(repo, "README.md"), "hi\n")

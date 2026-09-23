@@ -22,15 +22,15 @@ import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
  * hardcoded `dist/electron`: that path is Linux's alone, so on macOS this test — the only one
  * that runs the server on the runtime the app uses — skipped itself instead of failing.
  */
-const electron = electronBinary(process.cwd());
-const usable = existsSync(electron);
+const electron: string | undefined = electronBinary();
+const usable: boolean = electron !== undefined && existsSync(electron);
 
 let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn> | undefined;
 
 beforeAll(async () => {
-  if (!usable) return;
+  if (!usable || electron === undefined) return;
   tmp = await testTempDir("node-runtime");
   const env = {
     ...process.env,

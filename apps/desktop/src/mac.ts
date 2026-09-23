@@ -9,8 +9,8 @@
  * package.json — the `IWERoot` of the Swift app's Info.plist, in the one place both platforms
  * already look — so moving the repository is a reinstall, not a rebuild.
  *
- * Each window owns a server on a fresh port. Quitting stops that server, and reinstalling
- * relaunches the app with the installed build. See docs/manual/install.md.
+ * Each window owns a server on a fresh port. Quitting stops that server, and reinstalling leaves
+ * the app running on the installed build. See docs/manual/install.md.
  */
 import { cp, mkdtemp, readFile, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -18,6 +18,7 @@ import { join } from "node:path";
 import { packager } from "@electron/packager";
 import { sh } from "./exec.ts";
 import { buildApp } from "./electron/build.ts";
+import { installedElectron } from "./electron/binary.ts";
 import { ID, PRODUCT } from "@corvi/configuration/node";
 
 const NAME = PRODUCT;
@@ -25,14 +26,17 @@ const NAME = PRODUCT;
 const BUNDLE_ID = "nl.wwbakker.corvi";
 const bundle = (): string => join(homedir(), "Applications", `${NAME}.app`);
 
-/** The Electron version this checkout depends on, read from the repository package.json. */
-async function electronVersion(root: string): Promise<string> {
-  const pkg = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {
-    devDependencies?: Record<string, string>;
-  };
-  const version = pkg.devDependencies?.electron;
-  if (!version) throw new Error("electron is not in devDependencies — run `bun install` first");
-  return version.replace(/^[\^~]/, "");
+/** The Electron version this checkout has installed (apps/desktop/src/electron/binary.ts): the
+ * bundle must wrap the same Electron the app runs from, so the version is the installed package's
+ * own — not a manifest's dependency range, which the root one stopped carrying when `electron`
+ * became a dependency of `@corvi/desktop`. */
+async function electronVersion(): Promise<string> {
+  const electron = installedElectron();
+  if (electron === undefined) throw new Error("electron is not installed — run `bun install` first");
+  const manifest = join(electron.dir, "package.json");
+  const pkg = JSON.parse(await readFile(manifest, "utf8")) as { version?: string };
+  if (!pkg.version) throw new Error(`${manifest} declares no version`);
+  return pkg.version;
 }
 
 /** Whatever this app needs the user to be told about the microphone: macOS refuses the request
@@ -101,7 +105,7 @@ async function install(root: string): Promise<void> {
       name: NAME,
       platform: "darwin",
       arch: process.arch === "arm64" ? "arm64" : "x64",
-      electronVersion: await electronVersion(root),
+      electronVersion: await electronVersion(),
       appBundleId: BUNDLE_ID,
       appVersion: "1.0.0",
       icon: drawn ?? undefined,
@@ -120,7 +124,8 @@ async function install(root: string): Promise<void> {
     }
 
     // `open` on a running app only focuses it, so a rebuild would leave you looking at the old
-    // one. Quit it first and put it back afterwards, in the state you had it.
+    // one. Quit it first and start it afterwards — always, so an install leaves the client running
+    // on the new build whether it happened to be open or not.
     const wasRunning = await running();
     if (wasRunning) await quit();
 
@@ -134,12 +139,12 @@ async function install(root: string): Promise<void> {
     console.log(`installed: ${bundle()}`);
     console.log(`  serves:  ${root} on a fresh port at each launch (bun run dev keeps 4000)`);
     if (!drawn) console.log("  no icon: install librsvg for one (brew install librsvg)");
-    if (wasRunning) {
-      await sh(["open", bundle()]);
-      console.log("  restarted: it was running, so it is running again — on the new build");
-    } else {
-      console.log("drag it to the Dock; it starts its own server on a fresh port");
-    }
+    await sh(["open", bundle()]);
+    console.log(
+      wasRunning
+        ? "  restarted: it was running, so it is running again — on the new build"
+        : "  started: the new build is up (drag it to the Dock to keep it there)",
+    );
   } finally {
     await rm(source, { recursive: true, force: true });
     await rm(out, { recursive: true, force: true });
