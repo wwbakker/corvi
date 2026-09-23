@@ -138,6 +138,13 @@ test.skipIf(!usable)(
       if (!brief) throw new Error("the briefing button is not on an idea's plan");
       expect(brief.y + brief.height).toBeLessThan(frame.y + 60);
       expect(brief.x + brief.width).toBeGreaterThan(frame.x + frame.width - 100);
+      // And it keeps clear of the editor's scrollbar, which takes the frame's edge.
+      expect(brief.x + brief.width).toBeLessThan(frame.x + frame.width - 15);
+      // The two tab rows are one block of chrome on this tab too: nothing between them.
+      const bar = await page.locator(".change-bar").boundingBox();
+      const tabs = await page.locator(".change-tabs").boundingBox();
+      if (!bar || !tabs) throw new Error("the change's tab rows did not lay out");
+      expect(Math.abs(bar.y + bar.height - tabs.y)).toBeLessThan(2);
 
       // Every character visible: what the editor shows is the file, markup and all.
       expect(await editorText(page.locator(".md-editor"))).toBe(source);

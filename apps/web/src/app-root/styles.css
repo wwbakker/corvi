@@ -482,9 +482,17 @@ body.resizing {
 }
 
 /* The change's pages put their own row directly under this one, so the two are flush: the sticky
-   offsets are then the row heights themselves, with no gap for content to scroll through. */
+   offsets are then the row heights themselves, with no gap for content to scroll through. The
+   flush frame has no page padding to bleed out of either: the row takes the window's width with
+   the padding back on itself, and still no gap below — the two tab rows are one block of chrome.
+   (The terminal page dresses its own row further down.) */
 .content:not(.flush) .page > header.change-bar {
   margin-bottom: 0;
+}
+
+.content.flush .page:not(.terminal-page) > header.change-bar {
+  margin: 0;
+  padding-inline: 24px;
 }
 
 /* In the app window the row is chrome as well as a page header: dragging it moves the window.
@@ -1252,11 +1260,12 @@ button.create:hover:not(:disabled) {
 /* What the plan's heading carried besides the title — the unsaved mark, the briefing button —
    over the editor's top-right corner rather than a row above it: the frame is all editor. The
    button is opaque and takes the clicks; the quiet marks are painted on and let them through to
-   the editor underneath. */
+   the editor underneath. The right margin keeps the cluster clear of the editor's scrollbar,
+   which takes the frame's edge when the plan outgrows the window. */
 .plan-toolbar {
   position: absolute;
   top: 6px;
-  right: 6px;
+  right: 18px;
   display: flex;
   align-items: center;
   gap: 8px;
