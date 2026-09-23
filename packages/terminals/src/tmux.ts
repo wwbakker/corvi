@@ -350,9 +350,12 @@ export const make = (host: Host): Sessions => {
   const tmuxInPane = (args: string): string =>
     `tmux ${host.socket.includes("/") ? "-S" : "-L"} ${shellQuote(host.socket)} ${args}`;
 
-  /** A command through the announcing wrapper: run the body, then say how it ended. The pane
-   * options are the package's own vocabulary (`@corvi/terminals/model`); `$TMUX_PANE` survives
-   * in the pane's environment exactly so a tool can address its own pane (capabilities/env.ts). */
+  /** A command through the announcing wrapper: run the body, then say how it ended. The body
+   * runs in a subshell, so an `exit` in it ends the run rather than the wrapper that records how
+   * it ended — `exit` is a perfectly ordinary last line in a command. The syntax is POSIX sh, as
+   * the rest of the wrapper's is. The pane options are the package's own vocabulary
+   * (`@corvi/terminals/model`); `$TMUX_PANE` survives in the pane's environment exactly so a
+   * tool can address its own pane (capabilities/env.ts). */
   const wrapped = (command: string, announce: NewWindowOptions["announce"]): string =>
     [
       tmuxInPane(`set-option -q -w -t "$TMUX_PANE" remain-on-exit on`),
@@ -362,7 +365,8 @@ export const make = (host: Host): Sessions => {
       ...(announce?.notify
         ? [tmuxInPane(`set-option -q -p -t "$TMUX_PANE" ${COMMAND_NOTIFY_OPTION} 1`)]
         : []),
-      command,
+      // The leading `:` keeps the subshell a valid command with an empty body.
+      `( :\n${command}\n)`,
       "__corvi_exit=$?",
       tmuxInPane(`set-option -q -p -t "$TMUX_PANE" ${COMMAND_EXIT_OPTION} "$__corvi_exit"`),
       'exit "$__corvi_exit"',
@@ -370,9 +374,10 @@ export const make = (host: Host): Sessions => {
 
   /** A new window running one command. `#{pane_current_path}` first, like `newWindow`, falling
    * back to the change directory — and `#{window_id}` out, because a paste follows immediately
-   * and needs the window it just made. Without `keepOpen` and `announce` the body is the
-   * window's own shell command and the window goes when it ends; with either, it runs through
-   * the wrapper above. */
+   * and needs the window it just made. `-P` is what makes `new-window` print at all (`-F` only
+   * says what); without it the id comes back empty and the window is made twice. Without
+   * `keepOpen` and `announce` the body is the window's own shell command and the window goes
+   * when it ends; with either, it runs through the wrapper above. */
   const newWindowRunning = (
     id: string,
     dir: string,
@@ -381,7 +386,7 @@ export const make = (host: Host): Sessions => {
   ): Effect.Effect<string, CommandFailure> =>
     Effect.gen(function* () {
       const body = options.keepOpen || options.announce ? wrapped(command, options.announce) : command;
-      const args = (at: string): string[] => ["new-window", "-F", "#{window_id}", "-t", sessionName(id), "-c", at, body];
+      const args = (at: string): string[] => ["new-window", "-P", "-F", "#{window_id}", "-t", sessionName(id), "-c", at, body];
       const here = yield* host.run(tmuxCmd(args("#{pane_current_path}")));
       const window = here.code === 0 ? here.stdout.trim() : "";
       if (window) return window;

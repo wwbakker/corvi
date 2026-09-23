@@ -993,6 +993,97 @@ test.skipIf(!usable)("the action menu lists the actions and pastes one without s
   await page.close();
 }, 60_000);
 
+test.skipIf(!usable)("a notified command window freezes over its output and calls when it ends", async () => {
+  // Two action files in the global scope: one that notifies (and so keeps its window), and one
+  // whose window is gone when it ends. The notified one runs long enough for the watcher to see
+  // it before it ends: a notice is an edge, and the edge is out of "was quiet" into "wants you".
+  // Its `exit 3` is deliberate and load-bearing: an exit in the body must end the run, not the
+  // wrapper that records how it ended.
+  const ranFile = join(tmp, "changes", id, "notify-ran.txt");
+  const plainFile = join(tmp, "changes", id, "plain-ran.txt");
+  await mkdir(join(tmp, "actions"), { recursive: true });
+  await writeFile(
+    join(tmp, "actions", "notify-later.md"),
+    `---\nlabel: Notify later\nkind: command\ntarget: new\nnotify: true\n---\necho FROZEN-OUTPUT\nsleep 3\necho done > ${ranFile}\nexit 3\n`,
+  );
+  await writeFile(
+    join(tmp, "actions", "plain-run.md"),
+    `---\nlabel: Plain run\nkind: command\ntarget: new\n---\necho done > ${plainFile}\n`,
+  );
+
+  // Stand in for the app's host, as the waiting-agent test above does: collect the notices
+  // instead of showing them.
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.addInitScript(() => {
+    const store: unknown[] = [];
+    (window as unknown as { __notices: unknown[] }).__notices = store;
+    (window as unknown as { corviHost: unknown }).corviHost = {
+      notify: (message: unknown) => store.push(message),
+      onOpenWindow: () => undefined,
+    };
+  });
+  await page.goto(`${url}/changes/${id}`);
+  await page.waitForSelector(".widget");
+
+  const shown = (text: string): Promise<void> =>
+    waitFor(`the column to show ${text}`, async () =>
+      (await page.locator(".sidebar .entry.window").allInnerTexts()).join(" | ").includes(text),
+    );
+
+  const run = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+    method: "POST",
+    body: JSON.stringify({ key: "global:notify-later" }),
+  });
+  expect(run.ok).toBe(true);
+  const started: { window?: { id: string } } = await run.json();
+  // A real tmux window id, not merely "present": the delivery addresses the window by it.
+  expect(started.window?.id).toMatch(/^@\d+$/);
+
+  // While it runs, the wrapper's label is the window's name in the column — and a tick seeing it
+  // is what records "was quiet" for the edge below.
+  await shown("Notify later");
+  await waitForFile(ranFile, "done\n");
+
+  // The exit code outlived the pane it belongs to (the pane is dead but kept), the presenter
+  // read it off the frozen pane, and the notice is the whole pipeline arriving.
+  const notices = (): Promise<unknown[]> =>
+    page.evaluate(() => (window as unknown as { __notices: unknown[] }).__notices);
+  expect(await until(async () => (await notices()).length === 1, true)).toBe(true);
+  expect((await notices())[0]).toMatchObject({
+    kind: "notify",
+    title: "Notify later",
+    subtitle: id,
+    body: "finished with exit code 3",
+    change: id,
+    window: started.window?.id,
+    sound: true,
+  });
+
+  // The window stays frozen over its output: dead pane, and the text kept in its history —
+  // the screen clears when the shell goes, what scrolled does not.
+  expect(
+    await until(
+      async () => (await tmux("capture-pane", "-p", "-S", "-", "-t", started.window!.id)).includes("FROZEN-OUTPUT"),
+      true,
+    ),
+  ).toBe(true);
+  expect(await tmux("display-message", "-p", "-t", started.window!.id, "#{pane_dead}")).toBe("1");
+
+  // A command window without notify closes when it ends and says nothing.
+  const before = (await tmux("list-windows", "-t", session)).split("\n").length;
+  const plain = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+    method: "POST",
+    body: JSON.stringify({ key: "global:plain-run" }),
+  });
+  expect(plain.ok).toBe(true);
+  await waitForFile(plainFile, "done\n");
+  expect(await until(async () => (await tmux("list-windows", "-t", session)).split("\n").length === before, true)).toBe(true);
+  expect((await notices()).length).toBe(1);
+
+  await tmux("kill-window", "-t", started.window!.id);
+  await page.close();
+}, 60_000);
+
 test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // It takes the private tmux server down with it, so nothing that needs tmux may follow.
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
