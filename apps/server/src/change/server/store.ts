@@ -11,19 +11,54 @@ import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
-import { runtimeConfig } from "../../workspace/server/index.ts";
-import { env } from "@corvi/configuration/node";
+import { runtimeConfig, workspaceById, settingsOf } from "../../workspace/server/index.ts";
 
-/** Root of the per-change directories. Override with CORVI_ROOT (tests do). */
-export const root = (): string => process.env[env("ROOT")] ?? runtimeConfig().changesRoot;
+/** One scope's changes root and archive root: where its change directories are, and where they
+ * travel to when done. The archive is a root of its own — it can live outside the changes root,
+ * and listing the changes root never has to filter it out. */
+export type ChangeRoots = { readonly root: string; readonly archiveRoot: string };
 
-/** Where completed changes are moved. A root of its own — the archive can live outside the
- * changes root, and listing the changes root never has to filter it out. Override with
- * CORVI_ARCHIVE_ROOT (tests do). */
-export const archiveRoot = (): string => process.env[env("ARCHIVE_ROOT")] ?? runtimeConfig().archiveRoot;
+/** Every scope's roots — the global level's and each workspace's, duplicates folded. Lookup and
+ * listing scan them all, so a change stays wherever it was made even when its workspace's roots
+ * move later; the first pair is the global level's, where older changes are. Override with
+ * CORVI_ROOT / CORVI_ARCHIVE_ROOT (tests do). */
+export const changePairs = (): readonly ChangeRoots[] => {
+  const pairs: ChangeRoots[] = [];
+  const add = (workspace: Parameters<typeof settingsOf>[0]): void => {
+    const settings = settingsOf(workspace);
+    const pair = { root: settings.changesRoot, archiveRoot: settings.archiveRoot };
+    if (!pairs.some((one) => one.root === pair.root && one.archiveRoot === pair.archiveRoot)) {
+      pairs.push(pair);
+    }
+  };
+  // The global level first: a workspace's override never hides older changes. Then each
+  // workspace's own pair.
+  add(undefined);
+  for (const workspace of runtimeConfig().workspaces) add(workspace);
+  return pairs;
+};
 
-export const changeDir = (id: string): string => join(root(), id);
-export const archiveDir = (id: string): string => join(archiveRoot(), id);
+/** Where a change without a workspace lives and is created: the first workspace's root, where
+ * every change without one belongs. */
+export const root = (): string => settingsOf(workspaceById()).changesRoot;
+
+/** The archive beside `root()`. */
+export const archiveRoot = (): string => settingsOf(workspaceById()).archiveRoot;
+
+/** Where one change's directory is — or, for a change not written yet, where it is created: its
+ * workspace's changes root, named after the change. A change that already exists and predates a
+ * root override stays where it is: the writers prefer `existingDir`, and only fall back to this
+ * when creating. */
+export const changeDir = (change: {
+  readonly id: string;
+  readonly workspace?: string;
+}): string => join(settingsOf(workspaceById(change.workspace)).changesRoot, change.id);
+
+/** Where one change travels to when it is done: its workspace's archive root. */
+export const archiveDir = (change: {
+  readonly id: string;
+  readonly workspace?: string;
+}): string => join(settingsOf(workspaceById(change.workspace)).archiveRoot, change.id);
 
 /** File-backed change records and associated documents. */
 
@@ -40,16 +75,26 @@ export const CORE_SIDECARS: ReadonlySet<string> = new Set([
   PLAN_FILE,
 ]);
 
-/** Active directory if it exists, otherwise the archived one. */
+/** Every directory this change may live in: each scope's active root first — the active copy
+ * wins — then each scope's archive. */
+const candidatesFor = (id: string): string[] => {
+  const pairs = changePairs();
+  return [
+    ...pairs.map(({ root }) => join(root, id)),
+    ...pairs.map(({ archiveRoot }) => join(archiveRoot, id)),
+  ];
+};
+
+/** The directory the change lives in — active first across the scopes, then archived — or null
+ * when no scope holds it. This is the one lookup: a change predating a root override stays
+ * wherever it was made. */
 const existingDir = (id: string): Effect.Effect<string | null> =>
   Effect.gen(function* () {
-    for (const dir of [changeDir(id), archiveDir(id)]) {
+    for (const dir of candidatesFor(id)) {
       if (yield* fileExists(join(dir, "change.json"))) return dir;
     }
     return null;
   });
-
-const changeFile = (id: string): string => join(changeDir(id), "change.json");
 
 /** The downgrade fence, for the writers that do not hold the record: a change written by a
  * newer Corvi is read but never written, documents and journal included. */
@@ -143,7 +188,7 @@ export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatToo
           `change ${change.id} was written by a newer version of Corvi ` +
           `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
       });
-    const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
+    const dir = (yield* existingDir(change.id)) ?? changeDir(change);
     yield* fs(() => mkdir(dir, { recursive: true }));
     // The record's revision moves on every write, whichever store writes it: the lifecycle's
     // optimistic check compares it, so an edit that lands between a transition's read and its
@@ -175,7 +220,7 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
 export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     yield* guardFormat(id);
-    const dir = (yield* existingDir(id)) ?? changeDir(id);
+    const dir = (yield* existingDir(id)) ?? changeDir({ id });
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => write(join(dir, name), text));
   });
@@ -184,7 +229,7 @@ export const writeSidecar = (id: string, name: string, text: string): Effect.Eff
  * the change's current directory so they travel into the archive with it. Not created here;
  * writing creates it on demand. */
 const extensionDir = (change: Change, name: string): Effect.Effect<string> =>
-  Effect.map(existingDir(change.id), (dir) => join(dir ?? changeDir(change.id), "extensions", name));
+  Effect.map(existingDir(change.id), (dir) => join(dir ?? changeDir(change), "extensions", name));
 
 /** Resolve a path against the extension's directory, rejecting anything that escapes it. The
  * confinement is what keeps `../change.json` and the core's own sidecars out of reach. */
@@ -270,14 +315,21 @@ export const setExtensionData = (
     return updated;
   });
 
-/** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
- * change.json and whatever an extension left beside it travels. */
+/** Move a completed change out of the way, into its workspace's archive root. Its worktrees are
+ * gone by then, so nothing but change.json and whatever an extension left beside it travels.
+ * A change already in an archive — or one no scope holds — is left alone. */
 export const archiveChange = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
-    if (!(yield* fileExists(changeFile(id)))) return; // already archived
+    const dir = yield* existingDir(id);
+    if (!dir) return;
+    const pairs = changePairs();
+    // The active copies win the lookup; reaching here under an archive root means it moved.
+    if (!pairs.some(({ root }) => dir === join(root, id))) return;
     yield* guardFormat(id);
-    yield* fs(() => mkdir(archiveRoot(), { recursive: true }));
-    yield* fs(() => rename(changeDir(id), archiveDir(id)));
+    const change = yield* readChange(id).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const target = change ? archiveDir(change) : join(archiveRoot(), id);
+    yield* fs(() => mkdir(dirname(target), { recursive: true }));
+    yield* fs(() => rename(dir, target));
   });
 
 const directoriesIn = (dir: string): Effect.Effect<string[]> =>
@@ -286,21 +338,23 @@ const directoriesIn = (dir: string): Effect.Effect<string[]> =>
     Effect.catchAll(() => Effect.succeed([])), // directory does not exist yet
   );
 
-/** Active changes first, then archived ones; both are listed, the archive is not a hiding place.
- * A change whose change.json cannot be read or decoded — one being written mid-list, or one
- * corrupted by hand — is skipped, so one bad file cannot take the whole listing down. The skip
- * is deliberate (a coordinator ruling on the review), and the single change's error still
- * surfaces everywhere that change is asked for by id. */
+/** Active changes first, then archived ones, across every scope's roots; both are listed, the
+ * archive is not a hiding place. A change whose change.json cannot be read or decoded — one
+ * being written mid-list, or one corrupted by hand — is skipped, so one bad file cannot take the
+ * whole listing down. The skip is deliberate (a coordinator ruling on the review), and the
+ * single change's error still surfaces everywhere that change is asked for by id. */
 export const listChanges = (): Effect.Effect<Change[]> =>
   Effect.gen(function* () {
-    const [active, archived] = yield* Effect.all([
-      directoriesIn(root()),
-      directoriesIn(archiveRoot()),
-    ]);
+    const listings = yield* Effect.all(
+      changePairs().flatMap(({ root, archiveRoot }) => [
+        directoriesIn(root),
+        directoriesIn(archiveRoot),
+      ]),
+    );
     // A completed change can leave its directory behind — a terminal writing in it, a build
     // dropping target/ into it — while change.json has already moved to the archive. Both names
     // then resolve to the same change, and it must still be listed once.
-    const entries = [...new Set([...active, ...archived])];
+    const entries = [...new Set(listings.flat())];
     const changes = yield* Effect.forEach(
       entries,
       (name) =>

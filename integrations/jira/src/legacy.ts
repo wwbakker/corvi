@@ -35,8 +35,10 @@ export type LegacyFlatSettings = {
   jiraDoneTransition?: string;
 };
 
-/** The legacy flat jira settings, as the config still holds them. The environment variable beats
- * the file, exactly as the resolved chain did before the fields left the core. */
+/** The legacy flat jira settings, as the config still holds them: the global scope's old
+ * spelling of the three settings, and where their defaults live. The chain resolves them as the
+ * fallback's tail (environment > workspace > global bag > these), so this states only the
+ * values — the precedence is `@corvi/configuration/settings`' alone. */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const legacyGlobalOf = (config: LegacyFlatSettings): {
   assignee: string;
@@ -44,15 +46,13 @@ export const legacyGlobalOf = (config: LegacyFlatSettings): {
   doneTransition: string;
 } => {
   return {
-    assignee: resolveSetting({ env: JIRA_ENV.assignee, file: config.jiraAssignee, fallback: "" }),
+    assignee: resolveSetting({ global: config.jiraAssignee, fallback: "" }),
     startTransition: resolveSetting({
-      env: JIRA_ENV.startTransition,
-      file: config.jiraStartTransition,
+      global: config.jiraStartTransition,
       fallback: "In Progress",
     }),
     doneTransition: resolveSetting({
-      env: JIRA_ENV.doneTransition,
-      file: config.jiraDoneTransition,
+      global: config.jiraDoneTransition,
       fallback: "Done",
     }),
   };

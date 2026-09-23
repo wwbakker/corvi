@@ -7,69 +7,46 @@ import { AZURE_ENV } from "./env.ts";
 /**
  * Which Azure DevOps this workspace means, read through the contract.
  *
- * The chain, stated once: the per-workspace settings bag (`extensionSettings.azure-devops`,
- * what the settings page writes) wins; then the global settings bag, whose declared `env`
- * (CORVI_AZURE_ORG / CORVI_AZURE_PROJECT) answers when the bag is empty; and finally whatever
- * `az devops configure` holds, reached through `azFor` when this answers empty.
+ * The chain, stated once: the declared environment variables (CORVI_AZURE_ORG /
+ * CORVI_AZURE_PROJECT) win at every scope; then the per-workspace settings bag
+ * (`settings.extensionSettings.azure-devops`, what the settings page writes); then the global
+ * bag; and finally whatever `az devops configure` holds, reached through `azFor` when this
+ * answers empty.
  */
 
 export type AzureSite = { organization: string; project: string };
 
-/** The per-workspace fields of the chain: the extension's own bag. */
-const workspaceSite = (workspace: {
-  extensionSettings?: Record<string, Record<string, string>>;
-}): { organization?: string; project?: string } => {
-  const own = workspace.extensionSettings?.["azure-devops"];
-  return {
-    organization: bagString(own, "organization"),
-    project: bagString(own, "project"),
-  };
-};
-
-/** The global fields of the chain: the extension's own bag, then its declared environment
- * variables. */
-const globalSite = (
-  settings: Config,
-): { organization: string; project: string } => {
-  const bag = settings.extensionSettings?.["azure-devops"];
-  return {
-    organization: resolveSetting({
-      bag: bagString(bag, "organization"),
-      env: AZURE_ENV.organization,
-      fallback: "",
-    }),
-    project: resolveSetting({
-      bag: bagString(bag, "project"),
-      env: AZURE_ENV.project,
-      fallback: "",
-    }),
-  };
+/** A workspace's own azure-devops bag, as much of it as these reads need. */
+type WorkspaceSource = {
+  settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> };
 };
 
 /**
- * Azure DevOps for this workspace: the per-workspace bag first, then the global bag with its
- * declared environment variables. Empty answers are what `azFor` falls back from to
+ * Azure DevOps for this workspace: the declared environment variables first, then the
+ * per-workspace bag, then the global one. Empty answers are what `azFor` falls back from to
  * `az devops configure`.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
-export function azureOf(
-  workspace: { extensionSettings?: Record<string, Record<string, string>> },
-  settings: Config,
-): AzureSite {
-  const own = workspaceSite(workspace);
-  const global = globalSite(settings);
+export function azureOf(workspace: WorkspaceSource, settings: Config): AzureSite {
+  const own = workspace.settings?.extensionSettings?.["azure-devops"];
+  const global = settings.extensionSettings?.["azure-devops"];
+  const at = (variable: string, key: string): string =>
+    resolveSetting({
+      env: variable,
+      workspace: bagString(own, key),
+      global: bagString(global, key),
+      fallback: "",
+    });
   return {
-    organization: own.organization ?? global.organization,
-    project: own.project ?? global.project,
+    organization: at(AZURE_ENV.organization, "organization"),
+    project: at(AZURE_ENV.project, "project"),
   };
 }
 
 /** The organisation and project every workspace falls back to: the global settings bag, then
  * its declared environment variables, then whatever `az devops configure` holds (azDefaults
  * below). */
-const globalAzure = (
-  settings: Config,
-): { organization: string; project: string } => globalSite(settings);
+const globalAzure = (settings: Config): AzureSite => azureOf({}, settings);
 
 /** Organisation and project default to whatever `az devops configure` already holds, so the
  * Azure CLI stays the single place this is configured. Shared per process through the cache,
@@ -107,8 +84,8 @@ const loadDefaults = (): Effect.Effect<
     const read = (key: string): string | undefined =>
       new RegExp(`^${key}\\s*=\\s*(\\S+)`, "m").exec(r.stdout)?.[1];
     const global = globalAzure(yield* Settings);
-    // The configuration chain's end: the azure-devops settings (bag, then the environment
-    // variable the declaration names), then what the CLI itself holds.
+    // The configuration chain's end: the azure-devops settings (environment variable, then the
+    // bag), then what the CLI itself holds.
     return {
       organization: global.organization || read("organization"),
       project: global.project || read("project"),
@@ -128,7 +105,7 @@ const loadDefaults = (): Effect.Effect<
 export type Az = { key: string; args: string[]; organization?: string; project?: string };
 
 export const azFor = (
-  workspace: { id: string; extensionSettings?: Record<string, Record<string, string>>; azure?: unknown },
+  workspace: { id: string; settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> }; azure?: unknown },
 ): Effect.Effect<Az, never, Shell | Workspace | Cache | Settings> =>
   Effect.gen(function* () {
     const settings = yield* Settings;

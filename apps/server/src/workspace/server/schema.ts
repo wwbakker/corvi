@@ -30,12 +30,40 @@ export const Workspace = WorkspaceSchema;
 // schema stops describing exactly the Workspace every module reads.
 const _workspaceMatchesType: Schema.Schema<WorkspaceShape> = Workspace;
 
+/**
+ * Fold a workspace written before `settings` existed into the one shape: its top-level
+ * `repositoriesDirectory`, `extensions`, `extensionSettings` and `env` become its `settings`,
+ * and a value `settings` already speaks is never overwritten. The old keys are decisions, not
+ * unknown keys, so they move rather than ride the preserve decode along. Idempotent, and pure
+ * but for its argument: the decode boundary and `workspacesFrom` both apply it, so a file
+ * hand-edited in either shape resolves and round-trips the same.
+ */
+export function foldWorkspaceSettings(workspace: unknown): void {
+  if (typeof workspace !== "object" || workspace === null) return;
+  const item = workspace as Record<string, unknown> & { settings?: Record<string, unknown> };
+  const moved: Record<string, unknown> = {};
+  for (const key of ["repositoriesDirectory", "extensions", "extensionSettings", "env"] as const) {
+    if (item[key] !== undefined) {
+      moved[key] = item[key];
+      delete item[key];
+    }
+  }
+  if (Object.keys(moved).length === 0) return;
+  item.settings = { ...moved, ...(item.settings ?? {}) };
+}
+
 /** `workspacesFrom` skips a workspace without a truthy id and name rather than rejecting the
  * file — one hand-mangled entry must not cost the rest of the configuration. That tolerance is
  * applied here, not by the schema: rejecting the whole file over one entry would turn a
- * half-mangled config into "nothing configured". */
+ * half-mangled config into "nothing configured". The kept entries come back in the one shape
+ * (`foldWorkspaceSettings`), old keys folded into `settings`. */
 export const workspacesFrom = (items: unknown): WorkspaceShape[] =>
-  Array.isArray(items) ? items.filter(hasIdAndName) : [];
+  Array.isArray(items)
+    ? items.filter(hasIdAndName).map((workspace) => {
+        foldWorkspaceSettings(workspace);
+        return workspace;
+      })
+    : [];
 
 const hasIdAndName = (w: unknown): w is WorkspaceShape =>
   typeof w === "object" &&

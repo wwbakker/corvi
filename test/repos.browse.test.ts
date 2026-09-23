@@ -101,7 +101,7 @@ test("repositoriesDirectoryOf: the workspace's own directory, else the global on
   const own: Workspace = {
     id: "client",
     name: "Client",
-    repositoriesDirectory: join(tmp, "client-repos"),
+    settings: { repositoriesDirectory: join(tmp, "client-repos") },
   };
   expect(repositoriesDirectoryOf(own)).toBe(join(tmp, "client-repos"));
   // A context that names none inherits the global setting, which is the point of the fallback.

@@ -94,10 +94,10 @@ const SITE = {
 
 /** The same site in a workspace's own bag, so a test that clears the config root's default still
  * has one, and `settings` overrides one field without restating the rest. */
-const jiraWorkspace = (id: string, settings: Record<string, string> = {}): Workspace => ({
+const jiraWorkspace = (id: string, fields: Record<string, string> = {}): Workspace => ({
   id,
   name: id,
-  extensionSettings: { jira: { ...SITE, ...settings } },
+  settings: { extensionSettings: { jira: { ...SITE, ...fields } } },
 });
 
 /** A workspace with nothing configured at all — the state every workspace is in until the
@@ -105,7 +105,7 @@ const jiraWorkspace = (id: string, settings: Record<string, string> = {}): Works
 const bareWorkspace = (id: string): Workspace => ({
   id,
   name: id,
-  extensionSettings: { jira: {} },
+  settings: { extensionSettings: { jira: {} } },
 });
 
 const change = (over: Partial<Change> = {}): Change => ({
@@ -402,7 +402,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
 
   // Its own bag wins where it speaks, and inherits where it is silent.
   expect(
-    siteOfWorkspace(runtimeConfig(), { extensionSettings: { jira: { project: "PROJ", token: "own-token" } } }),
+    siteOfWorkspace(runtimeConfig(), { settings: { extensionSettings: { jira: { project: "PROJ", token: "own-token" } } } }),
   ).toEqual({
     server: "https://default.example",
     email: "default@example.com",
@@ -414,7 +414,7 @@ test("siteOfWorkspace overrides the default site field by field", () => {
 
   // A workspace written before the bag answers from its `jira` object, the bag's fields first.
   const legacy = {
-    extensionSettings: { jira: { project: "BAG" } },
+    settings: { extensionSettings: { jira: { project: "BAG" } } },
     jira: { project: "LEGACY", board: "7", tokenEnv: "LEGACY_TOKEN", configFile: "/old.yml" },
   };
   expect(siteOfWorkspace(runtimeConfig(), legacy)).toEqual({
@@ -440,7 +440,7 @@ test("a workspace that names its own token variable does not inherit the default
 
   // It says where its credential comes from, so the default's stored token is not also its own —
   // otherwise one client's token would be sent to another with no way to say otherwise.
-  expect(siteOfWorkspace(runtimeConfig(), { extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } })).toEqual({
+  expect(siteOfWorkspace(runtimeConfig(), { settings: { extensionSettings: { jira: { tokenEnv: "CLIENT_TOKEN" } } } })).toEqual({
     server: SITE.server,
     email: SITE.email,
     project: undefined,
@@ -452,7 +452,7 @@ test("a workspace that names its own token variable does not inherit the default
 
 test("siteOf and siteFor resolve a change's and an id's Jira", () => {
   runtimeConfig().workspaces = [
-    { id: "client", name: "Client", extensionSettings: { jira: { project: "CLI" } } },
+    { id: "client", name: "Client", settings: { extensionSettings: { jira: { project: "CLI" } } } },
     { id: "other", name: "Other" },
   ];
   expect(siteOf(runtimeConfig(), { workspace: "client" }).project).toBe("CLI");
@@ -469,7 +469,7 @@ test("siteOf and siteFor resolve a change's and an id's Jira", () => {
   expect(siteFor(runtimeConfig(), "nope").project).toBe("CLI");
 });
 
-test("globalOf lets the settings bag win and treats an empty or non-string value as unset", () => {
+test("globalOf resolves the one chain: env, then the workspace's bag, then the global bag, then the flat fields", () => {
   const flat = {
     jiraAssignee: "flat@example.com",
     jiraStartTransition: "Start",
@@ -498,10 +498,15 @@ test("globalOf lets the settings bag win and treats an empty or non-string value
   const spaced = { ...flat, extensionSettings: { jira: { assignee: "  bag  " } } };
   expect(globalOf(spaced).assignee).toBe("  bag  ");
 
-  // The environment variable still beats the legacy flat field, exactly as the resolved chain
-  // did before the field left the core.
+  // The workspace's bag sits above the global one, and a workspace that says nothing inherits.
+  const own = { settings: { extensionSettings: { jira: { assignee: "own@example.com" } } } };
+  expect(globalOf(bagged, own).assignee).toBe("own@example.com");
+  expect(globalOf(bagged, { settings: {} }).assignee).toBe("bag@example.com");
+
+  // The environment variable beats every level below it — the page shows the field locked.
   setEnv("CORVI_JIRA_ASSIGNEE", "env@example.com");
   expect(globalOf(flat).assignee).toBe("env@example.com");
+  expect(globalOf(bagged, own).assignee).toBe("env@example.com");
 });
 
 test("issueFrom tolerates absent fields and trims the summary", () => {

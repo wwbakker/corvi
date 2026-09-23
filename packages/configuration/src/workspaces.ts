@@ -15,8 +15,21 @@ export const workspaceOf = (
   change: { readonly workspace?: string },
 ): WorkspaceDto => workspaceById(workspaces, change.workspace);
 
-/** Whether an integration exists in this workspace. Absent means all of them: a workspace that
- * names no integrations has every one. This is the one enablement rule, shared by every surface
- * that asks. */
-export const extensionEnabled = (workspace: WorkspaceDto, name: string): boolean =>
-  workspace.extensions ? workspace.extensions.includes(name) : true;
+/** The extensions this scope has: its own list, the global one when it names none, and every
+ * extension there is when neither does. Absent means all of them; an empty list means none. */
+export const extensionsFor = (
+  config: { readonly extensions?: readonly string[] },
+  workspace: { readonly settings?: { readonly extensions?: readonly string[] } },
+): readonly string[] | undefined => workspace.settings?.extensions ?? config.extensions;
+
+/** Whether an integration exists in this workspace. The one enablement rule, shared by every
+ * surface that asks: the workspace's list overrides the global one, and no list at all means
+ * every extension. */
+export const extensionEnabled = (
+  config: { readonly extensions?: readonly string[] },
+  workspace: { readonly settings?: { readonly extensions?: readonly string[] } },
+  name: string,
+): boolean => {
+  const enabled = extensionsFor(config, workspace);
+  return enabled ? enabled.includes(name) : true;
+};

@@ -55,7 +55,7 @@ test("the extension lists directories left by finished changes, and only those",
   // A change that was completed: change.json moved to the archive, the directory stayed.
   const done = await runEffect(createChange({ id: "PROJ-DONE", checkouts: checkoutsOf([repo]) }));
   await runEffect(archiveChange(done.id));
-  await Bun.write(join(changeDir(done.id), "target", "build.jar"), "artifact\n");
+  await Bun.write(join(changeDir(done), "target", "build.jar"), "artifact\n");
 
   const leftovers = await list();
   const names = leftovers.map((l) => l.name);
@@ -74,7 +74,7 @@ test("the extension lists directories left by finished changes, and only those",
   expect(after.status).toBe(200);
   const remaining = (await after.json()) as Leftover[];
   expect(remaining.map((l) => l.name)).not.toContain("PROJ-DONE");
-  expect(await Bun.file(join(changeDir("PROJ-DONE"), "target", "build.jar")).exists()).toBe(false);
+  expect(await Bun.file(join(changeDir({ id: "PROJ-DONE" }), "target", "build.jar")).exists()).toBe(false);
   expect((await list()).map((l) => l.name)).not.toContain("PROJ-DONE");
   // The archived change itself is untouched: only the leftover directory went.
   expect(await runEffect(readChange("PROJ-DONE"))).toMatchObject({ id: "PROJ-DONE" });
@@ -86,11 +86,11 @@ test("deleting a leftover with a worktree in it prunes the repository afterwards
   await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (r) => provisionRepo(change, r), { concurrency: 1 }));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
-  expect(worktree).toBe(await realpath(join(changeDir(change.id), basename(repo))));
+  expect(worktree).toBe(await realpath(join(changeDir(change), basename(repo))));
 
   // A change whose record is gone while its worktree is not: an interrupted creation, or a
   // change.json lost by hand. Completing removes worktrees first, so it cannot happen that way.
-  await rm(join(changeDir(change.id), "change.json"));
+  await rm(join(changeDir(change), "change.json"));
   const listed = (await list()).find((l) => l.name === change.id)!;
   // Shown as what it is, so the warning before deleting can say so.
   expect(listed.entries).toContainEqual({ name: basename(repo), directory: true, git: "worktree" });

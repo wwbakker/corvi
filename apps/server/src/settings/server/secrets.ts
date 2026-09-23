@@ -1,10 +1,12 @@
 /**
  * The secrets a config may hold, and the two rules that keep them out of the page.
  *
- * An extension declares a setting `secret` (apps/server/src/domain/settings.ts) and then owes the page
- * nothing: the settings view replaces every stored value with a mask before it is returned, and
- * the write path puts the stored value back wherever the mask comes back unchanged. A view that
- * never carried the token cannot leak it, and a save that does not retype it cannot delete it.
+ * An extension declares a setting `secret` (apps/server/src/integrations/types.ts) and then owes
+ * the page nothing: the settings view replaces every stored value with a mask before it is
+ * returned, and the write path puts the stored value back wherever the mask comes back
+ * unchanged. A view that never carried the token cannot leak it, and a save that does not retype
+ * it cannot delete it. One declaration covers both scopes: a secret is a secret at the global
+ * level and inside every workspace.
  *
  * Three things are deliberately not this file's business: which field is a secret (the
  * declarations say), where it is read (each integration reads its own bag), and what a mask means
@@ -12,47 +14,39 @@
  * directly.
  */
 
-import type { ExtensionSetting, WorkspaceSetting } from "@corvi/contracts/integration";
+import type { ExtensionSetting } from "@corvi/contracts/integration";
 
 /** What a stored secret is replaced by, in the view the page receives. The mask is opaque to the
  * browser — it round-trips whatever it was given — so nothing on the page has to know it. */
 export const MASK = "********";
 
-/** The declarations this file reads: the shape `ExtensionSetting` and `WorkspaceSetting` share,
- * so a test can state an extension without building one. */
+/** The declarations this file reads: an integration and the settings it declares, as much of
+ * each as the mask rules read. A test can state an extension without building one. */
 export type SecretDeclarations = readonly {
   name: string;
-  workspaceSettings?: readonly WorkspaceSetting[];
-  globalSettings?: readonly ExtensionSetting[];
+  settings?: readonly ExtensionSetting[];
 }[];
 
-/** Which bag holds a secret: the config root's, or a workspace's. */
-type Level = "global" | "workspace";
+/** One secret: the extension whose bag holds it and the key within. Both scopes hold one — a
+ * workspace's bag is masked wherever the declaration is secret. */
+type Secret = { extension: string; key: string };
 
-type Secret = { extension: string; key: string; level: Level };
-
-const secretsOf = (declarations: SecretDeclarations): Secret[] => [
-  ...declarations.flatMap((extension) =>
-    (extension.globalSettings ?? [])
+const secretsOf = (declarations: SecretDeclarations): Secret[] =>
+  declarations.flatMap((extension) =>
+    (extension.settings ?? [])
       .filter((field) => field.secret)
-      .map((field) => ({ extension: extension.name, key: field.key, level: "global" as Level })),
-  ),
-  ...declarations.flatMap((extension) =>
-    (extension.workspaceSettings ?? [])
-      .filter((field) => field.secret)
-      .map((field) => ({ extension: extension.name, key: field.key, level: "workspace" as Level })),
-  ),
-];
+      .map((field) => ({ extension: extension.name, key: field.key })),
+  );
 
-/** One extension's bag: what `extensionSettings[name]` holds. A workspace's bag holds strings
- * where the root's also holds lists, so both are this shape read as a wider one. */
+/** One extension's bag: what `extensionSettings[name]` holds. Both levels hold the same shape:
+ * a value is one string or a list of them. */
 type Bag = Record<string, Record<string, string | string[]>>;
 
 /** The part of a config a secret lives in. `Config` (what is in effect) and `ConfigFile` (what is
  * written) are different types with the same shape here, which is why this is generic over it. */
 type Bags = {
   extensionSettings?: Bag;
-  workspaces?: readonly { id: string; extensionSettings?: Record<string, Record<string, string>> }[];
+  workspaces?: readonly { id: string; settings?: { extensionSettings?: Bag } }[];
 };
 
 const read = (bag: Bag | undefined, secret: Secret): string | string[] | undefined =>
@@ -68,15 +62,19 @@ const write = (bag: Bag | undefined, secret: Secret, value: string | string[] | 
 };
 
 /** A copy deep enough that rewriting a secret cannot reach the original: the root, its bag, each
- * bag's extension objects, and the same for every workspace. Everything else is shared — it does
- * not change, and `effective` is the live config object a request in flight is reading. */
+ * bag's extension objects, and the same for every workspace's `settings`. Everything else is
+ * shared — it does not change, and `effective` is the live config object a request in flight is
+ * reading. */
 const copyBag = <B extends Bag>(bag: B): B =>
   Object.fromEntries(Object.entries(bag).map(([name, fields]) => [name, { ...fields }])) as B;
 
 function copyBags<T extends Bags>(value: T): T {
   const workspaces = value.workspaces?.map((workspace) =>
-    workspace.extensionSettings
-      ? { ...workspace, extensionSettings: copyBag(workspace.extensionSettings) }
+    workspace.settings?.extensionSettings
+      ? {
+          ...workspace,
+          settings: { ...workspace.settings, extensionSettings: copyBag(workspace.settings.extensionSettings) },
+        }
       : workspace,
   );
   return {
@@ -86,17 +84,19 @@ function copyBags<T extends Bags>(value: T): T {
   } as T;
 }
 
+/** Every bag a secret may hide in: the global one, and each workspace's. */
+const bagsOf = (value: Bags): (Bag | undefined)[] => [
+  value.extensionSettings,
+  ...(value.workspaces ?? []).map((workspace) => workspace.settings?.extensionSettings),
+];
+
 /** The config as the page may see it: every stored secret replaced by the mask. A field nothing
  * was stored in stays absent — a mask for a token that does not exist is a question the save then
  * has to guess the answer to. */
 export function redactSecrets<T extends Bags>(value: T, declarations: SecretDeclarations): T {
   const next = copyBags(value);
   for (const secret of secretsOf(declarations)) {
-    const bags =
-      secret.level === "global"
-        ? [next.extensionSettings]
-        : (next.workspaces ?? []).map((workspace) => workspace.extensionSettings);
-    for (const bag of bags) {
+    for (const bag of bagsOf(next)) {
       if (read(bag, secret) !== undefined) write(bag, secret, MASK);
     }
   }
@@ -113,13 +113,10 @@ export function keepStoredSecrets<T extends Bags>(
 ): T {
   const kept = copyBags(next);
   for (const secret of secretsOf(declarations)) {
-    if (secret.level === "global") {
-      keep(kept.extensionSettings, stored.extensionSettings, secret);
-      continue;
-    }
+    keep(kept.extensionSettings, stored.extensionSettings, secret);
     for (const workspace of kept.workspaces ?? []) {
       const before = (stored.workspaces ?? []).find((candidate) => candidate.id === workspace.id);
-      keep(workspace.extensionSettings, before?.extensionSettings, secret);
+      keep(workspace.settings?.extensionSettings, before?.settings?.extensionSettings, secret);
     }
   }
   return kept;
