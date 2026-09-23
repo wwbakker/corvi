@@ -21,10 +21,10 @@ new-window control creates another window, normally in the current window's work
 
 ## Change views
 
-A change's name, state, and actions remain accessible above its content. The **Plan** tab writes
-`PLAN.md` as Markdown source — the markup stays visible, in a monospace face, colored as an
-editor colors it. The dashboard places notes documents in the left column and status cards in
-the right; narrow windows stack the
+A change's name, state, and actions remain accessible above its content. The **Plan** tab is
+`PLAN.md` as Markdown source filling the tab — the markup stays visible, in a monospace face,
+colored as an editor colors it. The dashboard places notes documents in the left column and
+status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
 whole page. Returning to a view can show cached data while it refreshes.
 

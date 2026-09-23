@@ -7,20 +7,20 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
 /**
  * The plan of a change: the document the human and the agent shape before any work exists, and
  * that stays readable — and editable — once the work has started. It is the change's own file,
- * not a phase's, so it does not disappear when the state moves on. Its own tab now, where the
- * Markdown source can be given room.
+ * not a phase's, so it does not disappear when the state moves on. Its own tab, and the tab's
+ * frame: the source fills it, a document of the change rather than a card beside its status.
  *
  * The Markdown source editor over the save contract the notes share (useSavedText) — load,
  * debounce, flush on blur and on unmount, never overwrite what is being typed. It reads and
  * writes `PLAN.md` at the change root through the change's own route, so the file the agent
  * edits and the file here are one file.
  *
- * The briefing button beside the heading pastes the configured prompt into the change's terminal,
+ * The briefing button in the toolbar pastes the configured prompt into the change's terminal,
  * and is offered only while the change is an idea: the prompt is about shaping a plan before the
  * work starts. Corvi cannot enforce "only the plan changes" (pi has no sandbox, and a symlinked
  * repository cannot be made read-only), so it says so to the agent instead.
  */
-export function PlanCard({
+export function PlanPage({
   changeId,
   canBrief,
   readOnly = false,
@@ -52,9 +52,8 @@ export function PlanCard({
   };
 
   return (
-    <section className="widget">
-      <h3>
-        Plan
+    <section className="plan-page">
+      <div className="plan-toolbar">
         <span className="spacer" />
         {notice && <span className="summary">{notice}</span>}
         <span className="summary">{saved ? "" : "unsaved"}</span>
@@ -63,9 +62,9 @@ export function PlanCard({
             Brief the agent
           </button>
         )}
-      </h3>
+      </div>
       <MarkdownEditor
-        rows={24}
+        fill
         value={text}
         readOnly={readOnly}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."

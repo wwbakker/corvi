@@ -128,6 +128,10 @@ test.skipIf(!usable)(
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
 
+      // The plan is the tab's content, not a card on it: the editor takes the frame.
+      const box = await page.locator(".plan-page .md-editor").boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThan(400);
+
       // Every character visible: what the editor shows is the file, markup and all.
       expect(await editorText(page.locator(".md-editor"))).toBe(source);
       expect(await onDisk()).toBe(source);

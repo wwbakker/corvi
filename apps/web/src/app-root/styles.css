@@ -1214,12 +1214,50 @@ button.create:hover:not(:disabled) {
   margin-bottom: 12px;
 }
 
-/* The Markdown editor's block: the view paints its own well, border and monospace face
-   (apps/web/src/editor/client/theme.ts); this sizes its box. */
+/* The Markdown editor's box: the view paints its own well, border and monospace face
+   (apps/web/src/editor/client/theme.ts); this sizes its box — a rows-sized one whose corner
+   drags it taller (the textarea this replaced was resizable too), or one that takes what its
+   container has left. */
 .md-editor {
   display: block;
   width: 100%;
   min-width: 0;
+  resize: vertical;
+  overflow: hidden;
+}
+
+.md-editor.fill {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
+/* The plan is the tab's content rather than a card on it: it takes the frame the review tab
+   takes — the same chrome sits above both: the strip (the window's title bar in the app), the
+   change's window tabs and its own tabs, and the page's own padding. The editor takes what the
+   toolbar above it leaves. */
+.plan-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: calc(100vh - var(--titlebar-height) - 120px);
+}
+
+/* What the plan's heading carried besides the title — the unsaved mark, the briefing button —
+   at its height and its quiet type, right-aligned as before. High enough to stand when empty:
+   the mark's comings and goings must not move the editor underneath. */
+.plan-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+
+.plan-toolbar .summary {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  margin: 0;
 }
 
 /* A block's heading inside the navigation column: Ideas, then the active changes. Quieter than

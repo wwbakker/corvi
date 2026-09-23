@@ -107,6 +107,7 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
     ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
     [`/changes/${id}`, ".widget"],
+    [`/changes/${id}/plan`, ".plan-page"],
     [`/changes/${id}/review`, ".local"],
   ];
 
@@ -189,6 +190,25 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
     marker: parseFloat(getComputedStyle(h.querySelector(".summary")!).fontSize),
   }));
   expect(sizes.marker).toBeLessThan(sizes.title);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the notes editor is still yours to resize", async () => {
+  // The textarea it replaced had a resize grip, and a long note deserves more than one fixed
+  // window: the corner drags the box taller and the text scrolls inside it.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const editor = page.locator(".widget:has(.md-editor) .md-editor");
+  await editor.waitFor();
+  const before = await editor.boundingBox();
+  if (!before) throw new Error("the notes editor did not lay out");
+  await page.mouse.move(before.x + before.width - 1, before.y + before.height - 1);
+  await page.mouse.down();
+  await page.mouse.move(before.x + before.width - 1, before.y + before.height + 80, { steps: 5 });
+  await page.mouse.up();
+  const after = await editor.boundingBox();
+  if (!after) throw new Error("the notes editor went away");
+  expect(after.height).toBeGreaterThan(before.height + 40);
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the documents sit left of the status cards", async () => {

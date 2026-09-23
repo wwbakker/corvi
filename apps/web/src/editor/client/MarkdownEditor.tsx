@@ -30,6 +30,7 @@ export function MarkdownEditor({
   readOnly = false,
   placeholder,
   rows = 16,
+  fill = false,
   onBlur,
 }: {
   /** The document; applied whenever it differs from what the editor holds. */
@@ -39,8 +40,12 @@ export function MarkdownEditor({
   /** A finished change's plan is a record: readable, not editable. */
   readOnly?: boolean;
   placeholder?: string;
-  /** The height the editor opens at, in text lines; long documents scroll inside it. */
+  /** The height the editor opens at, in text lines; long documents scroll inside it. The box's
+   * corner drags it taller. */
   rows?: number;
+  /** Take the container's height instead of a rows-sized one: a tab that hands the editor its
+   * whole frame. */
+  fill?: boolean;
   /** The editor lost focus: a card flushes its pending save here. */
   onBlur?: () => void;
 }): JSX.Element {
@@ -107,9 +112,9 @@ export function MarkdownEditor({
 
   return (
     <div
-      className="md-editor"
+      className={fill ? "md-editor fill" : "md-editor"}
       ref={host}
-      style={{ height: `calc(${rows} * 1.5em + 18px)` }}
+      style={fill ? undefined : { height: `calc(${rows} * 1.5em + 18px)` }}
     />
   );
 }

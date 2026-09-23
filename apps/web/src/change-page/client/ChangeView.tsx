@@ -31,7 +31,7 @@ import { CheckoutsCard } from "./CheckoutsCard.tsx";
 import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
-import { PlanCard } from "./PlanCard.tsx";
+import { PlanPage } from "./PlanPage.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../integrations/client.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
@@ -573,7 +573,7 @@ export function ChangeView({
           a card beside its status — between the dashboard and the tabs extensions contribute. */}
       {active.kind === "plan" &&
         (change ? (
-          <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
+          <PlanPage changeId={id} canBrief={idea} readOnly={isFinished(change)} />
         ) : (
           <p className="hint">loading…</p>
         ))}
