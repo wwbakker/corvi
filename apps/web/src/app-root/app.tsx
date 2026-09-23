@@ -26,11 +26,13 @@ import { hostOf } from "./host.ts";
 import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
+import { ActionsPage } from "../actions/ActionsPage.tsx";
 
 /** Three views, switched by state: a router library would add a dependency to save nothing. */
 type View =
   | { name: "home" }
   | { name: "new" }
+  | { name: "actions" }
   | { name: "ext-page"; id: string; extension: string }
   | { name: "settings" }
   | { name: "change"; id: string; page: Page; provision?: ProvisionResult[] };
@@ -133,6 +135,7 @@ function Home({
  * home, and the resolution is redone when they arrive. */
 function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
   if (path === "/new") return { name: "new" };
+  if (path === "/actions") return { name: "actions" };
   if (path === "/settings") return { name: "settings" };
   const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
   if (!m) {
@@ -160,11 +163,13 @@ const pathOf = (view: View): string =>
     ? "/new"
     : view.name === "ext-page"
       ? `/${view.id}`
-      : view.name === "settings"
-        ? "/settings"
-        : view.name === "change"
-          ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
-          : "/";
+      : view.name === "actions"
+        ? "/actions"
+        : view.name === "settings"
+          ? "/settings"
+          : view.name === "change"
+            ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
+            : "/";
 
 function App(): JSX.Element {
   const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
@@ -315,6 +320,8 @@ function App(): JSX.Element {
           if (page) setView({ name: "ext-page", id: page.id, extension: page.extension });
         }}
         extPage={view.name === "ext-page" ? view.id : undefined}
+        onActions={() => setView({ name: "actions" })}
+        actions={view.name === "actions"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
         onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
@@ -336,6 +343,7 @@ function App(): JSX.Element {
         {view.name === "ext-page" && (
           <PageHost info={view} workspace={workspace?.id} />
         )}
+        {view.name === "actions" && <ActionsPage />}
         {view.name === "settings" && (
           <SettingsPage
             onSaved={() => {

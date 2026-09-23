@@ -38,6 +38,24 @@ at `/settings` edits the same file. This page describes current configuration na
 Actions run from the terminal page's **Actions** menu (its files and the full set of fields are
 on the Actions page).
 
+## Actions
+
+Actions are files, one per action: YAML frontmatter for the delivery (`label`, `kind`,
+`target`, `start`, `submit`, `phases`, `notify`, `keepOpen`) and the body for the prompt text or
+command. The terminal page's **Actions** menu runs them; the **Actions** page (in the sidebar)
+lists them by scope and edits the ones Corvi may write:
+
+| Scope | Where | On the Actions page |
+| --- | --- | --- |
+| Built-in | shipped with Corvi | read-only — saving copies it to Global |
+| Global | `~/.config/corvi/actions/` | created, edited, deleted |
+| Workspace | `~/.config/corvi/workspaces/<id>/actions/` | created, edited, deleted |
+| Repository | `<checkout>/.corvi/actions/` | not managed — create with your IDE or by the agent |
+
+More specific wins on a collision (repository > workspace > global > built-in), and a `brief.md`
+anywhere replaces the built-in briefing whole. A file that does not parse is listed with its
+reasons rather than hidden: the page is where it gets fixed.
+
 ## Saving settings
 
 Saving applies settings without an application restart and clears affected cached answers. Empty

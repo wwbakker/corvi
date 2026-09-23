@@ -49,8 +49,11 @@ const isTarget = Schema.is(ActionTarget);
 const isPhase = Schema.is(ChangePhase);
 
 /** The frontmatter block and the body below it. A file without the `---` pair has no delivery
- * instructions to read, whatever its body says. */
-export const splitFrontmatter = (text: string): { fields: unknown; body: string } | undefined => {
+ * instructions to read, whatever its body says. The raw frontmatter text comes back too, so a
+ * caller can rewrite a body without reprinting what the user wrote above it. */
+export const splitFrontmatter = (
+  text: string,
+): { fields: unknown; frontmatter: string; body: string } | undefined => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/.exec(text);
   if (!match) return undefined;
   let fields: unknown;
@@ -59,7 +62,7 @@ export const splitFrontmatter = (text: string): { fields: unknown; body: string 
   } catch {
     return undefined;
   }
-  return { fields, body: (match[2] ?? "").trim() };
+  return { fields, frontmatter: match[1] ?? "", body: (match[2] ?? "").trim() };
 };
 
 /** Parse one action file. Unknown frontmatter keys are tolerated — a file may carry a

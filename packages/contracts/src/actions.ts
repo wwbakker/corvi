@@ -53,3 +53,47 @@ export const RunActionResultSchema = Schema.Struct({
   ),
 });
 export type RunActionResultDto = typeof RunActionResultSchema.Type;
+
+/** Where a file the page may edit lives. Built-in files are read-only — saving one copies it to
+ * Global — and repository files are the checkout's own, written with your IDE or by an agent,
+ * never by this page. */
+export const ActionFileScope = Schema.Literal("global", "workspace");
+export type ActionFileScope = typeof ActionFileScope.Type;
+
+/** One action file as the page lists it: the file as written, and what it parses to — or why it
+ * does not, shown so it can be fixed right there. */
+export const ActionFileSchema = Schema.Struct({
+  scope: ActionSource,
+  /** The workspace a workspace file belongs to. */
+  workspace: Schema.optional(Schema.String),
+  workspaceLabel: Schema.optional(Schema.String),
+  /** The filename without `.md`: the action's id. */
+  id: Schema.String,
+  path: Schema.String,
+  /** Frontmatter and body together, exactly as the file is on disk. */
+  text: Schema.String,
+  label: Schema.optional(Schema.String),
+  problems: Schema.optional(Schema.Array(Schema.String)),
+});
+export type ActionFileDto = typeof ActionFileSchema.Type;
+
+export const ActionFilesResponseSchema = Schema.Struct({
+  workspaces: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String })),
+  files: Schema.Array(ActionFileSchema),
+});
+export type ActionFilesResponseDto = typeof ActionFilesResponseSchema.Type;
+
+export const ActionFileWriteSchema = Schema.Struct({
+  scope: ActionFileScope,
+  workspace: Schema.optional(Schema.String),
+  id: Schema.String,
+  text: Schema.String,
+});
+export type ActionFileWriteDto = typeof ActionFileWriteSchema.Type;
+
+export const ActionFileRefSchema = Schema.Struct({
+  scope: ActionFileScope,
+  workspace: Schema.optional(Schema.String),
+  id: Schema.String,
+});
+export type ActionFileRefDto = typeof ActionFileRefSchema.Type;

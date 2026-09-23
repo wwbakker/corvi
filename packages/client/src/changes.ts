@@ -7,8 +7,12 @@
 import { Data, Schema } from "effect"
 
 import {
+  ActionFilesResponseSchema,
   ActionSummarySchema,
   RunActionResultSchema,
+  type ActionFileRefDto,
+  type ActionFileWriteDto,
+  type ActionFilesResponseDto,
   type ActionSummaryDto,
   type RunActionResultDto,
 } from "@corvi/contracts/actions"
@@ -158,6 +162,9 @@ export interface ChangesClient {
     key: string,
     window?: string,
   ) => Promise<RunActionResultDto>
+  readonly actionFiles: () => Promise<ActionFilesResponseDto>
+  readonly writeActionFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
+  readonly deleteActionFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
 }
 
@@ -399,6 +406,20 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
       decode(
         RunActionResultSchema,
         await send("POST", `${change(changeId)}/terminal/actions`, { body: { key, window } }),
+      ),
+    actionFiles: async () =>
+      decode(ActionFilesResponseSchema, await send("GET", "/api/actions/files")),
+    writeActionFile: async (file) =>
+      decode(ActionFilesResponseSchema, await send("PUT", "/api/actions/files", { body: file })),
+    deleteActionFile: async (ref) =>
+      decode(
+        ActionFilesResponseSchema,
+        await send(
+          "DELETE",
+          `/api/actions/files?scope=${ref.scope}${
+            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
+          }&id=${encodeURIComponent(ref.id)}`,
+        ),
       ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),

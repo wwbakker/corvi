@@ -5,7 +5,7 @@ import { DEFAULT_WORKSPACE, type ResolvedDto as Config } from "@corvi/contracts/
 // the server's file handling with it.
 import type { Settings, SettingsView } from "../model.ts";
 import type { ExtensionSetting } from "@corvi/contracts/integration";
-import { CheckField, DirectoryField, Field, ListEditor, TextArea, type KnownExtension } from "./SettingsFields.tsx";
+import { CheckField, DirectoryField, Field, ListEditor, type KnownExtension } from "./SettingsFields.tsx";
 import { WorkspaceCard } from "../../workspace/client/WorkspaceCard.tsx";
 
 /**
@@ -109,7 +109,6 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
       .filter((extension) => extension.globalSettings.length)
       .map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
     { id: "notifications", label: "Notifications" },
-    { id: "ideation", label: "Ideation" },
     { id: "workspaces", label: "Workspaces" },
     { id: "window", label: "Window" },
   ];
@@ -253,18 +252,6 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             // never an `undefined` that JSON drops.
             checked={draft.notificationSound ?? true}
             onChange={(sound) => set({ notificationSound: sound })}
-          />
-        </div>
-      )}
-
-      {active === "ideation" && (
-        <div className="form wide">
-          <TextArea
-            label="Briefing for an agent"
-            hint="Pasted into a change's terminal by the button on an idea. {id}, {title}, {plan} and {state} are filled from the change; clearing this returns to the built-in default."
-            value={draft.ideationPrompt}
-            placeholder={effective.ideationPrompt}
-            onChange={(ideationPrompt) => set({ ideationPrompt })}
           />
         </div>
       )}
