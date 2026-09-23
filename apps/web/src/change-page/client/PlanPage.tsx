@@ -17,8 +17,8 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
  *
  * The briefing button in the toolbar pastes the configured prompt into the change's terminal,
  * and is offered only while the change is an idea: the prompt is about shaping a plan before the
- * work starts. Corvi cannot enforce "only the plan changes" (pi has no sandbox, and a symlinked
- * repository cannot be made read-only), so it says so to the agent instead.
+ * work starts. Corvi cannot enforce "only the plan changes" (the agent has no sandbox, and a
+ * symlinked repository cannot be made read-only), so it says so to the agent instead.
  */
 export function PlanPage({
   changeId,
