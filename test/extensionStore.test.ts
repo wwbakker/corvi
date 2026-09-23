@@ -110,7 +110,7 @@ test("store files land under extensions/<name>/ and are still readable after the
 
   // On disk under the change's own directory, not the change root.
   expect(
-    await Bun.file(join(changeDir("PROJ-6"), "extensions", "mine", "notes", "one.md")).text(),
+    await Bun.file(join(changeDir({ id: "PROJ-6" }), "extensions", "mine", "notes", "one.md")).text(),
   ).toBe("hello");
 
   expect(

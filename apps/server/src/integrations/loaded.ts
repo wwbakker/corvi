@@ -9,7 +9,6 @@ import type {
   RequestMethod,
   RouteHandler,
   WizardStep,
-  WorkspaceSetting,
 } from "../integrations/types.ts";
 
 /**
@@ -40,10 +39,8 @@ export type LoadedIntegration = {
    * Widgets carry no address — the page keys them by integration plus id — so duplicates
    * coexist. */
   dashboardWidgets: DashboardWidget[];
-  /** Per-workspace settings the integration declares, for the settings page to render. */
-  workspaceSettings: WorkspaceSetting[];
-  /** Server-wide settings the integration declares, for the settings page to render. */
-  globalSettings: ExtensionSetting[];
+  /** The settings the integration declares, for the settings page to render at both scopes. */
+  settings: ExtensionSetting[];
 };
 
 /** One route pattern, compiled from its declaration: the declared path split on "/". A segment
@@ -65,8 +62,7 @@ export const compileRoutes = (ext: IncludedIntegration): CompiledRoute[] =>
 const normalize = (ext: IncludedIntegration): LoadedIntegration => ({
   name: ext.name,
   title: ext.title,
-  workspaceSettings: ext.workspaceSettings ?? [],
-  globalSettings: ext.globalSettings ?? [],
+  settings: ext.settings ?? [],
   cards: ext.cards ?? [],
   wizardSteps: ext.wizardSteps ?? [],
   routes: compileRoutes(ext),

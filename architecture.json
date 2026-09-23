@@ -88,6 +88,18 @@
         "@corvi/shell"
       ]
     },
+    "@corvi/pi": {
+      "dependsOn": [],
+      "external": [
+        "@earendil-works/pi-coding-agent"
+      ]
+    },
+    "@corvi/opencode": {
+      "dependsOn": [],
+      "external": [
+        "@opencode-ai/plugin"
+      ]
+    },
     "@corvi/server": {
       "dependsOn": [
         "@corvi/contracts",

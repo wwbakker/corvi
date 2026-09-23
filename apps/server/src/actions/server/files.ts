@@ -23,7 +23,7 @@ import type {
   ActionFilesResponseDto,
 } from "@corvi/contracts/actions";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { configPath, runtimeConfig } from "../../workspace/server/index.ts";
+import { configPath, runtimeConfig, settingsOf } from "../../workspace/server/index.ts";
 
 /** The id is the filename: one word-shaped name, no path tricks. */
 const FILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -90,11 +90,12 @@ export const actionFiles = (): Effect.Effect<ActionFilesResponseDto> =>
     for (const workspace of config.workspaces) {
       files.push(...(yield* readScope(workspaceDir(workspace.id), "workspace", workspace.id, workspace.name)));
     }
-    // The built-in brief shows the text that runs today: the legacy `ideationPrompt` overrides
-    // its body while no user `brief.md` shadows it. Saving what you see to Global therefore
-    // saves what you have been sending — frontmatter and all.
+    // The built-in brief shows the text that runs today: the legacy `ideationPrompt` — resolved
+    // in the global scope — overrides its body while no user `brief.md` shadows it. Saving what
+    // you see to Global therefore saves what you have been sending — frontmatter and all. (A
+    // workspace's own `ideationPrompt` overrides that scope's briefing in turn.)
     const shadowed = files.some((f) => f.id === "brief" && f.scope !== "builtin");
-    const override = config.ideationPrompt;
+    const override = settingsOf().ideationPrompt;
     const builtIn = files.find((f) => f.id === "brief" && f.scope === "builtin");
     const split = builtIn === undefined ? undefined : splitFrontmatter(builtIn.text);
     if (!shadowed && override !== "" && builtIn && split) {

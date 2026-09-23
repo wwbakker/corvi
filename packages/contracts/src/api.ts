@@ -397,7 +397,7 @@ export type CancelledResponseDto = typeof CancelledResponseSchema.Type
 
 // --- Settings and workspaces ---------------------------------------------------------------------
 
-/** One server-wide setting an integration declares, as the settings page renders it. */
+/** One setting an integration declares, as the settings page renders it — at both scopes. */
 export const ExtensionSettingSchema = Schema.Struct({
   key: Schema.String,
   label: Schema.String,
@@ -408,16 +408,6 @@ export const ExtensionSettingSchema = Schema.Struct({
   env: Schema.optional(Schema.String),
 })
 export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type
-
-/** One per-workspace string field an integration declares. */
-export const WorkspaceSettingSchema = Schema.Struct({
-  key: Schema.String,
-  label: Schema.String,
-  placeholder: Schema.optional(Schema.String),
-  hint: Schema.optional(Schema.String),
-  secret: Schema.optional(Schema.Boolean),
-})
-export type WorkspaceSettingDto = typeof WorkspaceSettingSchema.Type
 
 /** The settings page's read: the file as written, what is in effect, what is locked. */
 export const SettingsViewSchema = Schema.Struct({
@@ -437,8 +427,7 @@ export const SettingsViewSchema = Schema.Struct({
       Schema.Struct({
         name: Schema.String,
         title: Schema.String,
-        workspaceSettings: Schema.mutable(Schema.Array(WorkspaceSettingSchema)),
-        globalSettings: Schema.mutable(Schema.Array(ExtensionSettingSchema)),
+        settings: Schema.mutable(Schema.Array(ExtensionSettingSchema)),
       }),
     ),
   ),

@@ -53,7 +53,7 @@ export type WorktreeEntry = {
  * Worktrees created before Corvi owned the path (when wt's `worktree-path` config wrote it) are at
  * exactly this path, so nothing needs migrating. */
 export const worktreePath = (change: Change, repo: string): string =>
-  join(changeDir(change.id), basename(repo));
+  join(changeDir(change), basename(repo));
 
 // Pure and synchronous: nothing for an Effect to wrap.
 export const findWorktree = (entries: WorktreeEntry[], branch: string): WorktreeEntry | undefined =>
@@ -501,7 +501,7 @@ export const isInPlace = (change: Change, repo: string): boolean =>
 
 /** Where the change directory links to a repository used in place, so the change directory
  * still shows everything the change touches. */
-const linkPath = (change: Change, repo: string): string => join(changeDir(change.id), basename(repo));
+const linkPath = (change: Change, repo: string): string => join(changeDir(change), basename(repo));
 
 export const currentBranch = (repo: string): Effect.Effect<string> =>
   Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo), (r) => r.stdout);
@@ -527,7 +527,7 @@ export const browseRepo = (change: Change, repo: string): Effect.Effect<void> =>
     yield* fs(() => symlink(repo, path)).pipe(
       Effect.catchAllDefect((e) =>
         Effect.sync(() =>
-          console.error(`could not link ${repo} into ${changeDir(change.id)}:`, messageOf(e)),
+          console.error(`could not link ${repo} into ${changeDir(change)}:`, messageOf(e)),
         ),
       ),
     );

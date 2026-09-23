@@ -28,7 +28,7 @@ const terminalDir = (id: string): Promise<string | undefined> =>
   Effect.runPromise(
     Effect.gen(function* () {
       const change = yield* readChange(id);
-      return change && !change.completedAt ? changeDir(change.id) : undefined;
+      return change && !change.completedAt ? changeDir(change) : undefined;
     }),
   );
 
@@ -109,7 +109,7 @@ export const terminalsRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, WindowBody);
-          if (body.action === "new") yield* newWindow(c.id, changeDir(c.id));
+          if (body.action === "new") yield* newWindow(c.id, changeDir(c));
           else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);

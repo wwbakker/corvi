@@ -333,12 +333,13 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   );
 
   // An agent that says what it is doing is taken at its word: `node` never would. This is what
-  // pi's busy-title extension sets on its own pane.
+  // the pi reporter sets on its own pane.
+  await page.keyboard.type("tmux set -p @agent_name pi\n");
   await page.keyboard.type("tmux set -p @agent_status working\n");
   expect(
     await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo - (pi working)"),
   ).toBe("repo - (pi working)");
-  // The name pi gives the session replaces the composed label, in the column and in the tabs
+  // The name the session is given replaces the composed label, in the column and in the tabs
   // alike; the state is still there, in the icon's colour.
   await page.keyboard.type("tmux set -p @agent_session_name 'Build PROJ-1681'\n");
   expect(
@@ -354,6 +355,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   ).toBe("repo - (pi waiting)");
   // Unset when the agent leaves, and the window is a shell in a directory again.
   await page.keyboard.type("tmux set -p -u @agent_status\n");
+  await page.keyboard.type("tmux set -p -u @agent_name\n");
   expect(await until(async () => (await strip.allInnerTexts())[1]?.trim(), "repo")).toBe("repo");
 
   // A new window starts where the current one is, not back at the change: the second window
@@ -543,7 +545,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(await bar.evaluate((el) => getComputedStyle(el).borderBottomWidth)).toBe("0px");
 
   // The state icon keeps the column's colours — green while its agent is working — even on the
-  // tab you are looking at, where only the label goes white. This is the working pi window.
+  // tab you are looking at, where only the label goes white. This is the working agent window.
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
   await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
   const green = currentTab.locator(".state-ok");
@@ -676,6 +678,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
 
   // Working first, and waiting for the column to show it: that tick's attention diff records
   // the non-waiting state before the flip.
+  await agentOption("@agent_name", "pi");
   await agentOption("@agent_status", "working");
   await shown("pi working");
 
@@ -743,7 +746,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   await shown("Witness");
   expect((await notices()).length).toBe(1);
 
-  for (const option of ["@agent_status", "@agent_session_name", "@agent_last_message"]) {
+  for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
     await agentOption(option);
   }
   await page.close();

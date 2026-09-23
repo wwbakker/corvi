@@ -11,6 +11,8 @@ export { applyPatch } from "../model.ts";
 export {
   root,
   archiveRoot,
+  changePairs,
+  type ChangeRoots,
   CORE_SIDECARS,
   changeDir,
   archiveDir,

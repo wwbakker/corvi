@@ -11,6 +11,8 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # The suite takes a couple of minutes; five is the budget before a hang is a failure.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2

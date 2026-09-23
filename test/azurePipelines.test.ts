@@ -204,10 +204,12 @@ test("azFor names the workspace's own Azure DevOps when it has one", async () =>
   const workspace = {
     id: "client",
     name: "Client",
-    extensionSettings: {
-      "azure-devops": {
-        organization: "https://dev.azure.com/client",
-        project: "ClientProj",
+    settings: {
+      extensionSettings: {
+        "azure-devops": {
+          organization: "https://dev.azure.com/client",
+          project: "ClientProj",
+        },
       },
     },
   };

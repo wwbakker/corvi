@@ -1,32 +1,70 @@
 /** The config boundary: the file as it is written, and the resolved shape the program reads.
  *
- * Moved here from the workspace server so the settings page and the browser client share the
- * one statement of the shape. Decode keeps unknown keys (`onExcessProperty: "preserve"` at the
- * decode sites): a hand-edited key Corvi does not know about belongs to a version that does.
+ * One settings shape runs through it: `SettingsOverrides` is the whole set of settings, at the
+ * global level and again inside a workspace where every key overrides the global one. Decode
+ * keeps unknown keys (`onExcessProperty: "preserve"` at the decode sites): a hand-edited key
+ * Corvi does not know about belongs to a version that does.
  */
 import { Schema } from "effect"
 
-/** A context you work in: a client, or your own projects. Mirrors `@corvi/configuration/config`'s
- * `Workspace`. */
+/** One extension's settings bag: `extensionSettings[name][key]`, where a value is one string or a
+ * list of strings. Shared by both levels; the core carries it without looking inside. */
+const ExtensionBag = Schema.mutable(
+  Schema.Record({
+    key: Schema.String,
+    value: Schema.mutable(
+      Schema.Record({
+        key: Schema.String,
+        value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
+      }),
+    ),
+  }),
+)
+
+/** A map of environment variables added to every CLI run: `env[name] = value`. */
+const EnvMap = Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))
+
+/** The settings, complete: every setting Corvi knows, at any level. Each key is optional — an
+ * absent value means "not set", and the next level down answers (inside a workspace: the global
+ * setting; at the global level: the default). This one shape is the config file's top level and
+ * a workspace's `settings`, so "any setting, at both levels" is stated by the type. */
+const settingsFields = {
+  changesRoot: Schema.optional(Schema.String),
+  /** Where completed changes are moved; absent means `~/corvi/changes-archive`. */
+  archiveRoot: Schema.optional(Schema.String),
+  /** Directory the repository browser opens on; absent means `$HOME`. */
+  repositoriesDirectory: Schema.optional(Schema.String),
+  /** Whether a notification plays the system sound. Absent means yes. */
+  notificationSound: Schema.optional(Schema.Boolean),
+  /** Whether right-clicking shows the browser's own menu. Absent means yes. */
+  contextMenu: Schema.optional(Schema.Boolean),
+  /** The prompt that briefs an agent about an idea, `{id}`/`{title}`/`{plan}`/`{state}` filled
+   * in. Free text, so nothing is validated; an empty value means the default. */
+  ideationPrompt: Schema.optional(Schema.String),
+  worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Which extensions exist here, by name. Absent means all of them; an empty list means none.
+   * Names are validated against what is included by the settings write, not here: the file may
+   * be edited by hand before the integration it names exists. */
+  extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  /** Settings the extensions declared, under their own name: `extensionSettings[name][key]`,
+   * one string or a list of strings per key. Not validated here — the fields are the
+   * integration's own business. */
+  extensionSettings: Schema.optional(ExtensionBag),
+  /** The environment added to every CLI run here. Entries resolve per key: a workspace entry
+   * beats the global one for its key and leaves the others inherited. */
+  env: Schema.optional(EnvMap),
+}
+
+export const SettingsOverrides = Schema.Struct(settingsFields)
+export type SettingsOverridesDto = typeof SettingsOverrides.Type
+
+/** A context you work in: a client, or your own projects — an identity (`id`, `name`) and a
+ * scope over the settings. Mirrors `@corvi/configuration/config`'s `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
-  repositoriesDirectory: Schema.optional(Schema.String),
-  /** Which extensions exist here. Absent means all of them; an empty list means none. Names are
-   * validated against what is included by the settings write, not here: the file may be edited
-   * by hand before the integration it names exists. */
-  extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  /** Per-workspace settings declared by the extensions: `extensionSettings[name][key]`. The core
-   * carries it without looking inside; what belongs there is the extension's own declaration. */
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
-      }),
-    ),
-  ),
-  env: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))),
+  /** This workspace's settings: the same shape as the global level, overriding it key by key. */
+  settings: Schema.optional(SettingsOverrides),
 })
 export type WorkspaceDto = typeof Workspace.Type
 
@@ -42,52 +80,27 @@ export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
 /** A directory copied into a worktree is a name next to the code, not a path. */
 export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/))
 
-/** An environment variable name, for a workspace's `env` map. */
+/** An environment variable name, for an `env` map. */
 export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
 
-/** The config file's own shape, as it is written. Everything is optional — an absent value means
- * "the default", which is what an empty file means. This is also the settings page's write shape
- * (`apps/server/src/settings/model.ts`' `Settings`). `workspaces` passes through untouched and unvalidated,
- * garbage entries included: load() applies the per-item tolerance rather than losing the whole
- * file to one hand-mangled workspace. */
+/** The config file's own shape, as it is written: the settings at the top level (where they are
+ * the defaults every workspace inherits) and the workspaces beside them. Everything is optional
+ * — an absent value means "the default", which is what an empty file means. This is also the
+ * settings page's write shape (`apps/server/src/settings/model.ts`' `Settings`). `workspaces`
+ * passes through untouched and unvalidated, garbage entries included: load() applies the
+ * per-item tolerance rather than losing the whole file to one hand-mangled workspace. */
 export const ConfigFile = Schema.Struct({
-  changesRoot: Schema.optional(Schema.String),
-  /** Where completed changes are moved; absent means `~/corvi/changes-archive`. */
-  archiveRoot: Schema.optional(Schema.String),
-  /** Directory the repository browser opens on; absent means `$HOME`. */
-  repositoriesDirectory: Schema.optional(Schema.String),
-  /** Whether a notification plays the system sound. Absent means yes. */
-  notificationSound: Schema.optional(Schema.Boolean),
-  /** Whether right-clicking shows the browser's own menu. Absent means yes. */
-  contextMenu: Schema.optional(Schema.Boolean),
-  /** The prompt that briefs an agent about an idea, `{id}`/`{title}`/`{plan}`/`{state}` filled
-   * in. Free text, so nothing is validated; an empty value means the default. */
-  ideationPrompt: Schema.optional(Schema.String),
+  ...settingsFields,
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
-  worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  /** Settings the integrations declared, under their own name: `extensionSettings[name][key]`,
-   * one string or a list of strings per key. Not validated here — the fields are the
-   * integration's own business; the core carries the bag without looking inside. */
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(
-          Schema.Record({
-            key: Schema.String,
-            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
-          }),
-        ),
-      }),
-    ),
-  ),
 })
 export type ConfigFileDto = typeof ConfigFile.Type
 
 /** The resolved shape: file, environment and defaults combined. Not a decoder of anything on
  * disk (the resolved config is computed, never read); it states the boundary a CLI/IPC surface
- * would emit, and pins the Workspace member to the contract. Unknown legacy keys ride the
- * preserve decode rather than this shape. */
+ * would emit, and pins the Workspace member to the contract. The global fields carry the global
+ * scope's answer (environment → file → default); each workspace's `settings` holds its overrides
+ * as written, and `@corvi/configuration/settings`' `settingsFor` resolves one scope from the two.
+ * Unknown legacy keys ride the preserve decode rather than this shape. */
 export const Resolved = Schema.Struct({
   changesRoot: Schema.String,
   archiveRoot: Schema.String,
@@ -95,20 +108,10 @@ export const Resolved = Schema.Struct({
   notificationSound: Schema.Boolean,
   contextMenu: Schema.Boolean,
   ideationPrompt: Schema.String,
-  workspaces: Schema.mutable(Schema.Array(Workspace)),
   worktreeCopy: Schema.mutable(Schema.Array(Schema.String)),
-  extensionSettings: Schema.optional(
-    Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.mutable(
-          Schema.Record({
-            key: Schema.String,
-            value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
-          }),
-        ),
-      }),
-    ),
-  ),
+  extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  extensionSettings: Schema.optional(ExtensionBag),
+  env: EnvMap,
+  workspaces: Schema.mutable(Schema.Array(Workspace)),
 })
 export type ResolvedDto = typeof Resolved.Type

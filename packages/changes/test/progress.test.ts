@@ -19,7 +19,7 @@ afterAll(async () => {
 })
 
 const run = <A, E>(program: Effect.Effect<A, E, OperationProgress>): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(progressLayer({ root }))))
+  Effect.runPromise(program.pipe(Effect.either, Effect.provide(progressLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))))
 
 test("the operation journal appends steps and survives a reload", async () => {
   const result = await run(

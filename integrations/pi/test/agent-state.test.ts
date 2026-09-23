@@ -1,10 +1,9 @@
 import { test, expect } from "bun:test";
-import { firstSentence, textOf } from "../pi/agent-state.ts";
+import { firstSentence, textOf } from "../src/agent-state.ts";
 
 /**
- * The pi extension's half of the notification text: what the session's name is followed by.
- * Tested here because it is the one piece of the extension that is pure — the rest is tmux
- * options and pi events.
+ * The pi reporter's pure half: what the notification says after the session's name, and which
+ * text it reads from pi's messages. The rest is tmux options and pi events.
  */
 test("the notification sentence is the first one, on a single line", () => {
   expect(firstSentence("I fixed the layout. Then I pushed.")).toBe("I fixed the layout.");

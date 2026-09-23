@@ -327,8 +327,13 @@ export const make = (host: Host): Sessions => {
       );
     });
 
-  /** A bracketed paste into one window's active pane. The buffer is per window, so two pastes
-   * into two windows close together cannot take each other's text between load and paste. */
+  /** A bracketed paste into one window's active pane — so a multi-line prompt lands in the
+   * editor whole rather than being executed line by line — without submitting it: Corvi cannot
+   * tell a running agent from a shell (an agent's status is the reporters' private vocabulary),
+   * and submitting a paragraph to a shell would run it. The user reads it and sends it, which is
+   * the one keystroke worth keeping. The buffer is per window, so two pastes into two windows
+   * close together cannot take each other's text between load and paste. `@3` is tmux's own
+   * window id, stable across the reordering the tabs do. */
   const pastePromptTo = (window: string, text: string): Effect.Effect<void, CommandFailure> =>
     Effect.gen(function* () {
       const buffer = `${host.name}-prompt-${window.replace(/[^A-Za-z0-9]/g, "")}`;

@@ -206,10 +206,10 @@ test("every CLI a workspace runs gets that workspace's environment", async () =>
     id: "client",
     name: "Acme",
     // How two clients stop fighting over one login: another GitHub account, another tenant.
-    env: { GH_CONFIG_DIR: "~/.config/gh-client", CORVI_TEST_MARK: "client" },
+    settings: { env: { GH_CONFIG_DIR: "~/.config/gh-client", CORVI_TEST_MARK: "client" } },
   };
 
-  // Outside a request there is no workspace, so nothing is added.
+  // Outside a request there is no workspace, so only the global entries — none here — apply.
   expect(envOf(undefined)).toEqual({});
   expect((await runSh(["sh", "-c", "echo ${CORVI_TEST_MARK:-none}"])).stdout).toBe("none");
 

@@ -48,9 +48,9 @@ afterEach(() => {
 
 test("extensionEnabled is the one enablement rule: an absent list means all of them", () => {
   expect(extensionEnabled(ws(), "anything")).toBe(true);
-  expect(extensionEnabled(ws({ extensions: [] }), "anything")).toBe(false);
-  expect(extensionEnabled(ws({ extensions: ["github"] }), "github")).toBe(true);
-  expect(extensionEnabled(ws({ extensions: ["github"] }), "jira")).toBe(false);
+  expect(extensionEnabled(ws({ settings: { extensions: [] } }), "anything")).toBe(false);
+  expect(extensionEnabled(ws({ settings: { extensions: ["github"] } }), "github")).toBe(true);
+  expect(extensionEnabled(ws({ settings: { extensions: ["github"] } }), "jira")).toBe(false);
 });
 
 test("azureOf walks the chain one level at a time", () => {
@@ -66,16 +66,16 @@ test("azureOf walks the chain one level at a time", () => {
     // The global settings bag is the first level that answers when the workspace says nothing.
     expect(azureOf(ws(), runtimeConfig())).toEqual({ organization: "global-org", project: "global-proj" });
 
-    // The per-workspace settings bag — what the settings page writes — sits above it.
+    // The workspace's own bag — what the settings page writes — sits above it.
     expect(
       azureOf(
-        ws({ extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } } }),
+        ws({ settings: { extensionSettings: { "azure-devops": { organization: "own-org", project: "own-proj" } } } }),
         runtimeConfig(),
       ),
     ).toEqual({ organization: "own-org", project: "own-proj" });
     // Half a per-workspace address still leaves the other half to the level below.
     expect(
-      azureOf(ws({ extensionSettings: { "azure-devops": { project: "own-proj" } } }), runtimeConfig()),
+      azureOf(ws({ settings: { extensionSettings: { "azure-devops": { project: "own-proj" } } } }), runtimeConfig()),
     ).toEqual({ organization: "global-org", project: "own-proj" });
 
     // With no bag at all, the empty answer is what `azFor` falls back from to `az devops configure`.
@@ -89,18 +89,48 @@ test("azureOf walks the chain one level at a time", () => {
   }
 });
 
-test("deploySettingsOf reads the bag, then the declared environment variable, then the default", () => {
+test("a declared environment variable beats the bags at every scope", () => {
+  const previousOrg = process.env.CORVI_AZURE_ORG;
+  process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
+  try {
+    runtimeConfig().extensionSettings = {
+      "azure-devops": { organization: "global-org" },
+    };
+    // The machine talks at every scope: the settings page shows the field locked, and the
+    // chain reads the variable before either bag.
+    expect(
+      azureOf(
+        ws({ settings: { extensionSettings: { "azure-devops": { organization: "own-org" } } } }),
+        runtimeConfig(),
+      ).organization,
+    ).toBe("https://dev.azure.com/from-env");
+    expect(azureOf(ws(), runtimeConfig()).organization).toBe("https://dev.azure.com/from-env");
+  } finally {
+    if (previousOrg === undefined) delete process.env.CORVI_AZURE_ORG;
+    else process.env.CORVI_AZURE_ORG = previousOrg;
+  }
+});
+
+test("deploySettingsOf reads the declared environment variable, then the bags, then the default", () => {
   const previous = process.env.CORVI_AZURE_ENVIRONMENTS;
   delete process.env.CORVI_AZURE_ENVIRONMENTS;
   try {
     expect(deploySettingsOf({ environments: ["dev", "accept"] })).toMatchObject({
       environments: ["dev", "accept"],
     });
+    // The declared variable wins at every scope, including over a bag that speaks.
     process.env.CORVI_AZURE_ENVIRONMENTS = "accept , production";
+    expect(deploySettingsOf({ environments: ["own"] }, { environments: ["global"] })).toMatchObject({
+      environments: ["accept", "production"],
+    });
     expect(deploySettingsOf(undefined)).toMatchObject({
       environments: ["accept", "production"],
     });
     delete process.env.CORVI_AZURE_ENVIRONMENTS;
+    // The workspace's bag over the global one, field by field.
+    expect(deploySettingsOf(undefined, { environments: ["global"] })).toMatchObject({
+      environments: ["global"],
+    });
     // A bag list that is not two names is not set: the default answers whole.
     expect(deploySettingsOf({ pipeline: ["only-one"] })).toMatchObject({
       pipeline: ["build-", "deploy-"],
@@ -166,15 +196,17 @@ test("a config file with only the legacy fields still works", async () => {
       project: "PerWorkspace",
     });
 
-    // The environment variable answers when the bag is empty, and the bag beats it once the
-    // page has written a value.
+    // The environment variable answers when the bag is empty, and beats it once the page has
+    // written a value too: the machine talks at every scope (the page shows the field locked).
     runtimeConfig().extensionSettings = {};
     process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
     expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe(
       "https://dev.azure.com/from-env",
     );
     runtimeConfig().extensionSettings = { "azure-devops": { organization: "global-org" } };
-    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe("global-org");
+    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe(
+      "https://dev.azure.com/from-env",
+    );
   } finally {
     if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
     else process.env.CORVI_CONFIG = originalConfig;

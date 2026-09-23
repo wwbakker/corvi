@@ -16,7 +16,7 @@ import { BadRequestError } from "@corvi/contracts/errors";
 import type { Change } from "../../domain/change.ts";
 import { changeDir, PLAN_FILE } from "../../change/server/index.ts";
 import { checkoutFor } from "../../vendors/git.ts";
-import { configPath, runtimeConfig, workspaceOf } from "../../workspace/server/index.ts";
+import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";
 import { ensureSession, listWindows, sessions } from "../../terminals/server/index.ts";
 
 /** Where one change's action files live: the global and workspace scopes beside the config file
@@ -50,9 +50,9 @@ const factsFor = (change: Change): ActionFacts => ({
   id: change.id,
   title: change.title,
   branch: change.branch,
-  plan: join(changeDir(change.id), PLAN_FILE),
+  plan: join(changeDir(change), PLAN_FILE),
   state: change.state,
-  dir: changeDir(change.id),
+  dir: changeDir(change),
   repos: (change.checkouts ?? []).map((spec) => basename(spec.path)),
 });
 
@@ -110,13 +110,15 @@ export const runActionFor = (
       found.id === "brief"
         ? resolveBriefTemplate({
             actions: discovery.actions,
-            ideationPrompt: runtimeConfig().ideationPrompt,
+            // The settings chain, in this change's scope: the workspace's `ideationPrompt` over
+            // the global one (apps/server/src/workspace/server/workspaces.ts).
+            ideationPrompt: settingsOf(workspaceOf(change)).ideationPrompt,
             shippedBody: builtinActionBody("brief"),
           })
         : found.action.body;
     const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
 
-    const dir = changeDir(change.id);
+    const dir = changeDir(change);
     yield* ensureSession(change.id, dir);
     const windows = yield* listWindows(change.id);
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({

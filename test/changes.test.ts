@@ -61,7 +61,7 @@ test("create change, provision a worktree, report status, remove it", async () =
   // The same checkouts the git extension's change:created hook creates.
   await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
   const found = await runEffect(checkoutFor(change, repo));
-  expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
+  expect(await realpath(found!)).toBe(await realpath(join(changeDir(change), basename(repo))));
   expect(await Bun.file(join(found!, "README.md")).text()).toBe("hi\n");
 
   const after = await Effect.runPromise(repoItem(change, repo));
@@ -107,8 +107,8 @@ test("completed changes move to the archive and stay listable", async () => {
   expect(await runEffect(listChanges())).toContainEqual({ ...change, revision: 1 });
 
   await runEffect(archiveChange(change.id));
-  expect(await Bun.file(join(changeDir(change.id), "change.json")).exists()).toBe(false);
-  expect(await Bun.file(join(archiveDir(change.id), "change.json")).exists()).toBe(true);
+  expect(await Bun.file(join(changeDir(change), "change.json")).exists()).toBe(false);
+  expect(await Bun.file(join(archiveDir(change), "change.json")).exists()).toBe(true);
 
   // Reading, writing and listing all still find it where it now lives.
   expect(await runEffect(readChange(change.id))).toEqual({ ...change, revision: 1 });
@@ -244,7 +244,7 @@ test("a repository used in place is linked and switched, dirty ones are left alo
 
   // Both are linked from the change directory, so it still shows everything the change touches.
   for (const repo of [clean, dirty]) {
-    expect(await realpath(join(changeDir(change.id), basename(repo)))).toBe(await realpath(repo));
+    expect(await realpath(join(changeDir(change), basename(repo)))).toBe(await realpath(repo));
   }
   // The clean one moved to the branch; the dirty one kept its own, uncommitted work intact.
   expect(await runEffect(currentBranch(clean))).toBe("PROJ-DIRECT-work");
@@ -254,7 +254,7 @@ test("a repository used in place is linked and switched, dirty ones are left alo
   // Dropping it removes the link only: the checkout and its branch stay.
   const result = await runEffect(setRepos(change, checkoutsOf([dirty], [dirty]), true));
   expect(result._tag).toBe("Done");
-  expect(await Bun.file(join(changeDir(change.id), "clean")).exists()).toBe(false);
+  expect(await Bun.file(join(changeDir(change), "clean")).exists()).toBe(false);
   expect(await runEffect(currentBranch(clean))).toBe("PROJ-DIRECT-work");
 });
 
@@ -295,7 +295,7 @@ test("a completed change is listed once, even when its directory is left behind"
   await runEffect(archiveChange(change.id));
   // A terminal, or a build, writing into the change's original path recreates it after the
   // archive moved.
-  await Bun.write(join(changeDir(change.id), "terminal.json"), "{}\n");
+  await Bun.write(join(changeDir(change), "terminal.json"), "{}\n");
 
   const listed = (await runEffect(listChanges())).filter((c) => c.id === "PROJ-TWICE");
   expect(listed.length).toBe(1);
@@ -343,7 +343,7 @@ test("the overview counts windows that are running something, not windows", asyn
     busy({}), // no session, or tmux told us nothing
   ]).toEqual([false, false, true, true, false]);
 
-  // An agent says what it is doing, and is believed: pi at its prompt is `node`, which would
+  // An agent says what it is doing, and is believed: an agent at its prompt is `node`, which would
   // otherwise count as work for as long as the window stayed open.
   expect([
     busy({ command: "node", options: { "@agent_status": "working" } }),
@@ -356,7 +356,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
   const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
-  const presented = (option: string): PresentedWindow =>
+  const presented = (options: Record<string, string>): PresentedWindow =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -366,14 +366,21 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       activity: false,
       directory: "example-api",
       named: false,
-      options: { "@agent_status": option },
+      options,
     });
-  // What pi's busy-title extension sets with `tmux set -p @agent_status ...`.
-  expect(presented("working")).toMatchObject({ label: "example-api - (pi working)", icon: "agent", state: "ok" });
-  expect(presented("waiting")).toMatchObject({ label: "example-api - (pi waiting)", icon: "agent", state: "idle" });
+  // What an agent's reporter sets with `tmux set -p @agent_status ...`.
+  expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });
+  expect(presented({ "@agent_status": "waiting" })).toMatchObject({ label: "example-api - (agent waiting)", icon: "agent", state: "idle" });
+  // The reporter also says who it is, and the name goes in the label.
+  expect(presented({ "@agent_status": "working", "@agent_name": "pi" })).toMatchObject({
+    label: "example-api - (pi working)",
+  });
+  expect(presented({ "@agent_status": "waiting", "@agent_name": "opencode" })).toMatchObject({
+    label: "example-api - (opencode waiting)",
+  });
   // Unset, or set to something else by something else: no claim is made about the window.
-  expect(presented("")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
-  expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented({ "@agent_status": "" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
+  expect(presented({ "@agent_status": "busy" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
@@ -461,14 +468,18 @@ test("a workspace decides which extensions a change has, and whose Jira and Azur
         {
           id: "client",
           name: "Acme",
-          extensionSettings: {
-            "azure-devops": { organization: "https://dev.azure.com/one", project: "A" },
+          settings: {
+            extensionSettings: {
+              "azure-devops": { organization: "https://dev.azure.com/one", project: "A" },
+            },
           },
         },
         {
           id: "personal",
           name: "Personal",
-          extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "azure-devops"),
+          settings: {
+            extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "azure-devops"),
+          },
         },
       ],
     },
@@ -509,7 +520,7 @@ test("a write persists the checkout specs as they stand", async () => {
     createdAt: "2026-01-01T00:00:00.000Z",
   };
   await Effect.runPromise(writeChange(change));
-  const record = (await Bun.file(join(changeDir(change.id), "change.json")).json()) as {
+  const record = (await Bun.file(join(changeDir(change), "change.json")).json()) as {
     formatVersion?: number;
     checkouts?: { path: string; location: string; branch: { kind: string } }[];
   };
@@ -535,12 +546,14 @@ test("a change is named by its ticket, until you name it yourself", async () => 
     {
       id: "jira-titles",
       name: "Jira titles",
-      extensionSettings: {
-        jira: {
-          server: "https://example.atlassian.net",
-          email: "someone@example.com",
-          project: "PROJ",
-          board: "169",
+      settings: {
+        extensionSettings: {
+          jira: {
+            server: "https://example.atlassian.net",
+            email: "someone@example.com",
+            project: "PROJ",
+            board: "169",
+          },
         },
       },
     },
@@ -599,7 +612,7 @@ test("a change is named by its ticket, until you name it yourself", async () => 
 test("a legacy write moves the record's revision", async () => {
   const change = await runEffect(createChange({ id: "revision-legacy", checkouts: checkoutsOf([repo]) }));
   const readRecord = async (): Promise<{ revision?: number }> =>
-    (await Bun.file(join(changeDir("revision-legacy"), "change.json")).json()) as {
+    (await Bun.file(join(changeDir({ id: "revision-legacy" }), "change.json")).json()) as {
       revision?: number;
     };
   expect((await readRecord()).revision).toBe(1);

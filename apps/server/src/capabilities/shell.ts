@@ -18,6 +18,7 @@ import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "@corvi/con
 import { Shell, type Result } from "@corvi/shell";
 import { makeNodeShell, type TraceEntry } from "@corvi/shell/node";
 import { childEnv } from "./env.ts";
+import { settingsOf } from "../workspace/server/workspaces.ts";
 import { env } from "@corvi/configuration/node";
 
 export type { Result };
@@ -43,14 +44,15 @@ const nodeShell = makeNodeShell({
 const expand = (value: string): string =>
   value.startsWith("~") ? homedir() + value.slice(1) : value;
 
-/** What to add to a subprocess's environment: the workspace's own variables, `~` expanded,
- * since these are paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` —
- * and a shell would have done it. Empty outside a request. The workspace comes from the
- * `Workspace` tag (read at run time by `sh` and by the Shell capability's live layer), with
- * the default workspace when the call has none. */
+/** What to add to a subprocess's environment: the scope's `env` setting — the global entries
+ * and the workspace's own, the workspace's winning per key — `~` expanded, since these are
+ * paths in practice — `GH_CONFIG_DIR`, `AZURE_CONFIG_DIR`, `GIT_CONFIG_GLOBAL` — and a shell
+ * would have done it. Outside a request only the global entries apply. The workspace comes
+ * from the `Workspace` tag (read at run time by `sh` and by the Shell capability's live
+ * layer), with the default workspace when the call has none. */
 export const envOf = (workspace: WorkspaceConfig | undefined): Record<string, string> => {
-  const own = workspace?.env ?? {};
-  return Object.fromEntries(Object.entries(own).map(([key, value]) => [key, expand(value)]));
+  const entries = settingsOf(workspace).env;
+  return Object.fromEntries(Object.entries(entries).map(([key, value]) => [key, expand(value)]));
 };
 
 /** One CLI call with the environment given explicitly, instead of read from the request

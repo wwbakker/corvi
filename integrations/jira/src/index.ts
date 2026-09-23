@@ -14,9 +14,11 @@ import {
   issueFrom,
   moveIssue,
   ticketOf,
+  type GlobalSettings,
   type IssueJson,
   type Site,
 } from "./jira.ts";
+import type { ResolvedDto } from "@corvi/contracts/config";
 import { accountId } from "./account.ts";
 import { JIRA_ENV } from "./legacy.ts";
 import { Cache, Settings, Workspace, swr } from "@corvi/contracts/capabilities";
@@ -97,10 +99,10 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, 
     };
   });
 
-/** The site, as the settings page renders it: the fields the page edits, worded once so both
- * levels say the same thing. The token is the one secret, and it is the same field at both
- * levels — the server masks it in what it sends and keeps what it holds when the mask comes back
- * (apps/server/src/settings/server/secrets.ts). */
+/** The site, as the settings page renders it: the fields the page edits, worded once — the same
+ * declaration renders at both scopes, the global level and every workspace's overrides. The
+ * token is the one secret — the server masks it in what it sends and keeps what it holds when
+ * the mask comes back (apps/server/src/settings/server/secrets.ts). */
 const siteFields = {
   server: {
     key: "server",
@@ -149,7 +151,7 @@ export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequest
     if (!key) return;
     const workspace = yield* Workspace;
     const settings = yield* Settings;
-    const global = globalOf(settings);
+    const global = globalOf(settings, workspace);
     const site = siteOfWorkspace(settings, workspace);
     const account = yield* accountId(global.assignee, site);
     if (account) {
@@ -165,16 +167,19 @@ export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequest
     }
   });
 
-/** Completing closes the ticket: the plan is pure given the config, the run moves it. */
+/** Completing closes the ticket: the plan is pure given the config, the run moves it. The
+ * transition resolves for the change's own workspace, so the label names what will happen. */
 export const planIssueCompletion = (
   change: Change,
-  appConfig: Parameters<typeof globalOf>[0],
+  appConfig: GlobalSettings & { workspaces?: ResolvedDto["workspaces"] },
 ): CompletionStep | undefined => {
   const key = ticketOf(change);
+  const workspaces = appConfig.workspaces ?? [];
+  const workspace = workspaces.find((one) => one.id === change.workspace) ?? workspaces[0];
   return key
     ? {
         id: "jira",
-        label: `move ${key} to ${globalOf(appConfig).doneTransition}`,
+        label: `move ${key} to ${globalOf(appConfig, workspace).doneTransition}`,
         state: "waiting",
       }
     : undefined;
@@ -184,8 +189,9 @@ export const moveIssueOnComplete = (change: Change): Effect.Effect<void, BadRequ
   Effect.gen(function* () {
     const key = ticketOf(change);
     if (!key) return;
-    const site = siteOfWorkspace(yield* Settings, yield* Workspace);
-    const { doneTransition } = globalOf(yield* Settings);
+    const workspace = yield* Workspace;
+    const site = siteOfWorkspace(yield* Settings, workspace);
+    const { doneTransition } = globalOf(yield* Settings, workspace);
     yield* moveIssue(key, doneTransition, site);
   });
 
@@ -230,20 +236,10 @@ export default {
   name: "jira",
   title: "Jira",
 
-  // The per-workspace fields override the default site below, field by field: a second client
-  // states what differs, and an empty field inherits.
-  workspaceSettings: [
-    { ...siteFields.server, placeholder: "the default site" },
-    { ...siteFields.email, placeholder: "the default site" },
-    { ...siteFields.project, placeholder: "the default setting" },
-    { ...siteFields.board, placeholder: "from the project" },
-    siteFields.token,
-    siteFields.tokenEnv,
-  ],
-
-  // The default site, and the server-wide settings that are not about one Jira: these are the
-  // values every workspace starts from.
-  globalSettings: [
+  // The default site and the settings that are not about one Jira: every declared setting,
+  // at both scopes — a workspace overrides any of them, key by key, and an empty field
+  // inherits.
+  settings: [
     siteFields.server,
     siteFields.email,
     { ...siteFields.project, placeholder: "PROJ" },

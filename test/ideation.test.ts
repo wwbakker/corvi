@@ -122,7 +122,7 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
 
   // Creating an idea links the repository for reading — no branch switch, no worktree.
   await runEffect(provisionChangeRepositories(idea));
-  const link = join(changeDir(idea.id), basename(repo));
+  const link = join(changeDir(idea), basename(repo));
   expect((await lstat(link)).isSymbolicLink()).toBe(true);
   expect(await runEffect(checkoutFor(idea, repo))).toBeUndefined();
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout).toBe("main");
@@ -140,12 +140,12 @@ test("cancelling an idea drops its browse links", async () => {
     createChange({ id: "idea-cancel", state: "Ideation", checkouts: checkoutsOf([repo]) }),
   );
   await runEffect(provisionChangeRepositories(idea));
-  expect((await lstat(join(changeDir(idea.id), basename(repo)))).isSymbolicLink()).toBe(true);
+  expect((await lstat(join(changeDir(idea), basename(repo)))).isSymbolicLink()).toBe(true);
 
   const cancelled = await runCancel(idea);
   expect("change" in cancelled && cancelled.change.state).toBe("Cancelled");
   // The archived directory keeps no dangling symlink: the link went with the repository.
-  const archived = await lstat(join(archiveDir(idea.id), basename(repo))).then(
+  const archived = await lstat(join(archiveDir(idea), basename(repo))).then(
     () => true,
     () => false,
   );
@@ -161,7 +161,7 @@ test("adding a repository to an idea links it rather than cutting a branch", asy
   const change = (updated as { change: Change }).change;
 
   // A link for reading, no registered worktree, and the repository's own checkout untouched.
-  expect((await lstat(join(changeDir(change.id), basename(repo)))).isSymbolicLink()).toBe(true);
+  expect((await lstat(join(changeDir(change), basename(repo)))).isSymbolicLink()).toBe(true);
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout).toBe("main");
 });

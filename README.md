@@ -43,6 +43,21 @@ There is no account and no cloud: Corvi is your machine, your CLIs and your cred
 first run has the settings page at `/settings` for the paths and integrations, and
 [the manual](docs/manual/install.md) has the details.
 
+### Agent extensions for pi and opencode
+
+The terminals show what an agent is doing — working or waiting, its session name, its last
+answer — when pi or opencode runs a small bundled reporter inside it. Install them into the
+agents (one symlink per agent; they install nothing into Corvi) from the checkout:
+
+```bash
+bun run extension:install:pi         # into pi's extensions directory
+bun run extension:install:opencode   # into opencode's plugin directory
+```
+
+Each has a matching `bun run extension:uninstall:<agent>`. pi picks a changed reporter up with
+`/reload` or a new session; opencode takes a restart. [The terminals manual](docs/manual/terminals.md)
+documents the protocol the reporters speak.
+
 ## Documentation
 
 - [Installing and running](docs/manual/install.md) — requirements, the app, Linux, uninstalling.

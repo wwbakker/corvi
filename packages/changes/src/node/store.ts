@@ -6,7 +6,12 @@
  * atomically, so no record is ever half-migrated. A record written by a newer Corvi is read
  * best-effort and never written: a format this version does not understand must not be
  * flattened into one it does. A phase transition to a terminal phase moves the directory into
- * the archive root.
+ * the archive root of the pair it lives under.
+ *
+ * The store spans several roots — one pair per settings scope — so a change stays wherever it
+ * was made: reads and listing scan every pair, active before archived. Creation lands in the
+ * first pair's root (the application creates changes through its own store, which routes by
+ * the change's workspace).
  *
  * Writes replace the file atomically (temp file plus rename) and are serialized in-process.
  * Cross-process locking is not provided yet; that is why `ChangeConflict` exists but is not
@@ -51,6 +56,10 @@ const StoredRecord = Schema.Struct({
 })
 type StoredRecord = typeof StoredRecord.Type
 
+/** One settings scope's changes root and archive root. A change lives under one pair and
+ * travels to that pair's archive when it is done. */
+export type RootPair = { readonly root: string; readonly archiveRoot: string }
+
 const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"
 
@@ -76,7 +85,7 @@ interface Located {
   readonly dir: string
 }
 
-export const layer = (options: { readonly root: string; readonly archiveRoot: string }): Layer.Layer<ChangeStore> =>
+export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.Layer<ChangeStore> =>
   Layer.effect(
     ChangeStore,
     Effect.gen(function* () {
@@ -145,11 +154,15 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
             return yield* decodeRecord(JSON.stringify(migrated), path)
         })
 
-      /** Active first, then archived; the active copy wins. */
+      /** Every directory this change may live in: each pair's active root first — the active
+       * copy wins — then each pair's archive. */
       const locate = (changeId: ChangeId): Effect.Effect<Located | undefined, ChangeStoreError> =>
         Effect.gen(function* () {
-          for (const base of [options.root, options.archiveRoot]) {
-            const dir = join(base, changeId)
+          const candidates = [
+            ...options.roots.map(({ root }) => join(root, changeId)),
+            ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
+          ]
+          for (const dir of candidates) {
             const record = yield* readAt(dir)
             if (record) return { record, dir }
           }
@@ -208,22 +221,23 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
         return yield* lock.withPermits(1)(
           Effect.gen(function* () {
             const changes: Change[] = []
-        for (const base of [options.root, options.archiveRoot]) {
-          const entries = yield* Effect.tryPromise({
-            try: () => readdir(base, { withFileTypes: true }),
-            catch: (cause: unknown) => cause,
-          }).pipe(
-            Effect.catchAll((cause: unknown) =>
-              isNotFound(cause) ? Effect.succeed([]) : Effect.fail(storeError("read", `could not list ${base}`, cause)),
-            ),
-          )
-          for (const entry of entries) {
-            if (!entry.isDirectory()) continue
-            const dir = join(base, entry.name)
-            const record = yield* readAt(dir)
-            if (!record) continue
-            changes.push(changeOf(record, dir))
-          }
+            const bases = options.roots.flatMap(({ root, archiveRoot }) => [root, archiveRoot])
+            for (const base of bases) {
+              const entries = yield* Effect.tryPromise({
+                try: () => readdir(base, { withFileTypes: true }),
+                catch: (cause: unknown) => cause,
+              }).pipe(
+                Effect.catchAll((cause: unknown) =>
+                  isNotFound(cause) ? Effect.succeed([]) : Effect.fail(storeError("read", `could not list ${base}`, cause)),
+                ),
+              )
+              for (const entry of entries) {
+                if (!entry.isDirectory()) continue
+                const dir = join(base, entry.name)
+                const record = yield* readAt(dir)
+                if (!record) continue
+                changes.push(changeOf(record, dir))
+              }
             }
             return changes
           }),
@@ -234,7 +248,9 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
         change: Change,
         repositories: readonly Repository[],
       ) {
-        yield* lock.withPermits(1)(writeAt(join(options.root, change.changeId), recordFor(change, repositories)))
+        // The primary changes root: the application creates changes through its own store,
+        // which routes by the change's workspace.
+        yield* lock.withPermits(1)(writeAt(join(options.roots[0]!.root, change.changeId), recordFor(change, repositories)))
       })
 
       const patch = Effect.fn("ChangeStore.patch")(function* (
@@ -277,14 +293,20 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
               located.record,
             )
             yield* writeAt(located.dir, next)
-            if (
-              (patch.phase === "Completed" || patch.phase === "Cancelled") &&
-              located.dir.startsWith(options.root)
-            ) {
-              const archiveDir = join(options.archiveRoot, changeId)
+            // A terminal phase moves the change into the archive of the pair it lives under —
+            // its workspace's archive root. A change that predates a root override still
+            // travels to the archive beside where it was made, and one already archived is
+            // left where it is.
+            const pair = options.roots.find(
+              ({ root, archiveRoot }) =>
+                located.dir === join(root, changeId) || located.dir === join(archiveRoot, changeId),
+            )
+            const active = pair !== undefined && located.dir === join(pair.root, changeId)
+            if ((patch.phase === "Completed" || patch.phase === "Cancelled") && pair && active) {
+              const archiveDir = join(pair.archiveRoot, changeId)
               yield* Effect.tryPromise({
                 try: async () => {
-                  await mkdir(options.archiveRoot, { recursive: true })
+                  await mkdir(pair.archiveRoot, { recursive: true })
                   await rename(located.dir, archiveDir)
                 },
                 catch: (cause: unknown) => storeError("write", `could not archive ${changeId}`, cause),
@@ -295,7 +317,7 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
               title: next.title ?? changeId,
               workspaceLocation:
                 patch.phase === "Completed" || patch.phase === "Cancelled"
-                  ? join(options.archiveRoot, changeId)
+                  ? join(pair?.archiveRoot ?? options.roots[0]!.archiveRoot, changeId)
                   : located.dir,
               branch: next.branch ?? changeId,
               phase: patch.phase,
@@ -363,15 +385,15 @@ export const layer = (options: { readonly root: string; readonly archiveRoot: st
     }),
   )
 
-/** The eager sweep: migrate every record under the changes root and the archive once at
- * startup. Reading them through the store is the migration — a format-1 record is projected
+/** The eager sweep: migrate every record under every scope's changes roots and archives once
+ * at startup. Reading them through the store is the migration — a format-1 record is projected
  * and persisted on its next read — so this only has to touch each record. */
 export const migrateStoredRecords = (options: {
-  readonly root: string
-  readonly archiveRoot: string
+  readonly roots: readonly RootPair[]
 }): Effect.Effect<void, ChangeStoreError> =>
   Effect.gen(function* () {
-    for (const base of [options.root, options.archiveRoot]) {
+    const bases = options.roots.flatMap(({ root, archiveRoot }) => [root, archiveRoot])
+    for (const base of bases) {
       const entries = yield* Effect.tryPromise({
         try: () => readdir(base, { withFileTypes: true }),
         catch: (cause: unknown) => cause,

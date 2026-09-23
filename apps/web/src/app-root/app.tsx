@@ -203,6 +203,9 @@ function App(): JSX.Element {
   // should open it rather than say it does not exist.
   const change = (everything ?? []).find((c) => c.id === selected);
   const onTerminal = view.name === "change" && view.page === "terminals";
+  // The plan is the tab's content and takes its frame, so its page gives up the padding the
+  // way the terminal's does — the editor is the content area, exactly.
+  const onPlan = view.name === "change" && view.page === "plan";
   // The terminals belong to the changes, not to the page you are on: the column lists every
   // change's windows, whichever change you are looking at. Pushed by the server, so this costs
   // one connection and no polling.
@@ -331,7 +334,7 @@ function App(): JSX.Element {
           setView({ name: "change", id, page: "terminals" });
         }}
       />
-      <main className={onTerminal ? "content flush" : "content"}>
+      <main className={onTerminal || onPlan ? "content flush" : "content"}>
         {view.name === "home" && (
           <Home
             changes={changes}

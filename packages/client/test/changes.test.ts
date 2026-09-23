@@ -282,6 +282,7 @@ test("the settings view and the workspaces decode", async () => {
       ideationPrompt: "p",
       workspaces: [],
       worktreeCopy: [],
+      env: {},
     },
     overridden: {},
     overriddenExtensions: {},
@@ -290,8 +291,7 @@ test("the settings view and the workspaces decode", async () => {
       {
         name: "jira",
         title: "Jira",
-        workspaceSettings: [],
-        globalSettings: [{ key: "site", label: "Site" }],
+        settings: [{ key: "site", label: "Site" }],
       },
     ],
   }
