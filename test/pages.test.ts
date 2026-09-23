@@ -256,6 +256,23 @@ test.skipIf(!usable)("switching changes shows the new change's notes, not the on
   await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
   await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
   expect(await notesAre(opened)).toBe(opened);
+
+  // Leaving flushed: the card going away wrote what was typed into the change you left, without
+  // waiting for the debounce. The read is polled like the ones above — the flush is
+  // fire-and-forget — so this waits for what lands rather than for a tick.
+  const leftOnDisk = async (): Promise<string> => {
+    let text = "";
+    for (let i = 0; i < 25; i++) {
+      const read = (await fetch(`${url}/api/ext/notes/changes/${id}/notes`).then((r) => r.json())) as {
+        text: string | null;
+      };
+      text = read.text ?? "";
+      if (text === "typed into the change you leave") break;
+      await Bun.sleep(200);
+    }
+    return text;
+  };
+  expect(await leftOnDisk()).toBe("typed into the change you leave");
   await page.close();
 }, 30_000);
 
