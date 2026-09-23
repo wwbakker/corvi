@@ -128,9 +128,16 @@ test.skipIf(!usable)(
       await page.waitForSelector(".md-editor .cm-line");
       await loaded(page);
 
-      // The plan is the tab's content, not a card on it: the editor takes the frame.
-      const box = await page.locator(".plan-page .md-editor").boundingBox();
-      expect(box?.height ?? 0).toBeGreaterThan(400);
+      // The editor is the tab's content, exactly: it reaches the window's edges the terminal
+      // reaches — no padding around it — with the briefing button floating over its top-right.
+      const frame = await page.locator(".plan-page .md-editor").boundingBox();
+      if (!frame) throw new Error("the plan editor did not lay out");
+      expect(Math.abs(frame.x + frame.width - 1280)).toBeLessThan(5);
+      expect(Math.abs(frame.y + frame.height - 900)).toBeLessThan(5);
+      const brief = await page.getByRole("button", { name: "Brief the agent" }).boundingBox();
+      if (!brief) throw new Error("the briefing button is not on an idea's plan");
+      expect(brief.y + brief.height).toBeLessThan(frame.y + 60);
+      expect(brief.x + brief.width).toBeGreaterThan(frame.x + frame.width - 100);
 
       // Every character visible: what the editor shows is the file, markup and all.
       expect(await editorText(page.locator(".md-editor"))).toBe(source);

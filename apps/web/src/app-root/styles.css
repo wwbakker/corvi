@@ -1232,25 +1232,40 @@ button.create:hover:not(:disabled) {
   resize: none;
 }
 
-/* The plan is the tab's content rather than a card on it: it takes the frame the review tab
-   takes — the same chrome sits above both: the strip (the window's title bar in the app), the
-   change's window tabs and its own tabs, and the page's own padding. The editor takes what the
-   toolbar above it leaves. */
+/* The plan is the tab's content rather than a card on it, and the content is all editor: it
+   takes the flush frame the terminal takes (app.tsx gives the page its padding back), fills
+   what the tab row leaves, and touches the edges — no border, no rounding, as the terminal's
+   screen does on its page. */
 .plan-page {
+  position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  height: calc(100vh - var(--titlebar-height) - 120px);
+}
+
+.plan-page .cm-editor {
+  border: 0;
+  border-radius: 0;
 }
 
 /* What the plan's heading carried besides the title — the unsaved mark, the briefing button —
-   at its height and its quiet type, right-aligned as before. High enough to stand when empty:
-   the mark's comings and goings must not move the editor underneath. */
+   over the editor's top-right corner rather than a row above it: the frame is all editor. The
+   button is opaque and takes the clicks; the quiet marks are painted on and let them through to
+   the editor underneath. */
 .plan-toolbar {
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.plan-toolbar button {
+  pointer-events: auto;
 }
 
 .plan-toolbar .summary {
@@ -1273,7 +1288,9 @@ button.create:hover:not(:disabled) {
 /* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
    sticky, right under the window's row — the two together are the page's chrome, and the content
    scrolls under them rather than past them. The tabs inside keep their own dress, without the line
-   they carry in a page that has no row above them. */
+   they carry in a page that has no row above them. In the flush frame there is no page padding to
+   bleed out of and no gap below to give away: the row is the window's full width and what fills the
+   tab starts on its edge. */
 .change-tabs {
   position: sticky;
   top: var(--titlebar-height);
@@ -1287,6 +1304,10 @@ button.create:hover:not(:disabled) {
   padding-inline: 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+.content.flush .change-tabs {
+  margin: 0;
 }
 
 .change-tabs .tabs {
@@ -1333,6 +1354,15 @@ button.create:hover:not(:disabled) {
   min-height: 0;
   height: 100dvh;
   overflow: hidden;
+}
+
+/* In the flush frame — the terminal's and the plan's — the page is the chain that hands what is
+   left of the window to the view that fills it. */
+.content.flush > .page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .page.terminal-page {
