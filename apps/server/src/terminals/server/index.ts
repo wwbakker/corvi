@@ -21,7 +21,6 @@ export {
   selectWindow,
   moveWindow,
   ensureSession,
-  pastePrompt,
   pastePromptTo,
   submit,
   sessions,

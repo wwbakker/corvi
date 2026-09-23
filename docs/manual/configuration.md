@@ -31,8 +31,12 @@ at `/settings` edits the same file. This page describes current configuration na
   It is not a confinement boundary: the browser can navigate to `/`.
 - `worktreeCopy`: directory names to copy into new worktrees; see
   [what a new worktree inherits](changes.md#what-a-new-worktree-inherits).
-- `ideationPrompt`: text used by **Brief the agent**. `{id}`, `{title}`, `{plan}`, and `{state}`
-  are substituted. An empty value uses the built-in prompt.
+- `ideationPrompt`: the text behind the **Send PLAN.md instructions** action. `{id}`, `{title}`,
+  `{branch}`, `{plan}`, `{state}`, `{dir}`, and `{repos}` are substituted. An empty value uses the
+  shipped `brief` action's text; a `brief.md` action file replaces the whole briefing.
+
+Actions run from the terminal page's **Actions** menu (its files and the full set of fields are
+on the Actions page).
 
 ## Saving settings
 

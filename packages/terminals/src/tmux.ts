@@ -84,9 +84,11 @@ export type Sessions = {
   readonly selectWindow: (id: string, index: number) => Effect.Effect<void, CommandFailure>;
   readonly moveWindow: (id: string, from: number, to: number) => Effect.Effect<void, CommandFailure>;
   readonly ensureSession: (id: string, dir: string) => Effect.Effect<void, CommandFailure>;
-  readonly pastePrompt: (id: string, text: string) => Effect.Effect<void, CommandFailure>;
-  /** `pastePrompt` addressed to one window's active pane (`@3` is tmux's own window id, stable
-   * across the reordering the tabs do), not whichever window the session happens to show. */
+  /** A bracketed paste into one window's active pane — so a multi-line prompt lands in the
+   * editor whole rather than being executed line by line — without submitting it: Corvi cannot
+   * tell a running agent from a shell, and submitting a paragraph to a shell would run it. The
+   * user reads it and sends it, which is the one keystroke worth keeping. `@3` is tmux's own
+   * window id, stable across the reordering the tabs do. */
   readonly pastePromptTo: (window: string, text: string) => Effect.Effect<void, CommandFailure>;
   /** The one keystroke Corvi keeps for you: Enter, into that pane. */
   readonly submit: (window: string) => Effect.Effect<void, CommandFailure>;
@@ -325,27 +327,8 @@ export const make = (host: Host): Sessions => {
       );
     });
 
-  /** Paste a prompt into the change's terminal, at its active pane, without submitting it: a
-   * bracketed paste so a multi-line prompt lands in the editor whole rather than being executed
-   * line by line. The caller ensures the session exists first.
-   *
-   * Deliberately does not press Enter: Corvi cannot tell a running agent from a shell (pi's status
-   * is the agent integration's private vocabulary), and submitting a paragraph to a shell would run
-   * it. The user reads it and sends it, which is the one keystroke worth keeping.
-   *
-   * The buffer is named for the change, so two prompts sent close together cannot overwrite each
-   * other's text between the load and the paste. */
-  const pastePrompt = (id: string, text: string): Effect.Effect<void, CommandFailure> =>
-    Effect.gen(function* () {
-      const buffer = `${host.name}-prompt-${id}`;
-      // `--` so a prompt that begins with a dash is data, not an option.
-      yield* host.runOrThrow(tmuxCmd(["set-buffer", "-b", buffer, "--", text]));
-      yield* host.runOrThrow(tmuxCmd(["paste-buffer", "-p", "-b", buffer, "-t", sessionName(id)]));
-      yield* host.runOrThrow(tmuxCmd(["delete-buffer", "-b", buffer]));
-    });
-
-  /** `pastePrompt` into one window's active pane. The buffer is per window, so two pastes into
-   * two windows close together cannot take each other's text between load and paste. */
+  /** A bracketed paste into one window's active pane. The buffer is per window, so two pastes
+   * into two windows close together cannot take each other's text between load and paste. */
   const pastePromptTo = (window: string, text: string): Effect.Effect<void, CommandFailure> =>
     Effect.gen(function* () {
       const buffer = `${host.name}-prompt-${window.replace(/[^A-Za-z0-9]/g, "")}`;
@@ -447,7 +430,6 @@ export const make = (host: Host): Sessions => {
     selectWindow,
     moveWindow,
     ensureSession,
-    pastePrompt,
     pastePromptTo,
     submit,
   };

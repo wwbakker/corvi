@@ -10,7 +10,6 @@ import {
   completeChange,
   completionOf,
   createChange,
-  ideationPromptFor,
   readChange,
   readSidecar,
   startChangeWithWorkflow,
@@ -133,24 +132,6 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
   expect(await runEffect(checkoutFor(started.change, repo))).toBeDefined();
   // The path is the same; a real worktree now, not a symlink.
   expect((await lstat(link)).isDirectory()).toBe(true);
-});
-
-test("the briefing names the change, its state and its plan", () => {
-  const idea: Change = {
-    id: "idea-prompt",
-    branch: "idea-prompt",
-    checkouts: checkoutsOf([]),
-    title: "Prompt Me",
-    state: "Ideation",
-    createdAt: "2026-01-01T00:00:00Z",
-  };
-  const prompt = ideationPromptFor(idea);
-  expect(prompt).toContain("Prompt Me");
-  expect(prompt).toContain("idea-prompt");
-  expect(prompt).toContain(join(changeDir("idea-prompt"), PLAN_FILE));
-  expect(prompt).toContain("Ideation");
-  // A change with no title falls back to its id rather than leaving a hole in the prompt.
-  expect(ideationPromptFor({ ...idea, title: undefined })).toContain("idea-prompt");
 });
 
 test("cancelling an idea drops its browse links", async () => {

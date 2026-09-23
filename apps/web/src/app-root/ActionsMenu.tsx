@@ -16,10 +16,13 @@ export function ActionsMenu({
   actions,
   label = "Actions ▾",
   className = "primary",
+  onOpen,
 }: {
   actions: Action[];
   label?: string;
   className?: string;
+  /** Called when the menu opens — where a list is fetched fresh rather than kept in the page. */
+  onOpen?: () => void;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -45,7 +48,10 @@ export function ActionsMenu({
         aria-expanded={open}
         // Keeps the focus where it was: on the terminal tab this button sits above a terminal.
         onMouseDown={(e) => e.preventDefault()}
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open) onOpen?.();
+          setOpen(!open);
+        }}
       >
         {label}
       </button>

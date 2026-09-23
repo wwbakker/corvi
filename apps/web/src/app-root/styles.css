@@ -1312,6 +1312,10 @@ textarea.plan {
   gap: 8px;
   border-bottom: 0;
   background: var(--surface);
+  /* Above xterm's own layers: its stylesheet paints helpers (z-index 5) and overlays (10) into
+     the root stacking context (`.xterm` creates none of its own), so the bar's z-index 2 left
+     the actions menu's dropdown under them — visible but un-clickable over the terminal. */
+  z-index: 12;
 }
 
 /* The key reference is the terminal's own, not a control of the page's: the size of the tabs

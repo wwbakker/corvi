@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl  } from "./helpers.ts";
@@ -385,6 +385,8 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
   // And closing the cheat sheet hands the keyboard back: it is a modal dialog, so the browser moved
   // the focus into it, and a terminal you have to click before typing is a terminal clicked twice.
+  // The cheat sheet is the actions menu's last item now (apps/web/src/actions/RunMenu.tsx).
+  await page.locator("header.change-bar .menu > button").click();
   await page.getByRole("button", { name: "tmux cheat sheet" }).click();
   await page.locator("dialog[open]").waitFor();
   await page.getByRole("button", { name: "Close" }).click();
@@ -498,26 +500,29 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The row is the windows' and the key reference's, and of the change itself it says nothing: the
   // name is the column's entry, and the state and the actions are its other views' — they say
   // nothing while a shell has the keyboard, which is why the windows are what you switch between.
+  // The one menu it carries is the terminal's own (its actions and, last, the key reference), not
+  // the change's.
   expect(
     await page
       .locator(".page.terminal-page .change-bar h2, .page.terminal-page .change-bar .subject")
       .count(),
   ).toBe(0);
   expect(await page.locator("header select").count()).toBe(0);
-  expect(await page.locator("header .menu").count()).toBe(0);
+  expect(await page.locator("header .menu").count()).toBe(1);
+  expect(await page.getByRole("button", { name: "Actions ▾" }).count()).toBe(1);
   expect(await page.locator(".change-tabs").count()).toBe(0);
   // And the screen carries no tooltip: the window's row says which change's terminal it is, and a
   // floating "terminal for …" over the grid is in the way of reading it.
   expect(await page.locator(".terminal-screen").getAttribute("title")).toBeNull();
 
   // The first tab is the change's overview, not a window: the terminal page is not a one-way
-  // door. Then a tab per tmux window, and the key reference on the right.
+  // door. Then a tab per tmux window, and the menu on the right (its last item is the key
+  // reference — the item itself is pinned in the action-menu test).
   const allTabs = page.locator(".window-tab");
   expect((await allTabs.first().innerText()).trim()).toBe("Overview");
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   const windows = (await tmux("list-windows", "-t", session)).split("\n").length;
   expect(await until(() => tabs.count(), windows)).toBe(windows);
-  expect(await page.getByRole("button", { name: "tmux cheat sheet" }).count()).toBe(1);
 
   // The current window's tab is marked the way the column marks its own: filled, white text and
   // icon, rounded only at the top, and sitting on the terminal rather than above a gap or line.
@@ -933,6 +938,58 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.keyboard.press("Enter");
   await waitForFile(middle, "MIDDLE\n");
   expect(await Bun.file(middle).text()).toBe("MIDDLE\n");
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("the action menu lists the actions and pastes one without submitting it", async () => {
+  // An action file in the global scope — beside the test's config.json (serverEnv names it) —
+  // picked up on the next menu open: discovery is per request, no restart.
+  const ranFile = join(tmp, "changes", id, "menu-ran.txt");
+  await mkdir(join(tmp, "actions"), { recursive: true });
+  await writeFile(
+    join(tmp, "actions", "say-hello.md"),
+    `---\nlabel: Say hello\nkind: prompt\ntarget: active\n---\necho menu-ran > ${ranFile}\n`,
+  );
+  // The window presents as an agent to the menu: `@agent_status` is exactly what pi's own
+  // busy-title extension publishes (packages/agents/src/presenter.ts), and the menu's filter
+  // keys on the icon it produces. "working" rather than "waiting" — a waiting window wants the
+  // user, and the notification that would fire is another test's subject.
+  await tmux("set-option", "-p", "-t", session, "@agent_status", "working");
+
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await waitForPrompt();
+
+  // The menu fetches its list when opened and the filter follows the window on screen: the
+  // prompt action is offered because the active window is an agent one.
+  await page.locator("header.change-bar .menu > button").click();
+  const items = page.locator("header.change-bar .menu-items button");
+  await waitFor(
+    "the menu to list the action",
+    async () => (await items.allInnerTexts()).some((t) => t.includes("Say hello")),
+  );
+  expect((await items.allInnerTexts()).some((t) => t.includes("tmux cheat sheet"))).toBe(true);
+
+  await items.filter({ hasText: "Say hello" }).click();
+  // The notice names what happened and where.
+  await waitFor(
+    "the notice",
+    async () => (await page.locator("header.change-bar .summary").allInnerTexts()).some((t) => t.includes("read it and send it")),
+  );
+
+  // Pasted into the pane and not submitted: the line waits at the prompt and nothing ran.
+  await waitFor(
+    "the paste to land",
+    async () => (await tmux("capture-pane", "-p", "-t", session)).includes("echo menu-ran >"),
+  );
+  expect(await Bun.file(ranFile).exists()).toBe(false);
+  // The one keystroke Corvi keeps is yours: Enter runs the line the paste left behind.
+  await tmux("send-keys", "-t", session, "Enter");
+  await waitForFile(ranFile, "menu-ran\n");
+
+  await tmux("set-option", "-p", "-u", "-t", session, "@agent_status");
   await page.close();
 }, 60_000);
 

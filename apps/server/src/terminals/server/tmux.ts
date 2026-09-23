@@ -54,7 +54,6 @@ export const {
   selectWindow,
   moveWindow,
   ensureSession,
-  pastePrompt,
   pastePromptTo,
   submit,
   windows: rawWindows,

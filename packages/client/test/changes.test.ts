@@ -21,6 +21,44 @@ const payload: readonly RepositoryViewDto[] = [
   },
 ]
 
+test("terminalActions lists what a change may run", async () => {
+  const urls: string[] = []
+  const client = makeChangesClient({
+    baseUrl: "http://127.0.0.1:4000/",
+    fetch: async (input) => {
+      urls.push(String(input))
+      return Response.json([
+        { key: "builtin:brief", label: "Send PLAN.md instructions", kind: "prompt", target: "agent", source: "builtin" },
+      ])
+    },
+  })
+  const actions = await client.terminalActions(ChangeId.make("demo"))
+  expect(urls).toEqual(["http://127.0.0.1:4000/api/changes/demo/terminal/actions"])
+  expect(actions.map((a) => a.key)).toEqual(["builtin:brief"])
+})
+
+test("runAction names the action and the window — and never any text", async () => {
+  const sent: { url: string; body: unknown } = { url: "", body: undefined }
+  const client = makeChangesClient({
+    baseUrl: "http://127.0.0.1:4000/",
+    fetch: async (input, init) => {
+      sent.url = String(input)
+      sent.body = JSON.parse(String(init?.body))
+      return Response.json({
+        kind: "prompt",
+        submitted: false,
+        started: false,
+        window: { id: "@2", label: "pi working" },
+      })
+    },
+  })
+  const result = await client.runAction(ChangeId.make("demo"), "global:review", "@2")
+  expect(sent.url).toBe("http://127.0.0.1:4000/api/changes/demo/terminal/actions")
+  // The wire carries the key and the window: the text stays on the machine.
+  expect(sent.body).toEqual({ key: "global:review", window: "@2" })
+  expect(result.window?.label).toBe("pi working")
+})
+
 test("inspectRepositories decodes the server payload", async () => {
   const urls: string[] = []
   const client = makeChangesClient({

@@ -37,7 +37,6 @@ const recording = (): {
     selectWindow: () => Effect.void,
     moveWindow: () => Effect.void,
     ensureSession: () => Effect.void,
-    pastePrompt: () => Effect.void,
     pastePromptTo: (window, text) => {
       calls.push(`paste:${window}:${text}`);
       return Effect.void;

@@ -28,7 +28,6 @@ import {
   DirectoryListingSchema,
   ForceBodySchema,
   PagesResponseSchema,
-  PromptResponseSchema,
   RepoItemsSchema,
   RepoStateSchema,
   RepositoryViewSchema,
@@ -56,7 +55,6 @@ import {
   type DirectoryListingSpec,
   type ForceBodyDto,
   type PageInfoDto,
-  type PromptResponseDto,
   type RepoItemsDto,
   type RepoStateDto,
   type ReposBodyDto,
@@ -154,7 +152,6 @@ export interface ChangesClient {
     changeId: ChangeId,
     action: WindowActionBodyDto,
   ) => Promise<TerminalWindowDto[]>
-  readonly briefAgent: (changeId: ChangeId) => Promise<PromptResponseDto>
   readonly terminalActions: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
   readonly runAction: (
     changeId: ChangeId,
@@ -393,8 +390,6 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         mutableArray(TerminalWindowSchema),
         await send("POST", `${change(changeId)}/terminal/windows`, { body: action }),
       ),
-    briefAgent: async (changeId) =>
-      decode(PromptResponseSchema, await send("POST", `${change(changeId)}/terminal/prompt`)),
     terminalActions: async (changeId) =>
       decode(
         mutableArray(ActionSummarySchema),

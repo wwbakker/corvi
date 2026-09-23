@@ -32,6 +32,7 @@ import { WindowTabs } from "../../terminals/client/WindowTabs.tsx";
 import type { Page } from "../../app-root/Sidebar.tsx";
 import { changeNav, resolveChangePage, type ChangeTabInfo } from "./changeTabs.ts";
 import { PlanCard } from "./PlanCard.tsx";
+import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, WidgetHost, type WidgetInfo } from "../../integrations/client.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
@@ -370,9 +371,15 @@ export function ChangeView({
       {windowTabs}
       <span className="spacer" />
       {/* The key reference is the terminal's: on the dashboard the row below carries the change's
-          own tabs, state and actions instead. */}
+          own tabs, state and actions instead. The menu holds it beside the actions this window
+          may run (apps/web/src/actions/RunMenu.tsx). */}
       {active.kind === "terminals" && (
-        <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
+        <RunMenu
+          changeId={id}
+          windows={windows}
+          onOpenCheatSheet={() => setCheatSheet(true)}
+          onRan={() => setFocusRequest((n) => n + 1)}
+        />
       )}
     </header>
   );
@@ -541,7 +548,7 @@ export function ChangeView({
             {/* The plan is the change's own document: it stays visible once the work starts, and
                 is a read-only record once the change is over. */}
             {change && (
-              <PlanCard changeId={id} canBrief={idea} readOnly={isFinished(change)} />
+              <PlanCard changeId={id} readOnly={isFinished(change)} />
             )}
             {(infos ?? []).filter((i) => i.column === "left").map(card)}
             {/* Client-drawn documents, after the plan: textareas and other client state a polled
