@@ -55,6 +55,8 @@
   --selection: color-mix(in srgb, var(--accent) 35%, transparent);/* the row or tab you are on */
   --ok-wash: color-mix(in srgb, var(--ok) 15%, transparent);      /* a notice, a diff's added line */
   --error-wash: color-mix(in srgb, var(--error) 15%, transparent);/* a failure, a removed line */
+  --active-wash: color-mix(in srgb, var(--text) 5%, transparent); /* the caret's line, an echo of
+                                                                    a selection, a trailing space */
   --scrim: rgb(0 0 0 / 0.5);                                      /* behind a dialog */
   --shadow: 0 8px 24px rgb(0 0 0 / 0.4);
 }

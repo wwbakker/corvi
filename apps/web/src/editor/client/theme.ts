@@ -126,4 +126,37 @@ export const editorChrome = EditorView.theme({
     color: "var(--faint)",
     fontStyle: "normal",
   },
+  /* The line the caret is on, the echo of a selection, and a trailing space: the same faint
+     wash, present rather than loud. */
+  ".cm-activeLine, .cm-selectionMatch, .cm-trailingSpace": {
+    backgroundColor: "var(--active-wash)",
+  },
+  /* The fold marks in their own column: part of the text's frame, not a panel beside it. */
+  ".cm-gutters": {
+    backgroundColor: "transparent",
+    color: "var(--muted)",
+    border: "none",
+  },
+  ".cm-foldGutter .cm-gutterElement": {
+    cursor: "pointer",
+  },
+  ".cm-matchingBracket": {
+    backgroundColor: "var(--selection)",
+  },
+  ".cm-nonmatchingBracket": {
+    backgroundColor: "var(--error-wash)",
+  },
+  /* The search panel: the app's surfaces and controls, not the default grey. Its matches take
+     the same wash as an echo of a selection, and the current one the selection itself. */
+  ".cm-panels": {
+    backgroundColor: "var(--surface)",
+    color: "var(--text)",
+    borderTop: "1px solid var(--line)",
+  },
+  ".cm-searchMatch": {
+    backgroundColor: "var(--active-wash)",
+  },
+  ".cm-searchMatch-selected": {
+    backgroundColor: "var(--selection)",
+  },
 });

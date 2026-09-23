@@ -1,9 +1,27 @@
 import { type JSX, useEffect, useRef } from "react";
-import { Compartment, EditorState } from "@codemirror/state";
-import { EditorView, keymap, placeholder as placeholderExtension } from "@codemirror/view";
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { syntaxHighlighting } from "@codemirror/language";
+import {
+  bracketMatching,
+  codeFolding,
+  foldGutter,
+  foldKeymap,
+  syntaxHighlighting,
+} from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import { Compartment, EditorState } from "@codemirror/state";
+import { highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
+import {
+  EditorView,
+  crosshairCursor,
+  highlightActiveLine,
+  highlightSpecialChars,
+  highlightTrailingWhitespace,
+  keymap,
+  placeholder as placeholderExtension,
+  rectangularSelection,
+  scrollPastEnd,
+} from "@codemirror/view";
 import { editorChrome, markdownHighlighting } from "./theme.ts";
 import { fencedCodeLanguages } from "./languages.ts";
 
@@ -65,7 +83,30 @@ export function MarkdownEditor({
         doc: "",
         extensions: [
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap]),
+          // The affordances a source editor has, none of them new weight: a heading's section or
+          // a table folds at its gutter mark; Ctrl-F finds and replaces and Ctrl-D selects the
+          // next occurrence (the panel opens at the bottom, under the plan's floating toolbar);
+          // brackets close and match; the caret's line is lit and the characters you cannot see
+          // — tabs, control characters, trailing spaces — are drawn.
+          codeFolding(),
+          foldGutter(),
+          search(),
+          highlightSelectionMatches(),
+          bracketMatching(),
+          closeBrackets(),
+          highlightActiveLine(),
+          highlightSpecialChars(),
+          highlightTrailingWhitespace(),
+          rectangularSelection(),
+          crosshairCursor(),
+          scrollPastEnd(),
+          keymap.of([
+            ...closeBracketsKeymap,
+            ...searchKeymap,
+            ...foldKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+          ]),
           EditorView.lineWrapping,
           markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages }),
           syntaxHighlighting(markdownHighlighting),

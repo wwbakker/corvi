@@ -49,6 +49,15 @@ const source = [
   '{ "id": "improve-plan-view", "state": "Ideation" }',
   "```",
   "",
+  "```python",
+  "def plan():",
+  "    return True  # shaped as we go",
+  "```",
+  "",
+  "```scala",
+  "object Plan extends App { println(1) }",
+  "```",
+  "",
 ].join("\n");
 
 /** What the plan reads after the typing test below appends to it. */
@@ -176,6 +185,11 @@ test.skipIf(!usable)(
       expect(look('"improve-plan-view"')).toEqual({ color: link, weight: "400", style: "normal", decoration: "none" });
       expect(look("{")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
       expect(look("}")).toEqual({ color: mark, weight: "400", style: "normal", decoration: "none" });
+      // The other curated languages reach the same roles — a Lezer grammar (Python) and a legacy
+      // stream parser (Scala) alike: keywords wear the keyword blue, comments the quote grey.
+      expect(look("def")).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
+      expect(look("object")).toEqual({ color: heading, weight: "400", style: "normal", decoration: "none" });
+      expect(look("# shaped as we go")).toEqual({ color: quote, weight: "400", style: "italic", decoration: "none" });
     } finally {
       await page.close();
     }
@@ -203,6 +217,37 @@ test.skipIf(!usable)("typing keeps the highlighting and saves through the deboun
     expect(spans.find((s) => s.text === "more")?.weight).toBe("700");
     expect(await editorText(page.locator(".md-editor"))).toBe(source + typed);
     expect(await onDisk()).toBe(source + typed);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+test.skipIf(!usable)("the editor's affordances are there: a section folds and Ctrl-F finds", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/changes/PROJ-1/plan`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".md-editor .cm-line");
+    await loaded(page);
+
+    // A heading folds its section at the gutter's mark — the fold ranges are the Markdown
+    // grammar's own — and unfolds again. The mark is the gutter's span on foldable lines; the
+    // gutter's hidden width-measuring spacer carries copies of every mark, so visible ones.
+    await page.locator('.cm-foldGutter span[title="Fold line"]:visible').first().click();
+    await page.locator(".cm-foldPlaceholder").first().waitFor();
+    await page.locator('.cm-foldGutter span[title="Unfold line"]:visible').first().click();
+    await page.waitForSelector(".cm-foldPlaceholder", { state: "detached" });
+
+    // Find opens the search panel and finds the plan's own words. The shortcut needs the
+    // editor's focus — the fold marks live outside its keymap.
+    await page.locator(".md-editor .cm-content").click();
+    await page.keyboard.press("ControlOrMeta+f");
+    const panel = page.locator(".cm-panel");
+    await panel.waitFor();
+    // The panel commits on keystrokes (its field listens for keyup), so type the query.
+    await panel.locator("input").first().pressSequentially("quoted");
+    await page.locator(".cm-searchMatch").first().waitFor();
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".cm-panel", { state: "detached" });
   } finally {
     await page.close();
   }
@@ -249,6 +294,10 @@ test.skipIf(!usable)("the wizard's description is the same editor", async () => 
     const spans = await painted(page);
     expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
     expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
+
+    // A bracket closes itself, and typing its end replaces the offered one.
+    await page.keyboard.type(" (parens)");
+    expect(await editorText(page.locator(".form .md-editor"))).toBe("# Starting **plan** (parens)");
   } finally {
     await page.close();
   }
