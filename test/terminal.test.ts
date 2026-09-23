@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl  } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, until, waitFor, waitForUrl, withMachineLock  } from "./helpers.ts";
 import { platformName } from "../apps/server/src/capabilities/os.ts";
 import { csiuFor } from "@corvi/terminals/model";
 
@@ -15,27 +15,6 @@ import { csiuFor } from "@corvi/terminals/model";
  * It is skipped where the tools are missing rather than failing, since the rest of Corvi works
  * fine without them.
  */
-/** Poll until a value is what it should be. Waiting is condition-driven throughout: a test
- * never sleeps for a duration it guessed — a shell starting, a strip refreshing and a file
- * appearing each happen when they happen, so the tests wait for the fact. The 200ms step between
- * reads is the one timer in the file, shared by every wait rather than repeated in each test;
- * `tries` is only ever a failure deadline. The last value read comes back, so the expect below
- * can say what it saw. */
-async function until<T>(read: () => Promise<T>, want: T, tries = 150): Promise<T> {
-  let last = await read();
-  for (let i = 0; i < tries && last !== want; i++) {
-    await Bun.sleep(200);
-    last = await read();
-  }
-  return last;
-}
-
-/** Wait for a condition that is a gate rather than an assertion: on a timeout it names what
- * never happened, where the expect after it could only say "the file was missing". */
-async function waitFor(what: string, read: () => Promise<boolean>): Promise<void> {
-  if (!(await until(read, true))) throw new Error(`timed out waiting for ${what}`);
-}
-
 /** The file a typed command was supposed to write: what proves the command ran. With `expect`,
  * the wait is for that exact content — and without it, for any content at all. A file exists as
  * soon as the shell opens it for the redirect, a moment before the command has written a byte,
@@ -159,16 +138,37 @@ beforeAll(async () => {
   // The hook carries its own waits — a server that answers within a minute (waitForUrl), a
   // browser to launch — so its budget is theirs rather than the suite's 30-second default for a
   // test. A hook that times out is reported as one unnamed failure with every terminal test gone.
-}, 120_000);
+}, budget(120_000));
 
 afterEach(async () => {
-  // A test that fails mid-way must not leave its page open: the page's pty keeps its tmux client
-  // attached, and the next test's client-count gates could never be satisfied. The tests close
-  // their own pages; this is the net under them, so one failure stays one failure.
-  for (const context of browser?.contexts() ?? []) {
-    for (const page of context.pages()) await page.close().catch(() => undefined);
-  }
+  // A test that fails mid-way must not leave its page open or its session alive: the page's pty
+  // keeps its tmux client attached, and windows of one test would pile up in the strip counts
+  // and current-window ambiguity of the next. Every test therefore starts with no session at
+  // all — it is created by whatever the test does first — and the tests close their own pages;
+  // this is the net under them (screenshots first, for CI's failure artifacts), so one failure
+  // stays one failure.
+  await closePages(browser, "terminal");
+  await tmux("kill-session", "-t", session);
 });
+
+/** The change's session exists. The page draws its terminal before the pty has started tmux —
+ * the socket's connect and the session's creation are the page's asynchronous business — so a
+ * window made, a window list read or a server killed against nothing is a race, not a test.
+ * Every test starts with no session (afterEach below), so each one that needs it says so. */
+const sessionUp = (): Promise<void> =>
+  waitFor(`the session of ${id} to start`, async () => (await tmux("ls")).includes(session));
+
+/** The change's session with one window in it, made the way the product makes one: opening the
+ * terminal page and letting go of it. A few tests need the session before their own page is the
+ * one that makes it — one clicks into it from the sidebar, one counts its windows, one asserts
+ * it is there — and closing the page keeps the session (a test below says so). */
+const seedSession = async (): Promise<void> => {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await sessionUp();
+  await page.close();
+};
 
 afterAll(async () => {
   // Other test files share this process: the socket this file gave the server must not shape
@@ -181,7 +181,7 @@ afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
   // Its own budget too: closing a browser, a server and a tmux server is work the 30-second
   // default does not owe, and a timeout here would fail a run whose tests all passed.
-}, 60_000);
+}, budget(60_000));
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
   const key = (
@@ -242,11 +242,12 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await waitForFile(join(tmp, "changes", id, "survived.txt"), "yes\n");
   expect(await Bun.file(join(tmp, "changes", id, "survived.txt")).text()).toBe("yes\n");
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("another change's terminal is another pty", async () => {
   // Navigating from one change's terminal to another's must not keep the first change's pty:
   // the shells are separate sessions, and a command typed in the second must land there.
+  await seedSession(); // the first change's window — what the sidebar click below opens
   const second = "PROJ-TERM-2";
   const repo = join(tmp, "repo2");
   await runSh(["git", "init", "-b", "main", repo]);
@@ -284,7 +285,7 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   // the sidebar counts the tests after this one make.
   await tmux("kill-session", "-t", `corvi-${second}`);
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("the terminal tab runs a shell in the change directory", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -431,7 +432,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   expect(bigger.height).toBeGreaterThan(before.height);
 
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
   // The server runs on Electron's own Node with the launcher's variables in its environment
@@ -444,8 +445,7 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await waitForPrompt();
-  // An absolute path, because the session's active window may be any window the tests above left
-  // behind, in whatever directory it had walked to.
+  // An absolute path, so the command reads the same whatever directory the pane is standing in.
   const out = join(tmp, "changes", id, "pane-env.txt");
   // The output is published in one move: the file appears only once `env` has finished writing
   // it. What the environment holds is what this test asserts on, so its content cannot be the
@@ -460,8 +460,8 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
   expect(hasVar("CORVI_PORT")).toBe(false);
   expect(hasVar("CORVI_ROOT")).toBe(false);
-  // A failing run prints what the pane got and what tmux thinks the session holds: enough to
-  // tell "the env was never set" from "the pane predates it".
+  // A failing run prints what the pane got and what tmux thinks the session holds: together
+  // they say whether the context never arrived, or arrived as someone else's.
   if (!hasVar("CORVI_CHANGE_ID")) {
     console.log(
       `pane env:\n${env}\nsession env:\n${await tmux("show-environment", "-t", session)}`,
@@ -470,13 +470,14 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   expect(hasVar("CORVI_CHANGE_ID")).toBe(true);
   expect(env).toContain(`CORVI_CHANGE_DIR=${join(tmp, "changes", id)}`);
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("a bare tmux command cannot reach the change's session", async () => {
   // Corvi's sessions live on their own socket (CORVI_TMUX_SOCKET, tmux.ts): a tmux command that
   // forgets to name it resolves the way tmux always does — $TMUX, else $TMUX_TMPDIR/tmux-<uid>/
   // default — and finds nothing of ours. This is what makes a careless kill-server from a probe,
   // a script or an agent's stray test harmless to Corvi's terminals.
+  await seedSession(); // the session the assertions below are about
   const proc = Bun.spawn(["tmux", "ls"], {
     env: { ...process.env, TMUX_TMPDIR: tmuxTmp }, // TMUX deleted in beforeAll
     stdout: "pipe",
@@ -488,9 +489,9 @@ test.skipIf(!usable)("a bare tmux command cannot reach the change's session", as
   ]);
   expect(await proc.exited).not.toBe(0); // no server on the default socket of this run
   expect(`${out}${err}`).not.toContain(session);
-  // The session is there for whoever names the socket, as the tests above do.
+  // The session is there for whoever names the socket, as the terminal page that made it did.
   expect(await tmux("ls")).toContain(session);
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("the terminal page's bar is its windows, not the change's controls", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -517,6 +518,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   const allTabs = page.locator(".window-tab");
   expect((await allTabs.first().innerText()).trim()).toBe("Overview");
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await sessionUp();
   const windows = (await tmux("list-windows", "-t", session)).split("\n").length;
   expect(await until(() => tabs.count(), windows)).toBe(windows);
   expect(await page.getByRole("button", { name: "tmux cheat sheet" }).count()).toBe(1);
@@ -604,15 +606,20 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("a window tab dragged onto another takes its place", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  // Two windows to drag between — the fresh session this test starts with has one, so the second
+  // is its own rather than an earlier test's leftover. The session first: a window made before
+  // the pty has started tmux is made against nothing.
+  await sessionUp();
+  await tmux("new-window", "-t", session, "-d");
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await tabs.first().waitFor();
-  expect(await tabs.count()).toBeGreaterThanOrEqual(2);
+  expect(await until(() => tabs.count(), 2)).toBe(2);
 
   // Window ids rather than indices: a swap changes which window holds which index, so the
   // index list would read the same afterwards.
@@ -635,9 +642,12 @@ test.skipIf(!usable)("a window tab dragged onto another takes its place", async 
   expect((await page.locator(".window-tab").first().innerText()).trim()).toBe("Overview");
   expect((await page.locator(".window-tab").last().innerText()).trim()).toBe("new");
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("a window that starts waiting is announced, and the notice opens it", async () => {
+  // The session and its window first: what the watcher reports below must be this test's own
+  // window, not an earlier test's leftover.
+  await seedSession();
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   // Stand in for the app's host: the real window exposes `window.corviHost` from its preload
   // (apps/desktop/src/electron/preload.ts), a browser has none, so the test installs the same shape
@@ -745,12 +755,13 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
     await agentOption(option);
   }
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("closing the page detaches the pty but keeps the session", async () => {
   // A pty dies with its socket, the way one dies when its page is closed — and the session, and
   // everything running in it, must not be taken with it. The next connection attaches to the
   // same windows.
+  await seedSession();
   await tmux("set-option", "-g", "destroy-unattached", "off"); // a developer's tmux.conf must not decide this
   await tmux("new-window", "-t", session, "-d"); // one more than the session already has
   const before = (await tmux("list-windows", "-t", session)).split("\n").length;
@@ -768,7 +779,7 @@ test.skipIf(!usable)("closing the page detaches the pty but keeps the session", 
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(before);
   await again.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own", async () => {
   // xterm's stylesheet gives the viewport `overflow-y: scroll` whatever the scrollback is, and
@@ -783,6 +794,9 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
   await screen.waitFor({ timeout: 15_000 });
 
   // One character cell, from the two sides: the pane's own column count, and the grid's width.
+  // The client's size is the pty's, so wait for the pty rather than read a client that is not
+  // there yet.
+  await waitFor("the page's pty to attach", async () => (await clientCount(session)) > 0);
   const cols = Number(
     (await tmux("list-clients", "-t", session, "-F", "#{client_width}")).split("\n")[0],
   );
@@ -804,7 +818,7 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
   // A scrollbar is a good deal wider than one cell, which is the strip this catches.
   expect(rightGap).toBeLessThan(box.width / cols);
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
 test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", async () => {
   // tmux draws its own menu into the terminal grid when mouse mode reports a right click; the
@@ -817,9 +831,14 @@ test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", 
   );
   expect(prevented).toBe(true);
   await page.close();
-}, 60_000);
+}, budget(60_000));
 
-test.skipIf(!usable)("the page copies and pastes through the system clipboard", async () => {
+test.skipIf(!usable)("the page copies and pastes through the system clipboard", () =>
+  // The system clipboard is the one thing every suite on the machine shares: another suite
+  // running this same test erases this one's marker mid-wait, and this one erases its marker —
+  // both flake on a wait neither can ever satisfy. The machine-wide lock gives the clipboard one
+  // user at a time however many suites are up; this test's budget covers the wait for it.
+  withMachineLock("clipboard", async () => {
   // ttyd's page owned these chords; with xterm.js in the page they are ours. The browser
   // permission is granted here the way the app grants it (apps/desktop/src/electron/main.ts).
   const page = await browser.newPage({
@@ -899,8 +918,7 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   expect(copied).toContain("MARKER-42");
 
   // And back in: the chord pastes the clipboard into the shell's editor, where Enter runs it.
-  // An absolute path, because the session's active window may be any window the tests above
-  // left behind, in whatever directory it had walked to.
+  // An absolute path, so the command reads the same whatever directory the pane is standing in.
   const pasted = join(tmp, "changes", id, "pasted.txt");
   await page.evaluate((path) => navigator.clipboard.writeText(`echo PASTED > ${path}`), pasted);
   // The clipboard must still hold what was just written when the chord reads it: that read is
@@ -937,31 +955,55 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await waitForFile(middle, "MIDDLE\n");
   expect(await Bun.file(middle).text()).toBe("MIDDLE\n");
   await page.close();
-}, 60_000);
+  }),
+  budget(180_000),
+);
 
 test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // It takes the private tmux server down with it, so nothing that needs tmux may follow.
+  // The session is seeded before the page mounts: the page reads its windows once as it mounts,
+  // and against a session still starting it would read an empty world and never be told
+  // different until something else moved.
+  await seedSession();
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   expect(await page.locator(".terminal-gone").count()).toBe(0);
+  const windows = page.locator(".sidebar .entry.window");
+  expect(await until(() => windows.count(), 1)).toBe(1);
 
-  // The pane waits five seconds after its window list empties before calling the session gone,
-  // so that a terminal merely starting is not mistaken for one that was lost. That wait is what
-  // this test is about, so it is advanced rather than sat through: the clock goes in after the
-  // terminal is up, and the timer the pane starts when the list empties is then ours to run.
-  await page.clock.install();
+  // The push path is alive before the loss, or the loss could never be reported and this test
+  // would be about the bus rather than about the pane: the server says it is watching
+  // (/api/events/listeners, there for the tests), and a window made behind the page's back
+  // arrives at the page on its own. Whatever carries the loss below carries this.
+  await waitFor("the server to be watching for pages", async () => {
+    const state = (await fetch(`${url}/api/events/listeners`).then((r) => r.json())) as {
+      watching: boolean;
+    };
+    return state.watching;
+  });
+  await tmux("new-window", "-t", session, "-d");
+  expect(await until(() => windows.count(), 2)).toBe(2);
 
   // The server goes away under the open terminal, the way a killed tmux server does: the page
   // has to say so rather than leave a dead pane that looks merely slow.
   await tmux("kill-server");
-  // Wait on the page's own state, not on the clock: the window list emptying is what starts the
-  // timer, and that is a fact about the server (its watcher has seen the session die), not a
-  // duration to guess at.
-  const windows = page.locator(".sidebar .entry.window");
-  expect(await until(() => windows.count(), 0, 60)).toBe(0);
-  await page.clock.runFor(5000);
-  expect(await until(() => page.locator(".terminal-gone").count(), 1)).toBe(1);
+
+  // What the page notices first: its window list empties (the server's own answer went empty at
+  // once — its route reads tmux per request).
+  expect(await until(() => windows.count(), 0, budget(30_000))).toBe(0);
+
+  // The pane waits five seconds after its window list empties before calling the session gone,
+  // so that a terminal merely starting is not mistaken for one that was lost. The wait is
+  // verified rather than advanced: a fake clock stops the page's own timers, and the page needs
+  // those to hear about its loss at all — with one installed, the list above never empties —
+  // while five real seconds cost less than the guessing they replace. The two checks below are
+  // the grace itself, in order: quiet through the middle of it (a fixed sample of a fixed
+  // product delay, deliberately not scaled with the budgets — a stretched sample would land
+  // past the grace and assert nothing), and speaking after it.
+  await Bun.sleep(2_500);
+  expect(await page.locator(".terminal-gone").count()).toBe(0);
+  expect(await until(() => page.locator(".terminal-gone").count(), 1, budget(30_000))).toBe(1);
 
   // Reopening the tab starts a fresh session, which is what `new-session -A` would have done
   // anyway; the banner is about the loss, not a request to clean anything up.
@@ -970,4 +1012,4 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   expect(await until(async () => (await tmux("ls")).includes(session), true)).toBe(true);
   expect(await until(() => page.locator(".terminal-gone").count(), 0)).toBe(0);
   await page.close();
-}, 60_000);
+}, budget(60_000));

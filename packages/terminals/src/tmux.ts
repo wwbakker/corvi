@@ -107,6 +107,20 @@ export const parseWindow = (line: string, options: readonly string[]): TmuxWindo
 export const make = (host: Host): Sessions => {
   const sessionName = (id: string): string => `${host.name}-${id}`;
 
+  /** The change's context as `new-session -e` arguments, so the shell in every pane of the
+   * session knows where it is (`CORVI_CHANGE_ID`, `CORVI_CHANGE_DIR`). It has to be set at
+   * creation, and on *both* creation paths: a tmux session takes the **server's** global
+   * environment — never the creating client's — and that server's environment is whichever
+   * client started it. If that was another change's pty, the panes grow up with that change's
+   * context; if it was this server's own scrubbed process (apps/server/src/capabilities/env.ts),
+   * with none at all. `-e` makes the answer independent of who got there first. */
+  const contextEnv = (id: string, dir: string): string[] => [
+    "-e",
+    `${host.env("CHANGE_ID")}=${id}`,
+    "-e",
+    `${host.env("CHANGE_DIR")}=${dir}`,
+  ];
+
   /** Every tmux command Corvi runs goes through here: the socket is part of the command, not
    * something each caller has to remember. `-L` and `-S` beat `$TMUX` (verified: with `$TMUX`
    * set, `tmux -L x ls` still asks the x socket), so the app cannot be rerouted by whatever
@@ -132,6 +146,10 @@ export const make = (host: Host): Sessions => {
       sessionName(id),
       "-c",
       dir,
+      // The change's context on creation. Ignored when -A finds the session already there
+      // (where the creation-time environment stands, and ensureSession heals it), so a plain
+      // re-attach is untouched.
+      ...contextEnv(id, dir),
       // A scroll wheel should scroll, not walk back through your shell history. Scoped to this
       // session with -t, so tmux sessions you started yourself keep your own settings.
       // -q on all of them: an option a tmux version does not know (extended-keys-format is
@@ -273,24 +291,20 @@ export const make = (host: Host): Sessions => {
   const ensureSession = (id: string, dir: string): Effect.Effect<void, CommandFailure> =>
     Effect.gen(function* () {
       const has = yield* host.run(tmuxCmd(["has-session", "-t", sessionName(id)]));
-      if (has.code === 0) return;
-      // -e sets the *session* environment at creation, so the shell in the first window starts with
-      // the change's context — the same one a pty-created session inherits from its client
-      // (apps/server/src/capabilities/env.ts). Without it, a session created here would keep this server
-      // process's environment and no change context for every pane it ever grows.
+      if (has.code === 0) {
+        // A session that predates its context — created before it was set everywhere, or on a
+        // server whose environment held another change's — is healed here, so its next window
+        // starts a shell that knows where it is. `set-environment` is creation's `-e` after the
+        // fact; panes already running keep the environment they were started with.
+        yield* host.run(tmuxCmd(["set-environment", "-t", sessionName(id), host.env("CHANGE_ID"), id]));
+        yield* host.run(tmuxCmd(["set-environment", "-t", sessionName(id), host.env("CHANGE_DIR"), dir]));
+        return;
+      }
+      // -e sets the *session* environment at creation (see contextEnv), so the shell in the
+      // first window starts with the change's context rather than whatever the tmux server
+      // happened to hold.
       yield* host.runOrThrow(
-        tmuxCmd([
-          "new-session",
-          "-d",
-          "-s",
-          sessionName(id),
-          "-c",
-          dir,
-          "-e",
-          `${host.env("CHANGE_ID")}=${id}`,
-          "-e",
-          `${host.env("CHANGE_DIR")}=${dir}`,
-        ]),
+        tmuxCmd(["new-session", "-d", "-s", sessionName(id), "-c", dir, ...contextEnv(id, dir)]),
       );
     });
 
