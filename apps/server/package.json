@@ -8,6 +8,7 @@
     ".": "./src/server.ts"
   },
   "dependencies": {
+    "@corvi/actions": "workspace:*",
     "@corvi/agents": "workspace:*",
     "@corvi/azure-devops": "workspace:*",
     "@corvi/changes": "workspace:*",

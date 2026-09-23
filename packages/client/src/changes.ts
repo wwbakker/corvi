@@ -7,6 +7,13 @@
 import { Data, Schema } from "effect"
 
 import {
+  ActionSummarySchema,
+  RunActionResultSchema,
+  type ActionSummaryDto,
+  type RunActionResultDto,
+} from "@corvi/contracts/actions"
+
+import {
   BranchesSchema,
   CardInfoSchema,
   ChangeSummarySchema,
@@ -148,6 +155,12 @@ export interface ChangesClient {
     action: WindowActionBodyDto,
   ) => Promise<TerminalWindowDto[]>
   readonly briefAgent: (changeId: ChangeId) => Promise<PromptResponseDto>
+  readonly terminalActions: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
+  readonly runAction: (
+    changeId: ChangeId,
+    key: string,
+    window?: string,
+  ) => Promise<RunActionResultDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
 }
 
@@ -382,6 +395,16 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
       ),
     briefAgent: async (changeId) =>
       decode(PromptResponseSchema, await send("POST", `${change(changeId)}/terminal/prompt`)),
+    terminalActions: async (changeId) =>
+      decode(
+        mutableArray(ActionSummarySchema),
+        await send("GET", `${change(changeId)}/terminal/actions`),
+      ),
+    runAction: async (changeId, key, window) =>
+      decode(
+        RunActionResultSchema,
+        await send("POST", `${change(changeId)}/terminal/actions`, { body: { key, window } }),
+      ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),
   }

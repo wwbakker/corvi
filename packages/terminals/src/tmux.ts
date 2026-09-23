@@ -17,6 +17,11 @@
 import { Effect } from "effect";
 
 import type { TmuxWindow } from "@corvi/contracts/terminal";
+import {
+  COMMAND_ACTION_OPTION,
+  COMMAND_EXIT_OPTION,
+  COMMAND_NOTIFY_OPTION,
+} from "./model.ts";
 
 /** One tmux command's outcome, as the process layer reports it. Exit codes are data: no
  * session and no server are normal answers here. */
@@ -51,6 +56,19 @@ export type Host = {
   readonly env: (suffix: string) => string;
 };
 
+/** What a window running one command does when it ends. `keepOpen` freezes the pane over its
+ * output (`remain-on-exit`) instead of closing the window with it; `announce` records what ran
+ * and how it ended in the pane options `commandWindowPresenter` reads, with `notify` marking the
+ * ending as wanting the user. The wrapper that does this sets `remain-on-exit` first — a fast
+ * command can end before an option set afterwards would ever reach it. */
+export type NewWindowOptions = {
+  readonly keepOpen: boolean;
+  readonly announce?: {
+    readonly label: string;
+    readonly notify: boolean;
+  };
+};
+
 /** The tmux operations the app binds to its own process layer. */
 export type Sessions = {
   readonly sessionName: (id: string) => string;
@@ -67,6 +85,19 @@ export type Sessions = {
   readonly moveWindow: (id: string, from: number, to: number) => Effect.Effect<void, CommandFailure>;
   readonly ensureSession: (id: string, dir: string) => Effect.Effect<void, CommandFailure>;
   readonly pastePrompt: (id: string, text: string) => Effect.Effect<void, CommandFailure>;
+  /** `pastePrompt` addressed to one window's active pane (`@3` is tmux's own window id, stable
+   * across the reordering the tabs do), not whichever window the session happens to show. */
+  readonly pastePromptTo: (window: string, text: string) => Effect.Effect<void, CommandFailure>;
+  /** The one keystroke Corvi keeps for you: Enter, into that pane. */
+  readonly submit: (window: string) => Effect.Effect<void, CommandFailure>;
+  /** A new window running one command — the window a command action gets. Returns the new
+   * window's tmux id, so a paste can follow it immediately. */
+  readonly newWindowRunning: (
+    id: string,
+    dir: string,
+    command: string,
+    options: NewWindowOptions,
+  ) => Effect.Effect<string, CommandFailure>;
 };
 
 /** The tmux FORMAT for a set of pane options: the fixed fields, then one field per option.
@@ -313,6 +344,68 @@ export const make = (host: Host): Sessions => {
       yield* host.runOrThrow(tmuxCmd(["delete-buffer", "-b", buffer]));
     });
 
+  /** `pastePrompt` into one window's active pane. The buffer is per window, so two pastes into
+   * two windows close together cannot take each other's text between load and paste. */
+  const pastePromptTo = (window: string, text: string): Effect.Effect<void, CommandFailure> =>
+    Effect.gen(function* () {
+      const buffer = `${host.name}-prompt-${window.replace(/[^A-Za-z0-9]/g, "")}`;
+      // `--` so a prompt that begins with a dash is data, not an option.
+      yield* host.runOrThrow(tmuxCmd(["set-buffer", "-b", buffer, "--", text]));
+      yield* host.runOrThrow(tmuxCmd(["paste-buffer", "-p", "-b", buffer, "-t", window]));
+      yield* host.runOrThrow(tmuxCmd(["delete-buffer", "-b", buffer]));
+    });
+
+  /** Enter into one window's active pane: what `submit` on an action asks for. */
+  const submit = (window: string): Effect.Effect<void, CommandFailure> =>
+    host.runOrThrow(tmuxCmd(["send-keys", "-t", window, "Enter"])).pipe(Effect.asVoid);
+
+  /** POSIX single-quote wrapping: whatever a label or a socket name contains, it is data to the
+   * shell that runs the wrapper. */
+  const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
+
+  /** The wrapper's own tmux, addressing the right socket from inside the pane. */
+  const tmuxInPane = (args: string): string =>
+    `tmux ${host.socket.includes("/") ? "-S" : "-L"} ${shellQuote(host.socket)} ${args}`;
+
+  /** A command through the announcing wrapper: run the body, then say how it ended. The pane
+   * options are the package's own vocabulary (`@corvi/terminals/model`); `$TMUX_PANE` survives
+   * in the pane's environment exactly so a tool can address its own pane (capabilities/env.ts). */
+  const wrapped = (command: string, announce: NewWindowOptions["announce"]): string =>
+    [
+      tmuxInPane(`set-option -q -w -t "$TMUX_PANE" remain-on-exit on`),
+      ...(announce
+        ? [tmuxInPane(`set-option -q -p -t "$TMUX_PANE" ${COMMAND_ACTION_OPTION} ${shellQuote(announce.label)}`)]
+        : []),
+      ...(announce?.notify
+        ? [tmuxInPane(`set-option -q -p -t "$TMUX_PANE" ${COMMAND_NOTIFY_OPTION} 1`)]
+        : []),
+      command,
+      "__corvi_exit=$?",
+      tmuxInPane(`set-option -q -p -t "$TMUX_PANE" ${COMMAND_EXIT_OPTION} "$__corvi_exit"`),
+      'exit "$__corvi_exit"',
+    ].join("\n");
+
+  /** A new window running one command. `#{pane_current_path}` first, like `newWindow`, falling
+   * back to the change directory — and `#{window_id}` out, because a paste follows immediately
+   * and needs the window it just made. Without `keepOpen` and `announce` the body is the
+   * window's own shell command and the window goes when it ends; with either, it runs through
+   * the wrapper above. */
+  const newWindowRunning = (
+    id: string,
+    dir: string,
+    command: string,
+    options: NewWindowOptions,
+  ): Effect.Effect<string, CommandFailure> =>
+    Effect.gen(function* () {
+      const body = options.keepOpen || options.announce ? wrapped(command, options.announce) : command;
+      const args = (at: string): string[] => ["new-window", "-F", "#{window_id}", "-t", sessionName(id), "-c", at, body];
+      const here = yield* host.run(tmuxCmd(args("#{pane_current_path}")));
+      const window = here.code === 0 ? here.stdout.trim() : "";
+      if (window) return window;
+      const fallback = yield* host.runOrThrow(tmuxCmd(args(dir)));
+      return fallback.stdout.trim();
+    });
+
   /** Put a window where another one is, shifting the windows in between. tmux's own move-window
    * refuses an occupied index, so this is a walk of swaps along the session's actual indices —
    * which may have gaps where a window was closed. The current window follows the move, wherever
@@ -350,9 +443,12 @@ export const make = (host: Host): Sessions => {
     allWindows,
     changeOfSession,
     newWindow,
+    newWindowRunning,
     selectWindow,
     moveWindow,
     ensureSession,
     pastePrompt,
+    pastePromptTo,
+    submit,
   };
 };

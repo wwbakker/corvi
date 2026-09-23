@@ -36,20 +36,6 @@ export type Workspace = {
 
 export { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
 
-/**
- * What Corvi tells an agent when you brief it about an idea: the plan path and the rule for the
- * phase, so a machine that has configured nothing still gets something useful. Editable in the
- * settings, where an empty field means this.
- *
- * `{id}`, `{title}`, `{plan}` and `{state}` are filled from the change (see
- * `ideationPromptFor`). Kept as one line here and wrapped by the settings page when written.
- */
-export const DEFAULT_IDEATION_PROMPT =
-  "You are helping me refine an idea before any work starts. The idea is \"{title}\" ({id}); " +
-  "its plan is {plan}. Read the plan and the code, then help me sharpen the plan. While the " +
-  "change is in Ideation, {plan} is the only file you should write — do not modify any repository. " +
-  "Ask questions, propose options, and update the plan when we agree.";
-
 /** File-based config, read once at startup. Environment variables still win, so tests and
  * one-off runs need no file. */
 export type Config = {
@@ -69,9 +55,9 @@ export type Config = {
    * app window because Electron has none of its own. A page that handles its own right-click (the
    * terminal, whose menu is tmux's) is untouched either way. See docs/manual/interface.md. */
   contextMenu: boolean;
-  /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
-   * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means
-   * `DEFAULT_IDEATION_PROMPT`. */
+  /** The prompt pasted into a change's terminal to brief an agent about an idea, with the
+   * change's facts filled in (`@corvi/actions/render`). Editable in the settings; an empty
+   * value means the built-in `brief` action's body. */
   ideationPrompt: string;
   /** The contexts you switch between. Never empty: when nothing is configured, the default
    * workspace stands in. */

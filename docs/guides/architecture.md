@@ -22,6 +22,7 @@ packages/
   repositories/           Git repositories, branches, worktrees and local review
   terminals/              terminal sessions, windows and attachment
   agents/                 Corvi-facing agent-session capabilities
+  actions/                named actions from files, delivered to terminal sessions
   shell/                  subprocess execution capability
   workflows/              application operations and their required provider ports
   client/                 typed network operations for browser consumers
@@ -51,6 +52,7 @@ unrelated issue, build, and agent operations.
 | `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs and commits | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
 | `terminals` | Session/window identity, input, attachment and owned PTY resources | Agent conversation identity, change transitions or notifications policy |
 | `agents` | Corvi-facing session identity, supported capabilities, prompts and status | A provider's SDK types or the assumption that every agent is a terminal |
+| `actions` | Action files and their vocabulary, scope precedence, placeholder rendering, delivery to terminal sessions | Terminal/session mechanics, change lifecycle, HTTP handlers or JSX |
 | `workflows` | Create/start/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
 | `integrations/*` | External authentication, transport, decoding and provider-specific operations | Change lifecycle policy, HTTP handlers for Corvi, or rendering cards |
 | `client` | Named network operations, decoding, cancellation and transport failures | Backend implementation imports or application startup |
@@ -72,6 +74,7 @@ changes -> contracts
 repositories -> contracts
 terminals -> contracts
 agents -> contracts
+actions -> contracts, terminals
 shell -> contracts
 workflows -> contracts, configuration, changes, repositories, terminals, agents
 integrations/* -> contracts, configuration, shell, relevant capability APIs, workflows/ports

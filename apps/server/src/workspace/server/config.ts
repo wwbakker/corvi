@@ -2,7 +2,8 @@ import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
-import { DEFAULT_IDEATION_PROMPT, DEFAULT_WORKSPACE, type Config } from "@corvi/configuration/config";
+import { DEFAULT_WORKSPACE, type Config } from "@corvi/configuration/config";
+import { builtinActionBody } from "@corvi/actions/node";
 import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
@@ -148,7 +149,9 @@ export function readConfig(): Config {
     ),
     notificationSound: resolveSetting({ file: file.notificationSound, fallback: true }),
     contextMenu: resolveSetting({ file: file.contextMenu, fallback: true }),
-    ideationPrompt: resolveSetting({ file: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
+    // An empty value means the shipped `brief` action's body: the same "empty means the
+    // default" rule the settings page shows, with the default living in one place now.
+    ideationPrompt: resolveSetting({ file: file.ideationPrompt, fallback: builtinActionBody("brief") }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and
