@@ -1,9 +1,9 @@
 import { test, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { WorkspaceCard, enablementPatch } from "../src/workspace/client/WorkspaceCard.tsx";
-import type { KnownExtension } from "../src/settings/client/SettingsFields.tsx";
-import type { Workspace } from "../src/domain/config.ts";
+import { WorkspaceCard, enablementPatch } from "../apps/web/src/workspace/client/WorkspaceCard.tsx";
+import type { KnownExtension } from "../apps/web/src/settings/client/SettingsFields.tsx";
+import type { Workspace } from "@corvi/configuration/config";
 
 /**
  * The workspace card renders whatever the extensions declare and nothing vendor-specific:

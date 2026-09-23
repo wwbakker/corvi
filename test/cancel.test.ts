@@ -2,14 +2,13 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange, readChange, changeDir } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
+import { createChange, readChange, changeDir } from "../apps/server/src/change/server/index.ts";
+import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { Effect } from "effect";
 import { runCancel, runEffect, runSh, TestError } from "./helpers.ts";
-import { cancelChange } from "../src/change/server/index.ts";
-import { install, loaded } from "../src/extension-host/registry.ts";
-import type { Result } from "../src/capabilities/shell.ts";
-import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../src/domain/change.ts";
+import { cancelChange } from "../apps/server/src/change/server/index.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../apps/server/src/domain/change.ts";
 
 /**
  * Cancelling is the other way a change ends, and the one with no undo button on the far side: it
@@ -147,7 +146,7 @@ test("a change cannot be declared finished by hand", async () => {
   // The select offers the states you are in; this is where that is true rather than merely
   // displayed. Picking "Completed" from a list would set the word without merging anything,
   // removing a worktree or archiving the change.
-  const { applyPatch } = await import("../src/change/server/index.ts");
+  const { applyPatch } = await import("../apps/server/src/change/server/index.ts");
   const change = await runEffect(createChange({
     id: "PROJ-HAND",
     branch: "PROJ-HAND-x",
@@ -175,7 +174,7 @@ test("a change cannot be declared finished by hand", async () => {
 });
 
 test("a change that is over is read, not acted on", async () => {
-  const { repoStatusOf, cardForExtension } = await import("../src/extension-host/index.ts");
+  const { repoStatusOf, cardForExtension } = await import("../apps/server/src/integrations/index.ts");
   const repo = await clonedRepo("cancel-readonly");
   // Not provisioned: a repository with no worktree is exactly the row that offers to make one.
   const change = await runEffect(createChange({ id: "PROJ-OVER", branch: "PROJ-OVER-x", repos: [repo] }));
@@ -210,31 +209,4 @@ test("what cancelling leaves alone is said out loud", async () => {
   // loose ends are gathered from the extensions in load order, so ci's pull-request lines would
   // precede jira's ticket line.
   expect(result.loose).toContain("PROJ-LOOSE is still open in Jira");
-});
-
-test("a failing change:cancelling hook vetoes before the worktree goes", async () => {
-  const repo = await clonedRepo("cancel-veto");
-  const change = await runEffect(
-    createChange({ id: "PROJ-VETO-C", branch: "PROJ-VETO-C-x", repos: [repo] }),
-  );
-  await Effect.runPromise(
-    Effect.forEach(change.repos, (repo) => provisionRepo(change, repo), { concurrency: 1 }),
-  );
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-
-  const saved = loaded.splice(0, loaded.length);
-  install({
-    name: "veto-cancel",
-    title: "Veto",
-    events: { "change:cancelling": [() => Effect.fail(new TestError({ message: "hold on" }))] },
-  });
-  try {
-    await expect(runEffect(cancelChange(change))).rejects.toThrow("hold on");
-  } finally {
-    loaded.splice(0, loaded.length, ...saved);
-  }
-
-  // The veto came before the removal: the worktree is still there and the change is active.
-  expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
-  expect((await runEffect(readChange("PROJ-VETO-C")))?.state).toBe("In Progress");
 });

@@ -1,0 +1,112 @@
+{
+  "packages": {
+    "@corvi/contracts": {
+      "dependsOn": [],
+      "external": [
+        "effect"
+      ]
+    },
+    "@corvi/configuration": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/changes": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/repositories": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/terminals": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ],
+      "external": [
+        "effect"
+      ]
+    },
+    "@corvi/agents": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/shell": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/workflows": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/changes",
+        "@corvi/repositories",
+        "@corvi/terminals",
+        "@corvi/agents"
+      ]
+    },
+    "@corvi/client": {
+      "dependsOn": [
+        "@corvi/contracts"
+      ]
+    },
+    "@corvi/github": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/shell"
+      ]
+    },
+    "@corvi/jira": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/shell"
+      ]
+    },
+    "@corvi/azure-devops": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/github",
+        "@corvi/shell"
+      ]
+    },
+    "@corvi/server": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/configuration",
+        "@corvi/changes",
+        "@corvi/repositories",
+        "@corvi/terminals",
+        "@corvi/agents",
+        "@corvi/workflows",
+        "@corvi/client",
+        "@corvi/github",
+        "@corvi/jira",
+        "@corvi/azure-devops",
+        "@corvi/shell"
+      ],
+      "node": true
+    },
+    "@corvi/web": {
+      "dependsOn": [
+        "@corvi/client",
+        "@corvi/contracts",
+        "@corvi/changes",
+        "@corvi/terminals"
+      ]
+    },
+    "@corvi/desktop": {
+      "dependsOn": [
+        "@corvi/web",
+        "@corvi/contracts",
+        "@corvi/configuration"
+      ],
+      "node": true
+    }
+  }
+}

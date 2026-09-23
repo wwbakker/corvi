@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { Effect, Layer } from "effect";
-import { currentBranch } from "../src/vendors/git.ts";
-import { sh } from "../src/capabilities/shell.ts";
-import { Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
-import { workspaceById } from "../src/workspace/server/index.ts";
+import { soft } from "@corvi/shell/cli";
+import { CliError } from "@corvi/contracts/errors";
+import { currentBranch } from "../apps/server/src/vendors/git.ts";
+import { sh } from "../apps/server/src/capabilities/shell.ts";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
-import type { Workspace } from "../src/domain/config.ts";
+import type { Workspace } from "@corvi/configuration/config";
 
 /**
  * The fake-Shell seam: core integration code calls the module-level `sh`, which prefers a
@@ -26,7 +28,7 @@ describe("sh with a provided Shell", () => {
 });
 
 /**
- * Routes provide only the `Workspace` tag, no `Shell` (src/capabilities/web.ts), so the direct
+ * Routes provide only the `Workspace` tag, no `Shell` (apps/server/src/capabilities/web.ts), so the direct
  * path is production code: with no Shell in context `sh` must still spawn exactly as before.
  */
 test("with no Shell in context, sh spawns directly", async () => {
@@ -40,7 +42,7 @@ test("with no Shell in context, sh spawns directly", async () => {
 });
 
 /** The environment a CLI spawn gets: the scrubbed server env, with the workspace's own variables
- * on top (src/capabilities/env.ts). The test plants the launcher's variables in its own
+ * on top (apps/server/src/capabilities/env.ts). The test plants the launcher's variables in its own
  * environment, since the server they leak from is this suite's parent when it runs inside a pane
  * — which is exactly the leak the scrub exists for. */
 test("a CLI spawn inherits neither the launcher's variables nor passes them to the workspace's", async () => {
@@ -62,4 +64,28 @@ test("a CLI spawn inherits neither the launcher's variables nor passes them to t
     if (previous.electron === undefined) delete process.env.ELECTRON_RUN_AS_NODE;
     else process.env.ELECTRON_RUN_AS_NODE = previous.electron;
   }
+});
+
+test("soft: a CliError with an empty stderr still reports its message", async () => {
+  // The Result-branching contract keeps the sentence: "no Shell in context" and a timeout name
+  // themselves in `message`, not `stderr`, and dropping it here hands the page an empty line —
+  // which the transport boundary then renders as the error's type name.
+  const result = await Effect.runPromise(
+    soft(
+      Effect.fail(
+        new CliError({
+          tool: "gh",
+          command: "gh pr list",
+          stderr: "",
+          exitCode: 127,
+          message: "gh pr list failed: no Shell in context",
+        }),
+      ),
+    ),
+  );
+  expect(result).toEqual({
+    code: 127,
+    stdout: "",
+    stderr: "gh pr list failed: no Shell in context",
+  });
 });

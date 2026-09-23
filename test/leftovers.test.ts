@@ -3,10 +3,10 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { createChange, archiveChange, changeDir, readChange } from "../src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../src/vendors/git.ts";
-import { dispatchExtensionRoute } from "../src/extension-host/index.ts";
-import type { Leftover } from "../src/extensions/leftovers/shared.ts";
+import { createChange, archiveChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
+import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
+import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**
@@ -35,7 +35,7 @@ afterAll(async () => {
 
 /** The page's read, through the dispatcher; the request is the one the client makes. */
 const list = async (): Promise<Leftover[]> => {
-  const response = (await dispatchExtensionRoute(
+  const response = (await dispatchIntegrationRoute(
     new Request("http://localhost/api/ext/leftovers/list"),
   ))!;
   return (await response.json()) as Leftover[];
@@ -43,7 +43,7 @@ const list = async (): Promise<Leftover[]> => {
 
 /** The page's delete, through the dispatcher; the route's response is returned as it is. */
 const remove = (name: string): Promise<Response> =>
-  dispatchExtensionRoute(
+  dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/leftovers/list/${encodeURIComponent(name)}`, {
       method: "DELETE",
     }),

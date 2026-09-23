@@ -2,15 +2,15 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { electronBinary } from "../scripts/app/electron/binary.ts";
+import { electronBinary } from "@corvi/desktop/binary";
 import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * The server, on the runtime the app uses.
  *
  * The suite runs the server on Node, but the app runs it under Electron's own Node
- * (docs/decisions/node-server.md). This is the one test that proves the app's binary can do it
- * for real: the same `src/server.ts`, booted with
+ * (docs/manual/install.md). This is the one test that proves the app's binary can do it
+ * for real: the same `apps/server/src/server.ts`, booted with
  * `ELECTRON_RUN_AS_NODE=1` (Node's type stripping runs the TypeScript), serving its page — which
  * means esbuild built it inside that process — and answering an API call.
  *
@@ -18,7 +18,7 @@ import { testRun, testTempDir, waitForUrl } from "./helpers.ts";
  * (`corvi on <url>`) rather than a guess: a random port picked here once landed on a busy one, and
  * then the test said only "connection refused".
  *
- * The binary is found the way the app finds it (scripts/app/electron/binary.ts), not at a
+ * The binary is found the way the app finds it (apps/desktop/src/electron/binary.ts), not at a
  * hardcoded `dist/electron`: that path is Linux's alone, so on macOS this test — the only one
  * that runs the server on the runtime the app uses — skipped itself instead of failing.
  */
@@ -43,10 +43,10 @@ beforeAll(async () => {
     // The OS picks; the readiness line reports what it picked.
     CORVI_PORT: "0",
     // The one variable that turns Electron's binary into the Node that runs the server, which
-    // is what the app's window does (scripts/app/electron/main.ts).
+    // is what the app's window does (apps/desktop/src/electron/main.ts).
     ELECTRON_RUN_AS_NODE: "1",
   };
-  server = Bun.spawn([electron, "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn([electron, "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env,
     stdout: "pipe",
     stderr: "pipe",

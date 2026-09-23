@@ -4,12 +4,12 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   browse,
-  config,
+  runtimeConfig,
   remoteBranches,
   repositoriesDirectoryOf,
   resolveDirectory,
-} from "../src/workspace/server/index.ts";
-import type { Workspace } from "../src/domain/config.ts";
+} from "../apps/server/src/workspace/server/index.ts";
+import type { Workspace } from "@corvi/configuration/config";
 import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
 
 /**
@@ -19,15 +19,15 @@ import { fakeShell, runEffect, runWithShell } from "./helpers.ts";
  * be listed — so these tests are about what a listing contains, not about what it refuses.
  */
 let tmp: string;
-const original = config.repositoriesDirectory;
+const original = runtimeConfig().repositoriesDirectory;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-browse-"));
-  config.repositoriesDirectory = tmp;
+  runtimeConfig().repositoriesDirectory = tmp;
 });
 
 afterAll(async () => {
-  config.repositoriesDirectory = original;
+  runtimeConfig().repositoriesDirectory = original;
   await rm(tmp, { recursive: true, force: true });
 });
 

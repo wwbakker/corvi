@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ago } from "../src/domain/time.ts";
+import { ago } from "../apps/server/src/domain/time.ts";
 
 /**
  * How long ago a moment was, in words. Shared by the deployments page (which writes it into a

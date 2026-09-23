@@ -1,0 +1,27 @@
+import { Effect } from "effect";
+import { jiraFetch } from "./jiraHttp.ts";
+import type { Site } from "./jira.ts";
+import { BadRequestError } from "@corvi/contracts/errors";
+
+/**
+ * The account to assign to: whatever is configured, or the one the token belongs to. A name is
+ * not enough — Jira wants an account id — so a configured assignee is looked up.
+ */
+export const accountId = (
+  configured: string,
+  site: Site,
+): Effect.Effect<string | undefined, BadRequestError> =>
+  Effect.gen(function* () {
+    if (!configured.trim()) {
+      return (
+        yield* jiraFetch<{ accountId?: string }>("/rest/api/3/myself", { site })
+      ).accountId;
+    }
+    // Already an account id: Atlassian's are opaque strings, and a name never looks like one.
+    if (!configured.includes("@") && !configured.includes(" ")) return configured;
+    const found = yield* jiraFetch<{ accountId?: string; displayName?: string }[]>(
+      "/rest/api/3/user/search",
+      { site, query: { query: configured } },
+    );
+    return found[0]?.accountId;
+  });

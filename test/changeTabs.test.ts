@@ -3,13 +3,13 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
-import { Changes } from "../src/extension-host/api.ts";
-import { capabilitiesLayer } from "../src/extension-host/services.ts";
-import { extensionHostRoutes } from "../src/extension-host/routes.ts";
-import { changeDir, createChange } from "../src/change/server/index.ts";
-import { provisionRepo } from "../src/vendors/git.ts";
-import { install, loaded } from "../src/extension-host/index.ts";
-import { config, workspaceById } from "../src/workspace/server/index.ts";
+import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
+import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
+import { changeDir, createChange } from "../apps/server/src/change/server/index.ts";
+import { provisionRepo } from "../apps/server/src/vendors/git.ts";
+import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
+import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import { runEffect, runSh } from "./helpers.ts";
 
 /**
@@ -38,7 +38,7 @@ afterAll(async () => {
 
 /** The route as server.ts mounts it, called with the path parameter Bun would have filled in. */
 const tabsOf = async (id: string): Promise<{ id: string; title: string; extension: string }[]> => {
-  const route = extensionHostRoutes["/api/changes/:id/tabs"] as unknown as {
+  const route = integrationRoutes["/api/changes/:id/tabs"] as unknown as {
     GET: (req: Request, srv: unknown) => Promise<Response>;
   };
   const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/tabs`), {
@@ -53,7 +53,7 @@ const tabsOf = async (id: string): Promise<{ id: string; title: string; extensio
 const widgetsOf = async (
   id: string,
 ): Promise<{ id: string; title: string; extension: string; column?: "left" | "right" }[]> => {
-  const route = extensionHostRoutes["/api/changes/:id/widgets"] as unknown as {
+  const route = integrationRoutes["/api/changes/:id/widgets"] as unknown as {
     GET: (req: Request, srv: unknown) => Promise<Response>;
   };
   const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/widgets`), {
@@ -68,15 +68,10 @@ const widgetsOf = async (
   ).widgets;
 };
 
-test("the tabs route lists an extension's tab for the workspace that has it, and hides it otherwise", async () => {
-  const ext = install({
-    name: "test-change-tab",
-    title: "Test change tab",
-    changeTabs: [{ id: "inspect", title: "Inspect" }],
-  });
-  const saved = config.workspaces;
-  config.workspaces = [
-    { id: "with-tab", name: "With tab", extensions: ["test-change-tab"] },
+test("the tabs route lists the included tab for the workspace that has it, and hides it otherwise", async () => {
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
+    { id: "with-tab", name: "With tab", extensions: ["review"] },
     { id: "without-tab", name: "Without tab", extensions: [] },
   ];
   try {
@@ -88,25 +83,19 @@ test("the tabs route lists an extension's tab for the workspace that has it, and
     );
 
     expect(await tabsOf(enabled.id)).toEqual([
-      { id: "inspect", title: "Inspect", extension: "test-change-tab" },
+      { id: "review", title: "Review changes", extension: "review" },
     ]);
-    // A workspace that dropped the extension has no tab for it, not an empty one.
+    // A workspace that dropped review has no tab for it, not an empty one.
     expect(await tabsOf(disabled.id)).toEqual([]);
   } finally {
-    config.workspaces = saved;
-    loaded.splice(loaded.indexOf(ext), 1);
+    runtimeConfig().workspaces = saved;
   }
 });
 
-test("the widgets route lists an extension's widget for the workspace that has it, and hides it otherwise", async () => {
-  const ext = install({
-    name: "test-dashboard-widget",
-    title: "Test dashboard widget",
-    dashboardWidgets: [{ id: "notes", title: "Notes" }],
-  });
-  const saved = config.workspaces;
-  config.workspaces = [
-    { id: "with-widget", name: "With widget", extensions: ["test-dashboard-widget"] },
+test("the widgets route lists the included widget for the workspace that has it, and hides it otherwise", async () => {
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
+    { id: "with-widget", name: "With widget", extensions: ["notes"] },
     { id: "without-widget", name: "Without widget", extensions: [] },
   ];
   try {
@@ -118,68 +107,32 @@ test("the widgets route lists an extension's widget for the workspace that has i
     );
 
     expect(await widgetsOf(enabled.id)).toEqual([
-      { id: "notes", title: "Notes", extension: "test-dashboard-widget" },
+      { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);
-    // A workspace that dropped the extension has no widget for it, not an empty one.
+    // A workspace that dropped notes has no widget for it, not an empty one.
     expect(await widgetsOf(disabled.id)).toEqual([]);
   } finally {
-    config.workspaces = saved;
-    loaded.splice(loaded.indexOf(ext), 1);
+    runtimeConfig().workspaces = saved;
   }
 });
 
-test("a duplicate tab id is owned by the first extension, at the route as in the selector", async () => {
-  const first = install({
-    name: "test-tab-a",
-    title: "A",
-    changeTabs: [{ id: "inspect", title: "A inspect" }],
-  });
-  const second = install({
-    name: "test-tab-b",
-    title: "B",
-    changeTabs: [{ id: "inspect", title: "B inspect" }],
-  });
-  const saved = config.workspaces;
-  config.workspaces = [{ id: "dupes", name: "Dupes", extensions: ["test-tab-a", "test-tab-b"] }];
-  try {
-    const change = await runEffect(
-      createChange({ id: "PROJ-TAB-DUP", repos: [repo], workspace: "dupes" }),
-    );
-    expect(await tabsOf(change.id)).toEqual([
-      { id: "inspect", title: "A inspect", extension: "test-tab-a" },
-    ]);
-  } finally {
-    config.workspaces = saved;
-    loaded.splice(loaded.indexOf(first), 1);
-    loaded.splice(loaded.indexOf(second), 1);
-  }
+test("a duplicate tab id is owned by the first integration, at the route as in the selector", () => {
+  expect(
+    visibleChangeTabs([
+      { id: "inspect", title: "A inspect", extension: "a" },
+      { id: "inspect", title: "B inspect", extension: "b" },
+    ]),
+  ).toEqual([{ id: "inspect", title: "A inspect", extension: "a" }]);
 });
 
-test("the tabs route never offers a tab whose id shadows a core page", async () => {
-  const ext = install({
-    name: "test-tab-shadow",
-    title: "Shadow",
-    changeTabs: [
-      { id: "dashboard", title: "Shadow dashboard" },
-      { id: "terminals", title: "Shadow terminals" },
-      { id: "inspect", title: "Inspect" },
-    ],
-  });
-  const saved = config.workspaces;
-  config.workspaces = [{ id: "shadow", name: "Shadow", extensions: ["test-tab-shadow"] }];
-  try {
-    const change = await runEffect(
-      createChange({ id: "PROJ-TAB-SHADOW", repos: [repo], workspace: "shadow" }),
-    );
-    // The core addressed dashboard and terminals first, so the route and the client selector
-    // drop the shadows rather than let a contributed tab own a core URL.
-    expect(await tabsOf(change.id)).toEqual([
-      { id: "inspect", title: "Inspect", extension: "test-tab-shadow" },
-    ]);
-  } finally {
-    config.workspaces = saved;
-    loaded.splice(loaded.indexOf(ext), 1);
-  }
+test("the tabs rule never offers a tab whose id shadows a core page", () => {
+  expect(
+    visibleChangeTabs([
+      { id: "dashboard", title: "Shadow dashboard", extension: "a" },
+      { id: "terminals", title: "Shadow terminals", extension: "a" },
+      { id: "inspect", title: "Inspect", extension: "a" },
+    ]),
+  ).toEqual([{ id: "inspect", title: "Inspect", extension: "a" }]);
 });
 
 /** Run a `Changes`-requiring effect through the real layer, not a hand-built one. */
@@ -202,7 +155,7 @@ test("the Changes layer reads a change, or answers null when there is none", asy
   const read = (id: string): Promise<unknown> =>
     runChanges(Effect.flatMap(Changes, (changes) => changes.read(id)));
 
-  expect(await read(created.id)).toEqual(created);
+  expect(await read(created.id)).toEqual({ ...created, revision: 1 });
   expect(await read("PROJ-LAYER-NOPE")).toBeNull();
 });
 

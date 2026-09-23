@@ -4,26 +4,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
 import { Data, Effect, Layer, TestClock, TestContext } from "effect";
-import type { Workspace } from "../src/workspace/server/index.ts";
-import { capabilitiesLayer } from "../src/extension-host/services.ts";
-import type { Capabilities } from "../src/extension-host/api.ts";
-import { setRepos } from "../src/vendors/git.ts";
-import { sh, type Result } from "../src/capabilities/shell.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
-import { CacheLive, ChangesLive, SettingsLive } from "../src/extension-host/services.ts";
-import type { CliError } from "../src/capabilities/effect/errors.ts";
-import { toResponse } from "../src/capabilities/effect/http.ts";
-import { swr } from "../src/capabilities/cache.ts";
-import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import { cancelChange } from "../src/change/server/index.ts";
-import { fileDiff, localChanges } from "../src/extensions/review/server.ts";
-import type { LocalStatus } from "../src/extensions/review/shared.ts";
+import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
+import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
+import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
+import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
+import { setRepos } from "../apps/server/src/vendors/git.ts";
+import { sh, type Result } from "../apps/server/src/capabilities/shell.ts";
+import { Shell } from "@corvi/shell";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
+import { CacheLive, ChangesLive, GitFactsLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
+import type { CliError } from "@corvi/contracts/errors";
+import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
+import { swr } from "../apps/server/src/capabilities/cache.ts";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
+import type { LegacyFlatSettings } from "@corvi/jira/legacy";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import { cancelChange } from "../apps/server/src/change/server/index.ts";
+import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
+import type { LocalStatus } from "@corvi/contracts/integrations/review";
 import {
   deploy,
   versionsFor,
   type Buildable,
-} from "../src/extensions/azure-devops/server.ts";
+} from "@corvi/azure-devops/server";
 
 
 /** Whether this process has written the run's pid-file yet. */
@@ -69,13 +72,59 @@ export const testTempDir = async (label: string): Promise<string> => {
   return mkdtemp(join(tmpdir(), `corvi-${token}-${label}-`));
 };
 
+/** The process's config snapshot, with the flat keys older files still carry: the preserve
+ * decode keeps them on the object and `Config` does not type them. Production reads them where
+ * it needs them in its own package (`@corvi/jira/legacy`'s fallback); a test that asserts they
+ * survive a write reads them here, where the one cast lives. */
+export const legacyConfig = (): Config & LegacyFlatSettings =>
+  runtimeConfig() as Config & LegacyFlatSettings;
+
+/** The per-workspace legacy keys an older file still carries on an entry: the loader preserves
+ * them on read and no production type declares them, so a test that asserts one survived reads
+ * it here. */
+export type LegacyWorkspaceKeys = {
+  readonly jira?: unknown;
+  readonly azure?: unknown;
+};
+
+export const legacyWorkspace = (workspace: object): LegacyWorkspaceKeys =>
+  workspace as LegacyWorkspaceKeys;
+
+/** What a test may state on the config snapshot for a body: any resolved field, plus the
+ * preserved flat keys `legacyConfig` reads. */
+export type RuntimeConfigPatch = Partial<Config> & LegacyFlatSettings;
+
+/** Run `body` with `patch` applied to the one config object every module holds by reference,
+ * then put each patched key back exactly as it was — own property restored if the object had
+ * one, absent key removed if it did not — even when the body throws, so a failed expectation
+ * cannot leak a workspace into the next test. One body at a time: a file's tests run in order,
+ * so a test that patches wraps its own body rather than a hook. */
+export const withRuntimeConfig = async <T>(
+  patch: RuntimeConfigPatch,
+  body: () => Promise<T> | T,
+): Promise<T> => {
+  const config = runtimeConfig();
+  const saved = (Object.keys(patch) as (keyof RuntimeConfigPatch)[]).map(
+    (key) => [key, Object.getOwnPropertyDescriptor(config, key)] as const,
+  );
+  Object.assign(config, patch);
+  try {
+    return await body();
+  } finally {
+    for (const [key, descriptor] of saved) {
+      if (descriptor === undefined) delete (config as Record<string, unknown>)[key];
+      else Object.defineProperty(config, key, descriptor);
+    }
+  }
+};
+
 /** Environment for a spawned test server: the OS picks the port (`CORVI_PORT=0`), and every
  * path is the file's own tmp dir, so parallel workers share nothing — not the changes, the
  * config, the built page, the cache file, or the tmux socket. `TMUX` is removed rather than
  * overridden: inside a tmux session it wins over `TMUX_TMPDIR`, and every tmux command the
  * server runs — `kill-server` included — would reach the session you are working in.
  * `CORVI_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
- * sandboxes (docs/decisions/tmux-socket.md), so an inherited one would join this server to a
+ * sandboxes (docs/guides/testing.md), so an inherited one would join this server to a
  * foreign tmux server instead of the per-file socket above. A file that wants its own socket
  * sets it deliberately after the scrub, as terminal.test.ts does. */
 export const serverEnv = (
@@ -99,7 +148,7 @@ export const serverEnv = (
 };
 
 /** Read a spawned server's stdout until it says where it is listening (`corvi on <url>`,
- * src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
+ * apps/server/src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
  * own line rather than a poll: a random port picked here once landed on a busy one, and then
  * the test said only "connection refused" (test/node-runtime.test.ts). Rejects if the
  * server exits first, or says nothing within a minute. */
@@ -172,7 +221,7 @@ export const tmuxTempDir = async (): Promise<string> => {
  * The one seam between the Promise-shaped tests and the Effect API.
  *
  * The server's modules are Effects, and where a call shells out the environment comes from the
- * request's `Workspace` tag (src/capabilities/shell.ts). Tests are Promise-shaped by contract, so they run the
+ * request's `Workspace` tag (apps/server/src/capabilities/shell.ts). Tests are Promise-shaped by contract, so they run the
  * Effect here rather than through a request: this provides the capability services, the tag
  * included, and hands back a Promise. Nothing else in the test suite needs to know about layers.
  */
@@ -271,6 +320,7 @@ export const runWithShell = <A, E, R>(
         CacheLive,
         SettingsLive,
         ChangesLive,
+        GitFactsLive,
       ),
     ),
   );
@@ -294,6 +344,7 @@ export const runRouteWithShell = (
         CacheLive,
         SettingsLive,
         ChangesLive,
+        GitFactsLive,
       ),
     ),
   );
@@ -321,10 +372,10 @@ export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Pro
   );
 
 /** Editing a change's repositories, in the duck the tests read: the Effect API answers in a
- * tagged union (src/vendors/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
+ * tagged union (apps/server/src/vendors/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
-): Promise<{ change: import("../src/domain/change.ts").Change } | { needsForce: string[] }> => {
+): Promise<{ change: import("../apps/server/src/domain/change.ts").Change } | { needsForce: string[] }> => {
   const result = await runEffect(setRepos(...args));
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };

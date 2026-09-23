@@ -1,4 +1,4 @@
-import { config } from "../src/workspace/server/index.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,20 +11,16 @@ import {
   archiveChange,
   readChange,
   writeChange,
-} from "../src/change/server/index.ts";
-import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../src/vendors/git.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { provisionRepo, gitRun, repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../apps/server/src/vendors/git.ts";
 import { Effect } from "effect";
-import type { Change } from "../src/domain/change.ts";
-import type { TmuxWindow } from "../src/extension-host/api.ts";
-import type { PresentedWindow } from "../src/terminals/server/index.ts";
-import { runEffect, runSetRepos, runSh, TestError } from "./helpers.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
+import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
+import { runEffect, runSetRepos, runSh, withRuntimeConfig } from "./helpers.ts";
 
 let tmp: string;
 let repo: string;
-
-/** The key the stub title source claims a change by, from the bag the wizard writes. */
-const stubKey = (c: Change): string | undefined =>
-  (c.extensions?.["stub"] as { key?: string } | undefined)?.key;
 
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-"));
@@ -86,19 +82,22 @@ test("rejects duplicate ids, unsafe ids and changes without repositories", async
 
 test("completed changes move to the archive and stay listable", async () => {
   const change = await runEffect(createChange({ id: "PROJ-9", repos: [repo] }));
-  expect(await runEffect(listChanges())).toContainEqual(change);
+  // The record on disk carries the revision the write gave it; the created value is the draft.
+  expect(await runEffect(listChanges())).toContainEqual({ ...change, revision: 1 });
 
   await runEffect(archiveChange(change.id));
   expect(await Bun.file(join(changeDir(change.id), "change.json")).exists()).toBe(false);
   expect(await Bun.file(join(archiveDir(change.id), "change.json")).exists()).toBe(true);
 
   // Reading, writing and listing all still find it where it now lives.
-  expect(await runEffect(readChange(change.id))).toEqual(change);
+  expect(await runEffect(readChange(change.id))).toEqual({ ...change, revision: 1 });
   const completed = { ...change, completedAt: new Date().toISOString() };
   await runEffect(writeChange(completed));
-  expect(await runEffect(readChange(change.id))).toEqual(completed);
-  expect(await runEffect(listChanges())).toContainEqual(completed);
-  expect(await runEffect(listChanges())).not.toContainEqual(change);
+  // The write moved the record on again; the revision is why a transition decided on the old
+  // one would be refused instead of overwriting this.
+  expect(await runEffect(readChange(change.id))).toEqual({ ...completed, revision: 2 });
+  expect(await runEffect(listChanges())).toContainEqual({ ...completed, revision: 2 });
+  expect(await runEffect(listChanges())).not.toContainEqual({ ...change, revision: 1 });
 });
 
 test("a new worktree branches from the remote default, not a stale local main", async () => {
@@ -208,7 +207,7 @@ test("a change starts in progress and completing it is what sets Completed", asy
 });
 
 test("a repository used in place is linked and switched, dirty ones are left alone", async () => {
-  const { setRepos, isDirect } = await import("../src/vendors/git.ts");
+  const { setRepos, isDirect } = await import("../apps/server/src/vendors/git.ts");
   const clean = await makeRepo("clean");
   const dirty = await makeRepo("dirty");
   await Bun.write(join(dirty, "scratch.txt"), "half-finished work\n");
@@ -285,7 +284,7 @@ test("a completed change is listed once, even when its directory is left behind"
 
 
 test("a completion is only journaled once it will run", async () => {
-  const { completeChange, progressOf } = await import("../src/change/server/index.ts");
+  const { completeChange, progressOf } = await import("../apps/server/src/change/server/index.ts");
   const change = await runEffect(createChange({ id: "PROJ-EARLY", repos: [repo] }));
 
   // Nothing yet: a change that was never completed has no record at all.
@@ -302,7 +301,7 @@ test("a completion is only journaled once it will run", async () => {
 test("the overview counts windows that are running something, not windows", async () => {
   // Busy is a presented fact now: the merge in terminals/server/presenter.ts says which windows
   // are work.
-  const { presentWindow } = await import("../src/terminals/server/index.ts");
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
   const busy = (over: Partial<TmuxWindow>): boolean =>
     presentWindow({
       index: 0,
@@ -337,7 +336,7 @@ test("the overview counts windows that are running something, not windows", asyn
 test("an agent's own account of itself is read from the @agent_status pane option", async () => {
   // The agents extension answers for the window; what it leaves alone falls through to the
   // core's plain-terminal defaults.
-  const { presentWindow } = await import("../src/terminals/server/index.ts");
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
   const presented = (option: string): PresentedWindow =>
     presentWindow({
       index: 0,
@@ -358,72 +357,9 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   expect(presented("busy")).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
-test("a change is named after its ticket, and keeps that name when its vendor is not there", async () => {
-  const { refreshTitles } = await import("../src/change/server/index.ts");
-  const { install, loaded } = await import("../src/extension-host/index.ts");
-
-  // A stub source claiming every change that has a stub key, answering from a map the test
-  // controls.
-  const answers = new Map<string, string>();
-  const restore = loaded.splice(0, loaded.length);
-  install({
-    name: "stub",
-    title: "Stub",
-    titleSources: [
-      {
-        applies: (c) => Boolean(stubKey(c)),
-        lookup: (changes) => {
-          asked = changes.map((c) => stubKey(c)!);
-          return Effect.succeed(
-            new Map(
-              changes
-                .filter((c) => Boolean(stubKey(c) && answers.has(stubKey(c)!)))
-                .map((c) => [c.id, answers.get(stubKey(c)!)!]),
-            ),
-          );
-        },
-      },
-    ],
-  });
-
-  const named = await runEffect(
-    createChange({ id: "PROJ-NAMED", repos: [repo], extensions: { stub: { key: "PROJ-7" } } }),
-  );
-  const bare = await runEffect(createChange({ id: "PROJ-BARE", repos: [repo] }));
-
-  // Captured rather than asserted inside: refreshTitles treats a failing source as "the vendor
-  // is not answering", which would swallow the failure and pass the test for the wrong reason.
-  let asked: string[] = [];
-  answers.set("PROJ-7", "Split the invoice export");
-  const titles = await runEffect(refreshTitles());
-  // One question for the whole page, and only for changes that have a ticket at all.
-  expect(asked).toContain("PROJ-7");
-  expect(asked).not.toContain("PROJ-BARE");
-  expect(titles["PROJ-NAMED"]).toBe("Split the invoice export");
-  expect(titles["PROJ-BARE"]).toBeUndefined(); // no ticket: the page falls back to the branch
-
-  // Stored, so the list itself carries the name and the page needs no CLI call to draw.
-  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the invoice export");
-  expect((await runEffect(readChange(bare.id)))?.title).toBeUndefined();
-
-  // A renamed ticket is followed.
-  answers.set("PROJ-7", "Split the export in two");
-  await runEffect(refreshTitles());
-  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the export in two");
-
-  // A vendor that answers nothing — down, unauthenticated, ticket deleted — keeps the last name
-  // rather than falling back to a branch nobody recognises.
-  answers.clear();
-  const kept = await runEffect(refreshTitles());
-  expect(kept["PROJ-NAMED"]).toBe("Split the export in two");
-  expect((await runEffect(readChange(named.id)))?.title).toBe("Split the export in two");
-
-  loaded.splice(0, loaded.length, ...restore);
-});
-
 test("a change may be blocked, which is active but not workable", async () => {
-  const { CHANGE_STATES, isFinished } = await import("../src/domain/change.ts");
-  const { stateClass } = await import("../src/app-root/stateClass.ts");
+  const { CHANGE_STATES, isFinished } = await import("../apps/server/src/domain/change.ts");
+  const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");
 
   // The lifecycle, which the select offers in this order and the lists sort by; the overview
   // and the navigation column group `Ideation` into its own block rather than interleaving it.
@@ -446,93 +382,8 @@ test("a change may be blocked, which is active but not workable", async () => {
   expect(isFinished(blocked)).toBe(false);
 });
 
-test("a name you wrote yourself is not overwritten by the ticket's", async () => {
-  const { refreshTitles } = await import("../src/change/server/index.ts");
-  const { install, loaded } = await import("../src/extension-host/index.ts");
-
-  const answers = new Map<string, string>();
-  let asked: string[] = [];
-  const restore = loaded.splice(0, loaded.length);
-  install({
-    name: "stub",
-    title: "Stub",
-    titleSources: [
-      {
-        applies: (c) => Boolean(stubKey(c)),
-        lookup: (changes) => {
-          asked = changes.map((c) => stubKey(c)!);
-          return Effect.succeed(
-            new Map(
-              changes
-                .filter((c) => Boolean(stubKey(c) && answers.has(stubKey(c)!)))
-                .map((c) => [c.id, answers.get(stubKey(c)!)!]),
-            ),
-          );
-        },
-      },
-    ],
-  });
-
-  const change = await runEffect(
-    createChange({ id: "PROJ-NAME", repos: [repo], extensions: { stub: { key: "PROJ-8" } } }),
-  );
-
-  // Until you say otherwise, the ticket names the change.
-  answers.set("PROJ-8", "As the ticket puts it");
-  await runEffect(refreshTitles());
-  expect((await runEffect(readChange(change.id)))?.title).toBe("As the ticket puts it");
-
-  // Renaming it here says the name is yours: the ticket is not asked about any more.
-  await runEffect(writeChange({ ...(await runEffect(readChange(change.id)))!, title: "What it is really about", titleEdited: true }));
-  await runEffect(refreshTitles());
-  expect(asked).not.toContain("PROJ-8");
-  expect((await runEffect(readChange(change.id)))?.title).toBe("What it is really about");
-
-  loaded.splice(0, loaded.length, ...restore);
-});
-
-test("the summary gathers the core's terminals fact and the extensions' contributions", async () => {
-  const { summaryOf } = await import("../src/dashboard/server/index.ts");
-  const { install, loaded } = await import("../src/extension-host/index.ts");
-
-  const restore = loaded.splice(0, loaded.length);
-  install({
-    name: "stub-summary",
-    title: "Stub",
-    summaryContributions: [
-      {
-        facts: () =>
-          Effect.succeed({
-            facts: [{ id: "tickets", label: "1 ticket open", state: "warn" }],
-            state: "warn",
-          }),
-      },
-      // A contributor whose vendor is down: it contributes nothing, never a failed request.
-      { facts: () => Effect.fail(new TestError({ message: "down" })) },
-    ],
-  });
-
-  try {
-    // A change with a repository but no tmux session: nothing busy, nothing contributed
-    // except the stub's say-so.
-    const change = await runEffect(createChange({ id: "PROJ-SUMMARY", repos: [repo] }));
-    const summary = await Effect.runPromise(summaryOf(change));
-
-    // The core's own fact comes first, the contributed facts after it in load order — and the
-    // failing contributor is simply absent, not an error on the card.
-    expect(summary.facts).toEqual([
-      { id: "terminals", label: "terminals idle", state: "none" },
-      { id: "tickets", label: "1 ticket open", state: "warn" },
-    ]);
-    // The icon takes the worst of the verdicts that were offered; the failure offered none.
-    expect(summary.state).toBe("warn");
-  } finally {
-    loaded.splice(0, loaded.length, ...restore);
-  }
-});
-
 test("the icons take the worst of what the repositories say", async () => {
-  const { worst } = await import("../src/domain/widget.ts");
+  const { worst } = await import("../apps/server/src/domain/widget.ts");
   // One red build is what you want to know about, so it decides the colour; then one running.
   expect(worst(["ok", "error", "pending"])).toBe("error");
   expect(worst(["ok", "pending", "ok"])).toBe("pending");
@@ -544,7 +395,7 @@ test("the icons take the worst of what the repositories say", async () => {
 });
 
 test("every change's windows come back from one call, and other sessions are not ours", async () => {
-  const { changeOfSession } = await import("../src/terminals/server/index.ts");
+  const { changeOfSession } = await import("../apps/server/src/terminals/server/index.ts");
   // The navigation column lists the terminals of every change at once; asking tmux per change
   // would be a process per change every few seconds.
   expect(changeOfSession("corvi-PROJ-1")).toBe("PROJ-1");
@@ -555,12 +406,13 @@ test("every change's windows come back from one call, and other sessions are not
 });
 
 test("a change belongs to the context it was made in, and older ones to the first", async () => {
-  const { inWorkspace, workspaceOf, ALL } = await import("../src/workspace/client/workspaces.ts");
+  const { inWorkspace, workspaceOf, ALL } = await import("../apps/web/src/workspace/client/workspaces.ts");
   const workspaces = [
     { id: "client", name: "Acme" },
     { id: "personal", name: "Personal" },
   ];
-  const change = (id: string, workspace?: string): never => ({ id, workspace }) as never;
+  const change = (id: string, workspace?: string): { id: string; workspace?: string } =>
+    ({ id, workspace });
   const all = [change("PROJ-1", "client"), change("IWE-1", "personal"), change("OLD-1")];
 
   // No workspace: it belongs to the first one, the default when there is only one place for
@@ -578,51 +430,162 @@ test("a change belongs to the context it was made in, and older ones to the firs
 });
 
 test("a workspace decides which extensions a change has, and whose Jira and Azure they are", async () => {
-  const original = { ...config };
-  const { extensionEnabled, workspaceOf } = await import("../src/workspace/server/index.ts");
-  const { azureOf } = await import("../src/extensions/azure-devops/azure.ts");
-  const { extensionsFor, loaded } = await import("../src/extension-host/index.ts");
-  const { siteFor } = await import("../src/extensions/jira/jira.ts");
+  const { extensionEnabled, workspaceOf } = await import("../apps/server/src/workspace/server/index.ts");
+  const { azureOf } = await import("@corvi/azure-devops/azure");
+  const { extensionsFor, loaded } = await import("../apps/server/src/integrations/index.ts");
+  const { siteFor } = await import("@corvi/jira/jira");
   // Two contexts: a client with everything, and personal projects with neither. The personal
   // one names its extensions explicitly — enablement is the list, not a vendor flag.
-  (config as { workspaces: unknown }).workspaces = [
+  await withRuntimeConfig(
     {
-      id: "client",
-      name: "Acme",
+      workspaces: [
+        {
+          id: "client",
+          name: "Acme",
+          extensionSettings: {
+            "azure-devops": { organization: "https://dev.azure.com/one", project: "A" },
+          },
+        },
+        {
+          id: "personal",
+          name: "Personal",
+          extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "azure-devops"),
+        },
+      ],
+    },
+    () => {
+      const client = { id: "PROJ-1", workspace: "client" };
+      const personal = { id: "IWE-1", workspace: "personal" };
+      const old = { id: "OLD-1", workspace: undefined }; // no workspace: it belongs to the first one
+
+      // A personal project has no ticket, and being asked about one is noise and a CLI call: the
+      // jira extension is not there at all. The GitHub card stays either way.
+      expect(extensionsFor(workspaceOf(client)).some((e) => e.name === "jira")).toBe(true);
+      expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "jira")).toBe(false);
+      expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "github")).toBe(true);
+      // Enablement is the list: naming extensions without azure-devops means no pipelines.
+      expect(extensionEnabled(workspaceOf(personal), "azure-devops")).toBe(false);
+      expect(extensionEnabled(workspaceOf(personal), "github")).toBe(true);
+      expect(extensionEnabled(workspaceOf(client), "azure-devops")).toBe(true);
+
+      // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Both
+      // come from the extensions' own per-workspace settings; a workspace with none of them uses
+      // whatever the CLIs themselves have configured.
+      expect(azureOf(workspaceOf(client), runtimeConfig()).organization).toBe("https://dev.azure.com/one");
+      expect(siteFor(runtimeConfig(), "personal")).toEqual({});
+      expect(siteFor(runtimeConfig(), "client")).toEqual({});
+
+      // A change with no workspace belongs to the first workspace.
+      expect(workspaceOf(old).id).toBe("client");
+    },
+  );
+});
+
+test("a legacy write materializes the new link model", async () => {
+  const change: Change = {
+    id: "legacy-links",
+    branch: "legacy-links",
+    repos: [join(tmp, "repo-a"), join(tmp, "repo-b")],
+    direct: [join(tmp, "repo-b")],
+    state: "In Progress",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+  await Effect.runPromise(writeChange(change));
+  const record = (await Bun.file(join(changeDir(change.id), "change.json")).json()) as {
+    repositories?: { originalLocation: string; checkoutMethod: string }[];
+  };
+  expect(record.repositories?.map((link) => link.originalLocation)).toEqual(change.repos);
+  expect(record.repositories?.map((link) => link.checkoutMethod)).toEqual([
+    "UseNewLocationNewBranch",
+    "UseOriginalLocationNewBranch",
+  ]);
+});
+
+test("a change is named by its ticket, until you name it yourself", async () => {
+  const { refreshTitles } = await import("../apps/server/src/change/server/index.ts");
+  const { clearCache } = await import("../apps/server/src/capabilities/cache.ts");
+  const originalFetch = globalThis.fetch;
+  const originalWorkspaces = runtimeConfig().workspaces;
+  const originalToken = process.env.JIRA_API_TOKEN;
+  // A Jira that answers one ticket and then cannot answer at all, so both the naming and the
+  // stored name standing are exercised through the real title source.
+  let failing = false;
+  const asked: string[] = [];
+  process.env.JIRA_API_TOKEN = "secret";
+  runtimeConfig().workspaces = [
+    {
+      id: "jira-titles",
+      name: "Jira titles",
       extensionSettings: {
-        "azure-devops": { organization: "https://dev.azure.com/one", project: "A" },
+        jira: {
+          server: "https://example.atlassian.net",
+          email: "someone@example.com",
+          project: "PROJ",
+          board: "169",
+        },
       },
     },
-    {
-      id: "personal",
-      name: "Personal",
-      extensions: loaded.map((e) => e.name).filter((n) => n !== "jira" && n !== "azure-devops"),
-    },
   ];
+  globalThis.fetch = ((input: RequestInfo | URL) => {
+    const url = new URL(String(input));
+    asked.push(url.pathname);
+    if (failing) return Promise.resolve(new Response("down", { status: 500 }));
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          issues: [
+            { key: "PROJ-7", fields: { summary: "Split the invoice export", status: { name: "In Progress" } } },
+          ],
+        }),
+        { status: 200 },
+      ),
+    );
+  }) as typeof fetch;
 
-  const client = { id: "PROJ-1", workspace: "client" } as never;
-  const personal = { id: "IWE-1", workspace: "personal" } as never;
-  const old = { id: "OLD-1" } as never; // no workspace: it belongs to the first one
+  try {
+    const change = await runEffect(
+      createChange({
+        id: "PROJ-NAMED",
+        repos: [repo],
+        workspace: "jira-titles",
+        extensions: { jira: { key: "PROJ-7" } },
+      }),
+    );
+    await runEffect(refreshTitles());
+    expect((await runEffect(readChange(change.id)))?.title).toBe("Split the invoice export");
+    expect(asked).toContain("/rest/api/3/search/jql");
 
-  // A personal project has no ticket, and being asked about one is noise and a CLI call: the
-  // jira extension is not there at all. The GitHub card stays either way.
-  expect(extensionsFor(workspaceOf(client)).some((e) => e.name === "jira")).toBe(true);
-  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "jira")).toBe(false);
-  expect(extensionsFor(workspaceOf(personal)).some((e) => e.name === "github")).toBe(true);
-  // Enablement is the list: naming extensions without azure-devops means no pipelines.
-  expect(extensionEnabled(workspaceOf(personal), "azure-devops")).toBe(false);
-  expect(extensionEnabled(workspaceOf(personal), "github")).toBe(true);
-  expect(extensionEnabled(workspaceOf(client), "azure-devops")).toBe(true);
+    // A vendor that cannot answer leaves the stored name standing, not blanked.
+    clearCache();
+    failing = true;
+    await runEffect(refreshTitles());
+    expect((await runEffect(readChange(change.id)))?.title).toBe("Split the invoice export");
 
-  // Whose Azure DevOps, and whose Jira: what makes two clients possible rather than one. Both
-  // come from the extensions' own per-workspace settings; a workspace with none of them uses
-  // whatever the CLIs themselves have configured.
-  expect(azureOf(workspaceOf(client), config).organization).toBe("https://dev.azure.com/one");
-  expect(siteFor("personal")).toEqual({});
-  expect(siteFor("client")).toEqual({});
+    // A name you wrote yourself is yours: the ticket is not asked about any more.
+    failing = false;
+    const current = (await runEffect(readChange(change.id)))!;
+    await runEffect(writeChange({ ...current, title: "What it is really about", titleEdited: true }));
+    const before = asked.length;
+    await runEffect(refreshTitles());
+    expect(asked.length).toBe(before);
+    expect((await runEffect(readChange(change.id)))?.title).toBe("What it is really about");
+  } finally {
+    globalThis.fetch = originalFetch;
+    runtimeConfig().workspaces = originalWorkspaces;
+    if (originalToken === undefined) delete process.env.JIRA_API_TOKEN;
+    else process.env.JIRA_API_TOKEN = originalToken;
+  }
+});
 
-  // A change with no workspace belongs to the first workspace.
-  expect(workspaceOf(old).id).toBe("client");
+test("a legacy write moves the record's revision", async () => {
+  const change = await runEffect(createChange({ id: "revision-legacy", repos: [repo] }));
+  const readRecord = async (): Promise<{ revision?: number }> =>
+    (await Bun.file(join(changeDir("revision-legacy"), "change.json")).json()) as {
+      revision?: number;
+    };
+  expect((await readRecord()).revision).toBe(1);
 
-  (config as { workspaces: unknown }).workspaces = original.workspaces;
+  await runEffect(writeChange({ ...change, title: "Renamed by hand" }));
+  expect((await readRecord()).revision).toBe(2);
+  expect((await runEffect(readChange("revision-legacy")))?.title).toBe("Renamed by hand");
 });

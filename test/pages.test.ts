@@ -3,7 +3,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
-import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../src/domain/chrome.ts";
+import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
 /**
  * Every page, in the engine the app renders in.
@@ -53,7 +53,7 @@ beforeAll(async () => {
   // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
-  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp, { CORVI_REPOSITORIES_DIRECTORY: tmp }),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
@@ -157,7 +157,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
     effective: { contextMenu: boolean };
   };
   // The Jira fields are the extension's own now, stored under its name rather than as
-  // top-level config keys (src/extension-host/index.ts migrates top-level keys on load).
+  // top-level config keys (apps/server/src/integrations/index.ts migrates top-level keys on load).
   expect(written.file.extensionSettings?.jira?.doneTransition).toBe("Ready for release");
   expect(written.file.contextMenu).toBe(true);
   expect(written.effective.contextMenu).toBe(true);
@@ -207,6 +207,19 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   const statusBox = await status.boundingBox();
   if (!docBox || !statusBox) throw new Error("the dashboard's columns did not lay out");
   expect(statusBox.x).toBeGreaterThanOrEqual(docBox.x + docBox.width);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the checkouts card reads the change's repositories through the typed client", async () => {
+  // The first browser consumer of the new slice: the card fetches the typed operation, decodes
+  // the DTO, and shows the projected state and the branch the worktree actually holds.
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  const card = page.locator('[data-testid="checkouts"]');
+  await card.locator(".checkout-row").first().waitFor();
+  expect(await card.locator(".checkout-name").first().innerText()).toBe("example-api");
+  expect(await card.locator(".checkout-state").first().innerText()).toBe("Active");
+  expect(await card.locator(".checkout-detail").first().innerText()).toContain(`${id}-x`);
   await page.close();
 }, 30_000);
 
@@ -284,7 +297,7 @@ test.skipIf(!usable)("a read from the change you left does not land on the one y
 
 test.skipIf(!usable)("the change's own row is the page's first, and it stays there", async () => {
   // The terminals are the window's title bar in the app, which is the page's first row whether or not
-  // a host is there (docs/decisions/window-titlebar.md): full-bleed, and one height everywhere so it
+  // a host is there (docs/manual/interface.md): full-bleed, and one height everywhere so it
   // lines up with the column beside it. The change's own name is not in it — the column's entry says
   // it, and so does the window's title.
   await fetch(`${url}/api/changes/${id}`, {
@@ -297,7 +310,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   await strip.locator(".window-tab.overview").waitFor();
 
   expect(await strip.locator(".subject").count()).toBe(0);
-  // The name went to the window's title (src/app-root/app.tsx), which the OS window switcher reads:
+  // The name went to the window's title (apps/web/src/app-root/app.tsx), which the OS window switcher reads:
   // it arrives with the change's record rather than with the page, so it is waited for.
   await page.waitForFunction(() => document.title === "Anonymise customer names");
   expect(await page.title()).toBe("Anonymise customer names");
@@ -340,9 +353,9 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
 }, 30_000);
 
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
-  // The host bridge is what says the page is inside the app window (src/domain/host.ts), and only
+  // The host bridge is what says the page is inside the app window (apps/web/src/domain/host.ts), and only
   // then is the first row chrome as well: what you drag the window by, and clear of the traffic
-  // lights the main process placed in it (docs/decisions/window-titlebar.md). Injected rather than
+  // lights the main process placed in it (docs/manual/interface.md). Injected rather than
   // driven through Electron, because the page's half of the contract is what is being checked — the
   // lights' pixels are the main process's, and only a real window has those.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -371,7 +384,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   expect(await region(".change-bar")).toBe("drag");
   // The row is the window's and nothing else is in it: no name to click, and the terminals' tabs are
   // controls — their own drag reorders them. Renaming is an action in the menu in the row below,
-  // which is not part of the drag region at all (docs/decisions/window-titlebar.md).
+  // which is not part of the drag region at all (docs/manual/interface.md).
   expect(await strip.locator(".subject").count()).toBe(0);
   expect(await region(".change-bar .window-tab")).toBe("no-drag");
 
@@ -411,7 +424,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
   await page.close();
 }, 30_000);
 test.skipIf(!usable)("the name is renamed from the actions menu", async () => {
-  // Renaming is an action in the change's own row (docs/decisions/window-titlebar.md): the menu's
+  // Renaming is an action in the change's own row (docs/manual/interface.md): the menu's
   // Rename change opens a field beside the state and the actions, and what it is given is what the
   // column's entry and the window's title say afterwards.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -450,7 +463,7 @@ test.skipIf(!usable)("New starts an idea from the column or the overview", async
 
 test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard", async () => {
   // The promise this change is about: leaving /new loses nothing. The form lives in the App
-  // (src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
+  // (apps/web/src/wizard/draft.ts), and the column's row under Ideas is the way back to it.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(url, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".change-card");
@@ -527,7 +540,7 @@ test.skipIf(!usable)("the overview stays current while one of its own tabs is sh
 }, 30_000);
 
 test.skipIf(!usable)("the right-click menu follows the setting", async () => {
-  // Two worlds, one setting (docs/decisions/host-context-menu.md). The host draws the menu in the
+  // Two worlds, one setting (docs/manual/interface.md). The host draws the menu in the
   // app — Electron has none of Chromium's own — and here the page is what can be checked: with the
   // setting off, a right-click the page does not handle is cancelled, which is what "no menu" means
   // in a browser and what keeps the click from reaching the host at all.

@@ -1,229 +1,217 @@
 # Architecture
 
-> **Kind:** guide · **Status:** active
+Status: accepted and implemented. The layout below is the workspace as checked;
+`bun run boundaries` enforces the declared graph. The [decisions](../decisions/architecture.md)
+record scope and rationale.
 
-Corvi is one server process — Electron's Node in the app and in development (`bun run dev` starts
-it with `node --watch`; [`../decisions/node-server.md`](../decisions/node-server.md),
-[`../decisions/node-pty-terminal.md`](../decisions/node-pty-terminal.md)) — that serves an HTTP
-API and a
-React page, talks to the vendors' own CLIs (`git`, `gh`, `az`, `tmux`) and to Jira over its REST
-API, and keeps
-its only state in one directory per change (`~/corvi/changes/<id>/`). Everything else is read live and
-cached in [`src/capabilities/cache.ts`](../../src/capabilities/cache.ts).
+## Structure
 
-## Layers
+Corvi is a modular application around a change, its repositories, terminals, and agents.
+Capabilities own coherent domains. Workflows compose capabilities into application behavior.
+Integrations implement external-system behavior. Applications assemble, expose, and present it.
 
-```
-src/
-  server.ts            node:http: composes the modules' route tables, /api/ext/:name/* dispatch,
-                       SSE, the terminal socket
-  change/              the change module: model.ts (the edit rule the halves share), server/
-                       (schema, store, create, start, complete, cancel, titles, description,
-                       plan, index.ts), routes.ts (its HTTP table). No UI.
-  dashboard/           the dashboard tab: server/ (summary.ts composes change, terminal and the
-                       host; index.ts is the face), client/ (WidgetCard, WidgetRows,
-                       PerRepoCard, CompletionCard, EditReposDialog), routes.ts (the summary route)
-  change-page/         the change shell: client/ (ChangeView, changeTabs, PlanCard,
-                       CancelDialog, CompleteAnywayDialog, refusals) composes the dashboard,
-                       the extension tabs and the terminal; owns no data
-  wizard/              /new: Wizard.tsx, and index.ts (the face)
-  terminals/           the terminal module: model.ts (the new-window key and the CSI-u sequences
-                       page and server share), server/ (tmux sessions and windows, the pty and
-                       its socket bridge, the presenter merge), client/ (the terminal pane,
-                       tabs, cheat sheet), routes.ts (the terminal socket and the window API)
-  workspace/           the workspace module: model.ts (Entry, the repository-browser row),
-                       server/ (config loader, file schema, workspace resolution, repository
-                       browser), client/ (the switcher, WorkspaceCard, RepoBrowser and the
-                       directory listing and picker it shares with the settings page),
-                       routes.ts (the repo browser and the workspaces list)
-  settings/            the settings module: model.ts (Settings, SettingsView), server/ (settings
-                       page read/write, legacySettings), client/ (SettingsPage, SettingsFields),
-                       routes.ts (the settings file route)
-  domain/              the pure vocabulary: change.ts, widget.ts, terminal.ts, time.ts, config.ts
-                       (Workspace and the resolved Config as well as the ConfigFile shape),
-                       settings.ts (the extension-declared setting shapes), host.ts, chrome.ts
-  capabilities/        the substrate everything stands on: effect/ (errors, http, run, support,
-                       tags), serve.ts (the node:http route server), files.ts (file reads and
-                       writes), identity.ts (the product name, the CORVI_ environment prefix and
-                       the path defaults), shell.ts, cache.ts, bus.ts (the SSE hub, the watcher
-                       and the stream's routes), web.ts, os.ts
-  extension-host/      the extension contract and its machinery: api.ts (and api/*.ts),
-                       registry.ts, discover.ts, selectors.ts, effects.ts, dispatch.ts,
-                       services.ts, clientChunks.ts, vendor-jsx.ts, client.tsx (the page's
-                       client-side registry and the extension UI contract), migrate.ts, index.ts,
-                       routes.ts (wizard, pages, ext dispatch, card/tab endpoints, extension
-                       client and vendor chunks)
-  vendors/             vendor CLI wrappers (git, github, stacks)
-  extensions/          the built-ins (agents, git, github, jira, github-issues, azure-devops,
-                       leftovers, review, notes)
-  app-root/            the browser shell and runtime, bundled by esbuild from client.ts (the
-                       dev watcher and the production build): index.html, styles.css, app.tsx
-                       (the shell, changes list, URL↔view), state.ts, prefs.ts, poll.ts,
-                       events.ts, api.ts, cache.ts, Sidebar.tsx, ChangeCard.tsx, ActionsMenu.tsx,
-                       icons.tsx and icons/, moment.ts, stateClass.ts, Progress.tsx,
-                       LifecycleFailures.tsx, notify.tsx, host.ts, contextMenu.ts, routes.ts
-                       (the icons and the /* fallback)
+```text
+apps/
+  server/                 HTTP/SSE/WebSocket hosting and backend composition
+  web/                    React application and browser platform adapter
+  desktop/                Electron host and native platform adapter
+packages/
+  contracts/              shared boundary schemas and values
+  configuration/          configuration and workspace resolution
+  changes/                change records, lifecycle rules, documents and storage
+  repositories/           Git repositories, branches, worktrees and local review
+  terminals/              terminal sessions, windows and attachment
+  agents/                 Corvi-facing agent-session capabilities
+  shell/                  subprocess execution capability
+  workflows/              application operations and their required provider ports
+  client/                 typed network operations for browser consumers
+integrations/
+  github/                 pull requests, issues, checks and stacks
+  jira/                   Jira issues and transitions
+  azure-devops/           pipelines, builds and deployments
 ```
 
-The rest of the tree:
+All entries under `apps/*`, `packages/*`, and `integrations/*` are ordinary Bun workspaces once
+extracted. Integrations have no special loader or privilege level. Create packages when their
+responsibility is implemented; do not scaffold empty future packages. Corvi's Pi reporter is the
+one integration outside the workspaces: `pi/agent-state.ts` runs inside Pi and is installed into
+Pi's extensions directory by `scripts/extension.ts`.
 
+Git, worktrees, and changes are fundamental. GitHub is not. Keep Git semantics explicit rather
+than inventing a generic version-control framework. Do not create a universal provider API for
+unrelated issue, build, and agent operations.
+
+## Ownership
+
+| Owner | Owns | Does not own |
+| --- | --- | --- |
+| `contracts` | Shared IDs, decoded values, request/response/event schemas and transport declarations | Services, I/O, global state, native imports, every package's internal types |
+| `configuration` | Validated configuration snapshots, workspace selection, precedence and updates | Integration execution or a mutable singleton configuration object |
+| `changes` | Change invariants, persistence, archive location, plan/notes documents and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
+| `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs and commits | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
+| `terminals` | Session/window identity, input, attachment and owned PTY resources | Agent conversation identity, change transitions or notifications policy |
+| `agents` | Corvi-facing session identity, supported capabilities, prompts and status | A provider's SDK types or the assumption that every agent is a terminal |
+| `workflows` | Create/start/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
+| `integrations/*` | External authentication, transport, decoding and provider-specific operations | Change lifecycle policy, HTTP handlers for Corvi, or rendering cards |
+| `client` | Named network operations, decoding, cancellation and transport failures | Backend implementation imports or application startup |
+| Applications | Concrete wiring, hosting, native capabilities and presentation | Duplicated domain rules |
+
+Configuration receives integration setting definitions through composition; it does not import
+all integrations. Persisted provider metadata has a named owner and codec. Removing the plugin
+host must not remove notes, tickets, settings, or other included functionality.
+
+## Dependency graph
+
+`A -> B` means A imports B. These are allowed categories, not a requirement to depend on every
+listed package. Manifests declare only actual dependencies.
+
+```text
+contracts -> Effect schema/data utilities only
+configuration -> contracts
+changes -> contracts
+repositories -> contracts
+terminals -> contracts
+agents -> contracts
+shell -> contracts
+workflows -> contracts, configuration, changes, repositories, terminals, agents
+integrations/* -> contracts, configuration, shell, relevant capability APIs, workflows/ports
+client -> contracts
+apps/server -> workflows, capabilities, integrations, contracts
+apps/web -> client, contracts, changes, terminals
+apps/desktop -> web's public host contract, contracts, configuration
 ```
-pi/agent-state.ts           pi extension: publishes working/waiting to tmux
-scripts/app.ts              installs the app: macOS .app, or Linux entry + launcher
-scripts/app/electron/       the window: main.ts and preload.ts, built into main.cjs by build.ts
-scripts/app/mac.ts linux.ts the platform installs
-scripts/app/run.ts drive.ts app:run (from the checkout) and app:drive (Playwright)
-scripts/clean-test.ts       ends what a test run left behind, by ownership
-test/                       the suite; test/terminal.test.ts drives a real pty and tmux
+
+`shell` is the subprocess capability: any layer that runs a CLI may depend on it (repositories,
+terminals, agents, workflows, `integrations/*`, `apps/server`). The provider's environment,
+limits and tracing stay with the host that constructs the Node implementation.
+
+The browser application is built ahead of time: `bun run build:web` bundles `apps/web/src` into
+`apps/web/dist`, and `apps/server` serves that directory (`CORVI_WEB_DIST` names another one).
+The server does not import the web application, and the desktop host imports `@corvi/web`'s
+public host contract (`./host`, `./chrome`) rather than reaching into its sources.
+
+Packages may use appropriate external libraries; OS implementations belong behind their owner's
+adapter entrypoint. Applications may import Node built-ins directly — `apps/server` hosts the
+process and the native capabilities, and `apps/desktop` is the Electron host — while `apps/web`
+is browser-only and extracted packages keep OS implementations behind their owner's `node`
+adapter entrypoint (`src/node/`). The checked graph records an application's right to Node as
+`"node": true` on its rule (`architecture.json`). Backend capabilities can require existing
+Effect platform services. Do not
+create a catch-all `core`, `common`, or `utils` workspace to bypass ownership.
+
+**Provider inversion:** when a workflow needs a provider-independent operation such as inspecting
+or merging a pull request, define the narrow port under `workflows/ports`. An integration implements
+that port; the server supplies its Layer. A port entrypoint must not load workflow implementations.
+Workflows never import a concrete integration. Agent-provider ports belong to `agents`, not to a
+second agent model in workflows.
+
+An integration may depend on another integration's public capability when it genuinely builds on
+that behavior. Record the specific edge in the checked graph and obtain approval; never introduce
+a reverse edge or a blanket integration-to-integration exemption. Extract a shared capability only
+when it represents a real concept, not merely to make a cycle disappear.
+
+Desktop starts the server as a process boundary, not by importing the server application. Its
+platform adapter implements the web app's host contract. Frontend features do not import integration
+backend packages, including their types; shared public values belong in contracts.
+
+## Enforced package boundaries
+
+Required as packages are extracted:
+
+- Use `workspace:*` dependencies, a committed lockfile, and a shared catalog for common versions.
+- Export explicit public entrypoints. Do not export `./*`, expose every implementation through a
+  root barrel, or add an export just because a test wants an internal function.
+- Cross-package imports use package names. Ban relative/absolute source-path imports and
+  TypeScript aliases that bypass exports. Apply the graph to type-only and dynamic imports too.
+- Record allowed edges and external allowlists in the root `architecture.json`; `bun run boundaries`
+  checks resolved imports against it and reports cycles, rules without packages, undeclared
+  dependencies, deep imports, relative escapes, and forbidden built-ins.
+- Check resolved dependencies for forbidden edges and cycles. Package manifests alone are not
+  enforcement; hoisting can hide undeclared dependencies.
+- Bundle browser entrypoints in tests and reject Node, PTY, backend and unintended integration
+  runtime inputs. Smoke-test package resolution under Node and Electron's Node.
+- Keep public interface/model entrypoints separate from adapters that load native modules.
+
+The checked graph (`architecture.json`, `scripts/architecture.ts`) enforces these rules for
+extracted workspaces, with negative fixtures proving it rejects violations. Do not disable a
+failing rule without replacing its protection; migrate enforcement with the package it protects.
+
+## Layout within a package
+
+Group by concept rather than file kind or one file per operation:
+
+```text
+repositories/src/
+  worktrees/
+    service.ts
+    model.ts
+    errors.ts
+    internal/
+      git-worktrees.ts
+      parse-worktrees.ts
+  branches/
+  status/
+  node/
+    layer.ts
 ```
 
-The extension host (`src/extension-host/index.ts`) loads built-ins and out-of-tree modules through
-the same install path and answers the core's one question — which extensions exist for this
-workspace — with a filtered list. See [`extensions.md`](extensions.md) for the contract.
+A cohesive module may contain several related operations. Split when a distinct concept or
+boundary becomes clearer, not to reach a file-count or line-count target. Tests may inspect
+package-local implementation details without publishing them.
 
-## Where a feature's code lives
+Browser code lives in `apps/web/src`, grouped by feature: `change-page`, `dashboard`,
+`settings`, `terminals`, `wizard` and `workspace` each keep that feature's views, state and
+request hooks together, with its browser half under `client/` (at the directory root for
+`wizard`). Where a feature has vocabulary of its own, a `model.ts` beside the half re-exports
+the contract it lives in, as `settings/model.ts` and `workspace/model.ts` do. The server half
+sits in the like-named directory under `apps/server/src` where the feature has one — `settings/server`, `terminals/server`,
+`dashboard/server`, `workspace/server` — and `change-page` and the wizard are answered by the
+change capability (`apps/server/src/change/server`) instead. Add a deeper group once a
+feature's browser half grows a second distinct concept, the way a package does above.
+`app-root` is the page's composition root and holds the pieces every feature draws from —
+navigation, icons, action menus. `domain` holds the pure vocabulary shared between features:
+no I/O, no Effect, no ambient process. `integrations` holds the included integrations'
+browser halves, `client.tsx` composing each `<name>/client.tsx`; `node` is the script that
+bundles the tree ahead of time, not browser code. `bun run lint` enforces the half boundary:
+a browser half may import a server module only with `import type`, which erases before the
+bundle sees it.
 
-The rule, applied in `azure-devops` and `github`, so a feature is not a scavenger hunt across four
-directories:
+## Composition and execution
 
-- **`src/extensions/<name>/`** — the declaration, its wiring, and the feature's own
-  implementation and client half. `azure-devops/server.ts`, `azure-devops/pipelines.ts` and
-  `github/checks.ts` are colocated this way, and so are `review/server.ts` (the git surface)
-  and its `client.tsx`, and `notes/server.ts` (the `ExtensionStore` surface) and its `client.tsx`.
-- **`src/vendors/`** — vendor clients genuinely shared by more than one feature: `github.ts`
-  (the core's `complete`/`description` + the github and azure-devops extensions) and `git.ts`
-  (the core + the git extension).
-- **`src/capabilities/`** — the substrate, not a feature: the Effect runtime
-  plumbing and the capabilities (`shell`, `cache`, `bus`, `web`, `os`) every module runs on.
-- **top-level `src/*.ts`** — `server.ts`, the composition root.
+The server builds Layers, selects integrations for configured workspaces, supplies their ports,
+and starts listeners and background work inside an application scope. Importing a package does
+none of this. Use ordinary Effect Layers; no custom service-graph compiler is required.
 
-A feature's pure vocabulary and its settings live with it: `azure-devops/deployConventions.ts`
-is needed by both that extension's server and browser halves, and
-`azure-devops/deploySettings.ts` is the extension's own read of the settings it declares, so
-both sit beside them. The extension's `azure.ts` holds the organisation-and-project chain
-(`azureOf`); its `pipelines.ts` holds the per-change pipeline facts (`pipelineItems`,
-`activeRuns`).
+**Complete a change:** a workflow reads the change, evaluates repository and provider readiness,
+records progress, performs ordered provider steps, removes safe worktrees, stops the owned terminal,
+and archives the change. Repositories receive concrete repository/worktree inputs, not the whole
+Change. The workflow gets paths from the change owner. HTTP only decodes, invokes, and encodes;
+the UI renders results and asks for confirmation.
 
-`src/workspace/server/workspaces.ts` names no vendor — it only answers `extensionEnabled`,
-the generic enablement every surface uses.
+**Run an action:** a button or status-transition workflow invokes the same typed application
+operation. Distinguish a process command, terminal input, agent prompt, and provider skill; do not
+collapse them to `execute(string)`. Storage never triggers these operations implicitly. Retry,
+failure, and duplicate handling require an explicit policy before status automation is implemented.
 
-Git cannot be colocated while `src/vendors/git.ts` is shared by the core and the git
-extension. Item 5 of [`../plans/archive/refactor-plan.md`](../plans/archive/refactor-plan.md) records this
-scope. `src/vendors/github.ts` stays shared for the same reason: the core's `complete` and
-`description` read the pull request through it, and the github and azure-devops extensions
-read their halves through the contract's `Changes` capability.
+## Sessions and lifetimes
 
-## What stays core
+- An application owns configuration services, caches, integration instances, and background tasks.
+- Workspace-specific credentials and configuration are explicit values or scoped service instances,
+  never whichever workspace a browser most recently selected.
+- A request or attachment owns its cancellation and acquired resources.
+- A terminal session is distinct from its PTY/browser attachment. Detaching must not kill a tmux
+  session intended to survive the application.
+- An agent conversation has its own provider/session identity; its terminal association is optional.
 
-A thing is core only if it meets at least one of these:
+Reattaching a live terminal, recreating a stopped process, and resuming an agent conversation are
+separate operations. Their initial product scope remains a [decision gate](../decisions/architecture.md).
 
-1. **It owns persisted state or an external session.** The `change.json` and `config.json`
-   schemas, archive semantics, the change directory, tmux sessions and the ptys attached to them.
-2. **It defines vocabulary that crosses a boundary** — server↔browser or core↔extensions. The
-   `Change` DTO, `Widget`/`SummaryFact`, completion steps, the error taxonomy.
-3. **It is a trust or capability boundary.** `Shell`, `Workspace`, `ExtensionStore`, the origin
-   guard, HTTP/SSE.
-4. **It is the composition root** — it decides when contributions run and merges them: the
-   dashboard, the wizard shell, the completion journal, the sidebar shell, the extension host.
+## Integrations
 
-The consequences are worth stating because they settle arguments:
+Included integrations are statically composed. Per-workspace enablement and declarative action or
+setting definitions remain useful, but do not require a universal contribution registry. Missing
+optional integrations report their availability; they do not silently masquerade as empty data.
 
-- The change **dashboard is core even though every card on it is an extension**: it composes and
-  merges — the server-drawn cards and the client-drawn widgets alike. "Review changes" moved
-  behind the change-tab contract precisely because it is a bounded git surface, not a
-  composition; notes moved behind the dashboard-widget contract precisely because a textarea's
-  client state is not a server-drawn card.
-- The **sidebar is core as a shell**; its entries (workspaces, changes, pages, windows) are
-  data the server sends. The **change page is core as a shell** too: it composes the core's
-  Dashboard with the change tabs its workspace's extensions contribute — the review extension's
-  "Review changes" among them — and resolves a tab id nobody offers back to the dashboard.
-- **Terminal presentation is extensible; tmux itself, and the pty that attaches it, are core
-  furniture.**
-- The **git worktree engine is core.** Extensions act on changes; they do not create them.
-
-Deliberately not core: tmux internals, node-pty, the git engine, and any native functionality. The
-native hosts provide capabilities (`notify`, dialogs, external links, window lifecycle), which
-extensions consume; no module ships per-platform code. A client-side `Host` capability would
-follow the server's `Shell`/`Workspace` pattern when it lands.
-
-## Dependency rules
-
-- **`domain/**` imports nothing that runs** — types, states, pure operations; no `node:*`,
-  no `Bun.*`, no Effect runtime. It is the ubiquitous language every module and the contract
-  speak.
-- **A module's `model.ts`** is the synchronous logic its halves share. It may import
-  `domain/**` and the error taxonomy's data types; it performs no effects.
-- **`capabilities/`** imports `domain`, plus three documented upward edges that predate this
-  layout: `web.ts` (the `withChange` glue reads the change store and workspace resolution;
-  its `Bridge` type import from `terminals/server/proxy.ts` is type-only and likewise
-  carried over) and `bus.ts` (the watcher reads changes, windows and the notification
-  setting). Injecting the watcher's sources is a named follow-up, not done here.
-- **`vendors/`** imports `domain` and `capabilities`, plus one carried-over
-  exception: `git.ts` (the worktree engine) reads the change store leaves and the workspace
-  config. That is why git cannot be colocated (see [../plans/archive/refactor-plan.md](../plans/archive/refactor-plan.md)
-  item 5). `github.ts` additionally reads the contract's `Changes` capability for the checkout
-  lookup, so the github and azure-devops extensions reach the worktree without importing the
-  store.
-- **`extension-host/`** imports `domain`, `capabilities` and the documented first-party leaves
-  (the change store, `vendors/git`, the workspace config, the settings precedence chain).
-- **A feature module** (`change`, `dashboard`, `change-page`, `wizard`, `terminals`,
-  `workspace`, `settings`) keeps its aspects together: `model.ts` is the pure logic both halves
-  share, `server/` the implementation, `client/` the browser half when there is one, and
-  `routes.ts` the HTTP table the composition root mounts. Its **server half** may import its own
-  module, `domain`, `capabilities`, `vendors` and the host's server machinery; it must not import
-  a `client/` file or `app-root/`'s browser code. Its **client half** may import its own module,
-  `domain`, `app-root` and the host's client contract; it must not import a `server/` file by
-  value. Cross-feature client→client imports (ChangeView composing the dashboard and terminal
-  cards) are composition, not a boundary violation.
-- **`app-root/`** is the browser's composition root and the counterpart of the extension host:
-  it imports `domain`, feature client halves and the host's client contract, never a module's
-  server file by value. Its `routes.ts` is the module's own server half — the icons route and the
-  `/*` fallback that returns `app-root/index.html` — which is why that one file sits beside the
-  browser code rather than in a `server/` directory.
-- **Modules enter each other through the server half's `index.ts`** (`change/server/index.ts`,
-  `terminals/server/index.ts` and `dashboard/server/index.ts`),
-  never through a server file. Siblings import each other directly, and nothing inside a module
-  imports its own barrel, which is what keeps barrels cycle-free. A module whose face is a
-  browser component re-exports it from a top-level `index.ts` (`wizard/index.ts`); client
-  components are otherwise imported file-to-file, since a barrel of components would pull every
-  one into the page bundle. The deliberate exceptions are leaves a second module needs by value,
-  and their reasons are three, not one: `extension-host/registry.ts` and `change/server/store.ts`
-  break cycles by depending on state rather than on a half; `terminals/server/session.ts` is the
-  terminal's socket boundary, imported directly by the files that speak the socket so the barrel
-  does not drag node-pty into every server consumer; and
-  `settings/server/legacySettings.ts` is the one statement of the settings precedence chain,
-  shared by the workspace config loader and the azure-devops extension's settings read (see
-  [style.md](style.md), rule 7).
-- **Composition lives in the module that composes.** `dashboard` depends on `terminals` and the
-  host, so `change/server` does not have to, and no cycle forms.
-- **The contract (`extension-host/api`) imports `domain` and the capability and error leaves it
-  re-exports** (`Shell`, `Workspace`, the taxonomy, `Result`) — never a module's server or client
-  half. The contract therefore does not change when a module is reshaped; it re-exports the
-  promised slice of the domain (`Change`, `branchFor`, the widget vocabulary).
-- **Out-of-tree extensions import only `extension-host/api`**, which is the whole promise. **Built-ins
-  are first-party** and may reach into core modules and `vendors` today; new built-in
-  code uses the contract plus `domain` (and `vendors` when it needs a shared
-  vendor client), so the privilege shrinks by default. The documented first-party exceptions are
-  the leftovers page's read of the changes root, the azure-devops settings' read of the config
-  file for its legacy fallback, and the jira legacy shim's read of
-  `settings/server/legacySettings.ts` (see [extensions.md](extensions.md), "Scope, honestly
-  stated"). There is no stability promise for out-of-tree extensions yet. The github and
-  azure-devops extensions already run their `az`/`gh` calls through the contract's `Shell`,
-  `Cache`, `Settings` and `Changes` capabilities.
-- **`server.ts`** is the HTTP composition root: it imports the modules' route tables, the host
-  and the capabilities bootstrap (cache, client chunks). **HTTP** is the only client/server
-  boundary — no shared runtime state crosses it.
-
-`eslint.config.js` makes the browser-facing and purity rules structural: a client half,
-`app-root/` or the wizard's module-root browser half may not import a server file by value, and a
-module inherits the boundary by existing. `domain/**` and every `model.ts` may not import
-`node:*`, Bun or the Effect runtime (a `model.ts` may import the error taxonomy; the domain may
-not), so the promise above is enforced rather than conventional.
-
-## Running it
-
-`bun run dev` serves on `127.0.0.1:4000`; the app runs `src/server.ts` on Electron's Node, from
-the checkout recorded in its bundle (`corviRoot` in the app's `package.json`). See
-[`../manual/install.md`](../manual/install.md) for the product-level description and
-[`../decisions/electron-host.md`](../decisions/electron-host.md)
-for how the window is hosted.
+Third-party loading, public extension compatibility, dynamic client chunks, and hot replacement
+are out of scope. Code hosted by another product, such as Corvi's Pi reporter, is an integration
+adapter; removing Corvi's plugin host does not mean removing that adapter.

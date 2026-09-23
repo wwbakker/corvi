@@ -10,12 +10,12 @@ import {
   createChange,
   readSidecar,
   writeSidecar,
-} from "../src/change/server/index.ts";
-import { dispatchExtensionRoute, widgetsFor } from "../src/extension-host/index.ts";
-import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import { Changes } from "../src/extension-host/api.ts";
-import { config } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { dispatchIntegrationRoute, widgetsFor } from "../apps/server/src/integrations/index.ts";
+import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
+import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { runEffect } from "./helpers.ts";
 
 /**
@@ -41,7 +41,7 @@ const changeFor = (id: string): Promise<Change> =>
 
 /** Call the extension's own namespace (the path after `/api/ext/notes/`), as the page does. */
 const ext = async (path: string, method = "GET", body?: unknown): Promise<Response> => {
-  const response = dispatchExtensionRoute(
+  const response = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/notes/${path}`, {
       method,
       ...(body === undefined
@@ -56,8 +56,8 @@ const ext = async (path: string, method = "GET", body?: unknown): Promise<Respon
 const textAt = (path: string): Promise<string> => Bun.file(path).text();
 
 test("the Notes widget is offered only when the extension is enabled, and its old URL falls back", () => {
-  const saved = config.workspaces;
-  config.workspaces = [
+  const saved = runtimeConfig().workspaces;
+  runtimeConfig().workspaces = [
     { id: "with-notes", name: "With notes", extensions: ["notes"] },
     { id: "without-notes", name: "Without notes", extensions: [] },
   ];
@@ -70,7 +70,7 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
     expect(widgetsFor({ ...change, workspace: "without-notes" })).toEqual([]);
     expect(resolveChangePage("notes", [])).toEqual({ kind: "dashboard" });
   } finally {
-    config.workspaces = saved;
+    runtimeConfig().workspaces = saved;
   }
 });
 
@@ -115,7 +115,7 @@ test("the notes route answers an unknown change with 404 and a malformed body wi
   expect((await missing.json() as { error: string }).error).toMatch(/no such change/);
 
   const change = await changeFor("PROJ-NOTES-BODY");
-  const badBody = dispatchExtensionRoute(
+  const badBody = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/notes/changes/${change.id}/notes`, {
       method: "PUT",
       body: "not json",

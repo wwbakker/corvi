@@ -11,27 +11,32 @@ import {
   repoFromUrl,
   waitingOnYou,
   type MergeReadiness,
-} from "../src/vendors/github.ts";
+} from "@corvi/github/client";
 import {
+  closeIssueOnComplete,
   createIssue,
+  githubIssuesDescriptionSection,
+  githubIssuesTitleSource,
   listIssues,
   nameWithOwner,
+  planIssueClose,
   repoFromRemote,
   viewIssue,
-} from "../src/extensions/github-issues/index.ts";
-import githubIssues from "../src/extensions/github-issues/index.ts";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { config } from "../src/workspace/server/index.ts";
-import { Shell, Workspace as WorkspaceTag } from "../src/capabilities/effect/tags.ts";
-import type { Capabilities } from "../src/extension-host/api.ts";
-import { BusLive, CacheLive, ChangesLive, SettingsLive, extensionStoreLayer } from "../src/extension-host/services.ts";
-import { workspaceById } from "../src/workspace/server/index.ts";
-import type { Result } from "../src/capabilities/shell.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "@corvi/github/issues";
+import githubIssues from "@corvi/github/issues";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
+import { Shell } from "@corvi/shell";
+import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
+import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
+import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
+import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
 
 /**
- * `src/vendors/github.ts` and the github-issues extension, driven through the fake-Shell
+ * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
  * seam. The core functions reach `gh` and `git` through `sh`, which prefers a Shell in context;
  * the extension functions take the `Shell` and `Cache` services directly, so the layers below
  * provide the whole capability union with a scripted Shell in place of the live one.
@@ -151,7 +156,7 @@ const runEither = <A, E, R>(
           Layer.succeed(WorkspaceTag, workspaceById(undefined)),
           CacheLive,
           SettingsLive,
-          ChangesLive,
+          ChangesLive, GitFactsLive,
         ),
       ),
     ),
@@ -164,7 +169,7 @@ const extLayer = (shell: FakeShell): Layer.Layer<Capabilities> =>
     CacheLive,
     SettingsLive,
     BusLive,
-    ChangesLive,
+    ChangesLive, GitFactsLive,
     Layer.succeed(WorkspaceTag, workspaceById(undefined)),
     extensionStoreLayer("test"),
   );
@@ -327,6 +332,16 @@ test("prItem: a gh error is the row, using only the first line of stderr", async
   const shell = ghShell({ repo, prListCode: 1, prListStderr: "gh: not logged in\nmore noise" });
   const { item } = await runWithShell(shell, prItem(change(), repo));
   expect(item).toMatchObject({ label: "pull request", detail: "gh: not logged in", state: "error" });
+});
+
+test("prItem: a gh error with empty stderr still gets a sentence, not an empty row", async () => {
+  // The first line of an empty stderr is `""`, not undefined: the fallback has to be `||`, or
+  // the row — and every error built from this message — would be empty. What it says names the
+  // command and the exit code, which is what the next diagnosis needs.
+  const repo = "/repos/item-silent";
+  const shell = ghShell({ repo, prListCode: 1, prListStderr: "" });
+  const { item } = await runWithShell(shell, prItem(change(), repo));
+  expect(item).toMatchObject({ label: "pull request", detail: "gh pr list exited with code 1", state: "error" });
 });
 
 test("prItem: no worktree and no pull request are different rows", async () => {
@@ -773,7 +788,7 @@ test("completing a change closes its issue with a word about where the work land
     "gh issue close 7 -R owner/name -c Completed in change D": { code: 0, stdout: "" },
   });
   const c = change({ id: "D", extensions: { "github-issues": { repo: "/r/close", number: 7 } } });
-  expect(await runExtension(shell, githubIssues.completionSteps![0]!.run(c))).toBe(
+  expect(await runExtension(shell, closeIssueOnComplete(c))).toBe(
     "closed owner/name#7",
   );
   expect(
@@ -784,7 +799,7 @@ test("completing a change closes its issue with a word about where the work land
 test("completing a change without a GitHub remote says so, and a failing close is a bad request", async () => {
   const noRemote = fakeShell({ "git remote get-url origin": { code: 1, stderr: "none" } });
   const c1 = change({ id: "D", extensions: { "github-issues": { repo: "/r/close-nogh", number: 7 } } });
-  expect(await runExtension(noRemote, githubIssues.completionSteps![0]!.run(c1))).toBe(
+  expect(await runExtension(noRemote, closeIssueOnComplete(c1))).toBe(
     "not a GitHub repository: /r/close-nogh",
   );
 
@@ -793,22 +808,19 @@ test("completing a change without a GitHub remote says so, and a failing close i
     "gh issue close 7 -R owner/name -c Completed in change D": { code: 1, stderr: "refused" },
   });
   const c2 = change({ id: "D", extensions: { "github-issues": { repo: "/r/close-fail", number: 7 } } });
-  const either = await runExtensionEither(failed, githubIssues.completionSteps![0]!.run(c2));
+  const either = await runExtensionEither(failed, closeIssueOnComplete(c2));
   expect(Either.isLeft(either) && either.left._tag).toBe("BadRequestError");
 });
 
 test("completing a change with no linked issue does nothing at all", async () => {
   const shell = fakeShell();
-  expect(await runExtension(shell, githubIssues.completionSteps![0]!.run(change()))).toBeUndefined();
+  expect(await runExtension(shell, closeIssueOnComplete(change()))).toBeUndefined();
   expect(shell.calls).toEqual([]);
 });
 
 test("the completion plan names the issue without asking gh", () => {
-  const world = { config, workspace: workspaceById(undefined) };
-  expect(githubIssues.completionSteps![0]!.plan(withRef("/r/thing", 9), world)?.label).toBe(
-    "close thing#9",
-  );
-  expect(githubIssues.completionSteps![0]!.plan(change(), world)).toBeUndefined();
+  expect(planIssueClose(withRef("/r/thing", 9))?.label).toBe("close thing#9");
+  expect(planIssueClose(change())).toBeUndefined();
 });
 
 // --- github-issues: the card, titles and description ------------------------------------------
@@ -867,7 +879,7 @@ test("the card: one row for the issue, coloured and detailed by its state", asyn
 });
 
 test("the title source applies only to a change with a linked issue", () => {
-  const applies = githubIssues.titleSources![0]!.applies;
+  const applies = githubIssuesTitleSource.applies;
   expect(applies(withRef("/r/thing", 1))).toBe(true);
   expect(applies(change())).toBe(false);
 });
@@ -885,7 +897,7 @@ test("the title source names only the changes with a readable linked issue", asy
   });
   const titles = await runExtension(
     shell,
-    githubIssues.titleSources![0]!.lookup([
+    githubIssuesTitleSource.lookup([
       withRefId("A", "/r/titles", 7),
       withRefId("B", "/r/titles", 8),
       change({ id: "C" }),
@@ -905,11 +917,11 @@ test("the description heading names the issue and its title when there is one", 
     }),
   });
   expect(
-    await runExtension(shell, githubIssues.descriptionSections![0]!.heading(withRef("/r/desc", 7))),
+    await runExtension(shell, githubIssuesDescriptionSection.heading(withRef("/r/desc", 7))),
   ).toBe("owner/name#7 - Fix the thing");
   // No issue linked: nothing to head a section with.
   expect(
-    await runExtension(fakeShell(), githubIssues.descriptionSections![0]!.heading(change())),
+    await runExtension(fakeShell(), githubIssuesDescriptionSection.heading(change())),
   ).toBeUndefined();
 });
 
@@ -920,12 +932,12 @@ test("the description heading keeps the reference when the issue or repository c
       { code: 1, stderr: "gone" },
   });
   expect(
-    await runExtension(unreadable, githubIssues.descriptionSections![0]!.heading(withRef("/r/desc2", 7))),
+    await runExtension(unreadable, githubIssuesDescriptionSection.heading(withRef("/r/desc2", 7))),
   ).toBe("owner/name#7");
 
   const notGithub = fakeShell({ "git remote get-url origin": { code: 1, stderr: "none" } });
   expect(
-    await runExtension(notGithub, githubIssues.descriptionSections![0]!.heading(withRef("/r/desc3", 7))),
+    await runExtension(notGithub, githubIssuesDescriptionSection.heading(withRef("/r/desc3", 7))),
   ).toBeUndefined();
 });
 

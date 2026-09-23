@@ -1,0 +1,16 @@
+{
+  "name": "@corvi/workflows",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/change-work.ts",
+    "./lifecycle": "./src/lifecycle.ts"
+  },
+  "dependencies": {
+    "@corvi/changes": "workspace:*",
+    "@corvi/contracts": "workspace:*",
+    "@corvi/repositories": "workspace:*",
+    "effect": "catalog:"
+  }
+}

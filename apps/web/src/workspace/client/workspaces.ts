@@ -1,0 +1,135 @@
+import { useCallback, useEffect, useState } from "react";
+import { apiClient } from "../../app-root/api.ts";
+import { getPref, setPref } from "../../app-root/prefs.ts";
+import type { Platform } from "@corvi/terminals/model";
+import { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
+
+export type Workspace = {
+  id: string;
+  name: string;
+  repositoriesDirectory?: string;
+  env?: Record<string, string>;
+};
+
+/** "Everything, whichever context it belongs to" — a filter rather than a workspace, which is
+ * why it is not one. */
+export const ALL = "*";
+
+/** What stands in when nothing is configured — the same default the server resolves, from the
+ * pure vocabulary both halves share. */
+export { DEFAULT_WORKSPACE };
+
+// A cookie rather than localStorage: the app serves itself from a fresh port every launch, and
+// localStorage is scoped to the port (see prefs.ts).
+const CHOSEN = "corvi:workspace";
+
+/**
+ * Which context you are working in.
+ *
+ * Kept in the browser rather than on the server: two windows open on two clients is a reasonable
+ * thing to want, and the server has no business having an opinion about which one you are
+ * looking at.
+ */
+export function useWorkspaces(): {
+  workspaces: Workspace[];
+  chosen: string;
+  choose: (id: string) => void;
+  current: Workspace | undefined;
+  ready: boolean;
+  platform: Platform;
+  reload: () => void;
+} {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [chosen, setChosen] = useState<string>(() => getPref(CHOSEN) ?? ALL);
+  // Until this is known, no list is shown. A moment of "everything" before the filter arrives
+  // would be a moment of another client's work on the screen, which is the one thing a
+  // workspace exists to prevent.
+  const [ready, setReady] = useState(false);
+  // The server's platform, told once with the workspaces: what the key hints and shortcuts
+  // should assume. "other" until then, which reads as the macOS bindings the UI always had.
+  const [platform, setPlatform] = useState<Platform>("other");
+
+  // Read again after the settings page writes them: a context that has just been renamed should
+  // not still be in the switcher under its old name.
+  const reload = (): Promise<void> =>
+    apiClient
+      .workspaces()
+      .then(({ workspaces: next, platform: told }) => {
+        setWorkspaces(next);
+        setPlatform(told);
+      })
+      .catch(() => {}) // no workspaces is the same as one: everything
+      .finally(() => setReady(true));
+
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const choose = (id: string): void => {
+    setPref(CHOSEN, id);
+    setChosen(id);
+  };
+
+  // A workspace that was removed from the config is not a filter any more — but only once we
+  // know what the workspaces are.
+  const current = workspaces.find((w) => w.id === chosen);
+  return {
+    workspaces,
+    chosen: !ready || current ? chosen : ALL,
+    choose,
+    current,
+    ready,
+    platform,
+    reload: () => void reload(),
+  };
+}
+
+/** One page the sidebar offers, as the server names it: the extension it belongs to travels
+ * with it, because that is who renders it. */
+export type PageInfo = { id: string; title: string; extension: string };
+
+/** The pages a context's sidebar offers, asked of the server (`/api/pages`) — that is where
+ * the extensions and their enablement are known, so this is the same question the wizard asks
+ * of `/api/wizard`. Asked again whenever the context changes, and on demand through `reload`
+ * (a settings save toggles enablement without changing the context, which is why the settings
+ * page calls it). A fetch that fails keeps the last good pages rather than clearing them — no
+ * answer yet is the previous answer still; the next fetch or event tick recovers. */
+export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () => void } {
+  const [pages, setPages] = useState<PageInfo[]>([]);
+  useEffect(() => {
+    // Alive guards the context-change race: only the latest fetch may answer.
+    let alive = true;
+    apiClient
+      .pages(workspaceId)
+      .then((pages) => {
+        if (alive) setPages(pages);
+      })
+      .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
+    return () => {
+      alive = false;
+    };
+  }, [workspaceId]);
+  const reload = useCallback(() => {
+    apiClient
+      .pages(workspaceId)
+      .then(setPages)
+      .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
+  }, [workspaceId]);
+  return { pages, reload };
+}
+
+/**
+ * Which context a change belongs to. A change that names none belongs to the first context,
+ * which is where a change written outside any workspace sits.
+ */
+export const workspaceOf = (
+  change: { readonly workspace?: string },
+  workspaces: Workspace[],
+): string => change.workspace ?? workspaces[0]?.id ?? ALL;
+
+/** The changes of one context, or all of them. */
+export const inWorkspace = <T extends { readonly workspace?: string }>(
+  changes: T[],
+  chosen: string,
+  workspaces: Workspace[],
+): T[] => (chosen === ALL ? changes : changes.filter((c) => workspaceOf(c, workspaces) === chosen));

@@ -1,76 +1,79 @@
-# Working in this repository
+# Working on Corvi
 
-## Ending test processes: use `bun run test:clean`
+Corvi is a modular application for a change, its repositories, terminals, and agents. It is not
+an extension platform. Favor descriptive names, explicit types, immutable values, and APIs that
+can be understood without reading their implementations.
 
-`bun test` starts real servers and whole tmux servers, and an aborted or timed-out
-run can leave them behind. To end leftovers:
+## Read first
+
+- [Architecture](docs/guides/architecture.md): ownership, package layout, allowed dependencies.
+- [API design](docs/guides/api-design.md): capability contracts and boundary types.
+- [Effect conventions](docs/guides/effect-conventions.md): dependencies, failures, lifetimes.
+- [Style](docs/guides/style.md): code and documentation conventions.
+- [Testing](docs/guides/testing.md): verification and resource safety.
+
+These guides define the **accepted layout**, and the implementation matches it: the application
+lives in `apps/*`, capabilities in `packages/*`, integrations in `integrations/*`, and
+`bun run boundaries` enforces the graph. For repository/change work, also read the
+[concrete contract design](docs/design/repositories-and-changes.md). Comments and tests are
+evidence of behavior; they do not override the target architecture.
+
+## Before implementation
+
+1. Identify the owning package and read its public API. `bun run outline <file-or-directory>`
+   prints the current exports without implementations.
+2. For a new or changed capability, describe its signatures, errors, dependencies, lifetime,
+   and a realistic caller before implementing it. Use the API design checklist.
+3. Keep behavior changes separate from structural changes. Internal APIs may be replaced;
+   preserve user workflows and safety. Identify data migrations explicitly.
+4. Ask before changing package ownership, dependency direction, architectural rules, or
+   unresolved product behavior. Do not approve your own exception by editing a guide.
+
+## Non-negotiable boundaries
+
+- Cross-package imports use declared dependencies and explicit public exports, including types.
+  No relative imports into another package's source, wildcard internal exports, or package cycles.
+- Capabilities own coherent domains; workflows compose them. Storage does not launch agents,
+  Git adapters do not render cards, and UI components do not construct backend commands.
+- Imports do not read configuration, load integrations, start processes, or initialize mutable
+  application state. Layers and application entrypoints own construction and cleanup.
+- Required services remain required. Never fall back to real I/O when a service was not provided.
+- Domain failures are typed values. HTTP status codes belong at the transport boundary.
+- Public values are readonly. Private mutable state has one explicit owner and lifetime.
+- Included integrations are ordinary workspace packages. Do not add custom-extension discovery,
+  a public plugin SDK, hot-loading, or a universal registry to deliver a feature.
+- Do not export implementation helpers solely for tests or add speculative generic frameworks.
+
+## Verification
+
+From the repository root:
 
 ```sh
-bun run test:clean            # what it would end, and what it leaves alone
-bun run test:clean --kill     # end it
-bun run test:clean --prune    # end it, and remove the leftover $TMPDIR/corvi-* paths
+bun run typecheck
+bun run lint
+bun run test
 ```
 
-Never `pkill` or `kill` by port, by process name, or by "it looked like a leftover". Doing that
-once destroyed the running `Corvi.app`'s server and a four-window tmux session — from the outside
-they are indistinguishable from test strays by name and command line.
+Run the **full suite**, not only selected tests. Use `bun run test`, not bare `bun test`: the
+script isolates data and cleans up owned test resources. Report failures and skips honestly.
+For documentation changes, also check local links and remove references to deleted guidance.
+Do not claim target boundary checks exist before they are implemented.
 
-Ownership is decidable, because only tests carry these:
+## Safety
 
-- test tmux servers listen on sockets under `$TMPDIR/corvi-*`, named explicitly: every tmux call in
-  the tests passes `-S <socket>`, and the server under test gets the same path as
-  `CORVI_TMUX_SOCKET` (src/terminals/server/tmux.ts). Corvi's own terminals live on the `corvi` socket
-  (`-L corvi`: `tmux-<uid>/corvi` under `$TMUX_TMPDIR` or /tmp — `/private/tmp/tmux-<uid>/corvi` on
-  macOS — or whatever `CORVI_TMUX_SOCKET` names; sessions made before that change are still on the
-  default socket); the default socket (`/private/tmp/tmux-<uid>/default` on macOS,
-  `/tmp/tmux-<uid>/default` on Linux) is yours — a bare `tmux` command from a test or a probe
-  reaches nothing of Corvi's. Those directories are short on purpose: a unix socket path is capped
-  at 103 characters, and macOS's `$TMPDIR` spends most of it before the run token is added — over
-  the cap, tmux starts no server at all and the terminal tests fail with nothing to say why
-  (test/helpers.ts, `tmuxTempDir`);
-- test servers run on Node and pass `--corvi-test-run` on the command line; `src/server.ts`
-  ignores argv. The app's server (`electron src/server.ts`) and a plain dev server carry no
-  marker.
+- Tests must use isolated change/config/cache paths and a private tmux socket.
+- Never stop processes by name, port, or resemblance to a test process. Never use `pkill` or
+  an unqualified `tmux kill-server`. Only explicitly owned resources may be stopped.
+- Inspect leftovers with `bun run test:clean`. Scope cleanup to the known run; see the testing guide.
+- Do not invent paths with the reserved `$TMPDIR/corvi-` prefix; use the test fixtures.
+- Do not restart, reinstall, or automate the installed Corvi app to verify a change. Use an
+  isolated development/test instance. The installed app may be running from another checkout.
+- Never commit unless explicitly asked.
 
-`bun run test` runs the kill pass when it exits (an `EXIT` trap), so strays do not accumulate
-between runs.
+## Documentation maintenance
 
-A lone `bun test test/foo.test.ts` mints its own run token. A hand-set `CORVI_TEST_RUN` must be two
-lowercase base36 words joined by a dot (`<base36>.<base36>`, what the suite's `date +%s.$$`
-produces): that is the shape the cleaner reads back out of paths and command lines, and
-`testRun()` refuses anything else before it can name a server the cleaner would have to leave
-alone.
-
-Do not name your own files or directories under `$TMPDIR` with an `corvi-` prefix — an `corvi-*`
-entry no run names is a stray, and `test:clean --prune` removes it (a `/tmp/corvi-notes.log` reads
-as a run named `notes.log`).
-
-A test that starts a server must spawn it as `["node", "src/server.ts", "--corvi-test-run"]`; the
-marker is what makes the server (and, on aborted runs, everything under it) findable.
-`test/clean.test.ts` fails if one is missing.
-
-Whatever the process, ownership is what decides: the marker for a server, the socket path for
-tmux. Nothing else in this repository may end a process.
-
-## The app and this checkout
-
-`~/Applications/Corvi.app` (on Linux the `corvi` launcher) runs the
-Electron window in `scripts/app/electron/`, which starts `src/server.ts` on Electron's own Node
-(`ELECTRON_RUN_AS_NODE`) from the checkout recorded in the bundle's `package.json` (`corviRoot`),
-with `NODE_ENV=production`, on a fresh port per launch, and stops it on quit. It does not watch
-files: source edits need a relaunch.
-`bun run app:install` is only needed when the host itself changes (`scripts/app/electron/`,
-`scripts/app/mac.ts`, `scripts/app/linux.ts`) — server and page edits are picked up by the next
-launch, because the server runs from this checkout.
-
-## Documentation
-
-Start at [`docs/README.md`](docs/README.md), which explains the split:
-
-- `docs/guides/` — durable: the architecture, the extension contract, the server-code
-  conventions, and the winning style. Read these before making a change.
-- `docs/manual/` — the product manual: installing, configuration, changes, terminals,
-  integrations. Keep it true for a user, not for an agent.
-- `docs/decisions/` — immutable: why a choice was made. Supersede, don't rewrite.
-- `docs/plans/` — temporary: active work only. When a plan finishes, extract what is durable into
-  `guides/` or `decisions/` and delete the plan.
+Keep current rules in the guides and user behavior in the manual; migration work belongs in one
+current plan, deleted when complete.
+Do not accumulate session narratives, archived plans, or repeated explanations in code comments.
+Add a short package-local `AGENTS.md` when a package is extracted: owns, does not own, public
+entrypoints, dependencies, invariants, and verification. Link shared rules instead of copying them.

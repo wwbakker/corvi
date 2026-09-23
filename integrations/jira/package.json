@@ -1,0 +1,19 @@
+{
+  "name": "@corvi/jira",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./jira": "./src/jira.ts",
+    "./jiraHttp": "./src/jiraHttp.ts",
+    "./account": "./src/account.ts",
+    "./legacy": "./src/legacy.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "@corvi/configuration": "workspace:*",
+    "@corvi/shell": "workspace:*",
+    "effect": "catalog:"
+  }
+}

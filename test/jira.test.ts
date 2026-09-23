@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
-import { branchFor } from "../src/domain/change.ts";
-import { issueFrom } from "../src/extensions/jira/jira.ts";
+import { branchFor } from "../apps/server/src/domain/change.ts";
+import { issueFrom } from "@corvi/jira/jira";
 
 test("branch name derived from a picked issue", () => {
   expect(branchFor("PROJ-123", "Fix the flaky import")).toBe("PROJ-123-fix-the-flaky-import");

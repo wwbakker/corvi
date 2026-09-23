@@ -1,0 +1,24 @@
+{
+  "name": "@corvi/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./paths": "./src/paths.ts",
+    "./changes": "./src/changes.ts",
+    "./api": "./src/api.ts",
+    "./config": "./src/config.ts",
+    "./terminal": "./src/terminal.ts",
+    "./errors": "./src/errors.ts",
+    "./workspace": "./src/workspace.ts",
+    "./capabilities": "./src/capabilities.ts",
+    "./integration": "./src/integration.ts",
+    "./display": "./src/display.ts",
+    "./integrations/*": "./src/integrations/*.ts",
+    "./settings-view": "./src/settings-view.ts",
+    "./body": "./src/body.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:"
+  }
+}

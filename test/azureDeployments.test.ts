@@ -1,12 +1,12 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { config, reloadConfigSync } from "../src/workspace/server/index.ts";
-import azureDevops from "../src/extensions/azure-devops/index.ts";
-import { acceptedVersions, type Run } from "../src/extensions/azure-devops/server.ts";
-import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig, reloadConfigSync } from "../apps/server/src/workspace/server/index.ts";
+import azureDevops from "@corvi/azure-devops";
+import { acceptedVersions, type Run } from "@corvi/azure-devops/server";
+import { deploySettingsOf } from "@corvi/azure-devops/deploySettings";
 import { runVersionsFor } from "./helpers.ts";
-import { autoDeployedApp } from "../src/extensions/azure-devops/deployConventions.ts";
-import type { Az } from "../src/extensions/azure-devops/azure.ts";
+import { autoDeployedApp } from "@corvi/contracts/integrations/azure-devops";
+import type { Az } from "@corvi/azure-devops/azure";
 
 // `acceptedVersions` is pure and synchronous on purpose: the one thing that would otherwise need
 // `az` — the expected duration — is computed by the caller and handed in, so every case here
@@ -15,7 +15,7 @@ import type { Az } from "../src/extensions/azure-devops/azure.ts";
 // every test: one file's answers must never leak into another's.
 beforeEach(() => clearCache());
 afterEach(() => {
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
   reloadConfigSync();
   clearCache();
 });
@@ -54,7 +54,7 @@ test("the extension declares the settings the settings page renders", () => {
 
 test("*-app deploys are read from the deploy run's own parameters, newest first", () => {
   const runs = [run(1, "v1"), run(3, "v3"), run(2, "v2")];
-  const entries = acceptedVersions(runs, az, deploySettingsOf(undefined, {}), undefined, 5);
+  const entries = acceptedVersions(runs, az, deploySettingsOf(undefined), undefined, 5);
   expect(entries.map((e) => e.version)).toEqual(["v3", "v2", "v1"]);
   // Where it already is: the one environment this lookup ever sees is the one it filtered to.
   expect(entries[0]).toMatchObject({ deployedTo: ["accept"], running: false });
@@ -62,7 +62,7 @@ test("*-app deploys are read from the deploy run's own parameters, newest first"
 });
 
 test("a version is listed once even when several runs produced it", () => {
-  const entries = acceptedVersions([run(2, "v1"), run(1, "v1")], az, deploySettingsOf(undefined, {}), undefined, 5);
+  const entries = acceptedVersions([run(2, "v1"), run(1, "v1")], az, deploySettingsOf(undefined), undefined, 5);
   expect(entries).toHaveLength(1);
   // The newest of the repeats wins, not the oldest.
   expect(entries[0]!.runId).toBe(2);
@@ -70,11 +70,11 @@ test("a version is listed once even when several runs produced it", () => {
 
 test("howMany caps the list, same as the build-scraped path", () => {
   const runs = [run(3, "v3"), run(2, "v2"), run(1, "v1")];
-  expect(acceptedVersions(runs, az, deploySettingsOf(undefined, {}), undefined, 2).map((e) => e.version)).toEqual(["v3", "v2"]);
+  expect(acceptedVersions(runs, az, deploySettingsOf(undefined), undefined, 2).map((e) => e.version)).toEqual(["v3", "v2"]);
 });
 
 test("a run to another environment is not mistaken for an accept deploy", () => {
-  const entries = acceptedVersions([run(1, "v1", "production")], az, deploySettingsOf(undefined, {}), undefined, 5);
+  const entries = acceptedVersions([run(1, "v1", "production")], az, deploySettingsOf(undefined), undefined, 5);
   expect(entries).toEqual([]);
 });
 
@@ -83,12 +83,12 @@ test("a run without a recognisable version is skipped, not shown as blank", () =
     ...run(1, "unused"),
     templateParameters: { environment: "accept", a: "1", b: "2" },
   };
-  expect(acceptedVersions([nothingToGoOn], az, deploySettingsOf(undefined, {}), undefined, 5)).toEqual([]);
+  expect(acceptedVersions([nothingToGoOn], az, deploySettingsOf(undefined), undefined, 5)).toEqual([]);
 });
 
 test("a still-deploying run shows its real version and a progress bar, not a placeholder", () => {
   const deploying = run(4, "v4", "accept", "inProgress", null);
-  const entries = acceptedVersions([deploying, run(3, "v3")], az, deploySettingsOf(undefined, {}), 12 * 60_000, 5);
+  const entries = acceptedVersions([deploying, run(3, "v3")], az, deploySettingsOf(undefined), 12 * 60_000, 5);
   const found = entries.find((e) => e.version === "v4");
   expect(found).toMatchObject({
     running: true,

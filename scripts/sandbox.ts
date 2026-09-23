@@ -13,12 +13,12 @@
  * resolves: quitting the test copy quit the real app instead, in the middle of somebody's work.
  *
  * The copy's own bundle name is also what keys its Chromium profile
- * (scripts/app/electron/main.ts), so the two do not share storage either.
+ * (apps/desktop/src/electron/main.ts), so the two do not share storage either.
  */
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { sh } from "./sh.ts";
-import { PRODUCT } from "../src/capabilities/identity.ts";
+import { PRODUCT } from "@corvi/configuration/node";
 
 const NAME = `${PRODUCT} Sandbox`;
 const ID = "nl.wwbakker.corvi.sandbox";

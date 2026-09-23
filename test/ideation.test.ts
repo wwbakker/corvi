@@ -13,15 +13,15 @@ import {
   ideationPromptFor,
   readChange,
   readSidecar,
-  startChange,
+  startChangeWithWorkflow,
   writeSidecar,
-} from "../src/change/server/index.ts";
-import { provision, startWork } from "../src/extension-host/index.ts";
-import { checkoutFor } from "../src/vendors/git.ts";
-import { isIdeation, slugFor } from "../src/domain/change.ts";
-import type { Change } from "../src/domain/change.ts";
+} from "../apps/server/src/change/server/index.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { isIdeation, slugFor } from "../apps/server/src/domain/change.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { runCancel, runEffect, runSetRepos, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The ideation stage: an idea is created with a title and a plan and nothing else — no branch,
@@ -91,11 +91,13 @@ test("an idea is created without repositories and carries a plan", async () => {
 
 test("starting is a real transition, and only from an idea", async () => {
   const idea = await runEffect(createChange({ id: "idea-start", state: "Ideation" }));
-  const started = await runEffect(startChange(idea));
-  expect(started.state).toBe("In Progress");
+  const started = await runEffect(startChangeWithWorkflow(idea));
+  expect(started.change.state).toBe("In Progress");
   expect((await runEffect(readChange("idea-start")))?.state).toBe("In Progress");
   // Starting twice would claim work that already happened (and provision a second time).
-  await expect(runEffect(startChange(started))).rejects.toThrow(/already started/);
+  await expect(runEffect(startChangeWithWorkflow(started.change))).rejects.toThrow(
+    /already started/,
+  );
 });
 
 test("a change created ready to work still needs a repository", async () => {
@@ -119,17 +121,16 @@ test("an idea browses its repositories, and starting creates the checkout", asyn
     }),
   );
 
-  // change:created links the repository for reading — no branch switch, no worktree.
-  await runEffect(provision(idea));
+  // Creating an idea links the repository for reading — no branch switch, no worktree.
+  await runEffect(provisionChangeRepositories(idea));
   const link = join(changeDir(idea.id), basename(repo));
   expect((await lstat(link)).isSymbolicLink()).toBe(true);
   expect(await runEffect(checkoutFor(idea, repo))).toBeUndefined();
   expect((await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], repo)).stdout).toBe("main");
 
-  // change:started replaces the link with the checkout the change asked for.
-  const started = await runEffect(startChange(idea));
-  await runEffect(startWork(started));
-  expect(await runEffect(checkoutFor(started, repo))).toBeDefined();
+  // Starting replaces the link with the checkout the change asked for.
+  const started = await runEffect(startChangeWithWorkflow(idea));
+  expect(await runEffect(checkoutFor(started.change, repo))).toBeDefined();
   // The path is the same; a real worktree now, not a symlink.
   expect((await lstat(link)).isDirectory()).toBe(true);
 });
@@ -157,7 +158,7 @@ test("cancelling an idea drops its browse links", async () => {
   const idea = await runEffect(
     createChange({ id: "idea-cancel", state: "Ideation", repos: [repo] }),
   );
-  await runEffect(provision(idea));
+  await runEffect(provisionChangeRepositories(idea));
   expect((await lstat(join(changeDir(idea.id), basename(repo)))).isSymbolicLink()).toBe(true);
 
   const cancelled = await runCancel(idea);

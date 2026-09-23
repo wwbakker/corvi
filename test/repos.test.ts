@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
-import { createChange, changeDir } from "../src/change/server/index.ts";
+import { createChange, changeDir } from "../apps/server/src/change/server/index.ts";
 import {
   setRepos,
   checkoutFor,
@@ -10,12 +10,12 @@ import {
   unsafeToRemove,
   repoStates,
   isDirect,
-} from "../src/vendors/git.ts";
+} from "../apps/server/src/vendors/git.ts";
 import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
-import { provision } from "../src/extension-host/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { FileChange } from "../src/extensions/review/shared.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { FileChange } from "@corvi/contracts/integrations/review";
 
 /**
  * Editing the repositories of a change moves real worktrees around, and the ways it can go wrong
@@ -62,7 +62,7 @@ test("adding a repository creates its worktree, removing one takes it away", asy
   const a = await clonedRepo("add-a");
   const b = await clonedRepo("add-b");
   const change = await changeFor("PROJ-ADD", [a]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   expect(await runEffect(checkoutFor(change, a))).toBe(join(changeDir(change.id), "add-a"));
 
   const added = await runSetRepos(change, [a, b]);
@@ -90,7 +90,7 @@ test("a new worktree gets the IDE state the repository had, pointing at itself",
   await runSh(["git", "push", "--quiet", "origin", "main"], repo);
   await Bun.write(join(repo, ".idea", "workspace.xml"), `<p dir="${repo}/target" />`);
   const change = await changeFor("PROJ-IDE", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   expect(await Bun.file(join(worktree, ".idea", "workspace.xml")).text()).toBe(
@@ -104,7 +104,7 @@ test("a removal that would lose commits asks first, and loses nothing until it i
   const repo = await clonedRepo("unpushed");
   const keep = await clonedRepo("unpushed-keep");
   const change = await changeFor("PROJ-UNPUSHED", [repo, keep]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "work.txt"), "never pushed\n");
@@ -127,7 +127,7 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
   const repo = await clonedRepo("dirty");
   const keep = await clonedRepo("dirty-keep");
   const change = await changeFor("PROJ-DIRTY", [repo, keep]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "half-done.txt"), "not finished\n");
@@ -142,7 +142,7 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
 test("switching a repository from worktree to in place moves the work, not deletes it", async () => {
   const repo = await clonedRepo("switch");
   const change = await changeFor("PROJ-SWITCH", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "committed.txt"), "pushed work\n");
@@ -169,7 +169,7 @@ test("a change may be emptied and filled again, which is how a worktree is repla
   // you have is beyond saving, and that has a moment in the middle with nothing in it.
   const repo = await clonedRepo("last-one");
   const change = await changeFor("PROJ-LAST", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const before = (await runEffect(checkoutFor(change, repo)))!;
 
   // Emptying is still a removal, and a removal still refuses to throw work away: the way out of
@@ -195,7 +195,7 @@ test("a change may be emptied and filled again, which is how a worktree is repla
 test("switching modes with unpushed commits asks first, and keeps them when forced", async () => {
   const repo = await clonedRepo("switch-unpushed");
   const change = await changeFor("PROJ-SWITCH-UNPUSHED", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "unpushed.txt"), "only here\n");
@@ -216,7 +216,7 @@ test("switching modes with unpushed commits asks first, and keeps them when forc
 test("an in-place branch does not track the branch it started from", async () => {
   const repo = await clonedRepo("no-track");
   const change = await changeFor("PROJ-TRACK", [repo], [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   // Tracking origin/main would make `git push` aim at main, which is the one thing this must
   // never do. A fresh branch has no upstream until it is pushed.
@@ -236,7 +236,7 @@ test("a removal deletes a branch whose content landed and keeps one whose did no
   const merged = await clonedRepo("branch-merged");
   const open = await clonedRepo("branch-open");
   const change = await changeFor("PROJ-BRANCH", [merged, open]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   // Two commits, so no single commit's patch-id matches what a squash merge leaves behind: this
   // is the case that only a simulated merge can prove, and the reason this is Corvi's own rule
@@ -289,7 +289,7 @@ test("a removal deletes a branch whose content landed and keeps one whose did no
 test("a branch whose merge conflicts with main is kept, not forced away", async () => {
   const repo = await clonedRepo("conflict");
   const change = await changeFor("PROJ-CONFLICT", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
 
   // Both sides change the same file, so there is no patch-identical commit to find and no merge
   // that lands on main's tree: the branch cannot be proven to have landed anywhere.
@@ -332,7 +332,7 @@ test("a worktree from before Corvi owned the path is adopted, not migrated", asy
   await Bun.write(join(path, "made-before-corvi.txt"), "still here\n");
 
   // The change:created hook, which is what meets a worktree that already exists.
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   expect(await runEffect(checkoutFor(change, repo))).toBe(path);
   expect(await Bun.file(join(path, "made-before-corvi.txt")).text()).toBe("still here\n");
   // The repository's own checkout and the change's, and no third one made beside it.
@@ -366,17 +366,17 @@ test("two repositories with the same name are refused, at creation and at an edi
   ).rejects.toThrow(/share the name clash/);
 
   const single = await changeFor("PROJ-CLASH-ONE", [first]);
-  await runEffect(provision(single));
+  await runEffect(provisionChangeRepositories(single));
   expect(runSetRepos(single, [first, second], true)).rejects.toThrow(/share the name clash/);
   // Refused before anything moved, so the worktree is still where it was.
   expect(await runEffect(checkoutFor(single, first))).toBe(join(changeDir(single.id), "clash"));
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {
-  const { parseStatus } = await import("../src/extensions/review/server.ts");
+  const { parseStatus } = await import("../apps/server/src/integrations/review/server.ts");
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-LOCAL", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // Nothing yet, which is a state of its own and not an error.

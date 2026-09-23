@@ -1,0 +1,180 @@
+import { Effect, Fiber } from "effect";
+import { runRoute } from "./effect/run.ts";
+import { guard, json } from "./web.ts";
+import { forgetWatchedNews, watch, type EventName } from "./watch.ts";
+
+/**
+ * One connection that says when something changed, instead of every page asking whether it has.
+ *
+ * The navigation column asked for the terminal windows every 1.5 seconds, the overview asked for
+ * the changes every 30, and each open page did it separately — against a browser limit of six
+ * connections per origin, which is why the dashboard's widgets have to be unmounted when a
+ * terminal is on screen. One `EventSource` replaces all of that: the server watches once and
+ * tells whoever is listening.
+ *
+ * This module is the transport: the connections, the heartbeat, and the ref-count that starts
+ * the watch while anyone is listening and stops it when nobody is. What is watched, and what
+ * counts as news, lives in `./watch.ts`.
+ */
+
+type Client = {
+  send: (event: string, data: string) => void;
+  /** A comment line, which an EventSource ignores and an idle-timeout does not. */
+  ping: () => void;
+};
+
+const clients = new Set<Client>();
+
+/**
+ * A colon-comment down the wire now and then, which an EventSource ignores.
+ *
+ * Not politeness: a connection with nothing on it is an idle connection, and Bun closes those
+ * after ten seconds. The browser reconnects, so it half-works — a stream that drops and comes
+ * back every ten seconds all day, logging `request timed out` each time.
+ */
+const HEARTBEAT = "5 seconds";
+
+/** The watch's fiber, while anyone is listening. Ref-counted by the client set: started when
+ * the first client registers, interrupted when the last one is forgotten. */
+let watcher: Fiber.RuntimeFiber<void, never> | undefined;
+
+function startWatcher(): void {
+  if (watcher) return;
+  watcher = Effect.runFork(watch((news) => broadcast(news.event, news.data)));
+}
+
+function stopWatcher(): void {
+  if (!watcher) return;
+  const fiber = watcher;
+  watcher = undefined;
+  // `Fiber.interruptFork` returns an Effect; running it is what actually cancels the fiber.
+  Effect.runFork(Fiber.interrupt(fiber));
+}
+
+function broadcast(event: EventName, data = ""): void {
+  for (const client of clients) {
+    try {
+      client.send(event, data);
+    } catch {
+      // Writing to a stream nobody is reading: the connection is gone, whatever we were told.
+      forget(client);
+    }
+  }
+}
+
+/** One place, because a client that is not forgotten is a watcher that never stops. */
+function forget(client: Client): void {
+  if (!clients.delete(client)) return;
+  if (clients.size === 0) stopWatcher();
+}
+
+/** Tell everyone that something changed, now rather than within a tick.
+ *
+ * Used by the routes that make the change themselves, so your own action lands immediately. The
+ * watcher would catch it anyway, which is what makes this an optimisation and not a duty: a route
+ * that forgets to call it is late, not broken. The watched state forgets the event too, so the
+ * watcher's next look says it again rather than deduplicating against what the action just said.
+ */
+export function announce(event: EventName): void {
+  forgetWatchedNews(event);
+  broadcast(event);
+}
+
+/**
+ * The stream itself: `GET /api/events`.
+ *
+ * The request is needed, not just its response: a closed tab is an *aborted request*, and the
+ * stream's own `cancel` is not called for it. Without listening to the signal the client is
+ * never forgotten, and the watcher keeps looking at the disk and at tmux twice a second for
+ * browsers closed long ago. The abort listener and the client fiber's scope finalization both
+ * forget the client, so either path alone is enough.
+ */
+export const events = (req: Request): Effect.Effect<Response> =>
+  Effect.gen(function* () {
+    const encoder = new TextEncoder();
+    let push: ((chunk: Uint8Array) => void) | undefined;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (chunk) => controller.enqueue(chunk);
+      },
+      cancel() {
+        fiber.unsafeInterruptAsFork(fiber.id());
+      },
+    });
+    const client: Client = {
+      send: (event, data) => push!(encoder.encode(`event: ${event}\ndata: ${data}\n\n`)),
+      ping: () => push!(encoder.encode(": ping\n\n")),
+    };
+
+    // The client lives on a daemon fiber of its own, with a scope whose finalizer forgets it —
+    // so interruption from any path (abort signal, stream cancel) always cleans up. The
+    // heartbeat is this fiber's own loop: a colon-comment every five seconds, which is what
+    // keeps Bun's idle timeout from closing a stream that is quiet by nature.
+    const fiber = yield* Effect.forkDaemon(
+      Effect.scoped(
+      Effect.gen(function* () {
+        yield* Effect.addFinalizer(() => Effect.sync(() => forget(client)));
+        clients.add(client);
+        startWatcher();
+        // Says the stream is open, and gives the browser something to receive: an EventSource
+        // that has had nothing at all is indistinguishable from one that never connected. The
+        // page refetches on open; the watcher's first look covers everything that moves after.
+        client.send("open", "");
+        return yield* Effect.forever(
+          Effect.gen(function* () {
+            yield* Effect.sleep(HEARTBEAT);
+            // Writing to a stream nobody is reading throws: the connection is gone, whatever we
+            // were told, so forget the client and end this fiber's loop.
+            yield* Effect.sync(() => client.ping()).pipe(
+              Effect.catchAllDefect(() => {
+                forget(client);
+                return Effect.interrupt;
+              }),
+            );
+          }),
+        );
+      }),
+      ),
+    );
+    req.signal.addEventListener("abort", () => {
+      forget(client);
+      fiber.unsafeInterruptAsFork(fiber.id());
+    });
+
+    return new Response(stream, {
+      headers: {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        // Nothing between us and the browser, but a buffering proxy is exactly what would make
+        // this look like it works and then not.
+        "x-accel-buffering": "no",
+        connection: "keep-alive",
+      },
+    });
+  });
+
+/** Who is listening and whether the server is therefore looking. Exposed for the test that the
+ * watcher stops: a process quietly polling the disk and tmux twice a second for a browser closed
+ * this morning is the failure worth guarding against. */
+export const watchState = (): { listeners: number; watching: boolean } => ({
+  listeners: clients.size,
+  watching: watcher !== undefined,
+});
+
+/**
+ * The bus's HTTP surface. The stream and its two endpoints live together because the stream's
+ * lifecycle is the bus's: a two-route table split from the watcher that backs it buys nothing.
+ */
+export const eventsRoutes = guard({
+  // One connection that says when something changed, so no page has to keep asking. What is
+  // pushed is the news, never the data: a page that hears "changes" asks for them.
+  "/api/events": {
+    GET: (req) => runRoute(events(req)),
+  },
+
+  // Whether the server is watching, and for how many pages. For the tests: nothing in the UI
+  // asks, and nothing should.
+  "/api/events/listeners": {
+    GET: () => json(watchState()),
+  },
+});

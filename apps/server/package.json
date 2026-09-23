@@ -1,0 +1,27 @@
+{
+  "name": "@corvi/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "module": "src/server.ts",
+  "exports": {
+    ".": "./src/server.ts"
+  },
+  "dependencies": {
+    "@corvi/agents": "workspace:*",
+    "@corvi/azure-devops": "workspace:*",
+    "@corvi/changes": "workspace:*",
+    "@corvi/client": "workspace:*",
+    "@corvi/configuration": "workspace:*",
+    "@corvi/contracts": "workspace:*",
+    "@corvi/github": "workspace:*",
+    "@corvi/jira": "workspace:*",
+    "@corvi/repositories": "workspace:*",
+    "@corvi/shell": "workspace:*",
+    "@corvi/terminals": "workspace:*",
+    "@corvi/workflows": "workspace:*",
+    "effect": "catalog:",
+    "node-pty": "1.2.0-beta.15",
+    "ws": "^8.21.3"
+  }
+}

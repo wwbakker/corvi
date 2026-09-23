@@ -1,0 +1,13 @@
+{
+  "name": "@corvi/agents",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./presenter": "./src/presenter.ts",
+    "./prompt": "./src/prompt.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*"
+  }
+}

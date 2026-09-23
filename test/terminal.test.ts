@@ -1,22 +1,27 @@
-import { test, expect, beforeAll, afterAll } from "bun:test";
+import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl } from "./helpers.ts";
-import { platformName } from "../src/capabilities/os.ts";
-import { csiuFor } from "../src/terminals/model.ts";
+import { platformName } from "../apps/server/src/capabilities/os.ts";
+import { csiuFor } from "@corvi/terminals/model";
 
 /**
  * The terminal is process plumbing — a pty running tmux, spawned and cleaned up — so the only
  * test worth having drives the real thing through a real browser. The server runs on Node here,
- * as it does in the app: Bun never delivers pty output (docs/decisions/node-pty-terminal.md).
+ * as it does in the app; native PTY support is checked on the supported Node runtime.
  * The browser is what draws it, so a test without one would not test the terminal at all.
  *
  * It is skipped where the tools are missing rather than failing, since the rest of Corvi works
  * fine without them.
  */
-/** Poll until a value is what it should be: the strip refreshes on its own timer. */
-async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T> {
+/** Poll until a value is what it should be. Waiting is condition-driven throughout: a test
+ * never sleeps for a duration it guessed — a shell starting, a strip refreshing and a file
+ * appearing each happen when they happen, so the tests wait for the fact. The 200ms step between
+ * reads is the one timer in the file, shared by every wait rather than repeated in each test;
+ * `tries` is only ever a failure deadline. The last value read comes back, so the expect below
+ * can say what it saw. */
+async function until<T>(read: () => Promise<T>, want: T, tries = 150): Promise<T> {
   let last = await read();
   for (let i = 0; i < tries && last !== want; i++) {
     await Bun.sleep(200);
@@ -24,6 +29,47 @@ async function until<T>(read: () => Promise<T>, want: T, tries = 50): Promise<T>
   }
   return last;
 }
+
+/** Wait for a condition that is a gate rather than an assertion: on a timeout it names what
+ * never happened, where the expect after it could only say "the file was missing". */
+async function waitFor(what: string, read: () => Promise<boolean>): Promise<void> {
+  if (!(await until(read, true))) throw new Error(`timed out waiting for ${what}`);
+}
+
+/** The file a typed command was supposed to write: what proves the command ran. With `expect`,
+ * the wait is for that exact content — and without it, for any content at all. A file exists as
+ * soon as the shell opens it for the redirect, a moment before the command has written a byte,
+ * so existence is not completion and a test that reads early reads an empty file. */
+const waitForFile = (path: string, want?: string): Promise<void> =>
+  waitFor(`the command to write ${path}`, async () => {
+    const text = await Bun.file(path).text().catch(() => "");
+    return want === undefined ? text.length > 0 : text === want;
+  });
+
+/** The pane has drawn its first line — the shell's prompt — so a command typed now is read by a
+ * shell that is ready for it. Read from tmux's own screen buffer: the terminal is drawn to a
+ * canvas in the browser, so what tmux holds is the same truth the browser will get around to
+ * drawing. A typed line itself cannot be lost — a connecting socket and a starting shell both
+ * buffer their input — which is why this is the only readiness gate there is. */
+const waitForPrompt = (target = session): Promise<void> =>
+  waitFor(`the pane of ${target} to draw its first line`, async () =>
+    /\S/.test(await tmux("capture-pane", "-p", "-t", target)),
+  );
+
+/** The shell echoed what was typed or pasted into it: the input has arrived at the pty. The tty
+ * echoes as the bytes land, so this is what to wait for before pressing Enter behind a paste.
+ * `-J` joins wrapped lines: a long command's echo breaks across the grid wherever the prompt
+ * and the width leave off, and an un-joined capture splits the very words being looked for. A
+ * timeout prints the pane, so a failure says what did arrive. */
+const echoInPane = async (text: string): Promise<void> => {
+  const capture = async (): Promise<string> => tmux("capture-pane", "-p", "-J", "-t", session);
+  const found = await until(async () => (await capture()).includes(text), true);
+  if (!found) throw new Error(`timed out waiting for the pane to show ${text}; the pane held:\n${await capture()}`);
+};
+
+/** The tmux clients attached to a session: one per open terminal's pty. */
+const clientCount = async (target: string): Promise<number> =>
+  (await tmux("list-clients", "-t", target)).split("\n").filter(Boolean).length;
 
 /** tmux, on the private server this test runs: Bun.spawn does not pick up an environment
  * variable set after it started, so it is passed explicitly. */
@@ -69,13 +115,13 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const session = `corvi-${id}`;
 
-/** Start the server the app would start: `src/server.ts` on Node. Port 0: the OS picks a free
+/** Start the server the app would start: `apps/server/src/server.ts` on Node. Port 0: the OS picks a free
  * one, so parallel workers never collide; readiness is the server's own `corvi on <url>` line.
  * CORVI_TMUX_SOCKET is added after the scrub in serverEnv — serverEnv removes every CORVI_*
  * variable (it would otherwise leak another file's socket), then the test's own socket is set
  * deliberately. */
 const startServer = async (): Promise<void> => {
-  server = Bun.spawn(["node", "src/server.ts", `--corvi-test-run=${testRun()}`], {
+  server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     // TMUX_TMPDIR is the short socket dir, not tmp: the same value this file's own tmux
     // calls use. The server itself resolves its socket through CORVI_TMUX_SOCKET below (a
     // path, so -S), never through TMUX_TMPDIR — this is for the pane shells it spawns.
@@ -110,6 +156,18 @@ beforeAll(async () => {
     body: JSON.stringify({ id, repos: [repo] }),
   });
   browser = await chromium.launch();
+  // The hook carries its own waits — a server that answers within a minute (waitForUrl), a
+  // browser to launch — so its budget is theirs rather than the suite's 30-second default for a
+  // test. A hook that times out is reported as one unnamed failure with every terminal test gone.
+}, 120_000);
+
+afterEach(async () => {
+  // A test that fails mid-way must not leave its page open: the page's pty keeps its tmux client
+  // attached, and the next test's client-count gates could never be satisfied. The tests close
+  // their own pages; this is the net under them, so one failure stays one failure.
+  for (const context of browser?.contexts() ?? []) {
+    for (const page of context.pages()) await page.close().catch(() => undefined);
+  }
 });
 
 afterAll(async () => {
@@ -121,7 +179,9 @@ afterAll(async () => {
   server?.kill();
   await tmux("kill-server"); // ours alone: named by -S, the socket this file gave the server
   await rm(tmp, { recursive: true, force: true });
-});
+  // Its own budget too: closing a browser, a server and a tmux server is work the 30-second
+  // default does not owe, and a timeout here would fail a run whose tests all passed.
+}, 60_000);
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
   const key = (
@@ -147,7 +207,7 @@ test("the keys a terminal cannot encode are sent as CSI u", () => {
 test("a Bun server says it has no terminal rather than opening a silent socket", async () => {
   // The suite runs under Bun, which is exactly the runtime where node-pty never delivers data;
   // this is the guard that turns that into a message instead of an empty pane.
-  const { terminalUnavailable } = await import("../src/terminals/server/session.ts");
+  const { terminalUnavailable } = await import("../apps/server/src/terminals/server/session.ts");
   expect(terminalUnavailable()).toContain("needs Node");
 });
 
@@ -156,15 +216,16 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
-  // Something that only lives in the shell itself, so the test can tell a surviving shell from
-  // a fresh one that happens to have the same windows.
-  await page.keyboard.type("export CORVI_SURVIVED=yes\n");
-  await Bun.sleep(500);
+  await waitForPrompt();
+  // The export only lives in the shell itself, so the test can tell a surviving shell from a
+  // fresh one that happens to have the same windows. The write beside it is the proof the line
+  // ran before the server goes away under it.
+  await page.keyboard.type(`export CORVI_SURVIVED=yes; echo set > ${join(tmp, "survived-set.txt")}\n`);
+  await waitForFile(join(tmp, "survived-set.txt"), "set\n");
 
   // Restart, as happens constantly while working on Corvi itself.
   server.kill();
-  await Bun.sleep(500);
+  await server.exited;
   await startServer();
 
   // The session, and the shell in it, belong to tmux; the new server's pty attaches to them.
@@ -173,12 +234,12 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
+  await waitForPrompt();
+  // The old server's attachment went with it: the session has the new server's client, and no
+  // orphaned attach client from the process that was just killed.
+  expect(await until(() => clientCount(`corvi-${id}`), 1)).toBe(1);
   await page.keyboard.type("echo $CORVI_SURVIVED > survived.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "survived.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
+  await waitForFile(join(tmp, "changes", id, "survived.txt"), "yes\n");
   expect(await Bun.file(join(tmp, "changes", id, "survived.txt")).text()).toBe("yes\n");
   await page.close();
 }, 60_000);
@@ -199,12 +260,9 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await page.goto(`${url}/changes/${second}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
+  await waitForPrompt(`corvi-${second}`);
   await page.keyboard.type("pwd > second.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", second, "second.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
+  await waitForFile(join(tmp, "changes", second, "second.txt"), `${join(tmp, "changes", second)}\n`);
   expect(await Bun.file(join(tmp, "changes", second, "second.txt")).text()).toBe(
     `${join(tmp, "changes", second)}\n`,
   );
@@ -216,12 +274,9 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await page.waitForURL(`**/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
+  await waitForPrompt();
   await page.keyboard.type("pwd > back.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "back.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
+  await waitForFile(join(tmp, "changes", id, "back.txt"), `${join(tmp, "changes", id)}\n`);
   expect(await Bun.file(join(tmp, "changes", id, "back.txt")).text()).toBe(
     `${join(tmp, "changes", id)}\n`,
   );
@@ -241,15 +296,11 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
   // tmux only starts when the browser connects, and the shell only prompts after that.
   const started = async (): Promise<boolean> => (await tmux("ls")).includes(session);
-  for (let i = 0; i < 50 && !(await started()); i++) await Bun.sleep(200);
-  expect(await started()).toBe(true);
-  await Bun.sleep(1000); // the shell's own startup, before it can read a command
+  await waitFor("the session to start", started);
+  await waitForPrompt();
 
   await page.keyboard.type("pwd > out.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "out.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
+  await waitForFile(join(tmp, "changes", id, "out.txt"), `${join(tmp, "changes", id)}\n`);
   expect(await Bun.file(join(tmp, "changes", id, "out.txt")).text()).toBe(
     `${join(tmp, "changes", id)}\n`,
   );
@@ -257,8 +308,9 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   // A second window is tmux's own business, and the prefix key has to reach it through xterm.js.
   await page.keyboard.press("Control+b");
   await page.keyboard.press("c");
-  await Bun.sleep(800);
-  expect((await tmux("list-windows", "-t", session)).split("\n").length).toBe(2);
+  expect(
+    await until(async () => (await tmux("list-windows", "-t", session)).split("\n").length, 2),
+  ).toBe(2);
 
   // Scrolling should scroll, which is tmux's mouse mode rather than the shell's history.
   expect(await tmux("show-options", "-t", session, "mouse")).toBe("mouse on");
@@ -321,18 +373,15 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   // server this test runs still reads that file.
   const baseIndex = (await tmux("show-window-option", "-g", "base-index")).trim().split(" ").pop() ?? "0";
   await strip.first().click();
-  await Bun.sleep(500);
-  expect(await tmux("display-message", "-p", "-t", session, "#{window_index}")).toBe(baseIndex);
+  expect(
+    await until(async () => tmux("display-message", "-p", "-t", session, "#{window_index}"), baseIndex),
+  ).toBe(baseIndex);
 
   // Clicking a tab must not take the keyboard with it: you click one to type in the window it opens.
   await page.locator(".window-tab.new").click();
-  await Bun.sleep(1000);
+  await waitForPrompt();
   await page.keyboard.type("pwd > typed-after-click.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
-  expect(await Bun.file(join(tmp, "changes", id, "typed-after-click.txt")).exists()).toBe(true);
+  await waitForFile(join(tmp, "changes", id, "typed-after-click.txt"));
 
   // And closing the cheat sheet hands the keyboard back: it is a modal dialog, so the browser moved
   // the focus into it, and a terminal you have to click before typing is a terminal clicked twice.
@@ -341,11 +390,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.getByRole("button", { name: "Close" }).click();
   await page.locator("dialog[open]").waitFor({ state: "detached" });
   await page.keyboard.type("pwd > typed-after-sheet.txt\n");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "changes", id, "typed-after-sheet.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
-  expect(await Bun.file(join(tmp, "changes", id, "typed-after-sheet.txt")).exists()).toBe(true);
+  await waitForFile(join(tmp, "changes", id, "typed-after-sheet.txt"));
 
   // The pty follows the pane: a resized window re-fits xterm and tells the pty, so tmux's client
   // size follows instead of leaving a strip of the terminal unused. Height counts as much as
@@ -364,10 +409,10 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
     want: (size: { width: number; height: number }) => boolean,
   ): Promise<{ width: number; height: number }> => {
     let size = await clientSize();
-    for (let i = 0; i < 50 && !want(size); i++) {
-      await Bun.sleep(200);
+    await waitFor("the pty to follow the resized window", async () => {
       size = await clientSize();
-    }
+      return want(size);
+    });
     return size;
   };
   const before = await clientSize();
@@ -391,20 +436,20 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   // (CORVI_PORT, CORVI_ROOT here; ELECTRON_RUN_AS_NODE whenever this suite itself runs inside such a
   // server, which is exactly the leak). The pane's shells are the user's, so they must not see
   // any of it — and they must see the change's context, which Corvi adds on purpose
-  // (src/capabilities/env.ts).
+  // (apps/server/src/capabilities/env.ts).
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  await Bun.sleep(1000);
+  await waitForPrompt();
   // An absolute path, because the session's active window may be any window the tests above left
   // behind, in whatever directory it had walked to.
   const out = join(tmp, "changes", id, "pane-env.txt");
-  await page.keyboard.type(`env > ${out}\n`);
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(out).exists()) break;
-    await Bun.sleep(200);
-  }
+  // The output is published in one move: the file appears only once `env` has finished writing
+  // it. What the environment holds is what this test asserts on, so its content cannot be the
+  // wait — and a file read early is empty, which would read as "the env was never set".
+  await page.keyboard.type(`env > ${out}.tmp && mv ${out}.tmp ${out}\n`);
+  await waitForFile(out);
   const env = await Bun.file(out).text();
   // Line-anchored: the suite's own `npm_lifecycle_script` ("export CORVI_ROOT=\"$ROOT\" …") rides
   // along in the environment, so a bare substring would false-positive on it.
@@ -538,7 +583,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The change's own row is the page's first row — the window's title bar in the app, and the same
   // one the terminal page showed — with the tabs row right under it: both against the top, the
   // column and the right edge of the content area rather than under the page's own padding
-  // (docs/decisions/window-titlebar.md).
+  // (docs/manual/interface.md).
   expect(titleBar!.y).toBe(0);
   expect(Math.abs(titleBar!.x - (columnBox!.x + columnBox!.width))).toBeLessThanOrEqual(1);
   expect(Math.abs(titleBar!.x + titleBar!.width - viewport[0])).toBeLessThanOrEqual(1);
@@ -547,7 +592,7 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   expect(Math.abs(tabsRow!.x + tabsRow!.width - viewport[0])).toBeLessThanOrEqual(1);
 
   // The two pages' rows are the same row — same height, held at the top — and neither carries the
-  // change's name (docs/decisions/window-titlebar.md).
+  // change's name (docs/manual/interface.md).
   expect(await page.locator(".change-bar .subject").count()).toBe(0);
   expect(Math.abs(titleBar!.height - barBox!.height)).toBeLessThanOrEqual(1);
 
@@ -593,7 +638,7 @@ test.skipIf(!usable)("a window tab dragged onto another takes its place", async 
 test.skipIf(!usable)("a window that starts waiting is announced, and the notice opens it", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   // Stand in for the app's host: the real window exposes `window.corviHost` from its preload
-  // (scripts/app/electron/preload.ts), a browser has none, so the test installs the same shape
+  // (apps/desktop/src/electron/preload.ts), a browser has none, so the test installs the same shape
   // and keeps the open-window callback the page registers on mount.
   await page.addInitScript(() => {
     const store: unknown[] = [];
@@ -607,29 +652,31 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   });
   await page.goto(`${url}/changes/${id}`);
   await page.waitForSelector(".widget");
-  // Let the watcher start. The notice is an edge into "waiting", and the server only reports an
-  // edge it watched happen: a window it first sees already waiting seeds the picture and says
-  // nothing, so a page connecting does not replay every agent that is already blocked. Working
-  // first, and then waiting for the server itself to have read that non-waiting state —
-  // /api/terminals is the same presented read the watcher diffs — makes the edge real rather
-  // than timed.
-  await page.waitForTimeout(1000);
 
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
   const windowId = await tmux("display-message", "-p", "-t", `${session}:${active}`, "#{window_id}");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
+  const agentOption = (name: string, value?: string): Promise<string> =>
+    tmux("set-option", "-p", "-t", `${session}:${active}`, ...(value === undefined ? ["-u", name] : [name, value]));
 
-  /** The windows the server reports for this change: the presented read the watcher diffs. */
-  const presented = async (): Promise<{ attention?: boolean }[]> =>
-    (await fetch(`${url}/api/terminals`).then((r) => r.json()))[id] ?? [];
-  expect(
-    await until(async () => (await presented()).some((w) => w.attention === false), true),
-  ).toBe(true);
-  // One full watcher tick, so its diff has recorded the non-waiting window before the flip.
-  await page.waitForTimeout(1700);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_session_name", "Build the thing");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_last_message", "I fixed the layout.");
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "waiting");
+  /** The window labels the navigation column shows — what the page has heard from the watcher.
+   * A label rides the `windows` event, and the watcher announces it from the same tick that
+   * records the attention diff (apps/server/src/capabilities/watch.ts): the column showing a
+   * state is proof the watcher recorded it, so the edge into "waiting" is watched happen rather
+   * than timed. The notice is an edge — a window the watcher first finds already waiting only
+   * seeds the picture and says nothing. */
+  const shown = (text: string): Promise<void> =>
+    waitFor(`the column to show ${text}`, async () =>
+      (await page.locator(".sidebar .entry.window").allInnerTexts()).join(" | ").includes(text),
+    );
+
+  // Working first, and waiting for the column to show it: that tick's attention diff records
+  // the non-waiting state before the flip.
+  await agentOption("@agent_status", "working");
+  await shown("pi working");
+
+  await agentOption("@agent_session_name", "Build the thing");
+  await agentOption("@agent_last_message", "I fixed the layout.");
+  await agentOption("@agent_status", "waiting");
 
   const notices = (): Promise<unknown[]> =>
     page.evaluate(() => (window as unknown as { __notices: unknown[] }).__notices);
@@ -665,33 +712,34 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
   // terminal's own input has the pty, and the shell is in the repo by now, so the markers are
   // written by absolute path rather than by where the last test left it.
   await page.locator(".terminal-screen").click();
+  await waitForPrompt();
   await page.keyboard.type(`echo ready > ${join(tmp, "terminal-ready.txt")}\n`);
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "terminal-ready.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
-  expect(await Bun.file(join(tmp, "terminal-ready.txt")).exists()).toBe(true);
+  await waitForFile(join(tmp, "terminal-ready.txt"), "ready\n");
 
   await page.locator(".toast-close").click();
   await page.locator(".toast").waitFor({ state: "detached" });
   await page.keyboard.type(`echo typed > ${join(tmp, "typed-after-toast.txt")}\n`);
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(join(tmp, "typed-after-toast.txt")).exists()) break;
-    await Bun.sleep(200);
-  }
-  expect(await Bun.file(join(tmp, "typed-after-toast.txt")).exists()).toBe(true);
+  await waitForFile(join(tmp, "typed-after-toast.txt"), "typed\n");
 
-  // Looking straight at it is the one silent case. Working long enough for the watcher to see
-  // it, then waiting again: the host hears nothing this time.
+  // Looking straight at it is the one silent case: the watcher still reports the edge, and the
+  // page holds its tongue because you are looking at it. The name is put back first — it replaces
+  // the composed label the gates read — then working, then waiting, then one more labelled
+  // change. The watcher emits a tick's windows announce before that tick's notify, so the last
+  // label arriving is proof the page has already handled whatever the flip's tick produced.
   expect(await page.evaluate(() => document.hasFocus())).toBe(true);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "working");
-  await page.waitForTimeout(2500);
-  await tmux("set-option", "-p", "-t", `${session}:${active}`, "@agent_status", "waiting");
-  await page.waitForTimeout(3500);
+  await agentOption("@agent_session_name");
+  await agentOption("@agent_last_message");
+  await shown("pi waiting");
+  await agentOption("@agent_status", "working");
+  await shown("pi working");
+  await agentOption("@agent_status", "waiting");
+  await shown("pi waiting");
+  await agentOption("@agent_session_name", "Witness");
+  await shown("Witness");
   expect((await notices()).length).toBe(1);
 
   for (const option of ["@agent_status", "@agent_session_name", "@agent_last_message"]) {
-    await tmux("set-option", "-p", "-t", `${session}:${active}`, "-u", option);
+    await agentOption(option);
   }
   await page.close();
 }, 60_000);
@@ -707,9 +755,9 @@ test.skipIf(!usable)("closing the page detaches the pty but keeps the session", 
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-  await Bun.sleep(500); // the pty attached
+  await waitFor("the page's pty to attach", async () => (await clientCount(session)) > 0); // the pty attached
   await page.close();
-  await Bun.sleep(500);
+  await waitFor("the closed page's client to detach", async () => (await clientCount(session)) === 0);
 
   // A fresh connection finds the session and its windows, not a fresh session.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
@@ -744,7 +792,7 @@ test.skipIf(!usable)("the terminal fills the frame, with no scrollbar of its own
     };
   });
   expect(overflowY).toBe("hidden");
-  // xterm's own stylesheet is part of the page's (src/app-root/styles.css imports it, and the build
+  // xterm's own stylesheet is part of the page's (apps/web/src/app-root/styles.css imports it, and the build
   // inlines it). It is the one thing the measurements above cannot see: without it the screen is not
   // positioned and the terminal draws over nothing — an empty page — while every box here still
   // measures correctly. `position: relative` on the screen is xterm's rule, not ours.
@@ -770,7 +818,7 @@ test.skipIf(!usable)("a right click is tmux's menu, not the browser's as well", 
 
 test.skipIf(!usable)("the page copies and pastes through the system clipboard", async () => {
   // ttyd's page owned these chords; with xterm.js in the page they are ours. The browser
-  // permission is granted here the way the app grants it (scripts/app/electron/main.ts).
+  // permission is granted here the way the app grants it (apps/desktop/src/electron/main.ts).
   const page = await browser.newPage({
     viewport: { width: 1200, height: 800 },
     permissions: ["clipboard-read", "clipboard-write"],
@@ -780,24 +828,22 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.locator(".terminal-screen").click();
 
   // The pty attaches when the page's socket opens, and the attach is what starts tmux and sets
-  // the session options; until then there is no server to ask. Wait for that client rather than
-  // guessing a duration (the terminal test above is the same pattern for the shell).
-  const attached = async (): Promise<boolean> =>
-    (await tmux("list-clients", "-t", session)).includes(session);
-  for (let i = 0; i < 50 && !(await attached()); i++) await Bun.sleep(200);
-  expect(await attached()).toBe(true);
-  await Bun.sleep(1000); // the shell's own startup, before it can read a command
+  // the session options; until then there is no server to ask. The pane drawing its prompt is
+  // that having happened — no duration guessed.
+  await waitForPrompt();
 
   // Corvi asks tmux for the clipboard explicitly; the page only has a clipboard to write into
   // because tmux sends its copies as OSC 52 (tmux.ts, and the addon in TerminalPane).
-  expect(await tmux("show-options", "-s", "set-clipboard")).toBe("set-clipboard on");
+  expect(
+    await until(async () => tmux("show-options", "-s", "set-clipboard"), "set-clipboard on"),
+  ).toBe("set-clipboard on");
 
   // A known line at the top of the screen. The status line is hidden so the pane fills the
   // grid: the drag below starts in the pane's first cell whatever the user's ~/.tmux.conf does
   // with the status bar.
   await tmux("set-option", "-t", session, "status", "off");
   await page.keyboard.type("clear; echo COPY-MARKER-42\n");
-  await Bun.sleep(800);
+  await echoInPane("COPY-MARKER-42");
 
   const screen = (await page.locator(".terminal-screen .xterm-screen").boundingBox())!;
   const clipboard = (): Promise<string> => page.evaluate(() => navigator.clipboard.readText());
@@ -811,10 +857,10 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   // that round trip rather than race it.
   const markerSoon = async (): Promise<string> => {
     let text = "";
-    for (let i = 0; i < 25 && !text.includes("MARKER-42"); i++) {
+    await waitFor("the selection to reach the clipboard", async () => {
       text = await clipboard();
-      if (!text.includes("MARKER-42")) await Bun.sleep(200);
-    }
+      return text.includes("MARKER-42");
+    });
     return text;
   };
 
@@ -823,6 +869,15 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.evaluate(() => navigator.clipboard.writeText(""));
   await dragAcrossScreen();
   expect(await markerSoon()).toContain("MARKER-42");
+
+  // tmux is not a clipboard writer from here on. The shift-drag below reaches tmux as well as
+  // xterm, and tmux answers a drag on the cells the first drag already covered with a copy of
+  // its own — an OSC 52 that the page writes into the system clipboard whenever it happens to
+  // arrive. It arrived two milliseconds after the payload the paste below checks was written,
+  // which pasted tmux's word instead of the command. The chord and the middle click that follow
+  // have nothing of their own to do with tmux's clipboard, so the two stop racing for it; the
+  // tmux half of the story is the drag above, asserted, and the option this test read as `on`.
+  await tmux("set-option", "-s", "set-clipboard", "off");
 
   // The browser's own selection is still a modifier away, because mouse mode is on. Which
   // modifier is xterm.js's (SelectionService.shouldForceSelection): shift everywhere but macOS,
@@ -845,15 +900,27 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   // left behind, in whatever directory it had walked to.
   const pasted = join(tmp, "changes", id, "pasted.txt");
   await page.evaluate((path) => navigator.clipboard.writeText(`echo PASTED > ${path}`), pasted);
+  // The clipboard must still hold what was just written when the chord reads it: that read is
+  // the whole of the paste, and a clipboard clobbered in between pastes someone else's text.
+  expect(await clipboard()).toBe(`echo PASTED > ${pasted}`);
   await page.locator(".terminal-screen").click();
+  expect(await page.evaluate(() => document.hasFocus())).toBe(true);
   await page.keyboard.press("Control+Shift+V");
-  // The clipboard read is asynchronous; Enter before it lands would execute an empty line.
-  await Bun.sleep(400);
-  await page.keyboard.press("Enter");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(pasted).exists()) break;
-    await Bun.sleep(200);
+  // The clipboard read is asynchronous; Enter before it lands would execute an empty line — so
+  // wait for the pasted text to appear in the pane, which is the shell having received it. A
+  // failure says what the page saw instead: focus (the chord needs the terminal to have it) and
+  // the clipboard the chord would have read.
+  try {
+    await echoInPane("echo PASTED >");
+  } catch (error) {
+    const probe = await page.evaluate(async () => ({
+      focus: document.hasFocus(),
+      clipboard: await navigator.clipboard.readText().catch((e) => `read failed: ${e}`),
+    }));
+    throw new Error(`${String(error)}\nafter the chord the page saw: ${JSON.stringify(probe)}`);
   }
+  await page.keyboard.press("Enter");
+  await waitForFile(pasted, "PASTED\n");
   expect(await Bun.file(pasted).text()).toBe("PASTED\n");
 
   // Middle-click pastes the system clipboard too, not tmux's newest buffer: the page takes the
@@ -862,12 +929,9 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   await page.evaluate((path) => navigator.clipboard.writeText(`echo MIDDLE > ${path}`), middle);
   await page.mouse.click(screen.x + 20, screen.y + 20, { button: "middle" });
   // The clipboard read is asynchronous here too; Enter before it lands runs an empty line.
-  await Bun.sleep(400);
+  await echoInPane("echo MIDDLE >");
   await page.keyboard.press("Enter");
-  for (let i = 0; i < 30; i++) {
-    if (await Bun.file(middle).exists()) break;
-    await Bun.sleep(200);
-  }
+  await waitForFile(middle, "MIDDLE\n");
   expect(await Bun.file(middle).text()).toBe("MIDDLE\n");
   await page.close();
 }, 60_000);
@@ -900,12 +964,7 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // anyway; the banner is about the loss, not a request to clean anything up.
   await page.reload();
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
-  let fresh = false;
-  for (let i = 0; i < 50 && !fresh; i++) {
-    fresh = (await tmux("ls")).includes(session);
-    if (!fresh) await Bun.sleep(200);
-  }
-  expect(fresh).toBe(true);
+  expect(await until(async () => (await tmux("ls")).includes(session), true)).toBe(true);
   expect(await until(() => page.locator(".terminal-gone").count(), 0)).toBe(0);
   await page.close();
 }, 60_000);

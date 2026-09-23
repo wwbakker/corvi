@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { childEnv } from "../src/capabilities/env.ts";
+import { childEnv } from "../apps/server/src/capabilities/env.ts";
 
 /**
  * The environment children get: the server's own, scrubbed of the launcher's variables, with the
- * caller's additions applied after the scrub (src/capabilities/env.ts tells the whole story).
+ * caller's additions applied after the scrub (apps/server/src/capabilities/env.ts tells the whole story).
  */
 test("the launcher's variables do not reach a child", () => {
   const env = childEnv({

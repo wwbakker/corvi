@@ -1,8 +1,8 @@
 import { beforeEach, expect, test } from "bun:test";
-import { checkItems, groupChecks, type Check } from "../src/extensions/github/checks.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { WidgetItem } from "../src/domain/widget.ts";
-import { clearCache } from "../src/capabilities/cache.ts";
+import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { WidgetItem } from "../apps/server/src/domain/widget.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 beforeEach(() => clearCache());

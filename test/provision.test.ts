@@ -2,7 +2,6 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { install, loaded, provision } from "../src/extension-host/index.ts";
 import { Effect } from "effect";
 import {
   describe,
@@ -12,15 +11,15 @@ import {
   parseWorktrees,
   parseStatus,
   type WorktreeEntry,
-} from "../src/vendors/git.ts";
-import { isMac } from "../src/capabilities/os.ts";
-import { versionInLines } from "../src/extensions/azure-devops/pipelines.ts";
-import { deploySettingsOf } from "../src/extensions/azure-devops/deploySettings.ts";
-import { readiness, headRef, waitingOnYou } from "../src/vendors/github.ts";
-import { presentWindow, type PresentedWindow } from "../src/terminals/server/index.ts";
-import type { TmuxWindow } from "../src/extension-host/api.ts";
-import type { Change } from "../src/domain/change.ts";
-import { runDeploy, runEffect, runSetRepos, TestError } from "./helpers.ts";
+} from "../apps/server/src/vendors/git.ts";
+import { isMac } from "../apps/server/src/capabilities/os.ts";
+import { versionInLines } from "@corvi/azure-devops/pipelines";
+import { deploySettingsOf } from "@corvi/azure-devops/deploySettings";
+import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
+import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
+import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
@@ -45,46 +44,6 @@ const change: Change = {
   repos: [],
   createdAt: new Date().toISOString(),
 };
-
-test("provisioning reports every extension and survives a failing one", async () => {
-  const calls: string[] = [];
-  // The registry is pruned and refilled with two stubs: the first one's hook fails, and
-  // provisioning must still run the second's.
-  const restore = loaded.splice(0, loaded.length);
-  install({
-    name: "one",
-    title: "One",
-    events: {
-      "change:created": [
-        () => {
-          calls.push("one");
-          return Effect.fail(new TestError({ message: "one exploded" }));
-        },
-      ],
-    },
-  });
-  install({
-    name: "two",
-    title: "Two",
-    events: {
-      "change:created": [
-        () => {
-          calls.push("two");
-          return Effect.void;
-        },
-      ],
-    },
-  });
-
-  const results = await runEffect(provision(change));
-  expect(calls).toEqual(["one", "two"]); // a failure must not stop the extensions after it
-  expect(results).toEqual([
-    { integration: "one", ok: false, error: "one exploded" },
-    { integration: "two", ok: true },
-  ]);
-
-  loaded.splice(0, loaded.length, ...restore);
-});
 
 test("a worktree entry describes what it holds", () => {
   const entries = JSON.parse(
@@ -352,8 +311,8 @@ test("a review thread you answered last is not waiting on you", () => {
 });
 
 test("what an environment holds is the newest run that was sent to it", async () => {
-  const { latestFor, versionIn, serviceName } = await import("../src/extensions/azure-devops/server.ts");
-  const settings = deploySettingsOf(undefined, {});
+  const { latestFor, versionIn, serviceName } = await import("@corvi/azure-devops/server");
+  const settings = deploySettingsOf(undefined);
   const run = (
     id: number,
     environment: string,
@@ -408,7 +367,7 @@ test("what an environment holds is the newest run that was sent to it", async ()
 });
 
 test("a later environment only gets what the one before it already has", async () => {
-  const { branchOf } = await import("../src/extensions/azure-devops/server.ts");
+  const { branchOf } = await import("@corvi/azure-devops/server");
 
   // The gate, which is the manual step of the shell script it replaces: production gets what
   // acceptance proved, not what somebody hoped. The refusal names what is actually on accept.

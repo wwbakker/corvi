@@ -11,12 +11,12 @@ import {
   versionInLines,
   versionOf,
   type Run,
-} from "../src/extensions/azure-devops/pipelines.ts";
-import { azDefaults, azFor, type Az } from "../src/extensions/azure-devops/azure.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../src/domain/widget.ts";
-import { clearCache } from "../src/capabilities/cache.ts";
-import { config } from "../src/workspace/server/index.ts";
+} from "@corvi/azure-devops/pipelines";
+import { azDefaults, azFor, type Az } from "@corvi/azure-devops/azure";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { WidgetItem, WidgetState } from "../apps/server/src/domain/widget.ts";
+import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { fakeShell, runWithShell } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
@@ -159,19 +159,19 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
   // no legacy flat field in the file it was loaded from, no environment override. (An earlier
   // test file may have left any of those behind, so all three are cleared first rather than
   // assumed — including the file, which is pointed at an empty one and reloaded.)
-  const beforeBag = config.extensionSettings;
+  const beforeBag = runtimeConfig().extensionSettings;
   const beforeConfig = process.env.CORVI_CONFIG;
   const beforeOrg = process.env.CORVI_AZURE_ORG;
   const beforeProject = process.env.CORVI_AZURE_PROJECT;
   const { mkdtemp, rm } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const { reloadConfigSync } = await import("../src/workspace/server/index.ts");
+  const { reloadConfigSync } = await import("../apps/server/src/workspace/server/index.ts");
   const empty = await mkdtemp(join(tmpdir(), "corvi-az-empty-"));
-  config.extensionSettings = undefined;
+  runtimeConfig().extensionSettings = undefined;
   delete process.env.CORVI_AZURE_ORG;
   delete process.env.CORVI_AZURE_PROJECT;
-  process.env.CORVI_CONFIG = join(empty, "config.json");
+  process.env.CORVI_CONFIG = join(empty, "runtimeConfig().json");
   await Bun.write(process.env.CORVI_CONFIG, "{}");
   reloadConfigSync();
   try {
@@ -188,7 +188,7 @@ test("azDefaults reads az devops configure, and reads it once", async () => {
     expect(second).toEqual(first);
     expect(shell.calls.length).toBe(calls);
   } finally {
-    config.extensionSettings = beforeBag;
+    runtimeConfig().extensionSettings = beforeBag;
     if (beforeConfig === undefined) delete process.env.CORVI_CONFIG;
     else process.env.CORVI_CONFIG = beforeConfig;
     if (beforeOrg === undefined) delete process.env.CORVI_AZURE_ORG;
@@ -476,9 +476,9 @@ test("pipelineItems nests each pipeline's newest runs under it", async () => {
 });
 
 test("pipelineItems appends the version a successful build printed", async () => {
-  const before = config.extensionSettings;
+  const before = runtimeConfig().extensionSettings;
   // A project is what makes a version lookup worth attempting at all.
-  config.extensionSettings = { "azure-devops": { project: "proj" } };
+  runtimeConfig().extensionSettings = { "azure-devops": { project: "proj" } };
   const shell = fakeShell((cmd) => {
     const line = cmd.join(" ");
     if (line.startsWith("az pipelines list --folder-path")) {
@@ -506,7 +506,7 @@ test("pipelineItems appends the version a successful build printed", async () =>
     );
     expect(items[0]!.children![0]!.detail).toBe("succeeded · 20260818.5");
   } finally {
-    config.extensionSettings = before;
+    runtimeConfig().extensionSettings = before;
   }
 });
 

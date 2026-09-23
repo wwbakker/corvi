@@ -2,15 +2,16 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createChange } from "../src/change/server/index.ts";
-import { checkoutFor } from "../src/vendors/git.ts";
-import { changeTabsFor, dispatchExtensionRoute, provision } from "../src/extension-host/index.ts";
-import { resolveChangePage } from "../src/change-page/client/changeTabs.ts";
-import type { Workspace } from "../src/workspace/server/index.ts";
-import type { Change } from "../src/domain/change.ts";
-import type { CommitResult, LocalStatus } from "../src/extensions/review/shared.ts";
+import { createChange } from "../apps/server/src/change/server/index.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { changeTabsFor, dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
+import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
+import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
+import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
 import { runEffect, runSh } from "./helpers.ts";
-import type { Result } from "../src/capabilities/shell.ts";
+import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The review extension on the change-tab contract (E3): its tab exists exactly when the
@@ -49,7 +50,7 @@ const ext = async (
   method = "GET",
   body?: unknown,
 ): Promise<Response> => {
-  const response = dispatchExtensionRoute(
+  const response = dispatchIntegrationRoute(
     new Request(`http://localhost/api/ext/review/${path}`, {
       method,
       ...(body === undefined
@@ -89,7 +90,7 @@ test("the review tab is offered only when the extension is enabled, and its URL 
 test("the extension's local route answers for a repository of a change, and 404s an unknown one", async () => {
   const repo = await clonedRepo("local");
   const change = await changeFor("PROJ-REVIEW-LOCAL", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   await Bun.write(join(worktree, "added.txt"), "staged\n");
   await runSh(["git", "add", "added.txt"], worktree);
@@ -114,7 +115,7 @@ test("committing takes the files you ticked, in every repository at once", async
   const a = await clonedRepo("commit-a");
   const b = await clonedRepo("commit-b");
   const change = await changeFor("PROJ-COMMIT", [a, b]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const wtA = (await runEffect(checkoutFor(change, a)))!;
   const wtB = (await runEffect(checkoutFor(change, b)))!;
 
@@ -161,7 +162,7 @@ test("committing takes the files you ticked, in every repository at once", async
 test("a repository that refuses to commit does not stop the others", async () => {
   const good = await clonedRepo("commit-good");
   const change = await changeFor("PROJ-PARTIAL", [good]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   await Bun.write(join((await runEffect(checkoutFor(change, good)))!, "README.md"), "edited\n");
 
   // A repository of this change without a worktree: it says so, the other one still commits.
@@ -181,7 +182,7 @@ test("a repository that refuses to commit does not stop the others", async () =>
 test("what is committed but only here is counted, and pushing takes it away", async () => {
   const repo = await clonedRepo("push");
   const change = await changeFor("PROJ-PUSH", [repo]);
-  await runEffect(provision(change));
+  await runEffect(provisionChangeRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // A branch that was never pushed has no upstream, so "ahead" says nothing: everything since
@@ -226,7 +227,7 @@ test("what is committed but only here is counted, and pushing takes it away", as
 });
 
 test("a repository's line says what is uncommitted and what is only here", async () => {
-  const { summarise } = await import("../src/extensions/review/LocalPane.tsx");
+  const { summarise } = await import("../apps/web/src/integrations/review/LocalPane.tsx");
   const status = (files: unknown[], unpushed = 0): LocalStatus => ({
     repo: "/r",
     name: "r",

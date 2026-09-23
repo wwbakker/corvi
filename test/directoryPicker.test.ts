@@ -1,10 +1,10 @@
 import { test, expect } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { DirectoryField } from "../src/settings/client/SettingsFields.tsx";
-import { DirectoryListing } from "../src/workspace/client/DirectoryListing.tsx";
-import { listingQuery } from "../src/workspace/client/repoListing.ts";
-import type { Listing } from "../src/app-root/api.ts";
+import { DirectoryField } from "../apps/web/src/settings/client/SettingsFields.tsx";
+import { DirectoryListing } from "../apps/web/src/workspace/client/DirectoryListing.tsx";
+import { listingQuery } from "../apps/web/src/workspace/client/repoListing.ts";
+import type { Listing } from "../apps/web/src/app-root/api.ts";
 
 /**
  * The directory control and the listing it reuses. Both are rendered to static markup: the

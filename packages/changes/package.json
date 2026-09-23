@@ -1,0 +1,21 @@
+{
+  "name": "@corvi/changes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./changes": "./src/changes.ts",
+    "./repositories": "./src/change-repositories.ts",
+    "./rules": "./src/rules.ts",
+    "./errors": "./src/errors.ts",
+    "./store": "./src/store.ts",
+    "./progress": "./src/progress.ts",
+    "./legacy": "./src/legacy.ts",
+    "./node": "./src/node/index.ts",
+    "./record": "./src/record.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:"
+  }
+}
