@@ -181,7 +181,7 @@ the actual removal result, not assumed before checking.
 
 ## Left behind
 
-The **Left behind** page lists directories in the changes root that no longer contain a change
+The **Left behind** page lists directories in the changes roots that no longer contain a change
 record. They may hold build output or scratch files. Nothing is deleted automatically.
 
 Deletion refuses a directory that still has `change.json` and leaves the archived copy alone.

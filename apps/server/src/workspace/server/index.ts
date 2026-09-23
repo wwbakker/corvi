@@ -31,7 +31,9 @@ export {
   workspaces,
   workspaceById,
   workspaceOf,
+  settingsOf,
   extensionEnabled,
+  extensionNamesFor,
   repositoriesDirectoryOf,
 } from "./workspaces.ts";
 

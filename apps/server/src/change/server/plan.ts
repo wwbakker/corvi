@@ -21,6 +21,6 @@ export const ideationPromptFor = (change: Change): string =>
     id: change.id,
     title: change.title,
     branch: change.branch,
-    plan: join(changeDir(change.id), PLAN_FILE),
+    plan: join(changeDir(change), PLAN_FILE),
     state: change.state,
   });

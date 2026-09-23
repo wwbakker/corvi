@@ -16,7 +16,7 @@ import { isIdeation, type Change, type CheckoutSpec, type ProvisionResult } from
 import { browseRepo } from "../vendors/git.ts";
 import { runtimeConfig } from "../workspace/server/index.ts";
 import { repositoriesLayer } from "./lifecycle-layer.ts";
-import { archiveRoot, changeDir, root } from "./server/store.ts";
+import { changeDir, changePairs } from "./server/store.ts";
 
 const errorDetail = (error: unknown): string =>
   typeof error === "object" && error !== null && "message" in error
@@ -47,7 +47,7 @@ const provisionSpec = (
         .pipe(Effect.asVoid);
       return;
     }
-    const checkout = join(changeDir(change.id), basename(spec.path));
+    const checkout = join(changeDir(change), basename(spec.path));
     yield* repositories.provisionLinkedWorktree({
       source,
       directory: AbsolutePath.make(checkout),
@@ -86,5 +86,5 @@ export const provisionChangeRepositories = (change: Change): Effect.Effect<Provi
     }
     return [{ integration: "git", ok: true }];
   }).pipe(
-    Effect.provide(repositoriesLayer({ root: root(), archiveRoot: archiveRoot() })),
+    Effect.provide(repositoriesLayer(changePairs())),
   );

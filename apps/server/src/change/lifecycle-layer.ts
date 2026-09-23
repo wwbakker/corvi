@@ -10,6 +10,7 @@
 import { Effect, Layer, Option } from "effect"
 
 import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
+import type { RootPair } from "@corvi/changes/node"
 import type { OperationProgress } from "@corvi/changes/progress"
 import { ChangeRepositories } from "@corvi/changes/repositories"
 import { specFromRepository } from "@corvi/changes/rules"
@@ -280,32 +281,29 @@ export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succee
 })
 
 /** The repositories capability over the native link store, without the lifecycle services. */
-export const repositoriesLayer = (roots: {
-  readonly root: string;
-  readonly archiveRoot: string;
-}): Layer.Layer<Repositories | ChangeRepositories> =>
+export const repositoriesLayer = (roots: readonly RootPair[]): Layer.Layer<Repositories | ChangeRepositories> =>
   Layer.merge(
-    changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+    changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
     repositoriesOverShell,
   )
 
 /** The start workflow over the native store and the real Git adapter: no provider ports are
  * needed, because its provisioning is all concrete checkouts. */
 export const changeWorkLayer = (
-  roots: { readonly root: string; readonly archiveRoot: string },
+  roots: readonly RootPair[],
   options: { readonly progress?: Layer.Layer<OperationProgress> } = {},
 ): Layer.Layer<ChangeWork> =>
   changeWorkCapabilityLayer.pipe(
     Layer.provide(changesNodeLayer),
-    Layer.provide(storeLayer(roots)),
+    Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),
-    Layer.provide(options.progress ?? progressLayer({ root: roots.root })),
+    Layer.provide(options.progress ?? progressLayer({ roots })),
   )
 
 /** The lifecycle over the native store, the real Git adapter, and the cutover adapters. */
 export const lifecycleLayer = (
   workspace: WorkspaceShape,
-  roots: { readonly root: string; readonly archiveRoot: string },
+  roots: readonly RootPair[],
   options: { readonly progress?: Layer.Layer<OperationProgress> } = {},
 ): Layer.Layer<ChangeLifecycle> =>
   changeLifecycleLayer.pipe(
@@ -313,7 +311,7 @@ export const lifecycleLayer = (
     Layer.provide(issuesLayer(workspace)),
     Layer.provide(terminalSessionsLayer),
     Layer.provide(changesNodeLayer),
-    Layer.provide(storeLayer(roots)),
+    Layer.provide(storeLayer({ roots })),
     Layer.provide(repositoriesOverShell),
-    Layer.provide(options.progress ?? progressLayer({ root: roots.root })),
+    Layer.provide(options.progress ?? progressLayer({ roots })),
   )

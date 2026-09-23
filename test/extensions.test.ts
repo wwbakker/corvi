@@ -120,7 +120,7 @@ test("a change's ticket is read from the bag, and from the legacy field", () => 
 
 test("a change.json with only the legacy jira field reads and keeps it across a rewrite", async () => {
   const id = "PROJ-LEGACY-FILE";
-  const dir = changeDir(id);
+  const dir = changeDir({ id: id });
   await mkdir(dir, { recursive: true });
   await Bun.write(
     join(dir, "change.json"),
@@ -170,53 +170,53 @@ test("a workspace that names no extensions has them all", () => {
 });
 
 test("a workspace that names its extensions gets exactly those, in registration order", () => {
-  const enabled = extensionsFor(ws({ extensions: ["github", "github-issues"] })).map((e) => e.name);
+  const enabled = extensionsFor(ws({ settings: { extensions: ["github", "github-issues"] } })).map((e) => e.name);
   expect(enabled).toEqual(["github", "github-issues"]);
   // An empty list means none: an extension cannot sneak back in.
-  expect(extensionsFor(ws({ extensions: [] }))).toEqual([]);
+  expect(extensionsFor(ws({ settings: { extensions: [] } }))).toEqual([]);
   // A name nothing loaded answers for is simply not there.
-  expect(extensionsFor(ws({ extensions: ["github-issues", "nonexistent"] })).map((e) => e.name)).toEqual([
+  expect(extensionsFor(ws({ settings: { extensions: ["github-issues", "nonexistent"] } })).map((e) => e.name)).toEqual([
     "github-issues",
   ]);
 });
 
 test("the wizard's steps follow the phases and the enablement", () => {
-  const withJira = wizardStepsFor(ws({ extensions: ["jira", "github-issues"] }));
+  const withJira = wizardStepsFor(ws({ settings: { extensions: ["jira", "github-issues"] } }));
   // Issue steps first (they prefill the change), repository-aware steps after the repositories.
   expect(withJira.map((s) => [s.extension, s.phase])).toEqual([
     ["jira", "issue"],
     ["github-issues", "repos"],
   ]);
   // A context that dropped jira has no step to show for it, not an empty one.
-  const withoutJira = wizardStepsFor(ws({ extensions: ["github-issues"] }));
+  const withoutJira = wizardStepsFor(ws({ settings: { extensions: ["github-issues"] } }));
   expect(withoutJira.map((s) => s.extension)).toEqual(["github-issues"]);
 });
 
 test("an extension's page is offered only in a context that has it", () => {
-  const withBoth = pagesFor(ws({ extensions: ["azure-devops", "leftovers"] }));
+  const withBoth = pagesFor(ws({ settings: { extensions: ["azure-devops", "leftovers"] } }));
   expect(withBoth.map((p) => [p.extension, p.id])).toEqual([
     ["azure-devops", "azure-devops"],
     ["leftovers", "leftovers"],
   ]);
   // A context that dropped leftovers has no Leftovers entry, not an empty one.
-  const withoutLeftovers = pagesFor(ws({ extensions: ["azure-devops"] }));
+  const withoutLeftovers = pagesFor(ws({ settings: { extensions: ["azure-devops"] } }));
   expect(withoutLeftovers.map((p) => p.extension)).not.toContain("leftovers");
 });
 
 test("a change tab is offered only in a context that has the integration", () => {
-  expect(changeTabsFor(ws({ extensions: ["review"] }))).toEqual([
+  expect(changeTabsFor(ws({ settings: { extensions: ["review"] } }))).toEqual([
     { id: "review", title: "Review changes", extension: "review" },
   ]);
   // A context that dropped review has no tab for it, not an empty one.
-  expect(changeTabsFor(ws({ extensions: ["notes"] }))).toEqual([]);
+  expect(changeTabsFor(ws({ settings: { extensions: ["notes"] } }))).toEqual([]);
 });
 
 test("dashboard widgets follow the enablement", async () => {
   await withRuntimeConfig(
     {
       workspaces: [
-        { id: "with-notes", name: "Notes", extensions: ["notes"] },
-        { id: "no-widgets", name: "None", extensions: [] },
+        { id: "with-notes", name: "Notes", settings: { extensions: ["notes"] } },
+        { id: "no-widgets", name: "None", settings: { extensions: [] } },
       ],
     },
     () => {

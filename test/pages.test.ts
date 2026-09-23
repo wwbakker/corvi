@@ -159,12 +159,12 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   expect(await page.locator(".error-banner").count()).toBe(0);
 
   // One section at a time: the page opens on the first tab, and the Jira field is not there
-  // until its tab is chosen.
-  expect((await page.locator(".tabs .tab.current").innerText()).trim()).toBe("Locations");
+  // until its tab is chosen. The scope bar (Global and the workspaces) is its own tab row above.
+  expect((await page.locator(".tabs.sections .tab.current").innerText()).trim()).toBe("Locations");
   expect(await page.getByLabel("Transition on completing one").count()).toBe(0);
 
   // The extension's settings are on its own tab now, so the page has to be asked for it.
-  await page.locator(".tabs .tab", { hasText: "Jira" }).click();
+  await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
   await page.getByLabel("Transition on completing one").fill("Ready for release");
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });
@@ -172,7 +172,7 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   // The window's own section, whose one setting so far is the right-click menu: taking it away is
   // the decision that gets written down, since a menu is the default.
   const box = page.getByLabel("Right-click menu");
-  await page.locator(".tabs .tab", { hasText: "Window" }).click();
+  await page.locator(".tabs.sections .tab", { hasText: "Window" }).click();
   await box.uncheck();
   await page.getByRole("button", { name: "Save" }).click();
   await page.waitForSelector(".hint.saved", { timeout: 10_000 });

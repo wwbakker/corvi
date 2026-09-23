@@ -34,7 +34,7 @@ afterAll(async () => {
 })
 
 const services = (at: string): Layer.Layer<ChangeService | ChangeRepositories> =>
-  servicesLayer.pipe(Layer.provide(storeLayer({ root: at, archiveRoot: `${at}-archive` })))
+  servicesLayer.pipe(Layer.provide(storeLayer({ roots: [{ root: at, archiveRoot: `${at}-archive` }] })))
 
 const runEither = <A, E>(
   program: Effect.Effect<A, E, ChangeService | ChangeRepositories>,
@@ -327,11 +327,11 @@ test("the startup sweep migrates once and is idempotent", async () => {
     JSON.stringify({ id: "swept", state: "Awaiting Review", createdAt: "2026-01-01", repos: ["/sources/one"] }) +
       "\n",
   )
-  await Effect.runPromise(migrateStoredRecords({ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }))
+  await Effect.runPromise(migrateStoredRecords({ roots: [{ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }] }))
   const once = await Bun.file(path).text()
   expect(JSON.parse(once).formatVersion).toBe(2)
   expect(JSON.parse(once).state).toBe("Verification")
-  await Effect.runPromise(migrateStoredRecords({ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }))
+  await Effect.runPromise(migrateStoredRecords({ roots: [{ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }] }))
   expect(await Bun.file(path).text()).toBe(once)
 })
 
@@ -381,7 +381,7 @@ test("a record from a newer Corvi reads best-effort and refuses every write", as
 
 const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Either.Either<A, E>> =>
   Effect.runPromise(
-    program.pipe(Effect.either, Effect.provide(storeLayer({ root, archiveRoot: `${root}-archive` }))),
+    program.pipe(Effect.either, Effect.provide(storeLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))),
   )
 
 test("a write moves the revision, and a stale writer is refused", async () => {

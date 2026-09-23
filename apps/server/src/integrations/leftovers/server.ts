@@ -1,7 +1,7 @@
 import { readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
-import { root, changeDir } from "../../change/server/index.ts";
+import { changePairs } from "../../change/server/index.ts";
 import { Shell, Workspace } from "../api/capabilities.ts";
 import type { Result } from "../../capabilities/shell.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
@@ -58,65 +58,95 @@ const repositoryOf = (worktree: string): Effect.Effect<string | undefined> =>
   );
 
 /** Whether this directory is still a change's own: those are never leftovers. */
-const isChange = (name: string): Effect.Effect<boolean> =>
-  Effect.promise(() => file(join(changeDir(name), "change.json")).exists());
+const isChangeDir = (path: string): Effect.Effect<boolean> =>
+  Effect.promise(() => file(join(path, "change.json")).exists());
+
+/** The active roots across every scope: where a leftover can be sitting. */
+const activeRoots = (): string[] => [...new Set(changePairs().map(({ root }) => root))];
 
 export const listLeftovers: Effect.Effect<Leftover[], never, Shell | Workspace> = Effect.gen(
   function* () {
-    const names = yield* Effect.promise(() => readdir(root(), { withFileTypes: true }).catch(() => []));
-    const candidates = names.filter((e) => e.isDirectory());
-    const found = yield* Effect.forEach(
-      candidates,
-      (entry): Effect.Effect<Leftover | undefined, never, Shell | Workspace> =>
+    const perRoot = yield* Effect.forEach(
+      activeRoots(),
+      (root): Effect.Effect<Leftover[], never, Shell | Workspace> =>
         Effect.gen(function* () {
-          if (yield* isChange(entry.name)) return undefined;
-          const path = changeDir(entry.name);
-          const [entries, du] = yield* Effect.all([
-            Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => [])),
-            shResult(["du", "-sk", path]),
-          ]);
-          const inner = yield* Effect.forEach(
-            entries,
-            (e): Effect.Effect<Leftover["entries"][number]> =>
-              e.isDirectory()
-                ? Effect.map(gitKind(join(path, e.name)), (git) => ({ name: e.name, directory: true, git }))
-                : Effect.succeed({ name: e.name, directory: false, git: undefined }),
+          const names = yield* Effect.promise(() =>
+            readdir(root, { withFileTypes: true }).catch(() => []),
+          );
+          const candidates = names.filter((e) => e.isDirectory());
+          const found = yield* Effect.forEach(
+            candidates,
+            (entry): Effect.Effect<Leftover | undefined, never, Shell | Workspace> =>
+              Effect.gen(function* () {
+                const path = join(root, entry.name);
+                if (yield* isChangeDir(path)) return undefined;
+                const [entries, du] = yield* Effect.all([
+                  Effect.promise(() => readdir(path, { withFileTypes: true }).catch(() => [])),
+                  shResult(["du", "-sk", path]),
+                ]);
+                const inner = yield* Effect.forEach(
+                  entries,
+                  (e): Effect.Effect<Leftover["entries"][number]> =>
+                    e.isDirectory()
+                      ? Effect.map(gitKind(join(path, e.name)), (git) => ({
+                          name: e.name,
+                          directory: true,
+                          git,
+                        }))
+                      : Effect.succeed({ name: e.name, directory: false, git: undefined }),
+                  { concurrency: "unbounded" },
+                );
+                return {
+                  name: entry.name,
+                  path,
+                  entries: inner,
+                  kilobytes: Number(du.stdout.split(/\s+/)[0] ?? 0),
+                };
+              }),
             { concurrency: "unbounded" },
           );
-          return {
-            name: entry.name,
-            path,
-            entries: inner,
-            kilobytes: Number(du.stdout.split(/\s+/)[0] ?? 0),
-          };
+          return found.filter((l): l is Leftover => l !== undefined);
         }),
       { concurrency: "unbounded" },
     );
-    return found.filter((l): l is Leftover => l !== undefined).sort((a, b) => b.kilobytes - a.kilobytes);
+    return perRoot.flat().sort((a, b) => b.kilobytes - a.kilobytes);
   },
 );
 
 /**
  * Delete one leftover directory. Refuses anything that is still a change, and anything outside
- * the changes root: this removes a directory tree, so it checks what it is pointed at. The
- * Effect fails with a `BadRequestError` carrying a human-readable message.
+ * the scopes' changes roots: this removes a directory tree, so it checks what it is pointed at.
+ * A name sitting in several roots at once is ambiguous — the page shows them as one name — and is
+ * refused rather than guessed at. The Effect fails with a `BadRequestError` carrying a
+ * human-readable message.
  */
 export const removeLeftover = (
   name: string,
 ): Effect.Effect<void, BadRequestError, Shell | Workspace> =>
   Effect.gen(function* () {
-    const path = changeDir(name);
-    if (name !== "" && join(root(), name) !== path) {
+    if (name === "" || name.includes("/") || name.startsWith(".")) {
       return yield* badRequest(`not a change directory: ${name}`);
     }
-    if (name.includes("/") || name.startsWith(".")) {
-      return yield* badRequest(`not a change directory: ${name}`);
+    // Which roots hold a directory by this name.
+    const existing: string[] = [];
+    for (const root of activeRoots()) {
+      const path = join(root, name);
+      if (yield* Effect.promise(() => stat(path).catch(() => null))) existing.push(path);
     }
-    if (yield* isChange(name)) {
-      return yield* badRequest(`${name} is an active change, not a leftover`);
+    // A change's own directory is never a leftover.
+    for (const path of existing) {
+      if (yield* isChangeDir(path)) {
+        return yield* badRequest(`${name} is an active change, not a leftover`);
+      }
     }
-    // Already gone: a falsy stat means there is nothing left to remove.
-    if (!(yield* Effect.promise(() => stat(path).catch(() => null)))) return;
+    if (existing.length > 1) {
+      return yield* badRequest(
+        `${name} exists in ${existing.length} changes roots: not removing either`,
+      );
+    }
+    const path = existing[0];
+    // Already gone: nothing left to remove.
+    if (!path) return;
 
     // Worktrees inside it stay registered with their repositories after the directory goes, and
     // git then refuses to reuse the name until someone prunes. Ask them first, tidy up after.

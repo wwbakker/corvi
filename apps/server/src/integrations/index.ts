@@ -28,7 +28,7 @@ migrateExtensionSettings(runtimeConfig().workspaces);
 // A workspace's enablement list is hand-editable; a name nothing answers for is a typo worth
 // saying once at startup rather than a silently dead surface.
 for (const workspace of runtimeConfig().workspaces) {
-  for (const name of unknownIntegrationNames(workspace.extensions)) {
+  for (const name of unknownIntegrationNames(workspace.settings?.extensions)) {
     console.error(
       `workspace "${workspace.id}" enables "${name}", which is not an included integration`,
     );
