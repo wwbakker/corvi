@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import { editorText } from "./editor.ts";
 
 /**
@@ -81,6 +81,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
+  // Whatever pages a failed test left open are screenshotted for CI's failure artifacts first.
+  await closePages(browser, "plan");
   await browser?.close();
   server?.kill();
   await rm(tmp, { recursive: true, force: true });

@@ -1,6 +1,14 @@
 import { test, expect } from "bun:test";
 import { readdir } from "node:fs/promises";
-import { isRunToken, isTestCommand, isTestSocket, tokenFromPath, tokenOf } from "../scripts/clean-test.ts";
+import {
+  coversRun,
+  coversUnnamed,
+  isRunToken,
+  isTestCommand,
+  isTestSocket,
+  tokenFromPath,
+  tokenOf,
+} from "../scripts/clean-test.ts";
 
 /**
  * `bun run test:clean` decides by command line and socket path alone, because that is all a
@@ -64,6 +72,32 @@ test("a run token is two base36 words in full; a longer word is not a token", ()
   expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.defG")).toBeUndefined();
   expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.def")).toBe("abc.def");
   expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=abc.def --loud")).toBe("abc.def");
+});
+
+test("a purge naming its own run takes that run's leftovers and nothing else", () => {
+  // Two suites can run at once — several agents on one machine routinely run this suite
+  // concurrently. The EXIT trap passes --run=<own>, and its whole contract is "end exactly my
+  // run": a neighbour's live fixtures must not look like this run's business, whatever their
+  // pid-files briefly say.
+  const ownTrap = { all: false, run: "1a2b.3c4d" };
+  expect(coversRun(ownTrap, "1a2b.3c4d", true)).toBe(true); // its own, even still alive
+  expect(coversRun(ownTrap, "1a2b.3c4d", false)).toBe(true);
+  expect(coversRun(ownTrap, "9999.9999", false)).toBe(false); // a neighbour that looks gone
+  expect(coversUnnamed(ownTrap, true)).toBe(false); // unnamed, even on a quiet machine
+});
+
+test("a purge with no run named takes only what is gone", () => {
+  const byHand = { all: false, run: undefined };
+  expect(coversRun(byHand, "1a2b.3c4d", false)).toBe(true);
+  expect(coversRun(byHand, "1a2b.3c4d", true)).toBe(false);
+  expect(coversUnnamed(byHand, true)).toBe(true); // quiet machine: unnamed entries are strays
+  expect(coversUnnamed(byHand, false)).toBe(false);
+});
+
+test("--all takes everything, unnamed included", () => {
+  const everything = { all: true, run: undefined };
+  expect(coversRun(everything, "1a2b.3c4d", true)).toBe(true);
+  expect(coversUnnamed(everything, false)).toBe(true);
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {

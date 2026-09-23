@@ -44,8 +44,10 @@ export const terminalUnavailable = (): string | undefined => {
 
 /** node-pty is the app's own half: a native addon, and an environment that rests on the app's
  * scrubbing policy (`apps/server/src/capabilities/env.ts`) — the launcher's variables are dropped, and the
- * change's context is added on purpose, so a script or an agent in the pane knows where it is. */
-const spawnPty: PtySpawner = ({ command, cwd, cols, rows, id, dir }) => {
+ * change's context is added on purpose, so a script or an agent in the pane knows where it is.
+ * Exported because test/tmuxSessionEnv.test.ts drives the real attach path — attachCommand under
+ * this exact spawner — through its creation-order matrix. */
+export const spawnPty: PtySpawner = ({ command, cwd, cols, rows, id, dir }) => {
   const [file, ...args] = command;
   return spawn(file!, [...args], {
     name: "xterm-256color",

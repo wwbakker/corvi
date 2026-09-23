@@ -1,5 +1,6 @@
-import { afterAll, beforeAll, expect, test } from "bun:test"
+import { afterEach, expect, test } from "bun:test"
 import { execFileSync } from "node:child_process"
+import { existsSync } from "node:fs"
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -11,8 +12,16 @@ import { Repositories, layer as repositoriesLayer } from "../src/repositories.ts
 import { layer as commandLayer } from "../src/node/command.ts"
 import { layer as gitLayer } from "../src/node/git.ts"
 
-const git = (cwd: string, ...args: string[]): string =>
-  execFileSync("git", ["-C", cwd, ...args], {
+/** git in a fixture's directory. The directory can only vanish while a test runs when something
+ * outside this file takes it — which a run once saw happen — and git's own "cannot change to"
+ * reads like a typo in the test. Name the real event while the answer is still knowable. */
+const git = (cwd: string, ...args: string[]): string => {
+  if (!existsSync(cwd)) {
+    throw new Error(
+      `the fixture directory ${cwd} is gone before 'git ${args.join(" ")}': something outside this file deleted it mid-run`,
+    )
+  }
+  return execFileSync("git", ["-C", cwd, ...args], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -22,6 +31,7 @@ const git = (cwd: string, ...args: string[]): string =>
       GIT_COMMITTER_EMAIL: "test@test",
     },
   }).trim()
+}
 
 const gitLayerForTests: Layer.Layer<Git.Service> = gitLayer.pipe(Layer.provide(commandLayer))
 const nodeLayer: Layer.Layer<Repositories> = repositoriesLayer.pipe(Layer.provide(gitLayerForTests))
@@ -32,30 +42,51 @@ const withGit = <A, E>(program: Effect.Effect<A, E, Git.Service>): Promise<A> =>
 const withRepositories = <A, E>(program: Effect.Effect<A, E, Repositories>): Promise<A> =>
   Effect.runPromise(program.pipe(Effect.provide(nodeLayer)))
 
-let tmp: string
-let repo: string
+/** One test's own world: a temp root, a ready `repo` in it, and `makeRepo` for more
+ * repositories under the same root. Every test makes its own and the `afterEach` below takes it
+ * away — nothing is shared between tests, so the file has no order to it and no test's cleanup
+ * can reach another test's directories. The last part is not tidiness: a run once lost a fixture
+ * directory mid-test, and everything shared went with it. */
+type Fixture = {
+  readonly tmp: string
+  readonly repo: string
+  /** A fresh repository with `origin/main` and `origin/feature` standing in for fetched remote
+   * branches — so checkoutRemoteBranch has a target — and `origin/HEAD` read as the remote's
+   * default. The remote URL itself points nowhere: nothing here fetches. */
+  readonly makeRepo: (name: string) => Promise<string>
+}
 
-beforeAll(async () => {
+/** The fixture roots the current test made, for the `afterEach` below to take away. */
+const fixtures: string[] = []
+
+const fixture = async (): Promise<Fixture> => {
   // macOS: `$TMPDIR` is a symlink (`/var/...` is `/private/var/...`) and git reports the physical
   // path it resolves to — `git rev-parse --show-toplevel` and `git worktree list` both do. A
   // fixture made under the logical spelling would then be compared against its own shadow, so
   // make the two spellings the same: temp where git reports. The paths under test are git's own.
-  tmp = await mkdtemp(join(await realpath(tmpdir()), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-git-`))
-  repo = join(tmp, "repo")
-  execFileSync("git", ["init", "-b", "main", repo])
-  await writeFile(join(repo, "README.md"), "hi\n")
-  git(repo, "add", ".")
-  git(repo, "commit", "-m", "init")
-  // A local stand-in for a fetched remote branch, so checkoutRemoteBranch has a target.
-  git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
-  git(repo, "update-ref", "refs/remotes/origin/feature", "HEAD")
-})
+  const tmp = await mkdtemp(join(await realpath(tmpdir()), `corvi-${process.env.CORVI_TEST_RUN ?? "local"}-git-`))
+  fixtures.push(tmp)
+  const makeRepo = async (name: string): Promise<string> => {
+    const dir = join(tmp, name)
+    execFileSync("git", ["init", "-b", "main", dir])
+    await writeFile(join(dir, "a.txt"), "a\n")
+    git(dir, "add", ".")
+    git(dir, "commit", "-m", "init")
+    git(dir, "remote", "add", "origin", "/nonexistent/repo")
+    git(dir, "update-ref", "refs/remotes/origin/main", "HEAD")
+    git(dir, "update-ref", "refs/remotes/origin/feature", "HEAD")
+    git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+    return dir
+  }
+  return { tmp, repo: await makeRepo("repo"), makeRepo }
+}
 
-afterAll(async () => {
-  await rm(tmp, { recursive: true, force: true })
+afterEach(async () => {
+  for (const tmp of fixtures.splice(0)) await rm(tmp, { recursive: true, force: true })
 })
 
 test("discover reports the worktree and the canonical common directory", async () => {
+  const { repo } = await fixture()
   const found = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
@@ -67,6 +98,7 @@ test("discover reports the worktree and the canonical common directory", async (
 })
 
 test("discover answers undefined for a non-repository and for a missing directory", async () => {
+  const { tmp } = await fixture()
   const notARepository = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
@@ -84,6 +116,7 @@ test("discover answers undefined for a non-repository and for a missing director
 })
 
 test("a linked worktree shares the repository identity", async () => {
+  const { tmp, repo } = await fixture()
   const worktreeDir = join(tmp, "linked")
   const created = await withGit(
     Effect.gen(function* () {
@@ -108,6 +141,16 @@ test("a linked worktree shares the repository identity", async () => {
 })
 
 test("a detached linked worktree has a head and no branch", async () => {
+  const { tmp, repo } = await fixture()
+  // The linked worktree to observe, made here rather than borrowed from another test.
+  await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(repo))
+      if (!repository) throw new Error("main repository not found")
+      return yield* service.worktree.create({ repository, directory: AbsolutePath.make(join(tmp, "linked")) })
+    }),
+  )
   const observed = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
@@ -127,6 +170,16 @@ test("a detached linked worktree has a head and no branch", async () => {
 })
 
 test("checkoutRemoteBranch creates the branch in the linked worktree", async () => {
+  const { tmp, repo } = await fixture()
+  // The linked worktree to check out into, made here rather than borrowed from another test.
+  await withGit(
+    Effect.gen(function* () {
+      const service = yield* Git.Service
+      const repository = yield* service.repo.discover(AbsolutePath.make(repo))
+      if (!repository) throw new Error("main repository not found")
+      return yield* service.worktree.create({ repository, directory: AbsolutePath.make(join(tmp, "linked")) })
+    }),
+  )
   const branch = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
@@ -140,6 +193,7 @@ test("checkoutRemoteBranch creates the branch in the linked worktree", async () 
 })
 
 test("worktree removal refuses a dirty worktree unless forced", async () => {
+  const { tmp, repo } = await fixture()
   const dirtyDir = join(tmp, "dirty")
   await withGit(
     Effect.gen(function* () {
@@ -180,6 +234,7 @@ test("worktree removal refuses a dirty worktree unless forced", async () => {
 })
 
 test("the composed node layer inspects a present checkout and an absent one", async () => {
+  const { tmp, repo } = await fixture()
   const present = await withRepositories(
     Effect.gen(function* () {
       const repositories = yield* Repositories
@@ -201,20 +256,8 @@ test("the composed node layer inspects a present checkout and an absent one", as
   expect(missing).toEqual({ _tag: "Missing" })
 })
 
-/** A fresh repository with an `origin/main` standing in for a fetched remote. */
-const makeRepo = async (name: string): Promise<string> => {
-  const dir = join(tmp, name)
-  execFileSync("git", ["init", "-b", "main", dir])
-  await writeFile(join(dir, "a.txt"), "a\n")
-  git(dir, "add", ".")
-  git(dir, "commit", "-m", "init")
-  git(dir, "remote", "add", "origin", "/nonexistent/repo")
-  git(dir, "update-ref", "refs/remotes/origin/main", "HEAD")
-  git(dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
-  return dir
-}
-
 test("status.dirty reports a modified or untracked working tree", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("status-repo")
   const clean = await withGit(
     Effect.gen(function* () {
@@ -239,6 +282,7 @@ test("status.dirty reports a modified or untracked working tree", async () => {
 })
 
 test("history.upstream distinguishes no upstream, counts, and unreadable comparisons", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("upstream-repo")
   const initial = await withGit(
     Effect.gen(function* () {
@@ -287,6 +331,7 @@ test("history.upstream distinguishes no upstream, counts, and unreadable compari
 })
 
 test("history.defaultRemoteBranch reads the remote's symbolic HEAD", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("remote-head-repo")
   const found = await withGit(
     Effect.gen(function* () {
@@ -311,6 +356,7 @@ test("history.defaultRemoteBranch reads the remote's symbolic HEAD", async () =>
 })
 
 test("integration.proven proves ancestry", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("ancestor-repo")
   git(dir, "checkout", "-b", "feature")
   await writeFile(join(dir, "b.txt"), "b\n")
@@ -331,6 +377,7 @@ test("integration.proven proves ancestry", async () => {
 })
 
 test("integration.proven proves patch equivalence when commits differ", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("cherry-repo")
   git(dir, "checkout", "-b", "feature")
   await writeFile(join(dir, "b.txt"), "b\n")
@@ -351,6 +398,7 @@ test("integration.proven proves patch equivalence when commits differ", async ()
 })
 
 test("integration.proven does not prove unmerged work or unknown revisions", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("unmerged-repo")
   git(dir, "checkout", "-b", "feature")
   await writeFile(join(dir, "b.txt"), "b\n")
@@ -374,6 +422,7 @@ test("integration.proven does not prove unmerged work or unknown revisions", asy
 })
 
 test("removeBranchIfIntegrated deletes integrated branches and keeps the rest", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("branch-cleanup-repo")
   git(dir, "checkout", "-b", "feature")
   await writeFile(join(dir, "b.txt"), "b\n")
@@ -408,6 +457,7 @@ test("removeBranchIfIntegrated deletes integrated branches and keeps the rest", 
 })
 
 test("provisionLinkedWorktree creates a worktree on a new branch from the remote default", async () => {
+  const { tmp, makeRepo } = await fixture()
   const dir = await makeRepo("provision-repo")
   const worktree = join(tmp, "provision-wt")
   await withRepositories(
@@ -425,6 +475,7 @@ test("provisionLinkedWorktree creates a worktree on a new branch from the remote
 })
 
 test("provisionInPlace creates the branch in place and leaves a dirty checkout alone", async () => {
+  const { makeRepo } = await fixture()
   const dir = await makeRepo("inplace-repo")
   const created = await withRepositories(
     Effect.gen(function* () {
