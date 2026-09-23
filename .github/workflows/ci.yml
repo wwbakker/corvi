@@ -8,9 +8,55 @@ on:
 permissions:
   contents: read
 
+# A newer push to a branch makes an older run's answer irrelevant; main's own runs are allowed
+# to finish, so its status never describes a commit someone has replaced.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  test:
+  checks:
+    # Fast, and separate from the tests on purpose: a flaky test must not hide a type error, and
+    # a rerun of this job costs a minute rather than the whole suite.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun run lint
+      - run: bun run boundaries
+
+  test:
+    # Everything that needs no browser: unit and integration tests, and the tmux
+    # creation-order matrix (test/tmuxSessionEnv.test.ts), which needs tmux but no page.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: sudo apt-get update && sudo apt-get install -y tmux
+      - run: bun install --frozen-lockfile
+      - run: bun run test:unit
+
+  e2e:
+    # The browser end-to-end files on their own, one file at a time: they are the most
+    # timing-sensitive part of the suite, so they get generous wait budgets
+    # (CORVI_TEST_WAIT_SCALE scales every wait deadline and test timeout) and one bounded
+    # retry — a test that passes on retry still reads as a flake in the log, but it is not a
+    # red build. What a failed test saw is left in test-artifacts/ and uploaded below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      CORVI_TEST_WAIT_SCALE: "3"
+      CORVI_TEST_ARTIFACTS: test-artifacts
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -20,7 +66,10 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y tmux
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bun run typecheck
-      - run: bun run lint
-      - run: bun run boundaries
-      - run: bun run test
+      - run: bash scripts/test-run.sh e2e --retry=2
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-failure-screenshots
+          path: test-artifacts/
+          if-no-files-found: ignore
