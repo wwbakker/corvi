@@ -22,8 +22,8 @@ export async function run(): Promise<void> {
   const root = resolve(".");
   const dir = devAppDir();
   await buildApp(dir, root);
-  const electron = electronBinary(root);
-  if (!existsSync(electron)) {
+  const electron = electronBinary();
+  if (electron === undefined || !existsSync(electron)) {
     console.error("no Electron binary — run `bun install` (app:install downloads it)");
     process.exit(1);
   }

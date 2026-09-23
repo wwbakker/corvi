@@ -17,9 +17,10 @@
  */
 import { chmod, mkdir, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { sh } from "./exec.ts";
 import { buildApp } from "./electron/build.ts";
+import { installedElectron } from "./electron/binary.ts";
 import { ID, PRODUCT, dataDir, stateDir } from "@corvi/configuration/node";
 
 /** What it is called in the app grid and in its own title bar. */
@@ -75,7 +76,15 @@ async function icons(): Promise<boolean> {
  * like `corviRoot` in the app's package.json on macOS — reinstall to point it somewhere else. The
  * port is not written in anywhere: the window picks a fresh one at each launch, so the server
  * behind it is always one that window started. */
-const launcher = (): string => `#!/bin/sh
+const launcher = (): string => {
+  const electron = installedElectron();
+  if (electron === undefined) throw new Error("electron is not installed — run `bun install` first");
+  // The checkout's own Electron (apps/desktop/src/electron/binary.ts), written as the launcher
+  // sees it: relative to the repository it already carries, so the `CORVI_APP_ROOT` override
+  // below runs another checkout with that one's own copy. Reinstall after moving or reinstalling
+  // dependencies — the path is where `bun install` put it at the time.
+  const binary = relative(root, electron.binary);
+  return `#!/bin/sh
 # The Corvi app on Linux: opens the window (an Electron app built from apps/desktop/src/electron),
 # which starts a server of its own — on a fresh port, picked at launch, so what it starts is
 # always its own — and stops it again when the window closes.
@@ -101,7 +110,7 @@ set -eu
 # started with cd, and reads its changes root from the config file like any other run.
 ROOT="\${CORVI_APP_ROOT:-${root}}"
 APP="\${XDG_DATA_HOME:-$HOME/.local/share}/${APP_ID}/app"
-ELECTRON="$ROOT/node_modules/electron/dist/electron"
+ELECTRON="$ROOT/${binary}"
 STATE="\${XDG_STATE_HOME:-$HOME/.local/state}"
 LOG_DIR="$STATE/${APP_ID}"
 LOG="$LOG_DIR/log"
@@ -226,6 +235,7 @@ fi
 echo "opening in $browser's app mode (run 'bun install' in $ROOT for the native window; the server keeps running after the tab closes — 'corvi stop' stops it)"
 exec "$browser" --app="$URL" --class=${APP_ID}
 `;
+};
 
 const desktopEntry = (): string => `[Desktop Entry]
 Type=Application

@@ -43,7 +43,8 @@ started development server. tmux sessions survive application/server shutdown.
 
 The installed app records the checkout it runs from. Reinstall after moving the checkout or
 changing the desktop host/installer; server and page edits are read on the next launch.
-`app:install` may quit and replace a running installed app, so do not use it as a test command.
+`app:install` leaves the app running on the new build when it is done — starting it if it was
+not open, quitting and replacing a running installed app first — so do not use it as a test command.
 
 The application starts through an interactive login shell so tools and exported credentials can
 be found. If an integration works in a terminal but not the app, check the environment provided by

@@ -13,9 +13,9 @@
  * which is the point: the app is a convenience, not the product.
  */
 import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { resolve } from "node:path";
 import { isLinux, isMac } from "@corvi/configuration/node";
-import { electronBinary } from "./electron/binary.ts";
+import { installedElectron } from "./electron/binary.ts";
 import { sh } from "./exec.ts";
 
 const root = resolve(".");
@@ -24,18 +24,16 @@ const root = resolve(".");
  * (apps/desktop/src/electron/binary.ts). Electron 44 downloads it lazily, so a fresh
  * `bun install` can leave it missing until first use; installing is where that belongs, with the
  * error visible, rather than at the first click of the app. */
-const installedElectron = (): string => electronBinary(root);
-
 async function ensureElectron(): Promise<void> {
-  if (existsSync(installedElectron())) return;
-  const installer = join(root, "node_modules", "electron", "install.js");
-  if (!existsSync(installer)) {
+  const electron = installedElectron();
+  if (electron === undefined) {
     console.error("electron is not installed — run `bun install` first");
     process.exit(1);
   }
+  if (existsSync(electron.binary)) return;
   console.log("downloading the Electron binary (first use of this checkout)…");
-  const downloaded = await sh(["bun", installer]);
-  if (downloaded.code !== 0 || !existsSync(installedElectron())) {
+  const downloaded = await sh(["bun", electron.installer]);
+  if (downloaded.code !== 0 || !existsSync(electron.binary)) {
     console.error(downloaded.stderr || downloaded.stdout);
     console.error("could not download Electron — the app cannot start");
     process.exit(1);
