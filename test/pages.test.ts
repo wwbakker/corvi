@@ -537,6 +537,16 @@ test.skipIf(!usable)(
     const row = page.locator(".selected-pane li.selection");
     await row.waitFor();
 
+    // Every field is named, with its explanation an icon away: the two questions and the two
+    // branch questions say which is which instead of reading as anonymous boxes.
+    expect((await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim())).toEqual([
+      "Checkout",
+      "Branch",
+      "Starts from",
+      "Merges into",
+    ]);
+    expect(await row.locator(".field .info[title]").count()).toBe(4);
+
     // The two questions, as the selects say them — and where the row starts: a worktree on the
     // change's own branch.
     const location = row.locator("select").nth(0);
@@ -554,9 +564,9 @@ test.skipIf(!usable)(
     ]);
 
     // A new worktree cannot adopt the branch a source checkout has checked out: the option says
-    // why instead of being offered.
+    // why instead of being offered. The disabled attribute is what the browser enforces.
     const current = branchKind.locator("option", { hasText: "Current branch" });
-    expect(await current.isDisabled()).toBe(true);
+    expect(await current.getAttribute("disabled")).not.toBeNull();
     expect(await current.getAttribute("title")).toBe(
       "a new worktree cannot use the branch a source checkout has checked out",
     );
@@ -570,11 +580,17 @@ test.skipIf(!usable)(
     expect(await row.locator("select.name").count()).toBe(1);
     expect(await row.locator("select.base").count()).toBe(0);
     expect(await row.locator("select.target").count()).toBe(1);
+    expect((await row.locator(".field .caption").allInnerTexts()).map((s) => s.replace("ⓘ", "").trim())).toEqual([
+      "Checkout",
+      "Branch",
+      "Branch name",
+      "Merges into",
+    ]);
 
     // In place, the current branch becomes the offer — and taking it drops both branch pickers:
     // what a pull request merges into is the one branch question left.
     await location.selectOption("original");
-    expect(await current.isDisabled()).toBe(false);
+    expect(await current.getAttribute("disabled")).toBeNull();
     await branchKind.selectOption("current");
     expect(await row.locator("select.name").count()).toBe(0);
     expect(await row.locator("select.base").count()).toBe(0);
