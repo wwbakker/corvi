@@ -27,7 +27,7 @@ export type TmuxWindow = {
 export type WindowPresentation = {
   /** Override the composed name entirely. */
   label?: string;
-  /** What is running in it, said the way a person would: "pi working", "nvim". */
+  /** What is running in it, said the way a person would: "pi working", "opencode waiting", "nvim". */
   running?: string;
   /** One line about what is happening, for a tooltip or a status bar. */
   detail?: string;

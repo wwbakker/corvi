@@ -312,8 +312,8 @@ export const make = (host: Host): Sessions => {
    * bracketed paste so a multi-line prompt lands in the editor whole rather than being executed
    * line by line. The caller ensures the session exists first.
    *
-   * Deliberately does not press Enter: Corvi cannot tell a running agent from a shell (pi's status
-   * is the agent integration's private vocabulary), and submitting a paragraph to a shell would run
+   * Deliberately does not press Enter: Corvi cannot tell a running agent from a shell (an agent's
+   * status is the reporters' private vocabulary), and submitting a paragraph to a shell would run
    * it. The user reads it and sends it, which is the one keystroke worth keeping.
    *
    * The buffer is named for the change, so two prompts sent close together cannot overwrite each

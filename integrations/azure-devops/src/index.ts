@@ -121,21 +121,14 @@ export default {
   // state, not a server route.
   pages: [{ id: "azure-devops", title: "Azure DevOps" }],
 
-  // The per-workspace overrides of the same two names: shown in every workspace that has this
-  // extension enabled, and stored under `workspace.extensionSettings.azure-devops` — the first
-  // step of the chain azure.ts reads.
-  workspaceSettings: [
-    { key: "organization", label: "Organisation", placeholder: "the global setting" },
-    { key: "project", label: "Project", placeholder: "the global setting" },
-  ],
-
-  // The server-wide settings this extension declares, shown on the settings page for every
-  // workspace and stored under `extensionSettings.azure-devops`. The deployment conventions
-  // (pipeline, versionParameter, environmentParameter, environments) are read back by
-  // ./deploySettings.ts; organisation and project by ./azure.ts, which adds the per-workspace
-  // override above and its declared environment variables as the chain's fallback. An environment
-  // variable keeps beating the page: the field shows locked when CORVI_AZURE_* is set.
-  globalSettings: [
+  // Every setting this extension declares, at both scopes: the global level and each
+  // workspace's overrides of it, stored under `extensionSettings.azure-devops` — the chain
+  // azure.ts and deploySettings.ts read. Organisation and project fall through to
+  // `az devops configure` when nothing sets them; the deployment conventions (pipeline,
+  // versionParameter, environmentParameter, environments) are read back by ./deploySettings.ts.
+  // An environment variable keeps beating the page: the field shows locked when CORVI_AZURE_* is
+  // set.
+  settings: [
     { key: "organization", label: "Organisation", placeholder: "whatever az devops configure holds", env: AZURE_ENV.organization },
     { key: "project", label: "Project", placeholder: "whatever az devops configure holds", env: AZURE_ENV.project },
     {

@@ -356,7 +356,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   const change = await runEffect(
     createChange({ id: "PROJ-OK", branch: "PROJ-OK", checkouts: checkoutsOf([repo]) }),
   );
-  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
+  await mkdir(join(changeDir(change), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-ok"),
     branch: change.branch,
@@ -381,7 +381,7 @@ test("completeChange: every step is journaled as it runs and the change is archi
   expect(journal.finishedAt).toBeTruthy();
 
   // The record moved into the archive, journal and all.
-  expect(await Bun.file(join(changeDir(change.id), "change.json")).exists()).toBe(false);
+  expect(await Bun.file(join(changeDir(change), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange(change.id)))?.state).toBe("Completed");
   // Every command went through the scripted seam — no real CLI, server or tmux.
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
@@ -543,7 +543,7 @@ test("completeChange: a pull request that needs no review completes and is merge
   const change = await runEffect(
     createChange({ id: "PROJ-NOREVIEW", branch: "PROJ-NOREVIEW", checkouts: checkoutsOf([repo]) }),
   );
-  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
+  await mkdir(join(changeDir(change), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-noreview"),
     branch: change.branch,
@@ -564,7 +564,7 @@ test("completeChange: force completes despite an unapproved PR, and journals the
   const change = await runEffect(
     createChange({ id: "PROJ-FORCE", branch: "PROJ-FORCE", checkouts: checkoutsOf([repo]) }),
   );
-  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
+  await mkdir(join(changeDir(change), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-force"),
     branch: change.branch,
@@ -611,7 +611,7 @@ test("completeChange: force still refuses uncommitted work", async () => {
   const change = await runEffect(
     createChange({ id: "PROJ-DIRTYFORCE", branch: "PROJ-DIRTYFORCE", checkouts: checkoutsOf([repo]) }),
   );
-  await mkdir(join(changeDir(change.id), basename(repo)), { recursive: true });
+  await mkdir(join(changeDir(change), basename(repo)), { recursive: true });
   const shell = completionShell({
     worktree: join(tmp, "wt-dirtyforce"),
     branch: change.branch,

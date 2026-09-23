@@ -19,7 +19,8 @@ jobs:
     # Fast, and separate from the tests on purpose: a flaky test must not hide a type error, and
     # a rerun of this job costs a minute rather than the whole suite.
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The job takes a couple of minutes; five is the budget before a hang is a failure.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -35,7 +36,8 @@ jobs:
     # Everything that needs no browser: unit and integration tests, and the tmux
     # creation-order matrix (test/tmuxSessionEnv.test.ts), which needs tmux but no page.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The suite takes a couple of minutes; five is the budget before a hang is a failure.
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
       - uses: oven-sh/setup-bun@v2
@@ -53,7 +55,9 @@ jobs:
     # retry — a test that passes on retry still reads as a flake in the log, but it is not a
     # red build. What a failed test saw is left in test-artifacts/ and uploaded below.
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # More than the jobs above — retries and scaled waits — but still a budget before a hang
+    # is a failure: one pass of the three files takes a couple of minutes.
+    timeout-minutes: 20
     env:
       CORVI_TEST_WAIT_SCALE: "3"
       CORVI_TEST_ARTIFACTS: test-artifacts

@@ -1,14 +1,15 @@
 # Integrations and included features
 
-Available features depend on the selected workspace's settings. Current configuration uses the
-`extensions` and `extensionSettings` keys; see [configuration](configuration.md). Included features
+Available features depend on the scope's `extensions` list. Current configuration uses the
+`extensions` and `extensionSettings` keys, at the global level and per workspace; see
+[configuration](configuration.md). Included features
 do not require installing external Corvi plugins.
 
 ## Jira over its own API
 
-Configure the Jira server URL, email, project, and token in Corvi. No Jira CLI is needed. The root
-settings define a default site; workspaces can override it. A project with one board selects it
-automatically; a project with multiple boards needs a configured board.
+Configure the Jira server URL, email, project, and token in Corvi. No Jira CLI is needed. The
+global settings define a default site; every workspace can override it field by field. A project
+with one board selects it automatically; a project with multiple boards needs a configured board.
 
 The change wizard lists sprint issues and backlog issues, with assignee/status/search filters.
 You can select an existing issue, create one, or skip the step. Jira and GitHub issues can both
@@ -67,7 +68,7 @@ not zero. Unstaging and discarding are not currently provided by this view.
 The dashboard's **Notes** card saves shortly after typing stops, on blur, and when navigating
 away. Current storage is `extensions/notes/notes.md` under the change directory, so notes travel
 with the archive. A root-level `notes.md` remains a fallback for existing data; new saves use the
-namespaced file. The plan and notes occupy the document column, separate from status cards.
+namespaced file. Notes occupy the document column, separate from status cards.
 
 ## Azure DevOps
 

@@ -71,8 +71,8 @@ const widgetsOf = async (
 test("the tabs route lists the included tab for the workspace that has it, and hides it otherwise", async () => {
   const saved = runtimeConfig().workspaces;
   runtimeConfig().workspaces = [
-    { id: "with-tab", name: "With tab", extensions: ["review"] },
-    { id: "without-tab", name: "Without tab", extensions: [] },
+    { id: "with-tab", name: "With tab", settings: { extensions: ["review"] } },
+    { id: "without-tab", name: "Without tab", settings: { extensions: [] } },
   ];
   try {
     const enabled = await runEffect(
@@ -95,8 +95,8 @@ test("the tabs route lists the included tab for the workspace that has it, and h
 test("the widgets route lists the included widget for the workspace that has it, and hides it otherwise", async () => {
   const saved = runtimeConfig().workspaces;
   runtimeConfig().workspaces = [
-    { id: "with-widget", name: "With widget", extensions: ["notes"] },
-    { id: "without-widget", name: "Without widget", extensions: [] },
+    { id: "with-widget", name: "With widget", settings: { extensions: ["notes"] } },
+    { id: "without-widget", name: "Without widget", settings: { extensions: [] } },
   ];
   try {
     const enabled = await runEffect(
@@ -174,5 +174,5 @@ test("the Changes layer finds a change's checkout, and answers undefined where i
   );
   const found = await checkout();
   // realpath on both sides: macOS temp dirs are symlinks into /private.
-  expect(await realpath(found!)).toBe(await realpath(join(changeDir(change.id), basename(repo))));
+  expect(await realpath(found!)).toBe(await realpath(join(changeDir(change), basename(repo))));
 });

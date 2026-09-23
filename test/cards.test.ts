@@ -456,8 +456,10 @@ test("the services route answers for a workspace that enabled azure-devops", asy
   const workspace: Workspace = {
     id: "acme",
     name: "Acme",
-    extensionSettings: {
-      "azure-devops": { organization: "https://dev.azure.com/acme", project: "acme-proj" },
+    settings: {
+      extensionSettings: {
+        "azure-devops": { organization: "https://dev.azure.com/acme", project: "acme-proj" },
+      },
     },
   };
   const result = await withRuntimeConfig({ workspaces: [workspace] }, () =>

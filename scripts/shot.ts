@@ -97,4 +97,21 @@ console.log("DEBUG", JSON.stringify(await page.evaluate(() => ({ active: documen
 await shot("4-wizard-repos");
 
 if (errors.length) console.log("console errors:\n" + errors.join("\n"));
+
+// The settings page: the two axes — the scope bar (Global and the workspaces) and the section
+// tabs — so the inheritance a workspace shows can be read off the capture.
+await page.goto(`${url}/settings`, { waitUntil: "networkidle" });
+await shot("5-settings-global");
+const scope = page.locator(".tabs.scopes .tab:not(.current)").first();
+if (await scope.isVisible().catch(() => false)) {
+  await scope.click();
+  await page.waitForTimeout(200);
+  await shot("6-settings-workspace");
+  const environment = page.locator(".tabs.sections .tab", { hasText: "Environment" });
+  if (await environment.isVisible().catch(() => false)) {
+    await environment.click();
+    await shot("7-settings-environment");
+  }
+}
+if (errors.length) console.log("console errors:\n" + errors.join("\n"));
 await browser.close();

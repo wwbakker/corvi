@@ -5,13 +5,15 @@ import { foldLegacyAzure } from "../workspace/server/config.ts";
 /**
  * Normalize the workspaces' extension settings against what is loaded, in place.
  *
- * Three retired shapes are folded into the ones the extensions read today:
+ * Three retired shapes are folded into the ones the extensions read today (the fourth, a
+ * workspace written before `settings` existed, is the config loader's `foldWorkspaceSettings`,
+ * which runs before any of this sees the file):
  *
  * - a workspace still naming `ci` gets `github` and `azure-devops` in its place — the card the
  *   name belonged to is now two cards, and both halves of what it showed must stay visible;
  * - a workspace still naming `deployments` gets `azure-devops` — the page and its settings
  *   moved there unchanged;
- * - workspace `extensionSettings.deployments` moves to `extensionSettings.azure-devops`, and a
+ * - workspace `settings.extensionSettings.deployments` moves to the `azure-devops` bag, and a
  *   legacy per-workspace `azure` object (`false`, or `{ organization, project }`) folds into
  *   the same bag (`false` additionally materializes an explicit extensions list without
  *   `azure-devops`, because naming some is the whole list);
@@ -46,8 +48,9 @@ export function migrateFileSettings(file: ConfigFile): ConfigFile {
 export function migrateExtensionSettings(workspaces: Workspace[]): Workspace[] {
   const all = loaded.map((e) => e.name);
   for (const workspace of workspaces) {
-    if (workspace.extensions) {
-      const names = [...workspace.extensions];
+    const settings = workspace.settings;
+    if (settings?.extensions) {
+      const names = [...settings.extensions];
       let changed = false;
       const swap = (old: string, replacements: string[]): void => {
         const at = names.indexOf(old);
@@ -60,10 +63,13 @@ export function migrateExtensionSettings(workspaces: Workspace[]): Workspace[] {
       swap("deployments", ["azure-devops"]);
       // A name nothing loaded answers for is the settings write's complaint, not the
       // migration's: unknown names ride through untouched.
-      if (changed) workspace.extensions = names;
+      if (changed) workspace.settings = { ...settings, extensions: names };
     } else if ((workspace as { azure?: unknown }).azure === false) {
       // The retired flag meant "this context has no pipelines": the list now says so.
-      workspace.extensions = all.filter((name) => name !== "azure-devops");
+      workspace.settings = {
+        ...settings,
+        extensions: all.filter((name) => name !== "azure-devops"),
+      };
     }
     migrateAzureBags(workspace);
   }
@@ -74,7 +80,8 @@ export function migrateExtensionSettings(workspaces: Workspace[]): Workspace[] {
  * `azure-devops` bag the extension declares and reads. */
 function migrateAzureBags(workspace: Workspace): void {
   const record = workspace as Workspace & { azure?: unknown };
-  const bags = workspace.extensionSettings ?? {};
+  const settings = workspace.settings ?? {};
+  const bags = settings.extensionSettings ?? {};
   const legacyBag = bags["deployments"];
   const ownBag = bags["azure-devops"];
   const legacy = record.azure;
@@ -95,14 +102,13 @@ function migrateAzureBags(workspace: Workspace): void {
       : {}),
   };
   if (legacyBag !== undefined || site !== undefined || record.azure === false) {
-    if (Object.keys(folded).length > 0) {
-      workspace.extensionSettings = { ...bags, "azure-devops": folded };
-    }
-    const { ["deployments"]: _dropped, ...rest } = workspace.extensionSettings ?? {};
-    workspace.extensionSettings = rest;
-    if (Object.keys(workspace.extensionSettings).length === 0) {
-      workspace.extensionSettings = undefined;
-    }
+    const rest = { ...bags };
+    delete rest["deployments"];
+    if (Object.keys(folded).length > 0) rest["azure-devops"] = folded;
+    workspace.settings = {
+      ...settings,
+      extensionSettings: Object.keys(rest).length > 0 ? rest : undefined,
+    };
     // The flag has done its work — the list says what it meant, the bag holds what it
     // configured — so it leaves the file rather than shadowing either.
     record.azure = undefined;

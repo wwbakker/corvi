@@ -41,8 +41,10 @@
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",
     "icons": "bun scripts/icons.ts",
-    "extension:install": "bun scripts/extension.ts install",
-    "extension:uninstall": "bun scripts/extension.ts uninstall",
+    "extension:install:pi": "bun scripts/extension.ts install:pi",
+    "extension:uninstall:pi": "bun scripts/extension.ts uninstall:pi",
+    "extension:install:opencode": "bun scripts/extension.ts install:opencode",
+    "extension:uninstall:opencode": "bun scripts/extension.ts uninstall:opencode",
     "app:install": "bun run build:web && bun apps/desktop/src/install.ts install",
     "app:uninstall": "bun apps/desktop/src/install.ts uninstall",
     "app:run": "bun run build:web && bun apps/desktop/src/install.ts run",
@@ -65,7 +67,6 @@
     "@corvi/web": "workspace:*"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.85.1",
     "@effect/language-service": "^0.87.2",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",

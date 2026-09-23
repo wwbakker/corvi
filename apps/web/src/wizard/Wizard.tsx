@@ -5,6 +5,7 @@ import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepInfo } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
 import { stepContext, toChangeDraft, type Draft, type DraftPatch } from "./draft.ts";
+import { MarkdownEditor } from "../editor/client/MarkdownEditor.tsx";
 
 /**
  * The "Create change" wizard.
@@ -175,10 +176,10 @@ export function Wizard({
               </label>
               <label>
                 Description
-                <textarea
+                <MarkdownEditor
                   rows={6}
                   value={description}
-                  onChange={(e) => onChange({ description: e.target.value })}
+                  onChange={(text) => onChange({ description: text })}
                   placeholder="The starting plan. Stored as PLAN.md, for you and the agent to shape."
                 />
               </label>

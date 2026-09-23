@@ -58,8 +58,8 @@ const textAt = (path: string): Promise<string> => Bun.file(path).text();
 test("the Notes widget is offered only when the extension is enabled, and its old URL falls back", () => {
   const saved = runtimeConfig().workspaces;
   runtimeConfig().workspaces = [
-    { id: "with-notes", name: "With notes", extensions: ["notes"] },
-    { id: "without-notes", name: "Without notes", extensions: [] },
+    { id: "with-notes", name: "With notes", settings: { extensions: ["notes"] } },
+    { id: "without-notes", name: "Without notes", settings: { extensions: [] } },
   ];
   try {
     const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", checkouts: checkoutsOf([]), createdAt: "" };
@@ -89,11 +89,11 @@ test("notes written before the store still show, and the first write lands under
   const saved = await ext(`changes/${change.id}/notes`, "PUT", { text: "answered: keep it\n" });
   expect(saved.status).toBe(200);
   expect(await saved.json()).toEqual({ text: "answered: keep it\n" });
-  expect(await textAt(join(changeDir(change.id), "extensions", "notes", "notes.md"))).toBe(
+  expect(await textAt(join(changeDir(change), "extensions", "notes", "notes.md"))).toBe(
     "answered: keep it\n",
   );
   // The legacy file is left exactly as it was.
-  expect(await textAt(join(changeDir(change.id), "notes.md"))).toBe("ask about the flag\n");
+  expect(await textAt(join(changeDir(change), "notes.md"))).toBe("ask about the flag\n");
 
   // The store now answers, so the legacy file no longer shadows the newer text.
   const reread = await ext(`changes/${change.id}/notes`);
@@ -103,10 +103,10 @@ test("notes written before the store still show, and the first write lands under
   await runEffect(archiveChange(change.id));
   const archived = await ext(`changes/${change.id}/notes`);
   expect(await archived.json()).toEqual({ text: "answered: keep it\n" });
-  expect(await textAt(join(archiveDir(change.id), "extensions", "notes", "notes.md"))).toBe(
+  expect(await textAt(join(archiveDir(change), "extensions", "notes", "notes.md"))).toBe(
     "answered: keep it\n",
   );
-  expect(await textAt(join(archiveDir(change.id), "notes.md"))).toBe("ask about the flag\n");
+  expect(await textAt(join(archiveDir(change), "notes.md"))).toBe("ask about the flag\n");
 });
 
 test("the notes route answers an unknown change with 404 and a malformed body with 400", async () => {

@@ -57,8 +57,7 @@ export const settingsViewSync = (): SettingsView => {
     extensions: loaded.map((e) => ({
       name: e.name,
       title: e.title,
-      workspaceSettings: e.workspaceSettings,
-      globalSettings: e.globalSettings,
+      settings: e.settings,
     })),
   };
 };
@@ -69,13 +68,36 @@ const absolute = (value: string | undefined): boolean =>
 /** Everything wrong with these settings, in the order it appears on the page. Empty means they
  * can be written. The rules that are plain shapes (a word-shaped id, a directory name, an
  * environment variable name) are the same Schemas the config layer decodes with — one
- * statement of the rule, used wherever it is checked. */
+ * statement of the rule, used wherever it is checked. The settings themselves are checked by
+ * one function at both scopes — the global level and each workspace's `settings` — so the two
+ * cannot grow different rules. */
 export function problems(next: Settings): string[] {
   const found: string[] = [];
 
-  for (const field of ["changesRoot", "archiveRoot", "repositoriesDirectory"] as const) {
-    if (!absolute(next[field])) found.push(`${field} must be an absolute path`);
-  }
+  const scopeProblems = (scope: Settings, where?: string): void => {
+    const at = (message: string): void => {
+      found.push(where ? `${where}: ${message}` : message);
+    };
+    for (const field of ["changesRoot", "archiveRoot", "repositoriesDirectory"] as const) {
+      if (!absolute(scope[field])) at(`${field} must be an absolute path`);
+    }
+    for (const key of Object.keys(scope.env ?? {})) {
+      if (!Schema.is(EnvVarName)(key)) at(`"${key}" is not an environment variable name`);
+    }
+    for (const name of scope.worktreeCopy ?? []) {
+      if (!name.trim() || !Schema.is(DirectoryName)(name)) {
+        at(`"${name}" is not a directory name next to the code`);
+      }
+    }
+    const names = scope.extensions ?? [];
+    for (const name of names) {
+      if (!loaded.some((e) => e.name === name)) at(`there is no extension called "${name}"`);
+    }
+    const duplicates = names.filter((name, i, all) => all.indexOf(name) !== i);
+    if (duplicates.length) at(`"${duplicates[0]}" is named twice`);
+  };
+
+  scopeProblems(next);
 
   const seen = new Set<string>();
   for (const workspace of next.workspaces ?? []) {
@@ -87,31 +109,7 @@ export function problems(next: Settings): string[] {
       found.push(`two workspaces share the id "${workspace.id}"`);
     } else seen.add(workspace.id);
     if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
-    if (!absolute(workspace.repositoriesDirectory)) {
-      found.push(`${where}: repositories directory must be an absolute path`);
-    }
-    for (const key of Object.keys(workspace.env ?? {})) {
-      if (!Schema.is(EnvVarName)(key)) {
-        found.push(`${where}: "${key}" is not an environment variable name`);
-      }
-    }
-    for (const name of workspace.extensions ?? []) {
-      if (!loaded.some((e) => e.name === name)) {
-        found.push(`${where}: there is no extension called "${name}"`);
-      }
-    }
-    const duplicates = (workspace.extensions ?? []).filter(
-      (name, i, all) => all.indexOf(name) !== i,
-    );
-    if (duplicates.length) {
-      found.push(`${where}: "${duplicates[0]}" is named twice`);
-    }
-  }
-
-  for (const name of next.worktreeCopy ?? []) {
-    if (!name.trim() || !Schema.is(DirectoryName)(name)) {
-      found.push(`"${name}" is not a directory name next to the code`);
-    }
+    scopeProblems(workspace.settings ?? {}, where);
   }
 
   return found;

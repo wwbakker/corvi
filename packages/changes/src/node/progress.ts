@@ -1,5 +1,7 @@
-/** File-backed operation journal: `<root>/<changeId>/operations.json`, appended step by step.
- * A failed step is recorded before the operation moves on, so a reload can read what happened. */
+/** File-backed operation journal: `<change dir>/operations.json`, appended step by step.
+ * A failed step is recorded before the operation moves on, so a reload can read what happened.
+ * The journal lives beside the record it fences on, so it follows the change through every
+ * scope's roots. */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
@@ -8,6 +10,7 @@ import type { ChangeId } from "@corvi/contracts/changes"
 import { ChangeFormatTooNew, ChangeStoreError } from "../errors.ts"
 import { FORMAT_VERSION } from "../record.ts"
 import { OperationProgress, type OperationStep } from "../progress.ts"
+import type { RootPair } from "./store.ts"
 
 const Steps = Schema.Array(
   Schema.Struct({
@@ -21,22 +24,39 @@ const Steps = Schema.Array(
 const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"
 
-export const layer = (options: { readonly root: string }): Layer.Layer<OperationProgress> =>
+export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.Layer<OperationProgress> =>
   Layer.effect(
     OperationProgress,
     Effect.gen(function* () {
       const lock = yield* Effect.makeSemaphore(1)
-      const fileFor = (changeId: ChangeId): string => join(options.root, changeId, "operations.json")
-
+      /** Every directory this change may live in: each pair's active root first, then each
+       * pair's archive. The journal goes beside the record it fences on. */
+      const dirsFor = (changeId: ChangeId): string[] => [
+        ...options.roots.map(({ root }) => join(root, changeId)),
+        ...options.roots.map(({ archiveRoot }) => join(archiveRoot, changeId)),
+      ]
+      const dirOf = (changeId: ChangeId): Effect.Effect<string> =>
+        Effect.gen(function* () {
+          for (const dir of dirsFor(changeId)) {
+            const found = yield* Effect.tryPromise({
+              try: () => readFile(join(dir, "change.json"), "utf8"),
+              catch: (cause: unknown) => cause,
+            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+            if (found !== undefined) return dir
+          }
+          // Not written yet: the journal starts the directory the change will be created in.
+          return join(options.roots[0]!.root, changeId)
+        })
       const record = Effect.fn("OperationProgress.record")(function* (input: {
         readonly changeId: ChangeId
         readonly step: OperationStep
       }) {
-        const path = fileFor(input.changeId)
+        const dir = yield* dirOf(input.changeId)
+        const path = join(dir, "operations.json")
         // The downgrade fence reaches the journal too: a change this version cannot write is
         // left exactly as a newer Corvi left it, journal included.
         const recordText = yield* Effect.tryPromise({
-          try: () => readFile(join(options.root, input.changeId, "change.json"), "utf8"),
+          try: () => readFile(join(dir, "change.json"), "utf8"),
           catch: (cause: unknown) => cause,
         }).pipe(
           Effect.catchAll((cause: unknown) =>
@@ -104,7 +124,7 @@ export const layer = (options: { readonly root: string }): Layer.Layer<Operation
             const next = [...steps, input.step]
             yield* Effect.tryPromise({
               try: async () => {
-                await mkdir(join(options.root, input.changeId), { recursive: true })
+                await mkdir(dir, { recursive: true })
                 await writeFile(temp, JSON.stringify(next, null, 2) + "\n")
                 await rename(temp, path)
               },

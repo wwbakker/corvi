@@ -28,7 +28,7 @@ import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";
 import { lifecycleLayer } from "../lifecycle-layer.ts";
-import { archiveRoot, readChange, root } from "./store.ts";
+import { changePairs, readChange, type ChangeRoots } from "./store.ts";
 
 /** Names of the repositories whose work would be lost, when that needs asking about first. */
 export type NeedsForce = { _tag: "NeedsForce"; needsForce: string[] };
@@ -64,10 +64,10 @@ const namesOf = (links: readonly Repository[], reasons: readonly LifecycleReason
 
 const services = (
   workspace: WorkspaceShape,
-  roots: { readonly root: string; readonly archiveRoot: string },
+  roots: readonly ChangeRoots[],
 ): Layer.Layer<ChangeLifecycle | ChangeRepositories> =>
   Layer.merge(
-    changesNodeLayer.pipe(Layer.provide(storeLayer(roots))),
+    changesNodeLayer.pipe(Layer.provide(storeLayer({ roots }))),
     lifecycleLayer(workspace, roots),
   )
 
@@ -91,7 +91,7 @@ export const cancelChange = (
   force = false,
 ): Effect.Effect<Cancelled | NeedsForce, IweError> => {
   const workspace = workspaceOf(change);
-  const roots = { root: root(), archiveRoot: archiveRoot() };
+  const roots = changePairs();
   return Effect.gen(function* () {
     const repositoryLinks = yield* ChangeRepositories;
     const lifecycle = yield* ChangeLifecycle;

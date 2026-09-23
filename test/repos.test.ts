@@ -63,12 +63,12 @@ test("adding a repository creates its worktree, removing one takes it away", asy
   const b = await clonedRepo("add-b");
   const change = await changeFor("PROJ-ADD", [a]);
   await runEffect(provisionChangeRepositories(change));
-  expect(await runEffect(checkoutFor(change, a))).toBe(join(changeDir(change.id), "add-a"));
+  expect(await runEffect(checkoutFor(change, a))).toBe(join(changeDir(change), "add-a"));
 
   const added = await runSetRepos(change, checkoutsOf([a, b]));
   expect("change" in added).toBe(true);
   const withBoth = (added as { change: Change }).change;
-  expect(await runEffect(checkoutFor(withBoth, b))).toBe(join(changeDir(change.id), "add-b"));
+  expect(await runEffect(checkoutFor(withBoth, b))).toBe(join(changeDir(change), "add-b"));
 
   // Nothing was committed in b, so dropping it destroys nothing and needs no confirmation.
   const dropped = await runSetRepos(withBoth, checkoutsOf([a]));
@@ -344,9 +344,9 @@ test("a worktree from before Corvi owned the path is adopted, not migrated", asy
   // finds the checkout that is there, and the old config is neither read nor rewritten.
   const repo = await clonedRepo("legacy");
   const change = await changeFor("PROJ-LEGACY", [repo]);
-  const path = join(changeDir(change.id), basename(repo));
-  const config = `worktree-path = "${changeDir(change.id)}/{{ repo }}"\n`;
-  const legacy = join(changeDir(change.id), "wt.toml");
+  const path = join(changeDir(change), basename(repo));
+  const config = `worktree-path = "${changeDir(change)}/{{ repo }}"\n`;
+  const legacy = join(changeDir(change), "wt.toml");
   await runSh(
     ["git", "-c", "branch.autoSetupMerge=false", "worktree", "add", "-b", change.branch, path, "origin/main"],
     repo,
@@ -392,7 +392,7 @@ test("two repositories with the same name are refused, at creation and at an edi
   await runEffect(provisionChangeRepositories(single));
   expect(runSetRepos(single, checkoutsOf([first, second]), true)).rejects.toThrow(/share the name clash/);
   // Refused before anything moved, so the worktree is still where it was.
-  expect(await runEffect(checkoutFor(single, first))).toBe(join(changeDir(single.id), "clash"));
+  expect(await runEffect(checkoutFor(single, first))).toBe(join(changeDir(single), "clash"));
 });
 
 test("uncommitted work is listed as git sees it, staged and unstaged apart", async () => {

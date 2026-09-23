@@ -61,7 +61,7 @@ test("starting an idea provisions its worktree and reports the result", async ()
   const started = await runEffect(startChangeWithWorkflow(idea));
   expect(started.change.state).toBe("Implementation");
 
-  const worktree = join(changeDir(idea.id), basename(repo));
+  const worktree = join(changeDir(idea), basename(repo));
   expect((await lstat(worktree)).isDirectory()).toBe(true);
   expect(await Bun.file(join(worktree, "README.md")).exists()).toBe(true);
   const branch = (await runSh(["git", "rev-parse", "--abbrev-ref", "HEAD"], worktree)).stdout.trim();
@@ -86,7 +86,7 @@ test("a failed repository leaves the start partially done, and says so", async (
   const started = await runEffect(startChangeWithWorkflow(idea));
   expect(started.change.state).toBe("Implementation");
   expect(started.provision.some((result) => !result.ok)).toBe(true);
-  expect(await Bun.file(join(changeDir(idea.id), basename(good), "README.md")).exists()).toBe(
+  expect(await Bun.file(join(changeDir(idea), basename(good), "README.md")).exists()).toBe(
     true,
   );
 });

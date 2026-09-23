@@ -39,10 +39,9 @@ const run = (
 });
 
 test("the extension declares the settings the settings page renders", () => {
-  // Organisation and project are declared twice over: as a server-wide setting and as a
-  // per-workspace override, which is the chain the shared azure client reads.
-  expect(azureDevops.workspaceSettings?.map((f) => f.key)).toEqual(["organization", "project"]);
-  expect(azureDevops.globalSettings?.map((f) => f.key)).toEqual([
+  // Organisation and project are declared once and rendered at both scopes: the global level
+  // and every workspace's overrides of it, along with the deployment conventions.
+  expect(azureDevops.settings?.map((f) => f.key)).toEqual([
     "organization",
     "project",
     "pipeline",

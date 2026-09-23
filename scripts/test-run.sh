@@ -28,8 +28,10 @@ bun run build:web
 
 # The browser end-to-end files, named so CI can give them their own job — and their own retries —
 # while the rest of the suite runs where no browser is installed. Everything else is found by
-# walking the workspaces, so a new test file needs no entry here.
-e2e=(test/terminal.test.ts test/pages.test.ts test/directoryPicker.page.test.ts)
+# walking the workspaces, so a new test file needs no entry here — except a new *browser* file,
+# which joins this list (they are found by their playwright import; this list is maintained
+# beside it).
+e2e=(test/terminal.test.ts test/pages.test.ts test/directoryPicker.page.test.ts test/plan.page.test.ts)
 unit=()
 while IFS= read -r found; do
   file="${found#./}"
