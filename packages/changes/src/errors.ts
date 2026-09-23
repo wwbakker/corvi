@@ -37,6 +37,15 @@ export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
   readonly cause?: unknown
 }> {}
 
+/** The record was written by a newer Corvi: it is read best-effort, but nothing writes it — a
+ * format this version does not understand must not be flattened into one it does. */
+export class ChangeFormatTooNew extends Data.TaggedError("ChangeFormatTooNew")<{
+  readonly changeId: ChangeId
+  readonly recordFormat: number
+  readonly appFormat: number
+  readonly message: string
+}> {}
+
 export class RepositoryNotFound extends Data.TaggedError("RepositoryNotFound")<{
   readonly changeId: ChangeId
   readonly repositoryId: RepositoryId

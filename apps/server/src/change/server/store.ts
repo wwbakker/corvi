@@ -3,8 +3,10 @@ import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
 import type { Change } from "../../domain/change.ts";
-import { PLAN_FILE } from "../../domain/change.ts";
-import { projectLegacyRepositories } from "@corvi/changes/legacy";
+import { FORMAT_VERSION, PLAN_FILE } from "../../domain/change.ts";
+import { ChangeId } from "@corvi/contracts/changes";
+import { ChangeFormatTooNew } from "@corvi/changes/errors";
+import { LegacyChangeRecord, migrateRecord } from "@corvi/changes/legacy";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -49,27 +51,60 @@ const existingDir = (id: string): Effect.Effect<string | null> =>
 
 const changeFile = (id: string): string => join(changeDir(id), "change.json");
 
+/** The downgrade fence, for the writers that do not hold the record: a change written by a
+ * newer Corvi is read but never written, documents and journal included. */
+const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
+  Effect.gen(function* () {
+    const dir = yield* existingDir(id);
+    const text = dir
+      ? yield* fs(() => file(join(dir, "change.json")).text()).pipe(
+          Effect.catchAllDefect(() => Effect.succeed("")),
+        )
+      : "";
+    const raw = yield* Schema.decodeUnknown(Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })))(
+      text,
+    ).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
+    const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
+    if (recordFormat > FORMAT_VERSION)
+      return yield* new ChangeFormatTooNew({
+        changeId: ChangeId.make(id),
+        recordFormat,
+        appFormat: FORMAT_VERSION,
+        message:
+          `change ${id} was written by a newer version of Corvi ` +
+          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
+      });
+  });
+
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
-// put there, and rewriting it must not drop fields another version added. Failures become
-// DecodeError with the ParseResult issues rendered one line per problem, path included. The new
-// link array is dropped from the in-memory value: this half derives it from `repos`/`direct` on
-// write, so it never reads it, and leaving it in would change every legacy comparison.
+// put there, and rewriting it must not drop fields another version added. A format-1 record is
+// projected to format 2 first (the one migration), so the schema only ever describes the
+// current shape. Failures become DecodeError with the ParseResult issues rendered one line per
+// problem, path included.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
-  Schema.decodeUnknown(Schema.parseJson(ChangeSchema), { onExcessProperty: "preserve" })(text).pipe(
-    Effect.map((change) => {
-      const { repositories: _links, ...legacy } = change as Change & { repositories?: unknown };
-      return legacy as Change;
-    }),
-    Effect.mapError((error) => {
-      const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
-        .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-        .join("; ");
-      return new DecodeError({ source: "file", message: `malformed change.json in ${dir}: ${detail}` });
-    }),
-  );
+  Effect.gen(function* () {
+    const raw = yield* Schema.decodeUnknown(
+      Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+    )(text).pipe(
+      Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
+    );
+    const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
+    const value = recordFormat >= FORMAT_VERSION ? raw : migrateRecord(raw);
+    return yield* Schema.decodeUnknown(ChangeSchema, { onExcessProperty: "preserve" })(value).pipe(
+      Effect.mapError((error) => {
+        const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
+          .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
+          .join("; ");
+        return new DecodeError({ source: "file", message: `malformed change.json in ${dir}: ${detail}` });
+      }),
+    );
+  });
 
 /** Read one change's change.json through its Schema. `null` means no change.json in the change
- * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError. */
+ * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError. A
+ * format-1 record is migrated and persisted here — atomically, so no record is ever
+ * half-migrated; a persist that fails anyway is reported and never fatal, because the read
+ * itself succeeded and the startup sweep will try again. */
 export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
@@ -77,11 +112,37 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
     const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(
       Effect.orDie,
     );
+    const raw = yield* Schema.decodeUnknown(
+      Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+    )(text).pipe(
+      Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
+    );
+    const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
+    if (recordFormat < FORMAT_VERSION) {
+      const migrated = migrateRecord(raw);
+      yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(migrated, null, 2) + "\n")).pipe(
+        Effect.catchAllDefect((error) =>
+          Effect.sync(() => console.error(`could not migrate change.json in ${dir}:`, error)),
+        ),
+      );
+    }
     return yield* decodeChange(text, dir);
   });
 
-export const writeChange = (change: Change): Effect.Effect<void> =>
+/** The downgrade fence (see `guardFormat`): this writer holds the record, so it can read the
+ * version off the value it is about to write. */
+export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
+    const recordFormat = change.formatVersion ?? FORMAT_VERSION;
+    if (recordFormat > FORMAT_VERSION)
+      return yield* new ChangeFormatTooNew({
+        changeId: ChangeId.make(change.id),
+        recordFormat,
+        appFormat: FORMAT_VERSION,
+        message:
+          `change ${change.id} was written by a newer version of Corvi ` +
+          `(record format ${recordFormat}, this one writes ${FORMAT_VERSION}); upgrade to edit it`,
+      });
     const dir = (yield* existingDir(change.id)) ?? changeDir(change.id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     // The record's revision moves on every write, whichever store writes it: the lifecycle's
@@ -94,10 +155,7 @@ export const writeChange = (change: Change): Effect.Effect<void> =>
         Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0)),
       ),
     );
-    // Materialize the new link model on every write, from the same `repos`/`direct` the old app
-    // maintains: whichever writer touched the record, both readers see the same links. The old
-    // schema preserves unknown fields, so the added key is ignored on its side.
-    const record = { ...change, revision: prior + 1, repositories: projectLegacyRepositories(change) };
+    const record = { ...change, revision: prior + 1, formatVersion: FORMAT_VERSION };
     yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(record, null, 2) + "\n"));
   });
 
@@ -114,8 +172,9 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
   });
 
 
-export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void> =>
+export const writeSidecar = (id: string, name: string, text: string): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
+    yield* guardFormat(id);
     const dir = (yield* existingDir(id)) ?? changeDir(id);
     yield* fs(() => mkdir(dir, { recursive: true }));
     yield* fs(() => write(join(dir, name), text));
@@ -180,8 +239,9 @@ export const writeExtensionFile = (
   name: string,
   path: string,
   text: string,
-): Effect.Effect<void, BadRequestError> =>
+): Effect.Effect<void, BadRequestError | ChangeFormatTooNew> =>
   Effect.gen(function* () {
+    yield* guardFormat(change.id);
     const base = yield* extensionDir(change, name);
     const target = yield* confinedPath(base, path);
     yield* fs(() => mkdir(dirname(target), { recursive: true }));
@@ -199,7 +259,7 @@ export const setExtensionData = (
   change: Change,
   name: string,
   data: unknown,
-): Effect.Effect<Change, DecodeError> =>
+): Effect.Effect<Change, ChangeFormatTooNew | DecodeError> =>
   Effect.gen(function* () {
     const current = (yield* readChange(change.id)) ?? change;
     const extensions = { ...(current.extensions ?? {}) };
@@ -212,9 +272,10 @@ export const setExtensionData = (
 
 /** Move a completed change out of the way. Its worktrees are gone by then, so nothing but
  * change.json and whatever an extension left beside it travels. */
-export const archiveChange = (id: string): Effect.Effect<void> =>
+export const archiveChange = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     if (!(yield* fileExists(changeFile(id)))) return; // already archived
+    yield* guardFormat(id);
     yield* fs(() => mkdir(archiveRoot(), { recursive: true }));
     yield* fs(() => rename(changeDir(id), archiveDir(id)));
   });

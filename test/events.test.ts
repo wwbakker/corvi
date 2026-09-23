@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
 
 /**
  * The push side of the pages: one connection that says when something changed, instead of every
@@ -115,7 +115,7 @@ test("a page hears about a change it did not make", async () => {
   const before = seen.length;
   await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id: "PROJ-EVENT", branch: "PROJ-EVENT-x", repos: [repo] }),
+    body: JSON.stringify({ id: "PROJ-EVENT", branch: "PROJ-EVENT-x", checkouts: checkoutsOf([repo]) }),
   });
 
   expect(await until(() => seen.length > before)).toBe(true);

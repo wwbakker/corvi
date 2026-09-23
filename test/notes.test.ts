@@ -16,7 +16,7 @@ import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs
 import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { runEffect } from "./helpers.ts";
+import { checkoutsOf, runEffect  } from "./helpers.ts";
 
 /**
  * The notes extension: a dashboard widget backed by `ExtensionStore`, plus the one migration it
@@ -37,7 +37,7 @@ afterAll(async () => {
 });
 
 const changeFor = (id: string): Promise<Change> =>
-  runEffect(createChange({ id, branch: `${id}-work`, repos: [join(tmp, "example-api")] }));
+  runEffect(createChange({ id, branch: `${id}-work`, checkouts: checkoutsOf([join(tmp, "example-api")]) }));
 
 /** Call the extension's own namespace (the path after `/api/ext/notes/`), as the page does. */
 const ext = async (path: string, method = "GET", body?: unknown): Promise<Response> => {
@@ -62,7 +62,7 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
     { id: "without-notes", name: "Without notes", extensions: [] },
   ];
   try {
-    const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", repos: [], createdAt: "" };
+    const change: Change = { id: "PROJ-NOTES-W", branch: "PROJ-NOTES-W", checkouts: checkoutsOf([]), createdAt: "" };
     expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
       { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);

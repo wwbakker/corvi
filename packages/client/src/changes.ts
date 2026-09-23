@@ -52,6 +52,7 @@ import {
   type PromptResponseDto,
   type RepoItemsDto,
   type RepoStateDto,
+  type ReposBodyDto,
   type RepositoryViewDto,
   type SettingsViewDto,
   type StartedResponseDto,
@@ -128,12 +129,7 @@ export interface ChangesClient {
   ) => Promise<ChangeWireDto>
   readonly setRepositories: (
     changeId: ChangeId,
-    body: {
-      readonly repos: string[]
-      readonly direct?: string[]
-      readonly base?: Record<string, string>
-      readonly force?: boolean
-    },
+    body: ReposBodyDto,
   ) => Promise<ChangeWireDto>
   readonly cardAction: (
     changeId: ChangeId,

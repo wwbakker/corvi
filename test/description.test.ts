@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describeChange, prDescription } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { fakeShell, runWithShell, type FakeShell } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers.ts";
 
 /**
  * The pull-request description is a heading the extensions compose, then one link per repository.
@@ -24,8 +24,8 @@ afterAll(async () => {
 const changeWith = (over: Partial<Change> = {}): Change => ({
   id: "PROJ-desc",
   branch: "PROJ-desc",
-  repos: [],
-  state: "In Progress",
+  checkouts: checkoutsOf([]),
+  state: "Implementation",
   createdAt: new Date().toISOString(),
   ...over,
 });
@@ -73,7 +73,7 @@ const descriptionShell = (opts: {
 
 test("prDescription: a repository without a pull request is named, not dropped", async () => {
   const repo = join(tmp, "without-pr");
-  const change = changeWith({ id: "PROJ-desc-none", repos: [repo] });
+  const change = changeWith({ id: "PROJ-desc-none", checkouts: checkoutsOf([repo]) });
   const shell = descriptionShell({ worktree: join(tmp, "wt-none"), branch: change.branch, pr: null });
   // No extension claims this change, so the heading is absent; the repository itself is the link.
   expect(await runWithShell(shell, prDescription(change))).toBe(`\n${basename(repo)}\n`);
@@ -81,7 +81,7 @@ test("prDescription: a repository without a pull request is named, not dropped",
 
 test("prDescription: a repository with a pull request links to it", async () => {
   const repo = join(tmp, "with-pr");
-  const change = changeWith({ id: "PROJ-desc-url", repos: [repo] });
+  const change = changeWith({ id: "PROJ-desc-url", checkouts: checkoutsOf([repo]) });
   const shell = descriptionShell({
     worktree: join(tmp, "wt-url"),
     branch: change.branch,

@@ -9,9 +9,9 @@ import {
   currentBranch,
   unsafeToRemove,
   repoStates,
-  isDirect,
+  isInPlace,
 } from "../apps/server/src/vendors/git.ts";
-import { runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh } from "./helpers.ts";
+import { checkoutsOf, runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
@@ -45,7 +45,7 @@ async function clonedRepo(name: string): Promise<string> {
 }
 
 const changeFor = async (id: string, repos: string[], direct?: string[]): Promise<Change> =>
-  runEffect(createChange({ id, branch: `${id}-work`, repos, direct }));
+  runEffect(createChange({ id, branch: `${id}-work`, checkouts: checkoutsOf(repos, direct) }));
 
 beforeAll(async () => {
   // Resolved: on macOS the temporary directory is a symlink, and git reports where it lands.
@@ -65,15 +65,15 @@ test("adding a repository creates its worktree, removing one takes it away", asy
   await runEffect(provisionChangeRepositories(change));
   expect(await runEffect(checkoutFor(change, a))).toBe(join(changeDir(change.id), "add-a"));
 
-  const added = await runSetRepos(change, [a, b]);
+  const added = await runSetRepos(change, checkoutsOf([a, b]));
   expect("change" in added).toBe(true);
   const withBoth = (added as { change: Change }).change;
   expect(await runEffect(checkoutFor(withBoth, b))).toBe(join(changeDir(change.id), "add-b"));
 
   // Nothing was committed in b, so dropping it destroys nothing and needs no confirmation.
-  const dropped = await runSetRepos(withBoth, [a]);
+  const dropped = await runSetRepos(withBoth, checkoutsOf([a]));
   expect("change" in dropped).toBe(true);
-  expect((dropped as { change: Change }).change.repos).toEqual([a]);
+  expect(((dropped as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual([a]);
   expect(await runEffect(checkoutFor(withBoth, b))).toBeUndefined();
 });
 
@@ -113,12 +113,12 @@ test("a removal that would lose commits asks first, and loses nothing until it i
   expect((await runEffect(unsafeToRemove(change, repo)))?.kind).toBe("unpushed");
 
   // Asked, not done: the worktree and its commit are still there.
-  const asked = await runSetRepos(change, [keep]);
+  const asked = await runSetRepos(change, checkoutsOf([keep]));
   expect(asked).toEqual({ needsForce: ["unpushed"] });
   expect(await runEffect(checkoutFor(change, repo))).toBe(worktree);
   expect(await Bun.file(join(worktree, "work.txt")).exists()).toBe(true);
 
-  const forced = await runSetRepos(change, [keep], true);
+  const forced = await runSetRepos(change, checkoutsOf([keep]), true);
   expect("change" in forced).toBe(true);
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
 });
@@ -134,9 +134,28 @@ test("uncommitted work refuses the removal outright, forced or not", async () =>
   expect((await runEffect(unsafeToRemove(change, repo)))?.kind).toBe("dirty");
 
   // Force is for commits that can be recovered from the reflog; this cannot be recovered at all.
-  expect(runSetRepos(change, [keep])).rejects.toThrow(/uncommitted changes/);
-  expect(runSetRepos(change, [keep], true)).rejects.toThrow(/uncommitted changes/);
+  expect(runSetRepos(change, checkoutsOf([keep]))).rejects.toThrow(/uncommitted changes/);
+  expect(runSetRepos(change, checkoutsOf([keep]), true)).rejects.toThrow(/uncommitted changes/);
   expect(await Bun.file(join(worktree, "half-done.txt")).exists()).toBe(true);
+});
+
+test("dropping a checkout used in place asks about uncommitted work instead of refusing", async () => {
+  const repo = await clonedRepo("ask-in-place");
+  const keep = await clonedRepo("ask-keep");
+  const change = await changeFor("PROJ-ASK", [repo, keep], [repo]);
+  await runEffect(provisionChangeRepositories(change));
+
+  // Uncommitted work in the repository's own checkout: dropping the row destroys nothing — it
+  // removes a link — so the work is a question to answer, not a refusal.
+  await Bun.write(join(repo, "half-done.txt"), "not finished\n");
+  expect(await runSetRepos(change, checkoutsOf([keep]))).toEqual({ needsForce: ["ask-in-place"] });
+  expect(await Bun.file(join(repo, "half-done.txt")).exists()).toBe(true);
+
+  // Answered yes, the row goes and the checkout is left exactly as it stands.
+  const forced = await runSetRepos(change, checkoutsOf([keep]), true);
+  expect("change" in forced).toBe(true);
+  expect(await Bun.file(join(repo, "half-done.txt")).exists()).toBe(true);
+  expect(await runEffect(currentBranch(repo))).toBe(change.branch);
 });
 
 test("switching a repository from worktree to in place moves the work, not deletes it", async () => {
@@ -151,17 +170,21 @@ test("switching a repository from worktree to in place moves the work, not delet
   await runSh(["git", "push", "--quiet", "-u", "origin", change.branch], worktree);
 
   // Pushed, so nothing is at risk and the switch goes through unforced.
-  const result = await runSetRepos(change, [repo], false, [repo]);
+  const result = await runSetRepos(change, checkoutsOf([repo], [repo]), false);
   expect("change" in result).toBe(true);
   const direct = (result as { change: Change }).change;
-  expect(isDirect(direct, repo)).toBe(true);
+  expect(isInPlace(direct, repo)).toBe(true);
 
   // The repository itself is now on the branch, with the commit that was made in the worktree.
   expect(await runEffect(currentBranch(repo))).toBe(change.branch);
   expect(await Bun.file(join(repo, "committed.txt")).text()).toBe("pushed work\n");
   // And the change directory links to it instead of holding a checkout of its own.
   expect(await runEffect(checkoutFor(direct, repo))).toBe(repo);
-  expect(await runEffect(repoStates(direct))).toMatchObject([{ direct: true, base: "origin/main" }]);
+  // The row reads as the spec stands: used where it is, on the change's branch — and the base
+  // is what was chosen, not the default the picker would show.
+  expect(await runEffect(repoStates(direct))).toMatchObject([
+    { location: "original", branch: { kind: "change" } },
+  ]);
 });
 
 test("a change may be emptied and filled again, which is how a worktree is replaced", async () => {
@@ -175,18 +198,18 @@ test("a change may be emptied and filled again, which is how a worktree is repla
   // Emptying is still a removal, and a removal still refuses to throw work away: the way out of
   // a worktree you have made a mess of is to commit or revert first, not to drop it silently.
   await Bun.write(join(before, "junk.txt"), "uncommitted\n");
-  expect(runSetRepos(change, [])).rejects.toThrow(/uncommitted changes/);
+  expect(runSetRepos(change, checkoutsOf([]))).rejects.toThrow(/uncommitted changes/);
   await rm(join(before, "junk.txt"));
 
-  const emptied = await runSetRepos(change, []);
+  const emptied = await runSetRepos(change, checkoutsOf([]));
   expect("change" in emptied).toBe(true);
   const none = (emptied as { change: Change }).change;
-  expect(none.repos).toEqual([]);
+  expect(((none).checkouts ?? []).map((spec) => spec.path)).toEqual([]);
   expect(await runEffect(checkoutFor(none, repo))).toBeUndefined();
 
-  const refilled = await runSetRepos(none, [repo]);
+  const refilled = await runSetRepos(none, checkoutsOf([repo]));
   const again = (refilled as { change: Change }).change;
-  expect(again.repos).toEqual([repo]);
+  expect(((again).checkouts ?? []).map((spec) => spec.path)).toEqual([repo]);
   // The same place, but a new checkout: this is what re-worktreeing gets you.
   expect(await runEffect(checkoutFor(again, repo))).toBe(before);
   expect(await Bun.file(join(before, "README.md")).exists()).toBe(true);
@@ -203,11 +226,11 @@ test("switching modes with unpushed commits asks first, and keeps them when forc
   await commit(worktree, "work nobody else has");
 
   // The worktree goes either way, so the question is asked, exactly as for a removal.
-  expect(await runSetRepos(change, [repo], false, [repo])).toEqual({ needsForce: ["switch-unpushed"] });
+  expect(await runSetRepos(change, checkoutsOf([repo], [repo]), false)).toEqual({ needsForce: ["switch-unpushed"] });
 
   // Forced, the mode changes and the commit survives: the branch is kept and checked out in the
   // repository itself, which is the whole point of the switch.
-  const result = await runSetRepos(change, [repo], true, [repo]);
+  const result = await runSetRepos(change, checkoutsOf([repo], [repo]), true);
   expect("change" in result).toBe(true);
   expect(await runEffect(currentBranch(repo))).toBe(change.branch);
   expect(await Bun.file(join(repo, "unpushed.txt")).text()).toBe("only here\n");
@@ -265,7 +288,7 @@ test("a removal deletes a branch whose content landed and keeps one whose did no
   // neither ancestors nor patch-identical), so the simulated merge is what proves the content
   // landed — and nothing is asked of anyone.
   expect(await runEffect(unsafeToRemove(change, merged))).toBeUndefined();
-  const dropped = await runSetRepos(change, [open]);
+  const dropped = await runSetRepos(change, checkoutsOf([open]));
   expect("change" in dropped).toBe(true);
   expect(await runEffect(checkoutFor(change, merged))).toBeUndefined();
 
@@ -275,8 +298,8 @@ test("a removal deletes a branch whose content landed and keeps one whose did no
   // The unmerged branch still asks — its commits exist nowhere else — and forcing keeps the
   // branch, which is what the commits are findable by.
   const remaining = (dropped as { change: Change }).change;
-  expect(await runSetRepos(remaining, [], false)).toEqual({ needsForce: ["branch-open"] });
-  const emptied = await runSetRepos(remaining, [], true);
+  expect(await runSetRepos(remaining, checkoutsOf([]), false)).toEqual({ needsForce: ["branch-open"] });
+  const emptied = await runSetRepos(remaining, checkoutsOf([]), true);
   expect("change" in emptied).toBe(true);
   expect(await runEffect(checkoutFor(change, open))).toBeUndefined();
   const kept = await runSh(
@@ -303,7 +326,7 @@ test("a branch whose merge conflicts with main is kept, not forced away", async 
   await runSh(["git", "push", "--quiet", "origin", "main"], repo);
   await runSh(["git", "fetch", "--quiet", "origin"], repo);
 
-  const emptied = await runSetRepos(change, [], true);
+  const emptied = await runSetRepos(change, checkoutsOf([]), true);
   expect("change" in emptied).toBe(true);
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
   // Doubt keeps the branch: the commit exists only there, and a removal that guessed would
@@ -345,7 +368,7 @@ test("a worktree from before Corvi owned the path is adopted, not migrated", asy
   await rm(join(path, "made-before-corvi.txt"));
 
   // And it is removed like any other: the branch had nothing on it, so it goes too.
-  const emptied = await runSetRepos(change, []);
+  const emptied = await runSetRepos(change, checkoutsOf([]));
   expect("change" in emptied).toBe(true);
   expect(await runEffect(checkoutFor(change, repo))).toBeUndefined();
   expect((await runSh(["git", "branch", "--list", change.branch], repo)).stdout).toBe("");
@@ -362,12 +385,12 @@ test("two repositories with the same name are refused, at creation and at an edi
   // Both would be filed in the change directory as `clash`, one on top of the other, so the list
   // is refused before anything is created or moved.
   expect(
-    runEffect(createChange({ id: "PROJ-CLASH", branch: "PROJ-CLASH", repos: [first, second] })),
+    runEffect(createChange({ id: "PROJ-CLASH", branch: "PROJ-CLASH", checkouts: checkoutsOf([first, second]) })),
   ).rejects.toThrow(/share the name clash/);
 
   const single = await changeFor("PROJ-CLASH-ONE", [first]);
   await runEffect(provisionChangeRepositories(single));
-  expect(runSetRepos(single, [first, second], true)).rejects.toThrow(/share the name clash/);
+  expect(runSetRepos(single, checkoutsOf([first, second]), true)).rejects.toThrow(/share the name clash/);
   // Refused before anything moved, so the worktree is still where it was.
   expect(await runEffect(checkoutFor(single, first))).toBe(join(changeDir(single.id), "clash"));
 });

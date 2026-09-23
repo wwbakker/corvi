@@ -11,6 +11,7 @@ import type {
 } from "@corvi/contracts/changes"
 import type {
   ChangeConflict,
+  ChangeFormatTooNew,
   ChangeNotFound,
   ChangeStoreError,
   RepositoryStoreError,
@@ -23,14 +24,16 @@ export interface StoreInterface {
   readonly patch: (
     changeId: ChangeId,
     patch: { readonly phase: ChangePhase; readonly completedAt?: string; readonly expectedRevision?: number },
-  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeStoreError>
+  ) => Effect.Effect<Change, ChangeNotFound | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
   /** A missing change reads as no links; the workflow reads the change first. */
   readonly listRepositories: (changeId: ChangeId) => Effect.Effect<readonly Repository[], RepositoryStoreError>
-  readonly addRepository: (input: AddRepositoryInput) => Effect.Effect<Repository, RepositoryStoreError>
+  readonly addRepository: (
+    input: AddRepositoryInput,
+  ) => Effect.Effect<Repository, ChangeFormatTooNew | RepositoryStoreError>
   readonly removeRepository: (
     changeId: ChangeId,
     repositoryId: RepositoryId,
-  ) => Effect.Effect<boolean, RepositoryStoreError>
+  ) => Effect.Effect<boolean, ChangeFormatTooNew | RepositoryStoreError>
 }
 
 export class ChangeStore extends Context.Tag("corvi/ChangeStore")<ChangeStore, StoreInterface>() {}

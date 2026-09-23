@@ -17,7 +17,7 @@ import type { Change } from "../apps/server/src/domain/change.ts";
 import type { WidgetItem, WidgetState } from "../apps/server/src/domain/widget.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
-import { fakeShell, runWithShell } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
 
 /** Every effect below goes through the shared cache and the contract's capabilities, and every
  * test starts from a cold one so a key one test warmed cannot answer for another. */
@@ -51,7 +51,7 @@ const runRow = (
 const change: Change = {
   id: "PROJ-1",
   branch: "PROJ-1-thing",
-  repos: ["/repos/repo"],
+  checkouts: checkoutsOf(["/repos/repo"]),
   createdAt: "2026-01-01T00:00:00Z",
 };
 

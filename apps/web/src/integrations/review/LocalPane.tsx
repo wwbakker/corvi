@@ -3,6 +3,7 @@ import { makeWireClient } from "@corvi/client";
 import { Schema } from "effect";
 import { TextSchema } from "@corvi/contracts/api";
 import type { Change } from "../../domain/change.ts";
+import { repoPathsOf } from "../../domain/change.ts";
 import { CommitDialog } from "./CommitDialog.tsx";
 import {
   CommitResultSchema,
@@ -135,7 +136,7 @@ export function LocalPane({
   workspace?: string;
 }): JSX.Element {
   const changeId = change.id;
-  const repos = change.repos;
+  const repos = repoPathsOf(change);
   // What people write anyway, so it is there to edit rather than to type.
   const suggestion = change.title ? `${changeId} ${change.title}` : changeId;
 

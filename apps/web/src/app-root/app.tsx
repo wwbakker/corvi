@@ -112,7 +112,7 @@ function Home({
                   <td>{c.id}</td>
                   <td className="summary">{c.title ?? c.branch}</td>
                   <td className={stateClass(c.state)}>{c.state ?? "Completed"}</td>
-                  <td>{c.repos.length}</td>
+                  <td>{(c.checkouts ?? []).length}</td>
                   <td>{moment(c.createdAt)}</td>
                   <td>{c.completedAt ? moment(c.completedAt) : "—"}</td>
                 </tr>

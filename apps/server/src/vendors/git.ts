@@ -1,8 +1,15 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change } from "../domain/change.ts";
-import { duplicateRepoNames, isIdeation } from "../domain/change.ts";
+import type { Change, CheckoutSpec } from "../domain/change.ts";
+import {
+  checkoutSpecProblem,
+  duplicateRepoNames,
+  effectiveBranchOf,
+  isIdeation,
+  specFor,
+  targetOf,
+} from "../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
 import { shOrThrow } from "../capabilities/shell.ts";
 import { runtimeConfig } from "../workspace/server/index.ts";
@@ -10,6 +17,7 @@ import { copyTooling } from "../capabilities/os.ts";
 import { writeChange, changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
+import type { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { fs, messageOf, shSoft } from "../capabilities/effect/support.ts";
 
 /**
@@ -211,6 +219,17 @@ export const integrated = (
     return answer;
   });
 
+/** The branch this change's checkout of `repo` is on: the change's own, the existing branch the
+ * spec named, or — adopted as it is — whatever the checkout has checked out now. */
+export const branchNameOf = (
+  change: Change,
+  repo: string,
+  spec: CheckoutSpec | undefined = specFor(change, repo),
+): Effect.Effect<string | undefined> => {
+  const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
+  return effective._tag === "Recorded" ? Effect.succeed(effective.name) : currentBranch(repo);
+};
+
 /** The worktree holding this change's branch in `repo`, with everything the dashboard says
  * about it. Undefined when the change has no worktree there. */
 export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEntry | undefined> =>
@@ -218,7 +237,8 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEn
     const worktrees = parseWorktrees(
       (yield* shSoft(["git", "worktree", "list", "--porcelain"], repo)).stdout,
     );
-    const found = worktrees.find((w) => w.branch === change.branch);
+    const branch = yield* branchNameOf(change, repo);
+    const found = branch ? worktrees.find((w) => w.branch === branch) : undefined;
     if (!found) return undefined;
 
     const [status, base] = yield* Effect.all([
@@ -230,9 +250,9 @@ export const entryFor = (change: Change, repo: string): Effect.Effect<WorktreeEn
     // change is spotted — the cheap proofs only, because this is painted on every refresh and the
     // simulated merge that catches a squash (`integrated`) writes into the repository. A lookup
     // that cannot be read is unknown rather than diverged, and the card says so.
-    const proven = base ? yield* cheaplyIntegrated(repo, change.branch, base) : undefined;
+    const proven = base ? yield* cheaplyIntegrated(repo, found.branch, base) : undefined;
     return {
-      branch: change.branch,
+      branch: found.branch,
       path: found.path,
       working_tree: { staged: tree.staged, modified: tree.modified, untracked: tree.untracked },
       remote: tree.upstream
@@ -276,8 +296,8 @@ export function describe(entry: WorktreeEntry): { detail: string; state: WidgetS
 export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     // An idea's repositories are only linked for reading: no branch is switched and no worktree
-    // exists, so the row says that instead of offering to create one. Checked before `direct`,
-    // since which mode the work will use is a decision for the start, not for the idea.
+    // exists, so the row says that instead of offering to create one. Checked before the spec,
+    // since which way the work will use it is a decision for the start, not for the idea.
     if (isIdeation(change)) {
       return {
         label: basename(repo),
@@ -286,7 +306,8 @@ export const repoItem = (change: Change, repo: string): Effect.Effect<WidgetItem
         menu: openMenu(repo),
       };
     }
-    if (isDirect(change, repo)) return yield* directItem(change, repo);
+    const spec = specFor(change, repo);
+    if (spec?.location === "original") return yield* inPlaceItem(change, repo, spec);
     const label = basename(repo);
     const entry = yield* entryFor(change, repo);
     if (!entry) {
@@ -398,14 +419,27 @@ export const defaultBranch = (repo: string): Effect.Effect<string | undefined> =
     return remote ?? (yield* localDefaultBranch(repo));
   });
 
-/** The branch this repository's work starts from: what you chose, or the repository's default
- * branch — the remote's, or its own main/master when there is no remote. */
+/** The branch this repository's work starts from: what the change chose for it, or the
+ * repository's default branch — the remote's, or its own main/master when there is no remote. */
 export const baseFor = (
   change: Change,
   repo: string,
 ): Effect.Effect<string | undefined> =>
   Effect.suspend(() => {
-    const chosen = change.base?.[repo];
+    const chosen = specFor(change, repo)?.base;
+    return chosen !== undefined ? Effect.succeed(chosen) : defaultBranch(repo);
+  });
+
+/** What a pull request merges into: the spec's `target`, else the `base` its branch started
+ * from — one field served both roles before they were split, so a spec without `target` still
+ * means it — else the repository's default branch. */
+export const targetFor = (
+  change: Change,
+  repo: string,
+): Effect.Effect<string | undefined> =>
+  Effect.suspend(() => {
+    const spec = specFor(change, repo);
+    const chosen = spec ? targetOf(spec) : undefined;
     return chosen !== undefined ? Effect.succeed(chosen) : defaultBranch(repo);
   });
 
@@ -461,9 +495,9 @@ const openMenu = (repo: string): { id: string; label: string; arg: string }[] =>
     .filter((o) => o.available?.() ?? true)
     .map(({ id, label }) => ({ id, label, arg: repo }));
 
-/** Repositories worked on in place rather than through a worktree. */
-export const isDirect = (change: Change, repo: string): boolean =>
-  change.direct?.includes(repo) ?? false;
+/** Whether this change's checkout of `repo` is the repository's own, rather than a worktree. */
+export const isInPlace = (change: Change, repo: string): boolean =>
+  specFor(change, repo)?.location === "original";
 
 /** Where the change directory links to a repository used in place, so the change directory
  * still shows everything the change touches. */
@@ -501,22 +535,30 @@ export const browseRepo = (change: Change, repo: string): Effect.Effect<void> =>
 
 /**
  * Work in the repository itself: link it from the change directory and put its checkout on the
- * change's branch, freshly branched off the remote default like a worktree would be.
+ * branch the spec asks for — the change's own, freshly branched off the remote default like a
+ * worktree would be, or an existing branch, only ever switched to.
  *
  * A repository with uncommitted work is linked but not touched otherwise: switching branches
  * under half-finished edits is the kind of help nobody wants. The widget then says so, and the
  * action can be repeated once the tree is clean.
  */
-const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError> =>
+const useInPlace = (change: Change, repo: string, spec: CheckoutSpec): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
     yield* browseRepo(change, repo);
-    if ((yield* currentBranch(repo)) === change.branch) return;
+    const wanted = spec.branch.kind === "existing" ? spec.branch.name : change.branch;
+    if ((yield* currentBranch(repo)) === wanted) return;
     if (yield* isDirty(repo)) return; // reported by the widget; the user decides what to do
+    if (spec.branch.kind === "existing") {
+      // An existing branch is only ever attached: `git switch` tracks a remote-only name and
+      // refuses a name that is nowhere.
+      yield* shOrThrow(["git", "switch", wanted], repo);
+      return;
+    }
     const exists =
-      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
+      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${wanted}`], repo))
         .code === 0;
     if (exists) {
-      yield* shOrThrow(["git", "switch", change.branch], repo);
+      yield* shOrThrow(["git", "switch", wanted], repo);
       return;
     }
     const base = yield* baseFor(change, repo);
@@ -527,7 +569,7 @@ const useInPlace = (change: Change, repo: string): Effect.Effect<void, CliError>
     // the first `git push` would try to push your work straight onto it. The branch gets its own
     // upstream when it is first pushed, as a worktree's does.
     yield* shOrThrow(
-      ["git", "switch", "--create", change.branch, ...(base ? ["--no-track", base] : [])],
+      ["git", "switch", "--create", wanted, ...(base ? ["--no-track", base] : [])],
       repo,
     );
   });
@@ -546,14 +588,17 @@ export const unlinkRepo = (change: Change, repo: string): Effect.Effect<void> =>
   });
 
 /** How a repository used in place stands: which branch it is on, and whether it needs a hand. */
-const directItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
+/** How a repository used where it stands is going, by the branch question it was given: the
+ * change's branch (and a nudge when the checkout drifted off it), a named existing branch
+ * (drift is reported, never repaired), or the checkout's own current branch (nothing to say). */
+const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.Effect<WidgetItem> =>
   Effect.gen(function* () {
     const label = basename(repo);
     const [branch, dirty] = yield* Effect.all([
       currentBranch(repo),
       isDirty(repo),
     ]);
-    if (branch !== change.branch) {
+    if (spec.branch.kind === "change" && branch !== change.branch) {
       return {
         label,
         detail: dirty
@@ -562,6 +607,17 @@ const directItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
         detailTone: "warn",
         state: "warn",
         actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
+      };
+    }
+    if (spec.branch.kind === "existing" && branch !== spec.branch.name) {
+      return {
+        label,
+        detail: dirty
+          ? `in place, on ${branch} with uncommitted changes — not ${spec.branch.name}`
+          : `in place, on ${branch} — not ${spec.branch.name}`,
+        detailTone: "warn",
+        state: "warn",
+        menu: openMenu(repo),
       };
     }
     // On the right branch: the main checkout is a worktree like any other as far as git is
@@ -573,29 +629,37 @@ const directItem = (change: Change, repo: string): Effect.Effect<WidgetItem> =>
         detail: dirty ? "uncommitted changes" : "clean",
         state: (dirty ? "pending" : "ok") as WidgetState,
       };
+    const way = spec.branch.kind === "current" ? "current branch" : "in place";
     return {
       label,
-      detail: `in place · ${described.detail} · ${repo}`,
+      detail: `${way} · ${described.detail} · ${repo}`,
       state: described.state,
       menu: openMenu(repo),
     };
   });
 
-/** Give this change its checkout in `repo`, by the mode the change asked for: a worktree, or
- * the repository's own checkout switched and linked, when the repo is worked on in place.
- * Whatever is already there is left alone. */
+/** Give this change its checkout in `repo`, by the way its spec asks for it: a worktree on a
+ * created or an attached branch, the repository's own checkout switched and linked, or the
+ * checkout adopted as it is — a link and nothing else. Whatever is already there is left alone. */
 export const provisionRepo = (change: Change, repo: string): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* useInPlace(change, repo);
+    const spec = specFor(change, repo);
+    if (!spec) return;
+    // Adopting the checkout's current branch is the link and no checkout work at all.
+    if (spec.branch.kind === "current") return yield* browseRepo(change, repo);
+    if (spec.location === "original") return yield* useInPlace(change, repo, spec);
     if (yield* checkoutFor(change, repo)) return;
+    const wanted = spec.branch.kind === "existing" ? spec.branch.name : change.branch;
     const exists =
-      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${change.branch}`], repo))
+      (yield* shSoft(["git", "show-ref", "--verify", "--quiet", `refs/heads/${wanted}`], repo))
         .code === 0;
     const path = worktreePath(change, repo);
     // The branch is already there — a cancelled change keeps an unmerged one, and re-creating the
-    // change is how you get back to it. Attaching leaves its configuration alone.
-    if (exists) {
-      yield* shOrThrow(["git", "worktree", "add", path, change.branch], repo);
+    // change is how you get back to it. Attaching leaves its configuration alone. An existing
+    // branch is only ever attached: `git worktree add` tracks a remote-only name and refuses a
+    // name that is nowhere.
+    if (exists || spec.branch.kind === "existing") {
+      yield* shOrThrow(["git", "worktree", "add", path, wanted], repo);
       return yield* carryTooling(repo, change);
     }
     // Branch from the chosen base, fetched first: a local main is often behind. The base is the
@@ -697,26 +761,23 @@ export const unsafeToRemove = (
     // prove landed, and being made to acknowledge work that is already in main is noise.
     if (unsafe?.kind !== "unpushed") return unsafe;
     const base = yield* defaultBranch(repo);
-    if (base && (yield* integrated(repo, change.branch, base))) return undefined;
+    const branch = yield* branchNameOf(change, repo);
+    if (base && branch && (yield* integrated(repo, branch, base))) return undefined;
     return unsafe;
   });
 
 /** The repositories of a change, with what a removal would destroy: the edit dialog needs both. */
 export const repoStates = (
   change: Change,
-): Effect.Effect<
-  { path: string; name: string; direct: boolean; base?: string; unsafe?: Unsafe }[]
-> =>
+): Effect.Effect<(CheckoutSpec & { name: string; unsafe?: Unsafe })[]> =>
   Effect.forEach(
-    change.repos,
-    (path) =>
+    change.checkouts ?? [],
+    (spec) =>
       Effect.gen(function* () {
         return {
-          path,
-          name: basename(path),
-          direct: isDirect(change, path),
-          base: yield* baseFor(change, path),
-          unsafe: yield* unsafeToRemove(change, path),
+          ...spec,
+          name: basename(spec.path),
+          unsafe: yield* unsafeToRemove(change, spec.path),
         };
       }),
     // Unbounded: the shared CLI semaphore caps how many of these run at once.
@@ -724,8 +785,10 @@ export const repoStates = (
   );
 
 /**
- * Apply a new repository list in one go: everything added gets a worktree, everything dropped
- * loses one. Refuses the whole edit if any removal would destroy uncommitted work.
+ * Apply a new checkout list in one go: everything added gets its checkout, everything dropped
+ * loses one. Nothing is destroyed without a word: uncommitted work in a worktree that would be
+ * removed is the one refusal — that work would be lost — and every other removal is a question
+ * the caller confirms or abandons.
  *
  * The list may be emptied. A change with no repositories is not much of a change, but it is a
  * step on the way to one: taking a repository out and putting it back is how you get a fresh
@@ -737,18 +800,39 @@ export type SetReposResult =
   | { _tag: "Done"; change: Change }
   | { _tag: "NeedsForce"; needsForce: string[] };
 
+// Pure and synchronous: nothing for an Effect to wrap.
+const sameSpec = (a: CheckoutSpec, b: CheckoutSpec): boolean =>
+  a.path === b.path &&
+  a.location === b.location &&
+  a.branch.kind === b.branch.kind &&
+  (a.branch.kind === "existing" && b.branch.kind === "existing"
+    ? a.branch.name === b.branch.name
+    : true) &&
+  (a.base ?? "") === (b.base ?? "") &&
+  (a.target ?? "") === (b.target ?? "");
+
 export const setRepos = (
   change: Change,
-  repos: string[],
+  specs: CheckoutSpec[],
   force = false,
-  direct?: string[],
-  base?: Record<string, string>,
-): Effect.Effect<SetReposResult, CliError | BadRequestError> =>
+): Effect.Effect<SetReposResult, CliError | BadRequestError | ChangeFormatTooNew> =>
   Effect.gen(function* () {
-    const wanted = [...new Set(repos.map((r) => r.trim()).filter(Boolean))];
+    // Whitespace is nothing, and the same path twice is a double click rather than two
+    // repositories: the first mention wins.
+    const wanted = [
+      ...new Map(
+        specs
+          .map((spec) => ({ ...spec, path: spec.path.trim() }))
+          .map((spec) => [spec.path, spec] as const),
+      ).values(),
+    ].filter((spec) => spec.path);
+    for (const spec of wanted) {
+      const problem = checkoutSpecProblem(spec);
+      if (problem) return yield* new BadRequestError({ message: problem });
+    }
     // Every repository is filed in the change directory under its own name, so two paths with the
     // same name would collide there — a worktree on top of a worktree, or two browse links.
-    const duplicate = duplicateRepoNames(wanted);
+    const duplicate = duplicateRepoNames(wanted.map((spec) => spec.path));
     if (duplicate.length) {
       return yield* new BadRequestError({
         message:
@@ -756,63 +840,66 @@ export const setRepos = (
           `under its own name in the change directory`,
       });
     }
-    const wantedDirect = (direct ?? change.direct ?? []).filter((r) => wanted.includes(r));
-    // A repository whose mode changed is torn down and set up again: the existing worktree or
-    // link is as wrong as a repository that was dropped.
-    const switched = wanted.filter((r) => isDirect(change, r) !== wantedDirect.includes(r));
-    const removed = [...change.repos.filter((r) => !wanted.includes(r)), ...switched];
-    const added = [...wanted.filter((r) => !change.repos.includes(r)), ...switched];
+    const current = change.checkouts ?? [];
+    const wantedByPath = new Map(wanted.map((spec) => [spec.path, spec]));
+    const currentByPath = new Map(current.map((spec) => [spec.path, spec]));
+    // A row whose spec changed is set up again the new way, and whatever it leaves is torn
+    // down: the existing worktree or checkout is as wrong as a repository that was dropped.
+    const teardown = current.filter((spec) => {
+      const next = wantedByPath.get(spec.path);
+      return next === undefined || !sameSpec(spec, next);
+    });
+    const setup = wanted.filter((spec) => {
+      const prior = currentByPath.get(spec.path);
+      return prior === undefined || !sameSpec(prior, spec);
+    });
 
-    const unsafe = yield* Effect.forEach(
-      removed,
-      (repo) => Effect.map(unsafeToRemove(change, repo), (unsafe) => ({ repo, unsafe })),
-      // Unbounded: the shared CLI semaphore caps how many of these run at once.
-      { concurrency: "unbounded" },
-    );
-    const dirty = unsafe.filter((u) => u.unsafe?.kind === "dirty");
-    if (dirty.length) {
+    // What leaving behind is worth asking about. A worktree goes, its branch stays unless its
+    // work is proven landed; a checkout used where it is is left exactly as it stands. So the
+    // question is the same for both — the only refusal is destroying uncommitted work.
+    const questions: string[] = [];
+    const lost: string[] = [];
+    for (const spec of teardown) {
+      const unsafe = yield* unsafeToRemove(change, spec.path);
+      if (!unsafe) continue;
+      if (unsafe.kind === "dirty" && spec.location === "new") lost.push(basename(spec.path));
+      else questions.push(basename(spec.path));
+    }
+    if (lost.length) {
       return yield* new BadRequestError({
-        message:
-          `${dirty.map((d) => basename(d.repo)).join(", ")}: uncommitted changes, revert or commit them first`,
+        message: `${lost.join(", ")}: uncommitted changes, revert or commit them first`,
       });
     }
-    const unpushed = unsafe.filter((u) => u.unsafe?.kind === "unpushed");
-    if (unpushed.length && !force) {
-      return { _tag: "NeedsForce", needsForce: unpushed.map((u) => basename(u.repo)) };
+    if (questions.length && !force) {
+      return { _tag: "NeedsForce", needsForce: questions } satisfies SetReposResult;
     }
 
-    for (const repo of removed) yield* removeWorktree(change, repo);
-    const bases = Object.fromEntries(
-      Object.entries(base ?? change.base ?? {}).filter(([repo]) => wanted.includes(repo)),
-    );
-    const updated: Change = {
-      ...change,
-      repos: wanted,
-      direct: wantedDirect.length ? wantedDirect : undefined,
-      base: Object.keys(bases).length ? bases : undefined,
-    };
+    for (const spec of teardown) yield* removeWorktree(change, spec.path);
+    const updated: Change = { ...change, checkouts: wanted };
     yield* writeChange(updated);
-    for (const repo of added) yield* provisionOrBrowse(updated, repo);
-    return { _tag: "Done", change: updated };
+    for (const spec of setup) yield* provisionOrBrowse(updated, spec.path);
+    return { _tag: "Done", change: updated } satisfies SetReposResult;
   });
 
 /**
- * Drop the worktree, and the branch with it when the branch adds nothing to the repository's
- * default branch. Deleting a branch is the destructive half, so it is asked separately: only a
- * branch whose content is provably already in the default branch goes, and every other branch is
- * kept.
+ * Drop a checkout. A worktree goes, and its branch with it when the branch adds nothing to the
+ * repository's default branch; a checkout used where it is loses only the change directory's
+ * link — the repository, its checkout and its branches are the user's. Deleting a branch is the
+ * destructive half, so it is asked separately: only a branch Corvi created for this work whose
+ * content is provably already in the default branch goes, and every other branch is kept.
  *
- * Keeping it is what makes switching a repository to in-place work: the worktree goes, the branch
- * stays, and the repository's own checkout picks it up. A branch that could not be deleted is not
- * an error — the worktree is gone, and the caller reports what is left (cancel's "the branch X is
- * kept in …") rather than failing a removal that happened.
+ * Keeping a branch is what makes switching a repository to in place work: the worktree goes, the
+ * branch stays, and the repository's own checkout picks it up. A branch that could not be
+ * deleted is not an error — the worktree is gone, and the caller reports what is left (cancel's
+ * "the branch X is kept in …") rather than failing a removal that happened.
  */
 export const removeWorktree = (
   change: Change,
   repo: string,
 ): Effect.Effect<void, CliError> =>
   Effect.gen(function* () {
-    if (isDirect(change, repo)) return yield* unlinkRepo(change, repo);
+    const spec = specFor(change, repo);
+    if (spec?.location === "original") return yield* unlinkRepo(change, repo);
     const path = yield* checkoutFor(change, repo);
     if (!path) {
       // No worktree to remove — but an idea's repository still has a browse link to drop, or the
@@ -823,6 +910,9 @@ export const removeWorktree = (
     // also succeeds for a worktree whose directory was deleted by hand, which git still has
     // registered until something prunes it.
     yield* shOrThrow(["git", "worktree", "remove", "--force", path], repo);
+    // Only a branch Corvi created is deleted; a borrowed one — an existing branch by name — is
+    // the user's and stays.
+    if (spec?.branch.kind !== "change") return;
     const base = yield* defaultBranch(repo);
     // -D, not -d: the merge that landed this content may have been a squash, so git's own
     // ancestry test refuses what `integrated` has just proven. Proven first, or the branch stays.

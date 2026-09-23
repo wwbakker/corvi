@@ -380,6 +380,22 @@ export const runSetRepos = async (
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };
 
+/** The checkout specs a list of source paths becomes: worktrees on the change's branch, unless
+ * a path is named in place or given a base — the shape `ChangeDraft` and the request bodies
+ * carry. `base` becomes both where the branch starts and what a pull request merges into, which
+ * is what one field meant before they were split. */
+export const checkoutsOf = (
+  paths: string[],
+  direct: string[] = [],
+  base: Record<string, string> = {},
+): import("@corvi/contracts/api").CheckoutSpecDto[] =>
+  paths.map((path) => ({
+    path,
+    location: direct.includes(path) ? ("original" as const) : ("new" as const),
+    branch: { kind: "change" as const },
+    ...(base[path] !== undefined ? { base: base[path], target: base[path] } : {}),
+  }));
+
 /** Cancelling a change, in the duck the tests read: the Effect API answers in a tagged union
  * (`{ _tag: "Done" }` / `{ _tag: "NeedsForce" }`), and the tests read `{ change, loose }` /
  * `{ needsForce }`. */

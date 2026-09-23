@@ -9,7 +9,7 @@ import {
 } from "../apps/server/src/change/server/index.ts";
 import { provisionChangeRepositories } from "../apps/server/src/change/provisioning.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import { runEffect, runSh } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 
 /**
  * Starting an idea through the workflow: the browse link goes, the real checkout arrives, and a
@@ -53,13 +53,13 @@ test("starting an idea provisions its worktree and reports the result", async ()
       id: "PROJ-STARTWF",
       state: "Ideation",
       branch: "PROJ-STARTWF-x",
-      repos: [repo],
+      checkouts: checkoutsOf([repo]),
     }),
   );
   await runEffect(provisionChangeRepositories(idea));
 
   const started = await runEffect(startChangeWithWorkflow(idea));
-  expect(started.change.state).toBe("In Progress");
+  expect(started.change.state).toBe("Implementation");
 
   const worktree = join(changeDir(idea.id), basename(repo));
   expect((await lstat(worktree)).isDirectory()).toBe(true);
@@ -77,14 +77,14 @@ test("a failed repository leaves the start partially done, and says so", async (
       id: "PROJ-STARTPART",
       state: "Ideation",
       branch: "PROJ-STARTPART-x",
-      repos: [good, broken],
+      checkouts: checkoutsOf([good, broken]),
     }),
   );
   await runEffect(provisionChangeRepositories(idea));
   await rm(broken, { recursive: true, force: true });
 
   const started = await runEffect(startChangeWithWorkflow(idea));
-  expect(started.change.state).toBe("In Progress");
+  expect(started.change.state).toBe("Implementation");
   expect(started.provision.some((result) => !result.ok)).toBe(true);
   expect(await Bun.file(join(changeDir(idea.id), basename(good), "README.md")).exists()).toBe(
     true,
@@ -94,7 +94,7 @@ test("a failed repository leaves the start partially done, and says so", async (
 test("a change that already started cannot start again", async () => {
   const repo = await clonedRepo("start-twice");
   const change = await runEffect(
-    createChange({ id: "PROJ-STARTTWICE", branch: "PROJ-STARTTWICE", repos: [repo] }),
+    createChange({ id: "PROJ-STARTTWICE", branch: "PROJ-STARTTWICE", checkouts: checkoutsOf([repo]) }),
   );
   await expect(runEffect(startChangeWithWorkflow(change))).rejects.toThrow(/already started/);
 });

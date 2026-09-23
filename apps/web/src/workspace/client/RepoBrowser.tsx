@@ -6,7 +6,8 @@ import { fetchListing } from "./repoListing.ts";
 /** Directory browser, unbounded: it opens where the context's repositories directory says and
  * can walk anywhere from there. Browsing and selecting are separate actions on every row,
  * because a directory can be both a repository and a parent of others. How a repository is
- * worked on, and what its branch starts from, is decided per selected repository on the right. */
+ * worked on is two questions per selected repository on the right — where its checkout lives,
+ * and which branch it uses — plus what that branch starts from and merges into. */
 export function RepoBrowser({
   selected,
   onAdd,
@@ -92,11 +93,12 @@ export function RepoBrowser({
         <div className="pane selected-pane">
           <div className="breadcrumb">Selected ({selected.length})</div>
           <ul className="entries">
-            {selected.map(({ path, direct, base }) => {
+            {selected.map(({ path, location, branch, base, target }) => {
               const known = branches[path];
-              const options = known?.branches.length
+              const names = known?.branches.length
                 ? known.branches
                 : [base ?? known?.default ?? "loading…"];
+              const startFrom = base ?? known?.default ?? "";
               return (
                 <li key={path} className="selection">
                   <div className="row">
@@ -107,22 +109,94 @@ export function RepoBrowser({
                   </div>
                   <div className="row">
                     <select
-                      value={direct ? "direct" : "worktree"}
+                      value={location}
                       title="a separate checkout, or this repository's own"
-                      onChange={(e) => onChange(path, { direct: e.target.value === "direct" })}
+                      onChange={(e) =>
+                        onChange(path, {
+                          location: e.target.value === "original" ? "original" : "new",
+                          // A new worktree cannot adopt the branch a source checkout has
+                          // checked out: that branch is already live there.
+                          ...(e.target.value !== "original" && branch.kind === "current"
+                            ? { branch: { kind: "change" as const } }
+                            : {}),
+                        })
+                      }
                     >
-                      <option value="worktree">worktree</option>
-                      <option value="direct">in place</option>
+                      <option value="new">New worktree</option>
+                      <option value="original">In place</option>
                     </select>
                     <select
-                      className="base"
-                      value={base ?? known?.default ?? ""}
-                      title="the branch this work starts from"
-                      onChange={(e) => onChange(path, { base: e.target.value })}
+                      value={branch.kind}
+                      title="the branch this work uses"
+                      onChange={(e) =>
+                        onChange(path, {
+                          branch:
+                            e.target.value === "current"
+                              ? { kind: "current" }
+                              : e.target.value === "existing"
+                                ? { kind: "existing", name: known?.default ?? names[0] ?? "main" }
+                                : { kind: "change" },
+                        })
+                      }
                     >
-                      {options.map((branch) => (
-                        <option key={branch} value={branch}>
-                          {branch}
+                      <option value="change">New branch</option>
+                      <option
+                        value="current"
+                        disabled={location === "new"}
+                        title={
+                          location === "new"
+                            ? "a new worktree cannot use the branch a source checkout has checked out"
+                            : undefined
+                        }
+                      >
+                        Current branch
+                      </option>
+                      <option value="existing">Existing branch</option>
+                    </select>
+                  </div>
+                  {branch.kind === "existing" && (
+                    <div className="row">
+                      <select
+                        className="name"
+                        value={branch.name}
+                        title="the existing branch to use; a remote-only branch gets a local branch tracking it"
+                        onChange={(e) =>
+                          onChange(path, { branch: { kind: "existing", name: e.target.value } })
+                        }
+                      >
+                        {names.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="row">
+                    {branch.kind === "change" && (
+                      <select
+                        className="base"
+                        value={startFrom}
+                        title="the branch this work starts from"
+                        onChange={(e) => onChange(path, { base: e.target.value })}
+                      >
+                        {names.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <select
+                      className="target"
+                      value={target ?? ""}
+                      title="what a pull request merges into"
+                      onChange={(e) => onChange(path, { target: e.target.value || undefined })}
+                    >
+                      <option value="">(repository default)</option>
+                      {names.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
                         </option>
                       ))}
                     </select>

@@ -1,4 +1,5 @@
 import { baseName } from "@corvi/contracts/paths";
+import { effectiveBranchOf } from "@corvi/contracts/changes";
 import { Effect, Either, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
@@ -129,6 +130,24 @@ const pushedAs = (worktree: string, repo: string, branch: string): Effect.Effect
     return headRef(branch, r.stdout || undefined, yield* facts.remoteDefaultBranch(repo));
   });
 
+/** The branch this change's work in `repo` follows: the change's own, the existing branch the
+ * spec named, or — adopted as it is — the one the checkout has checked out now, read live.
+ * Without a checkout to observe, an adopted branch falls back to the change's name. */
+const effectiveBranchName = (
+  change: Change,
+  repo: string,
+  worktree: string | undefined,
+): Effect.Effect<string> => {
+  const spec = (change.checkouts ?? []).find((entry) => entry.path === repo);
+  const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
+  if (effective._tag === "Recorded") return Effect.succeed(effective.name);
+  if (!worktree) return Effect.succeed(change.branch);
+  return Effect.map(shSoft(["git", "rev-parse", "--abbrev-ref", "HEAD"], worktree), (r) => {
+    const name = r.stdout.trim();
+    return name && name !== "HEAD" ? name : change.branch;
+  });
+};
+
 /** gh needs a repository as its working directory; the worktree is the one we know is on the
  * change's branch. Fails with a BadRequestError carrying the CLI's message. */
 type FoundPr = { worktree: string; head: string; prs: Pr[] };
@@ -140,7 +159,8 @@ const prQuery = (
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     if (!worktree) return undefined;
-    const head = yield* pushedAs(worktree, repo, change.branch);
+    const branch = yield* effectiveBranchName(change, repo, worktree);
+    const head = yield* pushedAs(worktree, repo, branch);
     const r = yield* shSoft(
       [
         "gh",
@@ -405,7 +425,8 @@ export const prItem = (
       ? pr.state.toLowerCase()
       : undefined;
     // Surprising enough to say: the work goes to a branch with another name.
-    const elsewhere = hit.head !== change.branch ? `pushed as ${hit.head}` : undefined;
+    const branch = yield* effectiveBranchName(change, repo, hit.worktree);
+    const elsewhere = hit.head !== branch ? `pushed as ${hit.head}` : undefined;
     // A merged or closed pull request is not waiting for anything, so it only says so.
     const settled = ["MERGED", "CLOSED"].includes(pr.state);
     const details = yield* prDetails(hit.worktree, pr.url, pr.number);
@@ -471,8 +492,9 @@ export const mergeReadiness = (
     // and still gates, even on an integrated branch.
     if (!pr || pr.state === "CLOSED") {
       const facts = yield* GitFacts;
-      const base = yield* facts.baseFor(change, repo);
-      if (yield* facts.contentInMain(repo, change.branch, base)) {
+      const base = yield* facts.targetFor(change, repo);
+      const branch = yield* effectiveBranchName(change, repo, found.worktree);
+      if (yield* facts.contentInMain(repo, branch, base)) {
         return { ready: true, merged: true };
       }
       return {
@@ -508,8 +530,9 @@ export const mergePr = (
 ): Effect.Effect<string | undefined, BadRequestError | CliError, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+    const branch = yield* effectiveBranchName(change, repo, worktree);
     if (!worktree) {
-      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
+      return yield* new BadRequestError({ message: `no worktree for ${branch} in ${repo}` });
     }
 
     const stacked = yield* isStacked(worktree, repo, number);
@@ -548,15 +571,16 @@ export const createPr = (
 ): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
+    const branch = yield* effectiveBranchName(change, repo, worktree);
     if (!worktree) {
-      return yield* new BadRequestError({ message: `no worktree for ${change.branch} in ${repo}` });
+      return yield* new BadRequestError({ message: `no worktree for ${branch} in ${repo}` });
     }
-    yield* shOrThrow(["git", "push", "-u", "origin", change.branch], worktree);
+    yield* shOrThrow(["git", "push", "-u", "origin", branch], worktree);
     // A change stacked on another one's branch must open its pull request against that branch:
     // against main the diff would contain the other change's commits as well. GitHub retargets
     // the pull request to main by itself once the base branch merges.
     const facts = yield* GitFacts;
-    const base = yield* facts.baseFor(change, repo);
+    const base = yield* facts.targetFor(change, repo);
     const target = base?.startsWith("origin/") ? base.slice("origin/".length) : base;
     const against = target && (yield* facts.remoteDefaultBranch(repo)) !== base ? ["--base", target] : [];
     yield* shOrThrow(["gh", "pr", "create", "--fill", ...against], worktree);

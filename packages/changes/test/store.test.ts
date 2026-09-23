@@ -14,8 +14,14 @@ import {
 import { ChangeService } from "../src/changes.ts"
 import { ChangeStore } from "../src/store.ts"
 import { ChangeRepositories } from "../src/change-repositories.ts"
-import type { ChangeIdTaken, ChangeStoreError, DuplicateDirectoryName, RepositoryStoreError } from "../src/errors.ts"
-import { layer as servicesLayer, storeLayer } from "../src/node/index.ts"
+import type {
+  ChangeFormatTooNew,
+  ChangeIdTaken,
+  ChangeStoreError,
+  DuplicateDirectoryName,
+  RepositoryStoreError,
+} from "../src/errors.ts"
+import { layer as servicesLayer, migrateStoredRecords, storeLayer } from "../src/node/index.ts"
 
 let root: string
 
@@ -50,14 +56,26 @@ const create = (
 const addRepository = (
   id: string,
   directoryName: string,
-): Effect.Effect<Repository, DuplicateDirectoryName | RepositoryStoreError, ChangeRepositories> =>
+  input: {
+    readonly location?: Repository["location"]
+    readonly branch?: Repository["branch"]
+    readonly base?: string
+    readonly target?: string
+  } = {},
+): Effect.Effect<
+  Repository,
+  ChangeFormatTooNew | DuplicateDirectoryName | RepositoryStoreError,
+  ChangeRepositories
+> =>
   Effect.gen(function* () {
     const links = yield* ChangeRepositories
     return yield* links.addRepository({
       changeId: ChangeId.make(id),
-      directoryName: DirectoryName.make(directoryName),
       originalLocation: `/sources/${directoryName}`,
-      checkoutMethod: "UseNewLocationNewBranch",
+      location: input.location ?? "new",
+      branch: input.branch ?? { kind: "change" },
+      ...(input.base !== undefined ? { base: input.base } : {}),
+      ...(input.target !== undefined ? { target: input.target } : {}),
     })
   })
 
@@ -218,29 +236,28 @@ test("a transition to an unknown change is ChangeNotFound", async () => {
   if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeNotFound")
 })
 
-test("links materialize into the record and keep the legacy fields in sync", async () => {
+test("links persist as checkout specs with the record format stamped", async () => {
   await Effect.runPromise(create("materialize").pipe(Effect.provide(services(root))))
   await Effect.runPromise(addRepository("materialize", "one").pipe(Effect.provide(services(root))))
   await Effect.runPromise(
-    Effect.gen(function* () {
-      const links = yield* ChangeRepositories
-      yield* links.addRepository({
-        changeId: ChangeId.make("materialize"),
-        directoryName: DirectoryName.make("two"),
-        originalLocation: "/sources/two",
-        checkoutMethod: "UseOriginalLocationNewBranch",
-      })
+    addRepository("materialize", "two", {
+      location: "original",
+      branch: { kind: "existing", name: "feature" },
     }).pipe(Effect.provide(services(root))),
   )
   const record = (await Bun.file(join(root, "materialize", "change.json")).json()) as {
-    repositories?: unknown[]
-    repos?: string[]
-    direct?: string[]
+    formatVersion?: number
+    checkouts?: unknown[]
     state?: string
   }
-  expect(record.repositories).toHaveLength(2)
-  expect(record.repos).toEqual(["/sources/one", "/sources/two"])
-  expect(record.direct).toEqual(["/sources/two"])
+  expect(record.formatVersion).toBe(2)
+  expect(record.checkouts).toHaveLength(2)
+  expect(record.checkouts).toContainEqual({ path: "/sources/one", location: "new", branch: { kind: "change" } })
+  expect(record.checkouts).toContainEqual({
+    path: "/sources/two",
+    location: "original",
+    branch: { kind: "existing", name: "feature" },
+  })
   expect(record.state).toBe("Ideation")
 })
 
@@ -263,20 +280,103 @@ test("a terminal transition archives the record and it still reads", async () =>
   expect(await Bun.file(join(`${root}-archive`, "archived", "change.json")).exists()).toBe(true)
 })
 
-test("a legacy edit to repos wins over a stale materialized link list", async () => {
-  await Effect.runPromise(create("legacy-edit").pipe(Effect.provide(services(root))))
-  await Effect.runPromise(addRepository("legacy-edit", "one").pipe(Effect.provide(services(root))))
-  // The old app rewrites the record from its own view: repos changes, repositories is preserved.
-  const path = join(root, "legacy-edit", "change.json")
-  const record = (await Bun.file(path).json()) as Record<string, unknown>
-  await Bun.write(path, JSON.stringify({ ...record, repos: ["/sources/two"], direct: [] }, null, 2) + "\n")
+test("a format-1 record is migrated on read and persisted as format 2", async () => {
+  const legacyRoot = join(root, "legacy-read")
+  const path = join(legacyRoot, "migrated", "change.json")
+  await Bun.write(
+    path,
+    JSON.stringify(
+      {
+        id: "migrated",
+        title: "Migrated",
+        branch: "migrated",
+        state: "In Progress",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        repos: ["/sources/one", "/sources/two"],
+        direct: ["/sources/two"],
+        base: { "/sources/two": "feature" },
+        repositories: [{ stale: true }],
+      },
+      null,
+      2,
+    ) + "\n",
+  )
   const links = await Effect.runPromise(
     Effect.gen(function* () {
       const repositories = yield* ChangeRepositories
-      return yield* repositories.listRepositories(ChangeId.make("legacy-edit"))
-    }).pipe(Effect.provide(services(root))),
+      return yield* repositories.listRepositories(ChangeId.make("migrated"))
+    }).pipe(Effect.provide(services(legacyRoot))),
   )
-  expect(links.map((repository) => repository.directoryName)).toEqual([DirectoryName.make("two")])
+  expect(links.map((link) => link.originalLocation)).toEqual(["/sources/one", "/sources/two"])
+  expect(links[0]?.location).toBe("new")
+  expect(links[1]?.location).toBe("original")
+  expect(links[1]?.base).toBe("feature")
+  expect(links[1]?.target).toBe("feature")
+  const record = (await Bun.file(path).json()) as Record<string, unknown>
+  expect(record.formatVersion).toBe(2)
+  expect(record.state).toBe("Implementation")
+  expect("repos" in record).toBe(false)
+  expect("repositories" in record).toBe(false)
+})
+
+test("the startup sweep migrates once and is idempotent", async () => {
+  const sweepRoot = join(root, "sweep")
+  const path = join(sweepRoot, "swept", "change.json")
+  await Bun.write(
+    path,
+    JSON.stringify({ id: "swept", state: "Awaiting Review", createdAt: "2026-01-01", repos: ["/sources/one"] }) +
+      "\n",
+  )
+  await Effect.runPromise(migrateStoredRecords({ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }))
+  const once = await Bun.file(path).text()
+  expect(JSON.parse(once).formatVersion).toBe(2)
+  expect(JSON.parse(once).state).toBe("Verification")
+  await Effect.runPromise(migrateStoredRecords({ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }))
+  expect(await Bun.file(path).text()).toBe(once)
+})
+
+test("a record from a newer Corvi reads best-effort and refuses every write", async () => {
+  const fencedRoot = join(root, "fenced")
+  const path = join(fencedRoot, "newer", "change.json")
+  await Bun.write(
+    path,
+    JSON.stringify({
+      id: "newer",
+      title: "Newer",
+      branch: "newer",
+      state: "Ideation",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      formatVersion: 3,
+      checkouts: [{ path: "/sources/one", location: "new", branch: { kind: "change" } }],
+    }) + "\n",
+  )
+  const read = await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.getChange(ChangeId.make("newer"))
+    }).pipe(Effect.provide(services(fencedRoot))),
+  )
+  expect(read.title).toBe("Newer")
+
+  const refused = await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.transitionTo(ChangeId.make("newer"), "Implementation")
+    }).pipe(Effect.either, Effect.provide(services(fencedRoot))),
+  )
+  expect(Either.isLeft(refused)).toBe(true)
+  if (Either.isLeft(refused)) expect(refused.left._tag).toBe("ChangeFormatTooNew")
+
+  const linkRefused = await Effect.runPromise(
+    addRepository("newer", "more").pipe(Effect.either, Effect.provide(services(fencedRoot))),
+  )
+  expect(Either.isLeft(linkRefused) && linkRefused.left._tag).toBe("ChangeFormatTooNew")
+  // The refusal is the sentence the page shows, not just the tag.
+  if (Either.isLeft(refused) && refused.left._tag === "ChangeFormatTooNew") {
+    expect(refused.left.message).toContain("newer version of Corvi")
+  }
+  // Nothing was written: the record a newer Corvi left is exactly as it was.
+  expect(JSON.parse(await Bun.file(path).text()).formatVersion).toBe(3)
 })
 
 const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Either.Either<A, E>> =>

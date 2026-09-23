@@ -11,12 +11,14 @@ import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
 import type {
   ChangeConflict,
+  ChangeFormatTooNew,
   ChangeNotFound,
   ChangeStoreError,
   InvalidTransition,
   RepositoryStoreError,
 } from "@corvi/changes/errors"
 import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
+import { effectiveBranchOf } from "@corvi/changes/record"
 import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules"
 import type { Change, ChangeId, Repository, RepositoryRef } from "@corvi/contracts/changes"
 import { AbsolutePath } from "@corvi/contracts/paths"
@@ -175,6 +177,7 @@ export interface Interface {
     | InvalidTransition
     | ChangeConflict
     | ChangeOperationInProgress
+    | ChangeFormatTooNew
     | ChangeStoreError
     | RepositoryStoreError
     | ProviderError
@@ -193,6 +196,7 @@ export interface Interface {
     | InvalidTransition
     | ChangeConflict
     | ChangeOperationInProgress
+    | ChangeFormatTooNew
     | ChangeStoreError
     | RepositoryStoreError
     | ProviderError
@@ -237,8 +241,21 @@ const isAcknowledged = (reason: LifecycleReason, acknowledgements: readonly Ackn
         : acknowledgement.subject === undefined),
   )
 
-const createdLinks = (links: readonly Repository[]): readonly Repository[] =>
-  links.filter((link) => link.checkoutMethod === "UseNewLocationNewBranch")
+/** The checkouts a teardown destroys: every worktree, whatever branch it holds. */
+const worktreeLinks = (links: readonly Repository[]): readonly Repository[] =>
+  links.filter((link) => link.location === "new")
+
+/** Only a branch Corvi created for a worktree is ever deleted; a borrowed branch — an existing
+ * one by name, or whatever the checkout had checked out — stays. */
+const createdBranch = (link: Repository): boolean => link.branch.kind === "change"
+
+/** The branch a link's facts follow: the change's own, or the existing branch it named. A
+ * `current` link's branch is observed at read time and never torn down, so this is only asked
+ * about worktrees. */
+const branchOf = (change: Change, link: Repository): string => {
+  const effective = effectiveBranchOf(change.branch, link.branch)
+  return effective._tag === "Recorded" ? effective.name : change.branch
+}
 
 type RemovalOutcome = RemovalAssessment | { readonly _tag: "Gone" }
 
@@ -254,7 +271,10 @@ export const layer = Layer.effect(
     const terminals = yield* TerminalSessions
     const active = yield* Ref.make<ReadonlySet<string>>(new Set())
 
-    const record = (changeId: ChangeId, step: OperationStep): Effect.Effect<void, ChangeStoreError> =>
+    const record = (
+      changeId: ChangeId,
+      step: OperationStep,
+    ): Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError> =>
       progress.record({ changeId, step })
 
     const subjectOf = (change: Change, link: Repository): RepositoryRef => ({
@@ -269,7 +289,7 @@ export const layer = Layer.effect(
       repositories
         .assessRemoval({
           worktree: AbsolutePath.make(checkoutLocationOf(change, link)),
-          branch: change.branch,
+          branch: branchOf(change, link),
         })
         .pipe(
           Effect.either,
@@ -331,7 +351,7 @@ export const layer = Layer.effect(
               facts: `review:${link.repositoryId}:${state.number}:${state.reason ?? ""}`,
             })
           }
-          if (link.checkoutMethod !== "UseNewLocationNewBranch") continue
+          if (link.location !== "new") continue
           const safety = yield* removalSafety(change, link)
           if (safety._tag === "Gone" || safety._tag === "Safe") continue
           for (const reason of safety.reasons)
@@ -346,7 +366,7 @@ export const layer = Layer.effect(
     ): Effect.Effect<readonly LifecycleReason[], CheckoutError> =>
       Effect.gen(function* () {
         const reasons: LifecycleReason[] = []
-        for (const link of createdLinks(sourceLinks)) {
+        for (const link of worktreeLinks(sourceLinks)) {
           const subject = subjectOf(change, link)
           const safety = yield* removalSafety(change, link)
           if (safety._tag === "Gone" || safety._tag === "Safe") continue
@@ -401,7 +421,7 @@ export const layer = Layer.effect(
       id: string,
       label: string,
       work: Effect.Effect<A, E, R>,
-    ): Effect.Effect<A, E | ChangeStoreError, R> =>
+    ): Effect.Effect<A, E | ChangeFormatTooNew | ChangeStoreError, R> =>
       Effect.gen(function* () {
         yield* record(changeId, { id, label, state: "running" })
         const attempt: Either.Either<A, E> = yield* work.pipe(Effect.either)
@@ -539,7 +559,7 @@ export const layer = Layer.effect(
           // One journal step for the teardown, as the page has always shown it; the removal
           // rechecks each checkout before acting.
           yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "running" })
-          for (const link of createdLinks(sourceLinks)) {
+          for (const link of worktreeLinks(sourceLinks)) {
             const id = `worktrees:${link.directoryName}`
             const label = `remove ${link.directoryName}`
             const safety = yield* removalSafety(change, link)
@@ -588,7 +608,7 @@ export const layer = Layer.effect(
               })
               return yield* removal.left
             }
-            yield* cleanupBranch(change, link)
+            if (createdBranch(link)) yield* cleanupBranch(change, link)
           }
           yield* record(change.changeId, { id: "worktrees", label: "remove the worktrees", state: "done" })
 
@@ -643,7 +663,7 @@ export const layer = Layer.effect(
           const loose: string[] = []
           // The plan first: a page opened mid-operation shows what is still coming.
           yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "waiting" })
-          for (const link of createdLinks(sourceLinks))
+          for (const link of worktreeLinks(sourceLinks))
             yield* record(change.changeId, {
               id: `worktrees:${link.directoryName}`,
               label: `remove ${link.directoryName}`,
@@ -669,7 +689,7 @@ export const layer = Layer.effect(
           }
           yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "done" })
 
-          for (const link of createdLinks(sourceLinks)) {
+          for (const link of worktreeLinks(sourceLinks)) {
             const id = `worktrees:${link.directoryName}`
             const label = `remove ${link.directoryName}`
             yield* record(change.changeId, { id, label, state: "running" })
@@ -704,7 +724,8 @@ export const layer = Layer.effect(
                     } satisfies LifecycleOutcome)
             }
             yield* removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link)))
-            const cleanup = yield* cleanupBranch(change, link)
+            // Only a branch Corvi created for this worktree is deleted; a borrowed one stays.
+            const cleanup = createdBranch(link) ? yield* cleanupBranch(change, link) : ("absent" as const)
             // The branch survives when its content is not in the base; say so.
             if (cleanup === "kept") loose.push(`the branch ${change.branch} is kept in ${link.directoryName}`)
             yield* record(change.changeId, { id, label, state: "done" })

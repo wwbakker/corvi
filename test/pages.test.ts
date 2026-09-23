@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
 /**
@@ -61,12 +61,12 @@ beforeAll(async () => {
   url = await waitForUrl(server);
   const first = await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id, branch: `${id}-x`, repos: [repo] }),
+    body: JSON.stringify({ id, branch: `${id}-x`, checkouts: checkoutsOf([repo]) }),
   });
   expect(first.ok).toBe(true);
   const second = await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id: other, branch: `${other}-x`, repos: [repo] }),
+    body: JSON.stringify({ id: other, branch: `${other}-x`, checkouts: checkoutsOf([repo]) }),
   });
   expect(second.ok).toBe(true);
 });

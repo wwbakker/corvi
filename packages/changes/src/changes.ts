@@ -8,6 +8,7 @@ import {
   ChangeStoreError,
   InvalidTransition,
   type ChangeConflict,
+  type ChangeFormatTooNew,
 } from "./errors.ts"
 import { allowedTransition, isFinished, isTerminal } from "./rules.ts"
 import { ChangeStore } from "./store.ts"
@@ -19,7 +20,7 @@ export interface Interface {
   readonly transitionTo: (
     changeId: ChangeId,
     phase: ChangePhase,
-  ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeStoreError>
+  ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
 }
 
 export class ChangeService extends Context.Tag("corvi/ChangeService")<ChangeService, Interface>() {}

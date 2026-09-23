@@ -15,7 +15,7 @@ import { unsafeToRemove, type Unsafe } from "../../vendors/git.ts";
 import { archiveRoot, readChange, readSidecar, root, writeSidecar } from "./store.ts";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { ChangeRepositories } from "@corvi/changes/repositories";
-import { ChangeStoreError } from "@corvi/changes/errors";
+import { ChangeFormatTooNew, ChangeStoreError } from "@corvi/changes/errors";
 import { layer as changesNodeLayer, storeLayer } from "@corvi/changes/node";
 import { OperationProgress } from "@corvi/changes/progress";
 import { ChangeId, type Repository } from "@corvi/contracts/changes";
@@ -28,6 +28,7 @@ import {
 } from "@corvi/workflows/lifecycle";
 import {
   BadRequestError,
+  ConflictError,
   DecodeError,
   InternalError,
   NotFoundError,
@@ -116,8 +117,8 @@ export const completionOf = (
         // resolved. Per-change, not per-repository, so a click path pays for it once.
         if (fresh) yield* forgetPrs(change);
         const results = yield* Effect.forEach(
-          change.repos,
-          (repo) => completionOfRepo(change, repo, fresh),
+          change.checkouts ?? [],
+          (spec) => completionOfRepo(change, spec.path, fresh),
           // Unbounded concurrency is deliberate: these per-repo lookups are independent.
           { concurrency: "unbounded" },
         );
@@ -141,7 +142,7 @@ export const progressOf = (id: string): Effect.Effect<CompletionProgress | null>
 
 /** The completion journal: written as it happens, so a page opened later reads where a stopped
  * completion stopped. */
-const save = (id: string, progress: CompletionProgress): Effect.Effect<void, BadRequestError> =>
+const save = (id: string, progress: CompletionProgress): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.map(writeSidecar(id, PROGRESS, JSON.stringify(progress, null, 2) + "\n"), () =>
     undefined);
 
@@ -180,26 +181,14 @@ const completionProgressLayer = (
 const writeProgress = (
   changeId: string,
   ref: Ref.Ref<CompletionProgress>,
-): Effect.Effect<void, ChangeStoreError> =>
-  Effect.flatMap(Ref.get(ref), (progress) =>
-    save(changeId, progress).pipe(
-      Effect.mapError(
-        (error) =>
-          new ChangeStoreError({
-            changeId: ChangeId.make(changeId),
-            operation: "write",
-            message: error.message,
-            cause: error,
-          }),
-      ),
-    ),
-  )
+): Effect.Effect<void, ChangeFormatTooNew> =>
+  Effect.flatMap(Ref.get(ref), (progress) => save(changeId, progress))
 
 const finalizeProgress = (
   changeId: string,
   ref: Ref.Ref<CompletionProgress>,
   error?: string,
-): Effect.Effect<void, ChangeStoreError> =>
+): Effect.Effect<void, ChangeFormatTooNew> =>
   Effect.gen(function* () {
     yield* Ref.update(ref, (progress): CompletionProgress => ({
       ...progress,
@@ -262,7 +251,9 @@ const asIwe = (error: unknown): IweError => {
     const message = raw ? String(raw) : tag
     return tag === "ChangeNotFound"
       ? new NotFoundError({ message })
-      : new BadRequestError({ message })
+      : tag === "ChangeFormatTooNew"
+        ? new ConflictError({ message })
+        : new BadRequestError({ message })
   }
   return new BadRequestError({ message: messageOf(error) })
 }
@@ -355,7 +346,7 @@ const runCompletion = (
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
         Effect.catchAll((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
           Effect.gen(function* () {
-            yield* finalizeProgress(change.id, ref, errorDetail(error))
+            yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(Effect.mapError(asIwe))
             return yield* Effect.fail(asIwe(error))
           }),
         ),

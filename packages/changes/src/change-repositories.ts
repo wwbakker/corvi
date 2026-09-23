@@ -1,10 +1,13 @@
 /** The change-owned repository links. */
 import { Context, Effect, Layer } from "effect"
 
+import { DirectoryName } from "@corvi/contracts/changes"
 import type { AddRepositoryInput, ChangeId, Repository, RepositoryRef } from "@corvi/contracts/changes"
+import { baseName } from "@corvi/contracts/paths"
 import {
   DuplicateDirectoryName,
   RepositoryNotFound,
+  type ChangeFormatTooNew,
   type RepositoryStoreError,
 } from "./errors.ts"
 import { ChangeStore } from "./store.ts"
@@ -13,10 +16,10 @@ export interface Interface {
   readonly listRepositories: (changeId: ChangeId) => Effect.Effect<readonly Repository[], RepositoryStoreError>
   readonly addRepository: (
     input: AddRepositoryInput,
-  ) => Effect.Effect<Repository, DuplicateDirectoryName | RepositoryStoreError>
+  ) => Effect.Effect<Repository, ChangeFormatTooNew | DuplicateDirectoryName | RepositoryStoreError>
   readonly removeRepository: (
     input: RepositoryRef,
-  ) => Effect.Effect<void, RepositoryNotFound | RepositoryStoreError>
+  ) => Effect.Effect<void, ChangeFormatTooNew | RepositoryNotFound | RepositoryStoreError>
 }
 
 export class ChangeRepositories extends Context.Tag("corvi/ChangeRepositories")<ChangeRepositories, Interface>() {}
@@ -31,12 +34,15 @@ export const layer = Layer.effect(
     })
 
     const addRepository = Effect.fn("ChangeRepositories.addRepository")(function* (input: AddRepositoryInput) {
+      // Every repository is filed in the change directory under its own name, so two paths with
+      // the same last component would collide there.
+      const directoryName = DirectoryName.make(baseName(input.originalLocation))
       const existing = yield* store.listRepositories(input.changeId)
-      if (existing.some((repository) => repository.directoryName === input.directoryName))
+      if (existing.some((repository) => repository.directoryName === directoryName))
         return yield* new DuplicateDirectoryName({
           changeId: input.changeId,
-          directoryName: input.directoryName,
-          message: `change ${input.changeId} already has a repository in ${input.directoryName}`,
+          directoryName,
+          message: `change ${input.changeId} already has a repository in ${directoryName}`,
         })
       return yield* store.addRepository(input)
     })

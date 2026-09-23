@@ -93,11 +93,11 @@ export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
  * without importing a module's server half. Deliberately read-only: there is no write, complete
  * or cancel. */
 
-/** The repository facts an integration may ask the host for: what a branch is based on, the
- * repository's default branch, and whether a branch's content already landed in a base. The host
- * implements it from its own git layer, so integrations never reach into the application. */
+/** The repository facts an integration may ask the host for: what a pull request merges into,
+ * the repository's default branch, and whether a branch's content already landed in a base. The
+ * host implements it from its own git layer, so integrations never reach into the application. */
 export class GitFacts extends Context.Tag("corvi/GitFacts")<GitFacts, {
-  baseFor(change: ChangeWireDto, repo: string): Effect.Effect<string | undefined>;
+  targetFor(change: ChangeWireDto, repo: string): Effect.Effect<string | undefined>;
   remoteDefaultBranch(repo: string): Effect.Effect<string | undefined>;
   contentInMain(repo: string, branch: string, base: string | undefined): Effect.Effect<boolean>;
 }>() {}

@@ -3,7 +3,7 @@ import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { WidgetItem } from "../apps/server/src/domain/widget.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
-import { fakeShell, runWithShell } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
 
 beforeEach(() => clearCache());
 
@@ -97,7 +97,7 @@ test("checkItems reads gh pr checks and groups them, even when the CLI exits non
   const change: Change = {
     id: "PROJ-1",
     branch: "PROJ-1-thing",
-    repos: ["/repos/repo"],
+    checkouts: checkoutsOf(["/repos/repo"]),
     createdAt: "2026-01-01T00:00:00Z",
   };
   const items = await runWithShell(shell, checkItems(change, "/repos/repo", 7));
@@ -112,7 +112,7 @@ test("checkItems reads an empty or unreadable answer as no checks", async () => 
   const change: Change = {
     id: "PROJ-1",
     branch: "PROJ-1-thing",
-    repos: ["/repos/repo"],
+    checkouts: checkoutsOf(["/repos/repo"]),
     createdAt: "2026-01-01T00:00:00Z",
   };
   const shell = fakeShell((cmd) => {
@@ -129,7 +129,7 @@ test("checkItems asks the pull request's checks in the change's worktree when th
   const change: Change = {
     id: "PROJ-1",
     branch: "PROJ-1-thing",
-    repos: ["/repos/repo"],
+    checkouts: checkoutsOf(["/repos/repo"]),
     createdAt: "2026-01-01T00:00:00Z",
   };
   const shell = fakeShell((cmd) => {

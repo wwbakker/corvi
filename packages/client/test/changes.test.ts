@@ -79,7 +79,7 @@ test("a payload the schema does not accept is rejected, not trusted", async () =
 const change = (id: string): ChangeWireDto => ({
   id,
   branch: id,
-  repos: [],
+  checkouts: [],
   createdAt: "2026-01-01T00:00:00.000Z",
 })
 
@@ -104,7 +104,8 @@ test("the change reads hit their named paths and decode their payloads", async (
         return Response.json({
           widgets: [{ id: "notes", title: "Notes", extension: "notes", column: "left" }],
         })
-      if (url.endsWith("/repos")) return Response.json([{ path: "/r", name: "r", direct: false }])
+      if (url.endsWith("/repos"))
+        return Response.json([{ path: "/r", name: "r", location: "new", branch: { kind: "change" } }])
       if (url.endsWith("/description")) return Response.json({ text: "PROJ - thing" })
       if (url.endsWith("/plan")) return Response.json({ text: "the plan" })
       return Response.json(change("a"))
@@ -289,7 +290,7 @@ test("a structured refusal carries its body on the error", async () => {
 
 test("the write operations decode their responses", async () => {
   const calls: { url: string; method?: string }[] = []
-  const change = (id: string): ChangeWireDto => ({ id, branch: id, repos: [], createdAt: "t" })
+  const change = (id: string): ChangeWireDto => ({ id, branch: id, checkouts: [], createdAt: "t" })
   const client = makeChangesClient({
     baseUrl: "http://x",
     fetch: async (input, init) => {
@@ -304,7 +305,13 @@ test("the write operations decode their responses", async () => {
 
   expect((await client.complete(ChangeId.make("a"), { force: true })).notes).toEqual(["done"])
   expect((await client.start(ChangeId.make("a"))).provision[0]?.integration).toBe("git")
-  expect((await client.setRepositories(ChangeId.make("a"), { repos: ["/r"] })).id).toBe("a")
+  expect(
+    (
+      await client.setRepositories(ChangeId.make("a"), {
+        checkouts: [{ path: "/r", location: "new", branch: { kind: "change" } }],
+      })
+    ).id,
+  ).toBe("a")
   expect(
     (await client.cardRepoAction(ChangeId.make("a"), "git", "add", "/r")).items[0]?.label,
   ).toBe("r")

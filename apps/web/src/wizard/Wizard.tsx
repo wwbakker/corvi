@@ -68,10 +68,13 @@ export function Wizard({
   const changeStep = issueSteps.length;
   const reposStep = changeStep + 1;
 
-  // Added as a worktree off the remote default; both are changed per repository afterwards.
+  // Added as a worktree off the remote default with the change's branch; both are changed per
+  // repository afterwards.
   const addRepo = (path: string): void =>
     onChange({
-      repos: repos.some((r) => r.path === path) ? repos : [...repos, { path, direct: false }],
+      repos: repos.some((r) => r.path === path)
+        ? repos
+        : [...repos, { path, location: "new", branch: { kind: "change" } }],
     });
   const removeRepo = (path: string): void => onChange({ repos: repos.filter((r) => r.path !== path) });
   const changeRepo = (path: string, patch: Partial<Selection>): void =>

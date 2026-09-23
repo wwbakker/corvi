@@ -19,7 +19,7 @@ import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { runDeploy, runEffect, runSetRepos } from "./helpers.ts";
+import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
 
 /**
  * A changes root of its own, because some of what is tested here writes one. A change may be
@@ -41,7 +41,7 @@ afterAll(async () => {
 const change: Change = {
   id: "PROJ-1",
   branch: "PROJ-1-thing",
-  repos: [],
+  checkouts: checkoutsOf([]),
   createdAt: new Date().toISOString(),
 };
 
@@ -126,12 +126,18 @@ test("what a worktree removal would destroy", () => {
 test("blank entries are not repositories, and a repository is not listed twice", async () => {
   // The list arrives from a browser: whitespace is nothing, and adding the same path twice is a
   // double click rather than two repositories.
-  const emptied = await runSetRepos({ ...change, repos: [] }, ["  ", ""]);
-  expect((emptied as { change: Change }).change.repos).toEqual([]);
+  const emptied = await runSetRepos(
+    { ...change, checkouts: checkoutsOf([]) },
+    checkoutsOf(["  ", ""]),
+  );
+  expect(((emptied as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual([]);
 
   // Listed twice, and already there: nothing is created, so this needs no repository on disk.
-  const once = await runSetRepos({ ...change, repos: ["/r/a"] }, ["/r/a", "/r/a"]);
-  expect((once as { change: Change }).change.repos).toEqual(["/r/a"]);
+  const once = await runSetRepos(
+    { ...change, checkouts: checkoutsOf(["/r/a"]) },
+    checkoutsOf(["/r/a", "/r/a"]),
+  );
+  expect(((once as { change: Change }).change.checkouts ?? []).map((spec) => spec.path)).toEqual(["/r/a"]);
 });
 
 test("the artifact version is read from the build log lines", () => {

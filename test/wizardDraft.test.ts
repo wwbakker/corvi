@@ -24,8 +24,8 @@ test("a filled draft becomes the creation the route takes", () => {
       title: "  The thing  ",
       description: "the starting plan",
       repos: [
-        { path: "/repos/a", direct: false },
-        { path: "/repos/b", direct: true, base: "origin/main" },
+        { path: "/repos/a", location: "new", branch: { kind: "change" } },
+        { path: "/repos/b", location: "original", branch: { kind: "change" }, base: "origin/main" },
       ],
       payloads: { jira: { key: "PROJ-1" } },
     }),
@@ -41,9 +41,15 @@ test("a filled draft becomes the creation the route takes", () => {
     // The description is the change's PLAN.md, not a field of change.json.
     plan: "the starting plan",
     workspace: "workspace-a",
-    repos: ["/repos/a", "/repos/b"],
-    direct: ["/repos/b"],
-    base: { "/repos/b": "origin/main" },
+    checkouts: [
+      { path: "/repos/a", location: "new", branch: { kind: "change" } },
+      {
+        path: "/repos/b",
+        location: "original",
+        branch: { kind: "change" },
+        base: "origin/main",
+      },
+    ],
     extensions: { jira: { key: "PROJ-1" } },
   });
 });
@@ -54,9 +60,7 @@ test("an empty draft posts no title and no workspace, and the core fills the gap
   expect(created.title).toBeUndefined();
   expect(created.workspace).toBeUndefined();
   expect(created.plan).toBe("");
-  expect(created.repos).toEqual([]);
-  expect(created.direct).toEqual([]);
-  expect(created.base).toEqual({});
+  expect(created.checkouts).toEqual([]);
   expect(created.extensions).toEqual({});
 });
 

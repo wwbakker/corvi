@@ -386,6 +386,7 @@ test("provisionLinkedWorktree attaches an existing branch", async () => {
         source: AbsolutePath.make("/source/repo"),
         directory: AbsolutePath.make("/change/repo"),
         branch: "feature",
+        createMissing: true,
       })
     }),
     {
@@ -401,6 +402,38 @@ test("provisionLinkedWorktree attaches an existing branch", async () => {
   expect(added).toEqual([{ branch: "feature", create: false }])
 })
 
+test("attach-only never asks to create: a name that is nowhere is git's refusal", async () => {
+  const added: Array<{ branch: string; create: boolean }> = []
+  let asked = 0
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.provisionLinkedWorktree({
+        source: AbsolutePath.make("/source/repo"),
+        directory: AbsolutePath.make("/change/repo"),
+        branch: "nowhere",
+        createMissing: false,
+      })
+    }),
+    {
+      discover: (dir) => Effect.succeed(String(dir) === "/source/repo" ? repository : undefined),
+      branchExists: () => {
+        asked += 1
+        return Effect.succeed(false)
+      },
+      addWorktree: (input) => {
+        added.push({ branch: input.branch, create: input.create })
+        return Effect.fail(
+          new Git.OperationError({ operation: "create", message: "invalid reference: nowhere" }),
+        )
+      },
+    },
+  )
+  expect(Either.isLeft(result)).toBe(true)
+  expect(added).toEqual([{ branch: "nowhere", create: false }])
+  expect(asked).toBe(0)
+})
+
 test("provisionLinkedWorktree creates the branch from the remote default after a fetch", async () => {
   const added: Array<{ branch: string; create: boolean; base?: string }> = []
   let fetched = 0
@@ -411,6 +444,7 @@ test("provisionLinkedWorktree creates the branch from the remote default after a
         source: AbsolutePath.make("/source/repo"),
         directory: AbsolutePath.make("/change/repo"),
         branch: "feature",
+        createMissing: true,
       })
     }),
     {
@@ -441,6 +475,7 @@ test("provisionLinkedWorktree leaves an existing checkout alone", async () => {
         source: AbsolutePath.make("/source/repo"),
         directory: AbsolutePath.make("/change/repo"),
         branch: "feature",
+        createMissing: true,
       })
     }),
     {
@@ -464,6 +499,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
         return yield* repositories.provisionInPlace({
           source: AbsolutePath.make("/source/repo"),
           branch: "feature",
+          createMissing: true,
         })
       }),
       script,

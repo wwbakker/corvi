@@ -36,13 +36,22 @@ export type RepoItems = { items: WidgetItem[] };
 export type RepoState = {
   path: string;
   name: string;
-  direct: boolean;
+  location: "new" | "original";
+  branch: { kind: "change" } | { kind: "current" } | { kind: "existing"; name: string };
   base?: string;
+  target?: string;
   unsafe?: { kind: string; text: string };
 };
 
-/** A repository chosen for a change: how it will be worked on, and what its branch starts from. */
-export type Selection = { path: string; direct: boolean; base?: string };
+/** A repository chosen for a change: where its checkout lives, which branch it uses, and what
+ * that branch starts from and merges into. */
+export type Selection = {
+  path: string;
+  location: "new" | "original";
+  branch: { kind: "change" } | { kind: "current" } | { kind: "existing"; name: string };
+  base?: string;
+  target?: string;
+};
 
 export type Branches = { branches: string[]; default?: string };
 

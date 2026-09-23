@@ -33,7 +33,7 @@ const asIwe = (change: Change, error: unknown): IweError => {
     const raw = "message" in error ? (error as { message: unknown }).message : undefined;
     if (tag === "InvalidTransition") {
       return new ConflictError({
-        message: `${change.id} has already started (${change.state ?? "In Progress"})`,
+        message: `${change.id} has already started (${change.state ?? "Implementation"})`,
       });
     }
     // Our typed errors carry the sentence the user sees; the tag is a last resort for a
@@ -55,7 +55,7 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
   Effect.gen(function* () {
     const work = yield* ChangeWork;
 
-    yield* Effect.forEach(change.repos, (repo) => unlinkRepo(change, repo), {
+    yield* Effect.forEach(change.checkouts ?? [], (spec) => unlinkRepo(change, spec.path), {
       concurrency: 1,
       discard: true,
     });
@@ -68,9 +68,7 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
 
     if (runtimeConfig().worktreeCopy.length > 0) {
       yield* Effect.forEach(
-        outcome.repositories.filter(
-          (repository) => repository.checkoutMethod === "UseNewLocationNewBranch",
-        ),
+        outcome.repositories.filter((repository) => repository.location === "new"),
         (repository) =>
           copyTooling(
             repository.originalLocation,
@@ -92,12 +90,10 @@ export const startChangeWithWorkflow = (change: Change): Effect.Effect<Started, 
 
     const updated = (yield* readChange(change.id)) ?? change;
 
-    // An in-place checkout is linked from the change directory for reading; the worktree
+    // A checkout used in place is linked from the change directory for reading; the worktree
     // methods already place their own directory.
     yield* Effect.forEach(
-      outcome.repositories.filter(
-        (repository) => repository.checkoutMethod !== "UseNewLocationNewBranch",
-      ),
+      outcome.repositories.filter((repository) => repository.location === "original"),
       (repository) => browseRepo(updated, repository.originalLocation),
       { concurrency: 1, discard: true },
     );

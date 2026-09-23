@@ -12,6 +12,7 @@ import { Effect, Layer, Option } from "effect"
 import { layer as changesNodeLayer, progressLayer, storeLayer } from "@corvi/changes/node"
 import type { OperationProgress } from "@corvi/changes/progress"
 import { ChangeRepositories } from "@corvi/changes/repositories"
+import { specFromRepository } from "@corvi/changes/rules"
 import type { Change as CorviChange, Repository } from "@corvi/contracts/changes"
 import { Repositories, layer as repositoriesCapabilityLayer } from "@corvi/repositories"
 import {
@@ -47,18 +48,13 @@ import { runtimeCache } from "../capabilities/runtime.ts"
 import { runtimeConfig, workspaceById } from "../workspace/server/index.ts"
 import { readChange } from "./server/store.ts"
 
-/** The provider functions speak the old domain shape; the store keeps both in one record. */
+/** The provider functions speak the record shape; the store keeps the two in one record. */
 const toLegacy = (change: CorviChange, links: readonly Repository[]): LegacyChange => ({
   id: change.changeId,
   title: change.title,
   branch: change.branch,
-  repos: links.map((link) => link.originalLocation),
-  state:
-    change.phase === "Implementation"
-      ? "In Progress"
-      : change.phase === "Verification"
-        ? "Awaiting Review"
-        : change.phase,
+  checkouts: links.map(specFromRepository),
+  state: change.phase,
   createdAt: change.createdAt,
   ...(change.completedAt ? { completedAt: change.completedAt } : {}),
 })

@@ -1,41 +1,63 @@
 import { expect, test } from "bun:test"
 
-import { ChangeId, DirectoryName, RepositoryId } from "@corvi/contracts/changes"
-import { mapLegacyPhase, projectLegacyChange, projectLegacyRepositories } from "../src/legacy.ts"
+import { mapLegacyState, migrateRecord } from "../src/legacy.ts"
 
-test("legacy phases map onto the new vocabulary", () => {
-  expect(mapLegacyPhase("Ideation")).toBe("Ideation")
-  expect(mapLegacyPhase("In Progress")).toBe("Implementation")
-  expect(mapLegacyPhase("Awaiting Review")).toBe("Verification")
-  expect(mapLegacyPhase("Blocked")).toBe("Blocked")
-  expect(mapLegacyPhase("Completed")).toBe("Completed")
-  expect(mapLegacyPhase("Cancelled")).toBe("Cancelled")
-  expect(mapLegacyPhase(undefined)).toBe("Implementation")
+test("legacy states map onto the current vocabulary", () => {
+  expect(mapLegacyState("Ideation")).toBe("Ideation")
+  expect(mapLegacyState("In Progress")).toBe("Implementation")
+  expect(mapLegacyState("Awaiting Review")).toBe("Verification")
+  expect(mapLegacyState("Blocked")).toBe("Blocked")
+  expect(mapLegacyState("Completed")).toBe("Completed")
+  expect(mapLegacyState("Cancelled")).toBe("Cancelled")
+  expect(mapLegacyState(undefined)).toBe("Implementation")
 })
 
-test("legacy repositories project to links with deterministic ids", () => {
-  const links = projectLegacyRepositories({
+test("a legacy record migrates to checkouts with the legacy cell meanings", () => {
+  const migrated = migrateRecord({
     id: "demo",
     repos: ["/sources/one", "/sources/two"],
     direct: ["/sources/two"],
+    base: { "/sources/two": "feature" },
+    state: "In Progress",
+    createdAt: "2026-01-01T00:00:00.000Z",
   })
-  expect(links.map((link) => link.repositoryId)).toEqual([
-    RepositoryId.make("demo:one"),
-    RepositoryId.make("demo:two"),
+  expect(migrated.formatVersion).toBe(2)
+  expect(migrated.state).toBe("Implementation")
+  // `direct` is the one original-location kind v1 knew, every v1 row's branch is the change's
+  // own, and a `base` entry becomes both base and target: one field served both roles before
+  // the split, so the migration preserves what a pull request targeted.
+  expect(migrated.checkouts).toEqual([
+    { path: "/sources/one", location: "new", branch: { kind: "change" } },
+    {
+      path: "/sources/two",
+      location: "original",
+      branch: { kind: "change" },
+      base: "feature",
+      target: "feature",
+    },
   ])
-  expect(links.map((link) => link.directoryName)).toEqual([
-    DirectoryName.make("one"),
-    DirectoryName.make("two"),
-  ])
-  expect(links[0]?.checkoutMethod).toBe("UseNewLocationNewBranch")
-  expect(links[1]?.checkoutMethod).toBe("UseOriginalLocationNewBranch")
 })
 
-test("legacy change projections default the branch and keep the workspace location", () => {
-  const change = projectLegacyChange({ id: "demo", createdAt: "2026-01-01T00:00:00.000Z" }, "/changes/demo")
-  expect(change.changeId).toBe(ChangeId.make("demo"))
-  expect(change.title).toBe("demo")
-  expect(change.branch).toBe("demo")
-  expect(change.phase).toBe("Implementation")
-  expect(change.workspaceLocation).toBe("/changes/demo")
+test("migration drops the v1 fields and keeps everything it does not know", () => {
+  const migrated = migrateRecord({
+    id: "demo",
+    repos: ["/sources/one"],
+    direct: [],
+    base: {},
+    repositories: [{ anything: true }],
+    title: "Demo",
+    branch: "demo",
+    state: "Awaiting Review",
+    extensions: { jira: { key: "X-1" } },
+    somethingANewerVersionAdded: "kept",
+  })
+  expect(migrated.state).toBe("Verification")
+  expect(migrated.title).toBe("Demo")
+  expect(migrated.branch).toBe("demo")
+  expect(migrated.extensions).toEqual({ jira: { key: "X-1" } })
+  expect(migrated.somethingANewerVersionAdded).toBe("kept")
+  expect("repos" in migrated).toBe(false)
+  expect("direct" in migrated).toBe(false)
+  expect("base" in migrated).toBe(false)
+  expect("repositories" in migrated).toBe(false)
 })

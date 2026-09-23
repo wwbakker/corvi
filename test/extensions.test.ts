@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { changeDir, createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
-import { runEffect, withRuntimeConfig } from "./helpers.ts";
+import { checkoutsOf, runEffect, withRuntimeConfig  } from "./helpers.ts";
 import { Effect } from "effect";
 import {
   changeTabsFor,
@@ -107,9 +107,9 @@ test("a remote URL is read in every shape GitHub answers to", () => {
 });
 
 test("a change's ticket is read from the bag, and from the legacy field", () => {
-  const bag: Change = { id: "A", branch: "A", repos: [], extensions: { jira: { key: "PROJ-2" } }, createdAt: "" };
-  const legacy = { id: "B", branch: "B", repos: [], jira: "PROJ-1", createdAt: "" } as unknown as Change;
-  const neither: Change = { id: "C", branch: "C", repos: [], createdAt: "" };
+  const bag: Change = { id: "A", branch: "A", checkouts: checkoutsOf([]), extensions: { jira: { key: "PROJ-2" } }, createdAt: "" };
+  const legacy = { id: "B", branch: "B", checkouts: checkoutsOf([]), jira: "PROJ-1", createdAt: "" } as unknown as Change;
+  const neither: Change = { id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" };
 
   // Both are read: the bag is where the wizard writes, and the legacy field is what archived
   // changes carry; it is no longer part of the Change type, but the decoder keeps it.
@@ -125,7 +125,7 @@ test("a change.json with only the legacy jira field reads and keeps it across a 
   await Bun.write(
     join(dir, "change.json"),
     `${JSON.stringify(
-      { id, branch: id, repos: [], jira: "PROJ-1", createdAt: "2026-01-01T00:00:00.000Z" },
+      { id, branch: id, checkouts: checkoutsOf([]), jira: "PROJ-1", createdAt: "2026-01-01T00:00:00.000Z" },
       null,
       2,
     )}\n`,
@@ -145,14 +145,14 @@ test("an extension's issue is named by repository and number, and read from the 
   const change: Change = {
     id: "A",
     branch: "A",
-    repos: [],
+    checkouts: checkoutsOf([]),
     createdAt: "",
     extensions: { "github-issues": { repo: "/repos/thing", number: 7 } },
   };
   const ref = refOf(change);
   expect(ref).toEqual({ repo: "/repos/thing", number: 7 });
   expect(refLabel("owner/thing", ref!)).toBe("owner/thing#7");
-  expect(refOf({ id: "B", branch: "B", repos: [], createdAt: "" })).toBeUndefined();
+  expect(refOf({ id: "B", branch: "B", checkouts: checkoutsOf([]), createdAt: "" })).toBeUndefined();
 });
 
 test("a workspace's enablement list may only name included integrations", () => {
@@ -220,7 +220,7 @@ test("dashboard widgets follow the enablement", async () => {
       ],
     },
     () => {
-      const change: Change = { id: "W", branch: "W", repos: [], createdAt: "" };
+      const change: Change = { id: "W", branch: "W", checkouts: checkoutsOf([]), createdAt: "" };
       expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
         { id: "notes", title: "Notes", extension: "notes", column: "left" },
       ]);
@@ -233,33 +233,33 @@ test("dashboard widgets follow the enablement", async () => {
 test("a completion step is planned only when the change has something for it", () => {
   // The jira planner: planned for a change with a ticket, absent without one, readable from
   // either place the key may live.
-  const legacy = { id: "A", branch: "A", repos: [], createdAt: "", jira: "PROJ-1" } as unknown as Change;
+  const legacy = { id: "A", branch: "A", checkouts: checkoutsOf([]), createdAt: "", jira: "PROJ-1" } as unknown as Change;
   expect(planIssueCompletion(legacy, runtimeConfig())).toEqual({
     id: "jira",
     label: "move PROJ-1 to Done",
     state: "waiting",
   });
-  const withBag: Change = { id: "B", branch: "B", repos: [], createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
+  const withBag: Change = { id: "B", branch: "B", checkouts: checkoutsOf([]), createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
   expect(planIssueCompletion(withBag, runtimeConfig())?.label).toBe("move PROJ-2 to Done");
-  expect(planIssueCompletion({ id: "C", branch: "C", repos: [], createdAt: "" }, runtimeConfig())).toBeUndefined();
+  expect(planIssueCompletion({ id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" }, runtimeConfig())).toBeUndefined();
 
   // The github-issues planner: the label names the issue without a subprocess, so the plan is
   // honest about what is coming before anything runs.
   const ghPlanned = planIssueClose({
     id: "D",
     branch: "D",
-    repos: [],
+    checkouts: checkoutsOf([]),
     createdAt: "",
     extensions: { "github-issues": { repo: "/r/thing", number: 9 } },
   });
   expect(ghPlanned?.label).toBe("close thing#9");
-  expect(planIssueClose({ id: "E", branch: "E", repos: [], createdAt: "" })).toBeUndefined();
+  expect(planIssueClose({ id: "E", branch: "E", checkouts: checkoutsOf([]), createdAt: "" })).toBeUndefined();
 });
 
 test("the wizard's payload lands on the change record, verbatim and per extension", async () => {
   const created = await runEffect(createChange({
     id: "PROJ-BAG",
-    repos: ["/tmp/whatever-repo"],
+    checkouts: checkoutsOf(["/tmp/whatever-repo"]),
     workspace: "test",
     extensions: {
       jira: { key: "PROJ-5" },

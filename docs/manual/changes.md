@@ -24,24 +24,43 @@ Creating an idea writes its record and `PLAN.md`. Selected repositories are link
 no branch/worktree is created and no ticket moves. The **Plan** card edits the same file an agent
 can read. **Brief the agent** pastes the configured briefing into the change's terminal.
 
-**Start work** is the transition out of `Ideation`: it moves the state to `In Progress`, prepares
-the selected checkouts, and moves associated tickets. Partial provisioning failures are reported
-on the existing change so they can be addressed rather than losing the record.
+**Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
+prepares the selected checkouts, and moves associated tickets. Partial provisioning failures are
+reported on the existing change so they can be addressed rather than losing the record.
 
-## Repositories and worktrees
+## Repositories and checkouts
 
-Each repository can be used in one of two modes:
+Each repository's checkout answers two questions independently: where the checkout lives, and
+which branch it uses.
 
-- **Worktree:** a separate checkout in the change directory on its branch. The source repository
-  keeps its current checkout.
-- **In place:** the repository's checkout is switched to the change branch and linked into the
-  change directory. If it has uncommitted work, it is linked without switching; the card reports
-  the situation and offers the switch again later.
+Where it lives:
 
-Choose a base branch per repository. The remote default is normally selected; another change's
-branch can be used for stacked work. Pull requests target that base. Repositories without a remote
-can still use local branches. Creating a worktree must not make the remote default branch the new
-branch's push upstream.
+- **New worktree:** a separate checkout in the change directory. The source repository keeps its
+  own checkout, and Corvi owns the worktree: completing or cancelling the change removes it.
+- **In place:** the repository's own checkout, linked into the change directory for reading.
+  Corvi never removes it; only the link goes.
+
+Which branch it uses:
+
+- **New branch:** the change's branch — created where the repository's `base` branch left off
+  when it does not exist yet, attached when it does.
+- **Current branch:** whatever the checkout has checked out now, untouched. Nothing is created,
+  switched or fetched; the change follows the checkout, and its branch is read live wherever it
+  matters. Only possible in place: a branch already checked out somewhere cannot also live in a
+  worktree.
+- **Existing branch:** a branch you name. It is only ever attached — a remote-only name gets a
+  local branch tracking it — and never created. In a worktree it is checked out there; in place
+  the repository's checkout switches to it (a dirty checkout is left alone and reported).
+
+Two branch questions per repository, split on purpose:
+
+- **Starts from** (`base`) — where a new branch grows out of. Offered for *New branch* only.
+- **Merges into** (`target`) — what a pull request targets. Offered for every row; another
+  change's branch makes a stacked pull request. Unset means the repository's default. A record
+  written before the split has one field serving both, and keeps meaning both.
+
+Repositories without a remote can still use local branches. Creating a worktree must not make
+the remote default branch the new branch's push upstream.
 
 The Local changes card's repository editor applies additions/removals together when confirmed.
 Cancelling the editor changes nothing. An existing change's list may be emptied and repopulated.
@@ -49,10 +68,14 @@ Repositories with the same directory basename cannot share a change directory.
 
 Removal safety is enforced on the server:
 
-- Uncommitted work blocks removal, even with force.
+- Removing a worktree with uncommitted work refuses outright, even with force: that work would
+  be lost.
+- Anything else that leaves work behind — a worktree with unpushed commits, a checkout used in
+  place with uncommitted or unpushed work — asks first and goes ahead when confirmed. A checkout
+  used in place is left exactly as it stands: only the link goes.
 - Unpushed commits require acknowledgement; the branch remains unless its contents are proven
-  integrated into the default branch.
-- Removing an in-place repository removes the link, not the user's checkout or branch.
+  integrated into the default branch. Only a branch Corvi created for a worktree is ever deleted;
+  an existing branch you named is yours and stays.
 - A failed integration proof keeps the branch. A cautious display label is not proof for deletion.
 
 ### What a new worktree inherits
@@ -84,8 +107,8 @@ The active lifecycle states are:
 
 ```text
 Ideation
-In Progress
-Awaiting Review
+Implementation
+Verification
 Blocked
 ```
 
@@ -94,11 +117,23 @@ changes are listed separately as `Completed` or `Cancelled` and remain readable.
 
 State is chosen by the user rather than derived from ticket or pull-request status. `Ideation`
 is entered on creation and left through **Start work**, not the ordinary state selector.
-A record without a state is treated as `In Progress`.
+A record without a state is treated as `Implementation`.
 
 A change's title can come from its associated issue. Provider failures leave the last stored title
 intact. Renaming through the change's Actions menu makes the title user-owned; clearing the edit
 allows automatic naming again. Archived records retain their names.
+
+## The change record
+
+`change.json` holds the change's name, state, and one checkout spec per repository — where its
+checkout lives, which branch it uses, and what that branch starts from and merges into (see
+[Repositories and checkouts](#repositories-and-checkouts)). The record carries the format's
+version in `formatVersion`.
+
+Corvi upgrades the record in place: a record from before the format version is converted on its
+next read, and one written by a newer Corvi is opened read-only — every write is refused with an
+explanation, so a newer format is never flattened into an older one. Upgrade Corvi before editing
+a change a newer version has written.
 
 ## Completing a change
 

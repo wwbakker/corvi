@@ -72,9 +72,9 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
             ))
           )}
         </p>
-        <span className={`badge ${stateClass(change.state)}`}>{change.state ?? "In Progress"}</span>
+        <span className={`badge ${stateClass(change.state)}`}>{change.state ?? "Implementation"}</span>
         <p className="meta">
-          {plural(change.repos.length, "repository", "repositories")} · created{" "}
+          {plural((change.checkouts ?? []).length, "repository", "repositories")} · created{" "}
           {moment(change.createdAt)}
         </p>
       </div>

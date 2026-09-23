@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitForUrl  } from "./helpers.ts";
 import { platformName } from "../apps/server/src/capabilities/os.ts";
 import { csiuFor } from "@corvi/terminals/model";
 
@@ -153,7 +153,7 @@ beforeAll(async () => {
   await runSh(["git", "init", "-b", "main", repo]);
   await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id, repos: [repo] }),
+    body: JSON.stringify({ id, checkouts: checkoutsOf([repo]) }),
   });
   browser = await chromium.launch();
   // The hook carries its own waits — a server that answers within a minute (waitForUrl), a
@@ -252,7 +252,7 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await runSh(["git", "init", "-b", "main", repo]);
   const created = await fetch(`${url}/api/changes`, {
     method: "POST",
-    body: JSON.stringify({ id: second, repos: [repo] }),
+    body: JSON.stringify({ id: second, checkouts: checkoutsOf([repo]) }),
   });
   expect(created.ok).toBe(true);
 

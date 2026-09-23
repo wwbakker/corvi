@@ -16,7 +16,7 @@ import { ActionsMenu, type Action } from "../../app-root/ActionsMenu.tsx";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { stateClass } from "../../app-root/stateClass.ts";
-import { isFinished } from "../../domain/change.ts";
+import { FORMAT_VERSION, isFinished, repoPathsOf } from "../../domain/change.ts";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
@@ -162,7 +162,7 @@ export function ChangeView({
         changeId={id}
         workspace={change?.workspace}
         info={info}
-        repos={change?.repos ?? []}
+        repos={change ? repoPathsOf(change) : []}
         onReposChanged={reload}
       />
     ) : (
@@ -406,6 +406,14 @@ export function ChangeView({
         />
       )}
       {error && <div className="error-banner">{error}</div>}
+      {/* The downgrade fence, said up front: a record from a newer Corvi reads here but every
+          write is refused, so the page says so before a button does. */}
+      {change && (change.formatVersion ?? 0) > FORMAT_VERSION && (
+        <div className="notice">
+          this change was written by a newer version of Corvi (record format {change.formatVersion});
+          upgrade to edit it
+        </div>
+      )}
       {notice && <div className="notice">{notice}</div>}
       {/* Creation's observer failures, shown once where the create was started. */}
       <LifecycleFailures results={provision} />

@@ -12,6 +12,7 @@ import { checkoutLocationOf, stateOf } from "@corvi/changes/rules"
 import {
   InvalidTransition,
   type ChangeConflict,
+  type ChangeFormatTooNew,
   type ChangeNotFound,
   type ChangeStoreError,
   type RepositoryStoreError,
@@ -26,7 +27,7 @@ import type {
 } from "@corvi/contracts/changes"
 import {
   Repositories,
-  type CheckoutError,
+  CheckoutError,
   type CheckoutInspection,
   type NotARepository,
 } from "@corvi/repositories"
@@ -70,7 +71,12 @@ export interface Interface {
     changeId: ChangeId,
   ) => Effect.Effect<
     StartOutcome,
-    ChangeNotFound | InvalidTransition | ChangeConflict | ChangeStoreError | RepositoryStoreError
+    | ChangeNotFound
+    | InvalidTransition
+    | ChangeConflict
+    | ChangeFormatTooNew
+    | ChangeStoreError
+    | RepositoryStoreError
   >
 }
 
@@ -111,24 +117,56 @@ export const layer = Layer.effect(
       )
     })
 
-    // The checkout-method enum is application policy; the capability only sees concrete inputs.
-    const provisionLink = (change: Change, repository: Repository): Effect.Effect<void, NotARepository | CheckoutError> => {
-      switch (repository.checkoutMethod) {
-        case "UseOriginalLocationOriginalBranch":
-          return Effect.void
-        case "UseOriginalLocationNewBranch":
-          return repositories
-            .provisionInPlace({
-              source: AbsolutePath.make(repository.originalLocation),
-              branch: change.branch,
-            })
-            .pipe(Effect.asVoid)
-        case "UseNewLocationNewBranch":
-          return repositories.provisionLinkedWorktree({
-            source: AbsolutePath.make(repository.originalLocation),
-            directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
-            branch: change.branch,
-          })
+    // The checkout policy belongs to the application: the link's location and branch kind map
+    // to the capability's concrete inputs here, and nowhere else.
+    const provisionLink = (
+      change: Change,
+      repository: Repository,
+    ): Effect.Effect<void, NotARepository | CheckoutError> => {
+      const source = AbsolutePath.make(repository.originalLocation)
+      switch (repository.branch.kind) {
+        case "current":
+          // Adopting whatever the checkout has checked out is no work at all — and only
+          // possible where that checkout already is; the combination with a new worktree is
+          // refused at the wire, so this would be a stored record nobody validated.
+          return repository.location === "new"
+            ? Effect.fail(
+                new CheckoutError({
+                  operation: "add-worktree",
+                  directory: checkoutLocationOf(change, repository),
+                  message: "a new worktree cannot use the branch a source checkout has checked out",
+                }),
+              )
+            : Effect.void
+        case "change":
+          return repository.location === "original"
+            ? repositories
+                .provisionInPlace({
+                  source,
+                  branch: change.branch,
+                  createMissing: true,
+                  ...(repository.base ? { base: repository.base } : {}),
+                })
+                .pipe(Effect.asVoid)
+            : repositories.provisionLinkedWorktree({
+                source,
+                directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
+                branch: change.branch,
+                createMissing: true,
+                ...(repository.base ? { base: repository.base } : {}),
+              })
+        case "existing":
+          // An existing branch is only ever attached — never created, whatever its name.
+          return repository.location === "original"
+            ? repositories
+                .provisionInPlace({ source, branch: repository.branch.name, createMissing: false })
+                .pipe(Effect.asVoid)
+            : repositories.provisionLinkedWorktree({
+                source,
+                directory: AbsolutePath.make(checkoutLocationOf(change, repository)),
+                branch: repository.branch.name,
+                createMissing: false,
+              })
       }
     }
 
