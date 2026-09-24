@@ -108,6 +108,10 @@ that variable. A workspace's own decision offers **use Global's**, which drops i
 again. Each save keeps the file it replaces as `config.json.bak` beside it — one generation,
 owner-only — so a save that went wrong is a copy away from undone.
 
+Leaving the settings page with unsaved edits asks first — **Save and leave**, **Discard and
+leave**, or **Stay**. Browser Back is held by the same question as clicking away. Reloading the
+page is not: the draft lives only in the page.
+
 The server validates paths, workspace names/IDs, environment names, and worktree-copy names at
 both scopes. Relative location paths and entries such as `../.ssh` in `worktreeCopy` are refused.
 Saving preserves unrecognized file keys rather than discarding content from another version.

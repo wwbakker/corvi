@@ -14,7 +14,8 @@ window, a change view, or the draft being edited.
 
 Selecting a change opens its dashboard. **Dashboard**, **Plan** and **Review changes** are views
 of that change; terminal windows can also be opened directly from the navigation column. Each
-view has a URL, so deep links, reload, and browser Back work.
+view has a URL, so deep links, reload, and browser Back work. Leaving Settings with unsaved edits
+asks first however you go — clicking or Back — see [configuration](configuration.md).
 
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
 new-window control creates another window, normally in the current window's working directory.
