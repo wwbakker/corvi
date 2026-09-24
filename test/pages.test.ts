@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { chromium, webkit, type Browser } from "playwright";
+import { chromium, webkit, type Browser, type Page } from "playwright";
 import { checkoutsOf, closePages, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
@@ -101,6 +101,19 @@ const writeNotes = (change: string, text: string): Promise<Response> =>
     method: "PUT",
     body: JSON.stringify({ text }),
   });
+
+/** Make one unsaved edit on the open settings page: the Jira transition, filled and not saved. */
+const editField = async (page: Page, value: string): Promise<void> => {
+  await page.locator(".tabs.sections .tab", { hasText: "Jira" }).click();
+  await page.getByLabel("Transition on completing one").fill(value);
+};
+
+/** Open the settings page and make one unsaved edit on it. */
+async function editSettings(page: Page, value: string): Promise<void> {
+  await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("nav.tabs");
+  await editField(page, value);
+}
 
 test.skipIf(!usable)("every page renders without the engine complaining", async () => {
   const pages: [string, string][] = [
@@ -202,6 +215,123 @@ test.skipIf(!usable)("the settings page reads and writes", async () => {
   expect(written.file.contextMenu).toBe(true);
   expect(written.effective.contextMenu).toBe(true);
 }, 60_000);
+
+test.skipIf(!usable)("leaving settings with unsaved edits asks first", async () => {
+  // The draft is the page's until Save, so leaving would take it with it — unless the question
+  // is answered first (docs/manual/configuration.md). Stay keeps the edit where it is, Discard
+  // leaves without writing it, Save and leave writes it on the way out.
+  const file = async (): Promise<Record<string, unknown>> =>
+    ((await fetch(`${url}/api/settings`).then((r) => r.json())) as {
+      file: Record<string, unknown>;
+    }).file;
+  const before = await file();
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+  const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+  await editSettings(page, "typed and left behind");
+
+  // Stay: asked, and nothing else happens.
+  await page.getByRole("button", { name: "Changes", exact: true }).click();
+  await prompt.waitFor();
+  expect(new URL(page.url()).pathname).toBe("/settings");
+  await page.getByRole("button", { name: "Stay", exact: true }).click();
+  await prompt.waitFor({ state: "detached" });
+  expect(new URL(page.url()).pathname).toBe("/settings");
+  expect(await page.getByLabel("Transition on completing one").inputValue()).toBe(
+    "typed and left behind",
+  );
+
+  // Discard and leave: the overview shows, and the file never saw the edit.
+  await page.getByRole("button", { name: "Changes", exact: true }).click();
+  await prompt.waitFor();
+  await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
+  await page.waitForFunction(() => location.pathname === "/");
+  await page.locator(".change-card").first().waitFor();
+  expect(await file()).toEqual(before);
+
+  // Save and leave: the same question, and the edit is written on the way out.
+  await editSettings(page, "saved past the guard");
+  await page.getByRole("button", { name: "Changes", exact: true }).click();
+  await prompt.waitFor();
+  await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+  await page.waitForFunction(() => location.pathname === "/");
+  await page.locator(".change-card").first().waitFor();
+  const written = (await fetch(`${url}/api/settings`).then((r) => r.json())) as {
+    file: { extensionSettings?: { jira?: { doneTransition?: string } } };
+  };
+  expect(written.file.extensionSettings?.jira?.doneTransition).toBe("saved past the guard");
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("the guard holds Back too, and leaves the history usable", async () => {
+  // Back is the likeliest accidental exit, so it gets the same question — with the settings URL
+  // put back while the answer is pending, so the address bar and the page never disagree. After
+  // answering, Back and Forward still walk the history in both directions: the guard's restore
+  // strands no entry.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector("nav.tabs");
+  // A clean visit away and back first, so Back has somewhere to go.
+  await page.getByRole("button", { name: "Changes", exact: true }).click();
+  await page.waitForFunction(() => location.pathname === "/");
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.waitForFunction(() => location.pathname === "/settings");
+  await page.waitForSelector("nav.tabs");
+  await editField(page, "typed and left behind");
+
+  await page.goBack();
+  // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+  const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+  await prompt.waitFor();
+  expect(new URL(page.url()).pathname).toBe("/settings");
+  await page.getByRole("button", { name: "Discard and leave", exact: true }).click();
+  await page.waitForFunction(() => location.pathname === "/");
+
+  // Back to the settings the guard put back — a fresh page, clean, no question — and Forward to
+  // where the answer left off.
+  await page.goBack();
+  await page.waitForFunction(() => location.pathname === "/settings");
+  await page.waitForSelector("nav.tabs");
+  expect(await prompt.count()).toBe(0);
+  await page.goForward();
+  await page.waitForFunction(() => location.pathname === "/");
+  expect(await prompt.count()).toBe(0);
+  await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("a save that fails keeps you there with the draft", async () => {
+  // Save and leave runs the page's own save, so its failure is the page's own: the dialog
+  // closes, the error banner explains, and the draft is still there to retry or to leave.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  await page.route(
+    (u) => u.pathname === "/api/settings",
+    async (route) => {
+      if (route.request().method() === "PUT") {
+        await route.fulfill({
+          status: 500,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "the disk is full" }),
+        });
+        return;
+      }
+      await route.continue();
+    },
+  );
+  await editSettings(page, "kept when the save fails");
+  await page.getByRole("button", { name: "Changes", exact: true }).click();
+  // The prompt by its own words: the directory fields keep their pickers in the DOM, closed.
+  const prompt = page.locator("dialog", { hasText: "Unsaved settings" });
+  await prompt.waitFor();
+  await page.getByRole("button", { name: "Save and leave", exact: true }).click();
+  await prompt.waitFor({ state: "detached" });
+  expect(new URL(page.url()).pathname).toBe("/settings");
+  expect(await page.getByLabel("Transition on completing one").inputValue()).toBe(
+    "kept when the save fails",
+  );
+  expect((await page.locator(".error-banner").innerText()).trim()).toContain("the disk is full");
+  await page.close();
+}, 30_000);
 
 test.skipIf(!usable)("the unsaved marker does not resize the notes card", async () => {
   // The marker sits in the heading's flex line and comes and goes as you type, so any size or

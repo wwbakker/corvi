@@ -56,9 +56,12 @@ esac
 # The end-to-end files each start servers and a browser: one at a time, where a timing guess
 # cannot turn three of them into a race for one runner's cores. Everything else runs across
 # CPU-count workers.
-timings=(--timings scripts/timings.json)
+timings=(--timings=scripts/timings.json)
+# `all` passes no file list at all — discovery is every test file there is. The `[@]+` guard is
+# what keeps a list empty rather than unbound on bash 3.2, where "${files[@]}" under `set -u` is
+# an unbound variable.
 if [ "$mode" = "e2e" ]; then
-  exec bun test --timeout 30000 "${timings[@]}" "${files[@]}" "$@"
+  exec bun test --timeout 30000 "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
 else
-  exec bun test --timeout 30000 --parallel "${timings[@]}" "${files[@]}" "$@"
+  exec bun test --timeout 30000 --parallel "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
 fi
