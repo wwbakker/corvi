@@ -13,6 +13,7 @@ import {
   type CommandFailure,
   type CommandResult,
   type Host,
+  type Sessions,
 } from "@corvi/terminals/tmux";
 import { CliError } from "@corvi/contracts/errors";
 import { ID, env } from "@corvi/configuration/node";
@@ -40,6 +41,8 @@ const host: Host = {
   env,
 };
 
+export const sessions: Sessions = make(host);
+
 export const {
   sessionName,
   terminalSocketPath,
@@ -47,10 +50,12 @@ export const {
   stopTerminal,
   changeOfSession,
   newWindow,
+  newWindowRunning,
   selectWindow,
   moveWindow,
   ensureSession,
-  pastePrompt,
+  pastePromptTo,
+  submit,
   windows: rawWindows,
   allWindows: rawAllWindows,
-} = make(host);
+} = sessions;

@@ -7,6 +7,17 @@
 import { Data, Schema } from "effect"
 
 import {
+  ActionFilesResponseSchema,
+  ActionSummarySchema,
+  RunActionResultSchema,
+  type ActionFileRefDto,
+  type ActionFileWriteDto,
+  type ActionFilesResponseDto,
+  type ActionSummaryDto,
+  type RunActionResultDto,
+} from "@corvi/contracts/actions"
+
+import {
   BranchesSchema,
   CardInfoSchema,
   ChangeSummarySchema,
@@ -23,7 +34,6 @@ import {
   PagesResponseSchema,
   PlanDocSchema,
   PlanWriteBodySchema,
-  PromptResponseSchema,
   RepoItemsSchema,
   RepoStateSchema,
   RepositoryViewSchema,
@@ -53,7 +63,6 @@ import {
   type PageInfoDto,
   type PlanDocDto,
   type PlanWriteBodyDto,
-  type PromptResponseDto,
   type RepoItemsDto,
   type RepoStateDto,
   type ReposBodyDto,
@@ -155,7 +164,15 @@ export interface ChangesClient {
     changeId: ChangeId,
     action: WindowActionBodyDto,
   ) => Promise<TerminalWindowDto[]>
-  readonly briefAgent: (changeId: ChangeId) => Promise<PromptResponseDto>
+  readonly terminalActions: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
+  readonly runAction: (
+    changeId: ChangeId,
+    key: string,
+    window?: string,
+  ) => Promise<RunActionResultDto>
+  readonly actionFiles: () => Promise<ActionFilesResponseDto>
+  readonly writeActionFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
+  readonly deleteActionFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
 }
 
@@ -388,8 +405,30 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         mutableArray(TerminalWindowSchema),
         await send("POST", `${change(changeId)}/terminal/windows`, { body: action }),
       ),
-    briefAgent: async (changeId) =>
-      decode(PromptResponseSchema, await send("POST", `${change(changeId)}/terminal/prompt`)),
+    terminalActions: async (changeId) =>
+      decode(
+        mutableArray(ActionSummarySchema),
+        await send("GET", `${change(changeId)}/terminal/actions`),
+      ),
+    runAction: async (changeId, key, window) =>
+      decode(
+        RunActionResultSchema,
+        await send("POST", `${change(changeId)}/terminal/actions`, { body: { key, window } }),
+      ),
+    actionFiles: async () =>
+      decode(ActionFilesResponseSchema, await send("GET", "/actions/files")),
+    writeActionFile: async (file) =>
+      decode(ActionFilesResponseSchema, await send("PUT", "/actions/files", { body: file })),
+    deleteActionFile: async (ref) =>
+      decode(
+        ActionFilesResponseSchema,
+        await send(
+          "DELETE",
+          `/actions/files?scope=${ref.scope}${
+            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
+          }&id=${encodeURIComponent(ref.id)}`,
+        ),
+      ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),
   }

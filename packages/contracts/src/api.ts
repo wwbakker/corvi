@@ -392,10 +392,6 @@ export const WindowActionBodySchema = Schema.Struct({
 })
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
 
-/** The briefing prompt was pasted into the change's terminal. */
-export const PromptResponseSchema = Schema.Struct({ pasted: Schema.Boolean })
-export type PromptResponseDto = typeof PromptResponseSchema.Type
-
 /** A started change, with what each integration reported while provisioning it. */
 export const StartedResponseSchema = Schema.Struct({
   change: ChangeWireSchema,

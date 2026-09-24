@@ -142,17 +142,12 @@ test.skipIf(!usable)(
       await loaded(page);
 
       // The editor is the tab's content, exactly: it reaches the window's edges the terminal
-      // reaches — no padding around it — with the briefing button floating over its top-right.
+      // reaches — no padding around it. (Briefing the agent is the terminal page's action menu
+      // now, so there is no floating button over the corner.)
       const frame = await page.locator(".plan-page .md-editor").boundingBox();
       if (!frame) throw new Error("the plan editor did not lay out");
       expect(Math.abs(frame.x + frame.width - 1280)).toBeLessThan(5);
       expect(Math.abs(frame.y + frame.height - 900)).toBeLessThan(5);
-      const brief = await page.getByRole("button", { name: "Brief the agent" }).boundingBox();
-      if (!brief) throw new Error("the briefing button is not on an idea's plan");
-      expect(brief.y + brief.height).toBeLessThan(frame.y + 60);
-      expect(brief.x + brief.width).toBeGreaterThan(frame.x + frame.width - 100);
-      // And it keeps clear of the editor's scrollbar, which takes the frame's edge.
-      expect(brief.x + brief.width).toBeLessThan(frame.x + frame.width - 15);
       // The two tab rows are one block of chrome on this tab too: nothing between them.
       const bar = await page.locator(".change-bar").boundingBox();
       const tabs = await page.locator(".change-tabs").boundingBox();

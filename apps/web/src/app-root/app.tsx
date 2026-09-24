@@ -29,6 +29,7 @@ import { hostOf } from "./host.ts";
 import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
+import { ActionsPage } from "../actions/ActionsPage.tsx";
 
 function Home({
   changes,
@@ -330,6 +331,8 @@ function App(): JSX.Element {
           if (page) setView({ name: "ext-page", id: page.id, extension: page.extension });
         }}
         extPage={view.name === "ext-page" ? view.id : undefined}
+        onActions={() => setView({ name: "actions" })}
+        actions={view.name === "actions"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
         onOpenChange={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
@@ -351,6 +354,7 @@ function App(): JSX.Element {
         {view.name === "ext-page" && (
           <PageHost info={view} workspace={workspace?.id} />
         )}
+        {view.name === "actions" && <ActionsPage />}
         {view.name === "settings" && (
           <SettingsPage
             onGuard={onGuard}

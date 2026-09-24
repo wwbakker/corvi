@@ -1,5 +1,5 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
 import { budget, checkoutsOf, closePages, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, until, waitFor, waitForUrl, withMachineLock  } from "./helpers.ts";
@@ -388,6 +388,8 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
   // And closing the cheat sheet hands the keyboard back: it is a modal dialog, so the browser moved
   // the focus into it, and a terminal you have to click before typing is a terminal clicked twice.
+  // The cheat sheet is the actions menu's last item now (apps/web/src/actions/RunMenu.tsx).
+  await page.locator("header.change-bar .menu > button").click();
   await page.getByRole("button", { name: "tmux cheat sheet" }).click();
   await page.locator("dialog[open]").waitFor();
   await page.getByRole("button", { name: "Close" }).click();
@@ -501,27 +503,30 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   // The row is the windows' and the key reference's, and of the change itself it says nothing: the
   // name is the column's entry, and the state and the actions are its other views' — they say
   // nothing while a shell has the keyboard, which is why the windows are what you switch between.
+  // The one menu it carries is the terminal's own (its actions and, last, the key reference), not
+  // the change's.
   expect(
     await page
       .locator(".page.terminal-page .change-bar h2, .page.terminal-page .change-bar .subject")
       .count(),
   ).toBe(0);
   expect(await page.locator("header select").count()).toBe(0);
-  expect(await page.locator("header .menu").count()).toBe(0);
+  expect(await page.locator("header .menu").count()).toBe(1);
+  expect(await page.getByRole("button", { name: "Actions ▾" }).count()).toBe(1);
   expect(await page.locator(".change-tabs").count()).toBe(0);
   // And the screen carries no tooltip: the window's row says which change's terminal it is, and a
   // floating "terminal for …" over the grid is in the way of reading it.
   expect(await page.locator(".terminal-screen").getAttribute("title")).toBeNull();
 
   // The first tab is the change's overview, not a window: the terminal page is not a one-way
-  // door. Then a tab per tmux window, and the key reference on the right.
+  // door. Then a tab per tmux window, and the menu on the right (its last item is the key
+  // reference — the item itself is pinned in the action-menu test).
   const allTabs = page.locator(".window-tab");
   expect((await allTabs.first().innerText()).trim()).toBe("Overview");
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await sessionUp();
   const windows = (await tmux("list-windows", "-t", session)).split("\n").length;
   expect(await until(() => tabs.count(), windows)).toBe(windows);
-  expect(await page.getByRole("button", { name: "tmux cheat sheet" }).count()).toBe(1);
 
   // The current window's tab is marked the way the column marks its own: filled, white text and
   // icon, rounded only at the top, and sitting on the terminal rather than above a gap or line.
@@ -991,6 +996,169 @@ test.skipIf(!usable)("the page copies and pastes through the system clipboard", 
   }),
   budget(180_000),
 );
+
+test.skipIf(!usable)("the action menu lists the actions and pastes one without submitting it", async () => {
+  // An action file in the global scope — beside the test's config.json (serverEnv names it) —
+  // picked up on the next menu open: discovery is per request, no restart.
+  const ranFile = join(tmp, "changes", id, "menu-ran.txt");
+  await mkdir(join(tmp, "actions"), { recursive: true });
+  await writeFile(
+    join(tmp, "actions", "say-hello.md"),
+    `---\nlabel: Say hello\nkind: prompt\ntarget: active\n---\necho menu-ran > ${ranFile}\n`,
+  );
+  // The session and its window first (every test starts with none): the pane option below is
+  // set on this test's own window — or on no window at all, and the menu then sees a plain
+  // shell and offers nothing to paste.
+  await seedSession();
+  // The window presents as an agent to the menu: `@agent_status` is exactly what pi's own
+  // busy-title extension publishes (packages/agents/src/presenter.ts), and the menu's filter
+  // keys on the icon it produces. "working" rather than "waiting" — a waiting window wants the
+  // user, and the notification that would fire is another test's subject.
+  await tmux("set-option", "-p", "-t", session, "@agent_status", "working");
+
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await waitForPrompt();
+
+  // The menu fetches its list when opened and the filter follows the window on screen: the
+  // prompt action is offered because the active window is an agent one.
+  await page.locator("header.change-bar .menu > button").click();
+  const items = page.locator("header.change-bar .menu-items button");
+  await waitFor(
+    "the menu to list the action",
+    async () => (await items.allInnerTexts()).some((t) => t.includes("Say hello")),
+  );
+  expect((await items.allInnerTexts()).some((t) => t.includes("tmux cheat sheet"))).toBe(true);
+
+  // Escape closes it even with the keyboard in the terminal: the terminal encodes keys as input
+  // and swallows the keydown before it bubbles, so the menu takes the key in capture — and takes
+  // it rather than sending an Escape to the shell below. Then it opens again on the same click.
+  await page.keyboard.press("Escape");
+  await waitFor(
+    "the menu to close on Escape",
+    async () => (await items.count()) === 0,
+  );
+  await page.locator("header.change-bar .menu > button").click();
+  await waitFor(
+    "the menu to list the action again",
+    async () => (await items.allInnerTexts()).some((t) => t.includes("Say hello")),
+  );
+
+  await items.filter({ hasText: "Say hello" }).click();
+  // The notice names what happened and where.
+  await waitFor(
+    "the notice",
+    async () => (await page.locator("header.change-bar .summary").allInnerTexts()).some((t) => t.includes("read it and send it")),
+  );
+
+  // Pasted into the pane and not submitted: the line waits at the prompt and nothing ran.
+  await waitFor(
+    "the paste to land",
+    async () => (await tmux("capture-pane", "-p", "-t", session)).includes("echo menu-ran >"),
+  );
+  expect(await Bun.file(ranFile).exists()).toBe(false);
+  // The one keystroke Corvi keeps is yours: Enter runs the line the paste left behind.
+  await tmux("send-keys", "-t", session, "Enter");
+  await waitForFile(ranFile, "menu-ran\n");
+
+  await tmux("set-option", "-p", "-u", "-t", session, "@agent_status");
+  await page.close();
+}, 60_000);
+
+test.skipIf(!usable)("a notified command window freezes over its output and calls when it ends", async () => {
+  // Two action files in the global scope: one that notifies (and so keeps its window), and one
+  // whose window is gone when it ends. The notified one runs long enough for the watcher to see
+  // it before it ends: a notice is an edge, and the edge is out of "was quiet" into "wants you".
+  // Its `exit 3` is deliberate and load-bearing: an exit in the body must end the run, not the
+  // wrapper that records how it ended.
+  const ranFile = join(tmp, "changes", id, "notify-ran.txt");
+  const plainFile = join(tmp, "changes", id, "plain-ran.txt");
+  await mkdir(join(tmp, "actions"), { recursive: true });
+  await writeFile(
+    join(tmp, "actions", "notify-later.md"),
+    `---\nlabel: Notify later\nkind: command\ntarget: new\nnotify: true\n---\necho FROZEN-OUTPUT\nsleep 3\necho done > ${ranFile}\nexit 3\n`,
+  );
+  await writeFile(
+    join(tmp, "actions", "plain-run.md"),
+    `---\nlabel: Plain run\nkind: command\ntarget: new\n---\necho done > ${plainFile}\n`,
+  );
+
+  // Stand in for the app's host, as the waiting-agent test above does: collect the notices
+  // instead of showing them.
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await page.addInitScript(() => {
+    const store: unknown[] = [];
+    (window as unknown as { __notices: unknown[] }).__notices = store;
+    (window as unknown as { corviHost: unknown }).corviHost = {
+      notify: (message: unknown) => store.push(message),
+      onOpenWindow: () => undefined,
+    };
+  });
+  await page.goto(`${url}/changes/${id}`);
+  // A change opens on its plan now (the dashboard is its own tab), and the column below shows
+  // the windows on every one of its pages.
+  await page.waitForSelector(".plan-page");
+
+  const shown = (text: string): Promise<void> =>
+    waitFor(`the column to show ${text}`, async () =>
+      (await page.locator(".sidebar .entry.window").allInnerTexts()).join(" | ").includes(text),
+    );
+
+  const run = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+    method: "POST",
+    body: JSON.stringify({ key: "global:notify-later" }),
+  });
+  expect(run.ok).toBe(true);
+  const started: { window?: { id: string } } = await run.json();
+  // A real tmux window id, not merely "present": the delivery addresses the window by it.
+  expect(started.window?.id).toMatch(/^@\d+$/);
+
+  // While it runs, the wrapper's label is the window's name in the column — and a tick seeing it
+  // is what records "was quiet" for the edge below.
+  await shown("Notify later");
+  await waitForFile(ranFile, "done\n");
+
+  // The exit code outlived the pane it belongs to (the pane is dead but kept), the presenter
+  // read it off the frozen pane, and the notice is the whole pipeline arriving.
+  const notices = (): Promise<unknown[]> =>
+    page.evaluate(() => (window as unknown as { __notices: unknown[] }).__notices);
+  expect(await until(async () => (await notices()).length === 1, true)).toBe(true);
+  expect((await notices())[0]).toMatchObject({
+    kind: "notify",
+    title: "Notify later",
+    subtitle: id,
+    body: "finished with exit code 3",
+    change: id,
+    window: started.window?.id,
+    sound: true,
+  });
+
+  // The window stays frozen over its output: dead pane, and the text kept in its history —
+  // the screen clears when the shell goes, what scrolled does not.
+  expect(
+    await until(
+      async () => (await tmux("capture-pane", "-p", "-S", "-", "-t", started.window!.id)).includes("FROZEN-OUTPUT"),
+      true,
+    ),
+  ).toBe(true);
+  expect(await tmux("display-message", "-p", "-t", started.window!.id, "#{pane_dead}")).toBe("1");
+
+  // A command window without notify closes when it ends and says nothing.
+  const before = (await tmux("list-windows", "-t", session)).split("\n").length;
+  const plain = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+    method: "POST",
+    body: JSON.stringify({ key: "global:plain-run" }),
+  });
+  expect(plain.ok).toBe(true);
+  await waitForFile(plainFile, "done\n");
+  expect(await until(async () => (await tmux("list-windows", "-t", session)).split("\n").length === before, true)).toBe(true);
+  expect((await notices()).length).toBe(1);
+
+  await tmux("kill-window", "-t", started.window!.id);
+  await page.close();
+}, 60_000);
 
 test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   // It takes the private tmux server down with it, so nothing that needs tmux may follow.

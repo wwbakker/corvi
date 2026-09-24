@@ -22,6 +22,14 @@ archive, configuration, and state directory and runs owned-resource cleanup on e
 test can help development, but is not completion verification. Bare `bun test` does not provide
 all wrapper safeguards; do not use it as the final check.
 
+Every `bun test` run is isolated from the real config and change directories either way:
+`scripts/test-isolation.ts` (wired in `bunfig.toml`) fills the changes root, archive,
+configuration and state directory with a per-run temp root whenever the wrapper has not already
+— the same four the wrapper exports, and no more (sockets and caches stay the fixtures' job) —
+so a lone `bun test test/foo.test.ts` cannot write `~/.config/corvi/config.json`
+(`test/isolation.test.ts` is the tripwire). What a bare run still lacks is the wrapper's shared
+per-run root and its cleanup trap.
+
 Install dependencies with `bun install --frozen-lockfile`. Browser tests need
 `bunx playwright install chromium`; tmux tests need tmux. Report skipped browser/native/platform
 checks separately from passes. Do not claim macOS coverage from a Linux run.

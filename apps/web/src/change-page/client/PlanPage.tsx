@@ -20,19 +20,14 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
  * reload, or keep what is here. A save is based on the revision it read, so a plan that moved
  * underneath is refused rather than overwritten.
  *
- * The briefing button in the toolbar pastes the configured prompt into the change's terminal,
- * and is offered only while the change is an idea: the prompt is about shaping a plan before the
- * work starts. Corvi cannot enforce "only the plan changes" (the agent has no sandbox, and a
- * symlinked repository cannot be made read-only), so it says so to the agent instead.
+ * Briefing the agent about it is the terminal page's action menu
+ * (apps/web/src/actions/RunMenu.tsx), not this page's.
  */
 export function PlanPage({
   changeId,
-  canBrief,
   readOnly = false,
 }: {
   changeId: string;
-  /** Whether the change is still an idea: the briefing prompt belongs to that phase. */
-  canBrief: boolean;
   /** A finished change's plan is a record: readable, not editable. */
   readOnly?: boolean;
 }): JSX.Element {
@@ -54,32 +49,11 @@ export function PlanPage({
           throw e;
         }),
   });
-  const [notice, setNotice] = useState<string | null>(null);
-
-  /** Paste the briefing into the change's terminal. The session is created if it is not up yet,
-   * so this works without opening the terminal first; the text is not submitted — the agent's
-   * editor holds it for you to read. */
-  const brief = (): void => {
-    apiClient
-      .briefAgent(ChangeId.make(changeId))
-      .then(() => {
-        setNotice("Prompt pasted into the terminal");
-        setTimeout(() => setNotice(null), 2500);
-      })
-      .catch((e: Error) => setNotice(e.message));
-  };
-
   return (
     <section className="plan-page">
       <div className="plan-toolbar">
         <span className="spacer" />
-        {notice && <span className="summary">{notice}</span>}
         <span className="summary">{saved ? "" : "unsaved"}</span>
-        {canBrief && (
-          <button title="Paste the briefing prompt into this change's terminal" onClick={brief}>
-            Brief the agent
-          </button>
-        )}
       </div>
       {stale && (
         <div className="stale-banner">

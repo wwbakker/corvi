@@ -5,6 +5,7 @@ import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
+import { actionsRoutes } from "./actions/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
@@ -53,6 +54,7 @@ const server = await serve<TerminalSocket>({
   // One table per domain, each guarded as it is defined; composed here, where the server is.
   routes: {
     ...appRootRoutes,
+    ...actionsRoutes,
     ...changeRoutes,
     ...repositoriesRoutes,
     ...dashboardRoutes,

@@ -3,12 +3,12 @@ import { readFileSync as readFileNodeSync } from "node:fs";
 import { join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import {
-  DEFAULT_IDEATION_PROMPT,
   DEFAULT_WORKSPACE,
   type Config,
   type SettingsOverrides,
   type Workspace,
 } from "@corvi/configuration/config";
+import { builtinActionBody } from "@corvi/actions/node";
 import { ConfigFile, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
@@ -183,7 +183,9 @@ export function readConfig(): Config {
     ),
     notificationSound: resolveSetting({ global: file.notificationSound, fallback: true }),
     contextMenu: resolveSetting({ global: file.contextMenu, fallback: true }),
-    ideationPrompt: resolveSetting({ global: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
+    // An empty value means the shipped `brief` action's body: the same "empty means the
+    // default" rule the settings page shows, with the default living in one place now.
+    ideationPrompt: resolveSetting({ global: file.ideationPrompt, fallback: builtinActionBody("brief") }),
     // The plan template is literal Markdown with no default: empty means "a plan starts empty".
     planTemplate: resolveSetting({ global: file.planTemplate, fallback: "" }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],

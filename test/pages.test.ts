@@ -121,6 +121,7 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
     ["/new", ".wizard"],
     ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
+    ["/actions", ".actions-page"],
     [`/changes/${id}`, ".plan-page"],
     [`/changes/${id}/dashboard`, ".widget"],
     [`/changes/${id}/plan`, ".plan-page"],

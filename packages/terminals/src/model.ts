@@ -48,3 +48,14 @@ export const csiuFor = (e: Keyish): string | undefined => {
   const held = [e.shiftKey && "shift", e.ctrlKey && "ctrl"].filter(Boolean).join("-");
   return CSI_U[held];
 };
+
+/** The pane options a window set by Corvi's command wrapper carries: what it is running, how it
+ * ended, and whether its ending wants the user. This vocabulary is the terminal package's own —
+ * as `@agent_status` is the agents package's — so the wrapper that writes it and the presenter
+ * that reads it share these names and nobody hardcodes a spelling.
+ *
+ * tmux keeps them with the pane: a pane that dies for good takes them along (a crashed run
+ * leaves nothing stale), and one kept by `remain-on-exit` holds them for the presenter. */
+export const COMMAND_ACTION_OPTION = "@corvi_action";
+export const COMMAND_EXIT_OPTION = "@corvi_exit";
+export const COMMAND_NOTIFY_OPTION = "@corvi_notify";

@@ -78,6 +78,8 @@ export function Sidebar({
   pages,
   onPage,
   extPage,
+  onActions,
+  actions,
   onSettings,
   settings,
   onOpenChange,
@@ -107,6 +109,10 @@ export function Sidebar({
   onPage: (id: string) => void;
   /** The id of the extension page that is open, when one is: it belongs to no change. */
   extPage?: string;
+  /** The core's own Actions page, offered above the extensions' pages. */
+  onActions: () => void;
+  /** Whether the Actions page is the one open. */
+  actions: boolean;
   onSettings: () => void;
   /** Whether the settings page is the one open. */
   settings: boolean;
@@ -250,7 +256,7 @@ export function Sidebar({
       {/* The overview. The way to start one left this row for the Ideas heading below, where the
           entries it adds to begin. */}
       <button
-        className={current || extPage || settings || wizard ? "entry" : "entry current"}
+        className={current || extPage || actions || settings || wizard ? "entry" : "entry current"}
         onClick={onHome}
       >
         Changes
@@ -288,9 +294,13 @@ export function Sidebar({
         {changes && live.length === 0 && <p className="hint">nothing in progress</p>}
       </div>
 
-      {/* Not under a change, because they are not about one: the extensions' pages, offered
-          as the server lists them — a context without the extension has no entry, not an
-          empty one. Settings stays hardcoded below: it is the core's own. */}
+      {/* Not under a change, because they are not about one: the core's own Actions page first,
+          then the extensions' pages, offered as the server lists them — a context without the
+          extension has no entry, not an empty one. Settings stays hardcoded below: it is the
+          core's own too, but where you go once in a while rather than while working. */}
+      <button className={`entry${actions ? " current" : ""}`} onClick={onActions}>
+        Actions
+      </button>
       {pages.map((p) => (
         <button
           key={p.id}

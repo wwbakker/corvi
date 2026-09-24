@@ -3,6 +3,7 @@ import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
 import type { CommandFailure } from "@corvi/terminals/tmux";
 import { agentsWindowPresenter } from "@corvi/agents/presenter";
+import { commandWindowPresenter } from "@corvi/terminals/presenter";
 import { rawAllWindows, rawWindows } from "./tmux.ts";
 
 /**
@@ -25,7 +26,7 @@ export type PresentedWindow = TerminalWindow & { busy: boolean };
  * for exactly these, so the raw window carries what presenters know how to read. */
 export const paneOptions = (): string[] => {
   const seen = new Set<string>();
-  for (const presenter of [agentsWindowPresenter]) {
+  for (const presenter of [agentsWindowPresenter, commandWindowPresenter]) {
     for (const option of presenter.paneOptions ?? []) seen.add(option);
   }
   return [...seen];
@@ -38,7 +39,7 @@ export const paneOptions = (): string[] => {
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */
 const merged = (raw: TmuxWindow): WindowPresentation =>
-  [agentsWindowPresenter].reduce<WindowPresentation>((acc, presenter) => {
+  [agentsWindowPresenter, commandWindowPresenter].reduce<WindowPresentation>((acc, presenter) => {
     const answer = presenter.present(raw);
     if (!answer) return acc; // a presenter with nothing to say contributes nothing
     return {

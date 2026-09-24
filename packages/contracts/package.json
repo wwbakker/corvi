@@ -9,6 +9,7 @@
     "./api": "./src/api.ts",
     "./config": "./src/config.ts",
     "./terminal": "./src/terminal.ts",
+    "./actions": "./src/actions.ts",
     "./errors": "./src/errors.ts",
     "./workspace": "./src/workspace.ts",
     "./capabilities": "./src/capabilities.ts",

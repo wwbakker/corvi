@@ -17,10 +17,13 @@ export {
   stopTerminal,
   changeOfSession,
   newWindow,
+  newWindowRunning,
   selectWindow,
   moveWindow,
   ensureSession,
-  pastePrompt,
+  pastePromptTo,
+  submit,
+  sessions,
 } from "./tmux.ts";
 
 export { listWindows, allWindows, presentWindow, type PresentedWindow } from "./presenter.ts";

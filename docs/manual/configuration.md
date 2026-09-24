@@ -49,8 +49,10 @@ workspace's `settings`, where it overrides the global one key by key. The settin
   It is not a confinement boundary: the browser can navigate to `/`.
 - `worktreeCopy`: directory names to copy into new worktrees; see
   [what a new worktree inherits](changes.md#what-a-new-worktree-inherits).
-- `ideationPrompt`: text used by **Brief the agent**. `{id}`, `{title}`, `{plan}`, and `{state}`
-  are substituted. An empty value uses the built-in prompt.
+- `ideationPrompt`: the text behind the built-in **Send PLAN.md instructions** action. `{id}`,
+  `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`, and `{repos}` are substituted. An empty
+  value uses the shipped `brief` action's text; a `brief.md` action file replaces the whole
+  briefing.
 - `planTemplate`: the starting text of a new idea's `PLAN.md`, seeded into the wizard's plan
   editor. Literal Markdown, nothing substituted — the scaffold you edit away. An empty value
   leaves new plans empty.
@@ -75,6 +77,24 @@ replaces the inherited one whole (a list is replaced, not merged). The record-sh
 for its key and leaves the others inherited. The exception is a secret setting (a Jira token,
 say): its environment variable is a fallback rather than an override, so a stored token wins.
 
+## Actions
+
+Actions are files, one per action: YAML frontmatter for the delivery (`label`, `kind`,
+`target`, `start`, `submit`, `phases`, `notify`, `keepOpen`) and the body for the prompt text or
+command. The terminal page's **Actions** menu runs them; the **Actions** page (in the sidebar)
+lists them by scope and edits the ones Corvi may write:
+
+| Scope | Where | On the Actions page |
+| --- | --- | --- |
+| Built-in | shipped with Corvi | read-only — saving copies it to Global |
+| Global | `~/.config/corvi/actions/` | created, edited, deleted |
+| Workspace | `~/.config/corvi/workspaces/<id>/actions/` | created, edited, deleted |
+| Repository | `<checkout>/.corvi/actions/` | not managed — create with your IDE or by the agent |
+
+More specific wins on a collision (repository > workspace > global > built-in), and a `brief.md`
+anywhere replaces the built-in briefing whole. A file that does not parse is listed with its
+reasons rather than hidden: the page is where it gets fixed.
+
 ## Locations and worktrees
 
 `changesRoot` and `archiveRoot` may be set per workspace: a change is created in its workspace's
@@ -88,7 +108,8 @@ Saving applies settings without an application restart and clears affected cache
 fields mean unset and show the applicable value as a placeholder — inside a workspace, the
 global value it would inherit. Fields controlled by an environment variable are locked and name
 that variable. A workspace's own decision offers **use Global's**, which drops it and inherits
-again.
+again. Each save keeps the file it replaces as `config.json.bak` beside it — one generation,
+owner-only — so a save that went wrong is a copy away from undone.
 
 Leaving the settings page with unsaved edits asks first — **Save and leave**, **Discard and
 leave**, or **Stay**. Browser Back is held by the same question as clicking away. Reloading the

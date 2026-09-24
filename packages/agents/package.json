@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./presenter": "./src/presenter.ts",
-    "./prompt": "./src/prompt.ts"
+    "./presenter": "./src/presenter.ts"
   },
   "dependencies": {
     "@corvi/contracts": "workspace:*"

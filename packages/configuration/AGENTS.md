@@ -6,7 +6,7 @@ The configuration vocabulary and the settings precedence chain.
 
 - `./config`: what a workspace is, the settings shape both scopes hold (`SettingsOverrides`),
   what the resolved config holds (`Config`, `EffectiveSettings`), the config file's write
-  shape, and the fallbacks (`DEFAULT_WORKSPACE`, `DEFAULT_IDEATION_PROMPT`). Pure.
+  shape, and the default workspace (`DEFAULT_WORKSPACE`). Pure.
 - `./settings`: `resolveSetting` (environment variable > workspace > global > fallback),
   `settingsFor` (what applies in one scope), the bag readers (`bagString`, `bagList`), and the
   override readers the settings page locks fields with. Environment variable *names* are the
@@ -26,7 +26,7 @@ runtime holds.
 ## Public entrypoints
 
 - `@corvi/configuration/config`: `Workspace`, `SettingsOverrides`, `EffectiveSettings`, `Config`,
-  `ConfigFile`, `DEFAULT_WORKSPACE`, `DEFAULT_IDEATION_PROMPT`
+  `ConfigFile`, `DEFAULT_WORKSPACE`
 - `@corvi/configuration/settings`: `SettingBag`, `resolveSetting`, `settingsFor`, `bagString`,
   `bagList`, `envOverride`, `overriddenSettings`, `overriddenExtensionSettings`,
   `SettingDeclaration`, `SettingsHolder`

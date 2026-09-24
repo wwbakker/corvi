@@ -34,6 +34,19 @@
         "@corvi/contracts"
       ]
     },
+    "@corvi/actions": {
+      "dependsOn": [
+        "@corvi/contracts",
+        "@corvi/terminals"
+      ],
+      "external": [
+        "effect",
+        "yaml",
+        "node:fs",
+        "node:fs/promises",
+        "node:path"
+      ]
+    },
     "@corvi/shell": {
       "dependsOn": [
         "@corvi/contracts"
@@ -94,6 +107,7 @@
         "@corvi/changes",
         "@corvi/repositories",
         "@corvi/terminals",
+        "@corvi/actions",
         "@corvi/agents",
         "@corvi/workflows",
         "@corvi/client",

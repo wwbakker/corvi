@@ -1,0 +1,19 @@
+{
+  "name": "@corvi/actions",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./model": "./src/model.ts",
+    "./render": "./src/render.ts",
+    "./discovery": "./src/discovery.ts",
+    "./deliver": "./src/deliver.ts",
+    "./node": "./src/node/index.ts"
+  },
+  "dependencies": {
+    "@corvi/contracts": "workspace:*",
+    "@corvi/terminals": "workspace:*",
+    "effect": "catalog:",
+    "yaml": "^2.9.1"
+  }
+}

@@ -1,0 +1,5 @@
+# Test-runner configuration only: nothing in a production or dev start-up reads this file.
+[test]
+# Isolate every `bun test` run from the user's real config and change directories — the wrapper's
+# values win, lone runs get their own temp root. See the file for the why.
+preload = ["./scripts/test-isolation.ts"]

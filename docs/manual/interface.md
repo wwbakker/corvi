@@ -35,6 +35,10 @@ documents in the left column and status cards in the right; narrow windows stack
 documents first. Status cards load independently, so one slow integration does not block the
 whole page. Returning to a view can show cached data while it refreshes.
 
+The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
+a prompt for the agent window you are looking at, a command for a plain shell — and then the tmux
+cheat sheet. Each action is a file on disk; the Actions page lists them and says where they live.
+
 The overview and navigation show facts such as active pipelines, active terminal processes, and
 review threads waiting on you. Colored indicators summarize status; the change's lifecycle state
 is a separate choice, not inferred from those tools.

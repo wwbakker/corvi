@@ -8,8 +8,6 @@ Corvi-facing agent session identity, supported capabilities, prompts and status.
   publishes (`@agent_status`, `@agent_name`, `@agent_session_name`, `@agent_last_message`; the
   reporter protocol of docs/manual/terminals.md) and the `TerminalPresenter`
   that turns them into the page's running/state/attention facts.
-- `./prompt`: how a briefing template's placeholders are filled from a change's facts. The
-  template itself is configuration.
 
 ## Does not own
 
@@ -23,12 +21,14 @@ template.
 ## Public entrypoints
 
 - `@corvi/agents/presenter`: `agentsWindowPresenter`
-- `@corvi/agents/prompt`: `fillBriefing`, `BriefingFacts`
+
+Placeholder filling for prompts moved to `@corvi/actions/render` (the actions package owns the
+one renderer).
 
 ## Dependencies
 
 `@corvi/contracts` (the terminal presenter and window types). No Node built-ins and no effects:
-the presenter is pure, and the prompt fill is a string function.
+the presenter is pure.
 
 ## Verification
 

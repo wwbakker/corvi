@@ -28,6 +28,7 @@ import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
+import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 
 /** The message to show for whatever a request threw: typed client errors and plain errors both
@@ -343,9 +344,15 @@ export function ChangeView({
       />
       <span className="spacer" />
       {/* The key reference is the terminal's: on the other views the row below carries the
-          change's own tabs, state and actions instead. */}
+          change's own tabs, state and actions instead. The menu holds the key reference beside
+          the actions this window may run (apps/web/src/actions/RunMenu.tsx). */}
       {active.kind === "terminals" && (
-        <button onClick={() => setCheatSheet(true)}>tmux cheat sheet</button>
+        <RunMenu
+          changeId={id}
+          windows={windows}
+          onOpenCheatSheet={() => setCheatSheet(true)}
+          onRan={() => setFocusRequest((n) => n + 1)}
+        />
       )}
     </header>
   );
@@ -434,7 +441,7 @@ export function ChangeView({
           a card beside its status — between the dashboard and the tabs extensions contribute. */}
       {active.kind === "plan" &&
         (change ? (
-          <PlanPage changeId={id} canBrief={idea} readOnly={isFinished(change)} />
+          <PlanPage changeId={id} readOnly={isFinished(change)} />
         ) : (
           <p className="hint">loading…</p>
         ))}

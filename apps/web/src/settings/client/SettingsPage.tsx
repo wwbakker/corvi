@@ -18,7 +18,6 @@ import {
   Field,
   ListEditor,
   MarkdownField,
-  TextArea,
   type KnownExtension,
 } from "./SettingsFields.tsx";
 
@@ -516,15 +515,10 @@ export function SettingsPage({
         </div>
       )}
 
+      {/* The plan template keeps the tab (the brief's text is the Actions page's own now):
+          what a new idea starts as is still the idea's beginnings. */}
       {active === "ideation" && (
         <div className="form wide">
-          <TextArea
-            label="Briefing for an agent"
-            hint="Pasted into a change's terminal by the button on an idea. {id}, {title}, {plan} and {state} are filled from the change; clearing this returns to the built-in default."
-            value={value("ideationPrompt")}
-            placeholder={inherited("ideationPrompt")}
-            onChange={(ideationPrompt) => setSetting("ideationPrompt", ideationPrompt)}
-          />
           <MarkdownField
             label="Plan template"
             hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. Clearing this leaves new plans empty."
