@@ -408,15 +408,15 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         await send("POST", `${change(changeId)}/terminal/actions`, { body: { key, window } }),
       ),
     actionFiles: async () =>
-      decode(ActionFilesResponseSchema, await send("GET", "/api/actions/files")),
+      decode(ActionFilesResponseSchema, await send("GET", "/actions/files")),
     writeActionFile: async (file) =>
-      decode(ActionFilesResponseSchema, await send("PUT", "/api/actions/files", { body: file })),
+      decode(ActionFilesResponseSchema, await send("PUT", "/actions/files", { body: file })),
     deleteActionFile: async (ref) =>
       decode(
         ActionFilesResponseSchema,
         await send(
           "DELETE",
-          `/api/actions/files?scope=${ref.scope}${
+          `/actions/files?scope=${ref.scope}${
             ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
           }&id=${encodeURIComponent(ref.id)}`,
         ),
