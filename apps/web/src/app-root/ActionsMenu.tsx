@@ -32,12 +32,21 @@ export function ActionsMenu({
     const onDown = (e: MouseEvent): void => {
       if (!ref.current?.contains(e.target as Node)) setOpen(false);
     };
-    const onKey = (e: KeyboardEvent): false | void => e.key === "Escape" && setOpen(false);
+    // Escape is the menu's while it is open, and it is taken rather than passed on: closing the
+    // menu must not also send an Escape to the terminal underneath. Capture phase because the
+    // terminal encodes keys as input and swallows the keydown before it would ever bubble to a
+    // listener here.
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+    };
     document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onKey, true);
     return () => {
       document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onKey, true);
     };
   }, [open]);
 

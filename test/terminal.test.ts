@@ -999,6 +999,20 @@ test.skipIf(!usable)("the action menu lists the actions and pastes one without s
   );
   expect((await items.allInnerTexts()).some((t) => t.includes("tmux cheat sheet"))).toBe(true);
 
+  // Escape closes it even with the keyboard in the terminal: the terminal encodes keys as input
+  // and swallows the keydown before it bubbles, so the menu takes the key in capture — and takes
+  // it rather than sending an Escape to the shell below. Then it opens again on the same click.
+  await page.keyboard.press("Escape");
+  await waitFor(
+    "the menu to close on Escape",
+    async () => (await items.count()) === 0,
+  );
+  await page.locator("header.change-bar .menu > button").click();
+  await waitFor(
+    "the menu to list the action again",
+    async () => (await items.allInnerTexts()).some((t) => t.includes("Say hello")),
+  );
+
   await items.filter({ hasText: "Say hello" }).click();
   // The notice names what happened and where.
   await waitFor(
