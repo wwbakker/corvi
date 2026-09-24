@@ -2251,6 +2251,35 @@ button.danger:disabled {
   background: inherit;
 }
 
+/* Actions: the files behind the menu, one row per file and one editor at a time. */
+/* The file as written — frontmatter and body in one text — in the Markdown editor's chrome
+   (well, border, monospace face; apps/web/src/editor/client/theme.ts paints its own), filling
+   the section rather than the few columns a bare textarea starts with. */
+.page.actions-page textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+
+/* The filename beside the label is the file's name, not its name to you. */
+.page.actions-page .widget p code {
+  color: var(--muted);
+}
+
+/* One row per scope: the scope's name keeps a single line beside the id field and its button —
+   a wrapped "Default / workspace" reads as two headings. */
+.page.actions-page .widget h3 {
+  white-space: nowrap;
+}
+
 /* Settings: one long form, in the same sections the config file has. */
 .page.settings .form {
   max-width: 680px;
