@@ -16,12 +16,18 @@ import {
   writeSidecar,
 } from "../change/server/index.ts";
 import { ChangeId } from "@corvi/contracts/changes";
-import { CreateChangeBodySchema, ForceBodySchema, ReposBodySchema } from "@corvi/contracts/api";
+import {
+  CreateChangeBodySchema,
+  ForceBodySchema,
+  PlanWriteBodySchema,
+  ReposBodySchema,
+} from "@corvi/contracts/api";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { BadRequestError, ConflictError, isIweError, type IweError } from "@corvi/contracts/errors";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
+import { textRevision } from "../capabilities/files.ts";
 import type { Change } from "../domain/change.ts";
 import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
@@ -54,7 +60,6 @@ const PatchBody = Schema.Struct({
   state: Schema.optional(Schema.String),
   title: Schema.optional(Schema.String),
 });
-const TextBody = Schema.Struct({ text: Schema.optional(Schema.String) });
 
 export const changeRoutes = guard({
   "/api/changes": {
@@ -121,11 +126,14 @@ export const changeRoutes = guard({
 
   // An idea's plan: the text the wizard collected and the file the agent edits. A sidecar, so it
   // travels into the archive with the change. Read and written as text rather than through the
-  // change record: it is a document, not a field.
+  // change record: it is a document, not a field. Every response carries the revision the text
+  // has (`textRevision`), which is what a later edit is based on.
   "/api/changes/:id/plan": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.map(readSidecar(c.id, PLAN_FILE), (text) => json({ text })),
+        Effect.map(readSidecar(c.id, PLAN_FILE), (text) =>
+          json({ text, revision: textRevision(text) }),
+        ),
       ),
     PUT: (req) =>
       withChange(req.params.id, (c) =>
@@ -137,11 +145,22 @@ export const changeRoutes = guard({
               message: "this change is finished: its plan is read-only",
             });
           }
-          const body = yield* bodyAs(req, TextBody);
+          const body = yield* bodyAs(req, PlanWriteBodySchema);
           const text = body.text ?? "";
+          // An edit is based on the revision it read. A plan the agent or an IDE wrote since
+          // then is not overwritten silently: the write is refused and the page re-reads. An
+          // absent base revision writes unconditionally — creation and a deliberate overwrite.
+          if (body.baseRevision !== undefined) {
+            const current = textRevision(yield* readSidecar(c.id, PLAN_FILE));
+            if (body.baseRevision !== current) {
+              return yield* new ConflictError({
+                message: "the plan changed on disk: reload it before saving",
+              });
+            }
+          }
           yield* writeSidecar(c.id, PLAN_FILE, text);
           yield* Effect.sync(() => announce("changes"));
-          return json({ text });
+          return json({ text, revision: textRevision(text) });
         }),
       ),
   },

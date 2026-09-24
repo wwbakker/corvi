@@ -85,7 +85,7 @@ test("a state becomes one class, lowercased with spaces as dashes", () => {
   expect(stateClass("Some  Weird\tState")).toBe("state-some-weird-state");
 });
 
-test("a change's page id resolves to the core, an offered tab, or the dashboard", () => {
+test("a change's page id resolves to the core, an offered tab, or the plan", () => {
   const review = { id: "review", title: "Review changes", extension: "review" };
   const tab = { id: "ci", title: "CI", extension: "ci" };
   const tabs = [review, tab];
@@ -98,18 +98,18 @@ test("a change's page id resolves to the core, an offered tab, or the dashboard"
   expect(resolveChangePage("review", tabs)).toEqual({ kind: "tab", tab: review });
 
   // An id nobody offered — a stale URL, a tab the extension stopped declaring, `review` on a
-  // workspace that dropped the extension — is the dashboard, so the page still renders
-  // something rather than a blank page.
-  expect(resolveChangePage("gone", tabs)).toEqual({ kind: "dashboard" });
-  expect(resolveChangePage("gone", [])).toEqual({ kind: "dashboard" });
-  expect(resolveChangePage("review", [])).toEqual({ kind: "dashboard" });
-  expect(resolveChangePage("review", [tab])).toEqual({ kind: "dashboard" });
+  // workspace that dropped the extension — is the plan, where a change opens, so the page
+  // still renders something rather than a blank page.
+  expect(resolveChangePage("gone", tabs)).toEqual({ kind: "plan" });
+  expect(resolveChangePage("gone", [])).toEqual({ kind: "plan" });
+  expect(resolveChangePage("review", [])).toEqual({ kind: "plan" });
+  expect(resolveChangePage("review", [tab])).toEqual({ kind: "plan" });
 });
 
-test("the change nav is the core's pages and then the extensions' tabs in load order", () => {
+test("the change nav is the plan, the dashboard, and then the extensions' tabs in load order", () => {
   expect(changeNav([])).toEqual([
-    { id: "dashboard", title: "Dashboard" },
     { id: "plan", title: "Plan" },
+    { id: "dashboard", title: "Dashboard" },
   ]);
   expect(
     changeNav([
@@ -118,8 +118,8 @@ test("the change nav is the core's pages and then the extensions' tabs in load o
       { id: "jira", title: "Issues", extension: "jira" },
     ]),
   ).toEqual([
-    { id: "dashboard", title: "Dashboard" },
     { id: "plan", title: "Plan" },
+    { id: "dashboard", title: "Dashboard" },
     { id: "review", title: "Review changes" },
     { id: "ci", title: "CI" },
     { id: "jira", title: "Issues" },
@@ -131,8 +131,8 @@ test("the change nav is the core's pages and then the extensions' tabs in load o
       { id: "plan", title: "Theirs", extension: "x" },
     ]),
   ).toEqual([
-    { id: "dashboard", title: "Dashboard" },
     { id: "plan", title: "Plan" },
+    { id: "dashboard", title: "Dashboard" },
   ]);
 });
 

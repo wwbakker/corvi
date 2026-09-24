@@ -633,6 +633,102 @@ button.primary:not(:disabled) {
   gap: 8px;
 }
 
+/* The wizard: one screen. The plan fills the left half; the sections — each step's pick, the
+   change's details, the repositories — stack down the right and scroll their own column. */
+.wizard-body {
+  display: flex;
+  gap: 16px;
+  /* Everything around it: the window's title bar row and the page's own padding. */
+  height: calc(100vh - var(--titlebar-height) - 96px);
+  min-height: 360px;
+}
+
+.wizard-plan {
+  flex: 2;
+  min-width: 0;
+  display: flex;
+}
+
+.wizard-sections {
+  flex: 3;
+  min-width: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 20px;
+  align-content: start;
+  padding-right: 4px;
+}
+
+/* A section row: what the pick is called, what is picked, and the button that opens its
+   browser. Mirrors the settings' fields; the label is a span for the reason `Group` documents. */
+.wizard-sections .field {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.wizard-sections .field .row {
+  display: flex;
+  gap: 8px;
+}
+
+.wizard-sections .field .row input {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+}
+
+.wizard-sections .field .row .choose {
+  padding: 0 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* An unset pick: the word "none" is a fact, not a value. */
+.wizard-sections input.none {
+  color: var(--faint);
+}
+
+/* The repositories as they are picked: each one's name, and what will happen to it. */
+.picked-repos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.picked-repos li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 10px;
+}
+
+.picked-repos .name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.picked-repos .what {
+  color: var(--muted);
+}
+
+/* A document changed on disk while edits are unsaved: one line of a question above the editor,
+   with the two honest answers beside it. */
+.stale-banner {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--warn);
+  color: var(--warn);
+}
+
 .repo-list {
   list-style: none;
   padding: 0;

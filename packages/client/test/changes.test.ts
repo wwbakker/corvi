@@ -177,7 +177,7 @@ test("the change reads hit their named paths and decode their payloads", async (
       if (url.endsWith("/repos"))
         return Response.json([{ path: "/r", name: "r", location: "new", branch: { kind: "change" } }])
       if (url.endsWith("/description")) return Response.json({ text: "PROJ - thing" })
-      if (url.endsWith("/plan")) return Response.json({ text: "the plan" })
+      if (url.endsWith("/plan")) return Response.json({ text: "the plan", revision: "r1" })
       return Response.json(change("a"))
     },
   })
@@ -191,24 +191,27 @@ test("the change reads hit their named paths and decode their payloads", async (
   expect((await client.widgets(ChangeId.make("a")))[0]?.column).toBe("left")
   expect((await client.repoStates(ChangeId.make("a")))[0]?.path).toBe("/r")
   expect((await client.description(ChangeId.make("a"))).text).toBe("PROJ - thing")
-  expect(await client.plan(ChangeId.make("a"))).toEqual({ text: "the plan" })
+  expect(await client.plan(ChangeId.make("a"))).toEqual({ text: "the plan", revision: "r1" })
   expect(calls[0]).toBe("http://x/api/changes")
 })
 
-test("writePlan sends the text as JSON to the plan endpoint", async () => {
+test("writePlan sends the text and its base revision to the plan endpoint", async () => {
   let seen: { url: string; init?: RequestInit } | undefined
   const client = makeChangesClient({
     baseUrl: "http://x",
     fetch: async (input, init) => {
       seen = { url: String(input), init }
-      return Response.json({ text: "saved" })
+      return Response.json({ text: "saved", revision: "r2" })
     },
   })
 
-  expect(await client.writePlan(ChangeId.make("a"), "saved")).toEqual({ text: "saved" })
+  expect(await client.writePlan(ChangeId.make("a"), { text: "saved", baseRevision: "r1" })).toEqual({
+    text: "saved",
+    revision: "r2",
+  })
   expect(seen?.url).toBe("http://x/api/changes/a/plan")
   expect(seen?.init?.method).toBe("PUT")
-  expect(JSON.parse(String(seen?.init?.body))).toEqual({ text: "saved" })
+  expect(JSON.parse(String(seen?.init?.body))).toEqual({ text: "saved", baseRevision: "r1" })
 })
 
 test("a card, its repository rows, and the completion state decode", async () => {
@@ -276,6 +279,7 @@ test("terminals, wizard steps, pages and the directory browser decode", async ()
       if (url.includes("/api/wizard"))
         return Response.json({
           steps: [{ id: "jira", extension: "jira", title: "Jira", phase: "issue" }],
+          planTemplate: "# Template",
         })
       if (url.includes("/api/pages"))
         return Response.json({
@@ -292,7 +296,9 @@ test("terminals, wizard steps, pages and the directory browser decode", async ()
 
   expect((await client.terminals()).a?.[0]?.attention).toBe(false)
   expect((await client.terminalUrl(ChangeId.make("a"))).url).toBe("/term/a")
-  expect((await client.wizardSteps("w"))[0]?.phase).toBe("issue")
+  const wizard = await client.wizard("w")
+  expect(wizard.steps[0]?.phase).toBe("issue")
+  expect(wizard.planTemplate).toBe("# Template")
   expect((await client.pages("w"))[0]?.id).toBe("leftovers")
   expect((await client.branches("/repos/x")).default).toBe("main")
   expect((await client.directories({ path: "/repos", hidden: true })).entries[0]?.isRepo).toBe(true)
@@ -312,6 +318,7 @@ test("the settings view and the workspaces decode", async () => {
       notificationSound: true,
       contextMenu: true,
       ideationPrompt: "p",
+      planTemplate: "# Template",
       workspaces: [],
       worktreeCopy: [],
       env: {},

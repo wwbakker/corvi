@@ -80,11 +80,11 @@ test("the review tab is offered only when the extension is enabled, and its URL 
   expect(enabled).toEqual([{ id: "review", title: "Review changes", extension: "review" }]);
   expect(resolveChangePage("review", enabled)).toEqual({ kind: "tab", tab: enabled[0]! });
 
-  // A workspace that dropped review has no tab for it, and /changes/:id/review is the dashboard,
-  // not a blank page.
+  // A workspace that dropped review has no tab for it, and /changes/:id/review is the plan,
+  // where a change opens — not a blank page.
   const disabled = changeTabsFor(ws({ settings: { extensions: [] } }));
   expect(disabled).toEqual([]);
-  expect(resolveChangePage("review", disabled)).toEqual({ kind: "dashboard" });
+  expect(resolveChangePage("review", disabled)).toEqual({ kind: "plan" });
 });
 
 test("the extension's local route answers for a repository of a change, and 404s an unknown one", async () => {

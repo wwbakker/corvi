@@ -12,10 +12,13 @@ Ideas are separate from work in progress. An unfinished wizard appears as **New 
 title you typed; opening it restores its draft. Only one destination is highlighted: a terminal
 window, a change view, or the draft being edited.
 
-Selecting a change opens its dashboard. **Dashboard**, **Plan** and **Review changes** are views
-of that change; terminal windows can also be opened directly from the navigation column. Each
-view has a URL, so deep links, reload, and browser Back work. Leaving Settings with unsaved edits
-asks first however you go — clicking or Back — see [configuration](configuration.md).
+Selecting a change opens its **Plan** — the first of its views. **Plan**, **Dashboard** and
+**Review changes** are views of that change; terminal windows can also be opened directly from
+the navigation column. Each view has a URL, so deep links, reload, and browser Back work.
+Coming back to a change's overview — from a terminal window, or by opening the change again —
+lands on the view you last had open there, within the running app: restarting opens the plan
+again. Leaving Settings with unsaved edits asks first however you go — clicking or Back — see
+[configuration](configuration.md).
 
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
 new-window control creates another window, normally in the current window's working directory.
@@ -24,8 +27,11 @@ new-window control creates another window, normally in the current window's work
 
 A change's name, state, and actions remain accessible above its content. The **Plan** tab is
 `PLAN.md` as Markdown source filling the tab — the markup stays visible, in a monospace face,
-colored as an editor colors it. The dashboard places notes documents in the left column and
-status cards in the right; narrow windows stack the
+colored as an editor colors it. Tab indents in the editor (Escape, then Tab, moves focus on
+instead). The text follows the file when it changes outside Corvi — an agent or an IDE editing
+it — and when edits are in flight it asks before either version goes away. How far into the plan
+you were is remembered as you move around, within the running app. The dashboard places notes
+documents in the left column and status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
 whole page. Returning to a view can show cached data while it refreshes.
 

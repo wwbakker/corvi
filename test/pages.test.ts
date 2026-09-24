@@ -122,7 +122,8 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
     ["/azure-devops", ".page"],
     ["/settings", ".tabs"],
     ["/actions", ".actions-page"],
-    [`/changes/${id}`, ".widget"],
+    [`/changes/${id}`, ".plan-page"],
+    [`/changes/${id}/dashboard`, ".widget"],
     [`/changes/${id}/plan`, ".plan-page"],
     [`/changes/${id}/review`, ".local"],
   ];
@@ -134,7 +135,7 @@ test.skipIf(!usable)("every page renders without the engine complaining", async 
 
 test.skipIf(!usable)("the cards offer their editors, and a finished change offers none", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   await page.waitForSelector(".widget");
 
   // The three cards that own something editable: the repository list and the two ticket links.
@@ -162,7 +163,7 @@ test.skipIf(!usable)("the cards offer their editors, and a finished change offer
   });
   expect(cancelled.ok).toBe(true);
   const closed = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await closed.goto(`${url}/changes/${done}`, { waitUntil: "domcontentloaded" });
+  await closed.goto(`${url}/changes/${done}/dashboard`, { waitUntil: "domcontentloaded" });
   await closed.waitForSelector(".widget");
   expect(await closed.locator('button[title^="Edit "]').count()).toBe(0);
   await closed.close();
@@ -339,7 +340,7 @@ test.skipIf(!usable)("the unsaved marker does not resize the notes card", async 
   // margin it contributes changes the height of the heading — and the whole card — on every
   // keystroke. It must be smaller than the title and take no space of its own.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const card = page.locator(".widget:has(.md-editor)");
   await card.waitFor();
   const heading = card.locator("h3");
@@ -366,7 +367,7 @@ test.skipIf(!usable)("the notes editor is still yours to resize", async () => {
   // The textarea it replaced had a resize grip, and a long note deserves more than one fixed
   // window: the corner drags the box taller and the text scrolls inside it.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const editor = page.locator(".widget:has(.md-editor) .md-editor");
   await editor.waitFor();
   const before = await editor.boundingBox();
@@ -386,7 +387,7 @@ test.skipIf(!usable)("the documents sit left of the status cards", async () => {
   // are present, so the grid has two columns and
   // the status region starts where the documents end.
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const documents = page.locator(".column.documents");
   await documents.locator(".md-editor").waitFor();
   const status = page.locator(".column.status");
@@ -404,7 +405,7 @@ test.skipIf(!usable)("the checkouts card reads the change's repositories through
   // The first browser consumer of the new slice: the card fetches the typed operation, decodes
   // the DTO, and shows the projected state and the branch the worktree actually holds.
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const card = page.locator('[data-testid="checkouts"]');
   await card.locator(".checkout-row").first().waitFor();
   expect(await card.locator(".checkout-name").first().innerText()).toBe("example-api");
@@ -423,7 +424,7 @@ test.skipIf(!usable)("switching changes shows the new change's notes, not the on
   await writeNotes(other, opened);
 
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const notes = page.locator(".md-editor");
   await notes.waitFor();
   /** The notes card's text, once it is what it should be; the load is asynchronous like every
@@ -444,6 +445,9 @@ test.skipIf(!usable)("switching changes shows the new change's notes, not the on
   await fillEditor(notes, "typed into the change you leave");
   await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
   await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+  // A change opens on its plan now; its notes are on the dashboard beside it.
+  await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+  await page.waitForURL(`**/changes/${other}/dashboard`);
   expect(await notesAre(opened)).toBe(opened);
 
   // Leaving flushed: the card going away wrote what was typed into the change you left, without
@@ -483,10 +487,13 @@ test.skipIf(!usable)("a read from the change you left does not land on the one y
       await route.continue();
     },
   );
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   await page.locator(".md-editor").waitFor();
   await page.locator(".sidebar .entry.change", { hasText: `${other}-x` }).click();
   await page.waitForFunction((want) => location.pathname === `/changes/${want}`, other);
+  // A change opens on its plan now; its notes are on the dashboard beside it.
+  await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+  await page.waitForURL(`**/changes/${other}/dashboard`);
 
   // The change you opened answered first, and stays: the late answer is for a page that is gone.
   const notes = page.locator(".md-editor");
@@ -512,7 +519,7 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
     body: JSON.stringify({ title: "Anonymise customer names" }),
   });
   const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
-  await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
   const strip = page.locator(".change-bar");
   await strip.locator(".window-tab.overview").waitFor();
 
@@ -681,11 +688,12 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(1);
   expect(await page.locator(".sidebar > button.entry.current").count()).toBe(0);
 
-  await page.locator(".steps button.step", { hasText: "Idea" }).click();
-  await page.getByLabel("Title").fill("A half-written idea");
-  await fillEditor(page.locator(".form .md-editor"), "The first paragraph of the plan.");
+  await fillEditor(
+    page.locator(".wizard-plan .md-editor"),
+    "# A half-written idea\n\nThe first paragraph of the plan.",
+  );
 
-  // The row says what the draft is called while it is being typed.
+  // The row says what the draft is called while it is being typed: its plan's heading.
   const row = page.locator(".sidebar .entry.change.state-ideation");
   await page.waitForFunction(
     () =>
@@ -699,22 +707,27 @@ test.skipIf(!usable)("a half-filled idea is still there after leaving the wizard
   expect(await row.count()).toBe(1);
   expect(await page.locator(".sidebar .entry.change.state-ideation.current").count()).toBe(0);
 
-  // Back through the row: the fields and the step are where they were left.
+  // Back through the row: the plan and the fields are where they were left. (The fields are
+  // found in the details form: the steps' dialogs carry fields of their own with familiar
+  // names.)
   await row.click();
-  await page.waitForSelector(".wizard .form");
+  await page.waitForSelector(".wizard-body");
   expect(new URL(page.url()).pathname).toBe("/new");
-  expect((await page.locator(".steps button.step.active").innerText()).trim()).toContain("Idea");
-  expect(await page.getByLabel("Title").inputValue()).toBe("A half-written idea");
-  expect(await editorText(page.locator(".form .md-editor"))).toBe(
-    "The first paragraph of the plan.",
+  expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
+    "A half-written idea",
+  );
+  expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe(
+    "# A half-written idea\n\nThe first paragraph of the plan.",
   );
 
   // The other way in — the New button — opens the same draft, not a second, empty one.
   await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
   await page.waitForSelector(".change-card");
   await page.locator(".sidebar .ideas-row .create").click();
-  await page.waitForSelector(".wizard .form");
-  expect(await page.getByLabel("Title").inputValue()).toBe("A half-written idea");
+  await page.waitForSelector(".wizard-body");
+  expect(await page.locator(".wizard-sections .form").getByLabel("Title").inputValue()).toBe(
+    "A half-written idea",
+  );
   expect(await row.count()).toBe(1);
 
   // Discarding is the one thing that throws it away.
@@ -733,10 +746,13 @@ test.skipIf(!usable)(
 
     await page.locator(".sidebar .ideas-row .create").click();
     await page.waitForSelector(".wizard");
-    // Straight to the repositories step: the wizard opens wherever the integrations' issue steps
-    // end, and this is about the browser, not the idea's fields.
-    await page.locator(".steps button.step", { hasText: "Repositories" }).click();
-    await page.waitForSelector(".browser");
+    // Straight to the repositories: the wizard is one screen, and the section's Edit… opens
+    // the browser dialog — this is about the browser, not the idea's fields.
+    await page
+      .locator(".wizard-sections .repos-field")
+      .getByRole("button", { name: "Edit…" })
+      .click();
+    await page.waitForSelector("dialog .browser");
 
     // The fixture repository is in the configured start directory, one Add away.
     await page
@@ -828,13 +844,21 @@ test.skipIf(!usable)("the state selector speaks the record's vocabulary", async 
   await page.close();
 }, 30_000);
 
-test.skipIf(!usable)("the overview stays current while one of its own tabs is showing", async () => {
+test.skipIf(!usable)("the change's tabs are the plan first, and the overview stays current across them", async () => {
   // Two levels, two rows: the window's row says which surface — the change's own views or one of its
-  // terminals — and the row under it says which of those views. So the Overview tab is current for
-  // every one of them, not only for the dashboard, and it is still the way back to it.
+  // terminals — and the row under it says which of those views. Plan is the first of them (where a
+  // change opens), and the Overview tab is current for every one of them.
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
+
+  // Plan first, then the dashboard, then the extensions' tabs in load order.
+  expect((await page.locator(".change-tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
+    "Plan",
+    "Dashboard",
+    "Review changes",
+  ]);
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
 
   const review = page.locator(".change-tabs .tab", { hasText: "Review changes" });
   await review.click();
@@ -844,12 +868,93 @@ test.skipIf(!usable)("the overview stays current while one of its own tabs is sh
   );
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
+  // The Overview tab stands for the views as a whole: while one of them is showing, clicking it
+  // changes nothing — it is the way back from a terminal, not a jump to another view.
   await page.locator(".change-bar .window-tab.overview").click();
-  await page.waitForURL(`**/changes/${id}`);
-  await page.locator(".column.documents").waitFor();
-  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
+  await page.waitForTimeout(300);
+  expect(new URL(page.url()).pathname).toBe(`/changes/${id}/review`);
+  expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe(
+    "Review changes",
+  );
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
   await page.close();
+}, 30_000);
+
+test.skipIf(!usable)("a change opens on its plan, and comes back on the view you left", async () => {
+  // The memory is the page's own: remembered while it lives, and a fresh page — or a restart of
+  // the app — opens the plan again (apps/web/src/app-root/remember.ts). `other`, whose name no
+  // earlier test has rewritten, is the one the card can be found by.
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".change-card");
+    await page.locator(".change-card", { hasText: `${other}-x` }).click();
+    await page.waitForURL(`**/changes/${other}`);
+    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
+
+    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+    await page.waitForURL(`**/changes/${other}/dashboard`);
+
+    // Leave for home and come back: the view you left, not the plan again.
+    await page.locator(".sidebar > button.entry", { hasText: "Changes" }).click();
+    await page.waitForSelector(".change-card");
+    await page.locator(".change-card", { hasText: `${other}-x` }).click();
+    await page.waitForURL(`**/changes/${other}/dashboard`);
+    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
+  } finally {
+    await page.close();
+  }
+}, 30_000);
+
+test.skipIf(!usable)("the plan is where you left it: its scroll comes back", async () => {
+  // In memory only: a fresh page — or a restart of the app — opens the document at the top
+  // again (apps/web/src/app-root/remember.ts).
+  const long = Array.from({ length: 120 }, (_, i) => `paragraph ${i + 1}`).join("\n\n");
+  const wrote = await fetch(`${url}/api/changes/${other}/plan`, {
+    method: "PUT",
+    body: JSON.stringify({ text: long }),
+  });
+  expect(wrote.ok).toBe(true);
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/changes/${other}`, { waitUntil: "domcontentloaded" });
+    // The document, not the empty editor the placeholder stands in for.
+    await page.waitForSelector(".plan-page .md-editor .cm-placeholder", { state: "detached" });
+
+    // Scroll the document well down…
+    const scroller = page.locator(".plan-page .cm-scroller");
+    const scrolled = await scroller.evaluate((el) => {
+      el.scrollTop = el.scrollHeight / 2;
+      return el.scrollTop;
+    });
+    expect(scrolled).toBeGreaterThan(0);
+    // …and let it come to rest both times: the freshly filled editor measures its lines and the
+    // scroll settles with them, a line or so at a time. What is remembered — and what comes
+    // back — is where that leaves the reader.
+    const rested = async (): Promise<number> => {
+      let top = await scroller.evaluate((el) => el.scrollTop);
+      for (let i = 0; i < 30; i++) {
+        await Bun.sleep(150);
+        const now = await scroller.evaluate((el) => el.scrollTop);
+        if (Math.abs(now - top) < 2) return now;
+        top = now;
+      }
+      return top;
+    };
+    const left = await rested();
+
+    // …leave for the dashboard, and come back: the same place in the document.
+    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+    await page.waitForURL(`**/changes/${other}/dashboard`);
+    await page.locator(".change-tabs .tab", { hasText: "Plan" }).click();
+    await page.waitForURL(`**/changes/${other}`);
+    await page.waitForSelector(".plan-page .md-editor .cm-placeholder", { state: "detached" });
+    const restored = await rested();
+    expect(Math.abs(restored - left)).toBeLessThan(60);
+  } finally {
+    await page.close();
+  }
 }, 30_000);
 
 test.skipIf(!usable)("the right-click menu follows the setting", async () => {

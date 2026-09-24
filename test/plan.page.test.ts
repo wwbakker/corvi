@@ -3,14 +3,16 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
 import { closePages, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
-import { editorText } from "./editor.ts";
+import { editorText, fillEditor } from "./editor.ts";
 
 /**
- * The plan tab and the wizard's description, through the page: `PLAN.md` as Markdown source in
- * the shared editor. The editor must show every character of the markup — colored, monospace —
- * keep its highlighting while typing, save through the existing debounce, and hold a finished
- * change's plan read-only. The tab rules are pinned in web.test.ts and the meaning of the colors
- * in markdownTheme.test.ts; this is the product surface.
+ * The plan tab and the wizard's plan, through the page: `PLAN.md` as Markdown source in the
+ * shared editor. The editor must show every character of the markup — colored, monospace —
+ * keep its highlighting while typing, save through the existing debounce, follow the file when
+ * it changes outside Corvi (asking before either text goes), and hold a finished change's plan
+ * read-only. Tab adds a tab rather than leaving the editor. The tab rules are pinned in
+ * web.test.ts and the meaning of the colors in markdownTheme.test.ts; this is the product
+ * surface.
  *
  * The change is created through the API as the wizard would, and finished the way a user
  * finishes an early change: cancelled, which turns the plan into a record. If no browser is
@@ -275,27 +277,157 @@ test.skipIf(!usable)("a finished change's plan is a read-only record", async () 
   }
 }, 60_000);
 
-test.skipIf(!usable)("the wizard's description is the same editor", async () => {
+test.skipIf(!usable)("the wizard's plan is the same editor, and its heading names the change", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
     await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
-    await page.waitForSelector("nav.steps");
-    // The details step is the wizard's own "Idea" step, wherever the extensions put it.
-    await page.locator("nav.steps button.step", { hasText: "Idea" }).first().click();
-    await page.waitForSelector(".form .md-editor .cm-line");
+    await page.waitForSelector(".wizard-plan .md-editor");
 
-    await page.locator(".form .md-editor .cm-content").click();
+    await page.locator(".wizard-plan .md-editor .cm-content").click();
     await page.keyboard.type("# Starting **plan**");
 
-    expect(await editorText(page.locator(".form .md-editor"))).toBe("# Starting **plan**");
+    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("# Starting **plan**");
     const spans = await painted(page);
     expect(spans.find((s) => s.text === "#")?.color).toBe(mark);
     expect(spans.find((s) => s.text === "plan")?.weight).toBe("700");
 
+    // The heading is the title's one-way source: the read-only field follows it, and the id
+    // follows the title until set by hand. (Scoped to the details form: the steps' dialogs carry
+    // fields of their own with familiar names.)
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll(".wizard-sections .form input")].some(
+        (i) => (i as HTMLInputElement).value === "starting-plan",
+      ),
+    );
+    const details = page.locator(".wizard-sections .form");
+    expect(await details.getByLabel("Title").inputValue()).toBe("Starting **plan**");
+    expect(await details.getByLabel("Change id").inputValue()).toBe("starting-plan");
+
     // A bracket closes itself, and typing its end replaces the offered one.
     await page.keyboard.type(" (parens)");
-    expect(await editorText(page.locator(".form .md-editor"))).toBe("# Starting **plan** (parens)");
+    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe(
+      "# Starting **plan** (parens)",
+    );
   } finally {
     await page.close();
   }
 }, 60_000);
+
+test.skipIf(!usable)("Tab adds a tab in the editor, and Escape-then-Tab moves on", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".wizard-plan .md-editor");
+    await page.locator(".wizard-plan .md-editor .cm-content").click();
+
+    // A tab goes into the text, and the keystroke is consumed: the focus stays the editor's.
+    await page.keyboard.type("one");
+    await page.keyboard.press("Tab");
+    expect(await editorText(page.locator(".wizard-plan .md-editor"))).toBe("one\t");
+    expect(
+      await page.evaluate(() => document.activeElement?.closest(".md-editor") !== null),
+    ).toBe(true);
+
+    // Escape arms the way out — the next Tab moves on to the next control instead.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Tab");
+    expect(
+      await page.evaluate(() => document.activeElement?.closest(".md-editor") === null),
+    ).toBe(true);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+test("a plan write against the revision it read is refused, not an overwrite", async () => {
+  // The contract under the editor's saves (useSavedText): what the route guarantees, browser or
+  // no browser.
+  const created = await fetch(`${url}/api/changes`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ id: "PROJ-2", state: "Ideation" }),
+  });
+  expect(created.status).toBe(201);
+
+  const read = async (): Promise<{ text: string; revision: string }> =>
+    (await (await fetch(`${url}/api/changes/PROJ-2/plan`)).json()) as { text: string; revision: string };
+  const write = async (body: Record<string, unknown>): Promise<Response> =>
+    fetch(`${url}/api/changes/PROJ-2/plan`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+  // An empty plan is a document too: it has a revision to edit from.
+  const base = await read();
+  expect(base.text).toBe("");
+  expect((await write({ text: "first words", baseRevision: base.revision })).status).toBe(200);
+  const afterSave = await read();
+  expect(afterSave.text).toBe("first words");
+  expect(afterSave.revision).not.toBe(base.revision);
+
+  // Someone else wrote in between (an outside editor's save lands unconditionally); a write
+  // still based on the older revision is refused, and their text stands.
+  expect((await write({ text: "their words" })).status).toBe(200);
+  expect((await write({ text: "my words", baseRevision: afterSave.revision })).status).toBe(409);
+  expect((await read()).text).toBe("their words");
+
+  // The deliberate overwrite — creation, and the banner's "Keep mine" — carries no base.
+  expect((await write({ text: "my words" })).status).toBe(200);
+  expect((await read()).text).toBe("my words");
+});
+
+test.skipIf(!usable)(
+  "the plan follows the file when it changes outside Corvi, and asks before either text goes",
+  async () => {
+    // The agent scenario: PLAN.md is edited on disk while the plan is open on screen. With
+    // nothing being typed the text simply follows; with edits in flight the banner asks.
+    const created = await fetch(`${url}/api/changes`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "PROJ-3", state: "Ideation", plan: "start text" }),
+    });
+    expect(created.status).toBe(201);
+    const planFile = join(tmp, "changes", "PROJ-3", "PLAN.md");
+
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    try {
+      await page.goto(`${url}/changes/PROJ-3/plan`, { waitUntil: "domcontentloaded" });
+      await page.waitForSelector(".plan-page .md-editor .cm-line");
+      await loaded(page);
+      expect(await editorText(page.locator(".plan-page .md-editor"))).toBe("start text");
+
+      // The quiet case: nothing is being typed here, so the file's text simply arrives.
+      await Bun.write(planFile, "their quiet edit");
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector(".plan-page .cm-content")
+            ?.textContent?.includes("their quiet edit") ?? false,
+        undefined,
+        { timeout: 8000 },
+      );
+
+      // The loud case: edits in flight are never overwritten — the banner asks, and "Keep
+      // mine" is the deliberate overwrite.
+      await fillEditor(page.locator(".plan-page .md-editor"), "my whole text");
+      await Bun.write(planFile, "their loud edit");
+      const banner = page.locator(".stale-banner");
+      await banner.waitFor({ timeout: 8000 });
+      await page.getByRole("button", { name: "Keep mine" }).click();
+      await banner.waitFor({ state: "detached" });
+      expect(await Bun.file(planFile).text()).toBe("my whole text");
+
+      // And "Reload" is the other answer: the file's text, the typing gone.
+      await fillEditor(page.locator(".plan-page .md-editor"), "my second try");
+      await Bun.write(planFile, "their last word");
+      await banner.waitFor({ timeout: 8000 });
+      await page.getByRole("button", { name: "Reload" }).click();
+      await banner.waitFor({ state: "detached" });
+      expect(await editorText(page.locator(".plan-page .md-editor"))).toBe("their last word");
+    } finally {
+      await page.close();
+    }
+  },
+  60_000,
+);

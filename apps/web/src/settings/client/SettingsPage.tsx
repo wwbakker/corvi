@@ -17,6 +17,7 @@ import {
   ExtensionToggles,
   Field,
   ListEditor,
+  MarkdownField,
   type KnownExtension,
 } from "./SettingsFields.tsx";
 
@@ -224,6 +225,7 @@ export function SettingsPage({
     ...shown.map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
     { id: "notifications", label: "Notifications" },
     { id: "window", label: "Window" },
+    { id: "ideation", label: "Ideation" },
     { id: "environment", label: "Environment" },
     { id: "extensions", label: "Extensions" },
   ];
@@ -509,6 +511,20 @@ export function SettingsPage({
                 : undefined
             }
             onChange={(on) => setSetting("contextMenu", on)}
+          />
+        </div>
+      )}
+
+      {/* The plan template keeps the tab (the brief's text is the Actions page's own now):
+          what a new idea starts as is still the idea's beginnings. */}
+      {active === "ideation" && (
+        <div className="form wide">
+          <MarkdownField
+            label="Plan template"
+            hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. Clearing this leaves new plans empty."
+            value={value("planTemplate")}
+            placeholder={inherited("planTemplate")}
+            onChange={(planTemplate) => setSetting("planTemplate", planTemplate)}
           />
         </div>
       )}

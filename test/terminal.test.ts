@@ -576,8 +576,9 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
 
   // And the overview tab goes back to the page the change is about — where the same row is waiting
   // at the very top, with the overview tab where you are and the same terminals beside the name.
+  // The change's views open on its plan (remember.ts): nothing else has been viewed in this page.
   await allTabs.first().click();
-  await page.waitForSelector(".widget");
+  await page.waitForSelector(".plan-page .md-editor");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}`);
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
   expect(await page.locator(".change-bar .window-tab:not(.new):not(.overview)").count()).toBe(
@@ -611,6 +612,38 @@ test.skipIf(!usable)("the terminal page's bar is its windows, not the change's c
   await page.waitForSelector(".terminal-screen .xterm-screen");
   expect(new URL(page.url()).pathname).toBe(`/changes/${id}/terminals`);
   await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("out of a terminal, the overview lands where you left off", async () => {
+  // The way around a change: the window strip's Overview tab against its terminal windows. Out
+  // of a terminal it opens the change's views — its plan until you have been elsewhere in them,
+  // and then the view you left. Remembered for the page's life only (remember.ts).
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  try {
+    await page.goto(`${url}/changes/${id}/terminals`);
+    await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+    await page.locator(".window-tab:not(.new):not(.overview)").first().waitFor();
+
+    // Nothing remembered yet: the plan, where a change opens.
+    await page.locator(".window-tab.overview").click();
+    await page.waitForSelector(".change-tabs .tab.current");
+    expect(new URL(page.url()).pathname).toBe(`/changes/${id}`);
+    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
+
+    // Elsewhere in the views, then back into a terminal window…
+    await page.locator(".change-tabs .tab", { hasText: "Dashboard" }).click();
+    await page.waitForSelector(".widget");
+    await page.locator(".window-tab:not(.new):not(.overview)").first().click();
+    await page.waitForSelector(".terminal-screen .xterm-screen");
+
+    // …and out again: the dashboard, where you left off — not the plan again.
+    await page.locator(".window-tab.overview").click();
+    await page.waitForSelector(".widget");
+    expect(new URL(page.url()).pathname).toBe(`/changes/${id}/dashboard`);
+    expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Dashboard");
+  } finally {
+    await page.close();
+  }
 }, budget(60_000));
 
 test.skipIf(!usable)("a window tab dragged onto another takes its place", async () => {
@@ -667,7 +700,7 @@ test.skipIf(!usable)("a window that starts waiting is announced, and the notice 
       },
     };
   });
-  await page.goto(`${url}/changes/${id}`);
+  await page.goto(`${url}/changes/${id}/dashboard`);
   await page.waitForSelector(".widget");
 
   const active = await tmux("display-message", "-p", "-t", session, "#{window_index}");
@@ -1064,7 +1097,9 @@ test.skipIf(!usable)("a notified command window freezes over its output and call
     };
   });
   await page.goto(`${url}/changes/${id}`);
-  await page.waitForSelector(".widget");
+  // A change opens on its plan now (the dashboard is its own tab), and the column below shows
+  // the windows on every one of its pages.
+  await page.waitForSelector(".plan-page");
 
   const shown = (text: string): Promise<void> =>
     waitFor(`the column to show ${text}`, async () =>

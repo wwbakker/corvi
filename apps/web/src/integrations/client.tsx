@@ -22,15 +22,16 @@ import * as reviewClient from "./review/client.tsx";
 export type StepContext = {
   /** The context the change will be made in. */
   workspace?: string;
-  /** The change id and branch — editable on the details step, prefillable by any issue step,
+  /** The change id and branch — editable in the details section, prefillable by any issue step,
    * wherever in the order that step sits. */
   draft: { id: string; branch: string };
   setDraft: (patch: Partial<{ id: string; branch: string }>) => void;
   /** The repositories picked so far: what a repos-phase step looks at. */
   repos: Selection[];
-  /** What the details step shows as the change's ticket: whatever an issue step last picked. */
-  ticket?: string;
-  setTicket: (label: string | undefined) => void;
+  /** This step's pick: what its read-only field shows (the label), and what the pick is called
+   * (the name) — which names the change while the plan's heading is still the template's.
+   * Undefined clears the pick. */
+  setPick: (extension: string, pick: StepPick | undefined) => void;
   /** This extension's own slot in the draft in hand — what `setPayload` last set, and what a
    * step that was left and reopened reads back to restore its own selection. */
   payload: (extension: string) => unknown;
@@ -38,6 +39,10 @@ export type StepContext = {
    * change's `extensions` bag. Undefined removes it, which is what clearing a selection means. */
   setPayload: (extension: string, data: unknown) => void;
 };
+
+/** A step's pick: the label its read-only field shows (an issue key or number, as it is
+ * written) and the name the issue goes by (its summary), which may name the change. */
+export type StepPick = { label: string; name: string };
 
 export type StepComponent = ComponentType<{ ctx: StepContext }>;
 

@@ -14,6 +14,7 @@ import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { moment } from "./moment.ts";
 import { Sidebar } from "./Sidebar.tsx";
+import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
@@ -334,7 +335,7 @@ function App(): JSX.Element {
         actions={view.name === "actions"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
-        onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
+        onOpenChange={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
         onSelectWindow={(id, index) => {
           terminals.select(id, index);
           setWantsTerminal(true);
@@ -346,7 +347,7 @@ function App(): JSX.Element {
           <Home
             changes={changes}
             error={error}
-            onOpen={(id) => setView({ name: "change", id, page: "dashboard" })}
+            onOpen={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
             onNew={() => setView({ name: "new" })}
           />
         )}
@@ -377,7 +378,10 @@ function App(): JSX.Element {
               // Only a created change takes the draft: a refused create keeps the form.
               setDraft(undefined);
               void reload();
-              setView({ name: "change", id: c.id, page: "dashboard", provision });
+              // A new change opens on its Plan: the wizard just wrote it, and anything an old
+              // record of this id left in the page's memory is not this change's.
+              forgetChange(c.id);
+              setView({ name: "change", id: c.id, page: "plan", provision });
             }}
             onDiscard={discardDraft}
           />

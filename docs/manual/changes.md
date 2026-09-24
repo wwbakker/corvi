@@ -8,21 +8,30 @@ configured archive.
 
 ## Creating an idea
 
-**New** opens the wizard. Enabled workspace integrations determine the available issue steps.
-You can select or create a Jira issue, name the idea yourself, choose repositories, and optionally
-select or create a GitHub issue for them. Both issue integrations can be used together.
+**New** opens the wizard: one screen, the plan on the left and everything else down the right.
+The left half is `PLAN.md`'s starting text in the Markdown editor, seeded from the `planTemplate`
+setting (see [configuration](configuration.md)). The change's name is the plan's first `#`
+heading — the title follows it as you write, one-way, and the id and branch follow the title
+until you edit either by hand.
 
-The idea fields include title, description, ID, and branch name. ID and branch follow the title
-until manually edited. Repositories are optional for an idea; the directory browser starts at
+The right half holds the sections. Each enabled issue integration is collapsed to its pick: Jira
+tickets and GitHub issues alike are a single field with an **Edit…** that opens the board or the
+issue list in a dialog, where you can select or create an issue (the GitHub field shows the
+issue's number under its repository). Picking an issue names the change too — by writing the
+plan's heading — while that heading is still the template's; your own words are never rewritten.
+Both issue integrations can be used together. Below them: the workspace, the change id and
+branch, and the repositories as a small list of what is picked, with the same kind of edit
+button over the directory browser. Repositories are optional for an idea; the browser starts at
 `repositoriesDirectory` and can navigate up to `/`.
 
 Leaving the wizard preserves one draft in the page. It appears under **Ideas** as *New idea* or
 its title. Reopening restores the fields and selections. **Discard** removes it; closing/reloading
 the application forgets it. No server-side change exists until **Create idea**.
 
-Creating an idea writes its record and `PLAN.md`. Selected repositories are linked for browsing;
-no branch/worktree is created and no ticket moves. The **Plan** tab edits the same file an agent
-can read. **Brief the agent** pastes the configured briefing into the change's terminal.
+Creating an idea writes its record and `PLAN.md`, and opens the change on its plan. Selected
+repositories are linked for browsing; no branch/worktree is created and no ticket moves. The
+**Plan** tab edits the same file an agent can read. **Brief the agent** pastes the configured
+briefing into the change's terminal.
 
 **Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
 prepares the selected checkouts, and moves associated tickets. Partial provisioning failures are
@@ -104,8 +113,10 @@ moves or closes follows the new link. The old ticket is left where it is. A fini
 record — its cards carry no pencil, and its links are read-only.
 
 The **Plan** tab holds the change's own document, between the dashboard and the tabs extensions
-contribute: `PLAN.md` as Markdown source, in the same editor the notes are written in. A finished
-change's plan is a read-only record.
+contribute: `PLAN.md` as Markdown source, in the same editor the notes are written in. The text
+follows the file when it changes outside Corvi — an agent or an IDE editing it — and when edits
+are in flight it asks, with **Reload** and **Keep mine**, before either version goes away. A
+finished change's plan is a read-only record.
 
 The **Review changes** tab shows per-repository staged/unstaged changes and diffs. Its commit and
 push actions are described in [integrations and included features](integrations.md#review-changes).

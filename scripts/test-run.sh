@@ -52,7 +52,9 @@ case "$mode" in
 esac
 
 # `--timings` orders the files slowest-first, so the longest ones start first and the workers
-# finish together (bun's own file of measured durations, refreshed with --update-timings).
+# finish together (bun's own file of measured durations, refreshed with --update-timings — in
+# the `=` form of the flag, since a space-separated value is taken for a test-file filter
+# instead).
 # The end-to-end files each start servers and a browser: one at a time, where a timing guess
 # cannot turn three of them into a race for one runner's cores. Everything else runs across
 # CPU-count workers.

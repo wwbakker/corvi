@@ -9,11 +9,12 @@ import { BoardSchema, IssueSchema, type Board, type Issue } from "@corvi/contrac
 const wire = makeWireClient({ baseUrl: "" });
 
 /**
- * The jira extension's two screens: the wizard's issue step — the board, filtered and grouped,
- * plus creating an issue — and the Jira card's editor, which is the same table pointed at the
- * link of an existing change. Picking an issue in the wizard writes this extension's payload
- * (`extensions.jira = { key }`), prefills the change id and branch, and names the ticket the
- * details step shows; picking one in the editor replaces that payload through the link route.
+ * The jira extension's two screens: the wizard's step — the board, filtered and grouped, plus
+ * creating an issue — and the Jira card's editor, which is the same table pointed at the link of
+ * an existing change. Picking an issue in the wizard writes this extension's payload
+ * (`extensions.jira = { key }`), shows the key in its field, prefills the change id and branch,
+ * and names the change while the plan's heading is still the template's; picking one in the
+ * editor replaces that payload through the link route.
  */
 
 /** Native <dialog>: modal behaviour, focus trap and Escape come from the platform. */
@@ -93,8 +94,8 @@ export function IssueTable({
   selectedKey,
   onSelect,
   hint =
-    "Pick the issue this change implements, create a new one, or skip and name the change " +
-    "yourself on the next step.",
+    "Pick the issue this change is about, create a new one, or leave this pick empty and name " +
+    "the change yourself.",
 }: {
   /** Whose Jira: a second client is a second site, and its board is not this one's. */
   workspace?: string;
@@ -102,7 +103,7 @@ export function IssueTable({
    * draft is reopened, and the row that was picked is found by its key. */
   selectedKey: string | null;
   onSelect: (issue: Issue | null) => void;
-  /** What to say under the create button: the wizard's next step is not the editor's. */
+  /** What to say under the create button: the wizard's field is not the editor's. */
   hint?: string;
 }): JSX.Element {
   const [board, setBoard] = useState<Board>({ issues: [], sprints: [] });
@@ -288,7 +289,7 @@ export const step: StepComponent = ({ ctx }) => {
   const select = (issue: Issue | null): void => {
     setSelectedKey(issue?.key ?? null);
     ctx.setPayload("jira", issue ? { key: issue.key } : undefined);
-    ctx.setTicket(issue?.key);
+    ctx.setPick("jira", issue ? { label: issue.key, name: issue.summary } : undefined);
     if (issue) ctx.setDraft({ id: issue.key, branch: branchFor(issue.key, issue.summary) });
   };
 

@@ -19,7 +19,8 @@ export type View =
 /** The URL is the view: /new, /changes/<id>[/<page>], /<page> for an extension's page,
  * everything else is home. The change's page segment is kept as it is — the core's `dashboard`
  * and `terminals`, or a tab an extension contributes — and ChangeView resolves an id nobody
- * offers to the dashboard, so a stale URL still renders something. The pages are the server's
+ * offers to the plan, so a stale URL still renders something. A change without a segment is its
+ * plan, where it opens. The pages are the server's
  * (`/api/pages`), so a top-level path resolves only once they are known — until then it is
  * home, and the resolution is redone when they arrive. */
 export function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
@@ -43,7 +44,7 @@ export function viewOf(path: string, pages: { id: string; extension: string }[] 
     }
     return { name: "home" };
   }
-  const page = m[2] ?? "dashboard";
+  const page = m[2] ?? "plan";
   return { name: "change", id: decodeURIComponent(m[1]!), page };
 }
 
@@ -57,7 +58,7 @@ export const pathOf = (view: View): string =>
         : view.name === "settings"
           ? "/settings"
           : view.name === "change"
-            ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
+            ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}`
             : "/";
 
 /**
