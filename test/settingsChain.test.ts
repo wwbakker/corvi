@@ -24,6 +24,7 @@ const globalConfig: Config = {
   notificationSound: true,
   contextMenu: true,
   ideationPrompt: "global prompt",
+  planTemplate: "global template",
   worktreeCopy: [".global"],
   extensions: ["jira"],
   extensionSettings: { jira: { project: "GLOBAL" } },
@@ -50,6 +51,7 @@ const leafCases: {
   { key: "notificationSound", global: true, own: false },
   { key: "contextMenu", global: true, own: false },
   { key: "ideationPrompt", global: "global prompt", own: "ws prompt" },
+  { key: "planTemplate", global: "global template", own: "ws template" },
   { key: "worktreeCopy", global: [".global"], own: [".ws"] },
 ];
 

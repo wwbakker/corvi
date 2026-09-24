@@ -15,7 +15,7 @@ export function WindowTabs({
   onSelectWindow,
   onNewWindow,
   onMoveWindow,
-  onOpenPage,
+  onOpenOverview,
 }: {
   /** Which surface of the change is on screen: its own views — the dashboard, or one of the tabs it
    * contributes — or one of its terminals. The strip is drawn on both, and the Overview tab stands
@@ -33,9 +33,9 @@ export function WindowTabs({
   onNewWindow: () => void;
   /** A dragged tab landed: the window at `from` takes the place of the one at `to`. */
   onMoveWindow: (from: number, to: number) => void;
-  /** Switching between the change's own pages, which are tabs rather than navigation: they are
-   * two views of the same change, not two places. */
-  onOpenPage: (page: Page) => void;
+  /** The way back to the change's own views, wherever in them you left off (remember.ts): from
+   * a terminal this is the way out, and while a view is showing the tab is already current. */
+  onOpenOverview: () => void;
 }): JSX.Element {
   // Which window tab a drag is carrying, and which one it is over: the fixed ends of the strip
   // — overview and "new" — take no part in either.
@@ -89,7 +89,7 @@ export function WindowTabs({
         // them, and a terminal is the only thing here that is not one.
         className={page === "terminals" ? "window-tab overview" : "window-tab overview current"}
         title="the change's overview"
-        onClick={() => onOpenPage("dashboard")}
+        onClick={onOpenOverview}
       >
         <span className="label">Overview</span>
       </button>

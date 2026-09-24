@@ -1,11 +1,18 @@
 import { type JSX, useEffect, useRef } from "react";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentLess,
+  insertTab,
+} from "@codemirror/commands";
 import {
   bracketMatching,
   codeFolding,
   foldGutter,
   foldKeymap,
+  indentUnit,
   syntaxHighlighting,
 } from "@codemirror/language";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
@@ -24,10 +31,19 @@ import {
 } from "@codemirror/view";
 import { editorChrome, markdownHighlighting } from "./theme.ts";
 import { fencedCodeLanguages } from "./languages.ts";
+import { scrollOf, seeScroll, type DocumentKey } from "../../app-root/remember.ts";
 
 /** Read-only is a prop that changes (a finished change's plan is a record), so it lives in a
  * compartment the view can be reconfigured through. */
 const readOnlyCompartment = new Compartment();
+
+/** Tab inserts a tab and Shift-Tab takes one out, consuming the keystroke instead of moving to
+ * the next control. Read-only text has nothing to insert, so the keystroke falls through to the
+ * browser — the record is still left by keyboard. The way out of an editable editor is the
+ * platform's own: Escape arms tab-focus mode for two seconds (`@codemirror/view`), in which the
+ * next Tab moves on instead of indenting. */
+const tabKeys = (view: EditorView): boolean => (view.state.readOnly ? false : insertTab(view));
+const shiftTabKeys = (view: EditorView): boolean => (view.state.readOnly ? false : indentLess(view));
 
 /**
  * The Markdown source editor the plan, the notes and the wizard's description are written in: a
@@ -50,6 +66,7 @@ export function MarkdownEditor({
   rows = 16,
   fill = false,
   onBlur,
+  remember,
 }: {
   /** The document; applied whenever it differs from what the editor holds. */
   value: string;
@@ -66,11 +83,27 @@ export function MarkdownEditor({
   fill?: boolean;
   /** The editor lost focus: a card flushes its pending save here. */
   onBlur?: () => void;
+  /** Come back to this document where you left it: the key its scroll position is remembered
+   * under (app-root/remember.ts — remembered while the page lives, forgotten by a restart). */
+  remember?: DocumentKey;
 }): JSX.Element {
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<EditorView | null>(null);
   // Read by the view's long-lived callbacks, which must not close over a stale render's handlers.
   const events = useRef({ onChange, onBlur });
+  // Set while an external `value` is applied to the document: that dispatch is this component
+  // writing, not a person typing, and reporting it would mark a just-loaded document unsaved —
+  // and, in the save contract, "being typed in".
+  const applying = useRef(false);
+  // Which key's scroll is being remembered now — the prop may follow the document to another
+  // change while the view lives — and which view has taken that key's position: the view is
+  // rebuilt around the same document (React re-runs the creating effect), and the rebuilt one
+  // must restore again and settle again before its scroll is worth recording. Keyed by the
+  // view, not by the component, so a rebuilt view is a fresh subject.
+  const memory = useRef(remember);
+  memory.current = remember;
+  const restored = useRef<{ view: EditorView; key: string } | null>(null);
+  const settled = useRef<{ view: EditorView; key: string } | null>(null);
   useEffect(() => {
     events.current = { onChange, onBlur };
   });
@@ -100,7 +133,11 @@ export function MarkdownEditor({
           rectangularSelection(),
           crosshairCursor(),
           scrollPastEnd(),
+          // Tab inserts a literal tab character (a selection indents by the same unit), and the
+          // keystroke is consumed — Escape-then-Tab is what moves focus out.
+          indentUnit.of("\t"),
           keymap.of([
+            { key: "Tab", run: tabKeys, shift: shiftTabKeys },
             ...closeBracketsKeymap,
             ...searchKeymap,
             ...foldKeymap,
@@ -117,7 +154,9 @@ export function MarkdownEditor({
             EditorView.editable.of(!readOnly),
           ]),
           EditorView.updateListener.of((update) => {
-            if (update.docChanged) events.current.onChange(update.state.doc.toString());
+            if (update.docChanged && !applying.current) {
+              events.current.onChange(update.state.doc.toString());
+            }
           }),
           EditorView.domEventHandlers({
             blur: () => {
@@ -129,7 +168,20 @@ export function MarkdownEditor({
       }),
     });
     editor.current = view;
+    // Where the reader was, in the remembered document (remember.ts): recorded as the view
+    // scrolls, and restored on arrival below. A view still filling with text — or one already
+    // taken off the page, whose detached scroller reads zero again — records nothing: only a
+    // settled, attached view's position is worth remembering.
+    const saveScroll = (): void => {
+      const key = memory.current;
+      if (key !== undefined && settled.current?.view === view && settled.current.key === key) {
+        seeScroll(key, view.scrollDOM.scrollTop);
+      }
+    };
+    view.scrollDOM.addEventListener("scroll", saveScroll);
     return () => {
+      if (view.scrollDOM.isConnected) saveScroll();
+      view.scrollDOM.removeEventListener("scroll", saveScroll);
       view.destroy();
       editor.current = null;
     };
@@ -138,9 +190,29 @@ export function MarkdownEditor({
 
   useEffect(() => {
     const view = editor.current;
-    if (!view || view.state.doc.toString() === value) return;
-    view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
-  }, [value]);
+    if (!view) return;
+    if (view.state.doc.toString() !== value) {
+      applying.current = true;
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: value } });
+      applying.current = false;
+    }
+    // Where this key's reader left it comes back once the view is next measured — the scroller
+    // has no height to scroll before it is laid out, and an earlier scrollTop would clamp to
+    // zero. A document nothing is remembered of keeps whatever scroll it has. That measurement
+    // is also when the view settles on the key and its scroll starts being recorded. Once per
+    // view and key: the key may follow the editor to another change while the view lives.
+    const key = remember;
+    if (key !== undefined && (restored.current?.view !== view || restored.current.key !== key)) {
+      restored.current = { view, key };
+      view.requestMeasure({
+        read: () => scrollOf(key),
+        write: (top) => {
+          settled.current = { view, key };
+          if (top !== undefined) view.scrollDOM.scrollTop = top;
+        },
+      });
+    }
+  }, [value, remember]);
 
   useEffect(() => {
     editor.current?.dispatch({

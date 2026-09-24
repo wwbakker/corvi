@@ -38,10 +38,16 @@ export function NotesCard({
   // The same notes are read and written through the extension's namespace, as the change's
   // workspace, so the server resolves the change from the right root.
   const endpoint = url(`/ext/notes/changes/${changeId}/notes`, workspace);
-  const { text, change, saved, flush } = useSavedText({
+  const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
     key: `${changeId}:notes`,
-    load: () => wire.request("GET", endpoint, TextSchema).then(({ text }) => text ?? null),
-    save: (value) => wire.request("PUT", endpoint, TextSchema, { body: { text: value } }),
+    load: () =>
+      wire
+        .request("GET", endpoint, TextSchema)
+        .then(({ text }) => ({ text: text ?? null })),
+    // The notes route has no revision to save against: its saves cannot conflict, and a file
+    // changed underneath is only ever caught by the re-reads (useSavedText).
+    save: (value) =>
+      wire.request("PUT", endpoint, TextSchema, { body: { text: value } }).then(() => ({})),
   });
 
   return (
@@ -51,6 +57,21 @@ export function NotesCard({
         <span className="spacer" />
         <span className="summary">{saved ? "" : "unsaved"}</span>
       </h3>
+      {stale && (
+        <div className="stale-banner">
+          <span>The notes changed on disk.</span>
+          <button type="button" title="drop these edits and load the file" onClick={reload}>
+            Reload
+          </button>
+          <button
+            type="button"
+            title="overwrite the file with what is here"
+            onClick={keepMine}
+          >
+            Keep mine
+          </button>
+        </div>
+      )}
       <MarkdownEditor
         rows={20}
         value={text}

@@ -1,6 +1,7 @@
 import type { SettingsView } from "../model.ts";
 import { useState, type JSX } from "react";
 import { DirectoryPicker } from "../../workspace/client/DirectoryPicker.tsx";
+import { MarkdownEditor } from "../../editor/client/MarkdownEditor.tsx";
 
 /** An extension the page knows about, with the settings it declares. */
 export type KnownExtension = SettingsView["extensions"][number];
@@ -112,6 +113,38 @@ export function DirectoryField({
         workspace={workspace}
         onChoose={onChange}
       />
+    </div>
+  );
+}
+
+/**
+ * A Markdown document setting — the plan template — edited in the same source editor the plan
+ * itself is written in. The template *is* Markdown, so its markup stays visible and colored as
+ * everywhere else it is edited. A div rather than a <label> for the reason `Group` documents:
+ * the editor's surface is not the kind of control a label can name. Inheritance is the
+ * textarea's: an empty field means "not set here", and the value that applies anyway is its
+ * placeholder.
+ */
+export function MarkdownField({
+  label,
+  hint,
+  value,
+  placeholder,
+  rows = 12,
+  onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: string | undefined;
+  placeholder?: string;
+  rows?: number;
+  onChange: (value: string) => void;
+}): JSX.Element {
+  return (
+    <div className="field">
+      <span className="label">{label}</span>
+      <MarkdownEditor rows={rows} value={value ?? ""} placeholder={placeholder} onChange={onChange} />
+      {hint && <small>{hint}</small>}
     </div>
   );
 }

@@ -6,6 +6,7 @@ import {
   EnvEditor,
   ExtensionToggles,
   ListEditor,
+  MarkdownField,
   type KnownExtension,
 } from "../apps/web/src/settings/client/SettingsFields.tsx";
 
@@ -102,4 +103,20 @@ test("a list the scope inherits says so, and an own one can be given back", () =
   );
   expect(own).toContain('value=".vscode"');
   expect(own).toContain("use Global");
+});
+
+test("the plan template is edited in the Markdown editor, named and explained", () => {
+  const html = renderToStaticMarkup(
+    createElement(MarkdownField, {
+      label: "Plan template",
+      hint: "The starting text of a new idea in PLAN.md.",
+      value: "# Scaffold",
+      placeholder: "(none)",
+      onChange: () => {},
+    }),
+  );
+  expect(html).toContain("Plan template");
+  expect(html).toContain("The starting text of a new idea in PLAN.md.");
+  // The editor stands where the textarea would: the template is Markdown, source and all.
+  expect(html).toContain("md-editor");
 });

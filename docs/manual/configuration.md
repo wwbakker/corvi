@@ -51,6 +51,9 @@ workspace's `settings`, where it overrides the global one key by key. The settin
   [what a new worktree inherits](changes.md#what-a-new-worktree-inherits).
 - `ideationPrompt`: text used by **Brief the agent**. `{id}`, `{title}`, `{plan}`, and `{state}`
   are substituted. An empty value uses the built-in prompt.
+- `planTemplate`: the starting text of a new idea's `PLAN.md`, seeded into the wizard's plan
+  editor. Literal Markdown, nothing substituted — the scaffold you edit away. An empty value
+  leaves new plans empty.
 - `notificationSound`: whether a notification plays the system sound. Absent means yes.
 - `contextMenu`: whether right-clicking shows the browser's own menu. Absent means yes. The
   terminal's tmux menu is independent of this setting.

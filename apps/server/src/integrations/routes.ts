@@ -14,7 +14,7 @@ import {
 } from "./index.ts";
 import { guard } from "../capabilities/web.ts";
 import { isFinished } from "../domain/change.ts";
-import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
+import { workspaceById, workspaceOf, settingsOf } from "../workspace/server/index.ts";
 import {
   bodyAs,
   json,
@@ -31,15 +31,23 @@ const ActionBody = Schema.Struct({ arg: Schema.optional(Schema.String) });
 // with the integration, the routes and the page are its own.
 
 export const integrationRoutes = guard({
-  // The steps the "Create change" wizard has in the context you are in: the extensions'
-  // contributions, resolved per workspace. The page renders what it is told exists — which is
-  // why a context without an extension has no step to show for it, not an empty one.
+  // What the "Create change" wizard needs in the context you are in: the extensions' steps,
+  // resolved per workspace, and the plan template in effect there. The page renders what it is
+  // told exists — which is why a context without an extension has no step to show for it, not
+  // an empty one — and opens the plan editor on the template.
   "/api/wizard": {
-    GET: (req) =>
-      withWorkspaceParam(
+    GET: (req) => {
+      const workspace = workspaceById(workspaceParam(req));
+      return withWorkspaceParam(
         req,
-        Effect.succeed(json({ steps: wizardStepsFor(workspaceById(workspaceParam(req))) })),
-      ),
+        Effect.succeed(
+          json({
+            steps: wizardStepsFor(workspace),
+            planTemplate: settingsOf(workspace).planTemplate,
+          }),
+        ),
+      );
+    },
   },
 
   // The pages a context's sidebar offers, the same question one surface over: what is

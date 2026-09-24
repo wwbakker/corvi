@@ -15,6 +15,7 @@ import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Effect } from "effect";
 import { checkoutsOf, fakeShell, runEffect, runRouteWithShell, runWithShell, TestError, type FakeShell, type ShellCall  } from "./helpers.ts";
 import { contentInMain, integrated } from "../apps/server/src/vendors/git.ts";
+import { changeActions } from "../apps/web/src/change-page/client/changeActions.ts";
 
 /**
  * Completing a change is a sequence of irreversible steps across repositories, extensions and
@@ -915,4 +916,48 @@ test("the complete route drives readiness through the scripted CLI", async () =>
   expect((shell.calls as ShellCall[]).some((c) => c.cmd.join(" ").startsWith("gh pr merge"))).toBe(
     false,
   );
+});
+
+test("changeActions: the endings are last and apart, and an idea ends by discarding", () => {
+  const noop = (): void => {};
+  const base = {
+    starting: false,
+    completing: false,
+    cancelling: false,
+    completion: undefined,
+    onRename: noop,
+    onStart: noop,
+    onCopyDescription: noop,
+    onComplete: noop,
+    onCancel: noop,
+  };
+
+  // A started change: the name, the copy, then the two endings — Complete and Cancel — the
+  // first of them set apart from what can still be undone.
+  const active = changeActions({ ...base, idea: false });
+  expect(active.map((a) => a.label)).toEqual([
+    "Rename change",
+    "Copy PR description",
+    "Complete change",
+    "Cancel change",
+  ]);
+  expect(active.filter((a) => a.separated).map((a) => a.label)).toEqual(["Complete change"]);
+  expect(active.at(-1)?.title).toContain("nothing is merged");
+
+  // The readiness poll is the hover's orientation; the click re-checks.
+  const ready = changeActions({
+    ...base,
+    idea: false,
+    completion: { ready: true, reasons: [], tagged: [], toMerge: [] },
+  });
+  expect(ready.find((a) => a.label === "Complete change")?.title).toBe("Ready to complete");
+
+  // An idea has a third way — starting the work — and its one ending is discarding it.
+  const idea = changeActions({ ...base, idea: true });
+  expect(idea.map((a) => a.label)).toEqual(["Rename change", "Start work", "Discard idea"]);
+
+  // The busy words follow the flags.
+  const busy = changeActions({ ...base, idea: true, starting: true, cancelling: true });
+  expect(busy.map((a) => a.label)).toEqual(["Rename change", "Starting…", "Discarding…"]);
+  expect(busy.find((a) => a.label === "Discarding…")?.disabled).toBe(true);
 });

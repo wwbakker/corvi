@@ -41,6 +41,10 @@ const settingsFields = {
   /** The prompt that briefs an agent about an idea, `{id}`/`{title}`/`{plan}`/`{state}` filled
    * in. Free text, so nothing is validated; an empty value means the default. */
   ideationPrompt: Schema.optional(Schema.String),
+  /** The starting text of a new idea's PLAN.md, seeded into the wizard's plan editor. Literal
+   * Markdown with nothing filled in — the scaffold the user edits away. An empty or absent
+   * value means no template: the plan starts empty. */
+  planTemplate: Schema.optional(Schema.String),
   worktreeCopy: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   /** Which extensions exist here, by name. Absent means all of them; an empty list means none.
    * Names are validated against what is included by the settings write, not here: the file may
@@ -108,6 +112,8 @@ export const Resolved = Schema.Struct({
   notificationSound: Schema.Boolean,
   contextMenu: Schema.Boolean,
   ideationPrompt: Schema.String,
+  /** The plan template in effect: literal Markdown, or the empty string for none. */
+  planTemplate: Schema.String,
   worktreeCopy: Schema.mutable(Schema.Array(Schema.String)),
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensionSettings: Schema.optional(ExtensionBag),
