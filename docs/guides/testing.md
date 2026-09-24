@@ -26,6 +26,12 @@ Install dependencies with `bun install --frozen-lockfile`. Browser tests need
 `bunx playwright install chromium`; tmux tests need tmux. Report skipped browser/native/platform
 checks separately from passes. Do not claim macOS coverage from a Linux run.
 
+Two environment traps that fail silently: page tests serve the built bundle, so a bare
+`bun test` after an edit runs `apps/web/dist` as it was — `bun run build:web` first
+(`bun run test` builds). And tmux starts no server at all when its socket path exceeds 103
+characters, so window lists come back empty with nothing to say why; that is why
+`test/terminal.test.ts` gives its socket the short directory `tmuxTempDir` makes.
+
 The node-pty dependency is pinned for working native prebuilds, including executable permission
 on the macOS spawn helper. Before changing that pin, verify spawn, output, resize, and shutdown
 under both Node and Electron's Node on the supported platforms. A successful install alone is

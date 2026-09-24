@@ -21,6 +21,8 @@ import {
   DirectoryListingSchema,
   ForceBodySchema,
   PagesResponseSchema,
+  PlanDocSchema,
+  PlanWriteBodySchema,
   PromptResponseSchema,
   RepoItemsSchema,
   RepoStateSchema,
@@ -49,6 +51,8 @@ import {
   type DirectoryListingSpec,
   type ForceBodyDto,
   type PageInfoDto,
+  type PlanDocDto,
+  type PlanWriteBodyDto,
   type PromptResponseDto,
   type RepoItemsDto,
   type RepoStateDto,
@@ -63,7 +67,7 @@ import {
   type WidgetDto,
   type WidgetInfoDto,
   type WindowActionBodyDto,
-  type WizardStepInfoDto,
+  type WizardResponseDto,
   type WorkspacesResponseDto,
 } from "@corvi/contracts/api"
 import type { ConfigFileDto } from "@corvi/contracts/config"
@@ -106,7 +110,7 @@ export interface ChangesClient {
   ) => Promise<CompletionProgressDto | null>
   readonly terminals: (options?: RequestOptions) => Promise<TerminalsResponseDto>
   readonly terminalUrl: (changeId: ChangeId, options?: RequestOptions) => Promise<UrlDto>
-  readonly wizardSteps: (workspace?: string, options?: RequestOptions) => Promise<WizardStepInfoDto[]>
+  readonly wizard: (workspace?: string, options?: RequestOptions) => Promise<WizardResponseDto>
   readonly pages: (workspace?: string, options?: RequestOptions) => Promise<PageInfoDto[]>
   readonly directories: (
     spec: DirectoryListingSpec,
@@ -117,8 +121,12 @@ export interface ChangesClient {
   readonly writeSettings: (settings: ConfigFileDto) => Promise<SettingsViewDto>
   readonly workspaces: (options?: RequestOptions) => Promise<WorkspacesResponseDto>
   readonly description: (changeId: ChangeId, options?: RequestOptions) => Promise<TextDto>
-  readonly plan: (changeId: ChangeId, options?: RequestOptions) => Promise<TextDto>
-  readonly writePlan: (changeId: ChangeId, text: string) => Promise<TextDto>
+  readonly plan: (changeId: ChangeId, options?: RequestOptions) => Promise<PlanDocDto>
+  readonly writePlan: (
+    changeId: ChangeId,
+    body: PlanWriteBodyDto,
+    options?: RequestOptions,
+  ) => Promise<PlanDocDto>
   readonly create: (body: CreateChangeBodyDto) => Promise<StartedResponseDto>
   readonly start: (changeId: ChangeId) => Promise<StartedResponseDto>
   readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>
@@ -298,7 +306,7 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
       decode(TerminalsResponseSchema, await send("GET", "/terminals", options)),
     terminalUrl: async (changeId, options) =>
       decode(UrlSchema, await send("GET", `${change(changeId)}/terminal`, options)),
-    wizardSteps: async (workspace, options) =>
+    wizard: async (workspace, options) =>
       decode(
         WizardResponseSchema,
         await send(
@@ -306,7 +314,7 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
           `/wizard${workspace ? `?workspace=${encodeURIComponent(workspace)}` : ""}`,
           options,
         ),
-      ).steps,
+      ),
     pages: async (workspace, options) =>
       decode(
         PagesResponseSchema,
@@ -336,9 +344,9 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
     description: async (changeId, options) =>
       decode(TextSchema, await send("GET", `${change(changeId)}/description`, options)),
     plan: async (changeId, options) =>
-      decode(TextSchema, await send("GET", `${change(changeId)}/plan`, options)),
-    writePlan: async (changeId, text) =>
-      decode(TextSchema, await send("PUT", `${change(changeId)}/plan`, { body: { text } })),
+      decode(PlanDocSchema, await send("GET", `${change(changeId)}/plan`, options)),
+    writePlan: async (changeId, body, options) =>
+      decode(PlanDocSchema, await send("PUT", `${change(changeId)}/plan`, { body, ...options })),
     create: async (body) =>
       decode(StartedResponseSchema, await send("POST", "/changes", { body })),
     start: async (changeId) =>

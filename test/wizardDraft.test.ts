@@ -2,6 +2,9 @@ import { test, expect } from "bun:test";
 import {
   applyPatch,
   EMPTY_DRAFT,
+  pickPatch,
+  planPatch,
+  seedPatch,
   stepContext,
   toChangeDraft,
   type Draft,
@@ -11,7 +14,8 @@ import {
 /**
  * The draft is the wizard's own vocabulary, and `toChangeDraft` is the one place it becomes the
  * creation the API takes. Pinned here rather than only through a browser: the mapping is where
- * an empty field, a repository's flags and the resolved workspace each get their meaning.
+ * an empty heading, a repository's flags and the resolved workspace each get their meaning —
+ * and where the plan's heading, the title's one-way source, drives the id and branch.
  */
 
 const draft = (patch: Partial<Draft> = {}): Draft => ({ ...EMPTY_DRAFT, ...patch });
@@ -21,8 +25,7 @@ test("a filled draft becomes the creation the route takes", () => {
     draft({
       id: "PROJ-1",
       branch: "PROJ-1-the-thing",
-      title: "  The thing  ",
-      description: "the starting plan",
+      plan: "# The thing\n\nthe starting plan",
       repos: [
         { path: "/repos/a", location: "new", branch: { kind: "change" } },
         { path: "/repos/b", location: "original", branch: { kind: "change" }, base: "origin/main" },
@@ -35,11 +38,12 @@ test("a filled draft becomes the creation the route takes", () => {
   expect(created).toEqual({
     id: "PROJ-1",
     branch: "PROJ-1-the-thing",
+    // The plan's first heading names the change.
     title: "The thing",
     // The wizard always makes an idea: the work starts later, from the change's page.
     state: "Ideation",
-    // The description is the change's PLAN.md, not a field of change.json.
-    plan: "the starting plan",
+    // The plan is the change's PLAN.md, not a field of change.json.
+    plan: "# The thing\n\nthe starting plan",
     workspace: "workspace-a",
     checkouts: [
       { path: "/repos/a", location: "new", branch: { kind: "change" } },
@@ -64,8 +68,65 @@ test("an empty draft posts no title and no workspace, and the core fills the gap
   expect(created.extensions).toEqual({});
 });
 
-test("a whitespace title is no title either", () => {
-  expect(toChangeDraft(draft({ id: "PROJ-3", title: "   " })).title).toBeUndefined();
+test("a plan without a heading leaves the naming to the ticket's summary", () => {
+  expect(toChangeDraft(draft({ id: "PROJ-3", plan: "just words\n#\n" })).title).toBeUndefined();
+});
+
+test("the id and branch follow the plan's heading until set by hand", () => {
+  let held = draft();
+  const edit = (plan: string): void => {
+    held = applyPatch(held, planPatch(held, plan));
+  };
+
+  edit("# The thing\n");
+  expect(held).toMatchObject({ id: "the-thing", branch: "the-thing", idTouched: false });
+  // Renaming the heading renames them with it.
+  edit("# Something else\n");
+  expect(held).toMatchObject({ id: "something-else", branch: "something-else" });
+
+  // After an id is set by hand it — and the branch that followed it — are yours.
+  held = applyPatch(held, { id: "PROJ-1", idTouched: true });
+  edit("# Third name\n");
+  expect(held).toMatchObject({ id: "PROJ-1", branch: "third-name" });
+});
+
+test("the template seeds a fresh draft's plan once, and never rewrites written-in text", () => {
+  const seeded = applyPatch(draft(), seedPatch(draft(), "# Scaffold\n\n## Context\n"));
+  expect(seeded).toMatchObject({
+    plan: "# Scaffold\n\n## Context\n",
+    planSeeded: true,
+    headingSeed: "Scaffold",
+    id: "scaffold",
+  });
+
+  // A draft written in before the template arrived keeps its text; the template only marks
+  // itself seeded (and what its heading was, for the pick rule).
+  const written = draft({ plan: "# Mine\n" });
+  expect(applyPatch(written, seedPatch(written, "# Scaffold\n"))).toMatchObject({
+    plan: "# Mine\n",
+    planSeeded: true,
+    headingSeed: "Scaffold",
+  });
+});
+
+test("a picked issue names the change only while the heading is still the template's", () => {
+  const seeded = applyPatch(draft(), seedPatch(draft(), "# Scaffold\n\n## Context\n"));
+
+  // Untouched: the pick's name becomes the heading, and the id and branch follow it.
+  const picked = applyPatch(seeded, pickPatch(seeded, "jira", { label: "PROJ-7", name: "Fix the bug" }));
+  expect(picked.plan).toBe("# Fix the bug\n\n## Context\n");
+  expect(picked.picks["jira"]).toEqual({ label: "PROJ-7", name: "Fix the bug" });
+
+  // Edited by hand: the pick shows in its field and the plan is left exactly as it is.
+  const mine = applyPatch(seeded, planPatch(seeded, "# My own words\n"));
+  const untouched = applyPatch(mine, pickPatch(mine, "jira", { label: "PROJ-7", name: "Fix the bug" }));
+  expect(untouched.plan).toBe("# My own words\n");
+  expect(untouched.picks["jira"]?.label).toBe("PROJ-7");
+
+  // Clearing a pick clears the field and writes nothing.
+  const cleared = applyPatch(untouched, pickPatch(untouched, "jira", undefined));
+  expect(cleared.picks["jira"]).toBeUndefined();
+  expect(cleared.plan).toBe("# My own words\n");
 });
 
 test("a step's own slot round-trips through its context", () => {
@@ -101,13 +162,11 @@ test("a step's prefill marks the id and branch as set by hand", () => {
   });
 
   ctx.setDraft({ id: "PROJ-1", branch: "PROJ-1-the-thing" });
-  ctx.setTicket("PROJ-1");
   expect(held).toMatchObject({
     id: "PROJ-1",
     branch: "PROJ-1-the-thing",
     idTouched: true,
     branchTouched: true,
-    ticket: "PROJ-1",
   });
   // Setting one of the two leaves the other as it was.
   ctx.setDraft({ id: "PROJ-2" });

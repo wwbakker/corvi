@@ -7,6 +7,13 @@
  * every caller already treats that as "no file" where that is what it means.
  */
 import { readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+
+/** A document's revision: the hash of its text. What an edit is based on, so a write against a
+ * text that changed underneath is refused instead of overwriting it. Content, not mtime — a
+ * write that changes nothing is not a change. */
+export const textRevision = (text: string): string =>
+  createHash("sha256").update(text, "utf8").digest("hex");
 
 export type FileHandle = {
   exists: () => Promise<boolean>;

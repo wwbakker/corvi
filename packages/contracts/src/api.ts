@@ -162,10 +162,23 @@ export const RepoStateSchema = Schema.Struct({
 })
 export type RepoStateDto = typeof RepoStateSchema.Type
 
-/** A sidecar read or written as text (a plan, a pull-request description): absent is a missing
+/** A sidecar read or written as text (a pull-request description): absent is a missing
  * document, not a malformed one. */
 export const TextSchema = Schema.Struct({ text: Schema.optional(Schema.String) })
 export type TextDto = typeof TextSchema.Type
+
+/** The plan document: its text and the revision that text had. An edit is based on a revision,
+ * so a save against a file that changed underneath is refused instead of overwriting it. */
+export const PlanDocSchema = Schema.Struct({ text: Schema.String, revision: Schema.String })
+export type PlanDocDto = typeof PlanDocSchema.Type
+
+/** A plan write: the new text and the revision it was edited from. An absent `baseRevision`
+ * writes unconditionally — creation and a deliberate "overwrite" know what they are doing. */
+export const PlanWriteBodySchema = Schema.Struct({
+  text: Schema.optional(Schema.String),
+  baseRevision: Schema.optional(Schema.String),
+})
+export type PlanWriteBodyDto = typeof PlanWriteBodySchema.Type
 
 // --- One card's widget, and the completion's state -------------------------------------------------
 
@@ -297,6 +310,9 @@ export type WizardStepInfoDto = typeof WizardStepInfoSchema.Type
 
 export const WizardResponseSchema = Schema.Struct({
   steps: Schema.mutable(Schema.Array(WizardStepInfoSchema)),
+  /** The plan template in effect for the asked workspace: the wizard's plan editor opens on
+   * it. Literal Markdown; the empty string means "start empty". */
+  planTemplate: Schema.String,
 })
 export type WizardResponseDto = typeof WizardResponseSchema.Type
 

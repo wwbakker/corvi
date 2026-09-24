@@ -177,6 +177,11 @@ export function settingsFor(
       global: config.ideationPrompt,
       fallback: config.ideationPrompt,
     }),
+    planTemplate: resolveSetting({
+      workspace: own?.planTemplate,
+      global: config.planTemplate,
+      fallback: config.planTemplate,
+    }),
     worktreeCopy: at("worktreeCopy", {
       workspace: own?.worktreeCopy,
       global: config.worktreeCopy,

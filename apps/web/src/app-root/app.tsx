@@ -14,6 +14,7 @@ import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { moment } from "./moment.ts";
 import { Sidebar, type Page } from "./Sidebar.tsx";
+import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
@@ -128,7 +129,8 @@ function Home({
 /** The URL is the view: /new, /changes/<id>[/<page>], /<page> for an extension's page,
  * everything else is home. The change's page segment is kept as it is — the core's `dashboard`
  * and `terminals`, or a tab an extension contributes — and ChangeView resolves an id nobody
- * offers to the dashboard, so a stale URL still renders something. The pages are the server's
+ * offers to the plan, so a stale URL still renders something. A change without a segment is its
+ * plan, where it opens. The pages are the server's
  * (`/api/pages`), so a top-level path resolves only once they are known — until then it is
  * home, and the resolution is redone when they arrive. */
 function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
@@ -151,7 +153,7 @@ function viewOf(path: string, pages: { id: string; extension: string }[] = []): 
     }
     return { name: "home" };
   }
-  const page = m[2] ?? "dashboard";
+  const page = m[2] ?? "plan";
   return { name: "change", id: decodeURIComponent(m[1]!), page };
 }
 
@@ -163,7 +165,7 @@ const pathOf = (view: View): string =>
       : view.name === "settings"
         ? "/settings"
         : view.name === "change"
-          ? `/changes/${encodeURIComponent(view.id)}${view.page === "dashboard" ? "" : `/${view.page}`}`
+          ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}`
           : "/";
 
 function App(): JSX.Element {
@@ -320,7 +322,7 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
-        onOpenChange={(id) => setView({ name: "change", id, page: "dashboard" })}
+        onOpenChange={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
         onSelectWindow={(id, index) => {
           terminals.select(id, index);
           setWantsTerminal(true);
@@ -332,7 +334,7 @@ function App(): JSX.Element {
           <Home
             changes={changes}
             error={error}
-            onOpen={(id) => setView({ name: "change", id, page: "dashboard" })}
+            onOpen={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
             onNew={() => setView({ name: "new" })}
           />
         )}
@@ -361,7 +363,10 @@ function App(): JSX.Element {
               // Only a created change takes the draft: a refused create keeps the form.
               setDraft(undefined);
               void reload();
-              setView({ name: "change", id: c.id, page: "dashboard", provision });
+              // A new change opens on its Plan: the wizard just wrote it, and anything an old
+              // record of this id left in the page's memory is not this change's.
+              forgetChange(c.id);
+              setView({ name: "change", id: c.id, page: "plan", provision });
             }}
             onDiscard={discardDraft}
           />

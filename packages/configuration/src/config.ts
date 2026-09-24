@@ -33,6 +33,9 @@ export type SettingsOverrides = {
   /** The prompt pasted into a change's terminal to brief an agent about an idea, with `{id}`,
    * `{title}`, `{plan}` and `{state}` filled in. An empty value means `DEFAULT_IDEATION_PROMPT`. */
   ideationPrompt?: string;
+  /** The starting text of a new idea's PLAN.md, seeded into the wizard's plan editor: literal
+   * Markdown, nothing filled in. An empty value means no template — a plan starts empty. */
+  planTemplate?: string;
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
   worktreeCopy?: string[];
@@ -80,6 +83,8 @@ export type EffectiveSettings = {
   notificationSound: boolean;
   contextMenu: boolean;
   ideationPrompt: string;
+  /** The plan template in effect: literal Markdown, or the empty string for none. */
+  planTemplate: string;
   worktreeCopy: string[];
   /** Which extensions exist here; `undefined` means all of them. */
   extensions?: string[];
@@ -131,6 +136,9 @@ export type Config = {
    * `{title}`, `{plan}` and `{state}` filled in. Editable in the settings; an empty value means
    * `DEFAULT_IDEATION_PROMPT`. */
   ideationPrompt: string;
+  /** The starting text of a new idea's PLAN.md, seeded into the wizard's plan editor: literal
+   * Markdown, nothing filled in. An empty value means no template — a plan starts empty. */
+  planTemplate: string;
   /** IDE and build-tool directories copied from the repository into a new worktree, with the
    * paths inside them rewritten. Empty disables it. See `apps/server/src/capabilities/os.ts`. */
   worktreeCopy: string[];

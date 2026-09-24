@@ -52,49 +52,59 @@ await page.goto(url, { waitUntil: "networkidle" });
 await shot("1-home");
 
 await page.locator(".sidebar .ideas-row .create").click();
-// An instance with an issue integration opens the wizard on it; one without goes straight to
-// the idea. The shots below cover the shared steps either way, so the tool works against any
-// configuration — a development instance, or an isolated one with fixture repositories.
-const issueRows = page.locator(".table tbody tr:not(.group)");
-await Promise.race([
-  page.waitForSelector(".table tbody tr", { timeout: 30_000 }).catch(() => {}),
-  page.waitForSelector(".steps button.step", { timeout: 30_000 }).catch(() => {}),
-]);
-if (await issueRows.first().isVisible().catch(() => false)) {
-  await shot("2-wizard-jira");
+// One screen now: the seeded plan on the left, the sections on the right. The steps arrive
+// with the wizard's fetch, and each is collapsed to its pick — a field with an "Edit…" that
+// opens its own browser in a dialog — so the tool works against any configuration: an
+// instance with an issue integration, or one without.
+await page.waitForSelector(".wizard-body");
+await page.waitForTimeout(500);
+await shot("2-wizard");
 
-  // The create-issue dialog, then dismissed again.
-  const createIssue = page.getByRole("button", { name: "Create new issue" });
-  if (await createIssue.isVisible().catch(() => false)) {
-    await createIssue.click();
+// The jira story browser behind its field's "Edit…". Picking an issue names the change — by
+// writing the plan's heading while it is still the template's — so the screen after this one
+// shows the title following it.
+const jiraEdit = page
+  .locator(".wizard-sections .field", { has: page.locator("span.label", { hasText: "Jira" }) })
+  .getByRole("button", { name: "Edit…" });
+if (await jiraEdit.isVisible().catch(() => false)) {
+  await jiraEdit.click();
+  await page.waitForSelector("dialog[open]");
+  await page.waitForTimeout(500);
+  const issues = page.locator("dialog[open] .table tbody tr:not(.group)");
+  if (await issues.first().isVisible().catch(() => false)) {
+    await issues.first().click();
     await page.waitForTimeout(200);
-    await shot("2b-new-issue-dialog");
-    await page.locator("dialog").getByRole("button", { name: "Cancel" }).click();
   }
-
-  // Pick the first issue, then walk the remaining steps.
-  await issueRows.first().click();
+  await shot("2b-jira-browser");
+  await page.locator("dialog[open]").getByRole("button", { name: "Close" }).click();
+  await page.waitForTimeout(200);
 }
-await page.locator(".steps button.step", { hasText: "Idea" }).click();
-await shot("3-wizard-change");
-await page.locator(".steps button.step", { hasText: "Repositories" }).click();
+await shot("3-wizard-named");
+
+// The repositories behind their field's "Edit…": the same directory browser as always, in a
+// dialog over the small list of what is picked.
+await page
+  .locator(".wizard-sections .repos-field")
+  .getByRole("button", { name: "Edit…" })
+  .click();
+await page.waitForSelector("dialog[open] .browser");
 // Tick the first repository, so the shot shows the browser in use. Rows settle when the listing
 // arrives — the empty hint is not a row — and the first row is not always a repository: a
 // starting directory of plain directories needs one step in first.
-const rows = page.locator(".entries li:not(.hint)");
-const add = page.locator(".entries button:enabled", { hasText: /^Add$/ }).first();
+const rows = page.locator("dialog[open] .entries li:not(.hint)");
+const add = page.locator("dialog[open] .entries button:enabled", { hasText: /^Add$/ }).first();
 await rows.first().waitFor();
 if (await add.isVisible().catch(() => false)) {
   await add.click();
 } else {
-  await page.locator(".entries button.dir").first().click();
+  await page.locator("dialog[open] .entries button.dir").first().click();
   await rows.first().waitFor();
   await add.click();
 }
 // The branch lists arrive with the row; the shot should show them.
 await page.waitForTimeout(300);
-console.log("DEBUG", JSON.stringify(await page.evaluate(() => ({ active: document.querySelector(".steps button.step.active")?.textContent, hasBrowser: Boolean(document.querySelector(".browser")) }))));
 await shot("4-wizard-repos");
+await page.locator("dialog[open]").getByRole("button", { name: "Close" }).click();
 
 if (errors.length) console.log("console errors:\n" + errors.join("\n"));
 
@@ -102,6 +112,12 @@ if (errors.length) console.log("console errors:\n" + errors.join("\n"));
 // tabs — so the inheritance a workspace shows can be read off the capture.
 await page.goto(`${url}/settings`, { waitUntil: "networkidle" });
 await shot("5-settings-global");
+const ideation = page.locator(".tabs.sections .tab", { hasText: "Ideation" });
+if (await ideation.isVisible().catch(() => false)) {
+  await ideation.click();
+  await page.waitForTimeout(200);
+  await shot("5b-settings-ideation");
+}
 const scope = page.locator(".tabs.scopes .tab:not(.current)").first();
 if (await scope.isVisible().catch(() => false)) {
   await scope.click();

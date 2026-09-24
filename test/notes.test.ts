@@ -66,9 +66,10 @@ test("the Notes widget is offered only when the extension is enabled, and its ol
     expect(widgetsFor({ ...change, workspace: "with-notes" })).toEqual([
       { id: "notes", title: "Notes", extension: "notes", column: "left" },
     ]);
-    // A workspace that dropped notes has no widget for it, and /changes/:id/notes is the dashboard.
+    // A workspace that dropped notes has no widget for it, and /changes/:id/notes is a stale
+    // URL, which lands on the plan.
     expect(widgetsFor({ ...change, workspace: "without-notes" })).toEqual([]);
-    expect(resolveChangePage("notes", [])).toEqual({ kind: "dashboard" });
+    expect(resolveChangePage("notes", [])).toEqual({ kind: "plan" });
   } finally {
     runtimeConfig().workspaces = saved;
   }

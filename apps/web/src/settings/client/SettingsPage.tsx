@@ -16,6 +16,7 @@ import {
   ExtensionToggles,
   Field,
   ListEditor,
+  MarkdownField,
   TextArea,
   type KnownExtension,
 } from "./SettingsFields.tsx";
@@ -500,6 +501,13 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
             value={value("ideationPrompt")}
             placeholder={inherited("ideationPrompt")}
             onChange={(ideationPrompt) => setSetting("ideationPrompt", ideationPrompt)}
+          />
+          <MarkdownField
+            label="Plan template"
+            hint="The starting text of a new idea's PLAN.md, in the wizard's plan editor. Literal Markdown — nothing is filled in. Clearing this leaves new plans empty."
+            value={value("planTemplate")}
+            placeholder={inherited("planTemplate")}
+            onChange={(planTemplate) => setSetting("planTemplate", planTemplate)}
           />
         </div>
       )}

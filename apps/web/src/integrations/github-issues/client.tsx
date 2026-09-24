@@ -13,7 +13,7 @@ import {
 
 /**
  * The github-issues extension's two screens: the wizard's step — the open issues of the
- * repositories picked on the step before, plus creating one — and the GitHub issues card's
+ * repositories picked beside it, plus creating one — and the GitHub issues card's
  * editor, which is the same picker pointed at the link of an existing change. Picking one in
  * the wizard writes this extension's payload (`extensions["github-issues"] = { repo, number }`),
  * prefills the change id and branch, and names the ticket the details step shows; picking one
@@ -127,7 +127,7 @@ function IssuePicker({
   /** The number of the picked issue, for the row highlight. */
   selected: number | null;
   onSelect: (picked: Picked | null) => void;
-  /** What to say under the create button: the wizard's next step is not the editor's. */
+  /** What to say under the create button: the wizard's field is not the editor's. */
   hint?: string;
   /** What to say when there are no repositories to look in. */
   noRepositories?: string;
@@ -292,13 +292,20 @@ export const step: StepComponent = ({ ctx }) => {
     setSelected(picked?.issue.number ?? null);
     if (!picked) {
       ctx.setPayload(KEY, undefined);
-      ctx.setTicket(undefined);
+      ctx.setPick(KEY, undefined);
       return;
     }
     ctx.setPayload(KEY, { repo: picked.repo, number: picked.issue.number });
-    ctx.setTicket(picked.repository ? `${picked.repository}#${picked.issue.number}` : undefined);
-    // GitHub has no short key like PROJ-123: the issue number stands in for one, and both
-    // fields stay editable on the details step.
+    // The field shows the issue's URL number under its repository; its title is the name that
+    // may name the change.
+    ctx.setPick(KEY, {
+      label: picked.repository
+        ? `${picked.repository}#${picked.issue.number}`
+        : `#${picked.issue.number}`,
+      name: picked.issue.title,
+    });
+    // GitHub has no short key like PROJ-123: the issue number stands in for one, and the id and
+    // branch stay editable.
     const key = `issue-${picked.issue.number}`;
     ctx.setDraft({ id: key, branch: branchFor(key, picked.issue.title) });
   };

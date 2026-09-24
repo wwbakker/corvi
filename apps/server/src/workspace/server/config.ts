@@ -184,6 +184,8 @@ export function readConfig(): Config {
     notificationSound: resolveSetting({ global: file.notificationSound, fallback: true }),
     contextMenu: resolveSetting({ global: file.contextMenu, fallback: true }),
     ideationPrompt: resolveSetting({ global: file.ideationPrompt, fallback: DEFAULT_IDEATION_PROMPT }),
+    // The plan template is literal Markdown with no default: empty means "a plan starts empty".
+    planTemplate: resolveSetting({ global: file.planTemplate, fallback: "" }),
     workspaces: workspaces.length ? workspaces : [DEFAULT_WORKSPACE],
     // The extensions' own settings, passed through untouched: the core does not look inside.
     // Always a key, absent or not — the refill is Object.assign over the one config object, and

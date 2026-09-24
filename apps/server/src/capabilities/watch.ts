@@ -1,5 +1,7 @@
 import { Effect, Exit, Option, Schedule, Stream } from "effect";
-import { listChanges } from "../change/server/store.ts";
+import { listChanges, readSidecar } from "../change/server/store.ts";
+import { isFinished, PLAN_FILE } from "../domain/change.ts";
+import { textRevision } from "./files.ts";
 import { allWindows } from "../terminals/server/index.ts";
 import { runtimeConfig } from "../workspace/server/index.ts";
 
@@ -134,7 +136,20 @@ export const watch = (sink: (news: News) => void): Effect.Effect<void> =>
   Effect.gen(function* () {
     last.clear();
     yield* Stream.merge(
-      channel("changes", Effect.map(listChanges(), (c) => JSON.stringify(c))),
+      channel(
+        "changes",
+        Effect.gen(function* () {
+          const changes = yield* listChanges();
+          // The plans ride along with the records: PLAN.md edited outside Corvi — by an agent or
+          // an IDE — is news too, which is what keeps an open plan page from saving over it.
+          // Finished changes are skipped: their plan is a record nothing writes.
+          const live = changes.filter((c) => !isFinished(c));
+          const revisions = yield* Effect.forEach(live, (c) =>
+            Effect.map(readSidecar(c.id, PLAN_FILE), textRevision),
+          );
+          return JSON.stringify(changes) + "|" + revisions.join(",");
+        }),
+      ),
       windowsNews({ previous: new Map(), seeded: false }),
     ).pipe(Stream.runForEach((news) => Effect.sync(() => sink(news))));
   });
