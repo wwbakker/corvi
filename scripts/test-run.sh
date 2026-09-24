@@ -52,13 +52,16 @@ case "$mode" in
 esac
 
 # `--timings` orders the files slowest-first, so the longest ones start first and the workers
-# finish together (bun's own file of measured durations, refreshed with --update-timings).
-# The end-to-end files each start servers and a browser: one at a time, where a timing guess
-# cannot turn three of them into a race for one runner's cores. Everything else runs across
-# CPU-count workers.
-timings=(--timings scripts/timings.json)
+# finish together (bun's own file of measured durations, refreshed with --update-timings). The
+# `=` form of the flag: a space-separated value is taken for a test-file filter instead.
+# Everything else runs across CPU-count workers; the end-to-end files each start servers and a
+# browser: one at a time, where a timing guess cannot turn three of them into a race for one
+# runner's cores.
+timings=(--timings=scripts/timings.json)
+# `${array+"${array[@]}"}` rather than `"${array[@]}"`: `all` discovery passes an empty `files`
+# list, and bash before 4.4 (the macOS stock one) calls an empty array unbound under `set -u`.
 if [ "$mode" = "e2e" ]; then
-  exec bun test --timeout 30000 "${timings[@]}" "${files[@]}" "$@"
+  exec bun test --timeout 30000 "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
 else
-  exec bun test --timeout 30000 --parallel "${timings[@]}" "${files[@]}" "$@"
+  exec bun test --timeout 30000 --parallel "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
 fi

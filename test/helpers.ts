@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -89,8 +89,11 @@ export const testTempDir = async (label: string): Promise<string> => {
  * file running beside this one's state; per file, a test can only ever disturb itself.
  * `serverEnv` gives spawned servers the same guarantee; this is it for the tests that run the
  * product in their own process. Named for the run, so scripts/clean-test.ts takes it with the
- * rest of the run's leftovers. */
-const ownRoot = await testTempDir("root");
+ * rest of the run's leftovers. Made synchronously, so this module has no top-level await: a
+ * module that finishes evaluating only after a promise leaves its later exports in their
+ * temporal dead zone for a parallel worker that imports it (`--parallel` interleaves the
+ * files' graphs), which reads as `Cannot access 'runEffect' before initialization`. */
+const ownRoot = mkdtempSync(join(tmpdir(), `corvi-${testRun()}-root-`));
 process.env.CORVI_ROOT = join(ownRoot, "changes");
 process.env.CORVI_ARCHIVE_ROOT = join(ownRoot, "changes-archive");
 process.env.CORVI_CONFIG = join(ownRoot, "config.json");
