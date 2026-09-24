@@ -7,8 +7,20 @@ import {
   deleteActionFile,
   writeActionFile,
 } from "../apps/server/src/actions/server/files.ts";
+import { listActionsFor } from "../apps/server/src/actions/server/run.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { configPath, reloadConfig } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, testTempDir } from "./helpers.ts";
+import { checkoutsOf, runEffect, testTempDir } from "./helpers.ts";
+
+/** The change the listing is asked about: its phase is what the filter reads. */
+const changeWith = (over: Partial<Change> = {}): Change => ({
+  id: "PROJ-actions",
+  branch: "PROJ-actions",
+  checkouts: checkoutsOf([]),
+  state: "Implementation",
+  createdAt: new Date().toISOString(),
+  ...over,
+});
 
 /** These tests write a config file and action files where `configPath()` points — which is the
  * ambient `CORVI_CONFIG`, and outside the wrapper (a focused `bun test`) that is the user's own
@@ -62,6 +74,28 @@ test("ids and scopes are policed", async () => {
   await expect(
     runEffect(writeActionFile({ scope: "workspace", workspace: "no-such", id: "x", text: sayHello })),
   ).rejects.toThrow("no such workspace");
+});
+
+test("an action that names its phases is offered only in them", async () => {
+  await runEffect(
+    writeActionFile({
+      scope: "global",
+      id: "only-ideation",
+      text: "---\nlabel: Shape the plan\nkind: prompt\ntarget: agent\nphases: [Ideation]\n---\nhello\n",
+    }),
+  );
+  const labels = async (state: Change["state"]): Promise<string[]> =>
+    (await runEffect(listActionsFor(changeWith({ state })))).map((a) => a.label);
+
+  // In its phase it is offered, and so is the shipped brief (whose only phase this is).
+  expect(await labels("Ideation")).toContain("Shape the plan");
+  expect(await labels("Ideation")).toContain("Send PLAN.md instructions");
+  // Outside it the phase filter hides both, while an action without phases is offered anywhere.
+  expect(await labels("Implementation")).not.toContain("Shape the plan");
+  expect(await labels("Implementation")).not.toContain("Send PLAN.md instructions");
+  expect(await labels("Implementation")).toContain("New pi session");
+
+  await runEffect(deleteActionFile({ scope: "global", id: "only-ideation" }));
 });
 
 test("the built-in brief shows the text that runs, and a shadowing brief.md replaces it", async () => {
