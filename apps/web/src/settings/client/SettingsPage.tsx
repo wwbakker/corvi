@@ -1,5 +1,6 @@
-import { type JSX, useEffect, useState } from "react";
+import { type JSX, useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
+import type { LeaveGuard } from "../../app-root/navigation.ts";
 import {
   DEFAULT_WORKSPACE,
   type ResolvedDto as Config,
@@ -58,7 +59,14 @@ type Overrides = {
   >[K];
 };
 
-export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element {
+export function SettingsPage({
+  onSaved,
+  onGuard,
+}: {
+  onSaved: () => void;
+  /** The shell's leave guard slot: filled while this page is mounted (app-root/navigation.ts). */
+  onGuard: (guard: LeaveGuard | null) => void;
+}): JSX.Element {
   const [view, setView] = useState<SettingsView>();
   const [draft, setDraft] = useState<Draft>({});
   const [error, setError] = useState<string>();
@@ -78,6 +86,39 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
       })
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  // The leave guard: whether the draft differs from the file, and the one save that ends it.
+  // Published for as long as this page is mounted; the shell reads it at navigation time.
+  const dirty = view !== undefined && JSON.stringify(draft) !== JSON.stringify(view.file);
+
+  /** Writes the draft and resolves to whether it was saved. A failure keeps the draft and lands
+   * in the error banner below — whichever button started the save. */
+  const save = useCallback(async (): Promise<boolean> => {
+    setSaving(true);
+    setError(undefined);
+    try {
+      const v = await apiClient.writeSettings(draft);
+      setView(v);
+      setDraft(v.file);
+      setSaved(true);
+      // The sidebar's contexts come from the same file: it should not still be showing a
+      // workspace that has just been renamed away.
+      onSaved();
+      return true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [draft, onSaved]);
+
+  useEffect(() => {
+    // The view it guards is the guard's configuration: the shell puts this URL back on a held
+    // Back without knowing which page it is protecting.
+    onGuard({ view: { name: "settings" }, dirty, save });
+    return () => onGuard(null);
+  }, [dirty, save, onGuard]);
 
   if (!view) {
     return (
@@ -163,24 +204,6 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
     typeof value === "string" ? value : undefined;
   const asList = (value: string | string[] | undefined): string[] =>
     Array.isArray(value) ? value : [];
-  const dirty = JSON.stringify(draft) !== JSON.stringify(view.file);
-
-  const save = (): void => {
-    setSaving(true);
-    setError(undefined);
-    apiClient
-      .writeSettings(draft)
-      .then((v) => {
-        setView(v);
-        setDraft(v.file);
-        setSaved(true);
-        // The sidebar's contexts come from the same file: it should not still be showing a
-        // workspace that has just been renamed away.
-        onSaved();
-      })
-      .catch((e: Error) => setError(e.message))
-      .finally(() => setSaving(false));
-  };
 
   // Which extensions this scope has anything to edit for. Inside a workspace an extension that
   // is disabled there has no settings to show — the switches on the Extensions section say so.
@@ -247,7 +270,7 @@ export function SettingsPage({ onSaved }: { onSaved: () => void }): JSX.Element 
         <h2>Settings</h2>
         <span className="spacer" />
         {saved && !dirty && <span className="hint saved">saved</span>}
-        <button className="create" disabled={!dirty || saving} onClick={save}>
+        <button className="create" disabled={!dirty || saving} onClick={() => void save()}>
           {saving ? "Saving…" : "Save"}
         </button>
       </header>

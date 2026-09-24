@@ -78,10 +78,10 @@ export const testRun = (): string => {
 };
 
 /** A temp dir whose name carries the run token, so the cleaner can tell whose it is. */
-export const testTempDir = async (label: string): Promise<string> => {
-  const token = testRun();
-  return mkdtemp(join(tmpdir(), `corvi-${token}-${label}-`));
-};
+const tempDirName = (label: string): string =>
+  join(tmpdir(), `corvi-${testRun()}-${label}-`);
+
+export const testTempDir = (label: string): Promise<string> => mkdtemp(tempDirName(label));
 
 /** This file's own world, applied before any test in it reads the configuration: `CORVI_ROOT`
  * and its siblings point into a directory no other test file shares. Product code that deletes
@@ -89,11 +89,12 @@ export const testTempDir = async (label: string): Promise<string> => {
  * file running beside this one's state; per file, a test can only ever disturb itself.
  * `serverEnv` gives spawned servers the same guarantee; this is it for the tests that run the
  * product in their own process. Named for the run, so scripts/clean-test.ts takes it with the
- * rest of the run's leftovers. Made synchronously, so this module has no top-level await: a
- * module that finishes evaluating only after a promise leaves its later exports in their
- * temporal dead zone for a parallel worker that imports it (`--parallel` interleaves the
- * files' graphs), which reads as `Cannot access 'runEffect' before initialization`. */
-const ownRoot = mkdtempSync(join(tmpdir(), `corvi-${testRun()}-root-`));
+ * rest of the run's leftovers.
+ *
+ * Made without a top-level await on purpose: an awaiting module is still initializing when its
+ * importers run, and bun's `--isolate` then hands out its exports before they exist — every
+ * helper reads as "Cannot access … before initialization" in every test file. */
+const ownRoot = mkdtempSync(tempDirName("root"));
 process.env.CORVI_ROOT = join(ownRoot, "changes");
 process.env.CORVI_ARCHIVE_ROOT = join(ownRoot, "changes-archive");
 process.env.CORVI_CONFIG = join(ownRoot, "config.json");

@@ -52,14 +52,16 @@ case "$mode" in
 esac
 
 # `--timings` orders the files slowest-first, so the longest ones start first and the workers
-# finish together (bun's own file of measured durations, refreshed with --update-timings). The
-# `=` form of the flag: a space-separated value is taken for a test-file filter instead.
-# Everything else runs across CPU-count workers; the end-to-end files each start servers and a
-# browser: one at a time, where a timing guess cannot turn three of them into a race for one
-# runner's cores.
+# finish together (bun's own file of measured durations, refreshed with --update-timings — in
+# the `=` form of the flag, since a space-separated value is taken for a test-file filter
+# instead).
+# The end-to-end files each start servers and a browser: one at a time, where a timing guess
+# cannot turn three of them into a race for one runner's cores. Everything else runs across
+# CPU-count workers.
 timings=(--timings=scripts/timings.json)
-# `${array+"${array[@]}"}` rather than `"${array[@]}"`: `all` discovery passes an empty `files`
-# list, and bash before 4.4 (the macOS stock one) calls an empty array unbound under `set -u`.
+# `all` passes no file list at all — discovery is every test file there is. The `[@]+` guard is
+# what keeps a list empty rather than unbound on bash 3.2, where "${files[@]}" under `set -u` is
+# an unbound variable.
 if [ "$mode" = "e2e" ]; then
   exec bun test --timeout 30000 "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
 else

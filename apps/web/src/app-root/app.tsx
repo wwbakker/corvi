@@ -8,12 +8,12 @@ import {
   useState,
 } from "react";
 import { createRoot } from "react-dom/client";
-import { apiClient, type Change, type ProvisionResult } from "./api.ts";
+import { apiClient, type Change } from "./api.ts";
 import { byWorkOrder, isFinished, isIdeation } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { ChangeCard } from "./ChangeCard.tsx";
 import { moment } from "./moment.ts";
-import { Sidebar, type Page } from "./Sidebar.tsx";
+import { Sidebar } from "./Sidebar.tsx";
 import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
@@ -22,19 +22,13 @@ import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/
 import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../integrations/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
+import { UnsavedChangesDialog } from "../settings/client/UnsavedChangesDialog.tsx";
+import { pathOf, viewOf, type LeaveGuard, type View } from "./navigation.ts";
 import { Notifier } from "./notify.tsx";
 import { hostOf } from "./host.ts";
 import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
-
-/** Three views, switched by state: a router library would add a dependency to save nothing. */
-type View =
-  | { name: "home" }
-  | { name: "new" }
-  | { name: "ext-page"; id: string; extension: string }
-  | { name: "settings" }
-  | { name: "change"; id: string; page: Page; provision?: ProvisionResult[] };
 
 function Home({
   changes,
@@ -126,48 +120,6 @@ function Home({
   );
 }
 
-/** The URL is the view: /new, /changes/<id>[/<page>], /<page> for an extension's page,
- * everything else is home. The change's page segment is kept as it is — the core's `dashboard`
- * and `terminals`, or a tab an extension contributes — and ChangeView resolves an id nobody
- * offers to the plan, so a stale URL still renders something. A change without a segment is its
- * plan, where it opens. The pages are the server's
- * (`/api/pages`), so a top-level path resolves only once they are known — until then it is
- * home, and the resolution is redone when they arrive. */
-function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
-  if (path === "/new") return { name: "new" };
-  if (path === "/settings") return { name: "settings" };
-  const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
-  if (!m) {
-    // A top-level path that names a page the server offered: the extension's own view. A path
-    // that is not a well-formed encoding was never a page, and is home.
-    if (!path.slice(1).includes("/")) {
-      const raw = path.slice(1);
-      let id = raw;
-      try {
-        id = decodeURIComponent(raw);
-      } catch {
-        return { name: "home" };
-      }
-      const page = pages.find((p) => p.id === id);
-      if (page) return { name: "ext-page", id: page.id, extension: page.extension };
-    }
-    return { name: "home" };
-  }
-  const page = m[2] ?? "plan";
-  return { name: "change", id: decodeURIComponent(m[1]!), page };
-}
-
-const pathOf = (view: View): string =>
-  view.name === "new"
-    ? "/new"
-    : view.name === "ext-page"
-      ? `/${view.id}`
-      : view.name === "settings"
-        ? "/settings"
-        : view.name === "change"
-          ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}`
-          : "/";
-
 function App(): JSX.Element {
   const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
   const { changes: everything, error, reload } = useChanges();
@@ -215,10 +167,57 @@ function App(): JSX.Element {
   }, [onTerminal]);
   const terminal = useTerminal(selected, Boolean(change?.completedAt), wantsTerminal);
 
-  // Navigating pushes a history entry; Back and a reload both land on the same page.
-  const setView = (next: View): void => {
+  // Navigating pushes a history entry; Back and a reload both land on the same page. A page
+  // with unsaved edits publishes a leave guard (app-root/navigation.ts); while it is dirty, the
+  // navigation is held and UnsavedChangesDialog gives the three answers.
+  const guard = useRef<LeaveGuard | null>(null);
+  const onGuard = useCallback((next: LeaveGuard | null): void => {
+    guard.current = next;
+  }, []);
+  // The navigation the guard held up, and whether its save is running.
+  const [leaving, setLeaving] = useState<View | null>(null);
+  const [leaveSaving, setLeaveSaving] = useState(false);
+
+  const applyView = (next: View): void => {
     if (pathOf(next) !== window.location.pathname) window.history.pushState(null, "", pathOf(next));
     setViewState(next);
+  };
+  const setView = (next: View): void => {
+    // Clicking the page you are on is not leaving it: the guard has nothing to say.
+    if (guard.current?.dirty && pathOf(next) !== window.location.pathname) {
+      setLeaving(next);
+      return;
+    }
+    applyView(next);
+  };
+
+  // The prompt's three answers. A proceed drops the guard first, so a stale one can never block
+  // the page being opened; Stay — what Escape does — changes nothing.
+  const stay = (): void => {
+    setLeaving(null);
+  };
+  const discardAndLeave = (): void => {
+    if (!leaving) return;
+    const held = leaving;
+    guard.current = null;
+    setLeaving(null);
+    applyView(held);
+  };
+  const saveAndLeave = async (): Promise<void> => {
+    if (!leaving) return;
+    const held = leaving;
+    setLeaveSaving(true);
+    // The page's own save, so a failure is the page's own: the dialog closes, the page's error
+    // banner explains, and the draft and its guard both stay.
+    const saved = (await guard.current?.save()) ?? false;
+    setLeaveSaving(false);
+    if (!saved) {
+      setLeaving(null);
+      return;
+    }
+    guard.current = null;
+    setLeaving(null);
+    applyView(held);
   };
 
   /** Give up on the idea being written: the draft goes, and there is nothing else to show. */
@@ -247,7 +246,18 @@ function App(): JSX.Element {
   }, []);
 
   useEffect(() => {
-    const onPop = (): void => setViewState(viewOf(window.location.pathname, pagesRef.current));
+    const onPop = (): void => {
+      const next = viewOf(window.location.pathname, pagesRef.current);
+      if (guard.current?.dirty) {
+        // The history pointer has already moved, so the guarded view's own URL is pushed back:
+        // the page on screen stays the one the URL names, and the popped target waits in the
+        // prompt. Which page that is belongs to the guard, not to here.
+        window.history.pushState(null, "", pathOf(guard.current.view));
+        setLeaving(next);
+        return;
+      }
+      setViewState(next);
+    };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -343,6 +353,7 @@ function App(): JSX.Element {
         )}
         {view.name === "settings" && (
           <SettingsPage
+            onGuard={onGuard}
             onSaved={() => {
               // A save may have toggled an extension's enablement, which the workspaces carry
               // and the sidebar's pages answer to — both are asked again — and it may have
@@ -404,6 +415,14 @@ function App(): JSX.Element {
           />
         )}
       </main>
+      {leaving && (
+        <UnsavedChangesDialog
+          busy={leaveSaving}
+          onSaveAndLeave={() => void saveAndLeave()}
+          onDiscardAndLeave={discardAndLeave}
+          onStay={stay}
+        />
+      )}
     </div>
   );
 }

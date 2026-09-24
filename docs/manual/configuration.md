@@ -90,6 +90,10 @@ global value it would inherit. Fields controlled by an environment variable are 
 that variable. A workspace's own decision offers **use Global's**, which drops it and inherits
 again.
 
+Leaving the settings page with unsaved edits asks first — **Save and leave**, **Discard and
+leave**, or **Stay**. Browser Back is held by the same question as clicking away. Reloading the
+page is not: the draft lives only in the page.
+
 The server validates paths, workspace names/IDs, environment names, and worktree-copy names at
 both scopes. Relative location paths and entries such as `../.ssh` in `worktreeCopy` are refused.
 Saving preserves unrecognized file keys rather than discarding content from another version.

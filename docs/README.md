@@ -21,7 +21,9 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | [Testing](guides/testing.md) | Verification, architecture checks, fixtures and process safety |
 
 Read architecture and API design before changing a public surface. Read local package instructions
-when they exist. Historical implementation choices do not override these rules.
+when they exist. Historical implementation choices do not override these rules. Settled choices
+are decision records of their own: [architecture](decisions/architecture.md) and [leaving a page
+with unsaved edits](decisions/unsaved-changes.md).
 
 ## Repository and change contracts
 

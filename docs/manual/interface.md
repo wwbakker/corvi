@@ -17,7 +17,8 @@ Selecting a change opens its **Plan** — the first of its views. **Plan**, **Da
 the navigation column. Each view has a URL, so deep links, reload, and browser Back work.
 Coming back to a change's overview — from a terminal window, or by opening the change again —
 lands on the view you last had open there, within the running app: restarting opens the plan
-again.
+again. Leaving Settings with unsaved edits asks first however you go — clicking or Back — see
+[configuration](configuration.md).
 
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
 new-window control creates another window, normally in the current window's working directory.
