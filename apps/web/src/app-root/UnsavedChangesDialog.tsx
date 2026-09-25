@@ -1,17 +1,23 @@
 import { type JSX, useEffect, useRef } from "react";
 
 /**
- * What happens to the settings that are not written yet, said before anything happens to them.
+ * What happens to the edits that are not written yet, said before anything happens to them.
  * The draft stays where it is until one of the three answers: save it on the way out, leave it
- * behind, or stay — which is also Escape. Saving runs the page's own save, so its failure is the
- * page's own: this dialog closes and the page's error banner explains.
+ * behind, or stay — which is also Escape. Saving runs the page's own save, so its failure is
+ * the page's own: this dialog closes and the page explains.
+ *
+ * The shell's dialog, shared by every guarded page (docs/decisions/unsaved-changes.md); what is
+ * unsaved is the page's to name, so the subject comes with the guard it speaks of.
  */
 export function UnsavedChangesDialog({
+  subject,
   busy,
   onSaveAndLeave,
   onDiscardAndLeave,
   onStay,
 }: {
+  /** What is unsaved, in the page's own words ("Unsaved settings", "Unsaved changes to x.md"). */
+  subject: string;
   /** The save is running: no answer can be taken back while it decides. */
   busy: boolean;
   onSaveAndLeave: () => void;
@@ -35,7 +41,7 @@ export function UnsavedChangesDialog({
         else onStay();
       }}
     >
-      <h3>Unsaved settings</h3>
+      <h3>{subject}</h3>
       <p className="hint">
         The edits are not written to the file yet. Save them on the way out, leave them behind,
         or stay here.

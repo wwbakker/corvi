@@ -22,7 +22,7 @@ import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/
 import { ChangeView } from "../change-page/client/ChangeView.tsx";
 import { PageHost } from "../integrations/client.tsx";
 import { SettingsPage } from "../settings/client/SettingsPage.tsx";
-import { UnsavedChangesDialog } from "../settings/client/UnsavedChangesDialog.tsx";
+import { UnsavedChangesDialog } from "./UnsavedChangesDialog.tsx";
 import { pathOf, viewOf, type LeaveGuard, type View } from "./navigation.ts";
 import { Notifier } from "./notify.tsx";
 import { hostOf } from "./host.ts";
@@ -175,8 +175,9 @@ function App(): JSX.Element {
   const onGuard = useCallback((next: LeaveGuard | null): void => {
     guard.current = next;
   }, []);
-  // The navigation the guard held up, and whether its save is running.
-  const [leaving, setLeaving] = useState<View | null>(null);
+  // The navigation the guard held up — with what the guard says is unsaved, its own words for
+  // the prompt — and whether its save is running.
+  const [leaving, setLeaving] = useState<{ target: View; subject: string } | null>(null);
   const [leaveSaving, setLeaveSaving] = useState(false);
 
   const applyView = (next: View): void => {
@@ -186,7 +187,7 @@ function App(): JSX.Element {
   const setView = (next: View): void => {
     // Clicking the page you are on is not leaving it: the guard has nothing to say.
     if (guard.current?.dirty && pathOf(next) !== window.location.pathname) {
-      setLeaving(next);
+      setLeaving({ target: next, subject: guard.current.subject });
       return;
     }
     applyView(next);
@@ -199,14 +200,14 @@ function App(): JSX.Element {
   };
   const discardAndLeave = (): void => {
     if (!leaving) return;
-    const held = leaving;
+    const held = leaving.target;
     guard.current = null;
     setLeaving(null);
     applyView(held);
   };
   const saveAndLeave = async (): Promise<void> => {
     if (!leaving) return;
-    const held = leaving;
+    const held = leaving.target;
     setLeaveSaving(true);
     // The page's own save, so a failure is the page's own: the dialog closes, the page's error
     // banner explains, and the draft and its guard both stay.
@@ -254,7 +255,7 @@ function App(): JSX.Element {
         // the page on screen stays the one the URL names, and the popped target waits in the
         // prompt. Which page that is belongs to the guard, not to here.
         window.history.pushState(null, "", pathOf(guard.current.view));
-        setLeaving(next);
+        setLeaving({ target: next, subject: guard.current.subject });
         return;
       }
       setViewState(next);
@@ -354,7 +355,7 @@ function App(): JSX.Element {
         {view.name === "ext-page" && (
           <PageHost info={view} workspace={workspace?.id} />
         )}
-        {view.name === "actions" && <ActionsPage />}
+        {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
         {view.name === "settings" && (
           <SettingsPage
             onGuard={onGuard}
@@ -421,6 +422,7 @@ function App(): JSX.Element {
       </main>
       {leaving && (
         <UnsavedChangesDialog
+          subject={leaving.subject}
           busy={leaveSaving}
           onSaveAndLeave={() => void saveAndLeave()}
           onDiscardAndLeave={discardAndLeave}

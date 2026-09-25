@@ -66,12 +66,14 @@ export const pathOf = (view: View): string =>
  * A page with a draft publishes one while it is mounted, and the shell consults it before any
  * navigation — clicks and Back alike. `view` is the guard's configuration: a held Back has
  * already moved the address bar, and the shell puts this view's URL back while the question is
- * pending, knowing no more than the view. `save` is the page's own save, so the prompt's "save
- * and leave" and the page's Save button cannot drift. It resolves to whether the edits were
- * written: on `false` the page explains itself and the user is still there.
+ * pending, knowing no more than the view. `subject` is what the prompt says is at stake, in the
+ * page's own words. `save` is the page's own save, so the prompt's "save and leave" and the
+ * page's Save button cannot drift. It resolves to whether the edits were written: on `false`
+ * the page explains itself and the user is still there.
  */
 export type LeaveGuard = {
   readonly view: View;
   readonly dirty: boolean;
+  readonly subject: string;
   readonly save: () => Promise<boolean>;
 };

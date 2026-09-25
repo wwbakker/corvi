@@ -8,6 +8,10 @@ their delivery.
 - `./model`: the action file vocabulary — Markdown with YAML frontmatter (`label`, `kind`,
   `target`, `start`, `submit`, `phases`, `notify`, `keepOpen`) and the body — parsed pure and
   total: a file is one `Action` or a list of reasons it is not.
+- `./fields`: that vocabulary's documentation — what each field is for, the values it takes,
+  what an absent one means — as data the editing UI renders (its entries are keyed by `./model`'s
+  `Action` fields and its possible values come from the contracts schemas, so none of it can
+  drift).
 - `./render`: the one placeholder engine (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`,
   `{dir}`, `{repos}`), plain for prompts and shell-escaped for commands. This absorbed
   `@corvi/agents/prompt`'s `fillBriefing`.
@@ -29,6 +33,7 @@ written with the user's IDE or by an agent, never by Corvi.
 ## Public entrypoints
 
 - `@corvi/actions/model`: `Action`, `parseActionFile`, `splitFrontmatter`, `InvalidActionFile`
+- `@corvi/actions/fields`: `actionFieldDocs`, `ActionFieldDoc`, `ActionFieldValues`
 - `@corvi/actions/render`: `renderActionBody`, `shellQuote`, `ActionFacts`, `RenderMode`
 - `@corvi/actions/discovery`: `mergeActionFiles`, `keyOf`, `resolveBriefTemplate`, the file and
   discovery types

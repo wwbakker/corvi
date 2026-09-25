@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./model": "./src/model.ts",
+    "./fields": "./src/fields.ts",
     "./render": "./src/render.ts",
     "./discovery": "./src/discovery.ts",
     "./deliver": "./src/deliver.ts",

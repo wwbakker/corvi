@@ -114,8 +114,8 @@ export function SettingsPage({
 
   useEffect(() => {
     // The view it guards is the guard's configuration: the shell puts this URL back on a held
-    // Back without knowing which page it is protecting.
-    onGuard({ view: { name: "settings" }, dirty, save });
+    // Back without knowing which page it is protecting. What is unsaved is this page's to name.
+    onGuard({ view: { name: "settings" }, dirty, subject: "Unsaved settings", save });
     return () => onGuard(null);
   }, [dirty, save, onGuard]);
 

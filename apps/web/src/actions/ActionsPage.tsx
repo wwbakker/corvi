@@ -3,8 +3,13 @@
  * Files are the source of truth and each saves its own — there is no page-wide draft to keep or
  * lose. Built-ins are read-only: saving one copies it to Global, where the copy shadows the
  * shipped file and deleting it brings the default back. Repository actions are not managed here
- * at all — the note at the bottom says where they live instead. */
-import { type JSX, useEffect, useState } from "react";
+ * at all — the note at the bottom says where they live instead.
+ *
+ * Editing one file leaves the list for the editor's frame (`ActionEditor`): the Markdown source
+ * in the shared editor, the fields' documentation beside it. What is typed there is a draft
+ * until Save — so leaving it behind with unsaved edits is the shell's question to ask
+ * (docs/decisions/unsaved-changes.md). */
+import { type JSX, useCallback, useEffect, useState } from "react";
 
 import type {
   ActionFileDto,
@@ -12,6 +17,8 @@ import type {
   ActionFilesResponseDto,
 } from "@corvi/contracts/actions";
 import { apiClient } from "../app-root/api.ts";
+import type { LeaveGuard } from "../app-root/navigation.ts";
+import { ActionEditor } from "./ActionEditor.tsx";
 
 /** Where a page-editable file lives. Built-ins save to Global (copy-on-edit); a repository file
  * is never listed here, so Global is the rest. */
@@ -48,33 +55,62 @@ function NewAction({ onCreate }: { onCreate: (id: string) => void }): JSX.Elemen
   );
 }
 
-export function ActionsPage(): JSX.Element {
+export function ActionsPage({
+  onGuard,
+}: {
+  /** The shell's leave guard slot: filled while this page is mounted (app-root/navigation.ts). */
+  onGuard: (guard: LeaveGuard | null) => void;
+}): JSX.Element {
   const [listing, setListing] = useState<ActionFilesResponseDto | null>(null);
   const [editing, setEditing] = useState<ActionFileDto | null>(null);
   const [draft, setDraft] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
 
+  /** A confirmation, while it lasts. */
   const say = (message: string): void => {
     setNotice(message);
     setTimeout(() => setNotice(null), 2500);
   };
 
+  /** What went wrong, for as long as it takes to see it: a refused save lands back on this
+   * page, and a note that has already faded explains nothing. The next attempt replaces it. */
+  const complain = (message: string): void => {
+    setNotice(message);
+  };
+
   useEffect(() => {
-    apiClient.actionFiles().then(setListing).catch((e: Error) => say(e.message));
+    apiClient.actionFiles().then(setListing).catch((e: Error) => complain(e.message));
   }, []);
 
-  const save = (): void => {
-    if (!editing) return;
+  /** Write the file and say what happened; resolves to whether it was written. A failure keeps
+   * the draft and lands in the notice — whichever button started the save. */
+  const save = useCallback(async (): Promise<boolean> => {
+    if (!editing) return false;
     const write: ActionFileWriteDto = { ...targetOf(editing), id: editing.id, text: draft };
-    apiClient
-      .writeActionFile(write)
-      .then((fresh) => {
-        setListing(fresh);
-        setEditing(null);
-        say(`Saved ${write.id}.md`);
-      })
-      .catch((e: Error) => say(e.message));
-  };
+    setNotice(null);
+    try {
+      const fresh = await apiClient.writeActionFile(write);
+      setListing(fresh);
+      setEditing(null);
+      say(`Saved ${write.id}.md`);
+      return true;
+    } catch (e) {
+      complain(e instanceof Error ? e.message : String(e));
+      return false;
+    }
+  }, [editing, draft]);
+
+  // The leave guard: unsaved edits are the draft that differs from the file, and the one save
+  // that ends it is this page's own — the same write its Save button makes.
+  useEffect(() => {
+    onGuard({
+      view: { name: "actions" },
+      dirty: editing !== null && draft !== editing.text,
+      subject: editing === null ? "Unsaved action" : `Unsaved changes to ${editing.id}.md`,
+      save,
+    });
+    return () => onGuard(null);
+  }, [editing, draft, save, onGuard]);
 
   const remove = (file: ActionFileDto): void => {
     if (!window.confirm(`Delete ${file.id}.md? This cannot be undone.`)) return;
@@ -85,7 +121,7 @@ export function ActionsPage(): JSX.Element {
         setEditing(null);
         say(`Deleted ${file.id}.md`);
       })
-      .catch((e: Error) => say(e.message));
+      .catch((e: Error) => complain(e.message));
   };
 
   const create = (target: WriteTarget, id: string): void => {
@@ -104,7 +140,7 @@ export function ActionsPage(): JSX.Element {
         }
         say(`Created ${id}.md`);
       })
-      .catch((e: Error) => say(e.message));
+      .catch((e: Error) => complain(e.message));
   };
 
   const filesOf = (scope: ActionFileDto["scope"], workspace?: string): ActionFileDto[] =>
@@ -143,6 +179,23 @@ export function ActionsPage(): JSX.Element {
     </section>
   );
 
+  // Editing is the editor's frame, not a card on the list: the same page, one view at a time.
+  if (editing) {
+    return (
+      <div className="page actions-page editing">
+        <ActionEditor
+          file={editing}
+          draft={draft}
+          notice={notice}
+          onDraft={setDraft}
+          onSave={save}
+          onCancel={() => setEditing(null)}
+          onDelete={editing.scope === "builtin" ? undefined : () => remove(editing)}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="page actions-page">
       <header>
@@ -154,28 +207,6 @@ export function ActionsPage(): JSX.Element {
         The terminal page's menu runs these. Each action is one file — YAML frontmatter for where
         it goes, the body for what it says — and saving writes that file at once.
       </p>
-      {editing && (
-        <section className="widget">
-          <h3>
-            {editing.scope === "builtin" ? `${editing.id} — saving copies it to Global` : editing.id}
-            <span className="spacer" />
-            <button onClick={() => setEditing(null)}>Cancel</button>
-            <button className="create" onClick={save}>
-              Save
-            </button>
-            {editing.scope !== "builtin" && <button onClick={() => remove(editing)}>Delete</button>}
-          </h3>
-          <p className="hint">
-            <code>{editing.path}</code>
-          </p>
-          <textarea
-            className="plan"
-            rows={14}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </section>
-      )}
       {section("Built-in", filesOf("builtin"), undefined)}
       {section("Global", filesOf("global"), { scope: "global" })}
       {(listing?.workspaces ?? []).map((workspace) =>

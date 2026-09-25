@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -30,6 +30,10 @@ const usable = await (async (): Promise<boolean> => {
     return false;
   }
 })();
+
+// The assertions below read the built bundle: a bundle older than the sources would be
+// yesterday's UI, and is refused here (test/helpers.ts, docs/guides/testing.md).
+if (usable) requireFreshWebBundle();
 
 let tmp: string;
 let url: string;

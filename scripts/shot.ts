@@ -97,9 +97,14 @@ await rows.first().waitFor();
 if (await add.isVisible().catch(() => false)) {
   await add.click();
 } else {
-  await page.locator("dialog[open] .entries button.dir").first().click();
-  await rows.first().waitFor();
-  await add.click();
+  // A starting directory of plain directories needs one step in first — and one with nothing
+  // to add yet (a bare instance) skips the pick rather than holding the captures up.
+  const dir = page.locator("dialog[open] .entries button.dir").first();
+  if (await dir.isVisible().catch(() => false)) {
+    await dir.click();
+    await rows.first().waitFor();
+    if (await add.isVisible().catch(() => false)) await add.click();
+  }
 }
 // The branch lists arrive with the row; the shot should show them.
 await page.waitForTimeout(300);
@@ -128,6 +133,28 @@ if (await scope.isVisible().catch(() => false)) {
     await environment.click();
     await shot("7-settings-environment");
   }
+}
+// The Actions page and its editor: the files behind the menu, by scope, then one file in the
+// editor's frame — the Markdown source with the fields' documentation beside it, the caret's
+// field lit. The panel is toggled and put back where it was, so the captures never decide the
+// preference for the instance being shot.
+await page.goto(`${url}/actions`, { waitUntil: "networkidle" });
+await shot("8-actions-list");
+const edit = page.locator(".widget p").getByRole("button", { name: "Edit" }).first();
+if (await edit.isVisible().catch(() => false)) {
+  await edit.click();
+  await page.waitForSelector(".actions-page.editing");
+  await page.waitForSelector(".md-editor .cm-placeholder", { state: "detached" });
+  await shot("9-actions-editor");
+  // The caret on the frontmatter's first field lights its entry beside the editor.
+  await page.locator(".cm-line").nth(1).click();
+  await page.waitForTimeout(200);
+  await shot("10-actions-editor-field");
+  await page.getByRole("button", { name: "Hide docs" }).click();
+  await page.waitForSelector(".action-docs", { state: "detached" });
+  await shot("11-actions-editor-no-docs");
+  await page.getByRole("button", { name: "Show docs" }).click();
+  await page.waitForSelector(".action-docs");
 }
 if (errors.length) console.log("console errors:\n" + errors.join("\n"));
 await browser.close();

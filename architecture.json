@@ -123,7 +123,8 @@
         "@corvi/client",
         "@corvi/contracts",
         "@corvi/changes",
-        "@corvi/terminals"
+        "@corvi/terminals",
+        "@corvi/actions"
       ]
     },
     "@corvi/desktop": {
