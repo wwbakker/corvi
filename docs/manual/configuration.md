@@ -95,6 +95,14 @@ More specific wins on a collision (repository > workspace > global > built-in), 
 anywhere replaces the built-in briefing whole. A file that does not parse is listed with its
 reasons rather than hidden: the page is where it gets fixed.
 
+Editing one opens the file in the Markdown editor the plan uses, with the fields' documentation
+beside it — each field, what it is for, and the values it takes. The panel opens and closes from
+its button and stays where it was left; the field your caret is in is lit.
+
+Leaving the editor with unsaved edits asks first — **Save and leave**, **Discard and leave**, or
+**Stay** — as the settings page does. **Cancel** is the deliberate discard: back to the list,
+dropping the draft.
+
 ## Locations and worktrees
 
 `changesRoot` and `archiveRoot` may be set per workspace: a change is created in its workspace's

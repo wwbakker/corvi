@@ -2348,21 +2348,114 @@ button.danger:disabled {
 }
 
 /* Actions: the files behind the menu, one row per file and one editor at a time. */
-/* The file as written — frontmatter and body in one text — in the Markdown editor's chrome
-   (well, border, monospace face; apps/web/src/editor/client/theme.ts paints its own), filling
-   the section rather than the few columns a bare textarea starts with. */
-.page.actions-page textarea {
-  width: 100%;
+
+/* Editing an action: the editor's frame, as the plan's is — the Markdown source fills what the
+   header and the path line leave, and the field documentation docks to its right
+   (apps/web/src/actions/ActionEditor.tsx). The frame is the window's height minus the page's
+   padding (16px above, 48px below), so the two columns end where the page does and neither can
+   hang a scrollbar on the window. */
+.page.actions-page.editing {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 64px);
+  overflow: hidden;
+}
+
+.action-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 16px;
+}
+
+.action-editor .md-editor {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The documentation panel: one card per field in a column of its own, as tall as the editor
+   beside it and scrolling inside itself when the fields do not all fit. */
+.action-docs {
+  flex: none;
   box-sizing: border-box;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  width: 320px;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.action-docs h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.action-docs > .hint {
+  margin: -8px 0 0;
+  font-size: 11px;
+}
+
+/* One field's card: its name and what it is for, quietly — until the caret comes to it. */
+.action-docs .field {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-left: 2px solid transparent;
+  border-radius: 8px;
+}
+
+.action-docs .field.at {
+  background: var(--raise);
+  border-left-color: var(--accent);
+}
+
+.action-docs .field h4 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
   font-size: 13px;
+}
+
+.action-docs .field h4 code {
+  color: var(--text);
+}
+
+/* Required, or what an absent one means: a fact at the entry's end, not its subject. */
+.action-docs .field h4 .summary {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.action-docs .field p {
+  margin: 0;
+  font-size: 12px;
   line-height: 1.5;
+  color: var(--muted);
+}
+
+/* The values as chips — exactly what may be typed — and the words that say what to type when
+   there is no list to pick from. */
+.action-docs .values code {
+  display: inline-block;
+  margin: 0 4px 2px 0;
+  padding: 1px 5px;
+  font-size: 11px;
   color: var(--text);
   background: var(--well);
   border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
-  resize: vertical;
+  border-radius: 4px;
+}
+
+.action-docs .values .note {
+  font-style: italic;
 }
 
 /* The filename beside the label is the file's name, not its name to you. */

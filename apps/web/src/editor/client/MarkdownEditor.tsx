@@ -54,7 +54,9 @@ const shiftTabKeys = (view: EditorView): boolean => (view.state.readOnly ? false
  * The view owns the document while it is being typed in; an external `value` is applied only
  * when it differs from the document, so a late load cannot jump the caret out of a sentence.
  * Callers keep their own save contract (load, debounce, flush): this only reports edits and
- * focus loss. Home and End move between line edges, which is what `@codemirror/commands`'
+ * focus loss. Where the caret is comes out too (`onCaret`), for callers that read the document
+ * as they go — the action editor follows its fields with it. Home and End move between line
+ * edges, which is what `@codemirror/commands`'
  * standard keymap binds on every platform — the behavior the notes widget used to implement
  * by hand.
  */
@@ -66,6 +68,7 @@ export function MarkdownEditor({
   rows = 16,
   fill = false,
   onBlur,
+  onCaret,
   remember,
 }: {
   /** The document; applied whenever it differs from what the editor holds. */
@@ -83,6 +86,9 @@ export function MarkdownEditor({
   fill?: boolean;
   /** The editor lost focus: a card flushes its pending save here. */
   onBlur?: () => void;
+  /** The caret moved to another line: its 1-based number, as the document is edited or the
+   * caret travels. The caret is on line 1 until it moves, which is not reported. */
+  onCaret?: (line: number) => void;
   /** Come back to this document where you left it: the key its scroll position is remembered
    * under (app-root/remember.ts — remembered while the page lives, forgotten by a restart). */
   remember?: DocumentKey;
@@ -90,7 +96,9 @@ export function MarkdownEditor({
   const host = useRef<HTMLDivElement | null>(null);
   const editor = useRef<EditorView | null>(null);
   // Read by the view's long-lived callbacks, which must not close over a stale render's handlers.
-  const events = useRef({ onChange, onBlur });
+  const events = useRef({ onChange, onBlur, onCaret });
+  // The line last reported, so a caret travelling inside one line is no news.
+  const caretLine = useRef(1);
   // Set while an external `value` is applied to the document: that dispatch is this component
   // writing, not a person typing, and reporting it would mark a just-loaded document unsaved —
   // and, in the save contract, "being typed in".
@@ -105,7 +113,7 @@ export function MarkdownEditor({
   const restored = useRef<{ view: EditorView; key: string } | null>(null);
   const settled = useRef<{ view: EditorView; key: string } | null>(null);
   useEffect(() => {
-    events.current = { onChange, onBlur };
+    events.current = { onChange, onBlur, onCaret };
   });
 
   useEffect(() => {
@@ -156,6 +164,13 @@ export function MarkdownEditor({
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !applying.current) {
               events.current.onChange(update.state.doc.toString());
+            }
+            if (update.selectionSet || update.docChanged) {
+              const line = update.state.doc.lineAt(update.state.selection.main.head).number;
+              if (line !== caretLine.current) {
+                caretLine.current = line;
+                events.current.onCaret?.(line);
+              }
             }
           }),
           EditorView.domEventHandlers({

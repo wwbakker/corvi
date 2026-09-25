@@ -34,11 +34,13 @@ Install dependencies with `bun install --frozen-lockfile`. Browser tests need
 `bunx playwright install chromium`; tmux tests need tmux. Report skipped browser/native/platform
 checks separately from passes. Do not claim macOS coverage from a Linux run.
 
-Two environment traps that fail silently: page tests serve the built bundle, so a bare
-`bun test` after an edit runs `apps/web/dist` as it was — `bun run build:web` first
-(`bun run test` builds). And tmux starts no server at all when its socket path exceeds 103
-characters, so window lists come back empty with nothing to say why; that is why
-`test/terminal.test.ts` gives its socket the short directory `tmuxTempDir` makes.
+Two environment traps around the page and tmux tests. The bundle one no longer fails silently:
+page tests serve the built bundle, so a bare `bun test` after an edit runs `apps/web/dist` as it
+was — the page tests refuse a stale bundle (`requireFreshWebBundle`) and name the build that
+fixes it (`bun run build:web`; `bun run test` builds). The tmux one still fails silently: tmux
+starts no server at all when its socket path exceeds 103 characters, so window lists come back
+empty with nothing to say why; that is why `test/terminal.test.ts` gives its socket the short
+directory `tmuxTempDir` makes.
 
 The node-pty dependency is pinned for working native prebuilds, including executable permission
 on the macOS spawn helper. Before changing that pin, verify spawn, output, resize, and shutdown
@@ -115,6 +117,8 @@ Current fixtures live in `test/helpers.ts`:
 - `testRun()` gives a validated run token: two lowercase base36 words separated by a dot.
 - `testTempDir(label)` allocates paths the cleaner can attribute to that run.
 - `serverEnv(...)` isolates data/cache/config and removes inherited `TMUX`/`CORVI_TMUX_SOCKET`.
+- `requireFreshWebBundle()` refuses a page run whose built bundle is older than the sources it
+  is built from — the silent trap above, made loud; `test/webBundle.test.ts` pins both directions.
 - `tmuxTempDir()` keeps socket paths within the Unix socket length limit (103 bytes plus NUL on
   macOS). Every test tmux command names its private socket with `-S`.
 - Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve

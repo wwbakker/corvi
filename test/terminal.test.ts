@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser } from "playwright";
-import { budget, checkoutsOf, closePages, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, until, waitFor, waitForUrl, withMachineLock  } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, until, waitFor, waitForUrl, withMachineLock  } from "./helpers.ts";
 import { platformName } from "../apps/server/src/capabilities/os.ts";
 import { csiuFor } from "@corvi/terminals/model";
 
@@ -79,6 +79,10 @@ const haveBrowser = await (async (): Promise<boolean> => {
   }
 })();
 const usable = (await have("tmux")) && haveBrowser;
+
+// The terminal is drawn by the built bundle and the assertions below read it: a bundle older
+// than the sources would be yesterday's UI, and is refused here (test/helpers.ts).
+if (usable) requireFreshWebBundle();
 
 let tmp: string;
 /** The private tmux server's socket directory, which is not `tmp`: a unix socket path is capped

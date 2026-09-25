@@ -31,7 +31,7 @@ bun run build:web
 # walking the workspaces, so a new test file needs no entry here — except a new *browser* file,
 # which joins this list (they are found by their playwright import; this list is maintained
 # beside it).
-e2e=(test/terminal.test.ts test/pages.test.ts test/directoryPicker.page.test.ts test/plan.page.test.ts)
+e2e=(test/terminal.test.ts test/pages.test.ts test/directoryPicker.page.test.ts test/plan.page.test.ts test/actions.page.test.ts)
 unit=()
 while IFS= read -r found; do
   file="${found#./}"

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -275,6 +275,42 @@ export const closePages = async (browser: Browser | undefined, label: string): P
     }
   }
   for (const page of pages) await page.close().catch(() => undefined);
+};
+
+/** The newest mtime among the files under a directory; 0 when there is nothing there. */
+const newestFile = (dir: string): number => {
+  let newest = 0;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir, { recursive: true, encoding: "utf8" });
+  } catch {
+    return 0;
+  }
+  for (const entry of entries) {
+    const stat = statSync(join(dir, entry));
+    if (stat.isFile() && stat.mtimeMs > newest) newest = stat.mtimeMs;
+  }
+  return newest;
+};
+
+/** The page tests read their UI in the built bundle (`apps/web/dist`), not in the sources it is
+ * built from — and a bare `bun test` after an edit runs whatever the last build left, so every
+ * page assertion then reads yesterday's UI with nothing to say so
+ * (docs/guides/testing.md). This is the tripwire: before a page is driven, a bundle older than
+ * the newest source is refused, and the message names the build that fixes it. `bun run test`
+ * builds first and cannot trip it. The web directory is a parameter so a fixture can pin the
+ * rule (test/webBundle.test.ts). */
+export const requireFreshWebBundle = (
+  webDir: string = join(import.meta.dir, "..", "apps", "web"),
+): void => {
+  const sources = newestFile(join(webDir, "src"));
+  const built = newestFile(join(webDir, "dist"));
+  if (built === 0 || sources > built) {
+    throw new Error(
+      "apps/web/dist is stale — older than apps/web/src, so the page tests would serve old UI. " +
+        "Run `bun run build:web` first (or `bun run test`, which builds).",
+    );
+  }
 };
 
 /** Whether an id names a process that is there. A pid of nothing is a pid of no one. */
