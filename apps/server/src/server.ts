@@ -13,6 +13,7 @@ import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
+import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
 import { appUpdateRoutes } from "./app-update/routes.ts";
@@ -88,6 +89,7 @@ const server = await serve<TerminalSocket>({
     ...eventsRoutes,
     ...integrationRoutes,
     ...settingsRoutes,
+    ...subagentsRoutes,
     ...terminalsRoutes,
     ...workspaceRoutes,
   },

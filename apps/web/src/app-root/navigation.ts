@@ -12,6 +12,7 @@ export type View =
   | { name: "home" }
   | { name: "new" }
   | { name: "actions" }
+  | { name: "subagents" }
   | { name: "ext-page"; id: string; extension: string }
   | { name: "settings" }
   | { name: "change"; id: string; page: Page; provision?: ProvisionResult[] };
@@ -26,6 +27,7 @@ export type View =
 export function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
   if (path === "/new") return { name: "new" };
   if (path === "/actions") return { name: "actions" };
+  if (path === "/subagents") return { name: "subagents" };
   if (path === "/settings") return { name: "settings" };
   const m = /^\/changes\/([^/]+)(?:\/([^/]+))?/.exec(path);
   if (!m) {
@@ -55,7 +57,9 @@ export const pathOf = (view: View): string =>
       ? `/${view.id}`
       : view.name === "actions"
         ? "/actions"
-        : view.name === "settings"
+        : view.name === "subagents"
+          ? "/subagents"
+          : view.name === "settings"
           ? "/settings"
           : view.name === "change"
             ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}`

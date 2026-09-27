@@ -10,6 +10,7 @@
     "./config": "./src/config.ts",
     "./terminal": "./src/terminal.ts",
     "./actions": "./src/actions.ts",
+    "./subagents": "./src/subagents.ts",
     "./errors": "./src/errors.ts",
     "./workspace": "./src/workspace.ts",
     "./instance": "./src/instance.ts",

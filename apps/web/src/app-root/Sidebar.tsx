@@ -81,6 +81,8 @@ export function Sidebar({
   extPage,
   onActions,
   actions,
+  onSubagents,
+  subagents,
   onSettings,
   settings,
   update,
@@ -116,6 +118,10 @@ export function Sidebar({
   onActions: () => void;
   /** Whether the Actions page is the one open. */
   actions: boolean;
+  /** The core's own Subagents page: the profile files behind the subagent menu. */
+  onSubagents: () => void;
+  /** Whether the Subagents page is the one open. */
+  subagents: boolean;
   onSettings: () => void;
   /** Whether the settings page is the one open. */
   settings: boolean;
@@ -307,6 +313,9 @@ export function Sidebar({
           core's own too, but where you go once in a while rather than while working. */}
       <button className={`entry${actions ? " current" : ""}`} onClick={onActions}>
         Actions
+      </button>
+      <button className={`entry${subagents ? " current" : ""}`} onClick={onSubagents}>
+        Subagents
       </button>
       {pages.map((p) => (
         <button

@@ -135,7 +135,8 @@
         "@corvi/contracts",
         "@corvi/changes",
         "@corvi/terminals",
-        "@corvi/actions"
+        "@corvi/actions",
+        "@corvi/agents"
       ]
     },
     "@corvi/desktop": {

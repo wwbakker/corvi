@@ -18,6 +18,13 @@ import {
 } from "@corvi/contracts/actions"
 
 import {
+  SubagentFilesResponseSchema,
+  type SubagentFileRefDto,
+  type SubagentFileWriteDto,
+  type SubagentFilesResponseDto,
+} from "@corvi/contracts/subagents"
+
+import {
   AppUpdateStatusSchema,
   BranchesSchema,
   CardInfoSchema,
@@ -180,6 +187,9 @@ export interface ChangesClient {
   readonly actionFiles: () => Promise<ActionFilesResponseDto>
   readonly writeActionFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
   readonly deleteActionFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
+  readonly subagentFiles: () => Promise<SubagentFilesResponseDto>
+  readonly writeSubagentFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
+  readonly deleteSubagentFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
   /** What the app knows about updating itself: eligible, what is new, and the update journal.
    * Local reads only — the check runs on its own cadence, or when `checkUpdate` asks. */
@@ -443,6 +453,20 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         await send(
           "DELETE",
           `/actions/files?scope=${ref.scope}${
+            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
+          }&id=${encodeURIComponent(ref.id)}`,
+        ),
+      ),
+    subagentFiles: async () =>
+      decode(SubagentFilesResponseSchema, await send("GET", "/subagents/files")),
+    writeSubagentFile: async (file) =>
+      decode(SubagentFilesResponseSchema, await send("PUT", "/subagents/files", { body: file })),
+    deleteSubagentFile: async (ref) =>
+      decode(
+        SubagentFilesResponseSchema,
+        await send(
+          "DELETE",
+          `/subagents/files?scope=${ref.scope}${
             ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
           }&id=${encodeURIComponent(ref.id)}`,
         ),

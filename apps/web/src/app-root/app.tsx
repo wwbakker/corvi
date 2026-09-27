@@ -33,6 +33,7 @@ import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
+import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
 
 function Home({
   changes,
@@ -346,6 +347,8 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onActions={() => setView({ name: "actions" })}
         actions={view.name === "actions"}
+        onSubagents={() => setView({ name: "subagents" })}
+        subagents={view.name === "subagents"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
         update={appUpdate.status}
@@ -370,6 +373,7 @@ function App(): JSX.Element {
           <PageHost info={view} workspace={workspace?.id} />
         )}
         {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
+        {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
         {view.name === "settings" && (
           <SettingsPage
             onGuard={onGuard}

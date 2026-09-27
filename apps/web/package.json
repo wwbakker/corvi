@@ -29,6 +29,7 @@
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.13",
     "@corvi/actions": "workspace:*",
+    "@corvi/agents": "workspace:*",
     "@corvi/changes": "workspace:*",
     "@corvi/client": "workspace:*",
     "@corvi/contracts": "workspace:*",
