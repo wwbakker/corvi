@@ -27,6 +27,7 @@ const scripted = (options: {
       if (options.turnFailsOnce && turnAttempts === 1) {
         return { code: 1, stdout: "", stderr: "server down" };
       }
+      controller.abort();
       return { code: 0, stdout: "{}", stderr: "" };
     }
     return { code: 1, stdout: "", stderr: "unexpected" };
@@ -35,11 +36,10 @@ const scripted = (options: {
   return {
     harness: {
       exec,
-      submit: (text) => submitted.push(text),
-      settled: async () => {
-        controller.abort();
-        return options.reply ?? "Looks good";
+      submit: (text) => {
+        submitted.push(text);
       },
+      settled: async () => options.reply ?? "Looks good",
       sleep: async () => {},
       signal: controller.signal,
       log: () => {},
@@ -81,4 +81,25 @@ test("an interrupted turn is not submitted", async () => {
   });
   await relayLoop("s1", harness);
   expect(submitted).toEqual(["later"]);
+});
+
+test("a settled run with no text still closes the turn", async () => {
+  const { harness, turns } = scripted({
+    nexts: [{ status: "message", message: { number: 1, body: "hi" } }],
+    reply: "",
+  });
+  await relayLoop("s1", harness);
+  expect(turns[0]?.at(-1)).toBe("(the run ended without a reply)");
+});
+
+test("a reply that begins with a dash is data, not a flag", async () => {
+  const { harness, turns } = scripted({
+    nexts: [{ status: "message", message: { number: 1, body: "hi" } }],
+    reply: "-- not a flag",
+  });
+  await relayLoop("s1", harness);
+  const args = turns[0] ?? [];
+  const separator = args.indexOf("--");
+  expect(separator).toBeGreaterThan(-1);
+  expect(args[separator + 1]).toBe("-- not a flag");
 });

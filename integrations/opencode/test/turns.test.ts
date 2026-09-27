@@ -25,6 +25,7 @@ const scripted = (options: {
       turnAttempts += 1;
       turns.push([...args]);
       if (options.turnFailsOnce && turnAttempts === 1) return { code: 1, stdout: "", stderr: "down" };
+      controller.abort();
       return { code: 0, stdout: "{}", stderr: "" };
     }
     return { code: 1, stdout: "", stderr: "unexpected" };
@@ -33,11 +34,10 @@ const scripted = (options: {
   return {
     harness: {
       exec,
-      submit: (text) => submitted.push(text),
-      settled: async () => {
-        controller.abort();
-        return options.reply ?? "done";
+      submit: (text) => {
+        submitted.push(text);
       },
+      settled: async () => options.reply ?? "done",
       sleep: async () => {},
       signal: controller.signal,
       log: () => {},

@@ -109,6 +109,9 @@ export async function uninstall(
 ): Promise<ExtensionCommandResult> {
   const target = targets[name];
   const path = join(directory, target.file);
+  // A legacy symlink left by an older Corvi is removed even when the current file is not there,
+  // so uninstalling a migrated install actually unloads the reporter.
+  await removeLegacy(directory, target);
   const found = await occupant(path);
   if (found === "none") return { code: 0, stdout: `not installed: ${path}\n`, stderr: "" };
   if (found === "file") {
@@ -119,7 +122,6 @@ export async function uninstall(
     };
   }
   await unlink(path);
-  await removeLegacy(directory, target);
   return {
     code: 0,
     stdout: `removed: ${path}\ntmux keeps @agent_status on panes where ${target.name} is still running: tmux set -p -u @agent_status\n`,

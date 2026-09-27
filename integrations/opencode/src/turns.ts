@@ -5,9 +5,11 @@
  *
  * The loop is the same shape as pi's (each integration is loaded outside Corvi's module graph and
  * shares no package, so the small core is copied rather than imported). What differs is the
- * harness: injection is `client.session.promptAsync` — "create and send a new message to a
- * session, start if needed and return immediately" — and settling is a non-child
- * `session.status` idle, with the answer assembled by the reporter's own `trackAnswer`.
+ * harness: the window is launched with `--session <subagent id>`, so the session this window
+ * talks through **is** the subagent id — no discovery, and `client.session.promptAsync` targets
+ * exactly the visible session. Settling is a non-child `session.status` idle (or the deprecated
+ * `session.idle`), with the answer assembled by the reporter's own `trackAnswer`; child sessions
+ * (a subagent's own subagents) are ignored, as the reporter ignores them.
  *
  * Identity is `@subagent_id` on this pane, read with the plugin's shell (`input.$`).
  */
@@ -22,7 +24,7 @@ export type Exec = (args: readonly string[]) => Promise<ExecResult>;
 
 export type RelayHarness = {
   readonly exec: Exec;
-  readonly submit: (text: string) => void;
+  readonly submit: (text: string) => void | Promise<void>;
   readonly settled: () => Promise<string | undefined>;
   readonly sleep: (ms: number) => Promise<void>;
   readonly signal?: AbortSignal;
@@ -54,6 +56,8 @@ const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<
 
 const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
   for (let attempt = 0; ; attempt += 1) {
+    if (harness.signal?.aborted) return;
+    // `--` before the text: a reply that begins with a dash is data, not a flag.
     const result = await harness.exec([
       "subagent",
       "turn",
@@ -62,6 +66,7 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       "--idempotency-key",
       key,
       "--json",
+      "--",
       text,
     ]);
     if (result.code === 0) return;
@@ -93,12 +98,27 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     }
     if (next.status !== "message") continue;
     after = next.message.number;
-    harness.submit(next.message.body);
-    const reply = await harness.settled();
-    if (reply !== undefined && reply.trim() !== "") {
-      await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
+    try {
+      await harness.submit(next.message.body);
+    } catch (error) {
+      harness.log?.(`submitting message ${next.message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    const settled = await harness.settled();
+    const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
+    await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
   }
+};
+
+/** Read `@subagent_id` for this pane, retrying briefly: the server writes the option just after
+ * the window starts, and a fresh window must not be permanently mute because it read too early. */
+const subagentOfPane = async (input: PluginInput, pane: string): Promise<string | undefined> => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const result = await input.$`tmux display -p -t ${pane} '#{@subagent_id}'`.quiet().nothrow();
+    const id = result.stdout.toString().trim();
+    if (id !== "") return id;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return undefined;
 };
 
 const relay: PluginModule = {
@@ -108,42 +128,36 @@ const relay: PluginModule = {
     if (!pane) return { event: async (): Promise<void> => {} };
 
     const answer = trackAnswer();
-    // The session this window is talking through: the newest non-child session opencode reports.
-    let sessionID: string | undefined;
     let settle: ((text: string | undefined) => void) | undefined;
 
     const settleNow = (): void => {
       const done = settle;
       settle = undefined;
-      done?.(answer.answer() || undefined);
+      done?.(answer.fullAnswer() || undefined);
     };
 
     const exec: Exec = async (args) => {
       const command = ["corvi", ...args].map((value) => `'${value.replaceAll("'", "'\\''")}'`).join(" ");
       const result = await input.$`sh -c ${command}`.quiet().nothrow();
+      // A command killed by a signal has a null exit code; treat that as failure, not success.
       return {
-        code: result.exitCode ?? 0,
+        code: result.exitCode ?? 1,
         stdout: result.stdout.toString(),
         stderr: result.stderr.toString(),
       };
     };
 
-    const readSubagent = async (): Promise<string | undefined> => {
-      const result = await input.$`tmux display -p -t ${pane} '#{@subagent_id}'`.quiet().nothrow();
-      const id = result.stdout.toString().trim();
-      return id === "" ? undefined : id;
-    };
-
-    const subagentId = await readSubagent();
+    const subagentId = await subagentOfPane(input, pane);
     if (subagentId !== undefined) {
+      // The window was launched with `--session <subagentId>`, so that is the visible session.
       void relayLoop(subagentId, {
         exec,
-        submit: (text) => {
-          const id = sessionID;
-          if (id === undefined) return; // no session known yet; the next turn will find it
-          void input.client.session
-            .promptAsync({ path: { id }, body: { parts: [{ type: "text", text }] } })
-            .catch(() => {});
+        submit: async (text) => {
+          await input.client.session
+            .promptAsync({ path: { id: subagentId }, body: { parts: [{ type: "text", text }] } })
+            .catch((error: unknown) => {
+              console.error(`[corvi] injecting the message failed: ${error instanceof Error ? error.message : String(error)}`);
+            });
         },
         settled: () =>
           new Promise<string | undefined>((resolve) => {
@@ -160,25 +174,35 @@ const relay: PluginModule = {
           switch (event.type) {
             case "message.updated": {
               const info = event.properties.info;
+              // Only this window's own session: a child session is a subagent's own subagent.
+              if (subagentId !== undefined && info.sessionID !== subagentId) return;
               if (info.role === "user") {
                 if (info.summary) return;
                 answer.clear();
               } else if (!info.summary) {
                 answer.begin(info.id);
               }
-              sessionID = info.sessionID;
               return;
             }
             case "message.part.updated": {
               const part = event.properties.part;
+              if (subagentId !== undefined && part.sessionID !== subagentId) return;
               if (part.type === "text") answer.addPart(part.messageID, part.id, part.text, part.ignored);
               return;
             }
             case "session.status": {
+              if (event.properties.sessionID !== subagentId) return;
               if (event.properties.status.type === "idle") settleNow();
               return;
             }
             case "session.idle": {
+              if (event.properties.sessionID !== subagentId) return;
+              settleNow();
+              return;
+            }
+            case "session.error": {
+              // An error may not be followed by idle; settle so the turn does not strand.
+              if (subagentId !== undefined && event.properties.sessionID !== subagentId) return;
               settleNow();
               return;
             }

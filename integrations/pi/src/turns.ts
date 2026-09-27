@@ -17,7 +17,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import { textOf } from "./agent-state.ts";
+import { fullTextOf } from "./agent-state.ts";
 
 /** What one CLI call produced. */
 export type ExecResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
@@ -27,8 +27,9 @@ export type Exec = (args: readonly string[]) => Promise<ExecResult>;
 export type RelayHarness = {
   /** Run the Corvi CLI with these arguments. */
   readonly exec: Exec;
-  /** Submit an inbound message as a user turn in this session. */
-  readonly submit: (text: string) => void;
+  /** Submit an inbound message as a user turn in this session. A rejection is logged, not
+   * swallowed: the message is already claimed, so a silent failure would strand the turn. */
+  readonly submit: (text: string) => void | Promise<void>;
   /** Resolve with the settled run's assistant text, or undefined when it settled with none. */
   readonly settled: () => Promise<string | undefined>;
   /** Wait before re-issuing a call. */
@@ -67,6 +68,8 @@ const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<
  * lost if it never lands, so a server restart must not drop it. */
 const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
   for (let attempt = 0; ; attempt += 1) {
+    if (harness.signal?.aborted) return;
+    // `--` before the text: a reply that begins with a dash is data, not a flag.
     const result = await harness.exec([
       "subagent",
       "turn",
@@ -75,6 +78,7 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       "--idempotency-key",
       key,
       "--json",
+      "--",
       text,
     ]);
     if (result.code === 0) return;
@@ -106,21 +110,35 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     }
     if (next.status !== "message") continue; // the long poll's own deadline: re-issue at once
     after = next.message.number;
-    harness.submit(next.message.body);
-    const reply = await harness.settled();
-    if (reply !== undefined && reply.trim() !== "") {
-      await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
+    try {
+      await harness.submit(next.message.body);
+    } catch (error) {
+      harness.log?.(`submitting message ${next.message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    const settled = await harness.settled();
+    // A settled run with no text (an abort) still closes the turn, so the subagent is not stranded
+    // in flight forever; the note is honest about there being no reply.
+    const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
+    await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
   }
 };
 
-/** Read the subagent id this pane carries, or undefined when it is not a subagent window. */
+/** Read the subagent id this pane carries, or undefined when it is not a subagent window. The
+ * server writes `@subagent_id` just after the window starts, so a few retries close that startup
+ * race rather than leaving a fresh window permanently mute. */
 export const subagentOfPane = async (pi: ExtensionAPI, pane: string): Promise<string | undefined> => {
-  const result = await pi.exec("tmux", ["display", "-p", "-t", pane, "#{@subagent_id}"]).catch(() => undefined);
-  if (!result || result.code !== 0) return undefined;
-  const id = result.stdout.trim();
-  return id === "" ? undefined : id;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const result = await pi.exec("tmux", ["display", "-p", "-t", pane, "#{@subagent_id}"]).catch(() => undefined);
+    const id = result && result.code === 0 ? result.stdout.trim() : "";
+    if (id !== "") return id;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+  return undefined;
 };
+
+/** pi emits `session_start` again on `/reload`; a second loop would share the single settle slot
+ * and deadlock the first. One relay per process. */
+let relayStarted = false;
 
 export default function (pi: ExtensionAPI): void {
   const pane = process.env.TMUX_PANE;
@@ -131,7 +149,7 @@ export default function (pi: ExtensionAPI): void {
   let lastAssistant = "";
   pi.on("agent_end", async (event) => {
     for (const message of [...event.messages].reverse()) {
-      const text = textOf(message);
+      const text = fullTextOf(message);
       if (text) {
         lastAssistant = text;
         return;
@@ -146,11 +164,15 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async () => {
+    if (relayStarted) return;
     const subagentId = await subagentOfPane(pi, pane);
     if (subagentId === undefined) return; // a plain pi window: the reporter still speaks, the relay stays quiet
+    relayStarted = true;
     const harness: RelayHarness = {
       exec: async (args) => pi.exec("corvi", [...args]),
-      submit: (text) => pi.sendUserMessage(text, { deliverAs: "followUp", expandPromptTemplates: false }),
+      submit: async (text) => {
+        await pi.sendUserMessage(text, { deliverAs: "followUp", expandPromptTemplates: false });
+      },
       settled: () =>
         new Promise<string | undefined>((resolve) => {
           settle = resolve;

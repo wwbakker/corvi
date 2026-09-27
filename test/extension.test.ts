@@ -95,6 +95,15 @@ for (const name of ["pi", "opencode"] as const) {
     expect(await present()).toBe(false);
   });
 
+  test(`uninstall removes a legacy agent-state.ts symlink even with nothing else installed (${name})`, async () => {
+    await symlink(join(tmp, "other-branch", "agent-state.ts"), legacy);
+
+    const result = await run(`uninstall:${name}`);
+
+    expect(result.code).toBe(0);
+    expect(await lstat(legacy).catch(() => undefined)).toBeUndefined();
+  });
+
   test(`uninstall with nothing installed is not a failure (${name})`, async () => {
     const result = await run(`uninstall:${name}`);
 
