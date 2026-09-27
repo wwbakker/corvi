@@ -75,7 +75,8 @@ export const subagentsRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, SubagentCreateRequestSchema);
-          return json(yield* createSubagent(change, body), 201);
+          const key = req.headers.get("idempotency-key") ?? undefined;
+          return json(yield* createSubagent(change, body, undefined, key), 201);
         }),
       ),
   },
@@ -111,11 +112,13 @@ export const subagentsRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, SubagentSendRequestSchema);
+          const key = req.headers.get("idempotency-key") ?? undefined;
           const message = yield* sendToSubagent(
             change,
             req.params.subagent,
             body.text,
             body.from ?? "orchestrator",
+            key,
           );
           return json(message, 201);
         }),
@@ -131,7 +134,13 @@ export const subagentsRoutes = guard({
 
   "/api/changes/:id/subagents/:subagent/next": {
     GET: (req) =>
-      withChange(req.params.id, (change) => Effect.map(nextForSubagent(change, req.params.subagent), json)),
+      withChange(req.params.id, (change) =>
+        Effect.gen(function* () {
+          const afterRaw = new URL(req.url).searchParams.get("after");
+          const after = afterRaw === null ? undefined : Number(afterRaw);
+          return json(yield* nextForSubagent(change, req.params.subagent, Number.isFinite(after) ? after : undefined));
+        }),
+      ),
   },
 
   "/api/changes/:id/subagents/:subagent/turn": {
@@ -139,7 +148,8 @@ export const subagentsRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, SubagentTurnRequestSchema);
-          return json(yield* recordTurn(change, req.params.subagent, body.text), 201);
+          const key = req.headers.get("idempotency-key") ?? undefined;
+          return json(yield* recordTurn(change, req.params.subagent, body.text, key, body.pane), 201);
         }),
       ),
   },

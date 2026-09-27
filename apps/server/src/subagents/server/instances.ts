@@ -4,8 +4,9 @@
  * Composes three things: the instance store (`@corvi/agents/node`, one directory per subagent),
  * the terminal (`@corvi/terminals`, one tmux window per attached subagent), and the waiter
  * registry (`./waiters.ts`, the long poll's parking lot). The server is the single writer of the
- * `session.json` records and the message files; every mutation goes through the store's
- * per-subagent lock.
+ * `session.json` records and the message files; **every** read-modify-write of a record goes
+ * through the store's per-subagent lock (`mutateRecord`/`appendMessageAndPatch`/`claimInbound`),
+ * so two concurrent requests cannot interleave a cursor, an in-flight marker, or a log.
  *
  * Presence is a live window carrying `@subagent_id` — written by the server here, read back with
  * the window list. Activity is the reporter's `@agent_status`. The one stored fact is `inFlight`:
@@ -22,12 +23,17 @@ import {
   type SubagentWithMessages,
 } from "@corvi/agents/instance";
 import {
-  appendMessage,
+  appendMessageAndPatch,
+  claimInbound,
   createInstance,
+  findCreatedByKey,
   instanceDir,
   readInstance,
   listInstances,
+  mutateRecord,
+  removeInstance,
   writeRecord,
+  withCreateLock,
 } from "@corvi/agents/node";
 import type {
   SubagentCreateRequestDto,
@@ -47,7 +53,7 @@ import {
 } from "../../terminals/server/index.ts";
 import type { Change } from "../../domain/change.ts";
 import { resolveProfileFor } from "./run.ts";
-import { awaitEvent, notify } from "./waiters.ts";
+import { notify, subscribe } from "./waiters.ts";
 
 /** How long a `wait`/`next` parks before answering "nothing yet". The caller re-issues. Read per
  * call, so a test can shorten it. */
@@ -79,10 +85,7 @@ const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
     },
   );
 
-const toDto = (
-  record: SubagentWithMessages,
-  live: Live | undefined,
-): SubagentInstanceDto => {
+const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentInstanceDto => {
   const view = viewOf(
     record,
     { attached: live !== undefined, agentStatus: live?.agentStatus },
@@ -137,11 +140,12 @@ export const showSubagent = (
 /** A filename-shaped id derived from the label, with a timestamp and a counter for uniqueness. */
 const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
   Effect.gen(function* () {
-    const slug = label
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 24) || "subagent";
+    const slug =
+      label
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 24) || "subagent";
     const stamp = now().replace(/[-:T.]/g, "").slice(0, 15);
     for (let attempt = 1; ; attempt += 1) {
       const id = attempt === 1 ? `${slug}-${stamp}` : `${slug}-${stamp}-${attempt}`;
@@ -150,9 +154,12 @@ const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
     }
   });
 
-/** Start the harness in a window of its own: the subagent's directory is the cwd, and the pane
- * carries `@subagent_id` so the window list can match it back. Writes the updated record. */
-const openWindow = (change: Change, record: SubagentRecord): Effect.Effect<SubagentRecord, BadRequestError> =>
+/** How an instance's window is opened. The default creates the tmux window and returns its id;
+ * a test can supply one that returns a fake id, which is the only part of create/open that
+ * touches tmux. The caller persists the id under the lock. */
+export type SubagentLauncher = (change: Change, record: SubagentRecord) => Effect.Effect<string, BadRequestError>;
+
+const startWindow: SubagentLauncher = (change, record) =>
   Effect.gen(function* () {
     const dir = instanceDir(changeDir(change), record.id);
     yield* ensureSession(change.id, changeDir(change)).pipe(
@@ -172,78 +179,93 @@ const openWindow = (change: Change, record: SubagentRecord): Effect.Effect<Subag
     yield* setPaneOption(window, "@subagent_id", record.id).pipe(
       Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
     );
-    const updated: SubagentRecord = {
-      ...record,
-      window,
-      log: [...record.log, { kind: "opened", at: now() }],
-    };
-    yield* writeRecord(changeDir(change), updated).pipe(
-      Effect.mapError((error) => new BadRequestError({ message: error.message })),
-    );
-    yield* Effect.sync(() => announce("windows"));
-    return updated;
+    return window;
   });
 
-/** Create a subagent from a profile, open its window, and (when a task was given) append the
- * initial inbound message. Create, open and the first message are bound on purpose: it is the
- * one act, after which opening and starting work are separate. */
-/** How an instance's window is opened. The default is the terminal; a test can supply one that
- * records the call instead of starting a harness, which is the only part of create/open that
- * touches tmux. */
-export type SubagentLauncher = (
-  change: Change,
-  record: SubagentRecord,
-) => Effect.Effect<SubagentRecord, BadRequestError>;
+const opened = (change: Change, id: string, window: string): Effect.Effect<void, BadRequestError> =>
+  mutateRecord(changeDir(change), id, (record) => ({
+    write: true,
+    record: { ...record, window, log: [...record.log, { kind: "opened", at: now() }] },
+    result: undefined,
+  })).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
 
+/** Create a subagent from a profile, open its window, and (when a task was given) append the
+ * initial inbound message. Create, open and the first message are bound on purpose. A failed
+ * launcher rolls the whole instance back, and a retried create with the same idempotency key
+ * returns the instance it already made. */
 export const createSubagent = (
   change: Change,
   input: SubagentCreateRequestDto,
-  launcher: SubagentLauncher = openWindow,
+  launcher: SubagentLauncher = startWindow,
+  key?: string,
 ): Effect.Effect<SubagentInstanceDto, BadRequestError | ConflictError | NotFoundError> =>
   Effect.gen(function* () {
     if (change.completedAt) {
       return yield* new BadRequestError({ message: "this change is finished: no new subagents" });
+    }
+    if (key !== undefined) {
+      const existing = yield* findCreatedByKey(changeDir(change), key).pipe(
+        Effect.mapError((error) => new BadRequestError({ message: error.message })),
+      );
+      if (existing) return toDto(existing, undefined);
     }
     const profile = yield* resolveProfileFor(change, input.profile);
     if (!profile) {
       return yield* new BadRequestError({ message: `no such profile: ${input.profile}` });
     }
     const from = input.from ?? "orchestrator";
-    const id = yield* uniqueId(change, profile.profile.label);
-    const record: SubagentRecord = {
-      id,
-      changeId: change.id,
-      profile: profile.key,
-      label: profile.profile.label,
-      harness: profile.profile.harness,
-      ...(profile.profile.model === undefined ? {} : { model: profile.profile.model }),
-      ...(profile.profile.effort === undefined ? {} : { effort: profile.profile.effort }),
-      createdBy: from,
-      createdAt: now(),
-      log: [{ kind: "created", at: now() }],
-    };
-    yield* createInstance(changeDir(change), record).pipe(
-      Effect.mapError(() => new ConflictError({ message: `subagent "${id}" already exists` })),
+    const dir = changeDir(change);
+    return yield* withCreateLock(
+      dir,
+      Effect.gen(function* () {
+        const id = yield* uniqueId(change, profile.profile.label);
+        const record: SubagentRecord = {
+          id,
+          changeId: change.id,
+          profile: profile.key,
+          label: profile.profile.label,
+          harness: profile.profile.harness,
+          ...(profile.profile.model === undefined ? {} : { model: profile.profile.model }),
+          ...(profile.profile.effort === undefined ? {} : { effort: profile.profile.effort }),
+          createdBy: from,
+          createdAt: now(),
+          ...(key === undefined ? {} : { createdKey: key }),
+          log: [{ kind: "created", at: now() }],
+        };
+        yield* createInstance(dir, record).pipe(
+          Effect.mapError(() => new ConflictError({ message: `subagent "${id}" already exists` })),
+        );
+        if (input.prompt !== undefined && input.prompt !== "") {
+          yield* appendMessageAndPatch(
+            dir,
+            id,
+            { role: from, body: input.prompt, at: now() },
+            (current) => current,
+          ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
+        }
+        // The launcher can still fail after the files exist: roll back so a failed create leaves
+        // nothing behind, and a retry starts clean.
+        const window = yield* launcher(change, record).pipe(
+          Effect.catchAll((failure) => Effect.zipRight(removeInstance(dir, id), Effect.fail(failure))),
+        );
+        yield* opened(change, id, window);
+        return yield* refreshSubagent(change, id);
+      }),
     );
-    if (input.prompt !== undefined && input.prompt !== "") {
-      yield* appendMessage(changeDir(change), id, { role: from, body: input.prompt, at: now() }).pipe(
-        Effect.mapError((error) => new BadRequestError({ message: error.message })),
-      );
-    }
-    yield* launcher(change, record);
-    return yield* refreshSubagent(change, id);
   });
 
 export const openSubagent = (
   change: Change,
   id: string,
-  launcher: SubagentLauncher = openWindow,
+  launcher: SubagentLauncher = startWindow,
 ): Effect.Effect<SubagentInstanceDto, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
     const record = yield* requireInstance(change, id);
     const live = (yield* liveBySubagent(change.id)).get(id);
     if (live !== undefined) return toDto(record, live);
-    yield* launcher(change, record);
+    const window = yield* launcher(change, record);
+    yield* opened(change, id, window);
+    yield* Effect.sync(() => announce("windows"));
     return yield* refreshSubagent(change, id);
   });
 
@@ -256,12 +278,15 @@ export const closeSubagent = (
     if (record.window !== undefined) {
       yield* killWindow(record.window).pipe(Effect.catchAll(() => Effect.void));
     }
-    const closed: SubagentRecord = {
-      ...record,
-      window: undefined,
-      log: [...record.log, { kind: "closed", at: now() }],
-    };
-    yield* writeRecord(changeDir(change), closed).pipe(Effect.catchAll(() => Effect.void));
+    yield* mutateRecord(changeDir(change), id, (current) => ({
+      write: true,
+      record: {
+        ...current,
+        window: undefined,
+        log: [...current.log, { kind: "closed", at: now() }],
+      },
+      result: undefined,
+    })).pipe(Effect.catchAll(() => Effect.void));
     yield* notify(change.id, id, { kind: "lost", id });
     yield* Effect.sync(() => announce("windows"));
     return yield* refreshSubagent(change, id);
@@ -275,19 +300,23 @@ export const sendToSubagent = (
   id: string,
   text: string,
   from: "orchestrator" | "user",
+  key?: string,
 ): Effect.Effect<SubagentMessage, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
-    const record = yield* requireInstance(change, id);
-    if (record.inFlight !== undefined) {
-      yield* writeRecord(changeDir(change), {
-        ...record,
-        inFlight: undefined,
-        log: [...record.log, { kind: "continued", at: now(), note: "a new message arrived" }],
-      }).pipe(Effect.catchAll(() => Effect.void));
-    }
-    const message = yield* appendMessage(changeDir(change), id, { role: from, body: text, at: now() }).pipe(
-      Effect.mapError((error) => new BadRequestError({ message: error.message })),
-    );
+    yield* requireInstance(change, id);
+    const { message } = yield* appendMessageAndPatch(
+      changeDir(change),
+      id,
+      { role: from, body: text, at: now(), ...(key === undefined ? {} : { key }) },
+      (record) =>
+        record.inFlight === undefined
+          ? { ...record }
+          : {
+              ...record,
+              inFlight: undefined,
+              log: [...record.log, { kind: "continued", at: now(), note: "a new message arrived" }],
+            },
+    ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
     yield* notify(change.id, id, { kind: "inbound", id, message });
     yield* Effect.sync(() => announce("changes"));
     return message;
@@ -299,17 +328,30 @@ export const recordTurn = (
   change: Change,
   id: string,
   text: string,
+  key?: string,
+  pane?: string,
 ): Effect.Effect<SubagentMessage, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
-    const record = yield* requireInstance(change, id);
-    const message = yield* appendMessage(changeDir(change), id, { role: "subagent", body: text, at: now() }).pipe(
-      Effect.mapError((error) => new BadRequestError({ message: error.message })),
-    );
-    yield* writeRecord(changeDir(change), {
-      ...record,
-      inFlight: undefined,
-      log: record.inFlight === undefined ? record.log : [...record.log, { kind: "turn_settled", at: now() }],
-    }).pipe(Effect.catchAll(() => Effect.void));
+    yield* requireInstance(change, id);
+    const { message } = yield* appendMessageAndPatch(
+      changeDir(change),
+      id,
+      {
+        role: "subagent",
+        body: text,
+        at: now(),
+        ...(key === undefined ? {} : { key }),
+        ...(pane === undefined ? {} : { pane }),
+      },
+      (record) =>
+        record.inFlight === undefined
+          ? { ...record }
+          : {
+              ...record,
+              inFlight: undefined,
+              log: [...record.log, { kind: "turn_settled", at: now() }],
+            },
+    ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
     yield* notify(change.id, id, { kind: "reply", id, message });
     yield* Effect.sync(() => announce("changes"));
     return message;
@@ -325,47 +367,51 @@ export const resultOfSubagent = (
     return reply ?? null;
   });
 
-const pendingInbound = (record: SubagentWithMessages): SubagentMessage | undefined => {
-  const through = record.deliveredThrough ?? 0;
-  return record.messages.find((message) => message.role !== "subagent" && message.number > through);
-};
-
 /** The extension's half: the next message to submit, an interrupted turn to leave alone, or
- * nothing yet. The cursor (`deliveredThrough`) and `inFlight` are advanced together, under the
- * store's lock, so a restarted extension cannot be handed a message it already submitted. */
+ * nothing yet. `after` is the last message number the caller already submitted; a live extension
+ * that lost the response can be handed that message again, while a fresh extension (no `after`)
+ * gets `interrupted` rather than a redelivery. */
 export const nextForSubagent = (
   change: Change,
   id: string,
+  after?: number,
 ): Effect.Effect<SubagentNextResponseDto, NotFoundError | BadRequestError> =>
   Effect.gen(function* () {
+    yield* requireInstance(change, id);
     const deadline = Date.now() + longPollMs();
     for (;;) {
-      const record = yield* requireInstance(change, id);
-      if (record.inFlight !== undefined) return { status: "interrupted" };
-      const pending = pendingInbound(record);
-      if (pending) {
-        yield* writeRecord(changeDir(change), {
-          ...record,
-          deliveredThrough: pending.number,
-          inFlight: pending.number,
-          log: [...record.log, { kind: "turn_started", at: now(), note: `message ${pending.number}` }],
-        }).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
-        return { status: "message", message: pending };
-      }
-      const remaining = deadline - Date.now();
-      if (remaining <= 0) return { status: "none" };
-      const event = yield* awaitEvent(change.id, id).pipe(Effect.timeoutOption(remaining));
-      if (event._tag === "None") return { status: "none" };
-      if (event.value.kind === "interrupted") return { status: "interrupted" };
-      // An inbound or reply event: loop and re-read, which is where the message is picked up.
+      // Subscribe before reading, and keep the subscription until the step settles: an event that
+      // fires after the registration resolves the deferred; one that fired before is seen by the
+      // claim below.
+      const subscription = yield* subscribe(change.id, id);
+      const step = yield* Effect.gen(function* () {
+        const claimed = yield* claimInbound(changeDir(change), id, now(), after).pipe(
+          Effect.mapError((error) => new BadRequestError({ message: error.message })),
+        );
+        if (claimed.status === "message") {
+          return { done: true as const, result: { status: "message" as const, message: claimed.message } };
+        }
+        if (claimed.status === "interrupted") {
+          return { done: true as const, result: { status: "interrupted" as const } };
+        }
+        const remaining = deadline - Date.now();
+        if (remaining <= 0) return { done: true as const, result: { status: "none" as const } };
+        const event = yield* subscription.await.pipe(Effect.timeoutOption(remaining));
+        if (event._tag === "None") {
+          return { done: true as const, result: { status: "none" as const } };
+        }
+        if (event.value.kind === "interrupted" || event.value.kind === "lost") {
+          return { done: true as const, result: { status: "interrupted" as const } };
+        }
+        return { done: false as const };
+      }).pipe(Effect.ensuring(subscription.close));
+      if (step.done) return step.result;
+      // inbound or reply: loop, claim, and either return the message or park again.
     }
   });
 
 /** The latest subagent message with a number above the token, if one is already there. */
-const deliveredSince = (
-  record: SubagentWithMessages,
-  token: number,
-): SubagentMessage | undefined =>
+const deliveredSince = (record: SubagentWithMessages, token: number): SubagentMessage | undefined =>
   [...record.messages]
     .filter((message) => message.role === "subagent" && message.number > token)
     .sort((left, right) => left.number - right.number)
@@ -393,8 +439,7 @@ export const waitForTurn = (
     if (targets.length === 0) return { status: "timeout" };
 
     // The baseline is captured once: waiting returns the next turn, so a reply that arrived
-    // before the wait does not resolve it. `--since` overrides the baseline for a caller that
-    // already read the log up to a point.
+    // before the wait does not resolve it. `--since` overrides the baseline.
     const baseline = new Map<string, number>();
     for (const record of records) {
       baseline.set(
@@ -406,15 +451,36 @@ export const waitForTurn = (
     const waitOne = (id: string): Effect.Effect<SubagentWaitResponseDto> =>
       Effect.gen(function* () {
         for (;;) {
-          const record = yield* requireInstance(change, id).pipe(Effect.catchAll(() => Effect.succeed(null)));
-          if (record === null) return { status: "lost" as const, id };
-          const delivered = deliveredSince(record, baseline.get(id) ?? 0);
-          if (delivered) return { status: "turn" as const, id, message: delivered };
-          const event = yield* awaitEvent(change.id, id);
-          if (event.kind === "reply") return { status: "turn" as const, id, message: event.message };
-          if (event.kind === "inbound") continue;
-          if (event.kind === "lost") return { status: "lost" as const, id };
-          return { status: "interrupted" as const, id };
+          const live = yield* liveBySubagent(change.id);
+          const attached = live.has(id);
+          // Subscribe before reading, and keep the subscription until the step settles.
+          const subscription = yield* subscribe(change.id, id);
+          const step = yield* Effect.gen(function* () {
+            const record = yield* requireInstance(change, id).pipe(
+              Effect.catchAll(() => Effect.succeed(null)),
+            );
+            if (record === null) {
+              return { done: true as const, result: { status: "lost" as const, id } };
+            }
+            // In flight with no live window: the machine was interrupted mid-turn.
+            if (record.inFlight !== undefined && !attached) {
+              return { done: true as const, result: { status: "interrupted" as const, id } };
+            }
+            const delivered = deliveredSince(record, baseline.get(id) ?? 0);
+            if (delivered) {
+              return { done: true as const, result: { status: "turn" as const, id, message: delivered } };
+            }
+            const event = yield* subscription.await;
+            if (event.kind === "reply") {
+              return { done: true as const, result: { status: "turn" as const, id, message: event.message } };
+            }
+            if (event.kind === "lost") return { done: true as const, result: { status: "lost" as const, id } };
+            if (event.kind === "interrupted") {
+              return { done: true as const, result: { status: "interrupted" as const, id } };
+            }
+            return { done: false as const };
+          }).pipe(Effect.ensuring(subscription.close));
+          if (step.done) return step.result;
         }
       });
 

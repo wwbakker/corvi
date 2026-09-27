@@ -93,6 +93,9 @@ export const SubagentRecordSchema = Schema.Struct({
   window: Schema.optional(Schema.String),
   deliveredThrough: Schema.optional(Schema.Number),
   inFlight: Schema.optional(Schema.Number),
+  /** The idempotency key a create was made with, so a retried create returns the same instance
+   * rather than minting a second one. */
+  createdKey: Schema.optional(Schema.String),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
 })
 export type SubagentRecordDto = typeof SubagentRecordSchema.Type
@@ -104,6 +107,9 @@ export const SubagentMessageSchema = Schema.Struct({
   at: Schema.String,
   body: Schema.String,
   pane: Schema.optional(Schema.String),
+  /** The idempotency key the write was made with: a retried send/turn finds the message again
+   * instead of appending a second one. */
+  key: Schema.optional(Schema.String),
 })
 export type SubagentMessageDto = typeof SubagentMessageSchema.Type
 
@@ -149,7 +155,11 @@ export const SubagentSendRequestSchema = Schema.Struct({
 export type SubagentSendRequestDto = typeof SubagentSendRequestSchema.Type
 
 /** A settled turn's reply, relayed by the harness extension. */
-export const SubagentTurnRequestSchema = Schema.Struct({ text: Schema.String })
+export const SubagentTurnRequestSchema = Schema.Struct({
+  text: Schema.String,
+  /** The pane the reply came from, for the forensic trail when two panes claim one identity. */
+  pane: Schema.optional(Schema.String),
+})
 export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
 
 /** What a `wait` ended as: a delivered turn, a lost window, an interrupted turn, or the long

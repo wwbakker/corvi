@@ -208,6 +208,7 @@ export interface ChangesClient {
   readonly createSubagent: (
     changeId: ChangeId,
     body: SubagentCreateRequestDto,
+    idempotencyKey?: string,
   ) => Promise<SubagentInstanceDto>
   readonly openSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
   readonly closeSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
@@ -215,6 +216,7 @@ export interface ChangesClient {
     changeId: ChangeId,
     id: string,
     body: SubagentSendRequestDto,
+    idempotencyKey?: string,
   ) => Promise<SubagentMessageDto>
   readonly subagentResult: (
     changeId: ChangeId,
@@ -229,12 +231,14 @@ export interface ChangesClient {
   readonly nextSubagent: (
     changeId: ChangeId,
     id: string,
+    after?: number,
     options?: RequestOptions,
   ) => Promise<SubagentNextResponseDto>
   readonly subagentTurn: (
     changeId: ChangeId,
     id: string,
     body: SubagentTurnRequestDto,
+    idempotencyKey?: string,
   ) => Promise<SubagentMessageDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
   /** What the app knows about updating itself: eligible, what is new, and the update journal.
@@ -299,16 +303,19 @@ const transport = (
   const send = async (
     method: string,
     path: string,
-    options: { body?: unknown; signal?: AbortSignal } = {},
+    options: { body?: unknown; signal?: AbortSignal; headers?: Record<string, string> } = {},
   ): Promise<unknown> => {
+    const headers = {
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.headers ?? {}),
+    };
     let response: Response
     try {
       response = await request(`${baseUrl}/api${path}`, {
         method,
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.body === undefined
-          ? {}
-          : { headers: { "content-type": "application/json" }, body: JSON.stringify(options.body) }),
+        ...(Object.keys(headers).length === 0 ? {} : { headers }),
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       })
     } catch (cause) {
       throw new ClientError({ message: "the server could not be reached", cause })
@@ -524,10 +531,13 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
       ).instances,
     subagent: async (changeId, id, options) =>
       decode(SubagentInstanceSchema, await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}`, options)),
-    createSubagent: async (changeId, body) =>
+    createSubagent: async (changeId, body, idempotencyKey) =>
       decode(
         SubagentInstanceSchema,
-        await send("POST", `${change(changeId)}/subagents`, { body }),
+        await send("POST", `${change(changeId)}/subagents`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
       ),
     openSubagent: async (changeId, id) =>
       decode(
@@ -539,10 +549,13 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         SubagentInstanceSchema,
         await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/close`),
       ),
-    sendSubagent: async (changeId, id, body) =>
+    sendSubagent: async (changeId, id, body, idempotencyKey) =>
       decode(
         SubagentMessageSchema,
-        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/messages`, { body }),
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/messages`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
       ),
     subagentResult: async (changeId, id, options) =>
       decode(
@@ -561,15 +574,24 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
         await send("GET", `${change(changeId)}/subagents/wait${suffix}`, options),
       );
     },
-    nextSubagent: async (changeId, id, options) =>
+    nextSubagent: async (changeId, id, after, options) =>
       decode(
         SubagentNextResponseSchema,
-        await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}/next`, options),
+        await send(
+          "GET",
+          `${change(changeId)}/subagents/${encodeURIComponent(id)}/next${
+            after === undefined ? "" : `?after=${after}`
+          }`,
+          options,
+        ),
       ),
-    subagentTurn: async (changeId, id, body) =>
+    subagentTurn: async (changeId, id, body, idempotencyKey) =>
       decode(
         SubagentMessageSchema,
-        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/turn`, { body }),
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/turn`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
       ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),

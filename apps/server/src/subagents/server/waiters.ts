@@ -6,11 +6,16 @@
  * coarse pokes, and `announce` forgets them — none of which can wake a `wait` reliably. This is
  * the reliable wake: the append route calls `notify` and the parked effect resolves.
  *
- * Four event kinds, because `wait` and `next` await different halves of the conversation:
- * `reply` is a settled subagent turn (what `wait` returns), `inbound` is a message for the
- * subagent (what `next` returns), and `lost`/`interrupted` are the ways a turn can end without a
- * reply. Every waiter is removed when its fiber is interrupted (a timed-out long poll, a losing
- * `race`), so the registry does not grow.
+ * `subscribe` registers the waiter and hands back the `/await`, so a caller can **subscribe, then
+ * read state, then await**. That order is what closes the lost-wake race: an event that fires
+ * between the earlier read and the registration is missed, but one that fires after the
+ * registration resolves the deferred, and one that fired before is seen by the read. Every
+ * subscription is closed by its caller (an interrupted long poll, a losing `race`), so the
+ * registry does not grow.
+ *
+ * Four event kinds, because `wait` and `next` await different halves of the conversation: `reply`
+ * is a settled subagent turn (what `wait` returns), `inbound` is a message for the subagent (what
+ * `next` returns), and `lost`/`interrupted` are the ways a turn can end without a reply.
  */
 import { Deferred, Effect } from "effect";
 
@@ -28,23 +33,27 @@ const waiters = new Map<string, Set<Waiter>>();
 
 const keyOf = (changeId: string, id: string): string => `${changeId}\u0000${id}`;
 
-/** Park until an event for one subagent arrives. The registration is removed whatever ends the
- * wait, so an interrupted long poll leaves nothing behind. */
-export const awaitEvent = (changeId: string, id: string): Effect.Effect<SubagentEvent> =>
+export type Subscription = {
+  /** The next event for this subagent. Resolves at most once. */
+  readonly await: Effect.Effect<SubagentEvent>;
+  /** Stop waiting and forget the registration. Idempotent. */
+  readonly close: Effect.Effect<void>;
+};
+
+/** Register a waiter. Call `close` when done — it removes the registration whatever ended the
+ * wait, including interruption. */
+export const subscribe = (changeId: string, id: string): Effect.Effect<Subscription> =>
   Effect.gen(function* () {
     const deferred = yield* Deferred.make<SubagentEvent>();
     const key = keyOf(changeId, id);
     const set = waiters.get(key) ?? new Set<Waiter>();
     set.add(deferred);
     waiters.set(key, set);
-    return yield* Deferred.await(deferred).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          set.delete(deferred);
-          if (set.size === 0) waiters.delete(key);
-        }),
-      ),
-    );
+    const close = Effect.sync(() => {
+      if (!set.delete(deferred)) return;
+      if (set.size === 0) waiters.delete(key);
+    });
+    return { await: Deferred.await(deferred), close };
   });
 
 /** Wake everyone waiting on one subagent. Resolving an already-resolved deferred is a no-op, so a

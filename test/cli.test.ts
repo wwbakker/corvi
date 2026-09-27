@@ -342,6 +342,22 @@ test("subagent commands drive an instance over the HTTP API", async () => {
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], second.io),
   ).toBe(5);
 
+  // An in-flight turn with no live window is interrupted to `wait` too (exit 5).
+  const waited = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "wait", "seed-1", "--json"], waited.io),
+  ).toBe(5);
+  expect((JSON.parse(waited.out.join("")) as { status: string }).status).toBe("interrupted");
+
+  // The flag form of send works as well as the positional form.
+  const sent = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "send", "--subagent", "seed-1", "More please", "--json"],
+      sent.io,
+    ),
+  ).toBe(0);
+
   const turned = capture();
   expect(
     await run(

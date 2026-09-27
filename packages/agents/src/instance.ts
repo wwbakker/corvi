@@ -49,9 +49,14 @@ export const viewOf = (
   messages: readonly SubagentMessage[],
 ): SubagentView => {
   const message = latestMessage(messages);
+  // The reporter is the authority when it has spoken; before it does, an open turn is still work.
+  const working =
+    live.attached &&
+    (live.agentStatus === "working" ||
+      (live.agentStatus === undefined && record.inFlight !== undefined));
   return {
     presence: live.attached ? "attached" : "detached",
-    activity: live.attached && live.agentStatus === "working" ? "working" : "idle",
+    activity: working ? "working" : "idle",
     interrupted: record.inFlight !== undefined && !live.attached,
     awaitingReply: message?.role === "subagent",
   };
@@ -85,6 +90,7 @@ export const messageFileOf = (
 export const renderMessage = (message: SubagentMessage): string => {
   const lines = [`from: ${message.role}`, `at: ${message.at}`];
   if (message.pane !== undefined) lines.push(`pane: ${message.pane}`);
+  if (message.key !== undefined) lines.push(`key: ${message.key}`);
   return `---\n${lines.join("\n")}\n---\n${message.body}\n`;
 };
 
@@ -110,6 +116,7 @@ export const parseMessage = (text: string): Either.Either<SubagentMessage, reado
     at: fields["at"] ?? "",
     body: (match[2] ?? "").trim(),
     ...(fields["pane"] ? { pane: fields["pane"] } : {}),
+    ...(fields["key"] ? { key: fields["key"] } : {}),
   });
 };
 
@@ -128,4 +135,9 @@ export const parseRecord = (text: string): Either.Either<SubagentRecord, readonl
   }
 };
 
-export const renderRecord = (record: SubagentRecord): string => JSON.stringify(record, null, 2) + "\n";
+export const renderRecord = (record: SubagentRecord & { readonly messages?: unknown }): string => {
+  // Messages live in their own files; a caller that spread a record with messages must not write
+  // them into `session.json`.
+  const { messages: _messages, ...rest } = record;
+  return JSON.stringify(rest, null, 2) + "\n";
+};

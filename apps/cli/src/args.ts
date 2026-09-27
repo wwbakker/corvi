@@ -19,6 +19,8 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "since",
   "prompt",
   "subagent",
+  "after",
+  "idempotency-key",
 ]);
 
 /** The flags that are switches. Kept beside the value flags so an unknown flag can be refused

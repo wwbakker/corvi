@@ -254,10 +254,11 @@ const subagentCommand = async (
       const profile = rest[0];
       if (profile === undefined) throw new CliFailure("subagent create needs a profile key", EXIT.usage);
       const prompt = stringFlag(args, "prompt");
-      const instance = await client.createSubagent(id, {
-        profile,
-        ...(prompt === undefined ? {} : { prompt }),
-      });
+      const instance = await client.createSubagent(
+        id,
+        { profile, ...(prompt === undefined ? {} : { prompt }) },
+        stringFlag(args, "idempotency-key"),
+      );
       emit(io, json, { value: instance, human: (value) => `created ${value.id}` });
       return EXIT.ok;
     }
@@ -270,10 +271,11 @@ const subagentCommand = async (
       return EXIT.ok;
     }
     case "send": {
+      const named = stringFlag(args, "subagent");
       const sub = subId();
-      const text = rest[1];
+      const text = named === undefined ? rest[1] : rest[0];
       if (text === undefined || text === "") throw new CliFailure("subagent send needs text", EXIT.usage);
-      const message = await client.sendSubagent(id, sub, { text });
+      const message = await client.sendSubagent(id, sub, { text }, stringFlag(args, "idempotency-key"));
       emit(io, json, { value: message, human: () => `sent to ${sub}` });
       return EXIT.ok;
     }
@@ -298,7 +300,9 @@ const subagentCommand = async (
       return result.status === "lost" || result.status === "interrupted" ? EXIT.lost : EXIT.ok;
     }
     case "next": {
-      const result = await client.nextSubagent(id, subId());
+      const afterRaw = stringFlag(args, "after");
+      const after = afterRaw === undefined ? undefined : Number(afterRaw);
+      const result = await client.nextSubagent(id, subId(), Number.isFinite(after) ? after : undefined);
       emit(io, json, { value: result, human: (value) => value.status });
       return result.status === "interrupted" ? EXIT.lost : EXIT.ok;
     }
@@ -309,7 +313,7 @@ const subagentCommand = async (
       if (sub === undefined || text === undefined) {
         throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
       }
-      const message = await client.subagentTurn(id, sub, { text });
+      const message = await client.subagentTurn(id, sub, { text }, stringFlag(args, "idempotency-key"));
       emit(io, json, { value: message, human: () => `relayed turn ${message.number}` });
       return EXIT.ok;
     }
