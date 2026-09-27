@@ -18,6 +18,25 @@ import {
 } from "@corvi/contracts/actions"
 
 import {
+  SubagentFilesResponseSchema,
+  SubagentInstanceSchema,
+  SubagentListResponseSchema,
+  SubagentMessageSchema,
+  SubagentNextResponseSchema,
+  SubagentWaitResponseSchema,
+  type SubagentCreateRequestDto,
+  type SubagentFileRefDto,
+  type SubagentFileWriteDto,
+  type SubagentFilesResponseDto,
+  type SubagentInstanceDto,
+  type SubagentMessageDto,
+  type SubagentNextResponseDto,
+  type SubagentSendRequestDto,
+  type SubagentTurnRequestDto,
+  type SubagentWaitResponseDto,
+} from "@corvi/contracts/subagents"
+
+import {
   AppUpdateStatusSchema,
   BranchesSchema,
   CardInfoSchema,
@@ -32,6 +51,7 @@ import {
   CreateChangeBodySchema,
   DirectoryListingSchema,
   ForceBodySchema,
+  IdentityResponseSchema,
   PagesResponseSchema,
   PlanDocSchema,
   PlanWriteBodySchema,
@@ -62,6 +82,7 @@ import {
   type DirectoryListingDto,
   type DirectoryListingSpec,
   type ForceBodyDto,
+  type IdentityResponseDto,
   type PageInfoDto,
   type PlanDocDto,
   type PlanWriteBodyDto,
@@ -101,6 +122,9 @@ export interface RequestOptions {
 
 export interface ChangesClient {
   readonly list: (options?: RequestOptions) => Promise<ChangeWireDto[]>
+  /** What this server knows: the changes in its root. Discovery's probe, and the answer that
+   * decides which of several candidate servers owns a change. */
+  readonly identity: (options?: RequestOptions) => Promise<IdentityResponseDto>
   readonly read: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeWireDto>
   readonly summary: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeSummaryDto>
   readonly cards: (changeId: ChangeId, options?: RequestOptions) => Promise<CardInfoDto[]>
@@ -175,6 +199,47 @@ export interface ChangesClient {
   readonly actionFiles: () => Promise<ActionFilesResponseDto>
   readonly writeActionFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
   readonly deleteActionFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
+  readonly subagentFiles: () => Promise<SubagentFilesResponseDto>
+  readonly writeSubagentFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
+  readonly deleteSubagentFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
+  /** The persistent subagent instances of a change. */
+  readonly subagents: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentInstanceDto[]>
+  readonly subagent: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<SubagentInstanceDto>
+  readonly createSubagent: (
+    changeId: ChangeId,
+    body: SubagentCreateRequestDto,
+    idempotencyKey?: string,
+  ) => Promise<SubagentInstanceDto>
+  readonly openSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
+  readonly closeSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
+  readonly sendSubagent: (
+    changeId: ChangeId,
+    id: string,
+    body: SubagentSendRequestDto,
+    idempotencyKey?: string,
+  ) => Promise<SubagentMessageDto>
+  readonly subagentResult: (
+    changeId: ChangeId,
+    id: string,
+    options?: RequestOptions,
+  ) => Promise<SubagentMessageDto | null>
+  readonly waitSubagent: (
+    changeId: ChangeId,
+    query: { readonly id?: string; readonly any?: boolean; readonly all?: boolean; readonly since?: number },
+    options?: RequestOptions,
+  ) => Promise<SubagentWaitResponseDto>
+  readonly nextSubagent: (
+    changeId: ChangeId,
+    id: string,
+    after?: number,
+    options?: RequestOptions,
+  ) => Promise<SubagentNextResponseDto>
+  readonly subagentTurn: (
+    changeId: ChangeId,
+    id: string,
+    body: SubagentTurnRequestDto,
+    idempotencyKey?: string,
+  ) => Promise<SubagentMessageDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
   /** What the app knows about updating itself: eligible, what is new, and the update journal.
    * Local reads only — the check runs on its own cadence, or when `checkUpdate` asks. */
@@ -238,16 +303,19 @@ const transport = (
   const send = async (
     method: string,
     path: string,
-    options: { body?: unknown; signal?: AbortSignal } = {},
+    options: { body?: unknown; signal?: AbortSignal; headers?: Record<string, string> } = {},
   ): Promise<unknown> => {
+    const headers = {
+      ...(options.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(options.headers ?? {}),
+    };
     let response: Response
     try {
       response = await request(`${baseUrl}/api${path}`, {
         method,
         ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.body === undefined
-          ? {}
-          : { headers: { "content-type": "application/json" }, body: JSON.stringify(options.body) }),
+        ...(Object.keys(headers).length === 0 ? {} : { headers }),
+        ...(options.body === undefined ? {} : { body: JSON.stringify(options.body) }),
       })
     } catch (cause) {
       throw new ClientError({ message: "the server could not be reached", cause })
@@ -299,6 +367,8 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
   return {
     list: async (options) =>
       decode(mutableArray(ChangeWireSchema), await send("GET", "/changes", options)),
+    identity: async (options) =>
+      decode(IdentityResponseSchema, await send("GET", "/identity", options)),
     read: async (changeId, options) =>
       decode(ChangeWireSchema, await send("GET", change(changeId), options)),
     summary: async (changeId, options) =>
@@ -439,6 +509,89 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
             ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
           }&id=${encodeURIComponent(ref.id)}`,
         ),
+      ),
+    subagentFiles: async () =>
+      decode(SubagentFilesResponseSchema, await send("GET", "/subagents/files")),
+    writeSubagentFile: async (file) =>
+      decode(SubagentFilesResponseSchema, await send("PUT", "/subagents/files", { body: file })),
+    deleteSubagentFile: async (ref) =>
+      decode(
+        SubagentFilesResponseSchema,
+        await send(
+          "DELETE",
+          `/subagents/files?scope=${ref.scope}${
+            ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
+          }&id=${encodeURIComponent(ref.id)}`,
+        ),
+      ),
+    subagents: async (changeId, options) =>
+      decode(
+        SubagentListResponseSchema,
+        await send("GET", `${change(changeId)}/subagents`, options),
+      ).instances,
+    subagent: async (changeId, id, options) =>
+      decode(SubagentInstanceSchema, await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}`, options)),
+    createSubagent: async (changeId, body, idempotencyKey) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
+      ),
+    openSubagent: async (changeId, id) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/open`),
+      ),
+    closeSubagent: async (changeId, id) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/close`),
+      ),
+    sendSubagent: async (changeId, id, body, idempotencyKey) =>
+      decode(
+        SubagentMessageSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/messages`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
+      ),
+    subagentResult: async (changeId, id, options) =>
+      decode(
+        Schema.NullOr(SubagentMessageSchema),
+        await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}/result`, options),
+      ),
+    waitSubagent: async (changeId, query, options) => {
+      const params = new URLSearchParams();
+      if (query.id) params.set("id", query.id);
+      if (query.any) params.set("any", "1");
+      if (query.all) params.set("all", "1");
+      if (query.since !== undefined) params.set("since", String(query.since));
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return decode(
+        SubagentWaitResponseSchema,
+        await send("GET", `${change(changeId)}/subagents/wait${suffix}`, options),
+      );
+    },
+    nextSubagent: async (changeId, id, after, options) =>
+      decode(
+        SubagentNextResponseSchema,
+        await send(
+          "GET",
+          `${change(changeId)}/subagents/${encodeURIComponent(id)}/next${
+            after === undefined ? "" : `?after=${after}`
+          }`,
+          options,
+        ),
+      ),
+    subagentTurn: async (changeId, id, body, idempotencyKey) =>
+      decode(
+        SubagentMessageSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/turn`, {
+          body,
+          ...(idempotencyKey === undefined ? {} : { headers: { "idempotency-key": idempotencyKey } }),
+        }),
       ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),

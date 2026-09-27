@@ -16,14 +16,15 @@ import { testTempDir } from "./helpers.ts";
  */
 const repoRoot = join(import.meta.dir, "..");
 const sources: Readonly<Record<AgentTargetName, string>> = {
-  pi: join(repoRoot, "integrations", "pi", "src", "agent-state.ts"),
-  opencode: join(repoRoot, "integrations", "opencode", "src", "agent-state.ts"),
+  pi: join(repoRoot, "integrations", "pi", "src", "corvi.ts"),
+  opencode: join(repoRoot, "integrations", "opencode", "src", "corvi.ts"),
 };
 
 for (const name of ["pi", "opencode"] as const) {
   let tmp: string;
   let extensionsDir: string;
   let installed: string;
+  let legacy: string;
   /** Stands in for the same reporter installed from another branch or worktree. */
   let otherSource: string;
 
@@ -37,7 +38,8 @@ for (const name of ["pi", "opencode"] as const) {
   beforeEach(async () => {
     tmp = await testTempDir(`extension-${name}`);
     extensionsDir = join(tmp, "extensions");
-    installed = join(extensionsDir, "agent-state.ts");
+    installed = join(extensionsDir, "corvi.ts");
+    legacy = join(extensionsDir, "agent-state.ts");
     otherSource = join(tmp, "other-branch", "agent-state.ts");
     await mkdir(extensionsDir, { recursive: true });
     await mkdir(join(tmp, "other-branch"), { recursive: true });
@@ -53,6 +55,17 @@ for (const name of ["pi", "opencode"] as const) {
 
     expect(result.code).toBe(0);
     expect(await readlink(installed)).toBe(sources[name]);
+  });
+
+  test(`install removes a legacy agent-state.ts symlink (${name})`, async () => {
+    await symlink(join(tmp, "other-branch", "agent-state.ts"), legacy);
+
+    const result = await run(`install:${name}`);
+
+    expect(result.code).toBe(0);
+    expect(await readlink(installed)).toBe(sources[name]);
+    // The old symlink is gone, so the agent does not load the reporter twice.
+    expect(await lstat(legacy).catch(() => undefined)).toBeUndefined();
   });
 
   test(`install twice is a no-op the second time (${name})`, async () => {
@@ -80,6 +93,15 @@ for (const name of ["pi", "opencode"] as const) {
 
     expect(result.code).toBe(0);
     expect(await present()).toBe(false);
+  });
+
+  test(`uninstall removes a legacy agent-state.ts symlink even with nothing else installed (${name})`, async () => {
+    await symlink(join(tmp, "other-branch", "agent-state.ts"), legacy);
+
+    const result = await run(`uninstall:${name}`);
+
+    expect(result.code).toBe(0);
+    expect(await lstat(legacy).catch(() => undefined)).toBeUndefined();
   });
 
   test(`uninstall with nothing installed is not a failure (${name})`, async () => {

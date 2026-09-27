@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./agent-state": "./src/agent-state.ts"
+    "./agent-state": "./src/agent-state.ts",
+    "./turns": "./src/turns.ts",
+    "./corvi": "./src/corvi.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1"

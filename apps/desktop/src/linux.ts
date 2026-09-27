@@ -89,10 +89,12 @@ const launcher = (): string => {
 # which starts a server of its own — on a fresh port, picked at launch, so what it starts is
 # always its own — and stops it again when the window closes.
 #
-#   corvi          open the app
-#   corvi stop     stop the servers recorded in the pid-files: ones left
-#                    behind only if a window died harder than it could clean
-#                    up after
+#   corvi              print usage (the CLI's own help)
+#   corvi start        open the app
+#   corvi stop         stop the servers recorded in the pid-files: ones left
+#                        behind only if a window died harder than it could clean
+#                        up after
+#   corvi <command>    control a change over the running server (see its help)
 #
 # Without an Electron binary this falls back to the browser's app mode, and
 # there the server is started detached and outlives the tab — a browser window
@@ -181,7 +183,17 @@ stop() {
     [ "$FOUND" -eq 1 ] || echo "not stopping: no pid-files in $LOG_DIR — nothing was left running"
 }
 
-case "\${1:-start}" in
+# The runner the CLI and the browser-mode server both use: Node with type stripping where it
+# exists, Bun otherwise. Resolved before the command dispatch, because the CLI needs it too.
+if command -v node >/dev/null 2>&1 && node --experimental-strip-types -e "process.exit(0)" >/dev/null 2>&1; then
+    RUNNER="node --experimental-strip-types"
+elif command -v bun >/dev/null 2>&1; then
+    RUNNER="bun"
+else
+    RUNNER=""
+fi
+
+case "\${1:-}" in
     stop)
         stop
         exit 0
@@ -189,8 +201,13 @@ case "\${1:-start}" in
     start)
         ;;
     *)
-        echo "usage: corvi [start|stop]"
-        exit 64
+        # Everything else is the CLI: change and action control over the running server. With no
+        # arguments it prints its usage, which is what bare corvi now means.
+        if [ -z "$RUNNER" ]; then
+            echo "corvi needs node (24+, with type stripping) or bun on PATH" >&2
+            exit 1
+        fi
+        exec $RUNNER "$ROOT/apps/cli/src/main.ts" "$@"
         ;;
 esac
 
@@ -205,14 +222,8 @@ if [ -x "$ELECTRON" ] && [ -f "$APP/main.cjs" ]; then
 fi
 
 # No Electron: the browser's app mode is the fallback, and a browser window
-# cannot start or stop a server — so this launcher does both. Prefer Node's
-# TypeScript support; native terminal behavior is verified on Node
-# (docs/manual/install.md).
-if command -v node >/dev/null 2>&1 && node --experimental-strip-types -e "process.exit(0)" >/dev/null 2>&1; then
-    RUNNER="node --experimental-strip-types"
-elif command -v bun >/dev/null 2>&1; then
-    RUNNER="bun"
-else
+# cannot start or stop a server — so this launcher does both.
+if [ -z "$RUNNER" ]; then
     echo "the server needs node (22.6+, with type stripping) or bun on PATH — or run 'bun install' in $ROOT for the native Electron window" >&2
     exit 1
 fi

@@ -46,6 +46,9 @@ export type AnswerTracker = {
   addPart(messageID: string, partID: string, body: string, ignored?: boolean): void;
   /** The answer so far. */
   answer(): string;
+  /** The answer with parts joined by blank lines, for a relayed reply rather than a one-line
+   * notification. */
+  fullAnswer(): string;
   /** Forget the answer entirely: a new prompt is in, and the old answer is no longer the news. */
   clear(): void;
 };
@@ -64,6 +67,7 @@ export const trackAnswer = (): AnswerTracker => {
       parts.set(partID, body);
     },
     answer: (): string => [...parts.values()].join(" "),
+    fullAnswer: (): string => [...parts.values()].join("\n\n").trim(),
     clear: (): void => {
       current = undefined;
       parts.clear();

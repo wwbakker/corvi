@@ -1,0 +1,16 @@
+{
+  "name": "@corvi/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "module": "src/main.ts",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "dependencies": {
+    "@corvi/client": "workspace:*",
+    "@corvi/configuration": "workspace:*",
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:"
+  }
+}

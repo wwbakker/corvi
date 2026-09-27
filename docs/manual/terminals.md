@@ -35,11 +35,12 @@ the session is called, and the first sentence of its last answer. Corvi uses tha
 process name — `node` says nothing, and an idle agent is not counted as active work just because
 its process still exists.
 
-The facts are four tmux pane options — the reporter protocol. A reporter is a small plugin inside
-the agent; the two included ones are `integrations/pi` and `integrations/opencode`. Only the
-reporter in a pane writes these options on that pane, all writes are fire and forget, and tmux
-drops the options when the pane dies, so a crashed agent leaves nothing stale behind. Status
-belongs to the active pane; an agent in an inactive split is not shown.
+The facts are the pane options of the reporter protocol. A reporter is a small plugin inside
+the agent; the two included ones are `integrations/pi` and `integrations/opencode`. The reporter
+in a pane writes the `@agent_*` options on that pane (all writes fire and forget); `@subagent_id`
+is written by Corvi's own server, not the reporter. tmux drops every option when the pane dies, so
+a crashed agent leaves nothing stale behind. Status belongs to the active pane; an agent in an
+inactive split is not shown.
 
 | Option | Values | Meaning |
 | --- | --- | --- |
@@ -47,6 +48,7 @@ belongs to the active pane; an agent in an inactive split is not shown.
 | `@agent_name` | `pi` \| `opencode` | which agent reports from this pane. |
 | `@agent_session_name` | free text | the session's own name, once the agent has one. |
 | `@agent_last_message` | free text | the first sentence (at most 180 characters) of the last answer. |
+| `@subagent_id` | free text | the Corvi subagent this window carries, written by the server at window creation. |
 
 Corvi's window strip reads the options: the session name becomes the window's label, the status
 colours the icon and decides whether a notification is owed (the edge from working to waiting),
@@ -69,10 +71,12 @@ bun run extension:install:opencode   # or: bun run extension:uninstall:opencode
 ```
 
 These commands install Corvi's adapters into the agents; they do not install third-party code into
-Corvi. The installation is a symlink to `integrations/pi/src/agent-state.ts` or
-`integrations/opencode/src/agent-state.ts`. Installing from another checkout repoints the symlink,
-so do not run it as an incidental test. A real file at the destination is left alone. pi picks a
-changed reporter up with `/reload` or a new session; opencode takes a restart.
+Corvi. The installation is a symlink to `integrations/pi/src/corvi.ts` or
+`integrations/opencode/src/corvi.ts` — one entry composing the reporter (`agent-state.ts`) and the
+subagent relay (`turns.ts`). An older `agent-state.ts` symlink is removed on install. Installing
+from another checkout repoints the symlink, so do not run it as an incidental test. A real file at
+the destination is left alone. pi picks a changed extension up with `/reload` or a new session;
+opencode takes a restart.
 
 ## Keyboard and clipboard
 

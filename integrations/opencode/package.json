@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./agent-state": "./src/agent-state.ts"
+    "./agent-state": "./src/agent-state.ts",
+    "./turns": "./src/turns.ts",
+    "./corvi": "./src/corvi.ts"
   },
   "devDependencies": {
     "@opencode-ai/plugin": "^1.18.32"

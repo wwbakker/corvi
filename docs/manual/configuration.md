@@ -103,6 +103,27 @@ Leaving the editor with unsaved edits asks first — **Save and leave**, **Disca
 **Stay** — as the settings page does. **Cancel** is the deliberate discard: back to the list,
 dropping the draft.
 
+## Subagent profiles
+
+A subagent profile is a template for a visible, persistent agent session inside a change: which
+harness to start, the model and thinking effort, and the initial prompt. Profiles are files too,
+with the same scopes and precedence as actions, and the **Subagents** page edits them the same
+way:
+
+| Scope | Where | On the Subagents page |
+| --- | --- | --- |
+| Built-in | shipped with Corvi | read-only — saving copies it to Global |
+| Global | `~/.config/corvi/subagents/` | created, edited, deleted |
+| Workspace | `~/.config/corvi/workspaces/<id>/subagents/` | created, edited, deleted |
+| Repository | `<checkout>/.corvi/subagents/` | not managed — create with your IDE or by the agent |
+
+The frontmatter names `label` and `harness` (`pi` or `opencode`); `model` and `effort` are passed
+to the harness and are checked loosely, because a model catalog changes with the harness. `phases`
+limits when the profile is offered. The body is the initial prompt; it is rendered with the same
+facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`, `{repos}`) plus
+`{prompt}`, which the delegating task text fills in — or, without it, the task is appended as a
+final `## Task` section. A file that does not parse is listed with its reasons.
+
 ## Locations and worktrees
 
 `changesRoot` and `archiveRoot` may be set per workspace: a change is created in its workspace's

@@ -502,3 +502,11 @@ export const WorkspacesResponseSchema = Schema.Struct({
   platform: Schema.Literal("mac", "linux", "other"),
 })
 export type WorkspacesResponseDto = typeof WorkspacesResponseSchema.Type
+
+/** What a server knows, for discovery: the changes in its root. The CLI probes this before it
+ * trusts a candidate URL, and uses it to prefer the server that owns the change it was asked
+ * about. Ids only: the answer is a routing hint, not a page's data. */
+export const IdentityResponseSchema = Schema.Struct({
+  changeIds: Schema.mutable(Schema.Array(Schema.String)),
+})
+export type IdentityResponseDto = typeof IdentityResponseSchema.Type

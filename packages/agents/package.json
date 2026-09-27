@@ -4,9 +4,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./presenter": "./src/presenter.ts"
+    "./presenter": "./src/presenter.ts",
+    "./profile": "./src/profile.ts",
+    "./fields": "./src/fields.ts",
+    "./discovery": "./src/discovery.ts",
+    "./instance": "./src/instance.ts",
+    "./harness": "./src/harness.ts",
+    "./node": "./src/node/index.ts"
   },
   "dependencies": {
-    "@corvi/contracts": "workspace:*"
+    "@corvi/contracts": "workspace:*",
+    "effect": "catalog:",
+    "yaml": "^2.9.1"
   }
 }
