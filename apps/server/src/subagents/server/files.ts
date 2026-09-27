@@ -3,16 +3,19 @@
  * Files are the source of truth — saving a profile writes its own file, and there is no
  * page-wide draft to lose. Built-ins are read-only here: saving one copies it to Global, where
  * the copy shadows the shipped file, and deleting the copy brings the default back. A file that
- * does not parse is listed with its reasons rather than hidden.
+ * does not parse — or cannot be read — is listed with its reasons rather than hidden.
  *
  * Repository profiles are deliberately absent: they are a checkout's own, written with the user's
- * IDE or by an agent, and read by the change's menu, not this page. */
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+ * IDE or by an agent, and read by the change's menu, not this page.
+ *
+ * The per-scope reading is `@corvi/agents/node`'s, the same reader discovery uses, so the page
+ * and the menu cannot disagree about what a file is. */
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Either, Effect } from "effect";
 
+import { builtinProfilesDir, readProfileScope } from "@corvi/agents/node";
 import { parseProfileFile } from "@corvi/agents/profile";
-import { builtinProfilesDir } from "@corvi/agents/node";
 import type {
   SubagentFileRefDto,
   SubagentFileWriteDto,
@@ -41,53 +44,49 @@ const dirFor = (
     return workspaceDir(found.id);
   });
 
-/** Every `*.md` directly in one scope's directory, parsed for the page. A file that does not
- * parse is still listed, with its reasons. */
-const readScope = (
+/** One scope's directory, parsed for the page. A file that does not parse, or cannot be read, is
+ * still listed, with its reasons. */
+const listScope = (
   dir: string,
   scope: SubagentProfileFileDto["scope"],
   workspace?: string,
   workspaceLabel?: string,
 ): Effect.Effect<readonly SubagentProfileFileDto[]> =>
-  Effect.gen(function* () {
-    const names = yield* Effect.tryPromise({
-      try: () => readdir(dir),
-      catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
-    const files: SubagentProfileFileDto[] = [];
-    for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
-      const text = yield* Effect.tryPromise({
-        try: () => readFile(join(dir, name), "utf8"),
-        catch: () => new Error(`cannot read ${join(dir, name)}`),
-      }).pipe(Effect.catchAll(() => Effect.succeed("")));
-      if (text === "") continue;
-      const parsed = parseProfileFile(text);
-      files.push({
+  Effect.map(readProfileScope(dir), (files) =>
+    files.map((file): SubagentProfileFileDto => {
+      if (!file.readable) {
+        return {
+          scope,
+          workspace,
+          workspaceLabel,
+          id: file.id,
+          path: file.path,
+          text: file.text,
+          problems: ["cannot read this file"],
+        };
+      }
+      const parsed = parseProfileFile(file.text);
+      return {
         scope,
         workspace,
         workspaceLabel,
-        id: name.slice(0, -3),
-        path: join(dir, name),
-        text,
-        ...(Either.isRight(parsed)
-          ? { label: parsed.right.label }
-          : { problems: parsed.left.reasons }),
-      });
-    }
-    return files;
-  });
+        id: file.id,
+        path: file.path,
+        text: file.text,
+        ...(Either.isRight(parsed) ? { label: parsed.right.label } : { problems: parsed.left.reasons }),
+      };
+    }),
+  );
 
 /** What the page lists: the shipped profiles, the global ones, and each workspace's own. */
 export const subagentFiles = (): Effect.Effect<SubagentFilesResponseDto> =>
   Effect.gen(function* () {
     const config = runtimeConfig();
     const files: SubagentProfileFileDto[] = [];
-    files.push(...(yield* readScope(builtinProfilesDir(), "builtin")));
-    files.push(...(yield* readScope(globalDir(), "global")));
+    files.push(...(yield* listScope(builtinProfilesDir(), "builtin")));
+    files.push(...(yield* listScope(globalDir(), "global")));
     for (const workspace of config.workspaces) {
-      files.push(
-        ...(yield* readScope(workspaceDir(workspace.id), "workspace", workspace.id, workspace.name)),
-      );
+      files.push(...(yield* listScope(workspaceDir(workspace.id), "workspace", workspace.id, workspace.name)));
     }
     return {
       workspaces: config.workspaces.map((w) => ({ id: w.id, name: w.name })),

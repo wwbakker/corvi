@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { readFileSync, readdirSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Either } from "effect";
+import { Effect, Either } from "effect";
 
-import { builtinProfilesDir } from "../src/node/index.ts";
+import { builtinProfilesDir, readProfileScope } from "../src/node/index.ts";
 import { parseProfileFile } from "../src/profile.ts";
 import { mergeProfileFiles, type ProfileFileInput } from "../src/discovery.ts";
 
@@ -58,6 +60,37 @@ test("a file that is not a profile is refused with the reasons", () => {
 
   const noFrontmatter = parseProfileFile("just a body");
   expect(Either.isLeft(noFrontmatter)).toBe(true);
+});
+
+test("an empty phases list means every phase, not none", () => {
+  const parsed = parseProfileFile("---\nlabel: X\nharness: pi\nphases: []\n---\nbody");
+  expect(Either.isRight(parsed)).toBe(true);
+  if (Either.isRight(parsed)) expect(parsed.right.phases).toBeUndefined();
+});
+
+test("a file that cannot be read, or does not parse, is skipped with its reasons", () => {
+  const merged = mergeProfileFiles([
+    { id: "good", source: "global", text: "---\nlabel: Good\nharness: pi\n---\nbody" },
+    { id: "unreadable", source: "global", text: "", readable: false },
+    { id: "empty", source: "global", text: "" },
+  ]);
+  expect(merged.profiles.map((profile) => profile.id)).toEqual(["good"]);
+  const reasons = Object.fromEntries(merged.skipped.map((file) => [file.key, file.reasons.join("; ")]));
+  expect(reasons["global:unreadable"]).toContain("cannot read");
+  expect(reasons["global:empty"]).toContain("frontmatter");
+});
+
+test("a scope reader returns files, and a missing directory is an empty scope", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "agents-profile-scope-"));
+  try {
+    expect(await Effect.runPromise(readProfileScope(join(dir, "nope")))).toEqual([]);
+    await writeFile(join(dir, "one.md"), "---\nlabel: One\nharness: pi\n---\nbody", "utf8");
+    const files = await Effect.runPromise(readProfileScope(dir));
+    expect(files.map((file) => file.id)).toEqual(["one"]);
+    expect(files[0]?.readable).toBe(true);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test("a more specific scope shadows a less specific one, and repositories are all kept", () => {

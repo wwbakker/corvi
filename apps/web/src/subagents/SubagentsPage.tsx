@@ -121,6 +121,15 @@ export function SubagentsPage({
   };
 
   const create = (target: WriteTarget, id: string): void => {
+    // New is not a blind upsert: an id that already exists in this scope would overwrite that
+    // file's content with the blank template.
+    const exists = (listing?.files ?? []).some(
+      (f) => f.id === id && f.scope === target.scope && f.workspace === target.workspace,
+    );
+    if (exists) {
+      complain(`${id}.md already exists — edit it instead`);
+      return;
+    }
     apiClient
       .writeSubagentFile({ ...target, id, text: templateFor(id) })
       .then((fresh) => {

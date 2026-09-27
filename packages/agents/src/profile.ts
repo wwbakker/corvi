@@ -87,15 +87,18 @@ export const parseProfileFile = (text: string): Either.Either<Profile, InvalidPr
   if (effort === null) reasons.push("effort: a string");
 
   const rawPhases = fields["phases"];
-  const phases =
+  const parsedPhases =
     rawPhases === undefined
       ? undefined
       : Array.isArray(rawPhases) && rawPhases.every(isPhase)
-        ? rawPhases
-        : undefined;
-  if (rawPhases !== undefined && phases === undefined) {
-    reasons.push("phases: must be a list of the change's phases");
-  }
+        ? (rawPhases as readonly ChangePhase[])
+        : null;
+  if (parsedPhases === null) reasons.push("phases: must be a list of the change's phases");
+  // An empty list is the same as an absent one: the profile is offered in every phase.
+  const phases =
+    parsedPhases === undefined || parsedPhases === null || parsedPhases.length === 0
+      ? undefined
+      : parsedPhases;
 
   if (reasons.length > 0 || !harness) return invalid(...reasons);
 

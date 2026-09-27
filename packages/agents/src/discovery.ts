@@ -19,6 +19,8 @@ export type ProfileFileInput = {
   /** How the source is shown beside the label ("orders-api"). */
   readonly originLabel?: string;
   readonly text: string;
+  /** False when the file could not be read: skipped with that reason rather than hidden. */
+  readonly readable?: boolean;
 };
 
 /** One runnable profile and where it came from. */
@@ -62,6 +64,10 @@ export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDi
   const skipped: SkippedProfileFile[] = [];
   for (const file of files) {
     const key = keyOf(file.source, file.origin, file.id);
+    if (file.readable === false) {
+      skipped.push({ key, reasons: ["cannot read this file"] });
+      continue;
+    }
     const result = parseProfileFile(file.text);
     if (Either.isLeft(result)) {
       skipped.push({ key, reasons: result.left.reasons });

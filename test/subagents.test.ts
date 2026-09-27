@@ -50,3 +50,23 @@ test("deleting a written profile brings the shipped one back", async () => {
   expect(after.files.find((file) => file.id === "mine")).toBeUndefined();
   expect(after.files.find((file) => file.id === "reviewer" && file.scope === "builtin")).toBeDefined();
 });
+
+test("saving a built-in profile's id in Global shadows it, and deleting the copy brings it back", async () => {
+  const shadow = "---\nlabel: My reviewer\nharness: opencode\n---\nMine\n";
+  const written = await runEffect(writeSubagentFile({ scope: "global", id: "reviewer", text: shadow }));
+  expect(written.files.find((file) => file.id === "reviewer" && file.scope === "global")?.label).toBe(
+    "My reviewer",
+  );
+  // The shipped file is still listed (it is on disk) but the global copy wins discovery.
+  const restored = await runEffect(deleteSubagentFile({ scope: "global", id: "reviewer" }));
+  expect(restored.files.find((file) => file.id === "reviewer" && file.scope === "global")).toBeUndefined();
+  expect(restored.files.find((file) => file.id === "reviewer" && file.scope === "builtin")?.label).toBe(
+    "Reviewer",
+  );
+});
+
+test("an id that is a path is refused rather than written outside the scope", async () => {
+  await expect(
+    runEffect(writeSubagentFile({ scope: "global", id: "../escape", text: mine })),
+  ).rejects.toThrow(/file name/);
+});

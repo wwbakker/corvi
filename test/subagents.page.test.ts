@@ -96,6 +96,35 @@ test.skipIf(!usable)("a profile is edited in the editor's frame, its fields docu
   }
 }, 60_000);
 
+test.skipIf(!usable)("saving a built-in profile copies it to Global", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/subagents`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".subagents-page");
+    // The built-in section's reviewer row: its Save is a copy to Global, not a write to the
+    // shipped file.
+    await page
+      .locator(".widget", { hasText: "Built-in" })
+      .locator("p", { hasText: "reviewer.md" })
+      .getByRole("button", { name: "Edit" })
+      .click();
+    await page.waitForSelector(".subagents-page.editing");
+    expect((await page.locator(".subagents-page header h2").textContent()) ?? "").toContain(
+      "saving copies it to Global",
+    );
+    await page.getByRole("button", { name: "Save" }).click();
+    await page.waitForSelector(".subagents-page:not(.editing)");
+
+    const listing = (await (await fetch(`${url}/api/subagents/files`)).json()) as {
+      files: { id: string; scope: string }[];
+    };
+    expect(listing.files.some((file) => file.id === "reviewer" && file.scope === "global")).toBe(true);
+    expect(listing.files.some((file) => file.id === "reviewer" && file.scope === "builtin")).toBe(true);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
 test.skipIf(!usable)("a write that is not a profile is refused, and says why", async () => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {

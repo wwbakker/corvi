@@ -7,6 +7,7 @@
 import { readFileSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
 import {
@@ -18,7 +19,8 @@ import { splitFrontmatter } from "../model.ts";
 
 /** Where the shipped default actions live: the package's own `builtins/`, read-only files in
  * the same format as user files. */
-export const builtinActionsDir = (): string => new URL("../../builtins/", import.meta.url).pathname;
+export const builtinActionsDir = (): string =>
+  fileURLToPath(new URL("../../builtins/", import.meta.url));
 
 /** The body of a shipped action (`brief`), as the legacy `ideationPrompt` fallback chain needs
  * it. Synchronous and tiny: it is read when a setting is composed, not per request. */
