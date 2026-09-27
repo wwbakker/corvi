@@ -73,7 +73,7 @@ export function RunMenu({
   const run = (found: ActionSummaryDto): void => {
     onRan();
     apiClient
-      .runAction(ChangeId.make(changeId), found.key, active?.id)
+      .actions.runAction(ChangeId.make(changeId), found.key, active?.id)
       .then((result) => say(noticeFor(found.label, result)))
       .catch((e: Error) => say(e.message));
   };
@@ -104,7 +104,7 @@ export function RunMenu({
         actions={items}
         onOpen={() =>
           apiClient
-            .terminalActions(ChangeId.make(changeId))
+            .actions.terminalActions(ChangeId.make(changeId))
             .then(setActions)
             .catch((e: Error) => say(e.message))
         }

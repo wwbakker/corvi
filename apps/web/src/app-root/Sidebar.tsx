@@ -145,7 +145,7 @@ export function Sidebar({
     const load = (): void =>
       active.forEach((c) =>
         apiClient
-          .summary(ChangeId.make(c.id))
+          .changes.summary(ChangeId.make(c.id))
           .then((s) => alive && setSummaries((all) => ({ ...all, [c.id]: s })))
           .catch(() => {}),
       );

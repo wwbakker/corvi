@@ -78,7 +78,7 @@ export function SettingsPage({
 
   useEffect(() => {
     apiClient
-      .settings()
+      .settings.settings()
       .then((v) => {
         setView(v);
         setDraft(v.file);
@@ -96,7 +96,7 @@ export function SettingsPage({
     setSaving(true);
     setError(undefined);
     try {
-      const v = await apiClient.writeSettings(draft);
+      const v = await apiClient.settings.writeSettings(draft);
       setView(v);
       setDraft(v.file);
       setSaved(true);

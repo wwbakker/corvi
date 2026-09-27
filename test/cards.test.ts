@@ -765,10 +765,10 @@ afterAll(async () => {
 /** The cards route as server.ts mounts it, called with the path parameter Bun would have
  * filled in (the pattern test/changeTabs.test.ts sets for the guarded routes). */
 const cardsOf = async (id: string): Promise<{ name: string; editable?: boolean }[]> => {
-  const route = integrationRoutes["/api/changes/:id/integrations"] as unknown as {
+  const route = integrationRoutes["/api/changes/:id/cards"] as unknown as {
     GET: (req: Request, srv: unknown) => Promise<Response>;
   };
-  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/integrations`), {
+  const req = Object.assign(new Request(`http://127.0.0.1:4000/api/changes/${id}/cards`), {
     params: { id },
   });
   const response = await route.GET(req, undefined);

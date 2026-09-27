@@ -1110,7 +1110,7 @@ test.skipIf(!usable)("a notified command window freezes over its output and call
       (await page.locator(".sidebar .entry.window").allInnerTexts()).join(" | ").includes(text),
     );
 
-  const run = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+  const run = await fetch(`${url}/api/changes/${id}/actions`, {
     method: "POST",
     body: JSON.stringify({ key: "global:notify-later" }),
   });
@@ -1151,7 +1151,7 @@ test.skipIf(!usable)("a notified command window freezes over its output and call
 
   // A command window without notify closes when it ends and says nothing.
   const before = (await tmux("list-windows", "-t", session)).split("\n").length;
-  const plain = await fetch(`${url}/api/changes/${id}/terminal/actions`, {
+  const plain = await fetch(`${url}/api/changes/${id}/actions`, {
     method: "POST",
     body: JSON.stringify({ key: "global:plain-run" }),
   });

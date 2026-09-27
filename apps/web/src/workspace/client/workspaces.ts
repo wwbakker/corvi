@@ -53,7 +53,7 @@ export function useWorkspaces(): {
   // not still be in the switcher under its old name.
   const reload = (): Promise<void> =>
     apiClient
-      .workspaces()
+      .workspaces.workspaces()
       .then(({ workspaces: next, platform: told }) => {
         setWorkspaces(next);
         setPlatform(told);
@@ -100,7 +100,7 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
     apiClient
-      .pages(workspaceId)
+      .workspaces.pages(workspaceId)
       .then((pages) => {
         if (alive) setPages(pages);
       })
@@ -111,7 +111,7 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
   }, [workspaceId]);
   const reload = useCallback(() => {
     apiClient
-      .pages(workspaceId)
+      .workspaces.pages(workspaceId)
       .then(setPages)
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
   }, [workspaceId]);

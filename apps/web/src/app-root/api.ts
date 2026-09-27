@@ -1,5 +1,5 @@
 import { CHANGE_STATES, IDEATION, isIdeation, type Change, type ChangeState } from "../domain/change.ts";
-import { makeChangesClient } from "@corvi/client";
+import { makeCorviClient } from "@corvi/client";
 import type {
   Completion,
   CompletionProgress,
@@ -68,6 +68,6 @@ export type Cancelled = { change: Change; loose: string[] };
 /** A request cancelled because its card went away is not an error worth showing. */
 export const aborted = (e: unknown): boolean => e instanceof Error && e.name === "AbortError";
 
-/** One typed client for the page, relative to the origin that served it: the read operations the
- * change page and the overview use. */
-export const apiClient = makeChangesClient({ baseUrl: "" });
+/** One typed client for the page, relative to the origin that served it: the named operations,
+ * by domain, that the change page and the overview use. */
+export const apiClient = makeCorviClient({ baseUrl: "" });

@@ -34,10 +34,10 @@ export function PlanPage({
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
     key: `${changeId}:plan`,
     load: () =>
-      apiClient.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
+      apiClient.changes.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
     save: (value, baseRevision) =>
       apiClient
-        .writePlan(ChangeId.make(changeId), {
+        .changes.writePlan(ChangeId.make(changeId), {
           text: value,
           ...(baseRevision !== undefined ? { baseRevision } : {}),
         })

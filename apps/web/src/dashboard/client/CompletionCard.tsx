@@ -44,7 +44,7 @@ export function CompletionCard({
   useEffect(() => {
     const load = (): Promise<void> =>
       apiClient
-        .completionProgress(ChangeId.make(changeId))
+        .changes.completionProgress(ChangeId.make(changeId))
         .then(setProgress)
         .catch(() => {});
     void load();
@@ -58,7 +58,7 @@ export function CompletionCard({
   const retry = (): void => {
     setRetrying(true);
     apiClient
-      .complete(ChangeId.make(changeId), retryBody(progress))
+      .changes.complete(ChangeId.make(changeId), retryBody(progress))
       .then(({ change }) => onFinished(change))
       .catch(() => {}) // the failure lands in the progress itself, which is where it belongs
       .finally(() => setRetrying(false));

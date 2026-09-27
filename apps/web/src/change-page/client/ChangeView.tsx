@@ -128,19 +128,19 @@ export function ChangeView({
   // The change itself and the list of components are cheap: no CLI calls behind either.
   useEffect(() => {
     apiClient
-      .read(ChangeId.make(id))
+      .changes.read(ChangeId.make(id))
       .then(setChange)
       .catch((e: Error) => setError(e.message));
     apiClient
-      .cards(ChangeId.make(id))
+      .dashboard.cards(ChangeId.make(id))
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
     apiClient
-      .tabs(ChangeId.make(id))
+      .dashboard.tabs(ChangeId.make(id))
       .then(setTabs)
       .catch((e: Error) => setError(e.message));
     apiClient
-      .widgets(ChangeId.make(id))
+      .dashboard.widgets(ChangeId.make(id))
       .then(setWidgets)
       .catch((e: Error) => setError(e.message));
   }, [id]);
@@ -151,7 +151,7 @@ export function ChangeView({
     const ac = new AbortController();
     const load = (): Promise<void> =>
       apiClient
-        .completion(ChangeId.make(id), { signal: ac.signal })
+        .changes.completion(ChangeId.make(id), { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
     void load();
@@ -181,7 +181,7 @@ export function ChangeView({
 
   const copyDescription = (): Promise<void> =>
     apiClient
-      .description(ChangeId.make(id))
+      .changes.description(ChangeId.make(id))
       .then(({ text }) => navigator.clipboard.writeText(text ?? ""))
       .then(() => {
         setNotice("Pull request description copied");
@@ -195,7 +195,7 @@ export function ChangeView({
     setCompleting(true);
     setError(null);
     apiClient
-      .complete(ChangeId.make(id), force ? { force: true } : {})
+      .changes.complete(ChangeId.make(id), force ? { force: true } : {})
       .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -224,7 +224,7 @@ export function ChangeView({
     setStarting(true);
     setError(null);
     apiClient
-      .start(ChangeId.make(id))
+      .changes.start(ChangeId.make(id))
       .then(({ change: updated, provision }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -256,7 +256,7 @@ export function ChangeView({
     setCancelling(true);
     setError(null);
     apiClient
-      .cancel(ChangeId.make(id), { force })
+      .changes.cancel(ChangeId.make(id), { force })
       .then(({ change: updated, loose }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
@@ -286,7 +286,7 @@ export function ChangeView({
     setDraft(null);
     if (next === (change?.title ?? "")) return;
     apiClient
-      .rename(ChangeId.make(id), { title: next })
+      .changes.rename(ChangeId.make(id), { title: next })
       .then((updated) => {
         setChange(updated);
         onChanged();
@@ -297,7 +297,7 @@ export function ChangeView({
   /** The state select: your own view of where the change stands. */
   const moveTo = (state: ChangeState): void => {
     apiClient
-      .rename(ChangeId.make(id), { state })
+      .changes.rename(ChangeId.make(id), { state })
       .then((updated) => {
         setChange(updated);
         onChanged(); // the navigation column and the overview list states too

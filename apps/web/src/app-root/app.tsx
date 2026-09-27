@@ -289,7 +289,7 @@ function App(): JSX.Element {
   const [contextMenu, setContextMenu] = useState(true);
   const reloadSettings = useCallback((): void => {
     apiClient
-      .settings()
+      .settings.settings()
       .then((view) => setContextMenu(view.effective.contextMenu))
       .catch(() => {
         // A settings file that cannot be read leaves the default: a menu, like any browser.

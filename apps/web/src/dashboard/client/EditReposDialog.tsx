@@ -45,7 +45,7 @@ export function EditReposDialog({
     // Start from what the change has now, every time the dialog is opened.
     setError(null);
     apiClient
-      .repoStates(ChangeId.make(changeId))
+      .dashboard.repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
         setDraft(
@@ -65,7 +65,7 @@ export function EditReposDialog({
     setBusy(true);
     setError(null);
     apiClient
-      .setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
+      .changes.setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
       .then(onSaved)
       .catch((e: unknown) => {
         const needsForce = (e as { body?: { needsForce?: string[] } }).body?.needsForce;

@@ -57,7 +57,7 @@ export const inspectRepositories = (req: Request): Promise<Response> =>
   )
 
 export const repositoriesRoutes = guard({
-  "/api/changes/:id/repositories": {
+  "/api/changes/:id/checkouts": {
     GET: (req: Request) => inspectRepositories(req),
   },
 })

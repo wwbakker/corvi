@@ -17,7 +17,7 @@ import { actionFiles, deleteActionFile, writeActionFile } from "./server/files.t
 import { listActionsFor, runActionFor } from "./server/run.ts";
 
 export const actionsRoutes = guard({
-  "/api/changes/:id/terminal/actions": {
+  "/api/changes/:id/actions": {
     GET: (req) => withChange(req.params.id, (c) => Effect.map(listActionsFor(c), json)),
     POST: (req) =>
       withChange(req.params.id, (c) =>

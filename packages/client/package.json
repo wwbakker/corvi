@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/changes.ts"
+    ".": "./src/index.ts"
   },
   "dependencies": {
     "@corvi/contracts": "workspace:*",

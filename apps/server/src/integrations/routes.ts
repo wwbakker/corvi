@@ -89,7 +89,7 @@ export const integrationRoutes = guard({
 
   // The components this change's dashboard shows: the ones its workspace has at all. The
   // browser asks each of them for its own widget, so one slow CLI cannot hold up the page.
-  "/api/changes/:id/integrations": {
+  "/api/changes/:id/cards": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.succeed(
@@ -110,7 +110,7 @@ export const integrationRoutes = guard({
 
   // One repository's rows of one component, so a change with many repositories fills in
   // one by one rather than all at once at the end.
-  "/api/changes/:id/:card/repo": {
+  "/api/changes/:id/cards/:card/items": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
@@ -128,7 +128,7 @@ export const integrationRoutes = guard({
   },
 
   // One card's widget, fetched and refreshed independently by the browser.
-  "/api/changes/:id/:card": {
+  "/api/changes/:id/cards/:card": {
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
@@ -141,7 +141,7 @@ export const integrationRoutes = guard({
       ),
   },
 
-  "/api/changes/:id/:card/:action": {
+  "/api/changes/:id/cards/:card/actions/:action": {
     POST: (req) =>
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {

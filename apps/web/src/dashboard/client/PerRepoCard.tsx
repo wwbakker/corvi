@@ -51,7 +51,7 @@ export function PerRepoCard({
   const loadRepo = useCallback(
     (repo: string, signal?: AbortSignal): Promise<void> =>
       apiClient
-        .cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
+        .dashboard.cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
         .then((r) => {
           putCached(key(repo), r.items);
           setItems((all) => ({ ...all, [repo]: r.items }));
@@ -78,7 +78,7 @@ export function PerRepoCard({
   const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
     setBusy(repo);
     return apiClient
-      .cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
+      .dashboard.cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then((r) => {
         putCached(key(repo), r.items);
         setItems((all) => ({ ...all, [repo]: r.items }));

@@ -67,7 +67,7 @@ export function Wizard({
     let alive = true;
     setSteps(undefined);
     apiClient
-      .wizard(chosen)
+      .wizard.spec(chosen)
       .then((found) => {
         if (!alive) return;
         setSteps(found.steps);
@@ -113,7 +113,7 @@ export function Wizard({
     setBusy(true);
     setError(null);
     apiClient
-      .create(toChangeDraft(draft, chosen))
+      .changes.create(toChangeDraft(draft, chosen))
       .then((created) => onCreated(created.change, created.provision))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
