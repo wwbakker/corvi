@@ -12,7 +12,28 @@ export type ParsedArgs = {
 
 /** The flags that take a value. Everything else is boolean, so `--json change list` cannot read
  * "change" as the value of "json". One small list beats a parser that guesses. */
-const VALUE_FLAGS: ReadonlySet<string> = new Set(["change", "server", "window"]);
+export const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  "change",
+  "server",
+  "window",
+  "since",
+  "prompt",
+]);
+
+/** The flags that are switches. Kept beside the value flags so an unknown flag can be refused
+ * rather than silently accepted, and so the surface can grow without a typo becoming a switch. */
+export const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
+  "json",
+  "help",
+  "force",
+  "any",
+  "all",
+  "wait",
+  "steer",
+]);
+
+export const isKnownFlag = (name: string): boolean =>
+  VALUE_FLAGS.has(name) || BOOLEAN_FLAGS.has(name);
 
 export const parseArgs = (
   argv: readonly string[],

@@ -9,11 +9,12 @@
  * candidate is tried.
  */
 import { rmSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { instanceRecordPath } from "@corvi/configuration/node";
 import type { InstanceRecord } from "@corvi/contracts/instance";
+import { writeAtomic } from "../capabilities/files.ts";
 
 /** Write the record for a listening server. Best effort: a state directory that cannot be
  * written is a discovery inconvenience, never a reason to refuse to serve. */
@@ -27,7 +28,9 @@ export const writeInstanceRecord = async (url: string, port: number): Promise<vo
   };
   try {
     await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, JSON.stringify(record), "utf8");
+    // Atomic, so a CLI probing while the server starts never reads half a record and drops the
+    // only candidate it had.
+    await writeAtomic(path, JSON.stringify(record));
   } catch (error) {
     console.error("could not record this server for discovery:", error);
   }

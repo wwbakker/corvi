@@ -103,8 +103,8 @@ test("discovery reads instance records and pid-file ports, and orders its candid
 
 test("the server is chosen by what it knows, and ambiguity is an error, not a guess", async () => {
   const candidates = [
-    { url: "http://a", source: "a" },
-    { url: "http://b", source: "b" },
+    { url: "http://a", source: "a", priority: 2 },
+    { url: "http://b", source: "b", priority: 2 },
   ];
   const probeWith = (answers: Record<string, readonly string[]>) => async (url: string) => {
     const answer = answers[url];
@@ -127,6 +127,20 @@ test("the server is chosen by what it knows, and ambiguity is an error, not a gu
       })
     ).url,
   ).toBe("http://b");
+
+  // An explicit address (--server/CORVI_URL) wins even when another server owns the change.
+  expect(
+    (
+      await resolveServer({
+        candidates: [
+          { url: "http://named", source: "--server", priority: 0 },
+          { url: "http://b", source: "record", priority: 2 },
+        ],
+        changeId: CHANGE_ID,
+        probe: probeWith({ "http://named": ["OTHER"], "http://b": [CHANGE_ID] }),
+      })
+    ).url,
+  ).toBe("http://named");
 
   // None owns it: refused, and the message names the addresses that did answer.
   await expect(
@@ -213,11 +227,24 @@ test("change list and show answer with the change record", async () => {
 });
 
 test("change phase sets the state, and the transition rules still refuse the illegal ones", async () => {
+  // The seeded change is an idea: its only way out is starting the work, so the matrix refuses
+  // a jump straight to Verification (the same `allowedTransition` the lifecycle workflow uses).
+  const illegal = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"], illegal.io),
+  ).toBe(4);
+
   const phase = capture();
   expect(
     await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Implementation", "--json"], phase.io),
   ).toBe(0);
   expect((JSON.parse(phase.out.join("")) as { state: string }).state).toBe("Implementation");
+
+  // From Implementation the manual phases move among themselves.
+  const verify = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Verification", "--json"], verify.io),
+  ).toBe(0);
 
   const bad = capture();
   expect(
@@ -236,6 +263,26 @@ test("an unknown change is a refusal (4), not a crash", async () => {
   const missing = capture();
   expect(await run(["--server", baseUrl, "--change", "NOPE", "change", "show"], missing.io)).toBe(4);
   expect(missing.err.join("")).toContain("NOPE");
+});
+
+test("a --json refusal is a JSON envelope on stderr with the status", async () => {
+  const missing = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", "NOPE", "change", "show", "--json"], missing.io),
+  ).toBe(4);
+  const envelope = JSON.parse(missing.err.join("")) as { error: string; exitCode: number; status: number };
+  expect(envelope.exitCode).toBe(4);
+  expect(envelope.status).toBe(404);
+  expect(envelope.error).toContain("NOPE");
+});
+
+test("CORVI_URL is honoured through the CLI", async () => {
+  const viaEnv = capture();
+  const code = await run(["change", "list", "--json"], viaEnv.io, {
+    env: { CORVI_URL: baseUrl, CORVI_CHANGE_ID: CHANGE_ID },
+  });
+  expect(code).toBe(0);
+  expect(JSON.parse(viaEnv.out.join("")) as { id: string }[]).toBeArray();
 });
 
 test("a change command without a change is a usage error (2)", async () => {

@@ -16,7 +16,7 @@ import { pathToFileURL } from "node:url";
 import { ClientError, makeChangesClient, type ChangesClient } from "@corvi/client";
 import { ChangeId, type ChangePhase } from "@corvi/contracts/changes";
 
-import { boolFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
+import { boolFlag, isKnownFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
 import { resolveChangeId } from "./change-context.ts";
 import { clientProbe, resolveServer, serverCandidates } from "./discovery.ts";
 import { CliFailure, EXIT } from "./errors.ts";
@@ -64,6 +64,22 @@ const requireChange = (changeId: string | undefined): ChangeId => {
     );
   }
   return ChangeId.make(changeId);
+};
+
+/** The command shapes, checked before discovery: a typo is a usage error (2) and must not pay a
+ * round of probes first (or be reported as "no server"). */
+const COMMANDS: Readonly<Record<string, readonly string[]>> = {
+  change: ["list", "show", "start", "complete", "cancel", "phase"],
+  action: ["list", "run"],
+};
+
+const validateCommand = (positionals: readonly string[]): void => {
+  const [group, command] = positionals;
+  const commands = group === undefined ? undefined : COMMANDS[group];
+  if (commands === undefined) throw new CliFailure(`unknown command: ${group ?? ""}`.trim(), EXIT.usage);
+  if (command === undefined || !commands.includes(command)) {
+    throw new CliFailure(`${group} needs a command: ${commands.join(", ")}`, EXIT.usage);
+  }
 };
 
 const changeCommand = async (
@@ -194,10 +210,22 @@ const dispatch = async (
   throw new CliFailure(`unknown command: ${group}`, EXIT.usage);
 };
 
-const fail = (io: Io, json: boolean, message: string, exitCode: number, status?: number): number => {
+const fail = (
+  io: Io,
+  json: boolean,
+  message: string,
+  exitCode: number,
+  status?: number,
+  body?: unknown,
+): number => {
   io.err(
     json
-      ? JSON.stringify({ error: message, exitCode, ...(status === undefined ? {} : { status }) })
+      ? JSON.stringify({
+          error: message,
+          exitCode,
+          ...(status === undefined ? {} : { status }),
+          ...(body === undefined ? {} : { body }),
+        })
       : message,
   );
   return exitCode;
@@ -206,9 +234,15 @@ const fail = (io: Io, json: boolean, message: string, exitCode: number, status?:
 const report = (error: unknown, io: Io, json: boolean): number => {
   if (error instanceof CliFailure) return fail(io, json, error.message, error.exitCode);
   if (error instanceof ClientError) {
-    const refused =
-      error.status === 400 || error.status === 404 || error.status === 409;
-    return fail(io, json, error.message, refused ? EXIT.refused : EXIT.failure, error.status);
+    const refused = error.status === 400 || error.status === 404 || error.status === 409;
+    return fail(
+      io,
+      json,
+      error.message,
+      refused ? EXIT.refused : EXIT.failure,
+      error.status,
+      error.body,
+    );
   }
   return fail(io, json, error instanceof Error ? error.message : String(error), EXIT.failure);
 };
@@ -241,6 +275,10 @@ export const run = async (
       io.out(USAGE);
       return EXIT.ok;
     }
+    for (const name of args.flags.keys()) {
+      if (!isKnownFlag(name)) throw new CliFailure(`unknown flag: --${name}`, EXIT.usage);
+    }
+    validateCommand(args.positionals);
     const changeId = await resolveChangeId({
       flag: stringFlag(args, "change"),
       env: env.CORVI_CHANGE_ID,
@@ -249,6 +287,7 @@ export const run = async (
     const candidates = await serverCandidates({
       url: stringFlag(args, "server"),
       envUrl: env.CORVI_URL,
+      env,
     });
     const server = await resolveServer({
       candidates,

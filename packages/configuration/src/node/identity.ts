@@ -42,9 +42,6 @@ export const defaultArchiveRoot = (): string => join(homedir(), ID, "changes-arc
 export const instanceRecordPath = (port: number): string =>
   join(stateDir(), `${ID}-app-${port}.json`);
 
-/** The prefix every instance record shares, for a caller that lists them all. */
-export const instanceRecordPrefix = (): string => join(stateDir(), `${ID}-app-`);
-
 /** macOS, where the native app and `open -a` live. */
 export const isMac = process.platform === "darwin";
 

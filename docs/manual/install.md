@@ -93,8 +93,15 @@ the working directory.
 The CLI talks to the running server, so with the app closed a control command fails loudly rather
 than editing files behind the server's back. It finds the server through `CORVI_URL`, then the
 record the server writes at startup (`$XDG_STATE_HOME/corvi/corvi-app-<port>.json`), then the
-window's pid-files, then `http://127.0.0.1:4000`. When several servers answer and one owns the
-change, that one is used; when the answer is ambiguous, name one with `CORVI_URL`.
+window's pid-files, then `http://127.0.0.1:4000`. An explicit `--server` or `CORVI_URL` that
+answers wins outright; otherwise the server that owns the change is used, and the answer is
+ambiguous (`CORVI_URL` names one) only when several servers answer and none or more than one owns
+it.
+
+This dispatch is Linux-only for now: on macOS the installed `corvi` still opens the app, and the
+CLI runs from the checkout with `bun run cli`. `corvi stop` stops the servers the desktop window
+recorded in its pid-files; a dev server (`bun run dev`) records itself for discovery but has no
+pid-file, so stop it where it was started.
 
 ## Updates
 
