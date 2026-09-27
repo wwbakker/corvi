@@ -8,6 +8,8 @@
     "./profile": "./src/profile.ts",
     "./fields": "./src/fields.ts",
     "./discovery": "./src/discovery.ts",
+    "./instance": "./src/instance.ts",
+    "./harness": "./src/harness.ts",
     "./node": "./src/node/index.ts"
   },
   "dependencies": {

@@ -67,6 +67,9 @@ export type NewWindowOptions = {
     readonly label: string;
     readonly notify: boolean;
   };
+  /** Force the window's working directory instead of following the current pane. A subagent
+   * window uses the subagent's own directory, which is what keys the harness's session storage. */
+  readonly cwd?: string;
 };
 
 /** The tmux operations the app binds to its own process layer. */
@@ -92,6 +95,16 @@ export type Sessions = {
   readonly pastePromptTo: (window: string, text: string) => Effect.Effect<void, CommandFailure>;
   /** The one keystroke Corvi keeps for you: Enter, into that pane. */
   readonly submit: (window: string) => Effect.Effect<void, CommandFailure>;
+  /** Set a pane option on one window's active pane. The server uses this for `@subagent_id`,
+   * which is its own vocabulary (not the reporter's): it is how a live window is matched to the
+   * subagent whose identity it carries. tmux drops it with the pane. */
+  readonly setPaneOption: (
+    window: string,
+    option: string,
+    value: string,
+  ) => Effect.Effect<void, CommandFailure>;
+  /** Tear down one window. A window already gone is not a failure. */
+  readonly killWindow: (window: string) => Effect.Effect<void, CommandFailure>;
   /** A new window running one command — the window a command action gets. Returns the new
    * window's tmux id, so a paste can follow it immediately. */
   readonly newWindowRunning: (
@@ -361,6 +374,19 @@ export const make = (host: Host): Sessions => {
   const submit = (window: string): Effect.Effect<void, CommandFailure> =>
     host.runOrThrow(tmuxCmd(["send-keys", "-t", window, "Enter"])).pipe(Effect.asVoid);
 
+  /** Set a pane option on one window's active pane. `-p` targets the pane, not the window. */
+  const setPaneOption = (
+    window: string,
+    option: string,
+    value: string,
+  ): Effect.Effect<void, CommandFailure> =>
+    host.runOrThrow(tmuxCmd(["set-option", "-p", "-t", window, option, value])).pipe(Effect.asVoid);
+
+  /** Tear down one window. `run`, not `runOrThrow`: a window that is already gone is the state
+   * the caller wanted. */
+  const killWindow = (window: string): Effect.Effect<void, CommandFailure> =>
+    host.run(tmuxCmd(["kill-window", "-t", window])).pipe(Effect.asVoid);
+
   /** POSIX single-quote wrapping: whatever a label or a socket name contains, it is data to the
    * shell that runs the wrapper. */
   const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
@@ -406,6 +432,10 @@ export const make = (host: Host): Sessions => {
     Effect.gen(function* () {
       const body = options.keepOpen || options.announce ? wrapped(command, options.announce) : command;
       const args = (at: string): string[] => ["new-window", "-P", "-F", "#{window_id}", "-t", sessionName(id), "-c", at, body];
+      if (options.cwd !== undefined) {
+        const forced = yield* host.runOrThrow(tmuxCmd(args(options.cwd)));
+        return forced.stdout.trim();
+      }
       const here = yield* host.run(tmuxCmd(args("#{pane_current_path}")));
       const window = here.code === 0 ? here.stdout.trim() : "";
       if (window) return window;
@@ -456,5 +486,7 @@ export const make = (host: Host): Sessions => {
     ensureSession,
     pastePromptTo,
     submit,
+    setPaneOption,
+    killWindow,
   };
 };

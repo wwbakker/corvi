@@ -19,9 +19,21 @@ import {
 
 import {
   SubagentFilesResponseSchema,
+  SubagentInstanceSchema,
+  SubagentListResponseSchema,
+  SubagentMessageSchema,
+  SubagentNextResponseSchema,
+  SubagentWaitResponseSchema,
+  type SubagentCreateRequestDto,
   type SubagentFileRefDto,
   type SubagentFileWriteDto,
   type SubagentFilesResponseDto,
+  type SubagentInstanceDto,
+  type SubagentMessageDto,
+  type SubagentNextResponseDto,
+  type SubagentSendRequestDto,
+  type SubagentTurnRequestDto,
+  type SubagentWaitResponseDto,
 } from "@corvi/contracts/subagents"
 
 import {
@@ -190,6 +202,40 @@ export interface ChangesClient {
   readonly subagentFiles: () => Promise<SubagentFilesResponseDto>
   readonly writeSubagentFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
   readonly deleteSubagentFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
+  /** The persistent subagent instances of a change. */
+  readonly subagents: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentInstanceDto[]>
+  readonly subagent: (changeId: ChangeId, id: string, options?: RequestOptions) => Promise<SubagentInstanceDto>
+  readonly createSubagent: (
+    changeId: ChangeId,
+    body: SubagentCreateRequestDto,
+  ) => Promise<SubagentInstanceDto>
+  readonly openSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
+  readonly closeSubagent: (changeId: ChangeId, id: string) => Promise<SubagentInstanceDto>
+  readonly sendSubagent: (
+    changeId: ChangeId,
+    id: string,
+    body: SubagentSendRequestDto,
+  ) => Promise<SubagentMessageDto>
+  readonly subagentResult: (
+    changeId: ChangeId,
+    id: string,
+    options?: RequestOptions,
+  ) => Promise<SubagentMessageDto | null>
+  readonly waitSubagent: (
+    changeId: ChangeId,
+    query: { readonly id?: string; readonly any?: boolean; readonly all?: boolean; readonly since?: number },
+    options?: RequestOptions,
+  ) => Promise<SubagentWaitResponseDto>
+  readonly nextSubagent: (
+    changeId: ChangeId,
+    id: string,
+    options?: RequestOptions,
+  ) => Promise<SubagentNextResponseDto>
+  readonly subagentTurn: (
+    changeId: ChangeId,
+    id: string,
+    body: SubagentTurnRequestDto,
+  ) => Promise<SubagentMessageDto>
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
   /** What the app knows about updating itself: eligible, what is new, and the update journal.
    * Local reads only — the check runs on its own cadence, or when `checkUpdate` asks. */
@@ -470,6 +516,60 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
             ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
           }&id=${encodeURIComponent(ref.id)}`,
         ),
+      ),
+    subagents: async (changeId, options) =>
+      decode(
+        SubagentListResponseSchema,
+        await send("GET", `${change(changeId)}/subagents`, options),
+      ).instances,
+    subagent: async (changeId, id, options) =>
+      decode(SubagentInstanceSchema, await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}`, options)),
+    createSubagent: async (changeId, body) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents`, { body }),
+      ),
+    openSubagent: async (changeId, id) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/open`),
+      ),
+    closeSubagent: async (changeId, id) =>
+      decode(
+        SubagentInstanceSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/close`),
+      ),
+    sendSubagent: async (changeId, id, body) =>
+      decode(
+        SubagentMessageSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/messages`, { body }),
+      ),
+    subagentResult: async (changeId, id, options) =>
+      decode(
+        Schema.NullOr(SubagentMessageSchema),
+        await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}/result`, options),
+      ),
+    waitSubagent: async (changeId, query, options) => {
+      const params = new URLSearchParams();
+      if (query.id) params.set("id", query.id);
+      if (query.any) params.set("any", "1");
+      if (query.all) params.set("all", "1");
+      if (query.since !== undefined) params.set("since", String(query.since));
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      return decode(
+        SubagentWaitResponseSchema,
+        await send("GET", `${change(changeId)}/subagents/wait${suffix}`, options),
+      );
+    },
+    nextSubagent: async (changeId, id, options) =>
+      decode(
+        SubagentNextResponseSchema,
+        await send("GET", `${change(changeId)}/subagents/${encodeURIComponent(id)}/next`, options),
+      ),
+    subagentTurn: async (changeId, id, body) =>
+      decode(
+        SubagentMessageSchema,
+        await send("POST", `${change(changeId)}/subagents/${encodeURIComponent(id)}/turn`, { body }),
       ),
     inspectRepositories: async (changeId) =>
       decode(mutableArray(RepositoryViewSchema), await send("GET", `${change(changeId)}/repositories`)),

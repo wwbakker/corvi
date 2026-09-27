@@ -33,7 +33,15 @@ const agentOf = (option: string | undefined): AgentState | undefined =>
  * where an agent speaks. Everything it leaves undefined — the label, the detail — the core
  * composes from the tmux facts, exactly as it does for a plain shell. */
 export const agentsWindowPresenter: TerminalPresenter = {
-  paneOptions: ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"],
+  paneOptions: [
+    "@agent_status",
+    "@agent_name",
+    "@agent_session_name",
+    "@agent_last_message",
+    // The server writes this one (not the reporter): the subagent a live window carries. Listed
+    // here so the raw window the server matches against always asks tmux for it.
+    "@subagent_id",
+  ],
   present: (window) => {
     const agent = agentOf(window.options["@agent_status"]);
     if (!agent) return undefined;

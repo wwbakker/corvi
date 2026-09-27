@@ -43,6 +43,18 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
   action list                          the actions this change may run
   action run <key> [--window <id>]     run one
 
+  subagent list                        the change's subagents and their state
+  subagent show <id>                   one subagent
+  subagent create <profile> [--prompt "…"]
+                                       create, open and send the first message
+  subagent open <id> | close <id>      presence only; never starts work
+  subagent send <id> "…"               append a message and deliver it as a turn
+  subagent wait [<id>] [--any|--all] [--since N]
+                                       block until a turn (or a lost window)
+  subagent result <id>                 the latest subagent message
+  subagent next --subagent <id>        extension-facing: await the next inbound message
+  subagent turn --subagent <id> "…"    extension-facing: relay a settled reply
+
   --json            machine-readable output (one JSON value)
   --change <id>     the change; defaults to CORVI_CHANGE_ID, then the nearest change.json
   --server <url>    the server; defaults to CORVI_URL, the app's record, then 127.0.0.1:4000
@@ -71,6 +83,7 @@ const requireChange = (changeId: string | undefined): ChangeId => {
 const COMMANDS: Readonly<Record<string, readonly string[]>> = {
   change: ["list", "show", "start", "complete", "cancel", "phase"],
   action: ["list", "run"],
+  subagent: ["list", "show", "create", "open", "close", "send", "wait", "result", "next", "turn"],
 };
 
 const validateCommand = (positionals: readonly string[]): void => {
@@ -197,16 +210,130 @@ const actionCommand = async (
   }
 };
 
+const subagentCommand = async (
+  client: ChangesClient,
+  changeId: string | undefined,
+  args: ParsedArgs,
+  json: boolean,
+  io: Io,
+): Promise<number> => {
+  const [command, ...rest] = args.positionals.slice(1);
+  const id = requireChange(changeId);
+  const subId = (position = 0): string => {
+    const named = stringFlag(args, "subagent") ?? rest[position];
+    if (named === undefined || named === "") {
+      throw new CliFailure(`${command ?? "this"} needs a subagent id (--subagent <id>, or a positional)`, EXIT.usage);
+    }
+    return named;
+  };
+  switch (command) {
+    case "list": {
+      const instances = await client.subagents(id);
+      emit(io, json, {
+        value: instances,
+        human: (value) =>
+          value
+            .map(
+              (instance) =>
+                `${instance.id}\t${instance.presence}\t${instance.interrupted ? "interrupted" : instance.activity}${instance.awaitingReply ? "\treply" : ""}`,
+            )
+            .join("\n"),
+      });
+      return EXIT.ok;
+    }
+    case "show": {
+      const instance = await client.subagent(id, subId());
+      emit(io, json, {
+        value: instance,
+        human: (value) =>
+          `${value.id}\t${value.presence}\t${value.interrupted ? "interrupted" : value.activity}`,
+      });
+      return EXIT.ok;
+    }
+    case "create": {
+      const profile = rest[0];
+      if (profile === undefined) throw new CliFailure("subagent create needs a profile key", EXIT.usage);
+      const prompt = stringFlag(args, "prompt");
+      const instance = await client.createSubagent(id, {
+        profile,
+        ...(prompt === undefined ? {} : { prompt }),
+      });
+      emit(io, json, { value: instance, human: (value) => `created ${value.id}` });
+      return EXIT.ok;
+    }
+    case "open":
+    case "close": {
+      const sub = subId();
+      const instance =
+        command === "open" ? await client.openSubagent(id, sub) : await client.closeSubagent(id, sub);
+      emit(io, json, { value: instance, human: () => `${command === "open" ? "opened" : "closed"} ${sub}` });
+      return EXIT.ok;
+    }
+    case "send": {
+      const sub = subId();
+      const text = rest[1];
+      if (text === undefined || text === "") throw new CliFailure("subagent send needs text", EXIT.usage);
+      const message = await client.sendSubagent(id, sub, { text });
+      emit(io, json, { value: message, human: () => `sent to ${sub}` });
+      return EXIT.ok;
+    }
+    case "result": {
+      const message = await client.subagentResult(id, subId());
+      emit(io, json, { value: message, human: (value) => value?.body ?? "(no reply yet)" });
+      return EXIT.ok;
+    }
+    case "wait": {
+      const since = stringFlag(args, "since");
+      const mode = boolFlag(args, "all") ? "all" : boolFlag(args, "any") ? "any" : "one";
+      const target = rest[0] ?? stringFlag(args, "subagent");
+      const result = await client.waitSubagent(id, {
+        ...(target === undefined ? {} : { id: target }),
+        ...(since === undefined ? {} : { since: Number(since) }),
+        ...(mode === "all" ? { all: true } : mode === "any" ? { any: true } : {}),
+      });
+      emit(io, json, {
+        value: result,
+        human: (value) => `${value.status}${value.id === undefined ? "" : ` ${value.id}`}`,
+      });
+      return result.status === "lost" || result.status === "interrupted" ? EXIT.lost : EXIT.ok;
+    }
+    case "next": {
+      const result = await client.nextSubagent(id, subId());
+      emit(io, json, { value: result, human: (value) => value.status });
+      return result.status === "interrupted" ? EXIT.lost : EXIT.ok;
+    }
+    case "turn": {
+      const named = stringFlag(args, "subagent");
+      const sub = named ?? rest[0];
+      const text = named === undefined ? rest[1] : rest[0];
+      if (sub === undefined || text === undefined) {
+        throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
+      }
+      const message = await client.subagentTurn(id, sub, { text });
+      emit(io, json, { value: message, human: () => `relayed turn ${message.number}` });
+      return EXIT.ok;
+    }
+    default:
+      throw new CliFailure(
+        command === undefined
+          ? "subagent needs a command: list, show, create, open, close, send, wait, result, next, turn"
+          : `unknown subagent command: ${command}`,
+        EXIT.usage,
+      );
+  }
+};
+
 const dispatch = async (
   client: ChangesClient,
   changeId: string | undefined,
   args: ParsedArgs,
   json: boolean,
   io: Io,
-): Promise<void> => {
+): Promise<number> => {
   const [group] = args.positionals;
-  if (group === "change") return changeCommand(client, changeId, args, json, io);
-  if (group === "action") return actionCommand(client, changeId, args, json, io);
+  if (group === "change") return changeCommand(client, changeId, args, json, io).then(() => EXIT.ok);
+  if (group === "action") return actionCommand(client, changeId, args, json, io).then(() => EXIT.ok);
+  if (group === "subagent") return subagentCommand(client, changeId, args, json, io);
   throw new CliFailure(`unknown command: ${group}`, EXIT.usage);
 };
 
@@ -254,6 +381,7 @@ const needsChange = (positionals: readonly string[]): boolean => {
   const [group, command] = positionals;
   if (group === "change") return command !== "list";
   if (group === "action") return true;
+  if (group === "subagent") return true;
   return false;
 };
 
@@ -295,8 +423,7 @@ export const run = async (
       probe: clientProbe(),
     });
     const client = makeChangesClient({ baseUrl: server.url });
-    await dispatch(client, changeId, args, json, io);
-    return EXIT.ok;
+    return await dispatch(client, changeId, args, json, io);
   } catch (error) {
     return report(error, io, json);
   }

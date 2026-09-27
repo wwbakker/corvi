@@ -56,6 +56,8 @@ export const {
   ensureSession,
   pastePromptTo,
   submit,
+  setPaneOption,
+  killWindow,
   windows: rawWindows,
   allWindows: rawAllWindows,
 } = sessions;

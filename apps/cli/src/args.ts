@@ -18,6 +18,7 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "window",
   "since",
   "prompt",
+  "subagent",
 ]);
 
 /** The flags that are switches. Kept beside the value flags so an unknown flag can be refused

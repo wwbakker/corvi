@@ -6,6 +6,7 @@
       "name": "corvi",
       "dependencies": {
         "@corvi/actions": "workspace:*",
+        "@corvi/agents": "workspace:*",
         "@corvi/azure-devops": "workspace:*",
         "@corvi/client": "workspace:*",
         "@corvi/configuration": "workspace:*",

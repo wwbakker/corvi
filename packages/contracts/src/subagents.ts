@@ -54,3 +54,117 @@ export const SubagentFileRefSchema = Schema.Struct({
   id: Schema.String,
 })
 export type SubagentFileRefDto = typeof SubagentFileRefSchema.Type
+
+// --- Instances -------------------------------------------------------------------------------
+
+/** Who a message is from. A turn's reply is always `subagent`; the other two are inbound. */
+export const SubagentRole = Schema.Literal("orchestrator", "user", "subagent")
+export type SubagentRole = typeof SubagentRole.Type
+
+/** One entry in an instance's system log. */
+export const SubagentSystemEventSchema = Schema.Struct({
+  kind: Schema.Literal(
+    "created",
+    "opened",
+    "closed",
+    "turn_started",
+    "turn_settled",
+    "interrupted",
+    "continued",
+  ),
+  at: Schema.String,
+  note: Schema.optional(Schema.String),
+})
+export type SubagentSystemEventDto = typeof SubagentSystemEventSchema.Type
+
+/** The stored record: `session.json`. `deliveredThrough` is the durable delivery cursor `next`
+ * reads; `inFlight` is the one thing not derivable after a reboot. */
+export const SubagentRecordSchema = Schema.Struct({
+  id: Schema.String,
+  changeId: Schema.String,
+  /** The resolved profile key (`global:reviewer`), not its text. */
+  profile: Schema.String,
+  label: Schema.String,
+  harness: SubagentHarness,
+  model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
+  createdBy: Schema.Literal("orchestrator", "user"),
+  createdAt: Schema.String,
+  window: Schema.optional(Schema.String),
+  deliveredThrough: Schema.optional(Schema.Number),
+  inFlight: Schema.optional(Schema.Number),
+  log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
+})
+export type SubagentRecordDto = typeof SubagentRecordSchema.Type
+
+/** One message, as a file and on the wire. */
+export const SubagentMessageSchema = Schema.Struct({
+  number: Schema.Number,
+  role: SubagentRole,
+  at: Schema.String,
+  body: Schema.String,
+  pane: Schema.optional(Schema.String),
+})
+export type SubagentMessageDto = typeof SubagentMessageSchema.Type
+
+/** One instance as the list and show routes answer: the record, the derived view, and the whole
+ * conversation. */
+export const SubagentInstanceSchema = Schema.Struct({
+  id: Schema.String,
+  changeId: Schema.String,
+  profile: Schema.String,
+  label: Schema.String,
+  harness: SubagentHarness,
+  model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
+  createdBy: Schema.Literal("orchestrator", "user"),
+  createdAt: Schema.String,
+  presence: Schema.Literal("attached", "detached"),
+  activity: Schema.Literal("idle", "working"),
+  interrupted: Schema.Boolean,
+  awaitingReply: Schema.Boolean,
+  log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
+  messages: Schema.mutable(Schema.Array(SubagentMessageSchema)),
+})
+export type SubagentInstanceDto = typeof SubagentInstanceSchema.Type
+
+export const SubagentListResponseSchema = Schema.Struct({
+  instances: Schema.mutable(Schema.Array(SubagentInstanceSchema)),
+})
+export type SubagentListResponseDto = typeof SubagentListResponseSchema.Type
+
+/** Create an instance from a profile key, optionally with the orchestrator's task text. `from`
+ * records who asked (the CLI's orchestrator by default, the UI's user when the page creates it). */
+export const SubagentCreateRequestSchema = Schema.Struct({
+  profile: Schema.String,
+  prompt: Schema.optional(Schema.String),
+  from: Schema.optional(Schema.Literal("orchestrator", "user")),
+})
+export type SubagentCreateRequestDto = typeof SubagentCreateRequestSchema.Type
+
+export const SubagentSendRequestSchema = Schema.Struct({
+  text: Schema.String,
+  from: Schema.optional(Schema.Literal("orchestrator", "user")),
+})
+export type SubagentSendRequestDto = typeof SubagentSendRequestSchema.Type
+
+/** A settled turn's reply, relayed by the harness extension. */
+export const SubagentTurnRequestSchema = Schema.Struct({ text: Schema.String })
+export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
+
+/** What a `wait` ended as: a delivered turn, a lost window, an interrupted turn, or the long
+ * poll's own deadline. `id` names the subagent for `--any`/`--all` runs. */
+export const SubagentWaitResponseSchema = Schema.Struct({
+  status: Schema.Literal("turn", "lost", "interrupted", "timeout"),
+  id: Schema.optional(Schema.String),
+  message: Schema.optional(SubagentMessageSchema),
+})
+export type SubagentWaitResponseDto = typeof SubagentWaitResponseSchema.Type
+
+/** What the extension's `next` got: an inbound message to submit, an interrupted turn to leave
+ * alone, or nothing yet (the poll's own deadline). */
+export const SubagentNextResponseSchema = Schema.Struct({
+  status: Schema.Literal("message", "interrupted", "none"),
+  message: Schema.optional(SubagentMessageSchema),
+})
+export type SubagentNextResponseDto = typeof SubagentNextResponseSchema.Type

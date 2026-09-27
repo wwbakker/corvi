@@ -105,3 +105,5 @@ export const discoverProfiles = (roots: ProfileRoots): Effect.Effect<ProfileDisc
     }
     return mergeProfileFiles(files);
   });
+
+export * from "./instance.ts";

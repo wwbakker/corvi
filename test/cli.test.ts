@@ -191,7 +191,7 @@ beforeAll(async () => {
 
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     cwd: resolve("."),
-    env: serverEnv(tmp),
+    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock") }),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -299,4 +299,60 @@ test("discovery finds the server from its own record, with no URL flag or enviro
   });
   expect(code).toBe(0);
   expect(JSON.parse(found.out.join("")) as { id: string }[]).toBeArray();
+});
+
+test("subagent commands drive an instance over the HTTP API", async () => {
+  // Seed an instance directly: create would launch a real harness. The rest — list, next, the
+  // interrupted turn, the relayed reply, the result — is the API the extension and the CLI use.
+  const dir = join(tmp, "changes", CHANGE_ID, "subagents", "seed-1");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "session.json"),
+    JSON.stringify({
+      id: "seed-1",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(dir, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nReview it\n",
+    "utf8",
+  );
+
+  const listed = capture();
+  expect(await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "list", "--json"], listed.io)).toBe(0);
+  expect((JSON.parse(listed.out.join("")) as { id: string }[]).map((one) => one.id)).toContain("seed-1");
+
+  const first = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], first.io),
+  ).toBe(0);
+  expect((JSON.parse(first.out.join("")) as { status: string }).status).toBe("message");
+
+  // The turn is in flight: a second next says so, with the lost/interrupted exit code.
+  const second = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], second.io),
+  ).toBe(5);
+
+  const turned = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "turn", "--subagent", "seed-1", "Looks good", "--json"],
+      turned.io,
+    ),
+  ).toBe(0);
+
+  const result = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
+  ).toBe(0);
+  expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
 });
