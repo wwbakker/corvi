@@ -156,7 +156,7 @@ function App(): JSX.Element {
   // Found among all of them, not the filtered list: a link to a change in another workspace
   // should open it rather than say it does not exist.
   const change = (everything ?? []).find((c) => c.id === selected);
-  const onTerminal = view.name === "change" && view.page === "terminals";
+  const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
   const onPlan = view.name === "change" && view.page === "plan";

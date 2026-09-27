@@ -61,7 +61,7 @@ const longPollMs = (): number => Number(process.env.CORVI_SUBAGENT_POLL_MS) || 3
 
 const now = (): string => new Date().toISOString();
 
-type Live = { readonly window: string; readonly agentStatus?: "working" | "waiting" };
+type Live = { readonly window: string; readonly index: number; readonly agentStatus?: "working" | "waiting" };
 
 /** The live windows carrying a `@subagent_id`, keyed by subagent id. A tmux that times out is
  * an empty map: presence is best-effort, never a request failure. */
@@ -78,6 +78,7 @@ const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
         const status = window.options["@agent_status"];
         map.set(id, {
           window: window.id,
+          index: window.index,
           ...(status === "working" || status === "waiting" ? { agentStatus: status } : {}),
         });
       }
@@ -102,6 +103,7 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     createdBy: record.createdBy,
     createdAt: record.createdAt,
     ...view,
+    ...(live === undefined ? {} : { windowIndex: live.index }),
     log: record.log,
     messages: [...record.messages],
   };

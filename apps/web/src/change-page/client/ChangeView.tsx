@@ -28,6 +28,7 @@ import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
+import { SubagentsPane } from "./SubagentsPane.tsx";
 import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 
@@ -105,7 +106,7 @@ export function ChangeView({
   const [after, setAfter] = useState<ProvisionResult[]>([]);
   // The terminal keeps its shells whichever page you are on, so it is mounted once it has been
   // opened and only hidden afterwards.
-  const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
+  const [terminalOpened, setTerminalOpened] = useState(page === "terminals" || page === "subagents");
   const [cheatSheet, setCheatSheet] = useState(false);
   // Bumped when the cheat sheet closes: it is a modal dialog, so the browser moves the focus into it
   // and nothing puts it back (apps/web/src/terminals/client/TerminalPane.tsx).
@@ -122,7 +123,7 @@ export function ChangeView({
   const idea = change ? isIdeation(change) : false;
 
   useEffect(() => {
-    if (page === "terminals") setTerminalOpened(true);
+    if (page === "terminals" || page === "subagents") setTerminalOpened(true);
   }, [page]);
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
@@ -458,7 +459,16 @@ export function ChangeView({
         ) : (
           <p className="hint">loading…</p>
         ))}
-      {terminalOpened && (
+      {active.kind === "subagents" && (
+        <SubagentsPane
+          changeId={id}
+          platform={platform}
+          terminal={terminal}
+          windowsCount={windows.length}
+          onSelectWindow={onSelectWindow}
+        />
+      )}
+      {terminalOpened && active.kind !== "subagents" && (
         <div className="terminal-host" hidden={active.kind !== "terminals"}>
           <TerminalPane
             changeId={id}
