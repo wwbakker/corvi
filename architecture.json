@@ -67,6 +67,17 @@
         "@corvi/contracts"
       ]
     },
+    "@corvi/cli": {
+      "dependsOn": [
+        "@corvi/client",
+        "@corvi/configuration",
+        "@corvi/contracts"
+      ],
+      "external": [
+        "effect"
+      ],
+      "node": true
+    },
     "@corvi/github": {
       "dependsOn": [
         "@corvi/contracts",

@@ -32,6 +32,7 @@ import {
   CreateChangeBodySchema,
   DirectoryListingSchema,
   ForceBodySchema,
+  IdentityResponseSchema,
   PagesResponseSchema,
   PlanDocSchema,
   PlanWriteBodySchema,
@@ -62,6 +63,7 @@ import {
   type DirectoryListingDto,
   type DirectoryListingSpec,
   type ForceBodyDto,
+  type IdentityResponseDto,
   type PageInfoDto,
   type PlanDocDto,
   type PlanWriteBodyDto,
@@ -101,6 +103,9 @@ export interface RequestOptions {
 
 export interface ChangesClient {
   readonly list: (options?: RequestOptions) => Promise<ChangeWireDto[]>
+  /** What this server knows: the changes in its root. Discovery's probe, and the answer that
+   * decides which of several candidate servers owns a change. */
+  readonly identity: (options?: RequestOptions) => Promise<IdentityResponseDto>
   readonly read: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeWireDto>
   readonly summary: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeSummaryDto>
   readonly cards: (changeId: ChangeId, options?: RequestOptions) => Promise<CardInfoDto[]>
@@ -299,6 +304,8 @@ export const makeChangesClient = (options: ClientOptions): ChangesClient => {
   return {
     list: async (options) =>
       decode(mutableArray(ChangeWireSchema), await send("GET", "/changes", options)),
+    identity: async (options) =>
+      decode(IdentityResponseSchema, await send("GET", "/identity", options)),
     read: async (changeId, options) =>
       decode(ChangeWireSchema, await send("GET", change(changeId), options)),
     summary: async (changeId, options) =>

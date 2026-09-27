@@ -6,6 +6,8 @@ import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
+import { identityRoutes } from "./app-root/identity.ts";
+import { removeInstanceRecord, writeInstanceRecord } from "./app-root/instance.ts";
 import { actionsRoutes } from "./actions/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
@@ -53,11 +55,15 @@ startUpdateChecks(appUpdate);
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.
 setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).unref();
+// The port this server is listening on, once it is: the signal handler removes the discovery
+// record by it (see `./app-root/instance.ts`).
+let instancePort: number | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     // The server takes its pty attachments with it; the tmux sessions (and the shells in them)
     // stay for the next server.
     closeAttachments();
+    if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())
       .catch(() => {})
       .finally(() => process.exit(0));
@@ -73,6 +79,7 @@ const server = await serve<TerminalSocket>({
   // One table per domain, each guarded as it is defined; composed here, where the server is.
   routes: {
     ...appRootRoutes,
+    ...identityRoutes,
     ...appUpdateRoutes(appUpdate),
     ...actionsRoutes,
     ...changeRoutes,
@@ -92,6 +99,10 @@ const server = await serve<TerminalSocket>({
   },
 });
 
+instancePort = server.port;
+// Before the readiness line, so a client that reads the line and immediately looks for the
+// record cannot lose the race.
+await writeInstanceRecord(server.url.toString(), server.port);
 console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
 
 // The page is built on demand, and a failed build in production comes back as an empty 200 with
@@ -107,6 +118,7 @@ console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers re
     console.error(
       "build it with `bun run build:web` (or `bun run app:install`, which does), then start the server again.",
     );
+    removeInstanceRecord(server.port);
     process.exit(1);
   }
 }

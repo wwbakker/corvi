@@ -36,6 +36,16 @@
         "typescript": "^6.0.3",
       },
     },
+    "apps/cli": {
+      "name": "@corvi/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/client": "workspace:*",
+        "@corvi/configuration": "workspace:*",
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+      },
+    },
     "apps/desktop": {
       "name": "@corvi/desktop",
       "version": "0.0.0",
@@ -328,6 +338,8 @@
     "@corvi/azure-devops": ["@corvi/azure-devops@workspace:integrations/azure-devops"],
 
     "@corvi/changes": ["@corvi/changes@workspace:packages/changes"],
+
+    "@corvi/cli": ["@corvi/cli@workspace:apps/cli"],
 
     "@corvi/client": ["@corvi/client@workspace:packages/client"],
 
