@@ -37,7 +37,14 @@ const FROM_ENV = 1;
 const FROM_STATE = 2;
 const FALLBACK = 3;
 
-const stripTrailingSlash = (url: string): string => url.replace(/\/+$/, "");
+/** Drop trailing slashes with a scan rather than a backtracking-prone regex: the URL comes from
+ * an environment variable or a state file, and a regular expression that depends on library
+ * input is exactly what CodeQL refuses. */
+const stripTrailingSlash = (url: string): string => {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end -= 1;
+  return url.slice(0, end);
+};
 
 /** The instance records in `dir`, ordered by port and dropping any that do not parse (a crashed
  * or foreign writer). */
