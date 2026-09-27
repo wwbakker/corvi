@@ -430,3 +430,32 @@ test("a JSON error without an error field falls back to the status text", async 
   expect((failure as ClientError).message).toBe("Internal Server Error")
   expect((failure as ClientError).body).toEqual({ detail: "no message" })
 })
+
+test("the update operations name their routes and decode the status", async () => {
+  const calls: { url: string; method: string }[] = []
+  const status = {
+    eligible: true,
+    behind: 2,
+    commits: [
+      { sha: "abc1234", subject: "second", url: "https://github.com/acme/app/commit/abc1234" },
+    ],
+    compareUrl: "https://github.com/acme/app/compare/x...y",
+    progress: null,
+    restartPending: false,
+  }
+  const client = makeChangesClient({
+    baseUrl: "http://127.0.0.1:4000/",
+    fetch: async (input, init) => {
+      calls.push({ url: String(input), method: init?.method ?? "GET" })
+      return Response.json(status)
+    },
+  })
+  expect((await client.updateStatus()).behind).toBe(2)
+  expect((await client.checkUpdate()).commits[0]?.url).toContain("/commit/abc1234")
+  expect((await client.startUpdate()).restartPending).toBe(false)
+  expect(calls).toEqual([
+    { url: "http://127.0.0.1:4000/api/app/update", method: "GET" },
+    { url: "http://127.0.0.1:4000/api/app/update/check", method: "POST" },
+    { url: "http://127.0.0.1:4000/api/app/update", method: "POST" },
+  ])
+})

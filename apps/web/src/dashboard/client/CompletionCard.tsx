@@ -1,13 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { apiClient, type Change, type CompletionProgress, type CompletionStep } from "../../app-root/api.ts";
-
-const MARK: Record<CompletionStep["state"], string> = {
-  waiting: "○",
-  running: "◍",
-  done: "●",
-  failed: "✕",
-};
+import { apiClient, type Change, type CompletionProgress } from "../../app-root/api.ts";
+import { StepPlan } from "../../app-root/StepPlan.tsx";
 
 /** The note a finished forced completion carries: what it overrode. Undefined while it is still
  * running or stopped — then "completed" would be false, and the check step's own detail is where
@@ -91,15 +85,7 @@ export function CompletionCard({
               : `${done} of ${progress.steps.length}`}
         </span>
       </h3>
-      <ul className="progress-steps">
-        {progress.steps.map((step) => (
-          <li key={step.id} className={step.state}>
-            <span className="mark">{MARK[step.state]}</span>
-            {step.label}
-            {step.detail && <span className="detail">{step.detail}</span>}
-          </li>
-        ))}
-      </ul>
+      <StepPlan steps={progress.steps} />
       {overrides && <p className="hint">{overrides}</p>}
       {progress.error && (
         <p className="hint">

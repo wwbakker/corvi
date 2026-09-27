@@ -104,6 +104,14 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
             state.inspectFailure ? Effect.fail(state.inspectFailure) : Effect.succeed(state.inspect),
           assessRemoval: () => Effect.succeed({ _tag: "Safe" as const }),
           removeBranchIfIntegrated: () => Effect.succeed("deleted" as const),
+          // The update-only facts are not this workflow's subject: called by mistake, they fail
+          // visibly rather than answering an empty success.
+          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
+          inspectUpstream: () => Effect.dieMessage("inspectUpstream is not scripted"),
+          incomingCommits: () => Effect.dieMessage("incomingCommits is not scripted"),
+          defaultRemoteBranch: () => Effect.dieMessage("defaultRemoteBranch is not scripted"),
+          workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
+          pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
           provisionLinkedWorktree: (input) => {
             state.calls.push(
               `worktree ${input.directory} ${input.branch} ${input.createMissing ? "create" : "attach"}` +

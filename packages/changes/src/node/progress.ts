@@ -7,19 +7,13 @@ import { join } from "node:path"
 import { Effect, Layer, Schema } from "effect"
 
 import type { ChangeId } from "@corvi/contracts/changes"
+import { OperationStepSchema } from "@corvi/contracts/api"
 import { ChangeFormatTooNew, ChangeStoreError } from "../errors.ts"
 import { FORMAT_VERSION } from "../record.ts"
 import { OperationProgress, type OperationStep } from "../progress.ts"
 import type { RootPair } from "./store.ts"
 
-const Steps = Schema.Array(
-  Schema.Struct({
-    id: Schema.String,
-    label: Schema.String,
-    state: Schema.Literal("waiting", "running", "done", "failed"),
-    detail: Schema.optional(Schema.String),
-  }),
-)
+const Steps = Schema.Array(OperationStepSchema)
 
 const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT"

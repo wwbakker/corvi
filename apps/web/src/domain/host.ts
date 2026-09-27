@@ -49,4 +49,8 @@ export type CorviHost = {
    * config, which the host does not read, so the page it is showing says so — on mount and whenever
    * it changes. */
   setContextMenu: (enabled: boolean) => void;
+  /** Restart the app: the answer to "Restart now" after an update, where the new code is waiting.
+   * The window's own process relaunches it (apps/desktop/src/electron/main.ts); a real browser has
+   * no host and the page says to quit and reopen instead. */
+  restart: () => void;
 };

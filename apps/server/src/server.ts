@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
 import { setRuntime } from "./capabilities/runtime.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
@@ -12,6 +13,12 @@ import { dashboardRoutes } from "./dashboard/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
 import { workspaceRoutes } from "./workspace/routes.ts";
+import { appUpdateRoutes } from "./app-update/routes.ts";
+import {
+  closeInterruptedUpdate,
+  startUpdateChecks,
+  type AppUpdateOptions,
+} from "./app-update/update.ts";
 import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
 import { migrateStoredRecords } from "@corvi/changes/node";
 import { changePairs } from "./change/server/store.ts";
@@ -30,6 +37,18 @@ setRuntime({ cache });
 void Effect.runPromise(
   migrateStoredRecords({ roots: changePairs() }),
 ).catch((error) => console.error("could not migrate change records:", error));
+
+// The app update: only the installed app updates itself (its window marks this run), and only
+// from its own checkout. The interrupted-run sweep closes a journal the last server left open,
+// before any page can read it as a run that is still going.
+const appUpdate: AppUpdateOptions = {
+  root: resolve("."),
+  app: process.env[env("APP_KIND")] === "app",
+};
+await Effect.runPromise(closeInterruptedUpdate()).catch((error) =>
+  console.error("could not close the update journal:", error),
+);
+startUpdateChecks(appUpdate);
 
 // Written now and then rather than on every entry: this is a cache, and losing the last minute
 // of it costs one refresh.
@@ -54,6 +73,7 @@ const server = await serve<TerminalSocket>({
   // One table per domain, each guarded as it is defined; composed here, where the server is.
   routes: {
     ...appRootRoutes,
+    ...appUpdateRoutes(appUpdate),
     ...actionsRoutes,
     ...changeRoutes,
     ...repositoriesRoutes,

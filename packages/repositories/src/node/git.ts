@@ -151,6 +151,43 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return remote ? names.includes(remote) : names.length > 0
     })
 
+    const remoteUrl = Effect.fn("Git.repo.remoteUrl")(function* (
+      repository: Git.Repository,
+      remote = "origin",
+    ) {
+      const result = yield* run("discover", repository.worktree, ["remote", "get-url", remote])
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
+    })
+
+    const upstreamTip = Effect.fn("Git.history.upstreamTip")(function* (repository: Git.Repository) {
+      const result = yield* run("upstream", repository.worktree, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        "@{upstream}",
+      ])
+      return result.exitCode === 0 ? result.stdout.trim() || undefined : undefined
+    })
+
+    const upstreamCommits = Effect.fn("Git.history.upstreamCommits")(function* (repository: Git.Repository) {
+      // One line per commit: the sha, a unit separator no subject can carry, then the subject.
+      // An empty range — up to date, or no upstream at all — is an empty list, not a failure.
+      const result = yield* run("upstream", repository.worktree, [
+        "log",
+        "--format=%H%x1f%s",
+        "HEAD..@{upstream}",
+      ])
+      if (result.exitCode !== 0) return []
+      return result.stdout
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .map((line): Git.IncomingCommit => {
+          const split = line.indexOf("\x1f")
+          return { sha: line.slice(0, split), subject: line.slice(split + 1) }
+        })
+    })
+
     const defaultBranch = Effect.fn("Git.history.defaultBranch")(function* (repository: Git.Repository) {
       const remote = yield* defaultRemoteBranch(repository)
       if (remote) return `origin/${remote}`
@@ -266,6 +303,16 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           operation: "checkout",
           directory: repository.worktree,
           message: result.stderr.trim() || "git fetch failed",
+        })
+    })
+
+    const pullFastForward = Effect.fn("Git.sync.pullFastForward")(function* (repository: Git.Repository) {
+      const result = yield* run("pull", repository.worktree, ["pull", "--ff-only"])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "pull",
+          directory: repository.worktree,
+          message: result.stderr.trim() || "git pull --ff-only failed",
         })
     })
 
@@ -386,11 +433,20 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
     })
 
     return {
-      repo: { discover, hasRemote },
-      history: { branch, head, branchExists, upstream, defaultRemoteBranch, defaultBranch },
+      repo: { discover, hasRemote, remoteUrl },
+      history: {
+        branch,
+        head,
+        branchExists,
+        upstream,
+        defaultRemoteBranch,
+        defaultBranch,
+        upstreamTip,
+        upstreamCommits,
+      },
       status: { dirty: statusDirty },
       integration: { proven: integrationProven },
-      sync: { checkoutRemoteBranch, deleteBranch, fetchRemote, switchToBranch },
+      sync: { checkoutRemoteBranch, deleteBranch, fetchRemote, pullFastForward, switchToBranch },
       worktree: { create, remove, list, add: addWorktree },
     }
   }),

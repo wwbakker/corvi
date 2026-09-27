@@ -7,10 +7,25 @@ import { Context, Data, Effect, Layer } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "./git.ts"
+import type { IncomingCommit } from "./git.ts"
 
 export type CheckoutInspection =
   | { readonly _tag: "Missing" }
   | { readonly _tag: "Present"; readonly branch?: string; readonly head?: string }
+
+/** One commit the upstream has and the checkout does not. */
+export type { IncomingCommit } from "./git.ts"
+
+/** What the checkout and its upstream say about each other: how far they have drifted, where the
+ * upstream's tip is, and where the remote lives — the facts an update decides on. */
+export type UpstreamFacts = {
+  readonly ahead: number
+  readonly behind: number
+  /** The upstream tip's sha; absent when the branch has no upstream (or its ref is gone). */
+  readonly tip?: string
+  /** The remote's fetch URL, for building links back to it. */
+  readonly remoteUrl?: string
+}
 
 export class NotARepository extends Data.TaggedError("NotARepository")<{
   readonly directory: string
@@ -36,7 +51,7 @@ export type BranchCleanup = "deleted" | "kept" | "absent"
 export type InPlaceOutcome = "already" | "switched" | "created" | "skipped-dirty"
 
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree"
+  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree" | "fetch" | "pull"
   readonly directory: string
   readonly message: string
   readonly cause?: unknown
@@ -44,6 +59,29 @@ export class CheckoutError extends Data.TaggedError("CheckoutError")<{
 
 export interface Interface {
   readonly inspectCheckout: (directory: AbsolutePath) => Effect.Effect<CheckoutInspection, CheckoutError>
+  /** Fetches the remote, so the upstream facts read after it are current. */
+  readonly fetchRemote: (directory: AbsolutePath) => Effect.Effect<void, NotARepository | CheckoutError>
+  /** What the checkout and its upstream say about each other (see `UpstreamFacts`). Reads local
+   * state only; `fetchRemote` first when the answer must be current. */
+  readonly inspectUpstream: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<UpstreamFacts, NotARepository | CheckoutError>
+  /** The commits the upstream has and the checkout does not, newest first. */
+  readonly incomingCommits: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<readonly IncomingCommit[], NotARepository | CheckoutError>
+  /** The remote's default branch (its symbolic HEAD, e.g. `main`), from local metadata only;
+   * never fetches. Absent when the remote has no symbolic HEAD. */
+  readonly defaultRemoteBranch: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<string | undefined, NotARepository | CheckoutError>
+  /** Whether the working tree holds staged, modified, untracked, or conflicted entries. */
+  readonly workingTreeDirty: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<boolean, NotARepository | CheckoutError>
+  /** Moves the checkout to its upstream's tip exactly when that is a fast-forward. A dirty tree,
+   * commits that were never pushed, or diverged histories fail rather than merging or rebasing. */
+  readonly pullFastForward: (directory: AbsolutePath) => Effect.Effect<void, NotARepository | CheckoutError>
   readonly switchBranch: (input: {
     readonly worktree: AbsolutePath
     readonly branch: string
@@ -147,6 +185,70 @@ export const layer = Layer.effect(
       return { _tag: "Present", branch, head } satisfies CheckoutInspection
     })
 
+    const fetchRemote = Effect.fn("Repositories.fetchRemote")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "fetch")
+      // The Git answer is the explanation here ("could not resolve host" and friends), and it is
+      // what an update's journal shows — the wrapped message would say only "fetch failed".
+      yield* git.sync.fetchRemote(repository).pipe(
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation: "fetch",
+              directory,
+              message: cause.message,
+              cause,
+            }),
+        ),
+      )
+    })
+
+    const inspectUpstream = Effect.fn("Repositories.inspectUpstream")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "inspect")
+      const counts = yield* inspect(git.history.upstream(repository), directory)
+      const tip = yield* inspect(git.history.upstreamTip(repository), directory)
+      const remoteUrl = yield* inspect(git.repo.remoteUrl(repository), directory)
+      return {
+        ahead: counts._tag === "Counted" ? counts.ahead : 0,
+        behind: counts._tag === "Counted" ? counts.behind : 0,
+        ...(tip ? { tip } : {}),
+        ...(remoteUrl ? { remoteUrl } : {}),
+      } satisfies UpstreamFacts
+    })
+
+    const incomingCommits = Effect.fn("Repositories.incomingCommits")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.history.upstreamCommits(repository), directory)
+    })
+
+    const defaultRemoteBranch = Effect.fn("Repositories.defaultRemoteBranch")(function* (
+      directory: AbsolutePath,
+    ) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.history.defaultRemoteBranch(repository), directory)
+    })
+
+    const workingTreeDirty = Effect.fn("Repositories.workingTreeDirty")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.status.dirty(repository), directory)
+    })
+
+    const pullFastForward = Effect.fn("Repositories.pullFastForward")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "pull")
+      // As with the fetch above: git's own answer ("Not possible to fast-forward") is what the
+      // user needs to read, and the journal is where it lands.
+      yield* git.sync.pullFastForward(repository).pipe(
+        Effect.mapError(
+          (cause) =>
+            new CheckoutError({
+              operation: "pull",
+              directory,
+              message: cause.message,
+              cause,
+            }),
+        ),
+      )
+    })
+
     const switchBranch = Effect.fn("Repositories.switchBranch")(function* (input: {
       readonly worktree: AbsolutePath
       readonly branch: string
@@ -216,12 +318,13 @@ export const layer = Layer.effect(
     const inspect = <A>(
       effect: Effect.Effect<A, Git.OperationError>,
       directory: AbsolutePath,
+      operation: CheckoutError["operation"] = "inspect",
     ): Effect.Effect<A, CheckoutError> =>
       effect.pipe(
         Effect.mapError(
           (cause) =>
             new CheckoutError({
-              operation: "inspect",
+              operation,
               directory,
               message: "could not read the checkout",
               cause,
@@ -401,6 +504,12 @@ export const layer = Layer.effect(
 
     return {
       inspectCheckout,
+      fetchRemote,
+      inspectUpstream,
+      incomingCommits,
+      defaultRemoteBranch,
+      workingTreeDirty,
+      pullFastForward,
       assessRemoval,
       removeBranchIfIntegrated,
       provisionLinkedWorktree,

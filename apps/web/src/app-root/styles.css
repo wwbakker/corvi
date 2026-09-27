@@ -313,9 +313,49 @@ body.resizing {
   color: var(--text);
 }
 
-/* Pinned to the bottom of the column: in the same place whether you have two changes or nine. */
-.sidebar .entry.bottom {
+/* Pinned to the bottom of the column: in the same place whether you have two changes or nine.
+   Settings is the gear and the update icon sits to its right — furniture you visit once in a
+   while, as icons rather than a labelled row. */
+.sidebar .bottom-row {
   margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar .bottom-row .icon-entry {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+/* Furniture rather than row icons: a size up from the status glyphs, so the gear reads as a
+   gear at the column's width. */
+.sidebar .bottom-row .icon-entry svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar .bottom-row .icon-entry:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.sidebar .bottom-row .icon-entry.current {
+  color: var(--text);
+  background: var(--raise);
+}
+
+/* Yellow when a new version is waiting; its resting grey when there is none. */
+.sidebar .bottom-row .icon-entry.update.available {
+  color: var(--warn);
 }
 
 .sidebar .entry .label {
@@ -1834,6 +1874,44 @@ dialog progress {
 
 .progress-steps .detail {
   color: var(--muted);
+}
+
+/* The update dialog's commit list: the new version, one line per commit, each linking to its
+   page on the forge. Long lists scroll rather than growing the dialog off the screen. */
+.commits {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-height: 240px;
+  overflow-y: auto;
+  display: grid;
+  gap: 4px;
+}
+
+.commits li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.commits a {
+  color: var(--text);
+  text-decoration: none;
+}
+
+.commits a:hover {
+  text-decoration: underline;
+}
+
+.commits .sha {
+  color: var(--muted);
+  font-family: monospace;
+  font-size: 12px;
+}
+
+dialog .hint.error {
+  color: var(--error);
 }
 
 /* The overview: changes you are working on as cards, the rest as a table. */

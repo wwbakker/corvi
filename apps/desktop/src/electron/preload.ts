@@ -47,6 +47,11 @@ const host: CorviHost = {
       callback(change, window);
     }
   },
+  restart: () => {
+    // Fire and forget: the host relaunches this app (apps/desktop/src/electron/main.ts), and
+    // there is nothing here left to await by the time it does.
+    ipcRenderer.send(`${ID}:restart`);
+  },
 };
 
 contextBridge.exposeInMainWorld("corviHost", host);

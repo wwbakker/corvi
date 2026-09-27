@@ -587,6 +587,7 @@ test.skipIf(!usable)("in the app window the row is also the window's chrome", as
       notify: () => {},
       onOpenWindow: () => {},
       setContextMenu: () => {},
+      restart: () => {},
     };
   });
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });

@@ -1,5 +1,5 @@
 import { Context, Effect, Option, Schema } from "effect";
-import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
+import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";

@@ -5,8 +5,10 @@
 ## Navigation
 
 The left column contains the workspace switcher, change overview, ideas, active changes and their
-terminal windows. Settings stays at the bottom. The column is resizable and remembers its width
-in the browser.
+terminal windows. At the bottom sit Settings — a gear — and, to its right, the update icon: yellow
+when a new version of the app is waiting, grey when there is none, and absent when this run
+cannot update itself (see [install](install.md#updates)). The column is resizable and remembers
+its width in the browser.
 
 Ideas are separate from work in progress. An unfinished wizard appears as **New idea** or the
 title you typed; opening it restores its draft. Only one destination is highlighted: a terminal
