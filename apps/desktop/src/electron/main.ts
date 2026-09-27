@@ -231,6 +231,9 @@ const startServer = (port: number, checkout: string): void => {
   const loginShell = process.env.SHELL || (isMac ? "/bin/zsh" : "/bin/bash");
   const run =
     `exec env ${env("PORT")}='${port}' NODE_ENV=production ELECTRON_RUN_AS_NODE=1 ` +
+    // The mark of an app run: the server's auto-update feature is for the installed app alone
+    // (apps/server/src/app-update/update.ts), and this is where that is unambiguous.
+    `${env("APP_KIND")}='app' ` +
     `${shq(process.execPath)} apps/server/src/server.ts`;
   const child = spawn(loginShell, ["-ilc", run], {
     cwd: checkout,
@@ -526,6 +529,15 @@ const run = async (): Promise<void> => {
 
   ipcMain.on(`${ID}:context-menu`, (_event, enabled) => {
     contextMenu = enabled === true;
+  });
+
+  ipcMain.on(`${ID}:restart`, () => {
+    // "Restart now" after an update: the relaunch inherits this process's environment (the
+    // launcher's CORVI_APP_ROOT among it), so the new window serves the same checkout — now on
+    // its new code. Quitting stops the server this window owns, exactly as closing it does;
+    // terminals are tmux's and survive.
+    app.relaunch();
+    app.quit();
   });
 
   ipcMain.handle(`${ID}:notify`, (event, body) => {

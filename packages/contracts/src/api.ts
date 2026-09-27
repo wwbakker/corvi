@@ -239,24 +239,70 @@ export const RepoItemsSchema = Schema.Struct({
 })
 export type RepoItemsDto = typeof RepoItemsSchema.Type
 
-/** One step of a completion, as the journal writes it while it runs. */
-export const CompletionStepSchema = Schema.Struct({
+/** One step of an operation that can stop half way, as the journal writes it while it runs. */
+export const OperationStepSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   state: Schema.Literal("waiting", "running", "done", "failed"),
   detail: Schema.optional(Schema.String),
 })
-export type CompletionStepDto = typeof CompletionStepSchema.Type
+export type OperationStepDto = typeof OperationStepSchema.Type
 
-export const CompletionProgressSchema = Schema.Struct({
+/** What an operation that can stop half way did: the steps it planned and where it stopped. The
+ * one journal shape — a completion and an app update both write one. */
+export const OperationProgressSchema = Schema.Struct({
   startedAt: Schema.String,
   finishedAt: Schema.optional(Schema.String),
-  steps: Schema.mutable(Schema.Array(CompletionStepSchema)),
+  steps: Schema.mutable(Schema.Array(OperationStepSchema)),
   error: Schema.optional(Schema.String),
-  forced: Schema.optional(Schema.Boolean),
-  overridden: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
 })
+export type OperationProgressDto = typeof OperationProgressSchema.Type
+
+/** A completion's journal: the shared operation shape, plus the mode it ran in and what it
+ * overrode. */
+export const CompletionProgressSchema = Schema.extend(
+  OperationProgressSchema,
+  Schema.Struct({
+    forced: Schema.optional(Schema.Boolean),
+    overridden: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+  }),
+)
 export type CompletionProgressDto = typeof CompletionProgressSchema.Type
+
+// --- Updating the app itself -----------------------------------------------------------------------
+
+/** One commit the remote has and this checkout has not, as the update dialog lists them. */
+export const IncomingCommitSchema = Schema.Struct({
+  sha: Schema.String,
+  subject: Schema.String,
+  /** The forge's page for the commit, when the remote lives at one that can be linked to. */
+  url: Schema.optional(Schema.String),
+})
+export type IncomingCommitDto = typeof IncomingCommitSchema.Type
+
+/** What the app knows about updating itself: whether it can, what is new, why taking the update
+ * is refused right now, and where a running or stopped update got to. */
+export const AppUpdateStatusSchema = Schema.Struct({
+  /** Whether the app can update itself at all (the installed app, its default branch, tooling). */
+  eligible: Schema.Boolean,
+  /** Why it cannot, when it cannot. */
+  reason: Schema.optional(Schema.String),
+  /** When the last check ran. A status read costs no network call; the check has its own cadence. */
+  checkedAt: Schema.optional(Schema.String),
+  /** How many commits the upstream has that this checkout does not. */
+  behind: Schema.Number,
+  commits: Schema.mutable(Schema.Array(IncomingCommitSchema)),
+  /** The forge's compare page for this update, when the remote lives at one that can be linked to. */
+  compareUrl: Schema.optional(Schema.String),
+  /** Why the update is refused while one exists (uncommitted work, commits that were never pushed). */
+  refusal: Schema.optional(Schema.String),
+  /** The running or last update, when one ran; read from its journal. */
+  progress: Schema.NullOr(OperationProgressSchema),
+  /** An update finished in this running app: the new code lands when the app restarts. False
+   * again after the restart, however old the journal it finished is. */
+  restartPending: Schema.Boolean,
+})
+export type AppUpdateStatusDto = typeof AppUpdateStatusSchema.Type
 
 export const CompletionReasonSchema = Schema.Struct({
   text: Schema.String,

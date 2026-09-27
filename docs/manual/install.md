@@ -69,6 +69,24 @@ Icon rendering uses `rsvg-convert` when available. The launcher has a Chromium a
 when Electron is unavailable; that mode may leave its server running after the browser closes.
 `corvi stop` checks recorded server identities before stopping them. Uninstalling leaves logs.
 
+## Updates
+
+The installed app updates itself from its own checkout. Only when it runs as the installed app,
+from a git repository on the remote's default branch — a development server, the browser-fallback
+launcher, or a feature branch never sees the feature. On every start, and every two hours after
+that, Corvi checks the remote. When a new version is there, the update icon at the bottom of the
+navigation column turns yellow and a **New version available** notice appears: click it to open
+the update dialog, or click it away — the same version never asks twice.
+
+The dialog lists the commits since the current version, each linking to its page on GitHub, and
+**Update now** runs the update — `git pull --ff-only`, `bun install`, and `bun run app:install` —
+with a step plan while it runs. Uncommitted changes or unpushed commits in the checkout refuse
+the update with the reason in place of the button: Corvi never merges or rebases its own
+checkout. A run that stops half way says where it stopped, and **Try again** picks up what is
+left. When the steps are done, **Restart now** restarts the app to use the new version — the
+terminals (tmux) survive the restart. The pi and opencode extensions are symlinks into the
+checkout and follow the update; see [the manual](terminals.md) for their protocols.
+
 ## Browser use
 
 Any browser can open the development server. The page includes a web manifest and icons:

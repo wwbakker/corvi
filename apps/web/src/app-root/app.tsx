@@ -25,6 +25,9 @@ import { SettingsPage } from "../settings/client/SettingsPage.tsx";
 import { UnsavedChangesDialog } from "../settings/client/UnsavedChangesDialog.tsx";
 import { pathOf, viewOf, type LeaveGuard, type View } from "./navigation.ts";
 import { Notifier } from "./notify.tsx";
+import { UpdateNotice } from "../app-update/UpdateNotice.tsx";
+import { UpdateDialog } from "../app-update/UpdateDialog.tsx";
+import { useAppUpdate } from "../app-update/state.ts";
 import { hostOf } from "./host.ts";
 import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
@@ -298,6 +301,9 @@ function App(): JSX.Element {
   // traffic lights macOS keeps in it (apps/web/src/domain/chrome.ts). A browser has neither, so the row is
   // an ordinary one and nothing is laid out around it.
   const bridge = hostOf();
+  // The app's own new version: the icon in the column's bottom row, the notice, and the dialog
+  // behind them (apps/web/src/app-update/state.ts).
+  const appUpdate = useAppUpdate();
   const chrome = {
     "--titlebar-height": `${TITLE_BAR_HEIGHT}px`,
     "--traffic-inset": bridge?.platform === "darwin" ? `${TRAFFIC_LIGHTS.inset}px` : "0px",
@@ -310,6 +316,12 @@ function App(): JSX.Element {
         page={view.name === "change" ? view.page : "dashboard"}
         windows={selected ? (terminals.windows[selected] ?? []) : []}
         onOpen={openWindow}
+      />
+      <UpdateNotice
+        status={appUpdate.status}
+        visible={appUpdate.notice}
+        onOpen={appUpdate.open}
+        onDismiss={appUpdate.dismissNotice}
       />
       <Sidebar
         changes={changes}
@@ -335,6 +347,8 @@ function App(): JSX.Element {
         actions={view.name === "actions"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
+        update={appUpdate.status}
+        onUpdate={appUpdate.open}
         onOpenChange={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
         onSelectWindow={(id, index) => {
           terminals.select(id, index);
@@ -425,6 +439,19 @@ function App(): JSX.Element {
           onSaveAndLeave={() => void saveAndLeave()}
           onDiscardAndLeave={discardAndLeave}
           onStay={stay}
+        />
+      )}
+      {appUpdate.dialog && appUpdate.status && (
+        <UpdateDialog
+          status={appUpdate.status}
+          busy={appUpdate.busy}
+          checking={appUpdate.checking}
+          error={appUpdate.error}
+          canRestart={appUpdate.canRestart}
+          onClose={appUpdate.close}
+          onCheck={appUpdate.check}
+          onStart={appUpdate.start}
+          onRestart={appUpdate.restart}
         />
       )}
     </div>

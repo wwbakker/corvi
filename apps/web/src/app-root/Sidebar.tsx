@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import { apiClient, type Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
-import { CiIcon, TerminalIcon, AgentIcon } from "./icons.tsx";
+import { CiIcon, TerminalIcon, AgentIcon, GearIcon, UpdateIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
@@ -11,6 +11,7 @@ import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
 import { ActionsMenu } from "./ActionsMenu.tsx";
 import { hostOf } from "./host.ts";
+import type { AppUpdateStatus } from "../app-update/model.ts";
 
 /** Which page of a change is open. The dashboard is what selecting a change opens; terminals is
  * the core's own, and any other id is a tab an extension contributed — the id is the last
@@ -82,6 +83,8 @@ export function Sidebar({
   actions,
   onSettings,
   settings,
+  update,
+  onUpdate,
   onOpenChange,
   onSelectWindow,
 }: {
@@ -116,6 +119,10 @@ export function Sidebar({
   onSettings: () => void;
   /** Whether the settings page is the one open. */
   settings: boolean;
+  /** What the app knows about updating itself: the update icon answers it — yellow when a new
+   * version is waiting, gray when there is none, hidden when this run cannot update at all. */
+  update: AppUpdateStatus | null;
+  onUpdate: () => void;
   onOpenChange: (id: string) => void;
   onSelectWindow: (id: string, index: number) => void;
 }): JSX.Element {
@@ -312,10 +319,28 @@ export function Sidebar({
       ))}
 
       {/* At the bottom of the column, not below the list: it is where you go once in a while,
-          and it should be in the same place whether you have two changes or nine. */}
-      <button className={`entry bottom${settings ? " current" : ""}`} onClick={onSettings}>
-        Settings
-      </button>
+          and it should be in the same place whether you have two changes or nine. Settings is
+          the gear; the update icon sits to its right. */}
+      <div className="bottom-row">
+        <button
+          className={`icon-entry${settings ? " current" : ""}`}
+          title="Settings"
+          aria-label="Settings"
+          onClick={onSettings}
+        >
+          <GearIcon title="Settings" />
+        </button>
+        {update?.eligible && (
+          <button
+            className={`icon-entry update${update.behind > 0 ? " available" : ""}`}
+            title={update.behind > 0 ? "New version available" : "No updates"}
+            aria-label="Update"
+            onClick={onUpdate}
+          >
+            <UpdateIcon title="Update" />
+          </button>
+        )}
+      </div>
 
       {/* The whole edge is the handle, because that is where you aim for. */}
       <div

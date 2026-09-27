@@ -13,6 +13,7 @@
         "@corvi/desktop": "workspace:*",
         "@corvi/github": "workspace:*",
         "@corvi/jira": "workspace:*",
+        "@corvi/repositories": "workspace:*",
         "@corvi/shell": "workspace:*",
         "@corvi/terminals": "workspace:*",
         "@corvi/web": "workspace:*",

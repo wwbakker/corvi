@@ -12,7 +12,7 @@ import type {
   CompletionDto,
   CompletionProgressDto,
   CompletionReasonDto,
-  CompletionStepDto,
+  OperationStepDto,
 } from "@corvi/contracts/api";
 import { effectiveBranchOf, type EffectiveBranch } from "@corvi/contracts/changes";
 import { baseName } from "@corvi/contracts/paths";
@@ -181,10 +181,11 @@ export type ChangeDraft = {
   extensions?: Record<string, unknown>;
 };
 
-/** One thing completing a change does, and how it went. Written to disk as it happens: a
+/** One thing an operation does, and how it went. Written to disk as it happens: a
  * completion that stops half way — a merge that hung, a ticket that refused to move — has to be
- * legible afterwards, from a page that was never open. */
-export type CompletionStep = CompletionStepDto;
+ * legible afterwards, from a page that was never open. The shared operation-progress shape
+ * (`@corvi/contracts/api`'s `OperationStepDto`); a completion's journal is one kind of it. */
+export type CompletionStep = OperationStepDto;
 
 export type CompletionProgress = CompletionProgressDto;
 

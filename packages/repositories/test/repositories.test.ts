@@ -14,17 +14,21 @@ const repository = new Git.Repository({
 interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
   readonly hasRemote?: Git.Interface["repo"]["hasRemote"]
+  readonly remoteUrl?: Git.Interface["repo"]["remoteUrl"]
   readonly branch?: Git.Interface["history"]["branch"]
   readonly head?: Git.Interface["history"]["head"]
   readonly branchExists?: Git.Interface["history"]["branchExists"]
   readonly upstream?: Git.Interface["history"]["upstream"]
   readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
   readonly defaultBranch?: Git.Interface["history"]["defaultBranch"]
+  readonly upstreamTip?: Git.Interface["history"]["upstreamTip"]
+  readonly upstreamCommits?: Git.Interface["history"]["upstreamCommits"]
   readonly status?: Git.Interface["status"]["dirty"]
   readonly integration?: Git.Interface["integration"]["proven"]
   readonly checkoutRemoteBranch?: Git.Interface["sync"]["checkoutRemoteBranch"]
   readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
   readonly fetchRemote?: Git.Interface["sync"]["fetchRemote"]
+  readonly pullFastForward?: Git.Interface["sync"]["pullFastForward"]
   readonly switchToBranch?: Git.Interface["sync"]["switchToBranch"]
   readonly create?: Git.Interface["worktree"]["create"]
   readonly addWorktree?: Git.Interface["worktree"]["add"]
@@ -39,6 +43,7 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
         repo: {
           discover: script.discover ?? (() => Effect.succeed(undefined)),
           hasRemote: script.hasRemote ?? (() => Effect.succeed(false)),
+          remoteUrl: script.remoteUrl ?? (() => Effect.succeed(undefined)),
         },
         history: {
           branch: script.branch ?? (() => Effect.succeed(undefined)),
@@ -47,6 +52,8 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
           defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
           defaultBranch: script.defaultBranch ?? (() => Effect.succeed(undefined)),
+          upstreamTip: script.upstreamTip ?? (() => Effect.succeed(undefined)),
+          upstreamCommits: script.upstreamCommits ?? (() => Effect.succeed([])),
         },
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
@@ -54,6 +61,7 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void),
           deleteBranch: script.deleteBranch ?? (() => Effect.void),
           fetchRemote: script.fetchRemote ?? (() => Effect.void),
+          pullFastForward: script.pullFastForward ?? (() => Effect.void),
           switchToBranch: script.switchToBranch ?? (() => Effect.void),
         },
         worktree: {

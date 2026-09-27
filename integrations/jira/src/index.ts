@@ -1,5 +1,5 @@
 import { Effect, Either } from "effect";
-import type { ChangeWireDto as Change, CompletionStepDto as CompletionStep } from "@corvi/contracts/api";
+import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
 import { BadRequestError, NotFoundError } from "@corvi/contracts/errors";

@@ -36,16 +36,29 @@ export class OperationError extends Data.TaggedError("Git.OperationError")<{
     | "status"
     | "upstream"
     | "integration"
+    | "pull"
   readonly message: string
   readonly directory?: string
   readonly cause?: unknown
 }> {}
+
+/** One commit an upstream has that the checkout does not, as a list reads it. */
+export type IncomingCommit = {
+  readonly sha: string
+  readonly subject: string
+}
 
 export interface Interface {
   readonly repo: {
     readonly discover: (directory: AbsolutePath) => Effect.Effect<Repository | undefined, OperationError>
     /** Whether the repository has any remote (or the named one). */
     readonly hasRemote: (repository: Repository, remote?: string) => Effect.Effect<boolean, OperationError>
+    /** The remote's fetch URL, for building links back to it. Absent when the remote is not
+     * configured; never a failure. */
+    readonly remoteUrl: (
+      repository: Repository,
+      remote?: string,
+    ) => Effect.Effect<string | undefined, OperationError>
   }
   readonly history: {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
@@ -57,6 +70,12 @@ export interface Interface {
       repository: Repository,
       remote?: string,
     ) => Effect.Effect<string | undefined, OperationError>
+    /** The upstream tip's sha, when the branch has an upstream whose ref exists. */
+    readonly upstreamTip: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
+    /** The commits the upstream has and HEAD does not, newest first. Empty without an upstream. */
+    readonly upstreamCommits: (
+      repository: Repository,
+    ) => Effect.Effect<readonly IncomingCommit[], OperationError>
     /** The base a new branch starts from: `origin/<default>` when a remote has one, else a local
      * `main` or `master`; absent when neither exists. */
     readonly defaultBranch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
@@ -82,6 +101,9 @@ export interface Interface {
      * content landed. */
     readonly deleteBranch: (repository: Repository, branch: string) => Effect.Effect<void, OperationError>
     readonly fetchRemote: (repository: Repository, remote?: string) => Effect.Effect<void, OperationError>
+    /** `git pull --ff-only`: moves to the upstream's tip exactly when that is a fast-forward, and
+     * fails rather than merging or rebasing anything else. */
+    readonly pullFastForward: (repository: Repository) => Effect.Effect<void, OperationError>
     /** `git switch <branch>`, or `git switch --create <branch> --no-track <base>` when creating;
      * a creation without a base branches from HEAD. */
     readonly switchToBranch: (

@@ -60,7 +60,7 @@ documents the protocol the reporters speak.
 
 ## Documentation
 
-- [Installing and running](docs/manual/install.md) — requirements, the app, Linux, uninstalling.
+- [Installing and running](docs/manual/install.md) — requirements, the app, Linux, updating, uninstalling.
 - [Configuration](docs/manual/configuration.md) — the config file, environment variables,
   settings, workspaces.
 - [Changes](docs/manual/changes.md) — ideas, repositories, worktrees, states, completing.

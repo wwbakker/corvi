@@ -18,7 +18,7 @@ import { runtimeConfig } from "../workspace/server/index.ts";
  * rather than a wrong screen. The one exception is `notify`, which carries the sentence a
  * notification shows — it has no route to re-read.
  */
-export type EventName = "changes" | "windows" | "notify";
+export type EventName = "changes" | "windows" | "notify" | "update";
 
 export type News = { event: EventName; data?: string };
 
