@@ -1242,6 +1242,11 @@ dialog textarea.message {
   color: var(--ok);
 }
 
+.badge.warn {
+  border-color: var(--warn, #d08b2c);
+  color: var(--warn, #d08b2c);
+}
+
 button.icon {
   padding: 2px 8px;
   line-height: 18px;

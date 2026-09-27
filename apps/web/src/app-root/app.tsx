@@ -426,6 +426,12 @@ function App(): JSX.Element {
               // be a click that does nothing visible.
               setView({ name: "change", id: view.id, page: "terminals" });
             }}
+            onFocusWindow={(index) => {
+              // Focus the window without leaving the page: the Subagents page has the terminal
+              // beside the conversation, so selecting there must not navigate.
+              terminals.select(view.id, index);
+              setWantsTerminal(true);
+            }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the
               // terminal makes its first window.

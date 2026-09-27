@@ -51,6 +51,7 @@ export function ChangeView({
   terminal,
   windows,
   onSelectWindow,
+  onFocusWindow,
   onNewWindow,
   onMoveWindow,
   onOpenPage,
@@ -74,6 +75,9 @@ export function ChangeView({
   windows: TerminalWindow[];
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
+  /** Switching the session to a window **without** leaving the page (the Subagents page's
+   * embedded terminal). */
+  onFocusWindow: (index: number) => void;
   /** Another window beside the current one. The terminal's own chord does this from inside it;
    * this is the tab that does. */
   onNewWindow: () => void;
@@ -465,9 +469,12 @@ export function ChangeView({
           platform={platform}
           terminal={terminal}
           windowsCount={windows.length}
-          onSelectWindow={onSelectWindow}
+          onFocusWindow={onFocusWindow}
         />
       )}
+      {/* The terminal page's pane. The Subagents page has its own terminal inside its layout, so
+          this shared one is unmounted there rather than left hidden: only one pty is attached at
+          a time, at the cost of a re-attach when moving between the two pages. */}
       {terminalOpened && active.kind !== "subagents" && (
         <div className="terminal-host" hidden={active.kind !== "terminals"}>
           <TerminalPane
