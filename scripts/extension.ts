@@ -21,9 +21,14 @@ export type ExtensionCommandResult = { code: number; stdout: string; stderr: str
  * what the user must do to get the agent to load it. */
 export type AgentTarget = {
   readonly name: "pi" | "opencode";
-  /** The reporter file in this checkout, resolved against the working directory like the
+  /** The extension file in this checkout, resolved against the working directory like the
    * commands themselves. */
   readonly source: string;
+  /** What it is installed as: one entry per agent. */
+  readonly file: string;
+  /** The file an older Corvi installed instead; a symlink of it is removed on install, so the
+   * agent does not load the reporter twice. */
+  readonly legacyFile: string;
   /** Where the agent discovers plugins; overridable for a test or a different install. */
   readonly directory: () => string;
   /** What to tell the user so the agent loads (or reloads) it. */
@@ -33,13 +38,17 @@ export type AgentTarget = {
 export const targets: Readonly<Record<"pi" | "opencode", AgentTarget>> = {
   pi: {
     name: "pi",
-    source: resolve("integrations/pi/src/agent-state.ts"),
+    source: resolve("integrations/pi/src/corvi.ts"),
+    file: "corvi.ts",
+    legacyFile: "agent-state.ts",
     directory: (): string => process.env.PI_EXTENSIONS_DIR ?? join(homedir(), ".pi", "agent", "extensions"),
     reloadHint: "run /reload in pi, or start a new session, to load it",
   },
   opencode: {
     name: "opencode",
-    source: resolve("integrations/opencode/src/agent-state.ts"),
+    source: resolve("integrations/opencode/src/corvi.ts"),
+    file: "corvi.ts",
+    legacyFile: "agent-state.ts",
     directory: (): string =>
       process.env.OPENCODE_PLUGIN_DIR ?? join(homedir(), ".config", "opencode", "plugin"),
     reloadHint: "restart opencode to load it",
@@ -60,7 +69,7 @@ export async function install(
   directory = targets[name].directory(),
 ): Promise<ExtensionCommandResult> {
   const target = targets[name];
-  const path = join(directory, "agent-state.ts");
+  const path = join(directory, target.file);
   const found = await occupant(path);
   // A file someone put there is their work, and this is not the place to decide it is obsolete.
   if (found === "file") {
@@ -71,13 +80,15 @@ export async function install(
     };
   }
   if (found === "symlink" && (await readlink(path).catch(() => "")) === target.source) {
+    await removeLegacy(directory, target);
     return { code: 0, stdout: `already installed: ${path}\n`, stderr: "" };
   }
   await mkdir(directory, { recursive: true });
-  // Any symlink is repointed, not only one this checkout made: the reporter may have been
+  // Any symlink is repointed, not only one this checkout made: the extension may have been
   // installed from another branch or worktree, and pointing it here is what install means.
   if (found === "symlink") await unlink(path);
   await symlink(target.source, path);
+  await removeLegacy(directory, target);
   return {
     code: 0,
     stdout: `installed: ${path} -> ${target.source}\n${target.reloadHint}\n`,
@@ -85,12 +96,22 @@ export async function install(
   };
 }
 
+/** Remove an older Corvi's `agent-state.ts` symlink, if one is there: loading both would run the
+ * reporter twice. A real file at the path is somebody else's and stays. */
+async function removeLegacy(directory: string, target: AgentTarget): Promise<void> {
+  const legacy = join(directory, target.legacyFile);
+  if ((await occupant(legacy)) === "symlink") await unlink(legacy);
+}
+
 export async function uninstall(
   name: AgentTargetName,
   directory = targets[name].directory(),
 ): Promise<ExtensionCommandResult> {
   const target = targets[name];
-  const path = join(directory, "agent-state.ts");
+  const path = join(directory, target.file);
+  // A legacy symlink left by an older Corvi is removed even when the current file is not there,
+  // so uninstalling a migrated install actually unloads the reporter.
+  await removeLegacy(directory, target);
   const found = await occupant(path);
   if (found === "none") return { code: 0, stdout: `not installed: ${path}\n`, stderr: "" };
   if (found === "file") {

@@ -54,6 +54,25 @@ export const textOf = (message: unknown): string => {
     .join(" ");
 };
 
+/** The full text of an assistant message, for the relay: parts joined with blank lines, so
+ * paragraphs and code blocks survive. `textOf` is the notification's one-line version. */
+export const fullTextOf = (message: unknown): string => {
+  if (typeof message !== "object" || message === null) return "";
+  const { role, content } = message as { role?: unknown; content?: unknown };
+  if (role !== "assistant" || !Array.isArray(content)) return "";
+  return content
+    .filter(
+      (part): part is { text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string",
+    )
+    .map((part) => part.text)
+    .join("\n\n")
+    .trim();
+};
+
 export default function (pi: ExtensionAPI): void {
   // The pane pi was started in, fixed for the life of the process: tmux moves panes around, but
   // the id follows the pane, and this process never moves to another one. Unset outside tmux,

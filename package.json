@@ -27,6 +27,7 @@
     "node-pty"
   ],
   "scripts": {
+    "cli": "bun apps/cli/src/main.ts",
     "dev": "bun run build:web && node --watch apps/server/src/server.ts",
     "start": "NODE_ENV=production node apps/server/src/server.ts",
     "test": "bash scripts/test-run.sh all",
@@ -56,6 +57,7 @@
   },
   "dependencies": {
     "@corvi/actions": "workspace:*",
+    "@corvi/agents": "workspace:*",
     "@corvi/azure-devops": "workspace:*",
     "@corvi/client": "workspace:*",
     "@corvi/configuration": "workspace:*",

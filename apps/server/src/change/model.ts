@@ -5,6 +5,7 @@ import {
   type Change,
   type ChangeState,
 } from "../domain/change.ts";
+import { allowedTransition } from "@corvi/changes/rules";
 import { InvalidChangeEdit } from "./errors.ts";
 
 /**
@@ -33,6 +34,15 @@ export function applyPatch(change: Change, patch: { state?: string; title?: stri
   if (patch.state === IDEATION) {
     throw new InvalidChangeEdit({
       message: "Ideation is what creating an idea sets: use start work to leave it",
+      conflict: true,
+    });
+  }
+  // The matrix the lifecycle workflow uses, so an edit by hand cannot reach where starting,
+  // completing or cancelling would not. `Ideation` is the case that matters: its only way out is
+  // starting the work, which the UI's disabled select already encodes and this makes authoritative.
+  if (patch.state && !allowedTransition(change.state ?? "Implementation", patch.state as ChangeState)) {
+    throw new InvalidChangeEdit({
+      message: `a change cannot move from ${change.state ?? "Implementation"} to ${patch.state}`,
       conflict: true,
     });
   }

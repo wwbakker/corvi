@@ -45,6 +45,8 @@ const recording = (): {
       calls.push(`submit:${window}`);
       return Effect.void;
     },
+    setPaneOption: () => Effect.void,
+    killWindow: () => Effect.void,
   };
   return { sessions, calls, started };
 };

@@ -44,7 +44,8 @@
         "yaml",
         "node:fs",
         "node:fs/promises",
-        "node:path"
+        "node:path",
+        "node:url"
       ]
     },
     "@corvi/shell": {
@@ -66,6 +67,17 @@
       "dependsOn": [
         "@corvi/contracts"
       ]
+    },
+    "@corvi/cli": {
+      "dependsOn": [
+        "@corvi/client",
+        "@corvi/configuration",
+        "@corvi/contracts"
+      ],
+      "external": [
+        "effect"
+      ],
+      "node": true
     },
     "@corvi/github": {
       "dependsOn": [
@@ -124,7 +136,8 @@
         "@corvi/contracts",
         "@corvi/changes",
         "@corvi/terminals",
-        "@corvi/actions"
+        "@corvi/actions",
+        "@corvi/agents"
       ]
     },
     "@corvi/desktop": {

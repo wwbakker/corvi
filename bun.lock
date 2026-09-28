@@ -6,6 +6,7 @@
       "name": "corvi",
       "dependencies": {
         "@corvi/actions": "workspace:*",
+        "@corvi/agents": "workspace:*",
         "@corvi/azure-devops": "workspace:*",
         "@corvi/client": "workspace:*",
         "@corvi/configuration": "workspace:*",
@@ -34,6 +35,16 @@
       },
       "peerDependencies": {
         "typescript": "^6.0.3",
+      },
+    },
+    "apps/cli": {
+      "name": "@corvi/cli",
+      "version": "0.0.0",
+      "dependencies": {
+        "@corvi/client": "workspace:*",
+        "@corvi/configuration": "workspace:*",
+        "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
       },
     },
     "apps/desktop": {
@@ -90,6 +101,7 @@
         "@codemirror/state": "^6.7.6",
         "@codemirror/view": "^6.43.13",
         "@corvi/actions": "workspace:*",
+        "@corvi/agents": "workspace:*",
         "@corvi/changes": "workspace:*",
         "@corvi/client": "workspace:*",
         "@corvi/contracts": "workspace:*",
@@ -164,6 +176,8 @@
       "version": "0.0.0",
       "dependencies": {
         "@corvi/contracts": "workspace:*",
+        "effect": "catalog:",
+        "yaml": "^2.9.1",
       },
     },
     "packages/changes": {
@@ -328,6 +342,8 @@
     "@corvi/azure-devops": ["@corvi/azure-devops@workspace:integrations/azure-devops"],
 
     "@corvi/changes": ["@corvi/changes@workspace:packages/changes"],
+
+    "@corvi/cli": ["@corvi/cli@workspace:apps/cli"],
 
     "@corvi/client": ["@corvi/client@workspace:packages/client"],
 

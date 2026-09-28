@@ -23,6 +23,8 @@ export {
   ensureSession,
   pastePromptTo,
   submit,
+  setPaneOption,
+  killWindow,
   sessions,
 } from "./tmux.ts";
 

@@ -33,6 +33,7 @@ import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
+import { SubagentsPage } from "../subagents/SubagentsPage.tsx";
 
 function Home({
   changes,
@@ -155,7 +156,7 @@ function App(): JSX.Element {
   // Found among all of them, not the filtered list: a link to a change in another workspace
   // should open it rather than say it does not exist.
   const change = (everything ?? []).find((c) => c.id === selected);
-  const onTerminal = view.name === "change" && view.page === "terminals";
+  const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
   const onPlan = view.name === "change" && view.page === "plan";
@@ -346,6 +347,8 @@ function App(): JSX.Element {
         extPage={view.name === "ext-page" ? view.id : undefined}
         onActions={() => setView({ name: "actions" })}
         actions={view.name === "actions"}
+        onSubagents={() => setView({ name: "subagents" })}
+        subagents={view.name === "subagents"}
         onSettings={() => setView({ name: "settings" })}
         settings={view.name === "settings"}
         update={appUpdate.status}
@@ -370,6 +373,7 @@ function App(): JSX.Element {
           <PageHost info={view} workspace={workspace?.id} />
         )}
         {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
+        {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
         {view.name === "settings" && (
           <SettingsPage
             onGuard={onGuard}
@@ -421,6 +425,12 @@ function App(): JSX.Element {
               // On the dashboard the tab is the way in: selecting a window you cannot see would
               // be a click that does nothing visible.
               setView({ name: "change", id: view.id, page: "terminals" });
+            }}
+            onFocusWindow={(index) => {
+              // Focus the window without leaving the page: the Subagents page has the terminal
+              // beside the conversation, so selecting there must not navigate.
+              terminals.select(view.id, index);
+              setWantsTerminal(true);
             }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the

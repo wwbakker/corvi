@@ -97,6 +97,7 @@ export default tseslint.config(
       "apps/server/src/**/*.{ts,tsx}",
       "apps/web/src/**/*.{ts,tsx}",
       "apps/desktop/**/*.{ts,tsx}",
+      "apps/cli/**/*.{ts,tsx}",
       "integrations/**/*.{ts,tsx}",
       "scripts/**/*.ts",
       "test/**/*.{ts,tsx}",

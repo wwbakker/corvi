@@ -1,0 +1,274 @@
+/** The subagent instance composition: create, message flow, the delivery cursor, and the waiter
+ * registry. The window launcher is a fake — the only part that touches tmux — so these run
+ * without a harness, while the store and the pure model are exercised for real. */
+import { beforeAll, afterAll, expect, test } from "bun:test";
+import { mkdir, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { Effect } from "effect";
+
+import {
+  closeSubagent,
+  createSubagent,
+  listSubagents,
+  nextForSubagent,
+  recordTurn,
+  resultOfSubagent,
+  sendToSubagent,
+  waitForTurn,
+  type SubagentLauncher,
+} from "../apps/server/src/subagents/server/instances.ts";
+import { readInstance } from "@corvi/agents/node";
+import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
+import { changeDir } from "../apps/server/src/change/server/index.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
+import { testTempDir } from "./helpers.ts";
+
+/** A launcher that returns a fake window id, so create/open work without tmux or a harness. The
+ * caller persists the id and the `opened` entry under the lock. */
+const fakeLauncher: SubagentLauncher = () => Effect.succeed("@fake");
+
+let tmp: string;
+let change: Change;
+let savedSocket: string | undefined;
+
+beforeAll(async () => {
+  tmp = await testTempDir("subagents-instances");
+  // A private, non-existent tmux socket: the store's window reads answer empty instead of ever
+  // touching the user's server.
+  savedSocket = process.env.CORVI_TMUX_SOCKET;
+  process.env.CORVI_TMUX_SOCKET = join(tmp, "tmux.sock");
+  change = {
+    id: "PROJ-sub",
+    branch: "PROJ-sub",
+    checkouts: [],
+    state: "Implementation",
+    createdAt: "2026-01-01T00:00:00.000Z",
+  } as Change;
+  await mkdir(changeDir(change), { recursive: true });
+});
+
+afterAll(async () => {
+  if (savedSocket === undefined) delete process.env.CORVI_TMUX_SOCKET;
+  else process.env.CORVI_TMUX_SOCKET = savedSocket;
+  await rm(tmp, { recursive: true, force: true });
+});
+
+const run = <A>(effect: Effect.Effect<A, unknown>): Promise<A> => Effect.runPromise(effect as Effect.Effect<A>);
+
+/** A fresh instance with the built-in reviewer profile and one orchestrator message. */
+const fresh = async (): Promise<string> => {
+  const created = await run(createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher));
+  return created.id;
+};
+
+test("create writes the record and the initial message, closed by a fake launcher", async () => {
+  const created = await run(
+    createSubagent(change, { profile: "builtin:reviewer", prompt: "Review it" }, fakeLauncher),
+  );
+  expect(created.profile).toBe("builtin:reviewer");
+  expect(created.label).toBe("Reviewer");
+  expect(created.presence).toBe("detached"); // no live window with the private socket
+  expect(created.messages.map((message) => [message.role, message.body])).toEqual([
+    ["orchestrator", "Review it"],
+  ]);
+  expect(created.log.map((event) => event.kind)).toEqual(["created", "opened"]);
+});
+
+test("create refuses an unknown profile", async () => {
+  await expect(run(createSubagent(change, { profile: "global:nope" }, fakeLauncher))).rejects.toThrow(
+    /no such profile/,
+  );
+});
+
+test("next hands over the inbound message once, then reports the open turn as interrupted", async () => {
+  const id = await fresh();
+  const first = await run(nextForSubagent(change, id));
+  expect(first.status).toBe("message");
+  expect(first.message?.number).toBe(1);
+  expect(first.message?.body).toBe("Review it");
+  // The cursor and the in-flight marker advanced together: a restarted extension is not handed
+  // the same message again.
+  const second = await run(nextForSubagent(change, id));
+  expect(second.status).toBe("interrupted");
+});
+
+test("a new send sets an interrupted turn aside so next delivers the new message", async () => {
+  const id = await fresh();
+  await run(nextForSubagent(change, id)); // consume #1, leaves inFlight=1
+  const sent = await run(sendToSubagent(change, id, "Actually, focus on tests", "orchestrator"));
+  expect(sent.number).toBe(2);
+  const next = await run(nextForSubagent(change, id));
+  expect(next.status).toBe("message");
+  expect(next.message?.number).toBe(2);
+});
+
+test("a settled turn is appended, clears the open turn, and becomes the result", async () => {
+  const id = await fresh();
+  await run(nextForSubagent(change, id));
+  const reply = await run(recordTurn(change, id, "Looks good"));
+  expect(reply.role).toBe("subagent");
+  expect(reply.number).toBe(2);
+  const result = await run(resultOfSubagent(change, id));
+  expect(result?.body).toBe("Looks good");
+  // The turn settled: no longer in flight, so `next` has nothing to hand over.
+  process.env.CORVI_SUBAGENT_POLL_MS = "40";
+  try {
+    const next = await run(nextForSubagent(change, id));
+    expect(next.status).toBe("none");
+  } finally {
+    delete process.env.CORVI_SUBAGENT_POLL_MS;
+  }
+});
+
+test("wait wakes on a delivered turn", async () => {
+  const id = await fresh();
+  // No `next`, so no turn is in flight: the wait parks and the relayed reply wakes it.
+  const [waited] = await Effect.runPromise(
+    Effect.all(
+      [waitForTurn(change, { id, mode: "one" }), Effect.zipRight(Effect.sleep("30 millis"), recordTurn(change, id, "Here is my answer"))],
+      { concurrency: "unbounded" },
+    ),
+  );
+  expect(waited.status).toBe("turn");
+  expect(waited.id).toBe(id);
+  expect(waited.message?.body).toBe("Here is my answer");
+});
+
+test("wait reports an in-flight turn with no live window as interrupted", async () => {
+  const id = await fresh();
+  await run(nextForSubagent(change, id)); // claims #1, leaves inFlight with no live window
+  const waited = await run(waitForTurn(change, { id, mode: "one" }));
+  expect(waited.status).toBe("interrupted");
+});
+
+test("wait on a closed subagent resolves lost rather than blocking", async () => {
+  const id = await fresh();
+  const [waited] = await Effect.runPromise(
+    Effect.all(
+      [waitForTurn(change, { id, mode: "one" }), Effect.zipRight(Effect.sleep("30 millis"), closeSubagent(change, id))],
+      { concurrency: "unbounded" },
+    ),
+  );
+  expect(waited.status).toBe("lost");
+});
+
+test("wait answers timeout when nothing arrives", async () => {
+  process.env.CORVI_SUBAGENT_POLL_MS = "60";
+  try {
+    const id = await fresh();
+    const waited = await run(waitForTurn(change, { id, mode: "one" }));
+    expect(waited.status).toBe("timeout");
+  } finally {
+    delete process.env.CORVI_SUBAGENT_POLL_MS;
+  }
+  // The parked requests were cleaned up when they timed out.
+  expect(waiterCount()).toBe(0);
+});
+
+test("list answers every instance with its conversation", async () => {
+  const instances = await run(listSubagents(change));
+  expect(instances.length).toBeGreaterThan(0);
+  expect(instances.every((instance) => Array.isArray(instance.messages))).toBe(true);
+});
+
+test("two concurrent next calls claim the pending message once", async () => {
+  const id = await fresh();
+  const [a, b] = await Effect.runPromise(
+    Effect.all([nextForSubagent(change, id), nextForSubagent(change, id)], { concurrency: "unbounded" }),
+  );
+  expect([a.status, b.status].sort()).toEqual(["interrupted", "message"]);
+});
+
+test("a send and a turn with the same idempotency key append once", async () => {
+  const id = await fresh();
+  const sent = await run(sendToSubagent(change, id, "one", "orchestrator", "k1"));
+  const sentAgain = await run(sendToSubagent(change, id, "one", "orchestrator", "k1"));
+  expect(sentAgain.number).toBe(sent.number);
+  const reply = await run(recordTurn(change, id, "r", "k2"));
+  const replyAgain = await run(recordTurn(change, id, "r", "k2"));
+  expect(replyAgain.number).toBe(reply.number);
+  const record = await run(readInstance(changeDir(change), id));
+  expect(record?.messages.map((message) => message.number)).toEqual([1, sent.number, reply.number]);
+});
+
+test("a create with the same idempotency key returns the same instance", async () => {
+  const a = await run(
+    createSubagent(change, { profile: "builtin:reviewer", prompt: "x" }, fakeLauncher, "create-key-1"),
+  );
+  const b = await run(
+    createSubagent(change, { profile: "builtin:reviewer", prompt: "x" }, fakeLauncher, "create-key-1"),
+  );
+  expect(b.id).toBe(a.id);
+});
+
+/** A change of its own, so `--any`/`--all` do not see every other test's instances. */
+const isolatedChange = async (): Promise<Change> => {
+  const isolated = {
+    ...change,
+    id: `PROJ-${Math.random().toString(36).slice(2, 8)}`,
+  } as Change;
+  await mkdir(changeDir(isolated), { recursive: true });
+  return isolated;
+};
+
+test("wait --since returns a reply already in the log", async () => {
+  const id = await fresh();
+  await run(recordTurn(change, id, "answer"));
+  const waited = await run(waitForTurn(change, { id, since: 0, mode: "one" }));
+  expect(waited.status).toBe("turn");
+  expect(waited.message?.body).toBe("answer");
+});
+
+test("wait --any resolves on whichever subagent replies", async () => {
+  const own = await isolatedChange();
+  const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+  const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+  const [waited] = await Effect.runPromise(
+    Effect.all(
+      [
+        waitForTurn(own, { mode: "any" }),
+        Effect.zipRight(Effect.sleep("30 millis"), recordTurn(own, b.id, "from b")),
+      ],
+      { concurrency: "unbounded" },
+    ),
+  );
+  expect(waited.status).toBe("turn");
+  expect(waited.id).toBe(b.id);
+  expect(a.id).not.toBe(b.id);
+});
+
+test("wait --all waits for every subagent", async () => {
+  const own = await isolatedChange();
+  const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+  const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+  const [waited] = await Effect.runPromise(
+    Effect.all(
+      [
+        waitForTurn(own, { mode: "all" }),
+        Effect.zipRight(Effect.sleep("20 millis"), recordTurn(own, a.id, "a")),
+        Effect.zipRight(Effect.sleep("40 millis"), recordTurn(own, b.id, "b")),
+      ],
+      { concurrency: "unbounded" },
+    ),
+  );
+  expect(waited.status).toBe("turn");
+});
+
+test.skipIf(!Bun.which("tmux"))("a live window carrying @subagent_id reads as attached", async () => {
+  const socket = process.env.CORVI_TMUX_SOCKET as string;
+  const own = await isolatedChange();
+  const id = (await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "x" }, fakeLauncher))).id;
+  const session = `corvi-${own.id}`;
+  const tmux = (args: string[]): void => {
+    const result = Bun.spawnSync(["tmux", "-S", socket, ...args]);
+    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  };
+  tmux(["new-session", "-d", "-s", session, "-c", changeDir(own)]);
+  tmux(["set-option", "-p", "-t", session, "@subagent_id", id]);
+  try {
+    const listed = await run(listSubagents(own));
+    expect(listed.find((instance) => instance.id === id)?.presence).toBe("attached");
+  } finally {
+    tmux(["kill-session", "-t", session]);
+  }
+});

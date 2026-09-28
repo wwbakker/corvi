@@ -69,6 +69,40 @@ Icon rendering uses `rsvg-convert` when available. The launcher has a Chromium a
 when Electron is unavailable; that mode may leave its server running after the browser closes.
 `corvi stop` checks recorded server identities before stopping them. Uninstalling leaves logs.
 
+## The command line
+
+The launcher is also the CLI. `corvi start` opens the app window (what bare `corvi` used to do);
+`corvi stop` stops the servers recorded in the state directory; anything else is a control
+command over the running server:
+
+```sh
+corvi change list
+corvi change show --change PROJ-1
+corvi change phase Implementation --change PROJ-1
+corvi action list --change PROJ-1
+corvi action run review --change PROJ-1
+```
+
+Every command takes `--json` and then prints one JSON value on success or a JSON error envelope
+on failure. The exit code says what happened without reading the text: `0` success, `1` failure,
+`2` usage, `3` no server answered (or none owned the change), `4` the server refused the request,
+`5` a wait ended because a window was lost. `--change` defaults to `CORVI_CHANGE_ID` — which the
+app sets in every pane of a change's session — and then to the nearest `change.json` at or above
+the working directory.
+
+The CLI talks to the running server, so with the app closed a control command fails loudly rather
+than editing files behind the server's back. It finds the server through `CORVI_URL`, then the
+record the server writes at startup (`$XDG_STATE_HOME/corvi/corvi-app-<port>.json`), then the
+window's pid-files, then `http://127.0.0.1:4000`. An explicit `--server` or `CORVI_URL` that
+answers wins outright; otherwise the server that owns the change is used, and the answer is
+ambiguous (`CORVI_URL` names one) only when several servers answer and none or more than one owns
+it.
+
+This dispatch is Linux-only for now: on macOS the installed `corvi` still opens the app, and the
+CLI runs from the checkout with `bun run cli`. `corvi stop` stops the servers the desktop window
+recorded in its pid-files; a dev server (`bun run dev`) records itself for discovery but has no
+pid-file, so stop it where it was started.
+
 ## Updates
 
 The installed app updates itself from its own checkout. Only when it runs as the installed app,

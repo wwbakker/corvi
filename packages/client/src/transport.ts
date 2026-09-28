@@ -30,11 +30,12 @@ export interface ClientOptions {
   readonly fetch?: FetchLike
 }
 
-/** What a namespace factory composes over: one method call out, the payload back undecoded. */
+/** What a namespace factory composes over: one method call out, the payload back undecoded.
+ * Headers ride along when an operation names one — an idempotency key on a retried write. */
 export type Send = (
   method: string,
   path: string,
-  options?: { body?: unknown; signal?: AbortSignal },
+  options?: { body?: unknown; signal?: AbortSignal; headers?: Record<string, string> },
 ) => Promise<unknown>
 
 /** Decodes a payload with the operation's own schema: what arrives is never trusted as is. */
@@ -78,17 +79,19 @@ export const transport = (options: ClientOptions): { send: Send } => {
   const baseUrl = options.baseUrl.replace(/\/$/, "")
 
   const send: Send = async (method, path, sendOptions = {}) => {
+    const headers = {
+      ...(sendOptions.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(sendOptions.headers ?? {}),
+    }
     let response: Response
     try {
       response = await request(`${baseUrl}/api${path}`, {
         method,
         ...(sendOptions.signal ? { signal: sendOptions.signal } : {}),
+        ...(Object.keys(headers).length === 0 ? {} : { headers }),
         ...(sendOptions.body === undefined
           ? {}
-          : {
-              headers: { "content-type": "application/json" },
-              body: JSON.stringify(sendOptions.body),
-            }),
+          : { body: JSON.stringify(sendOptions.body) }),
       })
     } catch (cause) {
       throw new ClientError({ message: "the server could not be reached", cause })

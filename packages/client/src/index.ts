@@ -9,7 +9,9 @@ import { makeActionsApi, type ActionsApi } from "./actions.ts"
 import { makeChangesApi, type ChangesApi } from "./changes.ts"
 import { makeDashboardApi, type DashboardApi } from "./dashboard.ts"
 import { makeRepositoriesApi, type RepositoriesApi } from "./repositories.ts"
+import { makeServerApi, type ServerApi } from "./server.ts"
 import { makeSettingsApi, type SettingsApi } from "./settings.ts"
+import { makeSubagentsApi, type SubagentsApi } from "./subagents.ts"
 import { makeTerminalsApi, type TerminalsApi } from "./terminals.ts"
 import { makeUpdateApi, type UpdateApi } from "./update.ts"
 import { makeWizardApi, type WizardApi } from "./wizard.ts"
@@ -25,7 +27,9 @@ export interface CorviClient {
   readonly workspaces: WorkspacesApi
   readonly settings: SettingsApi
   readonly actions: ActionsApi
+  readonly subagents: SubagentsApi
   readonly update: UpdateApi
+  readonly server: ServerApi
 }
 
 export const makeCorviClient = (options: ClientOptions): CorviClient => {
@@ -39,7 +43,9 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
     workspaces: makeWorkspacesApi(send),
     settings: makeSettingsApi(send),
     actions: makeActionsApi(send),
+    subagents: makeSubagentsApi(send),
     update: makeUpdateApi(send),
+    server: makeServerApi(send),
   }
 }
 
