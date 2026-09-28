@@ -74,7 +74,7 @@ export function SubagentsPane({
 
   const load = useCallback((): void => {
     apiClient
-      .subagents(ChangeId.make(changeId))
+      .subagents.list(ChangeId.make(changeId))
       .then(setInstances)
       .catch((e: Error) => setNotice(e.message));
   }, [changeId]);
@@ -118,7 +118,7 @@ export function SubagentsPane({
     setSending(true);
     setNotice(null);
     try {
-      await apiClient.sendSubagent(ChangeId.make(changeId), current.id, { text }, crypto.randomUUID());
+      await apiClient.subagents.send(ChangeId.make(changeId), current.id, { text }, crypto.randomUUID());
       setDraft("");
       setNotice(`sent to ${current.id}`);
       load();
@@ -215,11 +215,11 @@ export function SubagentsPane({
                 </button>
               )}
               {current.presence === "attached" ? (
-                <button onClick={() => void act(() => apiClient.closeSubagent(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
+                <button onClick={() => void act(() => apiClient.subagents.close(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
                   Close
                 </button>
               ) : (
-                <button onClick={() => void act(() => apiClient.openSubagent(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
+                <button onClick={() => void act(() => apiClient.subagents.open(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
                   Open
                 </button>
               )}

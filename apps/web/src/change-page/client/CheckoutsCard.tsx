@@ -1,11 +1,8 @@
 import { type JSX, useEffect, useState } from "react";
-import { makeChangesClient } from "@corvi/client";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { RepositoryViewDto } from "@corvi/contracts/api";
+import { apiClient } from "../../app-root/api.ts";
 import { checkoutRows } from "./repositoryView.ts";
-
-/** One client, relative to the page's own origin: the browser asks the server that served it. */
-const client = makeChangesClient({ baseUrl: "" });
 
 /**
  * The change's repositories as Corvi's own facts: which links exist, their projected state, and
@@ -20,7 +17,7 @@ export function CheckoutsCard({ changeId }: { changeId: string }): JSX.Element {
     let live = true;
     setViews(null);
     setError(null);
-    client.inspectRepositories(ChangeId.make(changeId)).then(
+    apiClient.changes.checkouts(ChangeId.make(changeId)).then(
       (result) => {
         if (live) setViews(result);
       },

@@ -24,7 +24,7 @@ export function useWindows(): {
   const load = useCallback(
     () =>
       apiClient
-        .terminals()
+        .terminals.list()
         .then(setWindows)
         .catch(() => {}), // no tmux server yet: the next tick will find it
     [],
@@ -38,7 +38,7 @@ export function useWindows(): {
   const act = useCallback(
     (id: string, body: WindowActionBodyDto) =>
       apiClient
-        .windowAction(ChangeId.make(id), body)
+        .terminals.windowAction(ChangeId.make(id), body)
         .then((next) => setWindows((all) => ({ ...all, [id]: next })))
         .catch(() => {}),
     [],
@@ -80,7 +80,7 @@ export function useTerminal(
   useEffect(() => {
     if (!id || archived || !wanted) return;
     apiClient
-      .terminalUrl(ChangeId.make(id))
+      .terminals.url(ChangeId.make(id))
       .then((r) => setUrl(r.url))
       .catch((e: Error) => setError(e.message));
   }, [id, archived, wanted]);
@@ -102,7 +102,7 @@ export function useChanges(): {
   const reload = useCallback(
     () =>
       apiClient
-        .list()
+        .changes.list()
         .then(setChanges)
         .catch((e: Error) => setError(e.message)),
     [],

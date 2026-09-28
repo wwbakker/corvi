@@ -3,7 +3,7 @@ import { checkoutsOf } from "./helpers.ts";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ClientError, makeChangesClient } from "@corvi/client";
+import { ClientError, makeCorviClient } from "@corvi/client";
 import { DirectoryName, RepositoryId, ChangeId } from "@corvi/contracts/changes";
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { repositoriesRoutes } from "../apps/server/src/change/repositories-route.ts";
@@ -47,8 +47,8 @@ afterAll(async () => {
 });
 
 test("the dashboard read is served and decoded by the client", async () => {
-  const client = makeChangesClient({ baseUrl: server.url.toString() });
-  const views = await client.inspectRepositories(ChangeId.make("demo"));
+  const client = makeCorviClient({ baseUrl: server.url.toString() });
+  const views = await client.changes.checkouts(ChangeId.make("demo"));
   expect(views).toEqual([
     {
       repositoryId: RepositoryId.make("demo:repo"),
@@ -61,8 +61,8 @@ test("the dashboard read is served and decoded by the client", async () => {
 });
 
 test("an unknown change is a 404 the client classifies", async () => {
-  const client = makeChangesClient({ baseUrl: server.url.toString() });
-  const failure = await client.inspectRepositories(ChangeId.make("absent")).then(
+  const client = makeCorviClient({ baseUrl: server.url.toString() });
+  const failure = await client.changes.checkouts(ChangeId.make("absent")).then(
     () => undefined,
     (error: unknown) => error,
   );

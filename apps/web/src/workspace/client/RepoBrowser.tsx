@@ -57,7 +57,7 @@ export function RepoBrowser({
       if (branches[path]) continue;
       setBranches((known) => ({ ...known, [path]: { branches: [] } })); // claim it, fetch once
       apiClient
-        .branches(path)
+        .repositories.branches(path)
         .then((found) => setBranches((known) => ({ ...known, [path]: found })))
         .catch(() => {});
     }

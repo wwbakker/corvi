@@ -17,7 +17,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Schema } from "effect";
 
-import { makeChangesClient } from "@corvi/client";
+import { makeCorviClient } from "@corvi/client";
 import { ID, env, stateDir } from "@corvi/configuration/node";
 import { InstanceRecordSchema, type InstanceRecord } from "@corvi/contracts/instance";
 
@@ -130,7 +130,7 @@ export type Probe = (url: string) => Promise<readonly string[]>;
 /** The real probe: ask each candidate what it knows, with a deadline so an unresponsive one is
  * skipped rather than waited on. */
 export const clientProbe = (timeoutMs: number = PROBE_TIMEOUT_MS): Probe => async (url) => {
-  const identity = await makeChangesClient({ baseUrl: url }).identity({
+  const identity = await makeCorviClient({ baseUrl: url }).server.identity({
     signal: AbortSignal.timeout(timeoutMs),
   });
   return identity.changeIds;

@@ -71,11 +71,14 @@ bun run extension:install:opencode   # or: bun run extension:uninstall:opencode
 ```
 
 These commands install Corvi's adapters into the agents; they do not install third-party code into
-Corvi. The installation is a symlink to `integrations/pi/src/corvi.ts` or
-`integrations/opencode/src/corvi.ts` — one entry composing the reporter (`agent-state.ts`) and the
-subagent relay (`turns.ts`). An older `agent-state.ts` symlink is removed on install. Installing
-from another checkout repoints the symlink, so do not run it as an incidental test. A real file at
-the destination is left alone. pi picks a changed extension up with `/reload` or a new session;
+Corvi. Each install points at `integrations/<agent>/src` — its entry `index.ts` composing the
+reporter (`agent-state.ts`) and the subagent relay (`turns.ts`) — in the shape that agent's loader
+resolves: pi resolves a module's imports beside the file it loaded, so its install is the
+directory `~/.pi/agent/extensions/corvi/` (symlinks, entry at `index.ts`); opencode follows the
+link to the entry and finds its modules at the real file, so its install is the one link
+`~/.config/opencode/plugin/corvi.ts`. Older shapes are removed on install. Installing from another
+checkout repoints the links, so do not run it as an incidental test. A real file at the
+destination is left alone. pi picks a changed extension up with `/reload` or a new session;
 opencode takes a restart.
 
 ## Keyboard and clipboard

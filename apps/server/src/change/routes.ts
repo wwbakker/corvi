@@ -189,10 +189,8 @@ export const changeRoutes = guard({
       withChange(req.params.id, (c) => Effect.map(prDescription(c), (text) => json({ text }))),
   },
 
-  // Completing a change: merge every outstanding pull request and close the ticket. GET
-  // reports whether that is currently allowed, so the button can explain itself.
   // How far a completion got: written as it happens, so this answers even after a restart.
-  "/api/changes/:id/complete/progress": {
+  "/api/changes/:id/completion/progress": {
     GET: (req) => withChange(req.params.id, (c) => Effect.map(progressOf(c.id), json)),
   },
 
@@ -212,7 +210,9 @@ export const changeRoutes = guard({
       ),
   },
 
-  "/api/changes/:id/complete": {
+  // Completing a change: merge every outstanding pull request and close the ticket. The read
+  // reports whether that is currently allowed, so the button can explain itself.
+  "/api/changes/:id/completion": {
     // Whether it could be completed, for the menu item. A readiness check that cannot be made
     // — no GitHub remote, `gh` not logged in — is a reason it is not ready rather than a failed
     // request: swallowing the error would leave the tooltip with nothing to say, the least
@@ -228,6 +228,11 @@ export const changeRoutes = guard({
             ),
         ),
       ),
+  },
+
+  // The completion itself: the command, kept apart from the readiness read above so one path
+  // answers a question and the other does the work.
+  "/api/changes/:id/complete": {
     // The readiness check lives in `completeChange`: a change that is not ready and not forced
     // comes back as a refusal, which is a 409 carrying the tagged reasons so the dialog renders
     // server truth rather than the poll. One check per request, fetches included.

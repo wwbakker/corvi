@@ -77,7 +77,7 @@ export function SubagentsPage({
   };
 
   useEffect(() => {
-    apiClient.subagentFiles().then(setListing).catch((e: Error) => complain(e.message));
+    apiClient.subagents.files().then(setListing).catch((e: Error) => complain(e.message));
   }, []);
 
   const save = useCallback(async (): Promise<boolean> => {
@@ -85,7 +85,7 @@ export function SubagentsPage({
     const write: SubagentFileWriteDto = { ...targetOf(editing), id: editing.id, text: draft };
     setNotice(null);
     try {
-      const fresh = await apiClient.writeSubagentFile(write);
+      const fresh = await apiClient.subagents.writeFile(write);
       setListing(fresh);
       setEditing(null);
       say(`Saved ${write.id}.md`);
@@ -111,7 +111,7 @@ export function SubagentsPage({
   const remove = (file: SubagentProfileFileDto): void => {
     if (!window.confirm(`Delete ${file.id}.md? This cannot be undone.`)) return;
     apiClient
-      .deleteSubagentFile({ ...targetOf(file), id: file.id })
+      .subagents.deleteFile({ ...targetOf(file), id: file.id })
       .then((fresh) => {
         setListing(fresh);
         setEditing(null);
@@ -131,7 +131,7 @@ export function SubagentsPage({
       return;
     }
     apiClient
-      .writeSubagentFile({ ...target, id, text: templateFor(id) })
+      .subagents.writeFile({ ...target, id, text: templateFor(id) })
       .then((fresh) => {
         setListing(fresh);
         const made = fresh.files.find(

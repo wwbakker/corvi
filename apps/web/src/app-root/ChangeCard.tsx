@@ -38,7 +38,7 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
   const load = useCallback(
     (signal: AbortSignal): Promise<void> =>
       apiClient
-        .summary(ChangeId.make(change.id), { signal })
+        .changes.summary(ChangeId.make(change.id), { signal })
         .then(setSummary)
         .catch(() => {}),
     [change.id],

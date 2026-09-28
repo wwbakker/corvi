@@ -11,4 +11,4 @@ export const listingQuery = directoryListingQuery;
 
 /** One directory's contents, asked of the server. */
 export const fetchListing = (spec: ListingSpec): Promise<Listing> =>
-  apiClient.directories(spec);
+  apiClient.repositories.directories(spec);

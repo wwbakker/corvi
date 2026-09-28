@@ -13,7 +13,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { ClientError, makeChangesClient, type ChangesClient } from "@corvi/client";
+import { ClientError, makeCorviClient, type CorviClient } from "@corvi/client";
 import { ChangeId, type ChangePhase } from "@corvi/contracts/changes";
 
 import { boolFlag, isKnownFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
@@ -96,7 +96,7 @@ const validateCommand = (positionals: readonly string[]): void => {
 };
 
 const changeCommand = async (
-  client: ChangesClient,
+  client: CorviClient,
   changeId: string | undefined,
   args: ParsedArgs,
   json: boolean,
@@ -105,7 +105,7 @@ const changeCommand = async (
   const [command, ...rest] = args.positionals.slice(1);
   switch (command) {
     case "list": {
-      const changes = await client.list();
+      const changes = await client.changes.list();
       emit(io, json, {
         value: changes,
         human: (value) =>
@@ -115,7 +115,7 @@ const changeCommand = async (
     }
     case "show": {
       const id = requireChange(changeId);
-      const change = await client.read(id);
+      const change = await client.changes.read(id);
       emit(io, json, {
         value: change,
         human: (value) =>
@@ -131,19 +131,19 @@ const changeCommand = async (
     }
     case "start": {
       const id = requireChange(changeId);
-      const started = await client.start(id);
+      const started = await client.changes.start(id);
       emit(io, json, { value: started, human: () => `started ${id}` });
       return;
     }
     case "complete": {
       const id = requireChange(changeId);
-      const completed = await client.complete(id, boolFlag(args, "force") ? { force: true } : undefined);
+      const completed = await client.changes.complete(id, boolFlag(args, "force") ? { force: true } : undefined);
       emit(io, json, { value: completed, human: () => `completed ${id}` });
       return;
     }
     case "cancel": {
       const id = requireChange(changeId);
-      const cancelled = await client.cancel(id, boolFlag(args, "force") ? { force: true } : undefined);
+      const cancelled = await client.changes.cancel(id, boolFlag(args, "force") ? { force: true } : undefined);
       emit(io, json, { value: cancelled, human: () => `cancelled ${id}` });
       return;
     }
@@ -156,7 +156,7 @@ const changeCommand = async (
           EXIT.usage,
         );
       }
-      const updated = await client.rename(id, { state: phase });
+      const updated = await client.changes.rename(id, { state: phase });
       emit(io, json, {
         value: updated,
         human: () => `${id} is now ${updated.state ?? phase}`,
@@ -172,7 +172,7 @@ const changeCommand = async (
 };
 
 const actionCommand = async (
-  client: ChangesClient,
+  client: CorviClient,
   changeId: string | undefined,
   args: ParsedArgs,
   json: boolean,
@@ -182,7 +182,7 @@ const actionCommand = async (
   const id = requireChange(changeId);
   switch (command) {
     case "list": {
-      const actions = await client.terminalActions(id);
+      const actions = await client.actions.list(id);
       emit(io, json, {
         value: actions,
         human: (value) =>
@@ -194,7 +194,7 @@ const actionCommand = async (
       const key = rest[0];
       if (key === undefined) throw new CliFailure("action run needs a key", EXIT.usage);
       const window = stringFlag(args, "window");
-      const result = await client.runAction(id, key, window);
+      const result = await client.actions.run(id, key, window);
       emit(io, json, {
         value: result,
         human: () =>
@@ -211,7 +211,7 @@ const actionCommand = async (
 };
 
 const subagentCommand = async (
-  client: ChangesClient,
+  client: CorviClient,
   changeId: string | undefined,
   args: ParsedArgs,
   json: boolean,
@@ -228,7 +228,7 @@ const subagentCommand = async (
   };
   switch (command) {
     case "list": {
-      const instances = await client.subagents(id);
+      const instances = await client.subagents.list(id);
       emit(io, json, {
         value: instances,
         human: (value) =>
@@ -242,7 +242,7 @@ const subagentCommand = async (
       return EXIT.ok;
     }
     case "show": {
-      const instance = await client.subagent(id, subId());
+      const instance = await client.subagents.read(id, subId());
       emit(io, json, {
         value: instance,
         human: (value) =>
@@ -254,7 +254,7 @@ const subagentCommand = async (
       const profile = rest[0];
       if (profile === undefined) throw new CliFailure("subagent create needs a profile key", EXIT.usage);
       const prompt = stringFlag(args, "prompt");
-      const instance = await client.createSubagent(
+      const instance = await client.subagents.create(
         id,
         { profile, ...(prompt === undefined ? {} : { prompt }) },
         stringFlag(args, "idempotency-key"),
@@ -266,7 +266,7 @@ const subagentCommand = async (
     case "close": {
       const sub = subId();
       const instance =
-        command === "open" ? await client.openSubagent(id, sub) : await client.closeSubagent(id, sub);
+        command === "open" ? await client.subagents.open(id, sub) : await client.subagents.close(id, sub);
       emit(io, json, { value: instance, human: () => `${command === "open" ? "opened" : "closed"} ${sub}` });
       return EXIT.ok;
     }
@@ -275,12 +275,12 @@ const subagentCommand = async (
       const sub = subId();
       const text = named === undefined ? rest[1] : rest[0];
       if (text === undefined || text === "") throw new CliFailure("subagent send needs text", EXIT.usage);
-      const message = await client.sendSubagent(id, sub, { text }, stringFlag(args, "idempotency-key"));
+      const message = await client.subagents.send(id, sub, { text }, stringFlag(args, "idempotency-key"));
       emit(io, json, { value: message, human: () => `sent to ${sub}` });
       return EXIT.ok;
     }
     case "result": {
-      const message = await client.subagentResult(id, subId());
+      const message = await client.subagents.result(id, subId());
       emit(io, json, { value: message, human: (value) => value?.body ?? "(no reply yet)" });
       return EXIT.ok;
     }
@@ -288,7 +288,7 @@ const subagentCommand = async (
       const since = stringFlag(args, "since");
       const mode = boolFlag(args, "all") ? "all" : boolFlag(args, "any") ? "any" : "one";
       const target = rest[0] ?? stringFlag(args, "subagent");
-      const result = await client.waitSubagent(id, {
+      const result = await client.subagents.wait(id, {
         ...(target === undefined ? {} : { id: target }),
         ...(since === undefined ? {} : { since: Number(since) }),
         ...(mode === "all" ? { all: true } : mode === "any" ? { any: true } : {}),
@@ -302,7 +302,7 @@ const subagentCommand = async (
     case "next": {
       const afterRaw = stringFlag(args, "after");
       const after = afterRaw === undefined ? undefined : Number(afterRaw);
-      const result = await client.nextSubagent(id, subId(), Number.isFinite(after) ? after : undefined);
+      const result = await client.subagents.next(id, subId(), Number.isFinite(after) ? after : undefined);
       emit(io, json, { value: result, human: (value) => value.status });
       return result.status === "interrupted" ? EXIT.lost : EXIT.ok;
     }
@@ -313,7 +313,7 @@ const subagentCommand = async (
       if (sub === undefined || text === undefined) {
         throw new CliFailure('subagent turn needs --subagent <id> and the reply text', EXIT.usage);
       }
-      const message = await client.subagentTurn(id, sub, { text }, stringFlag(args, "idempotency-key"));
+      const message = await client.subagents.turn(id, sub, { text }, stringFlag(args, "idempotency-key"));
       emit(io, json, { value: message, human: () => `relayed turn ${message.number}` });
       return EXIT.ok;
     }
@@ -328,7 +328,7 @@ const subagentCommand = async (
 };
 
 const dispatch = async (
-  client: ChangesClient,
+  client: CorviClient,
   changeId: string | undefined,
   args: ParsedArgs,
   json: boolean,
@@ -426,7 +426,7 @@ export const run = async (
       changeId: needsChange(args.positionals) ? changeId : undefined,
       probe: clientProbe(),
     });
-    const client = makeChangesClient({ baseUrl: server.url });
+    const client = makeCorviClient({ baseUrl: server.url });
     return await dispatch(client, changeId, args, json, io);
   } catch (error) {
     return report(error, io, json);

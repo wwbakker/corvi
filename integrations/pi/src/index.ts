@@ -1,10 +1,9 @@
 /**
  * The one pi extension Corvi installs: the reporter (`agent-state.ts`) and the conversational
- * relay (`turns.ts`) composed into a single entry, so the installer keeps its one-symlink-per-agent
- * shape.
+ * relay (`turns.ts`) composed into the one entry an install directory needs (`index.ts`).
  *
- * `bun run extension:install:pi` symlinks this file into `~/.pi/agent/extensions/corvi.ts` and
- * removes the legacy `agent-state.ts` symlink.
+ * `bun run extension:install:pi` links this directory's `*.ts` files into
+ * `~/.pi/agent/extensions/corvi/` and removes the older installs' top-level symlinks.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 

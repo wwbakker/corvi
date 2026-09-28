@@ -30,7 +30,7 @@ export function WidgetCard({
   const load = useCallback(
     (signal?: AbortSignal): Promise<void> =>
       apiClient
-        .card(ChangeId.make(changeId), info.name, { signal })
+        .dashboard.card(ChangeId.make(changeId), info.name, { signal })
         .then(setWidget)
         .catch((e: Error) => {
           if (aborted(e)) return;
@@ -51,7 +51,7 @@ export function WidgetCard({
   const act = (actionId: string, arg?: string): Promise<void> => {
     setBusy(true);
     return apiClient
-      .cardAction(ChangeId.make(changeId), info.name, actionId, arg)
+      .dashboard.cardAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then(setWidget)
       .catch((e: Error) => setWidget({ ...widget!, state: "error", summary: e.message }))
       .finally(() => setBusy(false));
