@@ -5,13 +5,13 @@ import type { ConfigFileDto } from "@corvi/contracts/config"
 import { decode, type RequestOptions, type Send } from "./transport.ts"
 
 export interface SettingsApi {
-  readonly settings: (options?: RequestOptions) => Promise<SettingsViewDto>
-  readonly writeSettings: (settings: ConfigFileDto) => Promise<SettingsViewDto>
+  readonly read: (options?: RequestOptions) => Promise<SettingsViewDto>
+  readonly write: (settings: ConfigFileDto) => Promise<SettingsViewDto>
 }
 
 export const makeSettingsApi = (send: Send): SettingsApi => ({
-  settings: async (options) =>
+  read: async (options) =>
     decode(SettingsViewSchema, await send("GET", "/settings", options)),
-  writeSettings: async (settings) =>
+  write: async (settings) =>
     decode(SettingsViewSchema, await send("PUT", "/settings", { body: settings })),
 })

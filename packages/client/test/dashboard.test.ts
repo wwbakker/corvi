@@ -22,7 +22,7 @@ test("the dashboard reads hit their named paths and decode their payloads", asyn
         return Response.json({
           widgets: [{ id: "notes", title: "Notes", extension: "notes", column: "left" }],
         })
-      return Response.json([{ path: "/r", name: "r", location: "new", branch: { kind: "change" } }])
+      return Response.json({ integration: "git", title: "", state: "none", summary: "", items: [] })
     },
   })
 
@@ -30,7 +30,6 @@ test("the dashboard reads hit their named paths and decode their payloads", asyn
   expect((await client.dashboard.cards(ChangeId.make("a")))[0]?.editable).toBe(true)
   expect((await client.dashboard.tabs(ChangeId.make("a")))[0]?.id).toBe("review")
   expect((await client.dashboard.widgets(ChangeId.make("a")))[0]?.column).toBe("left")
-  expect((await client.dashboard.repoStates(ChangeId.make("a")))[0]?.path).toBe("/r")
 })
 
 test("a card and its repository rows decode under their card path", async () => {

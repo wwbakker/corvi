@@ -45,7 +45,7 @@ export function EditReposDialog({
     // Start from what the change has now, every time the dialog is opened.
     setError(null);
     apiClient
-      .dashboard.repoStates(ChangeId.make(changeId))
+      .changes.repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
         setDraft(

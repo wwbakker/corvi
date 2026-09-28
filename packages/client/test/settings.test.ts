@@ -39,8 +39,8 @@ test("the settings view decodes, and writing it names the settings route", async
     },
   })
 
-  expect((await client.settings.settings()).effective.contextMenu).toBe(true)
-  expect(await client.settings.writeSettings({ changesRoot: "/c" })).toEqual(view)
+  expect((await client.settings.read()).effective.contextMenu).toBe(true)
+  expect(await client.settings.write({ changesRoot: "/c" })).toEqual(view)
   expect(calls.some((call) => call.method === "PUT" && call.url.endsWith("/api/settings"))).toBe(
     true,
   )

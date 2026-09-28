@@ -11,6 +11,7 @@ import {
   CreateChangeBodySchema,
   PlanDocSchema,
   PlanWriteBodySchema,
+  RepoStateSchema,
   RepositoryViewSchema,
   StartedResponseSchema,
   TextSchema,
@@ -24,6 +25,7 @@ import {
   type ForceBodyDto,
   type PlanDocDto,
   type PlanWriteBodyDto,
+  type RepoStateDto,
   type ReposBodyDto,
   type RepositoryViewDto,
   type StartedResponseDto,
@@ -63,13 +65,15 @@ export interface ChangesApi {
     changeId: ChangeId,
     patch: { readonly state?: string; readonly title?: string },
   ) => Promise<ChangeWireDto>
+  /** The covered repositories and their checkout states: the read half of `setRepositories`. */
+  readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>
   readonly setRepositories: (
     changeId: ChangeId,
     body: ReposBodyDto,
   ) => Promise<ChangeWireDto>
   /** The change's repositories as Corvi's own facts: which links exist, their projected state,
    * and what is actually checked out where. */
-  readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
+  readonly checkouts: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
 }
 
 export const makeChangesApi = (send: Send): ChangesApi => {
@@ -111,9 +115,11 @@ export const makeChangesApi = (send: Send): ChangesApi => {
       ),
     rename: async (changeId, patch) =>
       decode(ChangeWireSchema, await send("PATCH", change(changeId), { body: patch })),
+    repoStates: async (changeId, options) =>
+      decode(mutableArray(RepoStateSchema), await send("GET", `${change(changeId)}/repos`, options)),
     setRepositories: async (changeId, body) =>
       decode(ChangeWireSchema, await send("POST", `${change(changeId)}/repos`, { body })),
-    inspectRepositories: async (changeId) =>
+    checkouts: async (changeId) =>
       decode(
         mutableArray(RepositoryViewSchema),
         await send("GET", `${change(changeId)}/checkouts`),

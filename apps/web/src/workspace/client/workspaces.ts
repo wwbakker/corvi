@@ -53,7 +53,7 @@ export function useWorkspaces(): {
   // not still be in the switcher under its old name.
   const reload = (): Promise<void> =>
     apiClient
-      .workspaces.workspaces()
+      .workspaces.list()
       .then(({ workspaces: next, platform: told }) => {
         setWorkspaces(next);
         setPlatform(told);

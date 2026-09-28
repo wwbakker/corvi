@@ -17,7 +17,7 @@ export function CheckoutsCard({ changeId }: { changeId: string }): JSX.Element {
     let live = true;
     setViews(null);
     setError(null);
-    apiClient.changes.inspectRepositories(ChangeId.make(changeId)).then(
+    apiClient.changes.checkouts(ChangeId.make(changeId)).then(
       (result) => {
         if (live) setViews(result);
       },

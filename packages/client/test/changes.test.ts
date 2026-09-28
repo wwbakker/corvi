@@ -23,7 +23,7 @@ const payload: readonly RepositoryViewDto[] = [
   },
 ]
 
-test("inspectRepositories decodes the server payload", async () => {
+test("checkouts decodes the server payload", async () => {
   const urls: string[] = []
   const client = makeCorviClient({
     baseUrl: "http://127.0.0.1:4000/",
@@ -32,7 +32,7 @@ test("inspectRepositories decodes the server payload", async () => {
       return Response.json(payload)
     },
   })
-  const views = await client.changes.inspectRepositories(ChangeId.make("demo"))
+  const views = await client.changes.checkouts(ChangeId.make("demo"))
   expect(urls).toEqual(["http://127.0.0.1:4000/api/changes/demo/checkouts"])
   expect(views).toEqual(payload)
 })
@@ -59,6 +59,8 @@ test("the change reads hit their named paths and decode their payloads", async (
         })
       if (url.endsWith("/description")) return Response.json({ text: "PROJ - thing" })
       if (url.endsWith("/plan")) return Response.json({ text: "the plan", revision: "r1" })
+      if (url.endsWith("/repos"))
+        return Response.json([{ path: "/r", name: "r", location: "new", branch: { kind: "change" } }])
       return Response.json(change("a"))
     },
   })
@@ -68,6 +70,7 @@ test("the change reads hit their named paths and decode their payloads", async (
   expect((await client.changes.summary(ChangeId.make("a"))).state).toBe("none")
   expect((await client.changes.description(ChangeId.make("a"))).text).toBe("PROJ - thing")
   expect(await client.changes.plan(ChangeId.make("a"))).toEqual({ text: "the plan", revision: "r1" })
+  expect((await client.changes.repoStates(ChangeId.make("a")))[0]?.path).toBe("/r")
   expect(calls[0]).toBe("http://x/api/changes")
 })
 

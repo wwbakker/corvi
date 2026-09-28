@@ -20,8 +20,8 @@ import {
 } from "./transport.ts"
 
 export interface TerminalsApi {
-  readonly terminals: (options?: RequestOptions) => Promise<TerminalsResponseDto>
-  readonly terminalUrl: (changeId: ChangeId, options?: RequestOptions) => Promise<UrlDto>
+  readonly list: (options?: RequestOptions) => Promise<TerminalsResponseDto>
+  readonly url: (changeId: ChangeId, options?: RequestOptions) => Promise<UrlDto>
   readonly windowAction: (
     changeId: ChangeId,
     action: WindowActionBodyDto,
@@ -32,9 +32,9 @@ export const makeTerminalsApi = (send: Send): TerminalsApi => {
   const change = changePath
 
   return {
-    terminals: async (options) =>
+    list: async (options) =>
       decode(TerminalsResponseSchema, await send("GET", "/terminals", options)),
-    terminalUrl: async (changeId, options) =>
+    url: async (changeId, options) =>
       decode(UrlSchema, await send("GET", `${change(changeId)}/terminal`, options)),
     windowAction: async (changeId, action) =>
       decode(

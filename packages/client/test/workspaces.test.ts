@@ -15,7 +15,7 @@ test("the workspaces and their pages decode", async () => {
           }),
   })
 
-  expect((await client.workspaces.workspaces()).platform).toBe("linux")
-  expect((await client.workspaces.workspaces()).workspaces[0]?.id).toBe("demo")
+  expect((await client.workspaces.list()).platform).toBe("linux")
+  expect((await client.workspaces.list()).workspaces[0]?.id).toBe("demo")
   expect((await client.workspaces.pages("w"))[0]?.id).toBe("leftovers")
 })

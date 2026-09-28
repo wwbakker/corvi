@@ -48,7 +48,7 @@ afterAll(async () => {
 
 test("the dashboard read is served and decoded by the client", async () => {
   const client = makeCorviClient({ baseUrl: server.url.toString() });
-  const views = await client.changes.inspectRepositories(ChangeId.make("demo"));
+  const views = await client.changes.checkouts(ChangeId.make("demo"));
   expect(views).toEqual([
     {
       repositoryId: RepositoryId.make("demo:repo"),
@@ -62,7 +62,7 @@ test("the dashboard read is served and decoded by the client", async () => {
 
 test("an unknown change is a 404 the client classifies", async () => {
   const client = makeCorviClient({ baseUrl: server.url.toString() });
-  const failure = await client.changes.inspectRepositories(ChangeId.make("absent")).then(
+  const failure = await client.changes.checkouts(ChangeId.make("absent")).then(
     () => undefined,
     (error: unknown) => error,
   );

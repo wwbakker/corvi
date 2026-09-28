@@ -5,7 +5,7 @@ import { expect, test } from "bun:test"
 import { ChangeId } from "@corvi/contracts/changes"
 import { makeCorviClient } from "../src/index.ts"
 
-test("terminalActions lists what a change may run", async () => {
+test("list names what a change may run", async () => {
   const urls: string[] = []
   const client = makeCorviClient({
     baseUrl: "http://127.0.0.1:4000/",
@@ -22,12 +22,12 @@ test("terminalActions lists what a change may run", async () => {
       ])
     },
   })
-  const actions = await client.actions.terminalActions(ChangeId.make("demo"))
+  const actions = await client.actions.list(ChangeId.make("demo"))
   expect(urls).toEqual(["http://127.0.0.1:4000/api/changes/demo/actions"])
   expect(actions.map((a) => a.key)).toEqual(["builtin:brief"])
 })
 
-test("runAction names the action and the window — and never any text", async () => {
+test("run names the action and the window — and never any text", async () => {
   const sent: { url: string; body: unknown } = { url: "", body: undefined }
   const client = makeCorviClient({
     baseUrl: "http://127.0.0.1:4000/",
@@ -42,7 +42,7 @@ test("runAction names the action and the window — and never any text", async (
       })
     },
   })
-  const result = await client.actions.runAction(ChangeId.make("demo"), "global:review", "@2")
+  const result = await client.actions.run(ChangeId.make("demo"), "global:review", "@2")
   expect(sent.url).toBe("http://127.0.0.1:4000/api/changes/demo/actions")
   // The wire carries the key and the window: the text stays on the machine.
   expect(sent.body).toEqual({ key: "global:review", window: "@2" })
@@ -66,15 +66,15 @@ test("the action files' routes go through the one /api the transport adds", asyn
     },
   })
 
-  expect(await client.actions.actionFiles()).toEqual(listing)
+  expect(await client.actions.files()).toEqual(listing)
   const file = {
     scope: "global" as const,
     id: "say-hi",
     text: "---\nlabel: Hi\nkind: prompt\n---\nhello\n",
   }
-  expect(await client.actions.writeActionFile(file)).toEqual(listing)
+  expect(await client.actions.writeFile(file)).toEqual(listing)
   expect(
-    await client.actions.deleteActionFile({ scope: "workspace", workspace: "w", id: "say-hi" }),
+    await client.actions.deleteFile({ scope: "workspace", workspace: "w", id: "say-hi" }),
   ).toEqual(listing)
 
   expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([

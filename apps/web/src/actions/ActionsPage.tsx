@@ -79,7 +79,7 @@ export function ActionsPage({
   };
 
   useEffect(() => {
-    apiClient.actions.actionFiles().then(setListing).catch((e: Error) => complain(e.message));
+    apiClient.actions.files().then(setListing).catch((e: Error) => complain(e.message));
   }, []);
 
   /** Write the file and say what happened; resolves to whether it was written. A failure keeps
@@ -89,7 +89,7 @@ export function ActionsPage({
     const write: ActionFileWriteDto = { ...targetOf(editing), id: editing.id, text: draft };
     setNotice(null);
     try {
-      const fresh = await apiClient.actions.writeActionFile(write);
+      const fresh = await apiClient.actions.writeFile(write);
       setListing(fresh);
       setEditing(null);
       say(`Saved ${write.id}.md`);
@@ -115,7 +115,7 @@ export function ActionsPage({
   const remove = (file: ActionFileDto): void => {
     if (!window.confirm(`Delete ${file.id}.md? This cannot be undone.`)) return;
     apiClient
-      .actions.deleteActionFile({ ...targetOf(file), id: file.id })
+      .actions.deleteFile({ ...targetOf(file), id: file.id })
       .then((fresh) => {
         setListing(fresh);
         setEditing(null);
@@ -135,7 +135,7 @@ export function ActionsPage({
       return;
     }
     apiClient
-      .actions.writeActionFile({ ...target, id, text: templateFor(id) })
+      .actions.writeFile({ ...target, id, text: templateFor(id) })
       .then((fresh) => {
         setListing(fresh);
         const made = fresh.files.find(

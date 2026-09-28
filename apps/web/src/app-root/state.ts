@@ -24,7 +24,7 @@ export function useWindows(): {
   const load = useCallback(
     () =>
       apiClient
-        .terminals.terminals()
+        .terminals.list()
         .then(setWindows)
         .catch(() => {}), // no tmux server yet: the next tick will find it
     [],
@@ -80,7 +80,7 @@ export function useTerminal(
   useEffect(() => {
     if (!id || archived || !wanted) return;
     apiClient
-      .terminals.terminalUrl(ChangeId.make(id))
+      .terminals.url(ChangeId.make(id))
       .then((r) => setUrl(r.url))
       .catch((e: Error) => setError(e.message));
   }, [id, archived, wanted]);

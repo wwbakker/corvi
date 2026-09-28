@@ -22,9 +22,9 @@ test("the update operations name their routes and decode the status", async () =
       return Response.json(status)
     },
   })
-  expect((await client.update.updateStatus()).behind).toBe(2)
-  expect((await client.update.checkUpdate()).commits[0]?.url).toContain("/commit/abc1234")
-  expect((await client.update.startUpdate()).restartPending).toBe(false)
+  expect((await client.update.status()).behind).toBe(2)
+  expect((await client.update.check()).commits[0]?.url).toContain("/commit/abc1234")
+  expect((await client.update.start()).restartPending).toBe(false)
   expect(calls).toEqual([
     { url: "http://127.0.0.1:4000/api/app/update", method: "GET" },
     { url: "http://127.0.0.1:4000/api/app/update/check", method: "POST" },

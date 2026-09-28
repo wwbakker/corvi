@@ -10,7 +10,7 @@ test("a failed request is a classified ClientError with the status", async () =>
     baseUrl: "http://127.0.0.1:4000",
     fetch: async () => new Response(JSON.stringify({ error: "change not found" }), { status: 404 }),
   })
-  const failure = await client.changes.inspectRepositories(ChangeId.make("absent")).then(
+  const failure = await client.changes.checkouts(ChangeId.make("absent")).then(
     () => undefined,
     (error: unknown) => error,
   )
@@ -25,7 +25,7 @@ test("an unreachable server is a classified ClientError", async () => {
       throw new Error("connection refused")
     },
   })
-  const failure = await client.changes.inspectRepositories(ChangeId.make("demo")).then(
+  const failure = await client.changes.checkouts(ChangeId.make("demo")).then(
     () => undefined,
     (error: unknown) => error,
   )
@@ -38,7 +38,7 @@ test("a payload the schema does not accept is rejected, not trusted", async () =
     baseUrl: "http://127.0.0.1:4000",
     fetch: async () => Response.json([{ repositoryId: "demo:repo" }]),
   })
-  const failure = await client.changes.inspectRepositories(ChangeId.make("demo")).then(
+  const failure = await client.changes.checkouts(ChangeId.make("demo")).then(
     () => undefined,
     (error: unknown) => error,
   )
@@ -70,7 +70,7 @@ test("a response that is not JSON is read as an out-of-date server, not a parse 
         headers: { "content-type": "text/html" },
       }),
   })
-  const failure = await client.settings.settings().then(
+  const failure = await client.settings.read().then(
     () => undefined,
     (error: unknown) => error,
   )

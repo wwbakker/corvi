@@ -182,7 +182,7 @@ const actionCommand = async (
   const id = requireChange(changeId);
   switch (command) {
     case "list": {
-      const actions = await client.actions.terminalActions(id);
+      const actions = await client.actions.list(id);
       emit(io, json, {
         value: actions,
         human: (value) =>
@@ -194,7 +194,7 @@ const actionCommand = async (
       const key = rest[0];
       if (key === undefined) throw new CliFailure("action run needs a key", EXIT.usage);
       const window = stringFlag(args, "window");
-      const result = await client.actions.runAction(id, key, window);
+      const result = await client.actions.run(id, key, window);
       emit(io, json, {
         value: result,
         human: () =>

@@ -30,7 +30,7 @@ test("terminals and the terminal URL decode", async () => {
     },
   })
 
-  expect((await client.terminals.terminals()).a?.[0]?.attention).toBe(false)
-  expect((await client.terminals.terminalUrl(ChangeId.make("a"))).url).toBe("/term/a")
+  expect((await client.terminals.list()).a?.[0]?.attention).toBe(false)
+  expect((await client.terminals.url(ChangeId.make("a"))).url).toBe("/term/a")
   expect(calls.some((url) => url.endsWith("/changes/a/terminal"))).toBe(true)
 })

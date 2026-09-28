@@ -9,12 +9,12 @@ import {
 import { decode, type RequestOptions, type Send } from "./transport.ts"
 
 export interface WorkspacesApi {
-  readonly workspaces: (options?: RequestOptions) => Promise<WorkspacesResponseDto>
+  readonly list: (options?: RequestOptions) => Promise<WorkspacesResponseDto>
   readonly pages: (workspace?: string, options?: RequestOptions) => Promise<PageInfoDto[]>
 }
 
 export const makeWorkspacesApi = (send: Send): WorkspacesApi => ({
-  workspaces: async (options) =>
+  list: async (options) =>
     decode(WorkspacesResponseSchema, await send("GET", "/workspaces", options)),
   pages: async (workspace, options) =>
     decode(

@@ -19,36 +19,36 @@ import {
 } from "./transport.ts"
 
 export interface ActionsApi {
-  readonly terminalActions: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
-  readonly runAction: (
+  readonly list: (changeId: ChangeId) => Promise<readonly ActionSummaryDto[]>
+  readonly run: (
     changeId: ChangeId,
     key: string,
     window?: string,
   ) => Promise<RunActionResultDto>
-  readonly actionFiles: () => Promise<ActionFilesResponseDto>
-  readonly writeActionFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
-  readonly deleteActionFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
+  readonly files: () => Promise<ActionFilesResponseDto>
+  readonly writeFile: (file: ActionFileWriteDto) => Promise<ActionFilesResponseDto>
+  readonly deleteFile: (ref: ActionFileRefDto) => Promise<ActionFilesResponseDto>
 }
 
 export const makeActionsApi = (send: Send): ActionsApi => {
   const change = changePath
 
   return {
-    terminalActions: async (changeId) =>
+    list: async (changeId) =>
       decode(
         mutableArray(ActionSummarySchema),
         await send("GET", `${change(changeId)}/actions`),
       ),
-    runAction: async (changeId, key, window) =>
+    run: async (changeId, key, window) =>
       decode(
         RunActionResultSchema,
         await send("POST", `${change(changeId)}/actions`, { body: { key, window } }),
       ),
-    actionFiles: async () =>
+    files: async () =>
       decode(ActionFilesResponseSchema, await send("GET", "/actions/files")),
-    writeActionFile: async (file) =>
+    writeFile: async (file) =>
       decode(ActionFilesResponseSchema, await send("PUT", "/actions/files", { body: file })),
-    deleteActionFile: async (ref) =>
+    deleteFile: async (ref) =>
       decode(
         ActionFilesResponseSchema,
         await send(

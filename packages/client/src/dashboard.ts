@@ -4,12 +4,10 @@ import {
   ChangeTabsResponseSchema,
   ChangeWidgetsResponseSchema,
   RepoItemsSchema,
-  RepoStateSchema,
   WidgetSchema,
   type CardInfoDto,
   type ChangeTabInfoDto,
   type RepoItemsDto,
-  type RepoStateDto,
   type WidgetDto,
   type WidgetInfoDto,
 } from "@corvi/contracts/api"
@@ -27,7 +25,6 @@ export interface DashboardApi {
   readonly cards: (changeId: ChangeId, options?: RequestOptions) => Promise<CardInfoDto[]>
   readonly tabs: (changeId: ChangeId, options?: RequestOptions) => Promise<ChangeTabInfoDto[]>
   readonly widgets: (changeId: ChangeId, options?: RequestOptions) => Promise<WidgetInfoDto[]>
-  readonly repoStates: (changeId: ChangeId, options?: RequestOptions) => Promise<RepoStateDto[]>
   readonly card: (changeId: ChangeId, card: string, options?: RequestOptions) => Promise<WidgetDto>
   readonly cardRepo: (
     changeId: ChangeId,
@@ -62,8 +59,6 @@ export const makeDashboardApi = (send: Send): DashboardApi => {
     widgets: async (changeId, options) =>
       decode(ChangeWidgetsResponseSchema, await send("GET", `${change(changeId)}/widgets`, options))
         .widgets,
-    repoStates: async (changeId, options) =>
-      decode(mutableArray(RepoStateSchema), await send("GET", `${change(changeId)}/repos`, options)),
     card: async (changeId, card, options) =>
       decode(WidgetSchema, await send("GET", cardPath(changeId, card), options)),
     cardRepo: async (changeId, card, repo, options) =>

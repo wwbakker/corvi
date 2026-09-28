@@ -50,7 +50,7 @@ export function useAppUpdate(): AppUpdateView {
 
   const load = useCallback((): void => {
     apiClient
-      .update.updateStatus()
+      .update.status()
       .then(setStatus)
       .catch(() => {}); // a status that cannot be read is no status; the next event retries
   }, []);
@@ -94,7 +94,7 @@ export function useAppUpdate(): AppUpdateView {
     setChecking(true);
     setError(null);
     apiClient
-      .update.checkUpdate()
+      .update.check()
       .then(setStatus)
       .catch((cause: unknown) =>
         setError(cause instanceof Error ? cause.message : String(cause)),
@@ -106,7 +106,7 @@ export function useAppUpdate(): AppUpdateView {
     setStarting(true);
     setError(null);
     apiClient
-      .update.startUpdate()
+      .update.start()
       .then(setStatus)
       .catch((cause: unknown) => {
         // A failure inside the run lands in the journal and the reload below shows it; this
