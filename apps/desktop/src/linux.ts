@@ -248,11 +248,13 @@ exec "$browser" --app="$URL" --class=${APP_ID}
 `;
 };
 
+/** The desktop entry names the launcher's `start` command: bare `corvi` is the CLI and prints
+ * usage, so an icon running it would open nothing. */
 const desktopEntry = (): string => `[Desktop Entry]
 Type=Application
 Name=${NAME}
 Comment=A local dashboard for a change: worktrees, pull requests, tickets and builds
-Exec=${launcherPath()}
+Exec=${launcherPath()} start
 Icon=${APP_ID}
 Terminal=false
 Categories=Development;IDE;
