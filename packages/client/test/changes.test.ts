@@ -92,6 +92,26 @@ test("writePlan sends the text and its base revision to the plan endpoint", asyn
   expect(JSON.parse(String(seen?.init?.body))).toEqual({ text: "saved", baseRevision: "r1" })
 })
 
+test("rename patches the change's state or title", async () => {
+  const sent: { url: string; method?: string; body: unknown } = { url: "", body: undefined }
+  const client = makeCorviClient({
+    baseUrl: "http://x",
+    fetch: async (input, init) => {
+      sent.url = String(input)
+      sent.method = init?.method
+      sent.body = JSON.parse(String(init?.body))
+      return Response.json(change("a"))
+    },
+  })
+
+  expect((await client.changes.rename(ChangeId.make("a"), { state: "Implementation" })).id).toBe(
+    "a",
+  )
+  expect(sent.url).toBe("http://x/api/changes/a")
+  expect(sent.method).toBe("PATCH")
+  expect(sent.body).toEqual({ state: "Implementation" })
+})
+
 test("the completion state and its progress decode", async () => {
   let progress = 0
   const calls: string[] = []
