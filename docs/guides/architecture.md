@@ -39,7 +39,8 @@ extracted. Integrations have no special loader or privilege level. Create packag
 responsibility is implemented; do not scaffold empty future packages. The agent reporters
 (`integrations/pi`, `integrations/opencode`) are ordinary workspace packages too, even though they
 run inside their agent rather than in Corvi's server: `bun run extension:install:pi` and
-`bun run extension:install:opencode` symlink their entry file into the agent's plugin directory.
+`bun run extension:install:opencode` symlink their source into the agent's plugin directory, in
+the shape that agent's loader resolves.
 Their only dependency is type-only on their agent's SDK, and they speak the reporter protocol
 stated in docs/manual/terminals.md.
 

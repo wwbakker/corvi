@@ -1,7 +1,6 @@
 /**
  * The one opencode plugin Corvi installs: the reporter (`agent-state.ts`) and the conversational
- * relay (`turns.ts`) composed into a single module, keeping the installer's one-symlink-per-agent
- * shape.
+ * relay (`turns.ts`) composed into the one entry the install points at (`index.ts`).
  *
  * Both halves subscribe to opencode's event stream, so composition calls each hook in turn rather
  * than replacing one with the other.
