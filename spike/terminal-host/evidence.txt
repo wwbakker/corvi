@@ -1,0 +1,36 @@
+===== versions =====
+system node: v26.8.1
+bun: 1.4.2
+electron: 44.3.0
+electron node: 24.20.0
+node-pty: 1.2.0-beta.15
+platform: linux-x64, prebuild: true, node-gyp build: false
+
+===== probe: node =====
+{"runtime":{"label":"node","execPath":"/home/wessel/.local/share/mise/installs/node/26.8.1/bin/node","node":"26.8.1","electron":null,"bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"exec","spawn":{"pid":116228,"spawnedMs":2.26},"output":{"delivered":true,"markerMs":3.36,"bytes":14,"snippet":"PROBE_MARKER\r\n"},"result":"output-delivered"}
+{"runtime":{"label":"node","execPath":"/home/wessel/.local/share/mise/installs/node/26.8.1/bin/node","node":"26.8.1","electron":null,"bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"interactive","spawn":{"pid":116237,"spawnedMs":2.36},"output":{"delivered":true,"markerMs":503.83,"bytes":85,"snippet":"\u001b[?2004hsh-5.3$ echo INTER_$(( 7 + 0 ))_MARK\r\n\u001b[?2004l\rINTER_7_MARK\r\n\u001b[?2004hsh-5.3$ "},"result":"output-delivered"}
+{"runtime":{"label":"node","execPath":"/home/wessel/.local/share/mise/installs/node/26.8.1/bin/node","node":"26.8.1","electron":null,"bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"delayed","spawn":{"pid":116255,"spawnedMs":2.5},"output":{"delivered":true,"markerMs":null,"bytes":18,"snippet":"EARLY\r\nLATE_MARK\r\n"},"result":"output-delivered"}
+
+===== probe: electron (ELECTRON_RUN_AS_NODE=1) =====
+{"runtime":{"label":"electron","execPath":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/node_modules/.bun/electron@44.3.0/node_modules/electron/dist/electron","node":"24.20.0","electron":"44.3.0","bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"exec","spawn":{"pid":116555,"spawnedMs":3.48},"output":{"delivered":true,"markerMs":4.78,"bytes":14,"snippet":"PROBE_MARKER\r\n"},"result":"output-delivered"}
+{"runtime":{"label":"electron","execPath":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/node_modules/.bun/electron@44.3.0/node_modules/electron/dist/electron","node":"24.20.0","electron":"44.3.0","bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"interactive","spawn":{"pid":116568,"spawnedMs":2.88},"output":{"delivered":true,"markerMs":504.42,"bytes":85,"snippet":"\u001b[?2004hsh-5.3$ echo INTER_$(( 7 + 0 ))_MARK\r\n\u001b[?2004l\rINTER_7_MARK\r\n\u001b[?2004hsh-5.3$ "},"result":"output-delivered"}
+{"runtime":{"label":"electron","execPath":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/node_modules/.bun/electron@44.3.0/node_modules/electron/dist/electron","node":"24.20.0","electron":"44.3.0","bun":null},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"delayed","spawn":{"pid":116611,"spawnedMs":2.88},"output":{"delivered":true,"markerMs":null,"bytes":18,"snippet":"EARLY\r\nLATE_MARK\r\n"},"result":"output-delivered"}
+
+===== probe: bun =====
+{"runtime":{"label":"bun","execPath":"/home/wessel/.local/share/mise/installs/bun/1.4.2/bin/bun","node":"26.3.0","electron":null,"bun":"1.4.2"},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"exec","spawn":{"pid":116899,"spawnedMs":2.4},"output":{"delivered":true,"markerMs":3.45,"bytes":14,"snippet":"PROBE_MARKER\r\n"},"result":"output-delivered"}
+{"runtime":{"label":"bun","execPath":"/home/wessel/.local/share/mise/installs/bun/1.4.2/bin/bun","node":"26.3.0","electron":null,"bun":"1.4.2"},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"interactive","spawn":{"pid":116907,"spawnedMs":2.33},"output":{"delivered":false,"markerMs":null,"bytes":16,"snippet":"\u001b[?2004hsh-5.3$ "},"result":"output-missing"}
+{"runtime":{"label":"bun","execPath":"/home/wessel/.local/share/mise/installs/bun/1.4.2/bin/bun","node":"26.3.0","electron":null,"bun":"1.4.2"},"nodePty":{"path":"/home/wessel/corvi/changes/improve-terminal-ui/corvi/apps/server/node_modules/node-pty","prebuild":true,"built":false},"scenario":"delayed","spawn":{"pid":116956,"spawnedMs":2.73},"output":{"delivered":false,"markerMs":null,"bytes":0,"snippet":""},"result":"output-missing"}
+
+===== adoption / update =====
+== open (build v1) ==
+{"phase":"open","adopted":false,"ensureMs":117.69,"hostPid":117004,"hostBuildId":"v1","attached":true,"markerFound":true,"output":"\u001b[?2004hsh-5.3$ echo FIRST\r\n\u001b[?2004l\rFIRST\r\n\u001b[?2004hsh-5.3$ "}
+host 117004 alive after the client exited: yes
+== adopt (build v1, new client) ==
+{"phase":"adopt","adopted":true,"ensureMs":12.79,"hostPid":117004,"hostBuildId":"v1","attached":true,"markerFound":true,"output":"\u001b[?2004hsh-5.3$ echo FIRST\r\n\u001b[?2004l\rFIRST\r\n\u001b[?2004hsh-5.3$ echo SECOND\r\n\u001b[?2004l\rSECOND\r\n\u001b[?2004hsh-5.3$ "}
+adopted the same host 117004: yes
+== stale (build v2, simulates an update) ==
+{"phase":"stale","adopted":false,"ensureMs":122.04,"hostPid":117062,"hostBuildId":"v2","attached":true,"markerFound":true,"output":"\u001b[?2004hsh-5.3$ echo THIRD\r\n\u001b[?2004l\rTHIRD\r\n\u001b[?2004hsh-5.3$ "}
+old host 117004 dead: yes
+replaced with a new host 117062: yes
+== cleanup ==
+{"phase":"cleanup","hostPid":117062}
