@@ -1,0 +1,7 @@
+== run.ts ==
+{"checks":{"host.adopted":true,"identity.hostSeedsEnv":true,"http.reporterInsidePtyUsesHostEnv":true,"http.presentWorking":true,"http.notifyExactlyOnce":true,"http.twoSessionsIndependent":true,"http.clearOnSessionEnd":true,"http.deadSessionGone":true,"http.plainShellIsTerminal":true,"osc.present":true,"osc.notifyExactlyOnce":true,"osc.stripped":true,"osc.clearedOnSessionEnd":true},"latencies":{"httpMs":{"samples":20,"medianMs":84.61,"maxMs":96.06},"oscMs":{"samples":10,"medianMs":1.5,"maxMs":1.86}}}
+== checks ==
+latency httpMs median: 84.61 ms
+latency oscMs median: 1.5 ms
+== leftovers ==
+all 15 assertions passed

@@ -14,7 +14,7 @@
  *   { type: "hello", token, requestId? }
  *   { type: "host.info", requestId? }
  *   { type: "host.shutdown", requestId? }           kill every pty, unlink records, exit
- *   { type: "session.open", id, cwd, command?, cols, rows, requestId? }
+ *   { type: "session.open", id, cwd, command?, cols, rows, env?, requestId? }
  *   { type: "session.attach", id, since?, requestId? }   replay from byte offset `since`
  *   { type: "session.detach", id, requestId? }
  *   { type: "session.write", id, data: base64, requestId? }
@@ -51,6 +51,14 @@
  *     Data and exit events carry it, so a client can tell a reused id from the session it
  *     replaced; reopening a retained dead id detaches the old pty's subscribers, and the old
  *     pty's late output/exit is dropped rather than emitted for the reused id;
+ *   - **identity**: every pty is seeded with `CORVI_SESSION_ID=<id>` and
+ *     `CORVI_SESSION_INCARNATION=<n>`, so a reporter inside it can name its own session without
+ *     guessing from tmux. A caller may add `env` on `session.open`; the host's identity wins;
+ *   - **OSC status** (one transport): a reporter may emit `ESC ] 1337 ; corvi = <base64 json> BEL`
+ *     (json `{status:"working"|"waiting"|"clear", name?, message?}`). The host parses it out of
+ *     the pty stream, strips it before forwarding, records it on the session (see
+ *     `session.list`'s `status`), and clears it on exit. Malformed or split sequences are held
+ *     or dropped, never leaked to the display;
  *   - **idle shutdown**: with `--idle-ms N` (0 disables), once there are no client connections
  *     and no live sessions for `N` ms, the host shuts down. A live session always keeps it up,
  *     and an accepted connection cancels a pending shutdown.
@@ -124,9 +132,83 @@ type Session = {
   exitCode?: number;
   signal?: number;
   exitedAt?: string;
+  /** The parsed OSC status this session's reporter last sent, if any. */
+  status?: {
+    readonly state: "working" | "waiting";
+    readonly name?: string;
+    readonly message?: string;
+    readonly at: string;
+  };
+  /** Bytes held back because they might be the start of a split OSC status sequence. */
+  oscCarry: Buffer;
   /** Set when this session object is superseded (killed-and-reopened); its late pty callbacks
    * must not emit for the reused id. */
   retired: boolean;
+};
+
+/** A status payload as parsed from an OSC sequence. */
+type OscStatus = { readonly status: "working" | "waiting" | "clear"; readonly name?: string; readonly message?: string };
+
+const OSC_INTRO = Buffer.from("\x1b]1337;corvi=", "ascii");
+const OSC_ST = Buffer.from("\x1b\\", "ascii");
+const MAX_OSC_CARRY = 8192;
+
+/** The length of the longest suffix of `buffer` that is a prefix of the OSC introducer: only that
+ * many bytes may be held for the next chunk. Holding a fixed tail would delay ordinary output. */
+const partialIntroLength = (buffer: Buffer): number => {
+  const max = Math.min(buffer.length, OSC_INTRO.length - 1);
+  for (let len = max; len > 0; len--) {
+    if (buffer.subarray(buffer.length - len).equals(OSC_INTRO.subarray(0, len))) return len;
+  }
+  return 0;
+};
+
+/** Split pty bytes into displayable output and any status sequences. An incomplete introducer
+ * or body is carried to the next chunk; an over-long unterminated one is dropped (never
+ * forwarded), so a broken reporter cannot leak control bytes to the screen or grow memory. */
+const parseOsc = (
+  input: Buffer,
+  carry: Buffer,
+): { readonly clean: Buffer; readonly carry: Buffer; readonly statuses: OscStatus[] } => {
+  let buf = carry.length > 0 ? Buffer.concat([carry, input]) : input;
+  const out: Buffer[] = [];
+  const statuses: OscStatus[] = [];
+  for (;;) {
+    const start = buf.indexOf(OSC_INTRO);
+    if (start === -1) {
+      const keep = partialIntroLength(buf);
+      out.push(buf.subarray(0, buf.length - keep));
+      return { clean: Buffer.concat(out), carry: buf.subarray(buf.length - keep), statuses };
+    }
+    out.push(buf.subarray(0, start));
+    const after = start + OSC_INTRO.length;
+    const bel = buf.indexOf(0x07, after);
+    const st = buf.indexOf(OSC_ST, after);
+    let end = -1;
+    let term = 0;
+    if (bel !== -1 && (st === -1 || bel < st)) {
+      end = bel;
+      term = 1;
+    } else if (st !== -1) {
+      end = st;
+      term = OSC_ST.length;
+    }
+    if (end === -1) {
+      if (buf.length - start > MAX_OSC_CARRY) {
+        // Dropped: an unterminated sequence must not be forwarded or held forever.
+        return { clean: Buffer.concat(out), carry: Buffer.alloc(0), statuses };
+      }
+      return { clean: Buffer.concat(out), carry: buf.subarray(start), statuses };
+    }
+    const payload = buf.subarray(after, end).toString("ascii");
+    try {
+      const json = JSON.parse(Buffer.from(payload, "base64").toString("utf8")) as OscStatus;
+      if (json.status === "working" || json.status === "waiting" || json.status === "clear") statuses.push(json);
+    } catch {
+      // malformed payload: dropped
+    }
+    buf = buf.subarray(end + term);
+  }
 };
 
 const argOf = (name: string): string | undefined => {
@@ -208,6 +290,7 @@ const openSession = (
   command: readonly string[],
   cols: number,
   rows: number,
+  env: Record<string, string> | undefined,
 ): { opened: boolean; incarnation: number } => {
   const existing = sessions.get(id);
   if (existing?.alive) return { opened: false, incarnation: existing.incarnation };
@@ -227,7 +310,14 @@ const openSession = (
     rows,
     // Raw bytes, not decoded strings: the pty owns the byte stream and so should we.
     encoding: null,
-    env: { ...process.env, TERM: "xterm-256color" },
+    // The reporter's identity is the host's to give: a caller's env cannot override it.
+    env: {
+      ...process.env,
+      ...(env ?? {}),
+      TERM: "xterm-256color",
+      CORVI_SESSION_ID: id,
+      CORVI_SESSION_INCARNATION: String(incarnation),
+    },
   });
   const session: Session = {
     id,
@@ -240,13 +330,29 @@ const openSession = (
     emitted: 0,
     subscribers: new Set(),
     alive: true,
+    oscCarry: Buffer.alloc(0),
     retired: false,
   };
   sessions.set(id, session);
   touch();
   child.onData((data) => {
     if (session.retired || sessions.get(id) !== session) return;
-    const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+    const raw = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+    const parsed = parseOsc(raw, session.oscCarry);
+    session.oscCarry = parsed.carry;
+    for (const status of parsed.statuses) {
+      session.status =
+        status.status === "clear"
+          ? undefined
+          : {
+              state: status.status,
+              ...(status.name ? { name: status.name } : {}),
+              ...(status.message ? { message: status.message } : {}),
+              at: new Date().toISOString(),
+            };
+    }
+    const chunk = parsed.clean;
+    if (chunk.length === 0) return;
     const entry: Buffered = { offset: session.emitted, data: chunk };
     session.emitted += chunk.length;
     session.buffer.push(entry);
@@ -270,6 +376,8 @@ const openSession = (
     session.exitCode = exitCode;
     session.signal = sig;
     session.exitedAt = new Date().toISOString();
+    // A dead session has no live reporter, so its status would be stale.
+    session.status = undefined;
     touch();
     for (const connection of session.subscribers) {
       send(connection.socket, {
@@ -347,6 +455,7 @@ const listSessions = (): SessionInfo[] =>
     ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
     ...(session.signal !== undefined ? { signal: session.signal } : {}),
     ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
+    ...(session.status !== undefined ? { status: session.status } : {}),
   }));
 
 const handle = (connection: Connection, request: Record<string, unknown>): void => {
@@ -396,7 +505,11 @@ const handle = (connection: Connection, request: Record<string, unknown>): void 
       const cols = typeof request.cols === "number" ? request.cols : 80;
       const rows = typeof request.rows === "number" ? request.rows : 24;
       const cwd = typeof request.cwd === "string" ? request.cwd : checkout;
-      respond(connection, request, openSession(id, cwd, command, cols, rows));
+      const env =
+        typeof request.env === "object" && request.env !== null
+          ? (request.env as Record<string, string>)
+          : undefined;
+      respond(connection, request, openSession(id, cwd, command, cols, rows, env));
       return;
     }
     case "session.attach": {

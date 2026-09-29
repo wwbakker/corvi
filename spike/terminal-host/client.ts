@@ -60,6 +60,12 @@ export type SessionInfo = {
   readonly exitCode?: number;
   readonly signal?: number;
   readonly exitedAt?: string;
+  readonly status?: {
+    readonly state: "working" | "waiting";
+    readonly name?: string;
+    readonly message?: string;
+    readonly at: string;
+  };
 };
 
 export type AttachResult = {
@@ -187,7 +193,7 @@ export class HostClient {
 
   async open(
     id: string,
-    options: { cwd: string; command?: string[]; cols?: number; rows?: number },
+    options: { cwd: string; command?: string[]; cols?: number; rows?: number; env?: Record<string, string> },
   ): Promise<{ opened: boolean; incarnation: number }> {
     const reply = expectOk(
       await this.call({
@@ -197,6 +203,7 @@ export class HostClient {
         command: options.command,
         cols: options.cols ?? 80,
         rows: options.rows ?? 24,
+        env: options.env,
       }),
       `open ${id}`,
     );
