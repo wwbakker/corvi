@@ -3,33 +3,37 @@
  *
  * It listens on a unix socket and speaks newline-delimited JSON. Each connection must first
  * `hello` with the token from `<socket>.token` (mode 0600). The host writes three records
- * beside the socket, all mode 0600:
+ * beside the socket, all mode 0600, **after** it is listening, so a client never reads a token
+ * for a host that failed to bind:
  *
  *   <socket>.token       the bearer token for the hello
  *   <socket>.pid         the host's pid
  *   <socket>.owner.json  pid, checkout path, build id, runtime versions, protocol
  *
  * Client -> host:
- *   { type: "hello", token }
- *   { type: "host.info" }
- *   { type: "host.shutdown" }                       kill every pty, unlink records, exit
- *   { type: "session.open", id, cwd, command?, cols, rows }
- *   { type: "session.attach", id }                  replay buffered output, then stream
- *   { type: "session.detach", id }
+ *   { type: "hello", token, requestId? }
+ *   { type: "host.info", requestId? }
+ *   { type: "host.shutdown", requestId? }           kill every pty, unlink records, exit
+ *   { type: "session.open", id, cwd, command?, cols, rows, requestId? }
+ *   { type: "session.attach", id, since?, requestId? }   replay from byte offset `since`
+ *   { type: "session.detach", id, requestId? }
  *   { type: "session.write", id, data: base64 }
  *   { type: "session.resize", id, cols, rows }
- *   { type: "session.kill", id }
+ *   { type: "session.kill", id, requestId? }
  *
  * Host -> client:
- *   { type: "welcome", owner }
- *   { type: "ok", request, ... }
- *   { type: "error", request, message }
- *   { type: "data", id, data: base64 }
+ *   { type: "welcome", requestId?, owner }
+ *   { type: "ok", request, requestId?, ... }
+ *   { type: "error", request, requestId?, message }
+ *   { type: "data", id, seq, data: base64 }         seq is the offset of the first byte
  *   { type: "exit", id, exitCode }
  *
- * Output is base64 so a line boundary in the JSON framing can never be mistaken for terminal
- * output. A session keeps its pty (and a bounded replay buffer) whether or not a client is
- * attached; detaching never kills the shell.
+ * Every reply echoes the request's `requestId`, so a client matches replies by id, not by type
+ * order. Output and input are raw bytes end to end: the pty is spawned with `encoding: null`, its
+ * Buffer output is base64'd straight through, and `session.write` decodes back to a Buffer. A
+ * session keeps its pty (and a bounded replay buffer with byte offsets) whether or not a client
+ * is attached; detaching never kills the shell, and `attach` with `since` skips output the client
+ * already has.
  */
 import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
@@ -37,6 +41,9 @@ import { createServer, type Server, type Socket } from "node:net";
 import { loadNodePty, type IPty } from "./pty.ts";
 
 const MAX_BUFFER_BYTES = 256 * 1024;
+/** Bumped when the wire protocol changes incompatibly; a client refuses a host whose protocol
+ * differs (see client.ts). */
+export const PROTOCOL = 1;
 
 const loaded = loadNodePty();
 if ("error" in loaded) {
@@ -63,11 +70,16 @@ type Connection = {
   readonly subscriptions: Set<string>;
 };
 
+/** One chunk of output as it sat in the stream: `offset` is the byte offset of its first byte. */
+type Buffered = { readonly offset: number; readonly data: Buffer };
+
 type Session = {
   readonly id: string;
   readonly pty: IPty;
-  readonly buffer: Buffer[];
+  readonly buffer: Buffered[];
   bufferBytes: number;
+  /** Total bytes emitted for this session: the next chunk's offset. */
+  emitted: number;
   readonly subscribers: Set<Connection>;
   alive: boolean;
 };
@@ -91,7 +103,7 @@ const owner: Owner = {
   socket: socketPath,
   checkout,
   buildId,
-  protocol: 1,
+  protocol: PROTOCOL,
   startedAt: new Date().toISOString(),
   node: process.versions.node,
   electron: process.versions.electron,
@@ -106,12 +118,18 @@ const send = (socket: Socket, message: unknown): void => {
   socket.write(`${JSON.stringify(message)}\n`);
 };
 
-const broadcast = (session: Session, message: unknown): void => {
-  for (const connection of session.subscribers) send(connection.socket, message);
+const respond = (connection: Connection, request: Record<string, unknown>, extra: Record<string, unknown> = {}): void => {
+  send(connection.socket, { type: "ok", request: String(request.type), requestId: request.requestId, ...extra });
 };
 
-const forward = (session: Session, chunk: Buffer): void => {
-  broadcast(session, { type: "data", id: session.id, data: chunk.toString("base64") });
+const fail = (connection: Connection, request: Record<string, unknown>, message: string): void => {
+  send(connection.socket, { type: "error", request: String(request.type), requestId: request.requestId, message });
+};
+
+const trimBuffer = (session: Session): void => {
+  while (session.bufferBytes > MAX_BUFFER_BYTES && session.buffer.length > 1) {
+    session.bufferBytes -= session.buffer.shift()!.data.length;
+  }
 };
 
 const openSession = (
@@ -129,34 +147,52 @@ const openSession = (
     cwd,
     cols,
     rows,
+    // Raw bytes, not decoded strings: the pty owns the byte stream and so should we.
+    encoding: null,
     env: { ...process.env, TERM: "xterm-256color" },
   });
-  const session: Session = { id, pty: child, buffer: [], bufferBytes: 0, subscribers: new Set(), alive: true };
+  const session: Session = {
+    id,
+    pty: child,
+    buffer: [],
+    bufferBytes: 0,
+    emitted: 0,
+    subscribers: new Set(),
+    alive: true,
+  };
   sessions.set(id, session);
   child.onData((data) => {
-    const chunk = Buffer.from(data, "utf8");
-    session.buffer.push(chunk);
+    const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
+    const entry: Buffered = { offset: session.emitted, data: chunk };
+    session.emitted += chunk.length;
+    session.buffer.push(entry);
     session.bufferBytes += chunk.length;
-    while (session.bufferBytes > MAX_BUFFER_BYTES && session.buffer.length > 1) {
-      session.bufferBytes -= session.buffer.shift()!.length;
+    trimBuffer(session);
+    for (const connection of session.subscribers) {
+      send(connection.socket, { type: "data", id, seq: entry.offset, data: chunk.toString("base64") });
     }
-    forward(session, chunk);
   });
   child.onExit(({ exitCode }) => {
     session.alive = false;
-    broadcast(session, { type: "exit", id, exitCode });
+    for (const connection of session.subscribers) {
+      send(connection.socket, { type: "exit", id, exitCode });
+    }
     sessions.delete(id);
   });
   return { opened: true };
 };
 
-const attach = (connection: Connection, id: string): { attached: boolean } => {
+const attach = (connection: Connection, id: string, since: number): { attached: boolean } => {
   const session = sessions.get(id);
   if (session === undefined) return { attached: false };
   connection.subscriptions.add(id);
   session.subscribers.add(connection);
-  for (const chunk of session.buffer) {
-    send(connection.socket, { type: "data", id, data: chunk.toString("base64") });
+  for (const entry of session.buffer) {
+    const end = entry.offset + entry.data.length;
+    if (end <= since) continue;
+    const skip = Math.max(0, since - entry.offset);
+    const data = skip === 0 ? entry.data : entry.data.subarray(skip);
+    send(connection.socket, { type: "data", id, seq: entry.offset + skip, data: data.toString("base64") });
   }
   return { attached: true };
 };
@@ -169,53 +205,66 @@ const detach = (connection: Connection, id: string): void => {
 const handle = (connection: Connection, request: Record<string, unknown>): void => {
   const type = String(request.type);
   if (type !== "hello" && !connection.authed) {
-    send(connection.socket, { type: "error", request: type, message: "hello first" });
+    fail(connection, request, "hello first");
     return;
   }
   const id = typeof request.id === "string" ? request.id : undefined;
   switch (type) {
     case "hello": {
       if (request.token !== token) {
-        send(connection.socket, { type: "error", request: type, message: "bad token" });
+        fail(connection, request, "bad token");
         connection.socket.end();
         return;
       }
       connection.authed = true;
-      send(connection.socket, { type: "welcome", owner });
+      send(connection.socket, { type: "welcome", requestId: request.requestId, owner });
       return;
     }
     case "host.info":
-      send(connection.socket, { type: "ok", request: type, owner });
+      respond(connection, request, { owner });
       return;
-    case "host.shutdown":
-      send(connection.socket, { type: "ok", request: type });
-      shutdown();
+    case "host.shutdown": {
+      // Reply, let the write drain, then tear down: a client that asked for shutdown can read
+      // the answer before the socket dies under it.
+      let finished = false;
+      const finish = (): void => {
+        if (finished) return;
+        finished = true;
+        shutdown();
+      };
+      connection.socket.write(
+        `${JSON.stringify({ type: "ok", request: type, requestId: request.requestId })}\n`,
+        finish,
+      );
+      setTimeout(finish, 250);
       return;
+    }
     case "session.open": {
       if (id === undefined) {
-        send(connection.socket, { type: "error", request: type, message: "id required" });
+        fail(connection, request, "id required");
         return;
       }
       const command = Array.isArray(request.command) ? (request.command as string[]) : ["/bin/sh"];
       const cols = typeof request.cols === "number" ? request.cols : 80;
       const rows = typeof request.rows === "number" ? request.rows : 24;
       const cwd = typeof request.cwd === "string" ? request.cwd : checkout;
-      send(connection.socket, { type: "ok", request: type, ...openSession(id, cwd, command, cols, rows) });
+      respond(connection, request, openSession(id, cwd, command, cols, rows));
       return;
     }
     case "session.attach": {
       if (id === undefined) return;
-      send(connection.socket, { type: "ok", request: type, ...attach(connection, id) });
+      const since = typeof request.since === "number" ? request.since : 0;
+      respond(connection, request, attach(connection, id, since));
       return;
     }
     case "session.detach":
       if (id !== undefined) detach(connection, id);
-      send(connection.socket, { type: "ok", request: type });
+      respond(connection, request);
       return;
     case "session.write": {
       const session = id === undefined ? undefined : sessions.get(id);
       if (session && typeof request.data === "string") {
-        session.pty.write(Buffer.from(request.data, "base64").toString("utf8"));
+        session.pty.write(Buffer.from(request.data, "base64"));
       }
       return;
     }
@@ -239,11 +288,11 @@ const handle = (connection: Connection, request: Record<string, unknown>): void 
           // already gone
         }
       }
-      send(connection.socket, { type: "ok", request: type });
+      respond(connection, request);
       return;
     }
     default:
-      send(connection.socket, { type: "error", request: type, message: `unknown request ${type}` });
+      fail(connection, request, `unknown request ${type}`);
   }
 };
 
@@ -274,10 +323,6 @@ const shutdown = (): void => {
   process.exit(0);
 };
 
-writeFileSync(`${socketPath}.token`, token, { mode: 0o600 });
-writeFileSync(`${socketPath}.pid`, String(process.pid), { mode: 0o600 });
-writeFileSync(`${socketPath}.owner.json`, JSON.stringify(owner), { mode: 0o600 });
-
 server = createServer((socket) => {
   const connection: Connection = { socket, authed: false, subscriptions: new Set() };
   connections.add(connection);
@@ -305,13 +350,21 @@ server = createServer((socket) => {
   socket.on("error", () => socket.destroy());
 });
 
+// The socket must be 0600 the moment it exists, so tighten the umask across listen. The records
+// are written only once we are listening: a failed bind leaves any existing host's records alone.
+const previousUmask = process.umask(0o077);
 server.on("error", (e) => {
+  process.umask(previousUmask);
+  // Never unlink records here: on EADDRINUSE they belong to the live host that already bound.
   console.error(`host: ${e.message}`);
   process.exit(1);
 });
-
 server.listen(socketPath, () => {
+  process.umask(previousUmask);
   chmodSync(socketPath, 0o600);
+  writeFileSync(`${socketPath}.token`, token, { mode: 0o600 });
+  writeFileSync(`${socketPath}.pid`, String(process.pid), { mode: 0o600 });
+  writeFileSync(`${socketPath}.owner.json`, JSON.stringify(owner), { mode: 0o600 });
   console.log(`host ${process.pid} listening on ${socketPath}`);
 });
 

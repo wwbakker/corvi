@@ -2,19 +2,28 @@
  * The client helper: start a terminal host or adopt the one already running, then drive it.
  *
  * `ensureHost` is the interesting half. It reads the host's owner record and, when the record's
- * checkout path and build id match what this client expects, connects to the running host
- * instead of starting a new one. When they disagree — the host came from another checkout or
- * another build — the old host is shut down and a fresh one is started. When the record is
- * missing or its socket is dead, a fresh host is started.
+ * checkout path, build id and protocol match what this client expects, connects to the running
+ * host instead of starting a new one. A *real* mismatch — different checkout, build or protocol —
+ * replaces the old host. A *transient* failure (connection refused, handshake or info timeout)
+ * is retried with backoff and never turns into a signal to a possibly-live host; only files whose
+ * pid is not a verified live host are unlinked.
  *
- * `HostClient` wraps one connection: request/response for control, and `onData`/`onExit` for the
- * streaming half. Detaching (`close`) leaves the host and every pty alive, which is what makes
- * adoption observable.
+ * Check-and-spawn is serialized with an exclusive `<socket>.lock` (O_CREAT|O_EXCL), so two
+ * clients starting at once cannot both spawn a host. Before any pid is signalled, `stopStale`
+ * verifies it is the host (on Linux, `/proc/<pid>/cmdline` names this host script and socket).
+ *
+ * `HostClient` wraps one connection: request/response matched by `requestId`, and `onData`/
+ * `onExit` for the streaming half. Data events carry a byte `seq`, and `attach` sends the offset
+ * the client already has, so a reconnect does not duplicate output. Detaching (`close`) leaves
+ * the host and every pty alive, which is what makes adoption observable.
  */
-import { existsSync, readFileSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+/** Must equal the host's protocol constant. */
+export const PROTOCOL = 1;
 
 export type HostOwner = {
   readonly pid: number;
@@ -47,9 +56,12 @@ const processAlive = (pid: number): boolean => {
 
 export class HostClient {
   private readonly socket: Socket;
-  private pending = new Map<string, ((value: Record<string, unknown>) => void)[]>();
+  private nextId = 0;
+  private readonly pending = new Map<number, (value: Record<string, unknown>) => void>();
   private readonly dataListeners = new Map<string, ((data: Buffer) => void)[]>();
   private readonly exitListeners = new Map<string, ((exitCode: number) => void)[]>();
+  /** Highest byte offset received per session: what `attach` asks the host to resume from. */
+  private readonly received = new Map<string, number>();
   private buffer = "";
 
   private constructor(socket: Socket) {
@@ -75,6 +87,8 @@ export class HostClient {
   private dispatch(message: Record<string, unknown>): void {
     if (message.type === "data" && typeof message.id === "string" && typeof message.data === "string") {
       const data = Buffer.from(message.data, "base64");
+      const seq = typeof message.seq === "number" ? message.seq : 0;
+      this.received.set(message.id, Math.max(this.received.get(message.id) ?? 0, seq + data.length));
       for (const listener of this.dataListeners.get(message.id) ?? []) listener(data);
       return;
     }
@@ -83,33 +97,25 @@ export class HostClient {
       for (const listener of this.exitListeners.get(message.id) ?? []) listener(code);
       return;
     }
-    const request = typeof message.request === "string" ? message.request : "hello";
-    const waiters = this.pending.get(request);
-    const waiter = waiters?.shift();
-    if (waiter) waiter(message);
+    if (typeof message.requestId === "number") {
+      const waiter = this.pending.get(message.requestId);
+      this.pending.delete(message.requestId);
+      waiter?.(message);
+    }
   }
 
   private call(message: Record<string, unknown>): Promise<Record<string, unknown>> {
-    const request = String(message.type);
+    const requestId = ++this.nextId;
     return new Promise((resolve, reject) => {
-      let settled = false;
       const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        const current = this.pending.get(request);
-        if (current) this.pending.set(request, current.filter((w) => w !== done));
-        reject(new Error(`host request timed out: ${request}`));
+        this.pending.delete(requestId);
+        reject(new Error(`host request timed out: ${String(message.type)}`));
       }, 5000);
-      const done = (value: Record<string, unknown>): void => {
-        if (settled) return;
-        settled = true;
+      this.pending.set(requestId, (value) => {
         clearTimeout(timer);
         resolve(value);
-      };
-      const waiters = this.pending.get(request) ?? [];
-      waiters.push(done);
-      this.pending.set(request, waiters);
-      this.socket.write(`${JSON.stringify(message)}\n`);
+      });
+      this.socket.write(`${JSON.stringify({ ...message, requestId })}\n`);
     });
   }
 
@@ -137,8 +143,10 @@ export class HostClient {
     return { opened: Boolean(reply.opened) };
   }
 
-  async attach(id: string): Promise<{ attached: boolean }> {
-    const reply = await this.call({ type: "session.attach", id });
+  /** Attach, resuming from `since` (default: the highest offset this connection has seen). */
+  async attach(id: string, since?: number): Promise<{ attached: boolean }> {
+    const from = since ?? this.received.get(id) ?? 0;
+    const reply = await this.call({ type: "session.attach", id, since: from });
     return { attached: Boolean(reply.attached) };
   }
 
@@ -195,6 +203,8 @@ export class HostClient {
   }
 }
 
+const hostScript = fileURLToPath(new URL("./host.ts", import.meta.url));
+
 /** Read the owner record, whether or not the process is still there. */
 const readOwner = (socketPath: string): HostOwner | undefined => {
   const path = `${socketPath}.owner.json`;
@@ -216,7 +226,25 @@ const removeRecords = (socketPath: string): void => {
   }
 };
 
-/** Stop a host the client can no longer talk to: ask, then signal, then insist. */
+/** Is `pid` the host for this socket? On Linux the command line is the proof. Off Linux (macOS)
+ * we cannot read a command line portably here, so we only accept a live pid whose owner record
+ * predates now — the weak check the reviewers allowed, and a spot for a `ps -o` follow-up. */
+const verifiedHostPid = (owner: HostOwner, socketPath: string): boolean => {
+  if (!processAlive(owner.pid)) return false;
+  if (process.platform === "linux") {
+    try {
+      const cmdline = readFileSync(`/proc/${owner.pid}/cmdline`, "utf8");
+      return cmdline.includes(hostScript) && cmdline.includes(socketPath);
+    } catch {
+      return false;
+    }
+  }
+  const started = Date.parse(owner.startedAt);
+  return Number.isFinite(started) && started <= Date.now();
+};
+
+/** Stop a host the client can no longer talk to. The graceful path is authenticated; the signal
+ * path only ever touches a pid `verifiedHostPid` accepts. */
 const stopStale = async (socketPath: string): Promise<void> => {
   const owner = readOwner(socketPath);
   try {
@@ -226,7 +254,7 @@ const stopStale = async (socketPath: string): Promise<void> => {
   } catch {
     // no handshake; fall through to signals
   }
-  if (owner !== undefined && processAlive(owner.pid)) {
+  if (owner !== undefined && verifiedHostPid(owner, socketPath)) {
     try {
       process.kill(owner.pid, "SIGTERM");
     } catch {
@@ -243,29 +271,80 @@ const stopStale = async (socketPath: string): Promise<void> => {
   }
 };
 
-const hostScript = fileURLToPath(new URL("./host.ts", import.meta.url));
-
-/** Start-or-adopt. The returned client is connected and handshaken; the caller owns whether it
- * closes (detach) or not (adopt). */
-export const ensureHost = async (options: EnsureOptions): Promise<{ client: HostClient; adopted: boolean }> => {
-  const existing = readOwner(options.socket);
-  if (existing !== undefined && existsSync(options.socket)) {
-    try {
-      const client = await HostClient.connect(options.socket);
-      const owner = await client.info();
-      if (owner.checkout === options.checkout && owner.buildId === options.buildId) {
-        return { client, adopted: true };
-      }
-      // Ownership disagrees: this host belongs to another build. Replace it.
-      await client.shutdown().catch(() => undefined);
-      client.close();
-      await stopStale(options.socket);
-    } catch {
-      await stopStale(options.socket);
-    }
-    removeRecords(options.socket);
+const retire = async (client: HostClient | undefined, socketPath: string): Promise<void> => {
+  if (client) {
+    await client.shutdown().catch(() => undefined);
+    client.close();
   }
+  await stopStale(socketPath);
+  removeRecords(socketPath);
+};
 
+type Inspection =
+  | { readonly kind: "none" }
+  | { readonly kind: "transient"; readonly error: string }
+  | { readonly kind: "host"; readonly client: HostClient; readonly owner: HostOwner };
+
+const inspect = async (socketPath: string): Promise<Inspection> => {
+  if (!existsSync(socketPath)) {
+    // An owner record without a socket is a dead host's leftovers; both `none` and the missing
+    // socket fall through to cleanup/start in ensureHost.
+    return { kind: "none" };
+  }
+  try {
+    const client = await HostClient.connect(socketPath);
+    const owner = await client.info();
+    return { kind: "host", client, owner };
+  } catch (e) {
+    return { kind: "transient", error: e instanceof Error ? e.message : String(e) };
+  }
+};
+
+const sameOwner = (owner: HostOwner, options: EnsureOptions): boolean =>
+  owner.checkout === options.checkout && owner.buildId === options.buildId && owner.protocol === PROTOCOL;
+
+/** Serialize check-and-spawn across processes. A lock left by a dead process is reclaimed. */
+const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<T> => {
+  const lockPath = `${socketPath}.lock`;
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    try {
+      const fd = openSync(lockPath, "wx", 0o600);
+      writeFileSync(fd, String(process.pid));
+      closeSync(fd);
+      try {
+        return await body();
+      } finally {
+        try {
+          unlinkSync(lockPath);
+        } catch {
+          // already gone
+        }
+      }
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      let holder = NaN;
+      try {
+        holder = Number(readFileSync(lockPath, "utf8").trim());
+      } catch {
+        // vanished between open and read
+      }
+      if (!Number.isFinite(holder) || !processAlive(holder)) {
+        try {
+          unlinkSync(lockPath);
+        } catch {
+          // someone else got it
+        }
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error(`the lock at ${lockPath} is held by pid ${holder}`);
+      await sleep(50);
+    }
+  }
+};
+
+const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: HostClient; adopted: boolean }> => {
+  if (depth > 2) throw new Error(`could not start a host of our own at ${options.socket}`);
   const env = { ...process.env };
   if (process.versions.electron !== undefined) env.ELECTRON_RUN_AS_NODE = "1";
   const child = spawn(
@@ -280,8 +359,11 @@ export const ensureHost = async (options: EnsureOptions): Promise<{ client: Host
     if (existsSync(`${options.socket}.token`) && existsSync(options.socket)) {
       try {
         const client = await HostClient.connect(options.socket);
-        await client.info();
-        return { client, adopted: false };
+        const owner = await client.info();
+        if (sameOwner(owner, options)) return { client, adopted: false };
+        // A racing host with different ownership won the bind: replace it and start ours.
+        await retire(client, options.socket);
+        return spawnHost(options, depth + 1);
       } catch {
         // still coming up
       }
@@ -290,3 +372,41 @@ export const ensureHost = async (options: EnsureOptions): Promise<{ client: Host
     await sleep(25);
   }
 };
+
+const ensureUnlocked = async (options: EnsureOptions): Promise<{ client: HostClient; adopted: boolean }> => {
+  const first = await inspect(options.socket);
+  if (first.kind === "host") {
+    if (sameOwner(first.owner, options)) return { client: first.client, adopted: true };
+    // Ownership disagrees: this host belongs to another build or checkout. Replace it.
+    await retire(first.client, options.socket);
+  } else if (first.kind === "transient") {
+    // A transient failure is never a reason to signal a pid. Retry; only unlink records when no
+    // verified live host owns them.
+    const owner = readOwner(options.socket);
+    const verified = owner !== undefined && verifiedHostPid(owner, options.socket);
+    const deadline = Date.now() + (verified ? 5000 : 1000);
+    for (;;) {
+      await sleep(100);
+      const again = await inspect(options.socket);
+      if (again.kind === "host") {
+        if (sameOwner(again.owner, options)) return { client: again.client, adopted: true };
+        await retire(again.client, options.socket);
+        break;
+      }
+      if (again.kind === "none") break;
+      if (Date.now() > deadline) {
+        if (!verified) {
+          removeRecords(options.socket);
+          break;
+        }
+        throw new Error(`a live host holds ${options.socket} but did not answer: ${first.error}`);
+      }
+    }
+  }
+  return spawnHost(options);
+};
+
+/** Start-or-adopt, serialized across processes. The returned client is connected and handshaken;
+ * the caller owns whether it closes (detach) or not (adopt). */
+export const ensureHost = async (options: EnsureOptions): Promise<{ client: HostClient; adopted: boolean }> =>
+  withLock(options.socket, () => ensureUnlocked(options));

@@ -14,9 +14,9 @@ import { fileURLToPath } from "node:url";
 
 export type IPty = {
   readonly pid: number;
-  onData: (listener: (data: string) => void) => void;
+  onData: (listener: (data: Buffer) => void) => void;
   onExit: (listener: (event: { exitCode: number; signal?: number }) => void) => void;
-  write: (data: string) => void;
+  write: (data: string | Buffer) => void;
   resize: (cols: number, rows: number) => void;
   kill: (signal?: string) => void;
 };

@@ -39,12 +39,16 @@ Full output: `evidence.txt`. Times are wall-clock from spawn to the marker.
 | Electron 44.3.0 (Node 24.20.0) | delivered, 4.78 ms, spawn 3.48 ms | delivered at 504.4 ms | delivered |
 | Bun 1.4.2 | delivered, 3.45 ms, spawn 2.40 ms | **missing** (saw only the 16-byte prompt) | **missing** (0 bytes) |
 
-Node and Electron pass. **Bun's real behaviour is subtler than "never delivers output":** it
-delivers whatever the pty produced synchronously at spawn (the shell prompt, or an `echo` in a
-`-c` one-liner), then stops pumping the poll handle. Any output produced *later* — which is
-everything a user types — never arrives. The practical conclusion is unchanged: the server must
-run the terminal on Node, exactly as `apps/server/src/terminals/server/session.ts` already
-guards. The plan's wording should be tightened when this lands in a decision record.
+Node and Electron pass. The interactive marker's ~503–504 ms is the probe's own scripted 500 ms
+delay before it writes, so the pty itself added only ~3–4 ms. Bun's observed behaviour is narrower
+than "never delivers output": it delivers whatever the pty produced at spawn (the shell prompt, or
+an `echo` in a `-c` one-liner), and then no later output arrives — the `delayed` scenario saw 0
+bytes, and the interactive one never saw the typed command's output. That is the whole of the
+evidence; the internal cause is not diagnosed here. The practical conclusion is unchanged: the
+server must run the terminal on Node, exactly as `apps/server/src/terminals/server/session.ts`
+guards. The plan's wording should be tightened when this lands in a decision record, and the
+`session.ts` comment ("never delivers a byte of its output") is a follow-up for the real
+implementation — not edited in this spike round.
 
 ## The host and the protocol
 
@@ -104,7 +108,9 @@ tmux socket (`tmux -S <tmp>/tmux.sock`, `$TMUX` deleted, never `-L corvi`). The 
 started with isolated `CORVI_ROOT` / `CORVI_CONFIG` / `CORVI_CACHE` / `XDG_STATE_HOME`. Method and
 numbers (`spike/baseline/results.json`):
 
-- **Part A — data plane** (`node-pty` spawning the product's `tmux -S … new-session -A … attach`):
+- **Part A — data plane** (`node-pty` spawning a trimmed `tmux -S … new-session -A -s … -c …`
+  template): the tmux argv here omits the `set-option` / context-`-e` half of the product's real
+  `attachCommand`, so these numbers are the pty+tmux data plane, not the full product argv.
   - input round-trip (`echo RTT_$(( n + 0 ))_END`; the marker is only emitted by the command, not
     the echoed input), 30 samples: min 2.3 ms, **median 13.41 ms**, max 20.14 ms.
   - output flood, 8,000,000 bytes of `x` through the pty: 264.1 ms, **30.3 MB/s**, completed.
@@ -130,11 +136,42 @@ including tmux's redraw. `bun run build:web` must have been run first — the se
   dirs, and Electron's bundle-path resolution (`apps/desktop/src/electron/binary.ts` already
   resolves `Electron.app/Contents/MacOS/Electron`).
 
+## Review round 1
+
+The first review found one blocking race and several correctness issues. Fixed in this round:
+
+- **Blocking record/bind order**: the host now binds first and writes `<socket>.token`, `.pid`,
+  `.owner.json` only in the `listening` callback. A bind error (EADDRINUSE) exits *without*
+  touching any existing host's records, and the umask is tightened across `listen` so the socket
+  is 0600 the moment it exists.
+- **Locked check-and-spawn**: `ensureHost` takes an exclusive `<socket>.lock`
+  (`O_CREAT|O_EXCL`), so two clients cannot both spawn. An ownership mismatch (checkout / build id
+  / protocol) replaces the host; a *transient* failure (refused connection, handshake or info
+  timeout) is retried with backoff and never signals a pid.
+- **Verified pid before signalling**: `stopStale` only sends a signal when `/proc/<pid>/cmdline`
+  (Linux) names this host script and socket; off Linux it falls back to the alive-and-recorded
+  check the review allowed (a `ps -o` follow-up is noted).
+- **Spawn wait compares ownership**: after connecting it checks checkout / build id / **protocol**,
+  and retires + restarts on any mismatch instead of adopting.
+- **Byte fidelity**: the pty is spawned with `encoding: null`; output is base64 of the raw Buffer
+  and `session.write` decodes back to a Buffer. No UTF-8 round-trips.
+- **Request correlation by id**: every request carries a `requestId`, every reply echoes it, and
+  the client matches by id rather than FIFO by type.
+- **Shutdown drain**: `host.shutdown` replies and waits for the write to drain (250 ms fallback)
+  before tearing down.
+- **Replay offset**: data events carry a monotonic `seq`; `attach` sends `since`, so a reconnect
+  does not duplicate output. (Fuller version still needs: seq per session acks, a cursor in the
+  snapshot, and what a hard client kill loses — Phase 1/3.)
+- **Proof harness**: `run-adoption.sh` is `set -euo pipefail` with real assertions, runs under
+  **both** Node and Electron's Node, adds a checkout-mismatch phase, and traps cleanup on
+  INT/TERM/EXIT. `evidence.txt` was regenerated.
+
 ## Surprises / unresolved
 
-- **Bun**: see the matrix. The repo's guard is still correct, but the comment "never delivers a
-  byte of its output" is not literally true on Bun 1.4.2 / node-pty 1.2.0-beta.15 — it delivers
-  the first burst and then stalls.
+- **Bun**: see the matrix. The observed shape is "the first output burst arrives, later output
+  never does", which still rules Bun out for an interactive terminal. The existing
+  `apps/server/src/terminals/server/session.ts` guard is correct in effect; its "never delivers a
+  byte" comment should be reworded in the real implementation (not touched here).
 - **Electron needs no native rebuild**: the N-API prebuild loads unchanged under Electron 44,
   so the pty host can run on Electron's Node with no per-runtime artifact.
 - **The replay buffer is what makes adoption demonstrable without a headless terminal.** A bounded

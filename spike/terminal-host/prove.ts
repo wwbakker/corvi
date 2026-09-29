@@ -21,6 +21,7 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
 const socket = argOf("--socket");
 const buildId = argOf("--build-id") ?? "unversioned";
 const marker = argOf("--marker") ?? "MARK";
+const checkout = argOf("--checkout") ?? process.cwd();
 const phase = argOf("--phase");
 if (socket === undefined || phase === undefined) {
   console.error("usage: prove.ts --phase <open|adopt|stale|cleanup> --socket <path> --build-id <id> [--marker M]");
@@ -29,7 +30,7 @@ if (socket === undefined || phase === undefined) {
 
 const sessionId = "proof";
 const ensureStart = performance.now();
-const { client, adopted } = await ensureHost({ socket, checkout: process.cwd(), buildId });
+const { client, adopted } = await ensureHost({ socket, checkout, buildId });
 const ensureMs = Number((performance.now() - ensureStart).toFixed(2));
 const owner: HostOwner = await client.info();
 

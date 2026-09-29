@@ -48,6 +48,7 @@ const options = {
   cols: 80,
   rows: 24,
   cwd: process.cwd(),
+  encoding: null,
   env: { ...process.env, TERM: "xterm-256color" },
 };
 
@@ -77,7 +78,7 @@ try {
 const spawnedMs = performance.now() - spawnStart;
 let markerMs: number | undefined;
 child.onData((data) => {
-  output += data;
+  output += data.toString("utf8");
   const marker = scenario === "interactive" ? "INTER_7_MARK" : "PROBE_MARKER";
   if (markerMs === undefined && output.includes(marker)) markerMs = performance.now() - spawnStart;
 });
