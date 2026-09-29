@@ -17,33 +17,43 @@
  *   { type: "session.open", id, cwd, command?, cols, rows, requestId? }
  *   { type: "session.attach", id, since?, requestId? }   replay from byte offset `since`
  *   { type: "session.detach", id, requestId? }
- *   { type: "session.write", id, data: base64 }
- *   { type: "session.resize", id, cols, rows }
- *   { type: "session.kill", id, requestId? }         kill the pty and forget the record
+ *   { type: "session.write", id, data: base64, requestId? }
+ *   { type: "session.resize", id, cols, rows, requestId? }
+ *   { type: "session.kill", id, requestId? }         signal the pty; the record is retained
  *   { type: "session.list", requestId? }
  *
  * Host -> client:
  *   { type: "welcome", requestId?, owner }
  *   { type: "ok", request, requestId?, ... }
  *   { type: "error", request, requestId?, message }
- *   { type: "data", id, seq, data: base64 }         seq is the offset of the first byte
- *   { type: "exit", id, exitCode }
+ *   { type: "data", id, incarnation, seq, data: base64 }
+ *   { type: "exit", id, incarnation, exitCode, signal }
  *
  * Every reply echoes the request's `requestId`, so a client matches replies by id, not by type
- * order. Output and input are raw bytes end to end: the pty is spawned with `encoding: null`, its
- * Buffer output is base64'd straight through, and `session.write` decodes back to a Buffer.
+ * order. `session.attach` on an unknown id is an `error` (it does not hang); `session.write` and
+ * `session.resize` always answer `ok { applied }` (`applied:false` for a dead or unknown id).
+ * Output and input are raw bytes end to end: the pty is spawned with `encoding: null`, its Buffer
+ * output is base64'd straight through, and `session.write` decodes back to a Buffer.
  *
  * What the host owns across a client's life (this is the tmux property):
  *   - the pty and its shell, whether or not any client is attached;
  *   - the session record, keyed by id, with cwd / createdAt / pid / alive / lastSeq, so a new
  *     server can discover what survived with `session.list`;
- *   - a bounded (256 KB) byte replay buffer with offsets, so `attach` can resume from `since`;
- *   - the **exit** of a session: a dead session is *retained* (alive=false, exitCode, exitedAt)
- *     rather than deleted. `attach` to it replays the buffer and then sends the final `exit`, so
- *     a later client gets a defined answer instead of hanging. `session.kill` deletes the record.
- *     At most 64 dead sessions are retained; older ones are evicted.
+ *   - a bounded (256 KB) byte replay buffer with offsets, so `attach` can resume from `since`.
+ *     The attach reply carries the buffer's `oldestSeq` and `truncated` (true when `since`
+ *     precedes it), so a resuming client knows it lost bytes rather than silently missing them;
+ *   - the **exit** of a session: a dead session is *retained* (alive=false, exitCode, signal,
+ *     exitedAt) rather than deleted. `attach` to it replays the buffer and then sends the final
+ *     `exit`, so a later client gets a defined answer instead of hanging. `session.kill` signals
+ *     the pty and the record is retained like any other exit. At most 64 dead sessions are
+ *     retained, evicting the oldest `exitedAt` first;
+ *   - **incarnation**: every `open` of an id gets a fresh, monotonically increasing incarnation.
+ *     Data and exit events carry it, so a client can tell a reused id from the session it
+ *     replaced; reopening a retained dead id detaches the old pty's subscribers, and the old
+ *     pty's late output/exit is dropped rather than emitted for the reused id;
  *   - **idle shutdown**: with `--idle-ms N` (0 disables), once there are no client connections
- *     and no live sessions for `N` ms, the host shuts down. A live session always keeps it up.
+ *     and no live sessions for `N` ms, the host shuts down. A live session always keeps it up,
+ *     and an accepted connection cancels a pending shutdown.
  *
  * The client (server) owns what is *not* here: which change/window a session belongs to, labels,
  * agent status, and the registry that re-associates ids after a restart.
@@ -52,12 +62,10 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { loadNodePty, type IPty } from "./pty.ts";
+import { PROTOCOL } from "./protocol.ts";
 
 const MAX_BUFFER_BYTES = 256 * 1024;
 const MAX_DEAD_SESSIONS = 64;
-/** Bumped when the wire protocol changes incompatibly; a client refuses a host whose protocol
- * differs (see client.ts). */
-export const PROTOCOL = 1;
 
 const loaded = loadNodePty();
 if ("error" in loaded) {
@@ -81,12 +89,15 @@ export type Owner = {
 /** What `session.list` reports for one session (live or retained-dead). */
 export type SessionInfo = {
   readonly id: string;
+  readonly incarnation: number;
   readonly cwd: string;
   readonly pid: number;
   readonly createdAt: string;
   readonly alive: boolean;
   readonly lastSeq: number;
   readonly exitCode?: number;
+  readonly signal?: number;
+  readonly exitedAt?: string;
 };
 
 type Connection = {
@@ -100,6 +111,7 @@ type Buffered = { readonly offset: number; readonly data: Buffer };
 
 type Session = {
   readonly id: string;
+  readonly incarnation: number;
   readonly pty: IPty;
   readonly cwd: string;
   readonly createdAt: string;
@@ -110,7 +122,11 @@ type Session = {
   readonly subscribers: Set<Connection>;
   alive: boolean;
   exitCode?: number;
+  signal?: number;
   exitedAt?: string;
+  /** Set when this session object is superseded (killed-and-reopened); its late pty callbacks
+   * must not emit for the reused id. */
+  retired: boolean;
 };
 
 const argOf = (name: string): string | undefined => {
@@ -141,11 +157,19 @@ const owner: Owner = {
 };
 
 const sessions = new Map<string, Session>();
+const incarnations = new Map<string, number>();
 const connections = new Set<Connection>();
 /** When the host last saw activity; idle shutdown counts from here. */
 let lastActive = Date.now();
+/** A pending idle shutdown, cancelled by any activity (including an accepted connection). */
+let idleTimer: ReturnType<typeof setTimeout> | undefined;
+
 const touch = (): void => {
   lastActive = Date.now();
+  if (idleTimer !== undefined) {
+    clearTimeout(idleTimer);
+    idleTimer = undefined;
+  }
 };
 
 const send = (socket: Socket, message: unknown): void => {
@@ -167,8 +191,11 @@ const trimBuffer = (session: Session): void => {
   }
 };
 
+/** Oldest exit first. */
 const evictDead = (): void => {
-  const dead = [...sessions.values()].filter((session) => !session.alive);
+  const dead = [...sessions.values()]
+    .filter((session) => !session.alive)
+    .sort((a, b) => (a.exitedAt ?? "").localeCompare(b.exitedAt ?? ""));
   while (dead.length > MAX_DEAD_SESSIONS) {
     const victim = dead.shift()!;
     sessions.delete(victim.id);
@@ -181,9 +208,17 @@ const openSession = (
   command: readonly string[],
   cols: number,
   rows: number,
-): { opened: boolean } => {
+): { opened: boolean; incarnation: number } => {
   const existing = sessions.get(id);
-  if (existing?.alive) return { opened: false };
+  if (existing?.alive) return { opened: false, incarnation: existing.incarnation };
+  // Replacing a retained dead id: detach the old session's subscribers and retire it, so its
+  // late pty callbacks cannot emit for the reused id.
+  if (existing) {
+    existing.retired = true;
+    existing.subscribers.clear();
+  }
+  const incarnation = (incarnations.get(id) ?? 0) + 1;
+  incarnations.set(id, incarnation);
   const [file, ...args] = command;
   const child = pty.spawn(file ?? "/bin/sh", [...args], {
     name: "xterm-256color",
@@ -196,6 +231,7 @@ const openSession = (
   });
   const session: Session = {
     id,
+    incarnation,
     pty: child,
     cwd,
     createdAt: new Date().toISOString(),
@@ -204,10 +240,12 @@ const openSession = (
     emitted: 0,
     subscribers: new Set(),
     alive: true,
+    retired: false,
   };
   sessions.set(id, session);
   touch();
   child.onData((data) => {
+    if (session.retired || sessions.get(id) !== session) return;
     const chunk = Buffer.isBuffer(data) ? data : Buffer.from(data, "utf8");
     const entry: Buffered = { offset: session.emitted, data: chunk };
     session.emitted += chunk.length;
@@ -215,42 +253,81 @@ const openSession = (
     session.bufferBytes += chunk.length;
     trimBuffer(session);
     for (const connection of session.subscribers) {
-      send(connection.socket, { type: "data", id, seq: entry.offset, data: chunk.toString("base64") });
+      send(connection.socket, {
+        type: "data",
+        id,
+        incarnation: session.incarnation,
+        seq: entry.offset,
+        data: chunk.toString("base64"),
+      });
     }
   });
-  child.onExit(({ exitCode }) => {
+  child.onExit(({ exitCode, signal }) => {
+    if (session.retired || sessions.get(id) !== session) return;
+    const sig = typeof signal === "number" && signal > 0 ? signal : 0;
     // Retain the record: a later attach must get a defined final state, not a hang.
     session.alive = false;
     session.exitCode = exitCode;
+    session.signal = sig;
     session.exitedAt = new Date().toISOString();
     touch();
     for (const connection of session.subscribers) {
-      send(connection.socket, { type: "exit", id, exitCode });
+      send(connection.socket, {
+        type: "exit",
+        id,
+        incarnation: session.incarnation,
+        exitCode,
+        signal: sig,
+      });
     }
     evictDead();
   });
-  return { opened: true };
+  return { opened: true, incarnation };
 };
 
-/** Replay from `since` and report the session's state. A dead session's replay ends with an
- * `exit` event sent by the caller. */
+/** Replay from `since` and report the session's state, including whether the buffer had already
+ * dropped bytes before `since`. */
 const attach = (
   connection: Connection,
   id: string,
   since: number,
-): { attached: boolean; alive: boolean; exitCode?: number } => {
+): {
+  attached: boolean;
+  alive: boolean;
+  incarnation: number;
+  oldestSeq: number;
+  truncated: boolean;
+  exitCode?: number;
+  signal?: number;
+} => {
   const session = sessions.get(id);
-  if (session === undefined) return { attached: false, alive: false };
+  if (session === undefined) return { attached: false, alive: false, incarnation: 0, oldestSeq: 0, truncated: false };
   connection.subscriptions.add(id);
   session.subscribers.add(connection);
+  const oldestSeq = session.buffer[0]?.offset ?? session.emitted;
+  const truncated = since < oldestSeq;
   for (const entry of session.buffer) {
     const end = entry.offset + entry.data.length;
     if (end <= since) continue;
     const skip = Math.max(0, since - entry.offset);
     const data = skip === 0 ? entry.data : entry.data.subarray(skip);
-    send(connection.socket, { type: "data", id, seq: entry.offset + skip, data: data.toString("base64") });
+    send(connection.socket, {
+      type: "data",
+      id,
+      incarnation: session.incarnation,
+      seq: entry.offset + skip,
+      data: data.toString("base64"),
+    });
   }
-  return { attached: true, alive: session.alive, exitCode: session.exitCode };
+  return {
+    attached: true,
+    alive: session.alive,
+    incarnation: session.incarnation,
+    oldestSeq,
+    truncated,
+    ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+    ...(session.signal !== undefined ? { signal: session.signal } : {}),
+  };
 };
 
 const detach = (connection: Connection, id: string): void => {
@@ -261,12 +338,15 @@ const detach = (connection: Connection, id: string): void => {
 const listSessions = (): SessionInfo[] =>
   [...sessions.values()].map((session) => ({
     id: session.id,
+    incarnation: session.incarnation,
     cwd: session.cwd,
     pid: session.pty.pid,
     createdAt: session.createdAt,
     alive: session.alive,
     lastSeq: session.emitted,
     ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+    ...(session.signal !== undefined ? { signal: session.signal } : {}),
+    ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
   }));
 
 const handle = (connection: Connection, request: Record<string, unknown>): void => {
@@ -320,13 +400,26 @@ const handle = (connection: Connection, request: Record<string, unknown>): void 
       return;
     }
     case "session.attach": {
-      if (id === undefined) return;
+      if (id === undefined) {
+        fail(connection, request, "id required");
+        return;
+      }
+      if (!sessions.has(id)) {
+        fail(connection, request, `no such session: ${id}`);
+        return;
+      }
       const since = typeof request.since === "number" ? request.since : 0;
       const result = attach(connection, id, since);
       respond(connection, request, result);
       // A dead session answers with its final state right after the replay.
-      if (result.attached && !result.alive) {
-        send(connection.socket, { type: "exit", id, exitCode: result.exitCode ?? 0 });
+      if (!result.alive) {
+        send(connection.socket, {
+          type: "exit",
+          id,
+          incarnation: result.incarnation,
+          exitCode: result.exitCode ?? 0,
+          signal: result.signal ?? 0,
+        });
       }
       return;
     }
@@ -339,29 +432,32 @@ const handle = (connection: Connection, request: Record<string, unknown>): void 
       if (session && session.alive && typeof request.data === "string") {
         session.pty.write(Buffer.from(request.data, "base64"));
       }
+      respond(connection, request, { applied: session !== undefined && session.alive });
       return;
     }
     case "session.resize": {
       const session = id === undefined ? undefined : sessions.get(id);
-      if (session?.alive && typeof request.cols === "number" && typeof request.rows === "number") {
+      const applied = session?.alive === true && typeof request.cols === "number" && typeof request.rows === "number";
+      if (applied && session) {
         try {
-          session.pty.resize(request.cols, request.rows);
+          session.pty.resize(request.cols as number, request.rows as number);
         } catch {
           // exited between the lookup and the resize
         }
       }
+      respond(connection, request, { applied });
       return;
     }
     case "session.kill": {
       const session = id === undefined ? undefined : sessions.get(id);
-      if (session) {
+      if (session && session.alive) {
+        // Signal it and let onExit retain the record with its real exit code and signal, so a
+        // killed shell is distinguishable from a typed `exit`.
         try {
           session.pty.kill();
         } catch {
           // already gone
         }
-        sessions.delete(id!);
-        touch();
       }
       respond(connection, request);
       return;
@@ -403,8 +499,9 @@ const shutdown = (): void => {
 
 server = createServer((socket) => {
   const connection: Connection = { socket, authed: false, subscriptions: new Set() };
-  connections.add(connection);
+  // An accepted connection is activity: cancel any idle shutdown already in flight.
   touch();
+  connections.add(connection);
   socket.setEncoding("utf8");
   let pending = "";
   socket.on("data", (data: string) => {
@@ -454,7 +551,14 @@ if (idleMs > 0) {
   const period = Math.max(25, Math.floor(idleMs / 4));
   setInterval(() => {
     const alive = [...sessions.values()].some((session) => session.alive);
-    if (connections.size === 0 && !alive && Date.now() - lastActive >= idleMs) shutdown();
+    if (connections.size === 0 && !alive && Date.now() - lastActive >= idleMs && idleTimer === undefined) {
+      // Short grace: re-check once more so a connection accepted in the meantime cancels it.
+      idleTimer = setTimeout(() => {
+        idleTimer = undefined;
+        const stillAlive = [...sessions.values()].some((session) => session.alive);
+        if (connections.size === 0 && !stillAlive && Date.now() - lastActive >= idleMs) shutdown();
+      }, 30);
+    }
   }, period).unref();
 }
 

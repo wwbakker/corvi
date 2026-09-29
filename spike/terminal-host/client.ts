@@ -13,17 +13,21 @@
  * verifies it is the host (on Linux, `/proc/<pid>/cmdline` names this host script and socket).
  *
  * `HostClient` wraps one connection: request/response matched by `requestId`, and `onData`/
- * `onExit` for the streaming half. Data events carry a byte `seq`, and `attach` sends the offset
- * the client already has, so a reconnect does not duplicate output. Detaching (`close`) leaves
- * the host and every pty alive, which is what makes adoption observable.
+ * `onExit` for the streaming half. Events carry the session's `incarnation`, and the client keys
+ * its received-byte offsets on `(id, incarnation)`, so a killed-and-reopened id is never
+ * confused with its predecessor. Data events carry a byte `seq`, and `attach` sends the offset
+ * the client already has, so a reconnect does not duplicate output; the attach reply reports
+ * `oldestSeq`/`truncated` when the host's buffer no longer reaches back that far. A host socket
+ * closing rejects every pending call at once. Detaching (`close`) leaves the host and every pty
+ * alive, which is what makes adoption observable.
  */
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { PROTOCOL } from "./protocol.ts";
 
-/** Must equal the host's protocol constant. */
-export const PROTOCOL = 1;
+export { PROTOCOL };
 
 export type HostOwner = {
   readonly pid: number;
@@ -47,12 +51,25 @@ export type EnsureOptions = {
 
 export type SessionInfo = {
   readonly id: string;
+  readonly incarnation: number;
   readonly cwd: string;
   readonly pid: number;
   readonly createdAt: string;
   readonly alive: boolean;
   readonly lastSeq: number;
   readonly exitCode?: number;
+  readonly signal?: number;
+  readonly exitedAt?: string;
+};
+
+export type AttachResult = {
+  readonly attached: boolean;
+  readonly alive: boolean;
+  readonly incarnation: number;
+  readonly oldestSeq: number;
+  readonly truncated: boolean;
+  readonly exitCode?: number;
+  readonly signal?: number;
 };
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -66,14 +83,27 @@ const processAlive = (pid: number): boolean => {
   }
 };
 
+/** `(id, incarnation)` keys the received-offset map so a reused id starts fresh. */
+const receivedKey = (id: string, incarnation: number): string => `${id}#${incarnation}`;
+
+const expectOk = (reply: Record<string, unknown>, what: string): Record<string, unknown> => {
+  if (reply.type === "error") throw new Error(`${what}: ${String(reply.message)}`);
+  return reply;
+};
+
 export class HostClient {
   private readonly socket: Socket;
   private nextId = 0;
-  private readonly pending = new Map<number, (value: Record<string, unknown>) => void>();
-  private readonly dataListeners = new Map<string, ((data: Buffer) => void)[]>();
-  private readonly exitListeners = new Map<string, ((exitCode: number) => void)[]>();
-  /** Highest byte offset received per session: what `attach` asks the host to resume from. */
+  private readonly pending = new Map<
+    number,
+    { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }
+  >();
+  private readonly dataListeners = new Map<string, ((data: Buffer, incarnation: number) => void)[]>();
+  private readonly exitListeners = new Map<string, ((exitCode: number, signal: number, incarnation: number) => void)[]>();
+  /** Highest byte offset received per `(id, incarnation)`. */
   private readonly received = new Map<string, number>();
+  /** The incarnation this client last saw for an id, used as the default `since` on re-attach. */
+  private readonly activeIncarnation = new Map<string, number>();
   private buffer = "";
 
   private constructor(socket: Socket) {
@@ -81,6 +111,13 @@ export class HostClient {
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this.receive(chunk));
     socket.on("error", () => socket.destroy());
+    // A dead host must not leave every in-flight call waiting out its 5 s timeout.
+    socket.on("close", () => this.rejectPending(new Error("the host connection closed")));
+  }
+
+  private rejectPending(error: Error): void {
+    for (const { reject } of this.pending.values()) reject(error);
+    this.pending.clear();
   }
 
   private receive(chunk: string): void {
@@ -100,19 +137,25 @@ export class HostClient {
     if (message.type === "data" && typeof message.id === "string" && typeof message.data === "string") {
       const data = Buffer.from(message.data, "base64");
       const seq = typeof message.seq === "number" ? message.seq : 0;
-      this.received.set(message.id, Math.max(this.received.get(message.id) ?? 0, seq + data.length));
-      for (const listener of this.dataListeners.get(message.id) ?? []) listener(data);
+      const incarnation = typeof message.incarnation === "number" ? message.incarnation : 0;
+      const key = receivedKey(message.id, incarnation);
+      this.received.set(key, Math.max(this.received.get(key) ?? 0, seq + data.length));
+      for (const listener of this.dataListeners.get(message.id) ?? []) listener(data, incarnation);
       return;
     }
     if (message.type === "exit" && typeof message.id === "string") {
       const code = typeof message.exitCode === "number" ? message.exitCode : 0;
-      for (const listener of this.exitListeners.get(message.id) ?? []) listener(code);
+      const signal = typeof message.signal === "number" ? message.signal : 0;
+      const incarnation = typeof message.incarnation === "number" ? message.incarnation : 0;
+      for (const listener of this.exitListeners.get(message.id) ?? []) listener(code, signal, incarnation);
       return;
     }
     if (typeof message.requestId === "number") {
       const waiter = this.pending.get(message.requestId);
-      this.pending.delete(message.requestId);
-      waiter?.(message);
+      if (waiter) {
+        this.pending.delete(message.requestId);
+        waiter.resolve(message);
+      }
     }
   }
 
@@ -123,81 +166,111 @@ export class HostClient {
         this.pending.delete(requestId);
         reject(new Error(`host request timed out: ${String(message.type)}`));
       }, 5000);
-      this.pending.set(requestId, (value) => {
-        clearTimeout(timer);
-        resolve(value);
+      this.pending.set(requestId, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
       });
       this.socket.write(`${JSON.stringify({ ...message, requestId })}\n`);
     });
   }
 
-  private send(message: Record<string, unknown>): void {
-    this.socket.write(`${JSON.stringify(message)}\n`);
-  }
-
   async info(): Promise<HostOwner> {
-    const reply = await this.call({ type: "host.info" });
+    const reply = expectOk(await this.call({ type: "host.info" }), "host.info");
     return reply.owner as HostOwner;
   }
 
   async open(
     id: string,
     options: { cwd: string; command?: string[]; cols?: number; rows?: number },
-  ): Promise<{ opened: boolean }> {
-    const reply = await this.call({
-      type: "session.open",
-      id,
-      cwd: options.cwd,
-      command: options.command,
-      cols: options.cols ?? 80,
-      rows: options.rows ?? 24,
-    });
-    return { opened: Boolean(reply.opened) };
+  ): Promise<{ opened: boolean; incarnation: number }> {
+    const reply = expectOk(
+      await this.call({
+        type: "session.open",
+        id,
+        cwd: options.cwd,
+        command: options.command,
+        cols: options.cols ?? 80,
+        rows: options.rows ?? 24,
+      }),
+      `open ${id}`,
+    );
+    const incarnation = typeof reply.incarnation === "number" ? reply.incarnation : 0;
+    this.activeIncarnation.set(id, incarnation);
+    return { opened: Boolean(reply.opened), incarnation };
   }
 
-  /** Attach, resuming from `since` (default: the highest offset this connection has seen). The
-   * reply states the session's final state, so a dead session's snapshot is not mistaken for a
-   * live one. */
-  async attach(id: string, since?: number): Promise<{ attached: boolean; alive: boolean; exitCode?: number }> {
-    const from = since ?? this.received.get(id) ?? 0;
-    const reply = await this.call({ type: "session.attach", id, since: from });
+  /** Attach, resuming from `since` (default: the highest offset this connection has seen for the
+   * id's current incarnation). The reply states the final state and whether the host had to drop
+   * bytes before `since`. */
+  async attach(id: string, since?: number): Promise<AttachResult> {
+    const active = this.activeIncarnation.get(id);
+    const from = since ?? (active !== undefined ? (this.received.get(receivedKey(id, active)) ?? 0) : 0);
+    const reply = expectOk(await this.call({ type: "session.attach", id, since: from }), `attach ${id}`);
+    const incarnation = typeof reply.incarnation === "number" ? reply.incarnation : 0;
+    this.activeIncarnation.set(id, incarnation);
     return {
       attached: Boolean(reply.attached),
       alive: Boolean(reply.alive),
+      incarnation,
+      oldestSeq: typeof reply.oldestSeq === "number" ? reply.oldestSeq : 0,
+      truncated: Boolean(reply.truncated),
       ...(typeof reply.exitCode === "number" ? { exitCode: reply.exitCode } : {}),
+      ...(typeof reply.signal === "number" ? { signal: reply.signal } : {}),
     };
   }
 
   /** Every session the host retains, live or dead, with the metadata a restarting server needs to
    * re-associate its registry. */
   async list(): Promise<SessionInfo[]> {
-    const reply = await this.call({ type: "session.list" });
+    const reply = expectOk(await this.call({ type: "session.list" }), "session.list");
     return (reply.sessions as SessionInfo[]) ?? [];
   }
 
   async detach(id: string): Promise<void> {
-    await this.call({ type: "session.detach", id });
+    expectOk(await this.call({ type: "session.detach", id }), `detach ${id}`);
   }
 
-  write(id: string, data: string): void {
-    this.send({ type: "session.write", id, data: Buffer.from(data, "utf8").toString("base64") });
+  /** Write to the shell. Resolves to whether the host applied it (a dead/unknown id is `false`),
+   * and never rejects: a closed host is not a reason to surface an unhandled rejection from a
+   * best-effort keystroke. */
+  async write(id: string, data: string): Promise<boolean> {
+    try {
+      const reply = expectOk(
+        await this.call({ type: "session.write", id, data: Buffer.from(data, "utf8").toString("base64") }),
+        `write ${id}`,
+      );
+      return Boolean(reply.applied);
+    } catch {
+      return false;
+    }
   }
 
-  resize(id: string, cols: number, rows: number): void {
-    this.send({ type: "session.resize", id, cols, rows });
+  async resize(id: string, cols: number, rows: number): Promise<boolean> {
+    try {
+      const reply = expectOk(await this.call({ type: "session.resize", id, cols, rows }), `resize ${id}`);
+      return Boolean(reply.applied);
+    } catch {
+      return false;
+    }
   }
 
   async kill(id: string): Promise<void> {
-    await this.call({ type: "session.kill", id });
+    expectOk(await this.call({ type: "session.kill", id }), `kill ${id}`);
   }
 
-  onData(id: string, listener: (data: Buffer) => void): void {
+  onData(id: string, listener: (data: Buffer, incarnation: number) => void): void {
     const listeners = this.dataListeners.get(id) ?? [];
     listeners.push(listener);
     this.dataListeners.set(id, listeners);
   }
 
-  onExit(id: string, listener: (exitCode: number) => void): void {
+  onExit(id: string, listener: (exitCode: number, signal: number, incarnation: number) => void): void {
     const listeners = this.exitListeners.get(id) ?? [];
     listeners.push(listener);
     this.exitListeners.set(id, listeners);
@@ -208,7 +281,7 @@ export class HostClient {
   }
 
   async shutdown(): Promise<void> {
-    await this.call({ type: "host.shutdown" });
+    expectOk(await this.call({ type: "host.shutdown" }), "host.shutdown");
   }
 
   static async connect(socketPath: string): Promise<HostClient> {
@@ -251,9 +324,9 @@ const removeRecords = (socketPath: string): void => {
   }
 };
 
-/** Is `pid` the host for this socket? On Linux the command line is the proof. Off Linux (macOS)
- * we cannot read a command line portably here, so we only accept a live pid whose owner record
- * predates now — the weak check the reviewers allowed, and a spot for a `ps -o` follow-up. */
+/** Is `pid` the host for this socket? On Linux the command line is the proof. Off Linux there is
+ * no portable way to read a command line here, so the check weakens to "the pid is alive and the
+ * owner record was written in the past"; a `ps -o command=` implementation belongs there. */
 const verifiedHostPid = (owner: HostOwner, socketPath: string): boolean => {
   if (!processAlive(owner.pid)) return false;
   if (process.platform === "linux") {

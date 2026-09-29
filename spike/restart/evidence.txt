@@ -1,15 +1,22 @@
 == 1. server A starts the host, opens s1/s2, is SIGKILLed ==
-A: {"phase":"a","adopted":false,"hostPid":206744,"s1":true,"s2":true}
+A: {"phase":"a","adopted":false,"hostPid":241180,"s1":true,"s2":true}
 == 2. host and both shells survive server A ==
-inspect: {"phase":"inspect","adopted":true,"hostPid":206744,"sessions":[{"id":"s1","cwd":"/tmp/corvi-spike-restart-BQROUQ/changes/C1","pid":206754,"createdAt":"2026-09-29T22:55:38.516Z","alive":true,"lastSeq":83},{"id":"s2","cwd":"/tmp/corvi-spike-restart-BQROUQ/changes/C2","pid":206756,"createdAt":"2026-09-29T22:55:38.517Z","alive":true,"lastSeq":83}]}
-== 5a. idle does not kill a host with a live session ==
+inspect: {"phase":"inspect","adopted":true,"hostPid":241180,"sessions":[{"id":"s1","incarnation":1,"cwd":"/tmp/corvi-spike-restart-kXwZ0e/changes/C1","pid":241191,"createdAt":"2026-09-29T23:15:34.483Z","alive":true,"lastSeq":83},{"id":"s2","incarnation":1,"cwd":"/tmp/corvi-spike-restart-kXwZ0e/changes/C2","pid":241194,"createdAt":"2026-09-29T23:15:34.484Z","alive":true,"lastSeq":83}]}
+== 7a. idle does not kill a host with a live session ==
 == 3. server B adopts, re-associates the registry, runs in the same shells ==
-B: {"phase":"b","adopted":true,"hostPid":206744,"results":[{"id":"s1","change":"C1","window":"W1","alive":true,"earlier":true,"newOk":true},{"id":"s2","change":"C2","window":"W2","alive":true,"earlier":true,"newOk":true}]}
-== 4. exit typed while detached is a defined final state ==
-exit-detached: {"phase":"exit-detached","adopted":true,"hostPid":206744,"s2Dead":true,"attachAlive":false,"attachExitCode":0,"exitEvent":0,"replayed":true,"remaining":["s2:dead"]}
-== 5b. idle shutdown with no live sessions ==
-== 6. host SIGKILL kills shells; a fresh server starts a fresh host ==
-C: {"phase":"c-start","adopted":false,"hostPid":207464,"shellPid":207473,"marker":true}
-c-recover: {"phase":"c-recover","adopted":false,"hostPid":207815,"sessionCount":0}
-== 7. nothing left behind ==
-all 33 assertions passed
+B: {"phase":"b","adopted":true,"hostPid":241180,"results":[{"id":"s1","change":"C1","window":"W1","alive":true,"exitCode":null,"earlier":true,"newOk":true},{"id":"s2","change":"C2","window":"W2","alive":true,"exitCode":null,"earlier":true,"newOk":true}]}
+== 4. kill+reopen: non-clean kill, new incarnation, no stale events ==
+kill-reopen: {"phase":"kill-reopen","adopted":true,"oldInc":1,"newInc":2,"oldPid":241438,"newPid":241444,"marked":true,"marked2":true,"oldExitSignal":1,"staleAfterReopen":0,"newData":true}
+== 5. truncation: attach before the buffer start reports truncated ==
+truncate: {"phase":"truncate","adopted":true,"done":true,"truncated":true,"oldestSeq":40573,"incarnation":1,"shellPid":241899}
+== 6. exit typed while detached is a defined, clean final state ==
+exit-detached: {"phase":"exit-detached","adopted":true,"hostPid":241180,"s2Dead":true,"attachAlive":false,"attachExitCode":0,"attachSignal":0,"exitEvent":0,"exitSignal":0,"replayed":true,"remaining":["s1:dead","s2:dead","s4:dead","s5:dead"]}
+== 7b. idle shutdown with no live sessions ==
+== 8. host SIGKILL kills a normal shell; a fresh server starts a fresh host ==
+C: {"phase":"c-start","adopted":false,"hostPid":242643,"shellPid":242656,"marker":true}
+c-recover: {"phase":"c-recover","adopted":false,"hostPid":243002,"sessionCount":0}
+== 9. a HUP-ignoring child survives the host's death (the honest limit) ==
+hup-start: {"phase":"hup-start","adopted":false,"hostPid":243048,"shellPid":243057}
+post-hup recovery: {"phase":"c-recover","adopted":false,"hostPid":243156,"sessionCount":0}
+== 10. nothing left behind (records, host, orphan shells) ==
+all 57 assertions passed
