@@ -64,6 +64,7 @@ export type SessionInfo = {
     readonly state: "working" | "waiting";
     readonly name?: string;
     readonly message?: string;
+    readonly sessionName?: string;
     readonly at: string;
   };
 };

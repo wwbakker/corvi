@@ -1,7 +1,14 @@
+== OSC parser tests ==
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 83.949878
 == run.ts ==
-{"checks":{"host.adopted":true,"identity.hostSeedsEnv":true,"http.reporterInsidePtyUsesHostEnv":true,"http.presentWorking":true,"http.notifyExactlyOnce":true,"http.twoSessionsIndependent":true,"http.clearOnSessionEnd":true,"http.deadSessionGone":true,"http.plainShellIsTerminal":true,"osc.present":true,"osc.notifyExactlyOnce":true,"osc.stripped":true,"osc.clearedOnSessionEnd":true},"latencies":{"httpMs":{"samples":20,"medianMs":84.61,"maxMs":96.06},"oscMs":{"samples":10,"medianMs":1.5,"maxMs":1.86}}}
+{"checks":{"host.startedFresh":true,"identity.hostSeedsEnv":true,"identity.hostWinsOverCallerEnv":true,"http.reporterInsidePtyUsesHostEnv":true,"http.cliWritesNothingToPty":true,"http.presentWorking":true,"http.labelFromSessionName":true,"http.notifyExactlyOnce":true,"http.twoWindowsOneChange":true,"edge.crossChangeKeying":true,"http.twoSessionsIndependent":true,"http.explicitClear":true,"http.statusGoneOnKill":true,"http.reopenNoStale":true,"http.plainShellIsTerminal":true,"osc.present":true,"osc.labelFromSessionName":true,"osc.notifyExactlyOnce":true,"osc.stripped":true,"osc.clearedOnSessionEnd":true,"osc.carryFlushedOnExit":true},"latencies":{"httpCliMs":{"samples":20,"medianMs":83.95,"maxMs":87.26},"httpDirectMs":{"samples":20,"medianMs":1.55,"maxMs":12.07},"oscMs":{"samples":10,"medianMs":1.5,"maxMs":3.5}}}
 == checks ==
-latency httpMs median: 84.61 ms
+latency httpCliMs median: 83.95 ms
+latency httpDirectMs median: 1.55 ms
 latency oscMs median: 1.5 ms
 == leftovers ==
-all 15 assertions passed
+all 25 assertions passed

@@ -12,6 +12,7 @@ export type StatusRecord = {
   readonly state: "working" | "waiting";
   readonly name?: string;
   readonly message?: string;
+  readonly sessionName?: string;
   readonly at: string;
 };
 
@@ -30,6 +31,7 @@ export const windowOf = (id: string, status: StatusRecord | undefined): TmuxWind
     ? {
         "@agent_status": status.state,
         ...(status.name ? { "@agent_name": status.name } : {}),
+        ...(status.sessionName ? { "@agent_session_name": status.sessionName } : {}),
         ...(status.message ? { "@agent_last_message": status.message } : {}),
       }
     : {},
@@ -42,23 +44,42 @@ export const presentedWindows = (
 ): PresentedWindow[] =>
   live.map((session) => presentWindow(windowOf(session.id, statusOf(session.id))));
 
-export type Notify = { readonly id: string; readonly label: string; readonly note?: string };
+export type Notify = {
+  readonly change: string;
+  readonly window: string;
+  readonly label: string;
+  readonly note?: string;
+  readonly sound: string;
+};
+
+/** One presented window together with the change it belongs to: the edge is keyed by both, as
+ * `watch.ts` keys it, so the same window id in two changes cannot collide. */
+export type ChangedWindow = { readonly change: string; readonly window: PresentedWindow };
 
 /** The attention edges, exactly as `watch.ts` computes them: seeded on the first read, notify
- * only on the edge into `attention`, keyed by window id, forgetting windows that are gone. */
+ * only on the edge into `attention`, keyed by `change:windowId`, forgetting windows that are
+ * gone. */
 export const attentionEdges = (
   previous: Map<string, boolean>,
   seeded: boolean,
-  windows: readonly PresentedWindow[],
+  windows: readonly ChangedWindow[],
+  sound: string,
 ): { readonly seeded: boolean; readonly notify: Notify[] } => {
   const notify: Notify[] = [];
   const seen = new Set<string>();
-  for (const window of windows) {
-    seen.add(window.id);
-    const was = previous.get(window.id);
-    previous.set(window.id, window.attention);
+  for (const { change, window } of windows) {
+    const key = `${change}:${window.id}`;
+    seen.add(key);
+    const was = previous.get(key);
+    previous.set(key, window.attention);
     if (seeded && window.attention && was === false) {
-      notify.push({ id: window.id, label: window.label, ...(window.note ? { note: window.note } : {}) });
+      notify.push({
+        change,
+        window: window.id,
+        label: window.label,
+        ...(window.note ? { note: window.note } : {}),
+        sound,
+      });
     }
   }
   for (const key of [...previous.keys()]) if (!seen.has(key)) previous.delete(key);
@@ -70,3 +91,8 @@ export const median = (values: readonly number[]): number => {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
 };
+
+/** A presented window built directly from a status, for edge tests that need the same window id
+ * to move from calm to attentive. */
+export const presentedFromStatus = (id: string, status: StatusRecord | undefined): PresentedWindow =>
+  presentWindow(windowOf(id, status));

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Phase 2 runner. Drives spike/status/run.ts, then asserts every check it reported and the
-# leftover state. Isolated: its own temp dir, host socket, config, and no tmux at all.
+# Phase 2 runner. Runs the OSC parser unit tests, drives spike/status/run.ts, then asserts every
+# check it reported and the leftover state. Isolated: its own temp dir, host socket, config, and
+# no tmux at all.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -10,7 +11,6 @@ SOCKET="$WORK/host.sock"
 CHECKOUT="$WORK/checkout"
 mkdir -p "$CHECKOUT"
 ASSERTIONS=0
-HOST_PID=""
 
 cleanup() {
   if [ -S "$SOCKET" ]; then
@@ -24,6 +24,11 @@ fail() { echo "ASSERT FAILED: $*" >&2; exit 1; }
 assert_true() { ASSERTIONS=$((ASSERTIONS + 1)); [ "$1" = "true" ] || fail "$2 (got '$1')"; }
 assert_gt() { ASSERTIONS=$((ASSERTIONS + 1)); awk -v a="$1" -v b="$2" 'BEGIN{exit !(a>b)}' || fail "$3 (got '$1', want > $2)"; }
 
+echo "== OSC parser tests =="
+node --test ../terminal-host/osc.test.ts > "$WORK/osc-tests.txt" 2>&1 || { cat "$WORK/osc-tests.txt" >&2; fail "osc parser tests"; }
+assert_true "true" "osc parser tests"
+grep -E "^# (tests|pass|fail)" "$WORK/osc-tests.txt" 2>/dev/null || tail -5 "$WORK/osc-tests.txt"
+
 echo "== run.ts =="
 node run.ts --socket "$SOCKET" --checkout "$CHECKOUT" > "$WORK/out.txt" 2>&1 || {
   cat "$WORK/out.txt" >&2
@@ -35,24 +40,32 @@ echo "$READY"
 
 echo "== checks =="
 for name in \
-  host.adopted \
+  host.startedFresh \
   identity.hostSeedsEnv \
+  identity.hostWinsOverCallerEnv \
   http.reporterInsidePtyUsesHostEnv \
+  http.cliWritesNothingToPty \
   http.presentWorking \
+  http.labelFromSessionName \
   http.notifyExactlyOnce \
+  http.twoWindowsOneChange \
+  edge.crossChangeKeying \
   http.twoSessionsIndependent \
-  http.clearOnSessionEnd \
-  http.deadSessionGone \
+  http.explicitClear \
+  http.statusGoneOnKill \
+  http.reopenNoStale \
   http.plainShellIsTerminal \
   osc.present \
+  osc.labelFromSessionName \
   osc.notifyExactlyOnce \
   osc.stripped \
-  osc.clearedOnSessionEnd; do
+  osc.clearedOnSessionEnd \
+  osc.carryFlushedOnExit; do
   value="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).checks[process.argv[2]]))' "$READY" "$name")"
   assert_true "$value" "check $name"
 done
 
-for key in httpMs oscMs; do
+for key in httpCliMs httpDirectMs oscMs; do
   median="$(node -e 'process.stdout.write(String(JSON.parse(process.argv[1]).latencies[process.argv[2]].medianMs))' "$READY" "$key")"
   echo "latency $key median: $median ms"
   assert_gt "$median" 0 "latency $key"

@@ -71,6 +71,7 @@ import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { loadNodePty, type IPty } from "./pty.ts";
 import { PROTOCOL } from "./protocol.ts";
+import { parseOsc } from "./osc.ts";
 
 const MAX_BUFFER_BYTES = 256 * 1024;
 const MAX_DEAD_SESSIONS = 64;
@@ -137,6 +138,7 @@ type Session = {
     readonly state: "working" | "waiting";
     readonly name?: string;
     readonly message?: string;
+    readonly sessionName?: string;
     readonly at: string;
   };
   /** Bytes held back because they might be the start of a split OSC status sequence. */
@@ -144,71 +146,6 @@ type Session = {
   /** Set when this session object is superseded (killed-and-reopened); its late pty callbacks
    * must not emit for the reused id. */
   retired: boolean;
-};
-
-/** A status payload as parsed from an OSC sequence. */
-type OscStatus = { readonly status: "working" | "waiting" | "clear"; readonly name?: string; readonly message?: string };
-
-const OSC_INTRO = Buffer.from("\x1b]1337;corvi=", "ascii");
-const OSC_ST = Buffer.from("\x1b\\", "ascii");
-const MAX_OSC_CARRY = 8192;
-
-/** The length of the longest suffix of `buffer` that is a prefix of the OSC introducer: only that
- * many bytes may be held for the next chunk. Holding a fixed tail would delay ordinary output. */
-const partialIntroLength = (buffer: Buffer): number => {
-  const max = Math.min(buffer.length, OSC_INTRO.length - 1);
-  for (let len = max; len > 0; len--) {
-    if (buffer.subarray(buffer.length - len).equals(OSC_INTRO.subarray(0, len))) return len;
-  }
-  return 0;
-};
-
-/** Split pty bytes into displayable output and any status sequences. An incomplete introducer
- * or body is carried to the next chunk; an over-long unterminated one is dropped (never
- * forwarded), so a broken reporter cannot leak control bytes to the screen or grow memory. */
-const parseOsc = (
-  input: Buffer,
-  carry: Buffer,
-): { readonly clean: Buffer; readonly carry: Buffer; readonly statuses: OscStatus[] } => {
-  let buf = carry.length > 0 ? Buffer.concat([carry, input]) : input;
-  const out: Buffer[] = [];
-  const statuses: OscStatus[] = [];
-  for (;;) {
-    const start = buf.indexOf(OSC_INTRO);
-    if (start === -1) {
-      const keep = partialIntroLength(buf);
-      out.push(buf.subarray(0, buf.length - keep));
-      return { clean: Buffer.concat(out), carry: buf.subarray(buf.length - keep), statuses };
-    }
-    out.push(buf.subarray(0, start));
-    const after = start + OSC_INTRO.length;
-    const bel = buf.indexOf(0x07, after);
-    const st = buf.indexOf(OSC_ST, after);
-    let end = -1;
-    let term = 0;
-    if (bel !== -1 && (st === -1 || bel < st)) {
-      end = bel;
-      term = 1;
-    } else if (st !== -1) {
-      end = st;
-      term = OSC_ST.length;
-    }
-    if (end === -1) {
-      if (buf.length - start > MAX_OSC_CARRY) {
-        // Dropped: an unterminated sequence must not be forwarded or held forever.
-        return { clean: Buffer.concat(out), carry: Buffer.alloc(0), statuses };
-      }
-      return { clean: Buffer.concat(out), carry: buf.subarray(start), statuses };
-    }
-    const payload = buf.subarray(after, end).toString("ascii");
-    try {
-      const json = JSON.parse(Buffer.from(payload, "base64").toString("utf8")) as OscStatus;
-      if (json.status === "working" || json.status === "waiting" || json.status === "clear") statuses.push(json);
-    } catch {
-      // malformed payload: dropped
-    }
-    buf = buf.subarray(end + term);
-  }
 };
 
 const argOf = (name: string): string | undefined => {
@@ -284,6 +221,25 @@ const evictDead = (): void => {
   }
 };
 
+/** Append bytes to a session's replay buffer and stream them to its subscribers. */
+const emitChunk = (session: Session, chunk: Buffer): void => {
+  if (chunk.length === 0) return;
+  const entry: Buffered = { offset: session.emitted, data: chunk };
+  session.emitted += chunk.length;
+  session.buffer.push(entry);
+  session.bufferBytes += chunk.length;
+  trimBuffer(session);
+  for (const connection of session.subscribers) {
+    send(connection.socket, {
+      type: "data",
+      id: session.id,
+      incarnation: session.incarnation,
+      seq: entry.offset,
+      data: chunk.toString("base64"),
+    });
+  }
+};
+
 const openSession = (
   id: string,
   cwd: string,
@@ -348,28 +304,18 @@ const openSession = (
               state: status.status,
               ...(status.name ? { name: status.name } : {}),
               ...(status.message ? { message: status.message } : {}),
+              ...(status.sessionName ? { sessionName: status.sessionName } : {}),
               at: new Date().toISOString(),
             };
     }
-    const chunk = parsed.clean;
-    if (chunk.length === 0) return;
-    const entry: Buffered = { offset: session.emitted, data: chunk };
-    session.emitted += chunk.length;
-    session.buffer.push(entry);
-    session.bufferBytes += chunk.length;
-    trimBuffer(session);
-    for (const connection of session.subscribers) {
-      send(connection.socket, {
-        type: "data",
-        id,
-        incarnation: session.incarnation,
-        seq: entry.offset,
-        data: chunk.toString("base64"),
-      });
-    }
+    emitChunk(session, parsed.clean);
   });
   child.onExit(({ exitCode, signal }) => {
     if (session.retired || sessions.get(id) !== session) return;
+    // Flush a held partial introducer: session end must not swallow real bytes.
+    const carry = session.oscCarry;
+    session.oscCarry = Buffer.alloc(0);
+    emitChunk(session, carry);
     const sig = typeof signal === "number" && signal > 0 ? signal : 0;
     // Retain the record: a later attach must get a defined final state, not a hang.
     session.alive = false;
