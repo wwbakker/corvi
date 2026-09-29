@@ -17,6 +17,7 @@ import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { deleteSubagentFile, subagentFiles, writeSubagentFile } from "./server/files.ts";
+import { profilesFor } from "./server/run.ts";
 import {
   closeSubagent,
   createSubagent,
@@ -64,6 +65,11 @@ export const subagentsRoutes = guard({
           return json(yield* deleteSubagentFile(ref));
         }),
       ),
+  },
+
+  "/api/changes/:id/subagent-profiles": {
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
   },
 
   "/api/changes/:id/subagents": {

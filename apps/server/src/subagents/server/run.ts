@@ -9,7 +9,8 @@ import { basename, dirname, join } from "node:path";
 import { Effect } from "effect";
 
 import { discoverProfiles, type ProfileRoots } from "@corvi/agents/node";
-import type { DiscoveredProfile } from "@corvi/agents/discovery";
+import type { DiscoveredProfile, ProfileDiscovery } from "@corvi/agents/discovery";
+import type { SubagentProfilesResponseDto } from "@corvi/contracts/subagents";
 import type { Change } from "../../domain/change.ts";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, workspaceOf } from "../../workspace/server/index.ts";
@@ -38,9 +39,31 @@ export const profileRootsFor = (change: Change): Effect.Effect<ProfileRoots> =>
     };
   });
 
+/** The full discovery — runnable profiles and the skipped files with their reasons. */
+export const discoveryFor = (change: Change): Effect.Effect<ProfileDiscovery> =>
+  Effect.flatMap(profileRootsFor(change), discoverProfiles);
+
 /** Every profile this change can run, resolved by the pure precedence rules. */
 export const listProfilesFor = (change: Change): Effect.Effect<readonly DiscoveredProfile[]> =>
-  Effect.map(Effect.flatMap(profileRootsFor(change), discoverProfiles), (discovery) => discovery.profiles);
+  Effect.map(discoveryFor(change), (discovery) => discovery.profiles);
+
+/** The same answer on the wire, for the CLI: what `subagent create` accepts, keyed as it keys
+ * them, plus the files that did not make it and why. */
+export const profilesFor = (change: Change): Effect.Effect<SubagentProfilesResponseDto> =>
+  Effect.map(discoveryFor(change), (discovery) => ({
+    profiles: discovery.profiles.map((found) => ({
+      key: found.key,
+      id: found.id,
+      source: found.source,
+      ...(found.sourceLabel === undefined ? {} : { sourceLabel: found.sourceLabel }),
+      label: found.profile.label,
+      harness: found.profile.harness,
+      ...(found.profile.model === undefined ? {} : { model: found.profile.model }),
+      ...(found.profile.effort === undefined ? {} : { effort: found.profile.effort }),
+      body: found.profile.body,
+    })),
+    skipped: discovery.skipped.map((file) => ({ key: file.key, reasons: [...file.reasons] })),
+  }));
 
 /** The one profile a create named, or undefined. */
 export const resolveProfileFor = (

@@ -20,6 +20,7 @@
  * terminal adds the change's context (`CORVI_CHANGE_ID`, `CORVI_CHANGE_DIR`) rather than leaving it
  * to accident.
  */
+import { join } from "node:path";
 import { ENV_PREFIX } from "@corvi/configuration/node";
 
 export const childEnv = (
@@ -33,4 +34,32 @@ export const childEnv = (
     child[key] = value;
   }
   return { ...child, ...extra };
+};
+
+/** The CLI's shim directory (`apps/cli/bin/corvi`) in front of a PATH — or nothing to do, when
+ * a `corvi` already resolves. The shadowing rule is deliberate: where a launcher installed one
+ * (Linux, `bun run app:install`), it keeps winning, `start`/`stop` and all, and the shim never
+ * shadows it. Pure, so the rule is a unit test's own (`test/tmuxSessionEnv.test.ts`). */
+export const cliAwarePath = (input: {
+  readonly root: string;
+  readonly path: string | undefined;
+  readonly corviAvailable: boolean;
+}): string | undefined =>
+  input.corviAvailable
+    ? undefined
+    : `${join(input.root, "apps", "cli", "bin")}${input.path === undefined ? "" : `:${input.path}`}`;
+
+/** Put the CLI on this process's PATH — once at startup (apps/server/src/server.ts). tmux builds
+ * each pane's environment from the **creating client's** and pins `PATH`/`SHELL` to it: session-
+ * and server-level environments cannot set `PATH` at all (`new-session -e`, `new-window -e` and
+ * `set-environment` are all ignored for it), and every client Corvi spawns — the tmux commands
+ * through `sh()`, the attach ptys through `childEnv` above — inherits this process's
+ * environment. A pane's own shell then keeps what its rc files prepend or append, but may still
+ * replace PATH outright; that residual is documented in docs/manual/install.md. Whether a
+ * `corvi` already resolves is the caller's question (`commandAvailable` lives in `./os.ts`, and
+ * importing it here would close a cycle back through `shell.ts`), so this module keeps its one
+ * dependency. */
+export const putCliOnPath = (root: string, corviAvailable: boolean): void => {
+  const path = cliAwarePath({ root, path: process.env.PATH, corviAvailable });
+  if (path !== undefined) process.env.PATH = path;
 };

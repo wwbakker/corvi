@@ -55,6 +55,32 @@ export const SubagentFileRefSchema = Schema.Struct({
 })
 export type SubagentFileRefDto = typeof SubagentFileRefSchema.Type
 
+/** What a change can run, on the wire: discovery's answer (`@corvi/agents/discovery`) as the
+ * CLI reads it. The `key` is what `subagent create` takes (`repository:orders-api:reviewer`).
+ * `body` is the profile file's own initial prompt (`Profile.body`); the create request's
+ * `prompt` is a different thing — the orchestrator's task text that fills the `{prompt}` mark
+ * in this body, or is appended to it. */
+export const SubagentProfileSummarySchema = Schema.Struct({
+  key: Schema.String,
+  id: Schema.String,
+  source: SubagentSource,
+  sourceLabel: Schema.optional(Schema.String),
+  label: Schema.String,
+  harness: SubagentHarness,
+  model: Schema.optional(Schema.String),
+  effort: Schema.optional(Schema.String),
+  body: Schema.String,
+})
+export type SubagentProfileSummaryDto = typeof SubagentProfileSummarySchema.Type
+
+/** The runnable profiles and, as everywhere else, the files that did not make it — with their
+ * reasons, never hidden. */
+export const SubagentProfilesResponseSchema = Schema.Struct({
+  profiles: Schema.Array(SubagentProfileSummarySchema),
+  skipped: Schema.Array(Schema.Struct({ key: Schema.String, reasons: Schema.Array(Schema.String) })),
+})
+export type SubagentProfilesResponseDto = typeof SubagentProfilesResponseSchema.Type
+
 // --- Instances -------------------------------------------------------------------------------
 
 /** Who a message is from. A turn's reply is always `subagent`; the other two are inbound. */

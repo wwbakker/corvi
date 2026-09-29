@@ -87,7 +87,8 @@ export type Candidate = {
 export type CandidateInput = {
   /** `--server`, the most explicit clue. */
   readonly url?: string;
-  /** `CORVI_URL`, injected into a change's tmux session beside its context. */
+  /** `CORVI_URL`, when a caller's environment names a server outright (a pane's context carries
+   * `CORVI_CHANGE_ID` instead — discovery finds the owning server by what each one knows). */
   readonly envUrl?: string;
   /** The environment to read `CORVI_PORT` from; the process's by default. */
   readonly env?: Record<string, string | undefined>;

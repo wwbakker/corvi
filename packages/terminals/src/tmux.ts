@@ -159,7 +159,10 @@ export const make = (host: Host): Sessions => {
    * environment — never the creating client's — and that server's environment is whichever
    * client started it. If that was another change's pty, the panes grow up with that change's
    * context; if it was this server's own scrubbed process (apps/server/src/capabilities/env.ts),
-   * with none at all. `-e` makes the answer independent of who got there first. */
+   * with none at all. `-e` makes the answer independent of who got there first. (Ordinary
+   * variables only: tmux pins `PATH` and `SHELL` to the creating client's environment and
+   * ignores session/global updates for them — the CLI's PATH entry therefore rides the clients'
+   * own environment, apps/server/src/capabilities/env.ts.) */
   const contextEnv = (id: string, dir: string): string[] => [
     "-e",
     `${host.env("CHANGE_ID")}=${id}`,

@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Effect } from "effect";
 
 import { make, type CommandFailure, type CommandResult, type Host, type Sessions } from "@corvi/terminals/tmux";
 import { ID, env } from "@corvi/configuration/node";
-import { childEnv } from "../apps/server/src/capabilities/env.ts";
+import { childEnv, cliAwarePath, putCliOnPath } from "../apps/server/src/capabilities/env.ts";
 import { budget, runSh, testTempDir, tmuxTempDir, waitFor } from "./helpers.ts";
 
 /**
@@ -38,6 +38,47 @@ const usable =
  * named so the cleaner knows whose it is (test/helpers.ts). */
 const socketDir = usable ? await tmuxTempDir() : "";
 
+/** The real shim directory (`apps/cli/bin`): every client Corvi spawns carries it on PATH, so
+ * every pane it starts can run `corvi`. `/usr/bin:/bin` stay available to the pane's scripts —
+ * only `corvi` must come from the entry. */
+const cliBin = resolve(join(import.meta.dir, "..", "apps", "cli", "bin"));
+
+/** Does an interactive shell keep a PATH entry its creating client brought? Probed once at
+ * module load, with a throwaway tmux server and a marker directory in the client's PATH — a
+ * bare window runs the interactive shell a real Corvi pane has (the probe sends its key into
+ * one), so this is the shape rc files can ruin. The answer is what makes the pane test a
+ * *reported* skip where the shell replaces PATH outright (the documented residual,
+ * docs/manual/install.md) rather than a silent pass — and `putCliOnPath`'s unit below is what
+ * still pins the mechanism there. */
+const probeEntrySurvival = async (): Promise<boolean> => {
+  const dir = await tmuxTempDir();
+  const socket = join(dir, "p.sock");
+  const marker = join(dir, "bin");
+  const out = join(dir, "out");
+  await mkdir(marker, { recursive: true });
+  const clientEnv = { ...childEnv(process.env), PATH: `${marker}:${process.env.PATH ?? ""}` };
+  const call = async (args: readonly string[]): Promise<void> => {
+    await Bun.spawn([...args], { env: clientEnv, stdout: "ignore", stderr: "ignore" }).exited;
+  };
+  await call(["tmux", "-S", socket, "new-session", "-d", "-s", "t"]);
+  await call(["tmux", "-S", socket, "send-keys", "-t", "t", `echo $PATH > ${out}`, "Enter"]);
+  const saw = await waitFor("a pane's interactive shell to print its PATH", async () =>
+    (await Bun.file(out).text().catch(() => "")).length > 0,
+  )
+    .then(() => true)
+    .catch(() => false);
+  await call(["tmux", "-S", socket, "kill-server"]);
+  return saw && (await Bun.file(out).text()).includes(marker);
+};
+
+const entrySurvivesShell = usable ? await probeEntrySurvival() : false;
+if (usable && !entrySurvivesShell) {
+  console.log(
+    "test/tmuxSessionEnv: this shell replaces PATH at startup — " +
+      "skipping 'every pane can run corvi' (the documented residual, docs/manual/install.md)",
+  );
+}
+
 let caseNumber = 0;
 
 /** A pty the way the app starts one: the product's attach argv under the app's own spawner,
@@ -61,6 +102,9 @@ type Scene = {
    * again by a real pane's `env`. `notIds` are the other changes whose names must appear
    * nowhere — a leaked context fails as loudly as a missing one. */
   readonly expectContext: (id: string, dir: string, notIds?: readonly string[]) => Promise<void>;
+  /** What a real pane of the session answers to one script — the last word on what a shell
+   * actually starts with. */
+  readonly ask: (id: string, script: string) => Promise<string>;
   readonly close: () => Promise<void>;
 };
 
@@ -168,13 +212,33 @@ const scene = async (): Promise<Scene> => {
     }
   };
 
+  /** What a real pane answers to one script: `new-window` runs it through the pane's own shell
+   * (`-c` shape) with the environment its client brought — the interactive shape, the one rc
+   * files reach, is `probeEntrySurvival`'s subject. `__done` marks the end, so an empty answer
+   * is still a finished one. */
+  let askNumber = 0;
+  const ask = async (toId: string, script: string): Promise<string> => {
+    const out = join(tmp, `pane-ask-${toId}-${++askNumber}.txt`);
+    await tmux([
+      "new-window",
+      "-d",
+      "-t",
+      sessions.sessionName(toId),
+      `(${script}) > ${out} 2>&1; echo __done >> ${out}`,
+    ]);
+    await waitFor(`a pane of ${sessions.sessionName(toId)} to answer`, async () =>
+      (await Bun.file(out).text().catch(() => "")).includes("__done"),
+    );
+    return (await Bun.file(out).text()).replace(/__done\n?$/, "").trim();
+  };
+
   const close = async (): Promise<void> => {
     for (const held of ptys) held.kill();
     await tmux(["kill-server"]).catch(() => undefined);
     await rm(tmp, { recursive: true, force: true });
   };
 
-  return { sessions, id, dir, other, ensure, ensureBare, attach, exists, clients, expectContext, close };
+  return { sessions, id, dir, other, ensure, ensureBare, attach, exists, clients, expectContext, ask, close };
 };
 
 /** A pty that connects now is what a browser connecting to the terminal page makes: the attach
@@ -242,6 +306,54 @@ test.skipIf(!usable)("a re-attach joins the session it finds and leaves its cont
     await s.close();
   }
 }, budget(60_000));
+
+test.skipIf(!usable || !entrySurvivesShell)("every pane can run `corvi`: the entry its client carries survives the shell", async () => {
+  // The mechanism, end to end: the server puts the shim on its own PATH, every client it spawns
+  // inherits that (childEnv passes PATH through), tmux builds each pane's environment from the
+  // creating client's, and the pane's shell keeps the entry its rc files only prepend around —
+  // the last of those is the machine's own, so it is probed at module load and this test is
+  // skipped (and says so) where it does not hold. The prefix stands in for `putCliOnPath`
+  // exactly — same PATH mutation, same consequences.
+  const saved = process.env.PATH;
+  process.env.PATH = cliAwarePath({ root: resolve(join(cliBin, "..", "..", "..")), path: saved, corviAvailable: false }) ?? saved;
+  const s = await scene();
+  try {
+    await s.ensure(s.id, s.dir);
+    expect(await s.ask(s.id, "command -v corvi")).toBe(join(cliBin, "corvi"));
+  } finally {
+    await s.close();
+    process.env.PATH = saved;
+  }
+}, budget(60_000));
+
+test("putCliOnPath prefixes this process's PATH only when no `corvi` resolves", () => {
+  const saved = process.env.PATH;
+  try {
+    process.env.PATH = "/usr/bin:/bin";
+    putCliOnPath("/checkout", false);
+    expect(process.env.PATH).toBe("/checkout/apps/cli/bin:/usr/bin:/bin");
+    // The launcher's machine: nothing is injected, and `start`/`stop` stay on the launcher.
+    process.env.PATH = "/usr/bin:/bin";
+    putCliOnPath("/checkout", true);
+    expect(process.env.PATH).toBe("/usr/bin:/bin");
+  } finally {
+    process.env.PATH = saved;
+  }
+});
+
+test("the CLI's PATH entry is only put in front when no `corvi` is already there", () => {
+  // Where a `corvi` already resolves — Linux after `bun run app:install` — it keeps winning,
+  // `start`/`stop` and all: the launcher is never shadowed by the shim.
+  expect(cliAwarePath({ root: "/checkout", path: "/usr/bin", corviAvailable: true })).toBeUndefined();
+  // Without one, the checkout's shim directory rides in front of the PATH there is.
+  expect(cliAwarePath({ root: "/checkout", path: "/usr/bin", corviAvailable: false })).toBe(
+    "/checkout/apps/cli/bin:/usr/bin",
+  );
+  // No PATH at all is still an answer, not a lost entry.
+  expect(cliAwarePath({ root: "/checkout", path: undefined, corviAvailable: false })).toBe(
+    "/checkout/apps/cli/bin",
+  );
+});
 
 test.skipIf(!usable)("ensureSession puts the context onto a session that was made without it", async () => {
   // A session can predate its context — made by an older server, or on a server whose

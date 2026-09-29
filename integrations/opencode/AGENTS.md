@@ -10,6 +10,11 @@ symlinks the entry file into opencode's plugin directory (`scripts/extension.ts`
 mechanics). The plugin is the current `{ id, server }` module form; opencode's core-v2
 `{ id, setup }` surface cannot be a reporter (no event subscription).
 
+- `./cli-guide`: the CLI guide — the compact `corvi` pointer the system prompt gets behind the
+  pane gate (`CORVI_CHANGE_ID`), so nothing appears outside Corvi. Its text is deliberately
+  duplicated in `integrations/pi/src/cli-guide.ts` (the two extensions share no code) and pinned
+  equal by `test/cliGuide.test.ts`.
+
 ## Does not own
 
 Corvi's reader for the protocol (`@corvi/agents/presenter`), the vocabulary itself (stated in
@@ -20,6 +25,7 @@ share no code: each is loaded by its agent outside Corvi's module graph.
 
 - `@corvi/opencode/agent-state`: the plugin module opencode loads (default export) and its pure
   helpers (`firstSentence`, `trackAnswer`).
+- `@corvi/opencode/cli-guide`: the guide module and its pure half (`guideText`, `applyGuide`).
 
 ## Dependencies
 

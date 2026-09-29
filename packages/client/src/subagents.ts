@@ -8,6 +8,7 @@ import {
   SubagentListResponseSchema,
   SubagentMessageSchema,
   SubagentNextResponseSchema,
+  SubagentProfilesResponseSchema,
   SubagentWaitResponseSchema,
   type SubagentCreateRequestDto,
   type SubagentFileRefDto,
@@ -16,6 +17,7 @@ import {
   type SubagentInstanceDto,
   type SubagentMessageDto,
   type SubagentNextResponseDto,
+  type SubagentProfilesResponseDto,
   type SubagentSendRequestDto,
   type SubagentTurnRequestDto,
   type SubagentWaitResponseDto,
@@ -33,6 +35,8 @@ export interface SubagentsApi {
   readonly files: () => Promise<SubagentFilesResponseDto>
   readonly writeFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
   readonly deleteFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
+  /** The profiles this change can run — discovery's resolved keys, the ones `create` takes. */
+  readonly profiles: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentProfilesResponseDto>
   /** The persistent subagent instances of a change. */
   readonly list: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentInstanceDto[]>
   readonly read: (
@@ -110,6 +114,11 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
         SubagentListResponseSchema,
         await send("GET", `${change(changeId)}/subagents`, options),
       ).instances,
+    profiles: async (changeId, options) =>
+      decode(
+        SubagentProfilesResponseSchema,
+        await send("GET", `${change(changeId)}/subagent-profiles`, options),
+      ),
     read: async (changeId, id, options) =>
       decode(SubagentInstanceSchema, await send("GET", instance(changeId, id), options)),
     create: async (changeId, body, idempotencyKey) =>

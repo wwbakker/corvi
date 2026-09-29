@@ -6,14 +6,19 @@ the conversation. It is a normal tmux window running pi or opencode, so you can 
 into it; the difference is that Corvi knows it as a named participant in the change.
 
 Everything a subagent can do is in the command line and the page: `corvi subagent …` and the
-change's Subagents section.
+change's Subagents section. Bare `corvi subagent` prints its own usage with the delegation recipe,
+and an agent running in a Corvi terminal is pointed at it automatically by the pi and opencode
+extensions — invisible outside Corvi.
 
 ## Profiles
 
 A profile is a template for a subagent: the harness, the model and effort, and the initial prompt.
 Profiles are files, with the same scopes and editing as actions (see
 [configuration](configuration.md#subagent-profiles)), and the built-in `reviewer` is a starting
-point.
+point. `corvi subagent profile list` shows what this change can run — the keys `create` accepts,
+`global:reviewer` and the rest, with the files that did not parse and why — and
+`corvi subagent profile write <id> --scope global|workspace` adds one (the scope is explicit; a
+repository profile is the file `<checkout>/.corvi/subagents/<id>.md`, written directly).
 
 ## Creating and talking to a subagent
 

@@ -1,13 +1,15 @@
 /**
- * The one opencode plugin Corvi installs: the reporter (`agent-state.ts`) and the conversational
- * relay (`turns.ts`) composed into the one entry the install points at (`index.ts`).
+ * The one opencode plugin Corvi installs: the reporter (`agent-state.ts`), the conversational
+ * relay (`turns.ts`), and the CLI guide (`cli-guide.ts`) composed into the one entry the install
+ * points at (`index.ts`).
  *
- * Both halves subscribe to opencode's event stream, so composition calls each hook in turn rather
- * than replacing one with the other.
+ * The halves subscribe to opencode's hooks, so composition calls each in turn rather than
+ * replacing one with another.
  */
 import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
 
 import agentState from "./agent-state.ts";
+import { applyGuide } from "./cli-guide.ts";
 import turns from "./turns.ts";
 
 const server = async (input: PluginInput): Promise<Hooks> => {
@@ -17,6 +19,11 @@ const server = async (input: PluginInput): Promise<Hooks> => {
     event: async (args): Promise<void> => {
       await state?.event?.(args);
       await relay?.event?.(args);
+    },
+    // The CLI guide joins the system prompt inside a Corvi pane and nowhere else
+    // (`cli-guide.ts`).
+    "experimental.chat.system.transform": async (_args, output): Promise<void> => {
+      applyGuide(output.system, process.env);
     },
     dispose: async (): Promise<void> => {
       await relay?.dispose?.();

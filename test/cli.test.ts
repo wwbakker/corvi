@@ -14,7 +14,7 @@ import { instanceRecordPath } from "@corvi/configuration/node";
 import { InstanceRecordSchema } from "@corvi/contracts/instance";
 import { Schema } from "effect";
 
-import { run, type Io } from "../apps/cli/src/main.ts";
+import { run, COMMANDS, GROUP_HELP, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
 import { instanceRecords, pidFilePorts, resolveServer, serverCandidates } from "../apps/cli/src/discovery.ts";
@@ -371,4 +371,297 @@ test("subagent commands drive an instance over the HTTP API", async () => {
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "result", "seed-1", "--json"], result.io),
   ).toBe(0);
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
+});
+
+test("a bare group prints its own usage, and the subagent one carries the delegation recipe", async () => {
+  const group = capture();
+  expect(await run(["subagent"], group.io)).toBe(0);
+  const help = group.out.join("");
+  expect(help).toContain("corvi subagent");
+  // The recipe whose absence failed an agent told to "use subagents": find a profile key,
+  // create with it, wait, read the answer.
+  expect(help).toContain("corvi subagent profile list");
+  expect(help).toContain("corvi subagent create");
+  expect(help).toContain("corvi subagent wait");
+  expect(help).toContain("corvi subagent result");
+
+  for (const name of ["change", "action"]) {
+    const bare = capture();
+    expect(await run([name], bare.io)).toBe(0);
+    expect(bare.out.join("")).toContain(`corvi ${name}`);
+  }
+
+  // A bare profile subfamily is the same help, not an error — before any server is asked.
+  const profile = capture();
+  expect(await run(["subagent", "profile"], profile.io)).toBe(0);
+  expect(profile.out.join("")).toBe(help);
+});
+
+test("a command typo is a usage error before any server is asked", async () => {
+  const unknown = capture();
+  expect(await run(["subagent", "wat"], unknown.io, { env: {} })).toBe(2);
+  // The existing wording lists what the group does take.
+  expect(unknown.err.join("")).toContain("subagent needs a command");
+
+  const unknownProfile = capture();
+  expect(await run(["subagent", "profile", "wat"], unknownProfile.io, { env: {} })).toBe(2);
+  expect(unknownProfile.err.join("")).toContain("unknown profile command");
+});
+
+test("profile write states its scope, and repository files name the checkout path", async () => {
+  const file = join(tmp, "scope-profile.md");
+  await writeFile(file, "---\nlabel: Scope test\nharness: pi\n---\nCheck it.\n", "utf8");
+
+  // The scope is required, never defaulted: a wrong default would silently misfile it.
+  const noScope = capture();
+  expect(await run(["subagent", "profile", "write", "x", "--from", file], noScope.io, { env: {} })).toBe(2);
+  expect(noScope.err.join("")).toContain("--scope");
+
+  // Repository scope is the checkout's own: the answer is the path, written directly.
+  const repository = capture();
+  expect(
+    await run(["subagent", "profile", "write", "x", "--scope", "repository", "--from", file], repository.io, {
+      env: {},
+    }),
+  ).toBe(2);
+  expect(repository.err.join("")).toContain(".corvi/subagents/x.md");
+
+  const action = capture();
+  expect(
+    await run(["action", "profile", "write", "x", "--scope", "repository", "--from", file], action.io, { env: {} }),
+  ).toBe(2);
+  expect(action.err.join("")).toContain(".corvi/actions/x.md");
+});
+
+test("subagent profile list names the keys create takes, shipped profiles included", async () => {
+  const list = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "profile", "list", "--json"],
+      list.io,
+    ),
+  ).toBe(0);
+  const discovery = JSON.parse(list.out.join("")) as {
+    profiles: { key: string; label: string; harness: string; body: string }[];
+    skipped: { key: string; reasons: string[] }[];
+  };
+  const reviewer = discovery.profiles.find((profile) => profile.key === "builtin:reviewer");
+  expect(reviewer?.label).toBe("Reviewer");
+  expect(reviewer?.harness).toBe("pi");
+  // The body is the profile file's own initial prompt — not pinned to the shipped wording, just
+  // present (the wording is the builtins' own to change).
+  expect(reviewer?.body.trim().length ?? 0).toBeGreaterThan(0);
+});
+
+test("subagent profile write and delete round-trip a file, and a bad one is refused with its reasons", async () => {
+  const file = join(tmp, "profile.md");
+  await writeFile(file, "---\nlabel: Writer test\nharness: pi\n---\nCheck it.\n", "utf8");
+
+  const written = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "subagent", "profile", "write", "writer-test", "--scope", "global", "--from", file, "--json"],
+      written.io,
+    ),
+  ).toBe(0);
+  expect(JSON.parse(written.out.join("")) as { id: string; label?: string }).toMatchObject({
+    id: "writer-test",
+    label: "Writer test",
+  });
+
+  // The write lands in the change's discovery, keyed as create wants it.
+  const listed = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "profile", "list", "--json"],
+      listed.io,
+    ),
+  ).toBe(0);
+  const keys = (JSON.parse(listed.out.join("")) as { profiles: { key: string }[] }).profiles.map((p) => p.key);
+  expect(keys).toContain("global:writer-test");
+
+  // What is not a profile is a refusal (4), carrying the parser's reasons.
+  await writeFile(file, "no frontmatter here", "utf8");
+  const broken = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "subagent", "profile", "write", "broken", "--scope", "global", "--from", file, "--json"],
+      broken.io,
+    ),
+  ).toBe(4);
+  const envelope = JSON.parse(broken.err.join("")) as { error: string; exitCode: number };
+  expect(envelope.exitCode).toBe(4);
+  expect(envelope.error).toContain("frontmatter");
+
+  const deleted = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "subagent", "profile", "delete", "writer-test", "--scope", "global", "--json"],
+      deleted.io,
+    ),
+  ).toBe(0);
+  expect(JSON.parse(deleted.out.join("")) as { id: string }).toMatchObject({ id: "writer-test" });
+
+  const after = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "subagent", "profile", "list", "--json"],
+      after.io,
+    ),
+  ).toBe(0);
+  const gone = (JSON.parse(after.out.join("")) as { profiles: { key: string }[] }).profiles.map((p) => p.key);
+  expect(gone).not.toContain("global:writer-test");
+});
+
+test("action profile files round-trip and show up as runnable actions", async () => {
+  const file = join(tmp, "action.md");
+  await writeFile(
+    file,
+    "---\nlabel: Test action\nkind: prompt\ntarget: agent\nsubmit: true\n---\nDo the thing.\n",
+    "utf8",
+  );
+
+  const written = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "action", "profile", "write", "test-action", "--scope", "global", "--from", file, "--json"],
+      written.io,
+    ),
+  ).toBe(0);
+
+  // The files view the page edits through: as written, with any problems.
+  const files = capture();
+  expect(await run(["--server", baseUrl, "action", "profile", "list", "--json"], files.io)).toBe(0);
+  const ids = (JSON.parse(files.out.join("")) as { files: { id: string }[] }).files.map((f) => f.id);
+  expect(ids).toContain("test-action");
+
+  // And the menu it feeds: the runnable keys.
+  const runnable = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "action", "list", "--json"], runnable.io),
+  ).toBe(0);
+  const keys = (JSON.parse(runnable.out.join("")) as { key: string }[]).map((a) => a.key);
+  expect(keys).toContain("global:test-action");
+
+  const deleted = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "action", "profile", "delete", "test-action", "--scope", "global", "--json"],
+      deleted.io,
+    ),
+  ).toBe(0);
+});
+
+test("an argv token is never a command through Object.prototype", async () => {
+  // A plain record inherits `toString`, `constructor` and the rest: those must read as unknown
+  // commands (2), never print a function or crash with a raw TypeError.
+  for (const argv of [["toString"], ["constructor", "list"]] as const) {
+    const c = capture();
+    expect(await run([...argv], c.io, { env: {} })).toBe(2);
+    expect(c.err.join("")).toContain("unknown");
+  }
+});
+
+test("--help on a group is that group's own usage", async () => {
+  const bare = capture();
+  expect(await run(["subagent"], bare.io)).toBe(0);
+  const help = capture();
+  expect(await run(["subagent", "--help"], help.io)).toBe(0);
+  expect(help.out.join("")).toBe(bare.out.join(""));
+});
+
+test("the command tables and the help text cannot drift apart", () => {
+  for (const [group, commands] of Object.entries(COMMANDS)) {
+    const help = GROUP_HELP[group] ?? "";
+    for (const command of commands) expect(`${group}: ${help}`).toContain(command);
+  }
+});
+
+test("a workspace-scoped file round-trips, and the workspace flag has rules", async () => {
+  // The workspace comes from the server itself — the one its config knows.
+  const files = capture();
+  expect(await run(["--server", baseUrl, "action", "profile", "list", "--json"], files.io)).toBe(0);
+  const workspaces = (JSON.parse(files.out.join("")) as { workspaces: { id: string }[] }).workspaces;
+  expect(workspaces.length).toBeGreaterThan(0);
+  const ws = workspaces[0]!.id;
+
+  const file = join(tmp, "ws-action.md");
+  await writeFile(file, "---\nlabel: WS action\nkind: prompt\ntarget: agent\nsubmit: true\n---\nDo it.\n", "utf8");
+  const written = capture();
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "action", "profile", "write", "ws-test", "--scope", "workspace",
+        "--workspace", ws, "--from", file, "--json",
+      ],
+      written.io,
+    ),
+  ).toBe(0);
+
+  const listed = capture();
+  expect(await run(["--server", baseUrl, "action", "profile", "list", "--json"], listed.io)).toBe(0);
+  const keys = (JSON.parse(listed.out.join("")) as { files: { scope: string; workspace?: string; id: string }[] }).files
+    .map((one) => `${one.scope}:${one.workspace === undefined ? "" : `${one.workspace}:`}${one.id}`);
+  expect(keys).toContain(`workspace:${ws}:ws-test`);
+
+  const deleted = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "action", "profile", "delete", "ws-test", "--scope", "workspace", "--workspace", ws, "--json"],
+      deleted.io,
+    ),
+  ).toBe(0);
+
+  // The flag rules are usage errors, locally — never a round trip to the server.
+  const missing = capture();
+  expect(
+    await run(["action", "profile", "write", "x", "--scope", "workspace", "--from", file], missing.io, { env: {} }),
+  ).toBe(2);
+  expect(missing.err.join("")).toContain("--workspace");
+
+  const mixed = capture();
+  expect(
+    await run(["action", "profile", "write", "x", "--scope", "global", "--workspace", ws, "--from", file], mixed.io, {
+      env: {},
+    }),
+  ).toBe(2);
+  expect(mixed.err.join("")).toContain("only goes with");
+});
+
+test("profile write reads a piped file's text from stdin", async () => {
+  const shim = join(import.meta.dir, "..", "apps", "cli", "bin", "corvi");
+  const proc = Bun.spawn(
+    [shim, "--server", baseUrl, "subagent", "profile", "write", "stdin-test", "--scope", "global", "--json"],
+    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
+  );
+  proc.stdin.write("---\nlabel: Stdin test\nharness: pi\n---\nCheck it.\n");
+  proc.stdin.end();
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  expect(await proc.exited).toBe(0);
+  expect(stderr).toBe("");
+  expect((JSON.parse(stdout) as { id: string }).id).toBe("stdin-test");
+
+  const deleted = capture();
+  expect(
+    await run(["--server", baseUrl, "subagent", "profile", "delete", "stdin-test", "--scope", "global", "--json"], deleted.io),
+  ).toBe(0);
+});
+
+test("the shim is `corvi` end to end: dispatch, usage, and the exit contract", async () => {
+  const shim = join(import.meta.dir, "..", "apps", "cli", "bin", "corvi");
+
+  const listed = Bun.spawnSync([shim, "--server", baseUrl, "change", "list", "--json"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(listed.exitCode).toBe(0);
+  expect((JSON.parse(listed.stdout.toString()) as { id: string }[]).map((c) => c.id)).toContain(CHANGE_ID);
+
+  const usage = Bun.spawnSync([shim], { stdout: "pipe", stderr: "pipe" });
+  expect(usage.exitCode).toBe(0);
+  expect(usage.stdout.toString()).toContain("corvi — control a change");
+
+  const typo = Bun.spawnSync([shim, "subagent", "profile", "wat"], { stdout: "pipe", stderr: "pipe" });
+  expect(typo.exitCode).toBe(2);
+  expect(typo.stderr.toString()).toContain("unknown profile command");
 });

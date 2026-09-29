@@ -1,0 +1,40 @@
+#!/bin/sh
+# The Corvi CLI's entry: `corvi`, wherever a Corvi terminal finds it.
+#
+# A Corvi terminal carries this directory on its PATH because the server puts it in front of its
+# own PATH before spawning any tmux client (putCliOnPath, apps/server/src/capabilities/env.ts):
+# tmux pins PATH and SHELL to the pane's creating client and ignores session and server
+# environment updates for them, so the clients' environment — not a session entry — is what a
+# pane's shell starts from. The shim never shadows anything: where a `corvi` already resolves
+# (the Linux launcher, or another checkout's shim), the server leaves PATH alone and that one
+# keeps winning, `start`/`stop` and all. Self-locating, through symlinks: the checkout this file
+# really lives in is the checkout whose CLI runs, so nothing is baked in at install time.
+#
+# Everything after the command name is the CLI's own (apps/cli/src/main.ts): bare `corvi`
+# prints its usage, and `corvi change`, `corvi action`, `corvi subagent` print theirs.
+set -eu
+
+# Resolved through symlinks first: a linked copy self-locates beside the link, and there is no
+# main.ts there.
+SELF="$0"
+while [ -L "$SELF" ]; do
+    link=$(readlink "$SELF")
+    case "$link" in
+        /*) SELF="$link" ;;
+        *) SELF="$(dirname -- "$SELF")/$link" ;;
+    esac
+done
+DIR=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
+MAIN="$DIR/../src/main.ts"
+
+# The runner, resolved exactly like the Linux launcher's: Node with type stripping where it
+# exists, Bun otherwise (docs/manual/install.md lists both as requirements).
+if command -v node >/dev/null 2>&1 && node --experimental-strip-types -e "process.exit(0)" >/dev/null 2>&1; then
+    exec node --experimental-strip-types "$MAIN" "$@"
+fi
+if command -v bun >/dev/null 2>&1; then
+    exec bun "$MAIN" "$@"
+fi
+
+echo "corvi needs node (24+, with type stripping) or bun on PATH" >&2
+exit 1
