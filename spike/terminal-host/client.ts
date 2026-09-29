@@ -41,6 +41,18 @@ export type EnsureOptions = {
   readonly socket: string;
   readonly checkout: string;
   readonly buildId: string;
+  /** Idle shutdown passed to a host this client starts; omitted or 0 disables it. */
+  readonly idleMs?: number;
+};
+
+export type SessionInfo = {
+  readonly id: string;
+  readonly cwd: string;
+  readonly pid: number;
+  readonly createdAt: string;
+  readonly alive: boolean;
+  readonly lastSeq: number;
+  readonly exitCode?: number;
 };
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -143,11 +155,24 @@ export class HostClient {
     return { opened: Boolean(reply.opened) };
   }
 
-  /** Attach, resuming from `since` (default: the highest offset this connection has seen). */
-  async attach(id: string, since?: number): Promise<{ attached: boolean }> {
+  /** Attach, resuming from `since` (default: the highest offset this connection has seen). The
+   * reply states the session's final state, so a dead session's snapshot is not mistaken for a
+   * live one. */
+  async attach(id: string, since?: number): Promise<{ attached: boolean; alive: boolean; exitCode?: number }> {
     const from = since ?? this.received.get(id) ?? 0;
     const reply = await this.call({ type: "session.attach", id, since: from });
-    return { attached: Boolean(reply.attached) };
+    return {
+      attached: Boolean(reply.attached),
+      alive: Boolean(reply.alive),
+      ...(typeof reply.exitCode === "number" ? { exitCode: reply.exitCode } : {}),
+    };
+  }
+
+  /** Every session the host retains, live or dead, with the metadata a restarting server needs to
+   * re-associate its registry. */
+  async list(): Promise<SessionInfo[]> {
+    const reply = await this.call({ type: "session.list" });
+    return (reply.sessions as SessionInfo[]) ?? [];
   }
 
   async detach(id: string): Promise<void> {
@@ -349,7 +374,13 @@ const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: H
   if (process.versions.electron !== undefined) env.ELECTRON_RUN_AS_NODE = "1";
   const child = spawn(
     process.execPath,
-    [hostScript, "--socket", options.socket, "--checkout", options.checkout, "--build-id", options.buildId],
+    [
+      hostScript,
+      "--socket", options.socket,
+      "--checkout", options.checkout,
+      "--build-id", options.buildId,
+      ...(options.idleMs !== undefined && options.idleMs > 0 ? ["--idle-ms", String(options.idleMs)] : []),
+    ],
     { detached: true, stdio: "ignore", env },
   );
   child.unref();

@@ -1,0 +1,15 @@
+== 1. server A starts the host, opens s1/s2, is SIGKILLed ==
+A: {"phase":"a","adopted":false,"hostPid":206744,"s1":true,"s2":true}
+== 2. host and both shells survive server A ==
+inspect: {"phase":"inspect","adopted":true,"hostPid":206744,"sessions":[{"id":"s1","cwd":"/tmp/corvi-spike-restart-BQROUQ/changes/C1","pid":206754,"createdAt":"2026-09-29T22:55:38.516Z","alive":true,"lastSeq":83},{"id":"s2","cwd":"/tmp/corvi-spike-restart-BQROUQ/changes/C2","pid":206756,"createdAt":"2026-09-29T22:55:38.517Z","alive":true,"lastSeq":83}]}
+== 5a. idle does not kill a host with a live session ==
+== 3. server B adopts, re-associates the registry, runs in the same shells ==
+B: {"phase":"b","adopted":true,"hostPid":206744,"results":[{"id":"s1","change":"C1","window":"W1","alive":true,"earlier":true,"newOk":true},{"id":"s2","change":"C2","window":"W2","alive":true,"earlier":true,"newOk":true}]}
+== 4. exit typed while detached is a defined final state ==
+exit-detached: {"phase":"exit-detached","adopted":true,"hostPid":206744,"s2Dead":true,"attachAlive":false,"attachExitCode":0,"exitEvent":0,"replayed":true,"remaining":["s2:dead"]}
+== 5b. idle shutdown with no live sessions ==
+== 6. host SIGKILL kills shells; a fresh server starts a fresh host ==
+C: {"phase":"c-start","adopted":false,"hostPid":207464,"shellPid":207473,"marker":true}
+c-recover: {"phase":"c-recover","adopted":false,"hostPid":207815,"sessionCount":0}
+== 7. nothing left behind ==
+all 33 assertions passed
