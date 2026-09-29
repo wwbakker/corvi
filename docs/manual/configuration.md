@@ -95,6 +95,11 @@ More specific wins on a collision (repository > workspace > global > built-in), 
 anywhere replaces the built-in briefing whole. A file that does not parse is listed with its
 reasons rather than hidden: the page is where it gets fixed.
 
+What the page does for the writable scopes, the CLI does too: `corvi action profile write <id>
+--scope global|workspace` and `… profile delete` write the same files (the scope is explicit), and
+`corvi action profile list` shows each one as written. A repository file is written directly,
+with your IDE or by an agent's own tools.
+
 Editing one opens the file in the Markdown editor the plan uses, with the fields' documentation
 beside it — each field, what it is for, and the values it takes. The panel opens and closes from
 its button and stays where it was left; the field your caret is in is lit.
@@ -116,6 +121,11 @@ way:
 | Global | `~/.config/corvi/subagents/` | created, edited, deleted |
 | Workspace | `~/.config/corvi/workspaces/<id>/subagents/` | created, edited, deleted |
 | Repository | `<checkout>/.corvi/subagents/` | not managed — create with your IDE or by the agent |
+
+What the page does for the writable scopes, the CLI does too: `corvi subagent profile write <id>
+--scope global|workspace` and `… profile delete` write the same files (the scope is explicit), and
+`corvi subagent profile list` answers with the keys `corvi subagent create` accepts. A repository
+file is written directly, with your IDE or by an agent's own tools.
 
 The frontmatter names `label` and `harness` (`pi` or `opencode`); `model` and `effort` are passed
 to the harness and are checked loosely, because a model catalog changes with the harness. `phases`

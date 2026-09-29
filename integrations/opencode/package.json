@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./agent-state": "./src/agent-state.ts",
+    "./cli-guide": "./src/cli-guide.ts",
     "./turns": "./src/turns.ts",
     "./corvi": "./src/corvi.ts"
   },

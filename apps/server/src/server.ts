@@ -25,7 +25,16 @@ import {
 import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
 import { migrateStoredRecords } from "@corvi/changes/node";
 import { changePairs } from "./change/server/store.ts";
+import { putCliOnPath } from "./capabilities/env.ts";
+import { commandAvailable } from "./capabilities/os.ts";
 import { ID, env } from "@corvi/configuration/node";
+
+// The CLI on PATH for every shell this server starts (see the function's own comment on why
+// this — and not a session environment entry — is what reaches a tmux pane). The checkout is
+// where this server's own code lives — derived from this file, not the cwd: every documented
+// launch sets the cwd too, but only this cannot be wrong. Before the first client is spawned
+// anywhere below.
+putCliOnPath(resolve(import.meta.dirname, "../../.."), commandAvailable("corvi"));
 
 // The runtime this process owns: the cache is constructed here and restored before the server
 // listens, and requests read it through `capabilitiesLayer`. What the CLIs said last time is

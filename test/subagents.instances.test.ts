@@ -21,7 +21,7 @@ import { readInstance } from "@corvi/agents/node";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
 import { changeDir } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { testTempDir } from "./helpers.ts";
+import { testTempDir, tmuxTempDir } from "./helpers.ts";
 
 /** A launcher that returns a fake window id, so create/open work without tmux or a harness. The
  * caller persists the id and the `opened` entry under the lock. */
@@ -34,9 +34,12 @@ let savedSocket: string | undefined;
 beforeAll(async () => {
   tmp = await testTempDir("subagents-instances");
   // A private, non-existent tmux socket: the store's window reads answer empty instead of ever
-  // touching the user's server.
+  // touching the user's server. In `tmuxTempDir`'s short directory on purpose: a unix socket
+  // path has ~100 characters, and `corvi-<token>-subagents-instances-XXXXXX/tmux.sock` under
+  // macOS's own long `$TMPDIR` overshoots it — "File name too long" instead of the empty reads
+  // most of these tests want (the helper's length check, test/helpers.ts).
   savedSocket = process.env.CORVI_TMUX_SOCKET;
-  process.env.CORVI_TMUX_SOCKET = join(tmp, "tmux.sock");
+  process.env.CORVI_TMUX_SOCKET = join(await tmuxTempDir(), "s.sock");
   change = {
     id: "PROJ-sub",
     branch: "PROJ-sub",

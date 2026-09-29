@@ -90,6 +90,14 @@ on failure. The exit code says what happened without reading the text: `0` succe
 app sets in every pane of a change's session — and then to the nearest `change.json` at or above
 the working directory.
 
+Each group prints its own usage — bare `corvi change`, `corvi action`, or `corvi subagent` — and
+the subagent one carries the delegation recipe an orchestrating agent follows. Profile keys are
+discoverable (`corvi subagent profile list` answers with what `create` accepts), and the profile
+and action files are writable from the command line: `corvi … profile write <id> --scope
+global|workspace` (the scope is explicit; a repository file is the checkout's own and is written
+directly). An agent running in a Corvi terminal is pointed at all of this by the pi and opencode
+extensions — a sentence in its prompt, nothing outside Corvi.
+
 The CLI talks to the running server, so with the app closed a control command fails loudly rather
 than editing files behind the server's back. It finds the server through `CORVI_URL`, then the
 record the server writes at startup (`$XDG_STATE_HOME/corvi/corvi-app-<port>.json`), then the
@@ -98,10 +106,17 @@ answers wins outright; otherwise the server that owns the change is used, and th
 ambiguous (`CORVI_URL` names one) only when several servers answer and none or more than one owns
 it.
 
-This dispatch is Linux-only for now: on macOS the installed `corvi` still opens the app, and the
-CLI runs from the checkout with `bun run cli`. `corvi stop` stops the servers the desktop window
-recorded in its pid-files; a dev server (`bun run dev`) records itself for discovery but has no
-pid-file, so stop it where it was started.
+This dispatch is Linux's: no `corvi` is installed on macOS at all. Inside Corvi's own terminals
+the CLI is available on both platforms — the server puts its checkout's `apps/cli/bin/corvi` shim
+in front of every shell it starts, and it never shadows anything: where a `corvi` already resolves
+— the Linux launcher, or another checkout's shim on PATH — that one keeps winning (of several
+checkouts' shims, the one already on PATH is the one Corvi terminals use). Anywhere else it is
+`bun run cli` in the checkout. A
+pane's shell keeps the entry while its startup only prepends to PATH; a shell that replaces PATH
+outright loses it, and `corvi` then needs the checkout. `corvi start` and `corvi stop` remain the
+Linux launcher's commands. `corvi stop` stops the servers the desktop window recorded in its
+pid-files; a dev server (`bun run dev`) records itself for discovery but has no pid-file, so stop
+it where it was started.
 
 ## Updates
 
