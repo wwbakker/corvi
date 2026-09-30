@@ -48,7 +48,7 @@ export const terminalsRoutes = guard({
     const rows = Number(query.get("rows") ?? 24);
     let session: TerminalSession;
     try {
-      session = openSession(id, dir, { cols: cols || 80, rows: rows || 24 });
+      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 });
     } catch (e) {
       // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.

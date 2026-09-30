@@ -17,7 +17,8 @@ import type { Change } from "../../domain/change.ts";
 import { changeDir, PLAN_FILE } from "../../change/server/index.ts";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";
-import { ensureSession, listWindows, sessions } from "../../terminals/server/index.ts";
+import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
+import { actionSessions } from "../../terminals/server/action-sessions.ts";
 
 /** Where one change's action files live: the global and workspace scopes beside the config file
  * (so `CORVI_CONFIG` moves both), the repository scope inside each of its checkouts. */
@@ -119,7 +120,10 @@ export const runActionFor = (
     const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
 
     const dir = changeDir(change);
-    yield* ensureSession(change.id, dir);
+    yield* Effect.tryPromise({
+      try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
+      catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+    });
     const windows = yield* listWindows(change.id);
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({
       window: window.id,
@@ -127,7 +131,7 @@ export const runActionFor = (
       kind: window.icon === "agent" ? "agent" : "plain",
       active: window.active,
     }));
-    const delivery = yield* deliverAction(sessions, {
+    const delivery = yield* deliverAction(actionSessions, {
       changeId: change.id,
       changeDir: dir,
       action: found.action,

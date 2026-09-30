@@ -10,8 +10,7 @@
  * The pty attaches the change's tmux session and holds it, exactly as one browser connection
  * does; SIGTERM detaches it, which is how the matrix closes a case.
  */
-import { attachCommand } from "../../apps/server/src/terminals/server/tmux.ts";
-import { spawnPty } from "../../apps/server/src/terminals/server/session.ts";
+import { attachCommand, spawnPty } from "../../apps/server/src/terminals/server/tmux.ts";
 
 const [id, dir] = process.argv.slice(2) as [string, string];
 if (id === undefined || dir === undefined) {

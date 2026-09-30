@@ -56,6 +56,11 @@ export type NoWindowForAction = {
 
 export type DeliveryFailure = CommandFailure | NoWindowForAction;
 
+/** The terminal operations action delivery needs. tmux implements it today, the host implements
+ * it for interactive windows; delivery does not care which, only that a window can be started and
+ * written to. */
+export type ActionSessions = Pick<Sessions, "newWindowRunning" | "pastePromptTo" | "submit">;
+
 /** The window a delivery wants: the one you are on when it is of the right kind, else the
  * leftmost of the right kind. `here` is the pane you are on, whatever kind it is. Pure. */
 export const selectTargetWindow = (
@@ -73,7 +78,7 @@ export const selectTargetWindow = (
 /** Run one action over the terminal operations. The session exists before this is called (the
  * route ensures it, as the brief always did), so there is always a pane to ask. */
 export const deliverAction = (
-  sessions: Sessions,
+  sessions: ActionSessions,
   request: DeliverRequest,
 ): Effect.Effect<Delivery, DeliveryFailure> =>
   Effect.gen(function* () {

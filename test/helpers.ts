@@ -1,4 +1,4 @@
-import { mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,6 +122,21 @@ export const legacyWorkspace = (workspace: object): LegacyWorkspaceKeys =>
 /** What a test may state on the config snapshot for a body: any resolved field, plus the
  * preserved flat keys `legacyConfig` reads. */
 export type RuntimeConfigPatch = Partial<Config> & LegacyFlatSettings;
+
+/** Shut down a test server's terminal host, if one was started. The host outlives the server by
+ * design, so a test that opened a terminal must end it explicitly or leave a pty owner behind.
+ * The socket is the test's own (`serverEnv` put it under `tmp`), so this never touches another
+ * run's host. */
+export const stopRunHost = async (tmp: string): Promise<void> => {
+  const socket = join(tmp, "state", "corvi", "host.sock");
+  if (!existsSync(socket)) return;
+  const { ensureHost } = await import("../apps/server/src/terminals/host/client.ts");
+  const client = await ensureHost({ socket, checkout: process.cwd(), buildId: process.env.CORVI_BUILD ?? "dev", runtime: "node" })
+    .then((result) => result.client)
+    .catch(() => undefined);
+  await client?.shutdown().catch(() => undefined);
+  client?.close();
+};
 
 /** Run `body` with `patch` applied to the one config object every module holds by reference,
  * then put each patched key back exactly as it was — own property restored if the object had

@@ -14,7 +14,8 @@
  * with its predecessor and `attach` can resume without duplication. A socket close rejects every
  * pending call at once. `close()` only detaches: the host and its ptys live on.
  */
-import { existsSync, linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { connect, type Socket } from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -261,10 +262,26 @@ export class HostClient {
     this.dataListeners.set(id, listeners);
   }
 
+  /** Remove a data listener, so a closed attachment does not leak. */
+  offData(id: string, listener: (data: Buffer, incarnation: number, seq: number) => void): void {
+    const listeners = this.dataListeners.get(id);
+    if (listeners === undefined) return;
+    const at = listeners.indexOf(listener);
+    if (at !== -1) listeners.splice(at, 1);
+  }
+
   onExit(id: string, listener: (exitCode: number, signal: number, incarnation: number) => void): void {
     const listeners = this.exitListeners.get(id) ?? [];
     listeners.push(listener);
     this.exitListeners.set(id, listeners);
+  }
+
+  /** Remove an exit listener, so a closed attachment does not leak. */
+  offExit(id: string, listener: (exitCode: number, signal: number, incarnation: number) => void): void {
+    const listeners = this.exitListeners.get(id);
+    if (listeners === undefined) return;
+    const at = listeners.indexOf(listener);
+    if (at !== -1) listeners.splice(at, 1);
   }
 
   /** Errors the host sent that do not answer a pending call; never dropped. */
@@ -419,6 +436,7 @@ const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<
   for (;;) {
     const tmp = `${lockPath}.${process.pid}.tmp`;
     try {
+      mkdirSync(dirname(lockPath), { recursive: true });
       writeFileSync(tmp, String(process.pid), { mode: 0o600 });
       try {
         linkSync(tmp, lockPath);

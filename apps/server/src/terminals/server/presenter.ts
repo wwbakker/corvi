@@ -1,10 +1,7 @@
-import { Effect } from "effect";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
-import type { CommandFailure } from "@corvi/terminals/tmux";
 import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
-import { rawAllWindows, rawWindows } from "./tmux.ts";
 
 /**
  * The presentation half of the terminal: raw tmux facts in, the shape the page draws out.
@@ -89,15 +86,3 @@ export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
   };
 };
-
-/** The change's windows, presented: the raw facts come from `@corvi/terminals/tmux`, the
- * presentation is this module's. A timed-out tmux fails; callers that want an empty strip on
- * any failure (the routes) catch it themselves. */
-export const listWindows = (id: string): Effect.Effect<PresentedWindow[], CommandFailure> =>
-  Effect.map(rawWindows(id, paneOptions()), (windows) => windows.map(presentWindow));
-
-/** Every change's windows, presented, in the one call the navigation column asks for. */
-export const allWindows = (): Effect.Effect<Record<string, PresentedWindow[]>, CommandFailure> =>
-  Effect.map(rawAllWindows(paneOptions()), (byChange) =>
-    Object.fromEntries(Object.entries(byChange).map(([id, windows]) => [id, windows.map(presentWindow)])),
-  );

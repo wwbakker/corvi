@@ -7,6 +7,7 @@
  * change `CORVI_TMUX_SOCKET` after this module is first imported.
  */
 import { Effect } from "effect";
+import { spawn } from "node-pty";
 
 import {
   make,
@@ -15,8 +16,10 @@ import {
   type Host,
   type Sessions,
 } from "@corvi/terminals/tmux";
+import type { PtySpawner } from "@corvi/terminals/session";
 import { CliError } from "@corvi/contracts/errors";
 import { ID, env } from "@corvi/configuration/node";
+import { childEnv } from "../../capabilities/env.ts";
 import { sh, shOrThrow } from "../../capabilities/shell.ts";
 
 /** The package names only the failure fields it reads; the app's CLI failure carries them all,
@@ -61,3 +64,17 @@ export const {
   windows: rawWindows,
   allWindows: rawAllWindows,
 } = sessions;
+
+/** The pty that runs one tmux attach client. The interactive path is a host session now; this
+ * stays for the tmux environment test (`test/support/attach.ts`), which drives the real attach
+ * command under the app's own spawner. */
+export const spawnPty: PtySpawner = ({ command, cwd, cols, rows, id, dir }) => {
+  const [file, ...args] = command;
+  return spawn(file!, [...args], {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env: childEnv(process.env, { [env("CHANGE_ID")]: id, [env("CHANGE_DIR")]: dir }),
+  });
+};
