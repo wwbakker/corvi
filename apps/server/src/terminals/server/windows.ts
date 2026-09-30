@@ -21,6 +21,7 @@ import { env } from "@corvi/configuration/node";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
+import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
 import { paneOptions, presentWindow, type PresentedWindow } from "./presenter.ts";
 import {
   prune as pruneRegistry,
@@ -45,9 +46,16 @@ const shell = (): string => process.env.SHELL ?? "/bin/sh";
 
 const windowId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
-/** The change's context for a host window. The host replaces its own environment with this one\n * (`session.open` env is the whole environment), so the scrub here actually wins. */
-const changeEnv = (changeId: string, dir: string): Record<string, string> =>
-  childEnv(process.env, { [env("CHANGE_ID")]: changeId, [env("CHANGE_DIR")]: dir });
+/** The change's context for a host window. The host replaces its own environment with this one
+ * (`session.open` env is the whole environment), so the scrub here actually wins. `TMUX` and
+ * `TMUX_PANE` are dropped: a host session is not a tmux pane, and a reporter that inherited them
+ * would write to the user's own tmux server. */
+const changeEnv = (changeId: string, dir: string): Record<string, string> => {
+  const child = childEnv(process.env, { [env("CHANGE_ID")]: changeId, [env("CHANGE_DIR")]: dir });
+  delete child.TMUX;
+  delete child.TMUX_PANE;
+  return child;
+};
 
 const dirOf = async (changeId: string): Promise<string> => {
   const change = await Effect.runPromise(Effect.catchAll(readChange(changeId), () => Effect.succeed(null)));
@@ -68,6 +76,7 @@ const hostLive = async (
   const byId = new Map<string, SessionInfo>();
   for (const session of sessions) {
     if (session.metadata?.change !== changeId) continue;
+    if (!session.alive) clearStatus(session.id, session.incarnation);
     if (!session.alive && !keep.has(session.id)) continue;
     live.push({ id: session.id, kind: "host" });
     byId.set(session.id, session);
@@ -101,6 +110,18 @@ const liveFor = async (
   return { live: [...host.live, ...tmux.live], host: host.sessions, tmux: tmux.raw, tmuxOk: tmux.ok };
 };
 
+/** The pane options a host window adds for the agent presenter: the status its reporter set,
+ * through the CLI/HTTP store or the OSC parse, in the same vocabulary tmux pane options use. */
+const agentOptions = (status: AgentStatus | undefined): Record<string, string> =>
+  status === undefined
+    ? {}
+    : {
+        "@agent_status": status.state,
+        ...(status.name ? { "@agent_name": status.name } : {}),
+        ...(status.sessionName ? { "@agent_session_name": status.sessionName } : {}),
+        ...(status.message ? { "@agent_last_message": status.message } : {}),
+      };
+
 /** The pane options a host window adds for the presenter: an action window's announced label and
  * its exit state, so `commandWindowPresenter` names it and marks a finished run as wanting the
  * user. */
@@ -115,7 +136,7 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
 
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. */
-const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined): TmuxWindow => ({
+const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined, status: AgentStatus | undefined): TmuxWindow => ({
   index: 0,
   id: record.id,
   name: record.label ?? basename(dir),
@@ -124,7 +145,7 @@ const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undef
   activity: record.activity,
   directory: basename(dir),
   named: true,
-  options: commandOptions(record, session),
+  options: { ...agentOptions(status), ...commandOptions(record, session) },
 });
 
 /** The change's windows, presented. Rebuilds and persists the registry — but only when every
@@ -137,7 +158,9 @@ export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =
     const { live, host, tmux, tmuxOk } = await liveFor(changeId, keep);
     const records = tmuxOk ? rebuild(changeId, live) : previous;
     return records.map((record, index) => {
-      const source = tmux.get(record.id) ?? hostRaw(record, dir, host.get(record.id));
+      const session = host.get(record.id);
+      const status = session === undefined ? undefined : (statusOf(session.id, session.incarnation) ?? session.status);
+      const source = tmux.get(record.id) ?? hostRaw(record, dir, session, status);
       return presentWindow({ ...source, index });
     });
   });
@@ -149,6 +172,7 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   const existing = new Set(changeList.map((change) => change.id));
   pruneRegistry(existing);
   const sessions = hostRunning() ? await (await hostClient()).list() : [];
+  pruneStatuses(new Set(sessions.filter((session) => session.alive).map((session) => `${session.id}#${session.incarnation}`)));
   const ids = new Set<string>(existing);
   for (const session of sessions) {
     if (session.alive && session.metadata?.change && existing.has(session.metadata.change)) ids.add(session.metadata.change);

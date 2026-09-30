@@ -45,6 +45,9 @@ usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
   action run <key> [--window <id>]     run one
   action profile list|write|delete     the action files behind them
 
+  status working|waiting|clear [--name N] [--session-name S] [--message M]
+                                       this host session's agent status (identity from the pty)
+
   subagent list                        the change's subagents and their state
   subagent show <id>                   one subagent
   subagent profile list                the profiles this change can run (their keys)
@@ -98,6 +101,13 @@ usage: corvi action <command> [args]
 
 A repository action is a file in the change's checkout — <checkout>/.corvi/actions/<id>.md —
 written directly with your own tools; it shows up in 'action list'.
+`,
+  status: `corvi status — report this host session's agent status
+
+usage: corvi status <working|waiting|clear> [--name <agent>] [--session-name <name>] [--message <text>]
+
+The session id and incarnation come from the environment (CORVI_SESSION_ID,
+CORVI_SESSION_INCARNATION); outside a Corvi host session there is nothing to report to.
 `,
   subagent: `corvi subagent — persistent subagents for this change
 
@@ -154,6 +164,7 @@ export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
   change: ["list", "show", "start", "complete", "cancel", "phase"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "wait", "result", "next", "turn", "profile"],
+  status: ["working", "waiting", "clear"],
 };
 
 /** The `profile` subfamilies, checked beside the groups — a typo is a usage error (2) and must
@@ -574,6 +585,41 @@ const profileCommand = async (
   await profileFileCommand(family === "action" ? client.actions : client.subagents, family, args, json, io);
 };
 
+const statusCommand = async (
+  client: CorviClient,
+  args: ParsedArgs,
+  json: boolean,
+  io: Io,
+): Promise<void> => {
+  const status = args.positionals[1];
+  if (status !== "working" && status !== "waiting" && status !== "clear") {
+    throw new CliFailure("status needs working, waiting or clear", EXIT.usage);
+  }
+  // Identity is the pty environment the host seeded. No session is a clear failure, not a silent
+  // no-op: a reporter that cannot report should say so.
+  const sessionId = process.env.CORVI_SESSION_ID;
+  const rawIncarnation = process.env.CORVI_SESSION_INCARNATION;
+  const incarnation = rawIncarnation === undefined ? NaN : Number(rawIncarnation);
+  if (sessionId === undefined || sessionId === "" || !Number.isInteger(incarnation) || incarnation < 0) {
+    throw new CliFailure(
+      "no Corvi session: CORVI_SESSION_ID and CORVI_SESSION_INCARNATION are not set (run this inside a Corvi terminal)",
+      EXIT.failure,
+    );
+  }
+  const name = stringFlag(args, "name");
+  const sessionName = stringFlag(args, "session-name");
+  const message = stringFlag(args, "message");
+  await client.terminals.setStatus({
+    sessionId,
+    incarnation,
+    status,
+    ...(name === undefined ? {} : { name }),
+    ...(sessionName === undefined ? {} : { sessionName }),
+    ...(message === undefined ? {} : { message }),
+  });
+  emit(io, json, { value: { ok: true, status }, human: () => `status ${status}` });
+};
+
 const dispatch = async (
   client: CorviClient,
   changeId: string | undefined,
@@ -589,6 +635,7 @@ const dispatch = async (
   if (group === "change") return changeCommand(client, changeId, args, json, io).then(() => EXIT.ok);
   if (group === "action") return actionCommand(client, changeId, args, json, io).then(() => EXIT.ok);
   if (group === "subagent") return subagentCommand(client, changeId, args, json, io);
+  if (group === "status") return statusCommand(client, args, json, io).then(() => EXIT.ok);
   throw new CliFailure(`unknown command: ${group}`, EXIT.usage);
 };
 

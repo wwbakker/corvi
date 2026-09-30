@@ -6,9 +6,10 @@ import { Effect } from "effect";
 import { writeActionFile } from "../apps/server/src/actions/server/files.ts";
 import { runActionFor } from "../apps/server/src/actions/server/run.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { closeHostClient } from "../apps/server/src/terminals/server/host.ts";
+import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
-import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
+import { setStatus } from "../apps/server/src/terminals/server/status.ts";
+import { listWindowsAsync, newWindowAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
@@ -107,4 +108,24 @@ test("a kept command window freezes with its label and fires the notify edge", a
   const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
   expect(frozen?.label).toBe("Freeze me");
   expect(frozen?.note).toContain("exit code 0");
+}, 40_000);
+
+test("an agent-target action uses a running host agent window instead of a fresh pi", async () => {
+  const session = await newWindowAsync(change.id, join(process.env.CORVI_ROOT ?? own, change.id));
+  const hostSession = (await (await hostClient()).list()).find((entry) => entry.id === session.id);
+  expect(hostSession).toBeDefined();
+  setStatus(session.id, hostSession!.incarnation, { state: "working", name: "pi", at: new Date().toISOString() });
+
+  const stamp = join(own, "agent-note.txt");
+  await Effect.runPromise(
+    writeActionFile({
+      scope: "global",
+      id: "agent-note",
+      text: `---\nlabel: Agent note\nkind: prompt\ntarget: agent\n---\necho agent-note > ${stamp}\n`,
+    }),
+  );
+  const result = await Effect.runPromise(runActionFor(change, "global:agent-note"));
+  // Delivered into the running agent window, not a new pi.
+  expect(result.started).toBe(false);
+  expect(result.window?.id).toBe(session.id);
 }, 40_000);

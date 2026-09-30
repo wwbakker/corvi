@@ -1,4 +1,5 @@
 import { Effect, Schema } from "effect";
+import { TerminalStatusSchema } from "@corvi/contracts/api";
 import { changeDir, readChange } from "../change/server/index.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { runRoute } from "../capabilities/effect/run.ts";
@@ -12,6 +13,7 @@ import {
   terminalSocketPath,
 } from "./server/index.ts";
 import { openSession, terminalUnavailable, type TerminalSocket, type TerminalSession } from "./server/session.ts";
+import { applyStatus } from "./server/status.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 
 /** A window action: what to do, with the indices the action needs. */
@@ -70,6 +72,23 @@ export const terminalsRoutes = guard({
           Effect.catchAll(allWindows(), () => Effect.succeed({})),
           json,
         ),
+      ),
+  },
+
+  // The agent status for one host session, reported by the `corvi status` CLI (or a direct POST).
+  // Identity is the pty environment's session id and incarnation; a stale incarnation, a dead
+  // session or a malformed body is refused rather than stored.
+  "/api/terminals/status": {
+    POST: (req) =>
+      runRoute(
+        Effect.gen(function* () {
+          const body = yield* bodyAs(req, TerminalStatusSchema);
+          yield* Effect.tryPromise({
+            try: () => applyStatus(body),
+            catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+          });
+          return json({ ok: true });
+        }),
       ),
   },
 

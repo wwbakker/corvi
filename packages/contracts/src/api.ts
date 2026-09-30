@@ -346,6 +346,21 @@ export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type
 export const UrlSchema = Schema.Struct({ url: Schema.String })
 export type UrlDto = typeof UrlSchema.Type
 
+/** An agent status for one host session, set by the CLI/HTTP reporter transport. The session and
+ * its incarnation come from the pty environment (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`). */
+export const TerminalStatusSchema = Schema.Struct({
+  sessionId: Schema.String,
+  incarnation: Schema.Number,
+  status: Schema.Literal("working", "waiting", "clear"),
+  name: Schema.optional(Schema.String),
+  sessionName: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
+})
+export type TerminalStatusDto = typeof TerminalStatusSchema.Type
+
+export const TerminalStatusResponseSchema = Schema.Struct({ ok: Schema.Boolean })
+export type TerminalStatusResponseDto = typeof TerminalStatusResponseSchema.Type
+
 export const WizardStepInfoSchema = Schema.Struct({
   id: Schema.String,
   extension: Schema.String,

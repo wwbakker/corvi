@@ -78,32 +78,49 @@ export const trackAnswer = (): AnswerTracker => {
 const reporter: PluginModule = {
   id: "corvi-agent-state",
   server: async (input: PluginInput): Promise<Hooks> => {
-    // The pane this instance was started in, fixed for the life of the process: opencode runs one
-    // server process per instance, and each sees its own `TMUX_PANE`. Unset outside tmux, where
-    // there is nothing to publish to.
+    // Where this reporter can publish: a Corvi host session (the CLI/HTTP channel, identity from
+    // the pty environment) or a tmux pane (a subagent window, until it moves to a host session).
+    // Outside both there is nothing to publish to.
+    const sessionId = process.env.CORVI_SESSION_ID;
     const pane = process.env.TMUX_PANE;
+    const inCorvi = sessionId !== undefined && sessionId !== "";
 
-    const publish = (option: string, value: string | undefined): void => {
-      if (!pane) return;
-      // Fire and forget: a failing tmux (no server, pane gone) must not disturb the session. The
-      // shell escapes interpolations, so a session name with spaces is one argument.
-      void (value
-        ? input.$`tmux set -p -t ${pane} ${option} ${value}`
-        : input.$`tmux set -p -t ${pane} -u ${option}`
-      ).catch(() => {});
-    };
-
-    const publishState = (state: "working" | "waiting"): void => publish("@agent_status", state);
-
-    /** The session's display name, once opencode has one: it is what the window should be called
-     * outside, instead of the repository and the fact that opencode is in it. */
-    const publishName = (title: string | undefined): void =>
-      publish("@agent_session_name", title?.trim() || undefined);
-
+    let state: "working" | "waiting" = "waiting";
+    let title: string | undefined;
     /** The last answer's first sentence: what a notification says after the session's name — the
      * difference between "PROJ-1681 is waiting" and knowing why. */
     const answer = trackAnswer();
-    const publishSay = (): void => publish("@agent_last_message", firstSentence(answer.answer()) || undefined);
+    const note = (): string | undefined => firstSentence(answer.answer()) || undefined;
+
+    /** Publish the whole status, through whichever channel is live. Both are fire-and-forget: a
+     * server or tmux that is gone must not disturb the agent loop. */
+    const publish = (): void => {
+      if (inCorvi) {
+        const message = note();
+        const args = [
+          "status",
+          state,
+          "--name",
+          "opencode",
+          ...(title ? ["--session-name", title] : []),
+          ...(message ? ["--message", message] : []),
+        ];
+        void input.$`corvi ${args}`.catch(() => {});
+        return;
+      }
+      if (!pane) return;
+      const set = (option: string, value: string | undefined): void => {
+        // The shell escapes interpolations, so a session name with spaces is one argument.
+        void (value
+          ? input.$`tmux set -p -t ${pane} ${option} ${value}`
+          : input.$`tmux set -p -t ${pane} -u ${option}`
+        ).catch(() => {});
+      };
+      set("@agent_status", state);
+      set("@agent_name", "opencode");
+      set("@agent_session_name", title);
+      set("@agent_last_message", note());
+    };
 
     // Subagent runs are real child sessions of their own and report their own busy/idle cycles
     // inside the parent's run; they are not this window waiting for you. Their session ids arrive
@@ -113,9 +130,7 @@ const reporter: PluginModule = {
 
     // A session that has just started is waiting for its first prompt, and has said nothing yet —
     // the same opening state pi reports on `session_start`.
-    publish("@agent_name", "opencode");
-    publishState("waiting");
-    publishSay();
+    publish();
 
     return {
       event: async ({ event }: { event: HookEvent }): Promise<void> => {
@@ -128,8 +143,8 @@ const reporter: PluginModule = {
                 // A new prompt: a run is on, and the previous answer is no longer the news.
                 if (info.summary) return; // a generated summary, not a prompt
                 answer.clear();
-                publishSay();
-                publishState("working");
+                state = "working";
+                publish();
               } else if (!info.summary) {
                 answer.begin(info.id);
               }
@@ -145,23 +160,23 @@ const reporter: PluginModule = {
               if (isChild(event.properties.sessionID)) return;
               // busy, or retrying: a run is in flight or on its way back. A retry is not "waiting
               // for you" — pi's settled-vs-ended distinction says the same.
-              publishState(status.type === "idle" ? "waiting" : "working");
-              if (status.type === "idle") publishSay();
+              state = status.type === "idle" ? "waiting" : "working";
+              publish();
               return;
             }
             case "session.idle": {
               // The deprecated twin of `session.status` idle; both may arrive, and settling twice
               // changes nothing.
               if (isChild(event.properties.sessionID)) return;
-              publishState("waiting");
-              publishSay();
+              state = "waiting";
+              publish();
               return;
             }
             case "session.error": {
               // An error wants you — the attention is the same waiting state, and the last answer
               // is still what it said before failing.
-              publishState("waiting");
-              publishSay();
+              state = "waiting";
+              publish();
               return;
             }
             case "session.created":
@@ -172,7 +187,8 @@ const reporter: PluginModule = {
                 children.delete(info.id);
                 // Naming happens as the conversation goes — opencode titles a session after the
                 // first exchange — so the name is published whenever it changes.
-                publishName(info.title);
+                title = info.title?.trim() || undefined;
+                publish();
               }
               return;
             }
@@ -188,8 +204,13 @@ const reporter: PluginModule = {
       },
       dispose: async (): Promise<void> => {
         // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
+        if (inCorvi) {
+          void input.$`corvi status clear`.catch(() => {});
+          return;
+        }
         for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
-          publish(option, undefined);
+          if (!pane) continue;
+          void input.$`tmux set -p -t ${pane} -u ${option}`.catch(() => {});
         }
       },
     };

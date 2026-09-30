@@ -74,36 +74,51 @@ export const fullTextOf = (message: unknown): string => {
 };
 
 export default function (pi: ExtensionAPI): void {
-  // The pane pi was started in, fixed for the life of the process: tmux moves panes around, but
-  // the id follows the pane, and this process never moves to another one. Unset outside tmux,
-  // where there is nothing to publish to.
+  // Where this reporter can publish: a Corvi host session (the CLI/HTTP channel, identity from
+  // the pty environment) or a tmux pane (a subagent window, until it moves to a host session).
+  // Outside both there is nothing to publish to, and every publish is a no-op.
+  const sessionId = process.env.CORVI_SESSION_ID;
   const pane = process.env.TMUX_PANE;
+  const inCorvi = sessionId !== undefined && sessionId !== "";
 
-  const publish = (option: string, value: string | undefined): void => {
-    if (!pane) return;
-    const args = value
-      ? ["set", "-p", "-t", pane, option, value]
-      : ["set", "-p", "-t", pane, "-u", option];
-    // Fire and forget: a failing tmux (no server, pane gone) must not disturb the session.
-    void pi.exec("tmux", args).catch(() => {});
-  };
-
-  const publishState = (state: "working" | "waiting"): void => publish("@agent_status", state);
-
-  /** The session's display name, once pi has one: it is what the window should be called
-   * outside, instead of the repository and the fact that pi is in it. */
-  const publishName = (): void => publish("@agent_session_name", pi.getSessionName());
-
+  let state: "working" | "waiting" = "waiting";
   /** The last answer's first sentence: what a notification says after the session's name — the
    * difference between "PROJ-1681 is waiting" and knowing why. */
   let lastSentence = "";
-  const publishSay = (): void => publish("@agent_last_message", lastSentence || undefined);
+
+  /** Publish the whole status the agent has, through whichever channel is live. The CLI command
+   * is fire-and-forget: a server or host that is gone must not disturb the agent loop. */
+  const publish = (): void => {
+    const sessionName = pi.getSessionName();
+    if (inCorvi) {
+      void pi
+        .exec("corvi", [
+          "status",
+          state,
+          "--name",
+          "pi",
+          ...(sessionName ? ["--session-name", sessionName] : []),
+          ...(lastSentence ? ["--message", lastSentence] : []),
+        ])
+        .catch(() => {});
+      return;
+    }
+    if (!pane) return;
+    const set = (option: string, value: string | undefined): void => {
+      const args = value ? ["set", "-p", "-t", pane, option, value] : ["set", "-p", "-t", pane, "-u", option];
+      void pi.exec("tmux", args).catch(() => {});
+    };
+    set("@agent_status", state);
+    set("@agent_name", "pi");
+    set("@agent_session_name", sessionName || undefined);
+    set("@agent_last_message", lastSentence || undefined);
+  };
 
   pi.on("agent_start", async () => {
-    publishState("working");
+    state = "working";
     // The previous answer is no longer the news while a new one is being written.
     lastSentence = "";
-    publishSay();
+    publish();
   });
 
   // Remember the answer here; publish it when the run settles. `agent_end` may still be followed
@@ -121,26 +136,27 @@ export default function (pi: ExtensionAPI): void {
   // Settled rather than ended: after `agent_end` pi may still retry, auto-compact, or pick up
   // queued follow-up messages, and none of those are "waiting for you".
   pi.on("agent_settled", async () => {
-    publishState("waiting");
-    publishSay();
+    state = "waiting";
+    publish();
   });
 
   // A session that has just started is waiting for its first prompt, and has said nothing yet.
-  // Who is speaking never changes — said here, with the rest of the opening state.
   pi.on("session_start", async () => {
-    publish("@agent_name", "pi");
+    state = "waiting";
     lastSentence = "";
-    publishState("waiting");
-    publishName();
-    publishSay();
+    publish();
   });
 
   // Naming happens after the session starts — from your first message, or `/name` — and the
   // name is the thing worth showing, so it is published whenever it changes.
-  pi.on("session_info_changed", async () => publishName());
+  pi.on("session_info_changed", async () => publish());
 
   // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
+    if (inCorvi) {
+      void pi.exec("corvi", ["status", "clear"]).catch(() => {});
+      return;
+    }
     if (!pane) return;
     for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
       void pi.exec("tmux", ["set", "-p", "-t", pane, "-u", option]).catch(() => {});
