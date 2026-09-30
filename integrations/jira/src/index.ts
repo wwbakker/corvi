@@ -13,6 +13,7 @@ import {
   issuesByKeys,
   issueFrom,
   moveIssue,
+  moveIssueToActiveSprint,
   ticketOf,
   type GlobalSettings,
   type IssueJson,
@@ -143,28 +144,62 @@ const siteFields = {
   },
 } as const;
 
-/** Starting the work: assign the ticket and move it to the start status. Exported so the start
- * workflow's adapter can call it without the hook registry. */
-export const moveIssueOnStart = (change: Change): Effect.Effect<void, BadRequestError, Capabilities> =>
+/** The ticket is mine from the moment it is linked — creation and a re-pointed link both assign
+ * it — so the change is on the board before any work starts. "Me" is the configured assignee,
+ * defaulting to whoever the token belongs to. What happened is the detail the report shows. */
+export const assignIssue = (
+  change: Change,
+): Effect.Effect<{ readonly detail: string }, BadRequestError, Capabilities> =>
   Effect.gen(function* () {
     const key = ticketOf(change);
-    if (!key) return;
+    if (!key) return { detail: "no issue linked" };
+    const workspace = yield* Workspace;
+    const settings = yield* Settings;
+    const site = siteOfWorkspace(settings, workspace);
+    // Assigning is a field like any other, but its value is an account id, not a name.
+    const account = yield* accountId(globalOf(settings, workspace).assignee, site);
+    if (!account) return { detail: "no assignee could be resolved" };
+    yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
+      site,
+      method: "PUT",
+      body: { accountId: account },
+    });
+    return { detail: "assigned to me" };
+  });
+
+/** What starting work did to the ticket, for the report the page shows. */
+export type IssueStartResult = { readonly detail?: string };
+
+/** Starting the work: the ticket is (still) mine and moves to the start status; a ticket waiting
+ * in the backlog also comes onto the board's active sprint. Exported so the start workflow's
+ * adapter can call it without the hook registry. */
+export const moveIssueOnStart = (
+  change: Change,
+): Effect.Effect<IssueStartResult, BadRequestError, Capabilities> =>
+  Effect.gen(function* () {
+    const key = ticketOf(change);
+    if (!key) return {};
     const workspace = yield* Workspace;
     const settings = yield* Settings;
     const global = globalOf(settings, workspace);
     const site = siteOfWorkspace(settings, workspace);
-    const account = yield* accountId(global.assignee, site);
-    if (account) {
-      yield* jiraFetch(`/rest/api/3/issue/${key}/assignee`, {
-        site,
-        method: "PUT",
-        body: { accountId: account },
-      });
-    }
+    yield* assignIssue(change);
     const current = (yield* issueByKey(key, site))?.status;
     if (current?.toLowerCase() !== global.startTransition.toLowerCase()) {
       yield* moveIssue(key, global.startTransition, site);
     }
+    // The sprint move comes last and carries its failure in its message: the status move above
+    // is the transition that matters, and a board that did not get the ticket says so without
+    // hiding what did happen.
+    const sprint = yield* moveIssueToActiveSprint(key, site).pipe(
+      Effect.mapError(
+        (error) =>
+          new BadRequestError({
+            message: `${key} is ${global.startTransition}, but the sprint move failed: ${error.message}`,
+          }),
+      ),
+    );
+    return { detail: `${global.startTransition} · ${sprint.detail}` };
   });
 
 /** Completing closes the ticket: the plan is pure given the config, the run moves it. The
@@ -355,6 +390,13 @@ export default {
           // the link — deliberately not this route — must remove both, or the old key answers.
           const store = yield* ExtensionStore;
           const updated = yield* store.update(change, { key });
+          // A re-pointed ticket is mine too, like one linked at creation. A failure here is
+          // logged, not fatal: the link is saved either way, and the card shows the assignee.
+          yield* assignIssue(updated).pipe(
+            Effect.catchAll((error) =>
+              Effect.sync(() => console.error(`could not assign ${key}:`, error.message)),
+            ),
+          );
           yield* (yield* Bus).announce("changes");
           return Response.json(updated);
         }),

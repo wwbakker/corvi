@@ -31,11 +31,12 @@ import { textRevision } from "../capabilities/files.ts";
 import type { Change } from "../domain/change.ts";
 import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
-import { repoStates, setRepos } from "../vendors/git.ts";
+import { repoStates } from "../vendors/git.ts";
 import { guard } from "../capabilities/web.ts";
 import { workspaceOf } from "../workspace/server/index.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
-import { provisionChangeRepositories } from "./provisioning.ts";
+import { provisionRepositories, setRepos } from "./provisioning.ts";
+import { assignTicketOnCreate } from "./tickets.ts";
 
 // The request bodies, decoded at the boundary: the schema is the contract, and a body that does
 // not fit is the caller's 400 naming the field rather than a cast the compiler cannot check. The
@@ -64,8 +65,10 @@ const PatchBody = Schema.Struct({
 export const changeRoutes = guard({
   "/api/changes": {
     GET: () => runRoute(Effect.map(listChanges(), json)),
-    // Creates the change, then provisions each component (worktrees, ticket status). The
-    // change is written first, so a failing component leaves something to fix, not nothing.
+    // Creates the change, then gives it its presence: the checkouts (worktrees and branches from
+    // the start, so an agent works in them while the change is an idea) and the ticket assigned
+    // to me. The change is written first, so a failing component leaves something to fix, not
+    // nothing.
     POST: (req) =>
       runRoute(
         Effect.gen(function* () {
@@ -76,10 +79,15 @@ export const changeRoutes = guard({
           if (typeof body.plan === "string" && body.plan) {
             yield* writeSidecar(change.id, PLAN_FILE, body.plan);
           }
-          const provisioned = yield* provisionChangeRepositories(change);
+          const run = yield* provisionRepositories(change).pipe(Effect.mapError(changeError));
+          // A linked ticket is mine from the moment it is linked, not from the start.
+          const jira = yield* assignTicketOnCreate(change);
           // Your own action lands on the stream at once, not within a tick.
           yield* Effect.sync(() => announce("changes"));
-          return json({ change, provision: provisioned }, 201);
+          return json(
+            { change, provision: [...run.provision, ...jira], refresh: run.refresh },
+            201,
+          );
         }),
       ),
   },
@@ -90,9 +98,10 @@ export const changeRoutes = guard({
     GET: () => runRoute(Effect.map(refreshTitles(), json)),
   },
 
-  // Starting an idea's work: the state moves to In Progress, then the start hooks create the
-  // checkouts and move the ticket. Written first, like creation, so a failing component leaves
-  // something to fix rather than nothing.
+  // Starting an idea's work: the state moves to Implementation, then the checkouts are
+  // provisioned and refreshed (anything missing is created, everything is fast-forwarded when
+  // it can be) and the ticket moves. Written first, like creation, so a failing component
+  // leaves something to fix rather than nothing.
   "/api/changes/:id/start": {
     POST: (req) =>
       withChange(req.params.id, (c) =>
@@ -176,9 +185,11 @@ export const changeRoutes = guard({
             Effect.mapError(changeError),
           );
           // 409: nothing was changed, the browser should ask about the work left behind first.
+          // Otherwise the answer is the same shape a create or a start gives: the change, and
+          // what its checkouts reported.
           return result._tag === "NeedsForce"
             ? json({ needsForce: result.needsForce }, 409)
-            : json(result.change);
+            : json({ change: result.change, provision: result.provision, refresh: result.refresh });
         }),
       ),
   },

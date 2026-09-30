@@ -11,9 +11,9 @@ import {
   CreateChangeBodySchema,
   PlanDocSchema,
   PlanWriteBodySchema,
+  ProvisionedChangeSchema,
   RepoStateSchema,
   RepositoryViewSchema,
-  StartedResponseSchema,
   TextSchema,
   type CancelledResponseDto,
   type ChangeSummaryDto,
@@ -25,10 +25,10 @@ import {
   type ForceBodyDto,
   type PlanDocDto,
   type PlanWriteBodyDto,
+  type ProvisionedChangeDto,
   type RepoStateDto,
   type ReposBodyDto,
   type RepositoryViewDto,
-  type StartedResponseDto,
   type TextDto,
 } from "@corvi/contracts/api"
 import type { ChangeId } from "@corvi/contracts/changes"
@@ -57,8 +57,8 @@ export interface ChangesApi {
     changeId: ChangeId,
     options?: RequestOptions,
   ) => Promise<CompletionProgressDto | null>
-  readonly create: (body: CreateChangeBodyDto) => Promise<StartedResponseDto>
-  readonly start: (changeId: ChangeId) => Promise<StartedResponseDto>
+  readonly create: (body: CreateChangeBodyDto) => Promise<ProvisionedChangeDto>
+  readonly start: (changeId: ChangeId) => Promise<ProvisionedChangeDto>
   readonly complete: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CompletedResponseDto>
   readonly cancel: (changeId: ChangeId, options?: ForceBodyDto) => Promise<CancelledResponseDto>
   readonly rename: (
@@ -70,7 +70,7 @@ export interface ChangesApi {
   readonly setRepositories: (
     changeId: ChangeId,
     body: ReposBodyDto,
-  ) => Promise<ChangeWireDto>
+  ) => Promise<ProvisionedChangeDto>
   /** The change's repositories as Corvi's own facts: which links exist, their projected state,
    * and what is actually checked out where. */
   readonly checkouts: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
@@ -100,9 +100,9 @@ export const makeChangesApi = (send: Send): ChangesApi => {
         await send("GET", `${change(changeId)}/completion/progress`, options),
       ),
     create: async (body) =>
-      decode(StartedResponseSchema, await send("POST", "/changes", { body })),
+      decode(ProvisionedChangeSchema, await send("POST", "/changes", { body })),
     start: async (changeId) =>
-      decode(StartedResponseSchema, await send("POST", `${change(changeId)}/start`)),
+      decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/start`)),
     complete: async (changeId, options) =>
       decode(
         CompletedResponseSchema,
@@ -118,7 +118,7 @@ export const makeChangesApi = (send: Send): ChangesApi => {
     repoStates: async (changeId, options) =>
       decode(mutableArray(RepoStateSchema), await send("GET", `${change(changeId)}/repos`, options)),
     setRepositories: async (changeId, body) =>
-      decode(ChangeWireSchema, await send("POST", `${change(changeId)}/repos`, { body })),
+      decode(ProvisionedChangeSchema, await send("POST", `${change(changeId)}/repos`, { body })),
     checkouts: async (changeId) =>
       decode(
         mutableArray(RepositoryViewSchema),

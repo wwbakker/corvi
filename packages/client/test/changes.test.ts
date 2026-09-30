@@ -151,8 +151,18 @@ test("the write operations decode their responses", async () => {
       const url = String(input)
       calls.push({ url, method: init?.method })
       if (url.endsWith("/complete")) return Response.json({ change: change("a"), notes: ["done"] })
-      if (url.endsWith("/repos")) return Response.json(change("a"))
-      return Response.json({ change: change("a"), provision: [{ integration: "git", ok: true }] })
+      // The checkout run's answer, in the one shape create, start and the repository edit share.
+      if (url.endsWith("/repos"))
+        return Response.json({
+          change: change("a"),
+          provision: [{ integration: "git", ok: false, error: "a: fetch failed: offline" }],
+          refresh: [{ repositoryId: "a:r", directoryName: "r", state: "fetch-failed" }],
+        })
+      return Response.json({
+        change: change("a"),
+        provision: [{ integration: "git", ok: true }],
+        refresh: [],
+      })
     },
   })
 
@@ -160,12 +170,12 @@ test("the write operations decode their responses", async () => {
     "done",
   ])
   expect((await client.changes.start(ChangeId.make("a"))).provision[0]?.integration).toBe("git")
-  expect(
-    (
-      await client.changes.setRepositories(ChangeId.make("a"), {
-        checkouts: [{ path: "/r", location: "new", branch: { kind: "change" } }],
-      })
-    ).id,
-  ).toBe("a")
+  const edited = await client.changes.setRepositories(ChangeId.make("a"), {
+    checkouts: [{ path: "/r", location: "new", branch: { kind: "change" } }],
+  })
+  // The edit's answer carries the run: a checkout failure is the caller's to show, never lost.
+  expect(edited.change.id).toBe("a")
+  expect(edited.provision[0]?.error).toContain("fetch failed")
+  expect(edited.refresh[0]?.state).toBe("fetch-failed")
   expect(calls.some((call) => call.method === "PATCH")).toBe(false)
 })

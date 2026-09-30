@@ -21,6 +21,8 @@ export const SprintSchema = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   state: Schema.String,
+  /** When the sprint started, ISO. Jira leaves it off a sprint that has not begun. */
+  startDate: Schema.optional(Schema.String),
 });
 export type Sprint = typeof SprintSchema.Type;
 

@@ -96,6 +96,41 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       })
     })
 
+    const refExists = Effect.fn("Git.history.refExists")(function* (
+      repository: Git.Repository,
+      ref: string,
+    ) {
+      const result = yield* run("upstream", repository.worktree, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${ref}^{commit}`,
+      ])
+      if (result.exitCode === 0) return true
+      if (result.exitCode === 1) return false
+      return yield* new Git.OperationError({
+        operation: "upstream",
+        directory: repository.worktree,
+        message: result.stderr.trim() || "git rev-parse failed",
+      })
+    })
+
+    const isAncestor = Effect.fn("Git.history.isAncestor")(function* (
+      repository: Git.Repository,
+      input: { readonly ancestor: string; readonly descendant: string },
+    ) {
+      const result = yield* run("integration", repository.worktree, [
+        "merge-base",
+        "--is-ancestor",
+        input.ancestor,
+        input.descendant,
+      ])
+      if (result.exitCode === 0) return true
+      if (result.exitCode === 1) return false
+      // An unresolvable ref lands here as "not a proof", matching `integration.proven`.
+      return false
+    })
+
     const upstream = Effect.fn("Git.history.upstream")(function* (repository: Git.Repository) {
       const branchName = yield* run("upstream", repository.worktree, [
         "symbolic-ref",
@@ -262,24 +297,6 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       return lines.length > 0 && lines.every((line) => line.startsWith("-"))
     })
 
-    const checkoutRemoteBranch = Effect.fn("Git.sync.checkoutRemoteBranch")(function* (
-      repository: Git.Repository,
-      input: { readonly remote?: string; readonly branch: string; readonly reset?: boolean },
-    ) {
-      const remote = input.remote ?? "origin"
-      const args =
-        input.reset === false
-          ? ["checkout", input.branch]
-          : ["checkout", "-B", input.branch, `${remote}/${input.branch}`]
-      const result = yield* run("checkout", repository.worktree, args)
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "checkout",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git checkout failed",
-        })
-    })
-
     const deleteBranch = Effect.fn("Git.sync.deleteBranch")(function* (
       repository: Git.Repository,
       branch: string,
@@ -316,6 +333,27 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         })
     })
 
+    const mergeFastForwardOnly = Effect.fn("Git.sync.mergeFastForwardOnly")(function* (
+      repository: Git.Repository,
+      input: { readonly to: string },
+    ) {
+      const result = yield* run("merge", repository.worktree, ["merge", "--ff-only", input.to])
+      if (result.exitCode !== 0)
+        return yield* new Git.OperationError({
+          operation: "merge",
+          directory: repository.worktree,
+          // The verdict, not git's advice column: a refused fast-forward prints a `hint:` block
+          // about rebasing that no report should carry. The refusal is an expected outcome, and
+          // this message is the sentence shown for it.
+          message:
+            result.stderr
+              .split("\n")
+              .filter((line) => line.trim() && !line.startsWith("hint:"))
+              .join(" ")
+              .trim() || "git merge --ff-only failed",
+        })
+    })
+
     const switchToBranch = Effect.fn("Git.sync.switchToBranch")(function* (
       repository: Git.Repository,
       input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
@@ -330,32 +368,6 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           directory: repository.worktree,
           message: result.stderr.trim() || "git switch failed",
         })
-    })
-
-    const create = Effect.fn("Git.worktree.create")(function* (input: {
-      readonly repository: Git.Repository
-      readonly directory: AbsolutePath
-    }) {
-      const result = yield* run("create", input.repository.worktree, [
-        "worktree",
-        "add",
-        "--detach",
-        input.directory,
-        "HEAD",
-      ])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "create",
-          directory: input.directory,
-          message: result.stderr.trim() || "git worktree add failed",
-        })
-      const repository = yield* discover(input.directory)
-      if (repository) return repository
-      return yield* new Git.OperationError({
-        operation: "create",
-        directory: input.directory,
-        message: "created worktree could not be opened",
-      })
     })
 
     const remove = Effect.fn("Git.worktree.remove")(function* (input: {
@@ -375,26 +387,6 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           directory: input.directory,
           message: result.stderr.trim() || "git worktree remove failed",
         })
-    })
-
-    const list = Effect.fn("Git.worktree.list")(function* (repository: Git.Repository) {
-      const result = yield* run("list", repository.worktree, ["worktree", "list", "--porcelain"])
-      if (result.exitCode !== 0)
-        return yield* new Git.OperationError({
-          operation: "list",
-          directory: repository.worktree,
-          message: result.stderr.trim() || "git worktree list failed",
-        })
-      return result.stdout
-        .split("\n")
-        .filter((line) => line.startsWith("worktree "))
-        .map(
-          (line, index) =>
-            new Git.Worktree({
-              directory: resolvePath(repository.worktree, line.slice("worktree ".length).trim()),
-              kind: index === 0 ? "main" : "linked",
-            }),
-        )
     })
 
     const addWorktree = Effect.fn("Git.worktree.add")(function* (input: {
@@ -438,6 +430,8 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         branch,
         head,
         branchExists,
+        refExists,
+        isAncestor,
         upstream,
         defaultRemoteBranch,
         defaultBranch,
@@ -446,8 +440,8 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       },
       status: { dirty: statusDirty },
       integration: { proven: integrationProven },
-      sync: { checkoutRemoteBranch, deleteBranch, fetchRemote, pullFastForward, switchToBranch },
-      worktree: { create, remove, list, add: addWorktree },
+      sync: { deleteBranch, fetchRemote, pullFastForward, mergeFastForwardOnly, switchToBranch },
+      worktree: { remove, add: addWorktree },
     }
   }),
 )

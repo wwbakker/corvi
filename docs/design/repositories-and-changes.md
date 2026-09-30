@@ -347,7 +347,7 @@ export class NotARepository extends Data.TaggedError("NotARepository")<{
 }> {}
 
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree"
+  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree" | "fetch" | "merge" | "pull"
   readonly directory: string
   readonly message: string
   readonly cause?: unknown
@@ -372,7 +372,8 @@ export interface Interface {
     readonly branch: string
   }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
   /** Creates the linked worktree the change asked for: an existing branch is attached, a
-   * missing one is created from `base` (the repository default when absent) after a fetch. */
+   * missing one is created from `base` (the repository default when absent); the checkout
+   * policy fetches first and refreshes after. */
   readonly provisionLinkedWorktree: (input: {
     readonly source: AbsolutePath
     readonly directory: AbsolutePath
@@ -447,54 +448,6 @@ export const layer = Layer.effect(
       return { _tag: "Present", branch, head } satisfies CheckoutInspection
     })
 
-    const switchBranch = Effect.fn("Repositories.switchBranch")(function* (input: {
-      readonly worktree: AbsolutePath
-      readonly branch: string
-    }) {
-      const repository = yield* discover(input.worktree)
-      yield* git.sync.checkoutRemoteBranch(repository, { branch: input.branch }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "switch",
-              directory: input.worktree,
-              message: "could not switch the branch",
-              cause,
-            }),
-        ),
-      )
-    })
-
-    const addWorktree = Effect.fn("Repositories.addWorktree")(function* (input: {
-      readonly source: AbsolutePath
-      readonly directory: AbsolutePath
-      readonly branch: string
-    }) {
-      const source = yield* discover(input.source)
-      const worktree = yield* git.worktree.create({ repository: source, directory: input.directory }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "add-worktree",
-              directory: input.directory,
-              message: "could not add the worktree",
-              cause,
-            }),
-        ),
-      )
-      yield* git.sync.checkoutRemoteBranch(worktree, { branch: input.branch }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "add-worktree",
-              directory: input.directory,
-              message: "could not check out the branch",
-              cause,
-            }),
-        ),
-      )
-    })
-
     const removeWorktree = Effect.fn("Repositories.removeWorktree")(function* (input: {
       readonly worktree: AbsolutePath
       readonly force: boolean
@@ -513,7 +466,7 @@ export const layer = Layer.effect(
       )
     })
 
-    return { inspectCheckout, switchBranch, addWorktree, removeWorktree }
+    return { inspectCheckout, removeWorktree }
   }),
 )
 ```
@@ -535,7 +488,7 @@ export class Repository extends Schema.Class<Repository>("Git.Repository")({
 }) {}
 
 export class GitError extends Data.TaggedError("GitError")<{
-  readonly operation: "discover" | "checkout" | "create" | "remove" | "list"
+  readonly operation: "discover" | "checkout" | "create" | "remove" | "merge" | "pull"
   readonly message: string
   readonly directory?: string
   readonly cause?: unknown
@@ -550,15 +503,15 @@ export interface Interface {
     readonly head: (repository: Repository) => Effect.Effect<string | undefined, GitError>
   }
   readonly sync: {
-    readonly checkoutRemoteBranch: (
+    /** `git merge --ff-only <to>`: moves HEAD exactly when that is a fast-forward; a refusal
+     * carries git's own verdict as the message. */
+    readonly mergeFastForwardOnly: (
       repository: Repository,
-      input: { remote?: string; branch: string; reset?: boolean },
+      input: { to: string },
     ) => Effect.Effect<void, GitError>
   }
   readonly worktree: {
-    readonly create: (input: { repository: Repository; directory: AbsolutePath }) => Effect.Effect<Repository, GitError>
     readonly remove: (input: { repository: Repository; directory: AbsolutePath; force: boolean }) => Effect.Effect<void, GitError>
-    readonly list: (repository: Repository) => Effect.Effect<readonly { directory: AbsolutePath; kind: "main" | "linked" }[], GitError>
   }
 }
 
@@ -687,67 +640,39 @@ export const layer = Layer.effect(
     })
 
     // The checkout policy belongs to the application: the link's location and branch kind map
-    // to the capability's concrete inputs here, and nowhere else.
-    const provisionLink = (change: Change, repository: Repository) => {
-      switch (repository.branch.kind) {
-        case "current":
-          return Effect.void // adopting what the checkout has is no work at all
-        case "change":
-          return repository.location === "original"
-            ? repositories.provisionInPlace({ source, branch: change.branch, createMissing: true, base: repository.base }).pipe(Effect.asVoid)
-            : repositories.provisionLinkedWorktree({ source, directory, branch: change.branch, createMissing: true, base: repository.base })
-        case "existing":
-          return repository.location === "original"
-            ? repositories.provisionInPlace({ source, branch: repository.branch.name, createMissing: false }).pipe(Effect.asVoid)
-            : repositories.provisionLinkedWorktree({ source, directory, branch: repository.branch.name, createMissing: false })
-      }
-    }
+    // to the capability's concrete inputs here, and nowhere else. Freshness is one sequence per
+    // repository — fetch when there is a remote, provision, fast-forward-only — and every
+    // checkout problem is captured as the outcome's data, so one repository's trouble is a
+    // report, never a stopped run.
+    //
+    //   current  -> no fetch, no switch, no refresh (a stored (new, current) is this
+    //               repository's failure, not the run's)
+    //   fetch    -> `FetchFailed` and stop there when it will not answer: nothing is created
+    //               or moved on refs that may be stale
+    //   provision-> `provisionInPlace` / `provisionLinkedWorktree` (attach for `existing`);
+    //               `skipped-dirty` becomes `LeftAlone`
+    //   refresh  -> `fastForwardBranch` to `base ?? the repository default` for a change
+    //               branch, `origin/<name>` for an existing one
+    const provisionLink = (change: Change, repository: Repository): Effect<CheckoutOutcome>
 
-    const startChange = Effect.fn("ChangeWork.startChange")(function* (changeId: ChangeId) {
-      const change = yield* changes.getChange(changeId)
-      if (change.phase !== "Ideation")
-        return yield* new InvalidTransition({ changeId, from: change.phase, to: "Implementation" })
+    // One journal entry per repository (running -> done/failed with what the refresh did),
+    // each entry and its checkout work inside a per-change lock: creation, a repository row's
+    // retry and Start work all arrive here and must not race one destination.
+    const provisionChange = (changeId: ChangeId): Effect<readonly CheckoutOutcome[]>
 
-      // Persist first: the change survives provisioning that fails part way.
-      const started = yield* changes.transitionTo(changeId, "Implementation")
-
-      const repositoriesForChange = yield* links.listRepositories(changeId)
-      const provisioned: Repository[] = []
-      const failures: ProvisionFailure[] = []
-      for (const repository of repositoriesForChange) {
-        const label = `checkout ${repository.directoryName}`
-        yield* progress.record({ changeId, step: { id: repository.repositoryId, label, state: "running" } })
-        const attempt = yield* provisionLink(started, repository).pipe(Effect.either)
-        if (attempt._tag === "Right") {
-          provisioned.push(repository)
-          yield* progress.record({ changeId, step: { id: repository.repositoryId, label, state: "done" } })
-        } else {
-          failures.push({ repositoryId: repository.repositoryId, error: attempt.left })
-          yield* progress.record({
-            changeId,
-            step: {
-              id: repository.repositoryId,
-              label,
-              state: "failed",
-              detail: describeProvisionError(attempt.left),
-            },
-          })
-        }
-      }
-
-      if (failures.length > 0)
-        return { _tag: "PartiallyStarted", change: started, repositories: provisioned, failures }
-      return { _tag: "Started", change: started, repositories: provisioned }
-    })
-
-    return { inspectChangeRepositories, startChange }
-  }),
-)
+    // Ideation only, refused otherwise. Persist `Implementation` first, then run the policy
+    // over every repository — provisioning anything missing and refreshing what is there, so a
+    // worktree made at creation picks up the base commits that landed during ideation. The
+    // result carries `reports` alongside `Started` / `PartiallyStarted`; a refresh that could
+    // not fast-forward never blocks the transition.
+    const startChange = (changeId: ChangeId): Effect<StartOutcome>
 ```
 
 `startChange` persists `Implementation` before provisioning and continues past a failed repository,
 so the result is either `Started` or `PartiallyStarted` with a journal entry per repository.
-`describeProvisionError` maps the typed union to the short line the journal shows.
+`describeProvisionError` maps the typed union to the short line the journal shows;
+`describeCheckout` folds in the refresh's outcome (`advanced to …`, `left-alone: …`,
+`fetch failed: …`).
 
 # Change lifecycle
 
@@ -1030,26 +955,12 @@ stay typed. The client throws a classified failure rather than a bare `Error`.
 method.
 
 ```ts
-export const ProvisionFailureSchema = Schema.Struct({
-  repositoryId: RepositoryId,
-  code: Schema.Literal("not-a-repository", "checkout-failed"),
-  message: Schema.String,
+export const ProvisionedChangeSchema = Schema.Struct({
+  change: ChangeWireSchema,
+  provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
+  refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
 })
-
-export const StartOutcomeSchema = Schema.Union(
-  Schema.Struct({
-    _tag: Schema.Literal("Started"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-  }),
-  Schema.Struct({
-    _tag: Schema.Literal("PartiallyStarted"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-    failures: Schema.Array(ProvisionFailureSchema),
-  }),
-)
-export type StartOutcomeDto = typeof StartOutcomeSchema.Type
+export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
 
 export const startEndpoint = "POST /api/changes/:changeId/start" as const
 ```
@@ -1058,11 +969,11 @@ export const startEndpoint = "POST /api/changes/:changeId/start" as const
 // apps/server — transport adapter: decode, invoke, encode
 export const startChangeRoute = (request: {
   readonly params: { readonly changeId: string }
-}): Effect.Effect<StartOutcomeDto, HttpError, ChangeWork> =>
+}): Effect.Effect<ProvisionedChangeDto, HttpError, ChangeWork> =>
   Effect.gen(function* () {
     const changeId = yield* decode(ChangeId, request.params.changeId)
     const work = yield* ChangeWork
-    return toStartOutcomeDto(yield* work.startChange(changeId))
+    return toProvisionedChangeDto(yield* work.startChange(changeId))
   }).pipe(
     Effect.catchTags({
       ChangeNotFound: () => new HttpError({ status: 404, message: "change not found" }),
@@ -1078,15 +989,16 @@ export const startChangeRoute = (request: {
 // client — Promise-facing for React
 export interface ChangesClient {
   readonly inspectRepositories: (changeId: ChangeId) => Promise<readonly RepositoryViewDto[]>
-  readonly startChange: (changeId: ChangeId) => Promise<StartOutcomeDto>
+  readonly startChange: (changeId: ChangeId) => Promise<ProvisionedChangeDto>
 }
 ```
 
 `PartiallyStarted` is a 200: it is a business outcome, not a transport failure. The response
-carries repository ids and failures; the client refetches the read endpoint for rows. The journal
-is durable, so a reload can read what happened; streaming those steps live needs replay and
-cancellation semantics and is not part of this slice. There is no retry in this slice: a partial
-start stays visible as `PartiallyStarted`, `Missing` rows, and the journal.
+carries `provision` and `refresh` — what each integration and each checkout reported; the client
+refetches the read endpoint for rows. The journal is durable, so a reload can read what happened;
+streaming those steps live needs replay and cancellation semantics and is not part of this slice.
+A partial start stays visible as those reports, `Missing` rows, and the journal; a failed row's
+own action is the retry.
 
 # Behavior tests
 
@@ -1095,10 +1007,10 @@ start stays visible as `PartiallyStarted`, `Missing` rows, and the journal.
 | Layer | Supply | Assert |
 | --- | --- | --- |
 | Pure rules | nothing | allowed transitions, `stateOf`, `checkoutLocationOf`, `isFinished`, duplicate directory names |
-| Workflow | scripted `ChangeService`, `ChangeRepositories`, `Repositories`, `OperationProgress` | persist-first ordering, one journal entry per repository, `PartiallyStarted` with a scripted failure, checkout-method mapping, no provisioning outside `Ideation` |
+| Workflow | scripted `ChangeService`, `ChangeRepositories`, `Repositories`, `OperationProgress` | persist-first ordering, one journal entry per repository, `PartiallyStarted` with a scripted failure, checkout-method mapping, fetch -> provision -> fast-forward ordering, per-change serialization |
 | Links capability | real change store in isolated paths | add/list/remove links, duplicate rejection, links survive reload, remove touches no Git |
 | Checkout capability | scripted `Git` | `Missing` vs `CheckoutError`, `NotARepository` for a non-repository source, inspect performs no mutation |
-| Git adapter | real fixture repositories | identity via `commonDirectory` across linked worktrees, worktree create/remove/list, branch checkout, unborn/detached HEAD, paths with spaces |
+| Git adapter | real fixture repositories | identity via `commonDirectory` across linked worktrees, worktree add/remove, merge fast-forward (the verdict line, not git's `hint:` advice), unborn/detached HEAD, paths with spaces |
 | Transport/client | route and client against the same schema | path decoding, one status per error tag, client decodes the server payload, malformed input rejected |
 
 Scripted fakes fail on an unscripted operation; they never fall back to live I/O. Workflow tests
@@ -1126,9 +1038,14 @@ per-workspace enablement, notes, Pi reporting) moves to the owning package tests
   `PartiallyStarted` with the other repositories provisioned, and writes a failed journal entry.
 - `inspectChangeRepositories` returns `Missing` for a concept link without running a mutating Git
   command; an unreadable Git call is an error, not `Missing`.
-- The checkout-method mapping is exact: `UseOriginalLocationNewBranch` calls `provisionInPlace`,
-  `UseNewLocationNewBranch` calls `provisionLinkedWorktree`, and `UseOriginalLocationOriginalBranch`
-  calls neither.
+- The checkout-method mapping is exact: `change`/`existing` on `original` call `provisionInPlace`
+  (attach for `existing`), `change`/`existing` on `new` call `provisionLinkedWorktree`, and
+  `current` calls neither and fetches nothing.
+- A fetch that will not answer stops that repository before anything is created or moved, and
+  reports `fetch failed: …`; the record and the other repositories go on.
+- The refresh only ever fast-forwards: `advanced`/`current` when it can, `left-alone` with git's
+  own reason when it cannot — and the start transitions either way. Two checkout runs racing on
+  one change leave exactly one worktree and one branch.
 - Two workspace layers with different roots do not share links or checkout paths.
 - The transport test encodes a `RepositoryView` and both route and client decode it; every error
   tag maps to exactly one status.

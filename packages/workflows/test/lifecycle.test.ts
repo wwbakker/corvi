@@ -126,16 +126,18 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           removeBranchIfIntegrated: () => Effect.succeed(state.branchCleanup ?? "deleted"),
           // The update-only facts are not this workflow's subject: called by mistake, they fail
           // visibly rather than answering an empty success.
-          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
           inspectUpstream: () => Effect.dieMessage("inspectUpstream is not scripted"),
           incomingCommits: () => Effect.dieMessage("incomingCommits is not scripted"),
           defaultRemoteBranch: () => Effect.dieMessage("defaultRemoteBranch is not scripted"),
           workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
           pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
+          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
+          hasRemote: () => Effect.succeed(false),
+          refExists: () => Effect.succeed(false),
+          defaultBranch: () => Effect.succeed(undefined),
+          fastForwardBranch: () => Effect.dieMessage("fastForwardBranch is not scripted"),
           provisionLinkedWorktree: () => Effect.void,
           provisionInPlace: () => Effect.succeed("created" as const),
-          switchBranch: () => Effect.void,
-          addWorktree: () => Effect.void,
           removeWorktree: (input) => {
             state.calls.push(`remove ${input.worktree}`)
             return Effect.void

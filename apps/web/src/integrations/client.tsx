@@ -1,5 +1,5 @@
 import { type JSX, type ComponentType } from "react";
-import type { Change, Selection } from "../app-root/api.ts";
+import type { Change, ProvisionResult, Selection } from "../app-root/api.ts";
 import * as azureDevopsClient from "./azure-devops/client.tsx";
 import * as githubIssuesClient from "./github-issues/client.tsx";
 import * as gitClient from "./git/client.tsx";
@@ -61,14 +61,14 @@ export type WidgetComponent = ComponentType<{ change: Change; workspace?: string
 
 /** What a card's editor gets: the change it edits and the workspace that change belongs to,
  * the dialog's open state, and the two exits — nothing changed (`onClose`), or the change as
- * the write returned it (`onSaved`). The editor fetches through its own extension's routes, as
- * a wizard step does. */
+ * the write returned it (`onSaved`), with what its checkouts reported when the edit provisioned
+ * any. The editor fetches through its own extension's routes, as a wizard step does. */
 export type EditComponent = ComponentType<{
   change: Change;
   workspace?: string;
   open: boolean;
   onClose: () => void;
-  onSaved: (change: Change) => void;
+  onSaved: (change: Change, provision?: readonly ProvisionResult[]) => void;
 }>;
 
 export type ClientModule = {

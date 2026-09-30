@@ -865,6 +865,14 @@ button.primary:not(:disabled) {
   border-top: 1px solid var(--line);
 }
 
+/* The row's identity — a repository, a branch, a window — reads whole; the detail beside it is
+   prose and wraps around it. Without this a long detail squeezes `corvi-shot-src` into
+   `corvi-\nshot-\nsrc`. */
+.item .label {
+  flex: none;
+  white-space: nowrap;
+}
+
 .item .detail {
   color: var(--muted);
 }

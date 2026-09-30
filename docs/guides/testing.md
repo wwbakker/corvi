@@ -92,7 +92,7 @@ Keep the existing lint protection until the replacement covers its boundary.
 
 ## Behavior that must remain protected
 
-- An idea does not provision a branch/worktree or move a ticket before work starts.
+- An idea gets its checkouts at creation and still moves no ticket before work starts.
 - Dirty worktrees cannot be removed by confirmation or force; unpushed work is acknowledged and
   its branch retained unless integration into the base is proven. In-place checkouts are not deleted.
 - Destructive operations use fresh relevant facts, not stale dashboard answers.

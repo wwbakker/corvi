@@ -178,10 +178,13 @@ export function ChangeView({
 
   // A card's editor saved: the change it wrote is the response, the lists elsewhere are stale,
   // and the cards remount to re-read the world — which is also what closes the editor's dialog.
-  const saved = (updated: Change): void => {
+  const saved = (updated: Change, provision?: readonly ProvisionResult[]): void => {
     setChange(updated);
     onChanged();
     setGeneration((g) => g + 1);
+    // An edit provisions its new checkouts too; what they reported is the same banner a start
+    // leaves behind.
+    if (provision?.length) setAfter([...provision]);
   };
 
   const copyDescription = (): Promise<void> =>

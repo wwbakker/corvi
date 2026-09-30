@@ -51,8 +51,8 @@ type Fixture = {
   readonly tmp: string
   readonly repo: string
   /** A fresh repository with `origin/main` and `origin/feature` standing in for fetched remote
-   * branches — so checkoutRemoteBranch has a target — and `origin/HEAD` read as the remote's
-   * default. The remote URL itself points nowhere: nothing here fetches. */
+   * branches — so attaching and the default base have targets — and `origin/HEAD` read as the
+   * remote's default. The remote URL itself points nowhere: nothing here fetches. */
   readonly makeRepo: (name: string) => Promise<string>
 }
 
@@ -123,34 +123,31 @@ test("a linked worktree shares the repository identity", async () => {
       const service = yield* Git.Service
       const repository = yield* service.repo.discover(AbsolutePath.make(repo))
       if (!repository) throw new Error("main repository not found")
-      return yield* service.worktree.create({ repository, directory: AbsolutePath.make(worktreeDir) })
+      return yield* service.worktree.add({
+        repository,
+        directory: AbsolutePath.make(worktreeDir),
+        branch: "feature",
+        create: true,
+      })
     }),
   )
   expect(created.commonDirectory).toBe(AbsolutePath.make(join(repo, ".git")))
 
-  const listed = await withGit(
+  const linked = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
-      const repository = yield* service.repo.discover(AbsolutePath.make(repo))
-      if (!repository) throw new Error("main repository not found")
-      return yield* service.worktree.list(repository)
+      return yield* service.repo.discover(AbsolutePath.make(worktreeDir))
     }),
   )
-  expect(listed[0]?.kind).toBe("main")
-  expect(listed.map((worktree) => String(worktree.directory))).toContain(worktreeDir)
+  expect(linked?.commonDirectory).toBe(AbsolutePath.make(join(repo, ".git")))
+  expect(linked?.worktree).toBe(AbsolutePath.make(worktreeDir))
 })
 
 test("a detached linked worktree has a head and no branch", async () => {
   const { tmp, repo } = await fixture()
-  // The linked worktree to observe, made here rather than borrowed from another test.
-  await withGit(
-    Effect.gen(function* () {
-      const service = yield* Git.Service
-      const repository = yield* service.repo.discover(AbsolutePath.make(repo))
-      if (!repository) throw new Error("main repository not found")
-      return yield* service.worktree.create({ repository, directory: AbsolutePath.make(join(tmp, "linked")) })
-    }),
-  )
+  // The linked worktree to observe, made with git directly: the port adds worktrees onto named
+  // branches, and this observes the detached case's reads.
+  git(repo, "worktree", "add", "--detach", join(tmp, "linked"), "HEAD")
   const observed = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
@@ -169,27 +166,52 @@ test("a detached linked worktree has a head and no branch", async () => {
   expect(observed.linkedHead).toBeDefined()
 })
 
-test("checkoutRemoteBranch creates the branch in the linked worktree", async () => {
-  const { tmp, repo } = await fixture()
-  // The linked worktree to check out into, made here rather than borrowed from another test.
-  await withGit(
+test("mergeFastForwardOnly moves HEAD exactly when that is a fast-forward", async () => {
+  const { makeRepo } = await fixture()
+  const dir = await makeRepo("ff-repo")
+  // `old` sits where main is now; main then moves on. Fast-forwarding `old` to `main` is exact.
+  git(dir, "branch", "old")
+  await writeFile(join(dir, "b.txt"), "b\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "main moves")
+  git(dir, "checkout", "old")
+
+  const advanced = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
-      const repository = yield* service.repo.discover(AbsolutePath.make(repo))
-      if (!repository) throw new Error("main repository not found")
-      return yield* service.worktree.create({ repository, directory: AbsolutePath.make(join(tmp, "linked")) })
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      yield* service.sync.mergeFastForwardOnly(repository, { to: "main" })
+      return yield* service.history.head(repository)
     }),
   )
-  const branch = await withGit(
+  expect(advanced).toBe(git(dir, "rev-parse", "main"))
+
+  // A branch with its own commits while the target moved on is refused — with git's own words —
+  // and left as it was.
+  git(dir, "checkout", "main")
+  await writeFile(join(dir, "d.txt"), "d\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "main moves on")
+  git(dir, "checkout", "-b", "own", "old")
+  await writeFile(join(dir, "c.txt"), "c\n")
+  git(dir, "add", ".")
+  git(dir, "commit", "-m", "own work")
+  const before = git(dir, "rev-parse", "HEAD")
+  const refused = await withGit(
     Effect.gen(function* () {
       const service = yield* Git.Service
-      const linked = yield* service.repo.discover(AbsolutePath.make(join(tmp, "linked")))
-      if (!linked) throw new Error("linked worktree not found")
-      yield* service.sync.checkoutRemoteBranch(linked, { branch: "feature" })
-      return yield* service.history.branch(linked)
+      const repository = yield* service.repo.discover(AbsolutePath.make(dir))
+      if (!repository) throw new Error("repository not found")
+      return yield* service.sync.mergeFastForwardOnly(repository, { to: "main" }).pipe(Effect.either)
     }),
   )
-  expect(branch).toBe("feature")
+  expect(refused._tag).toBe("Left")
+  if (refused._tag === "Left")
+    // git's verdict, not its advice column: the message is the sentence a report shows.
+    expect(refused.left.message).toContain("Not possible to fast-forward")
+  if (refused._tag === "Left") expect(refused.left.message).not.toContain("hint:")
+  expect(git(dir, "rev-parse", "HEAD")).toBe(before)
 })
 
 test("worktree removal refuses a dirty worktree unless forced", async () => {
@@ -200,7 +222,12 @@ test("worktree removal refuses a dirty worktree unless forced", async () => {
       const service = yield* Git.Service
       const repository = yield* service.repo.discover(AbsolutePath.make(repo))
       if (!repository) throw new Error("main repository not found")
-      yield* service.worktree.create({ repository, directory: AbsolutePath.make(dirtyDir) })
+      yield* service.worktree.add({
+        repository,
+        directory: AbsolutePath.make(dirtyDir),
+        branch: "fixture",
+        create: true,
+      })
     }),
   )
   await writeFile(join(dirtyDir, "note.txt"), "x\n")
