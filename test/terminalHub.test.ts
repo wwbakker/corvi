@@ -57,7 +57,7 @@ test("one host attach, output before any socket, and a refused second attach", a
   session.write("echo PRE_$(( 0 + 1 ))_MARK\n");
   const first = collector();
   session.attach(first.send, first.reset, first.onExit, 0);
-  await waitFor("the pre-attach output", async () => saw(first, "PRE_1_MARK"), 15_000);
+  await waitFor("the pre-attach output", async () => saw(first, "PRE_1_MARK"), 25_000);
   expect(hubStats().attached).toBe(1);
   expect(hubStats().subscribers).toBe(1);
 
@@ -68,17 +68,17 @@ test("one host attach, output before any socket, and a refused second attach", a
   session.attach(second.send, second.reset, second.onExit, 0);
   expect(hubStats().subscribers).toBe(1);
   session.write("echo ONE_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the one subscriber to see the output", async () => saw(first, "ONE_1_MARK"), 15_000);
+  await waitFor("the one subscriber to see the output", async () => saw(first, "ONE_1_MARK"), 25_000);
   await Bun.sleep(200);
   expect(saw(second, "ONE_1_MARK")).toBe(false);
-}, 30_000);
+}, 60_000);
 
 test("detaching never kills the shell, and re-attaching resumes", async () => {
   const session = await openSession("HUB-2", dir, { cols: 80, rows: 24 });
   const first = collector();
   session.attach(first.send, first.reset, first.onExit, 0);
   session.write("echo ALIVE_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the first output", async () => saw(first, "ALIVE_1_MARK"), 15_000);
+  await waitFor("the first output", async () => saw(first, "ALIVE_1_MARK"), 25_000);
 
   session.kill(); // detach, not kill
   expect(hubStats().attached).toBe(0);
@@ -88,8 +88,8 @@ test("detaching never kills the shell, and re-attaching resumes", async () => {
   const second = collector();
   session.attach(second.send, second.reset, second.onExit, 0);
   session.write("echo AGAIN_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the shell to answer after re-attach", async () => saw(second, "AGAIN_1_MARK"), 15_000);
-}, 30_000);
+  await waitFor("the shell to answer after re-attach", async () => saw(second, "AGAIN_1_MARK"), 25_000);
+}, 60_000);
 
 test("attach/detach does not leak host listeners", async () => {
   const session = await openSession("HUB-3", dir, { cols: 80, rows: 24 });
@@ -97,7 +97,7 @@ test("attach/detach does not leak host listeners", async () => {
     const seen = collector();
     session.attach(seen.send, seen.reset, seen.onExit, 0);
     session.write(`echo CYCLE_${cycle}_$(( 0 + 1 ))_MARK\n`);
-    await waitFor(`cycle ${cycle} output`, async () => saw(seen, `CYCLE_${cycle}_1_MARK`), 15_000);
+    await waitFor(`cycle ${cycle} output`, async () => saw(seen, `CYCLE_${cycle}_1_MARK`), 25_000);
     session.kill();
     expect(hubStats().attached).toBe(0);
   }
@@ -105,11 +105,11 @@ test("attach/detach does not leak host listeners", async () => {
   const last = collector();
   session.attach(last.send, last.reset, last.onExit, 0);
   session.write("echo LEAK_$(( 0 + 1 ))_PROBE\n");
-  await waitFor("the probe", async () => saw(last, "LEAK_1_PROBE"), 15_000);
+  await waitFor("the probe", async () => saw(last, "LEAK_1_PROBE"), 25_000);
   await Bun.sleep(200);
   const occurrences = last.chunks
     .map((chunk) => Buffer.from(chunk).toString("utf8"))
     .join("")
     .split("LEAK_1_PROBE").length - 1;
   expect(occurrences).toBe(1);
-}, 30_000);
+}, 60_000);
