@@ -7,7 +7,7 @@
  */
 import { Effect } from "effect";
 import type { ActionSessions } from "@corvi/actions/deliver";
-import type { CommandFailure } from "@corvi/terminals/tmux";
+import type { CommandFailure } from "@corvi/terminals/model";
 import { newWindowRunningAsync, writeToHostWindow } from "./windows.ts";
 
 const asFailure = (error: unknown): CommandFailure => ({
@@ -19,8 +19,8 @@ const asFailure = (error: unknown): CommandFailure => ({
 const hostWrite = (window: string, data: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({
     try: async () => {
-      // A dead or unknown window is a failed delivery, the same way tmux's `runOrThrow` was: the
-      // caller must not report success on a paste that never landed.
+      // A dead or unknown window is a failed delivery: the caller must not report success on a
+      // paste that never landed.
       if (!(await writeToHostWindow(window, data))) throw new Error(`no live terminal for window ${window}`);
     },
     catch: asFailure,

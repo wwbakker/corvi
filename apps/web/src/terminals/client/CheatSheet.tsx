@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef } from "react";
 import type { Platform } from "@corvi/terminals/model";
 
 /** The terminal page's own surface: a host session rendered by xterm.js, so the mouse, the
- * scrollbar, find and the context menu are the page's, not tmux's. */
+ * scrollbar, find and the context menu are the page's. */
 const KEYS: [string, string][] = [
   ["drag", "select; double and triple click select a word and a line"],
   ["wheel / scrollbar", "scroll back through the history"],
@@ -31,23 +31,14 @@ const CHORDS_LINUX: [string, string][] = [
   ["super+c / super+v", "copy / paste"],
 ];
 
-/** Subagent windows are still tmux windows in the change's own session; these keys reach them. */
-const TMUX_KEYS: [string, string][] = [
-  ["ctrl-b n / p", "next / previous subagent window"],
-  ["ctrl-b w", "list the windows and pick one"],
-  ["ctrl-b [", "scroll back in a subagent window (q to leave)"],
-];
-
 const chords = (platform: Platform): [string, string][] =>
   platform === "linux" ? CHORDS_LINUX : CHORDS_MAC;
 
 export function CheatSheet({
-  changeId,
   open,
   onClose,
   platform,
 }: {
-  changeId: string;
   open: boolean;
   onClose: () => void;
   /** The server's platform: the chords are its business. */
@@ -86,23 +77,12 @@ export function CheatSheet({
               <td>{what}</td>
             </tr>
           ))}
-          <tr>
-            <th colSpan={2}>Subagent windows (still tmux)</th>
-          </tr>
-          {TMUX_KEYS.map(([key, what]) => (
-            <tr key={key}>
-              <td>
-                <code>{key}</code>
-              </td>
-              <td>{what}</td>
-            </tr>
-          ))}
         </tbody>
       </table>
       <p className="hint">
-        The terminal is a host session: the shell outlives this page and the server. Subagent
-        windows still live in the change's tmux session, reachable with{" "}
-        <code>tmux -L corvi attach -t corvi-{changeId}</code>.
+        The terminal is a host session: the shell outlives this page and the server, and every
+        window — including a subagent's — is one of these sessions, switched from the strip above
+        the terminal.
       </p>
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onClose}>

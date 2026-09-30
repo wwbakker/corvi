@@ -14,9 +14,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
 
-/** Which substrate owns a window: a host session (interactive terminals and action runs) or a
- * tmux window (subagents, until their slice moves them). */
-export type BackingKind = "host" | "tmux";
+/** Which substrate owns a window. Every window is a host session now; the field remains in the
+ * persisted record so older files still read. */
+export type BackingKind = "host";
 
 /** A window that currently exists, as the backings report it. */
 export type LiveWindow = {

@@ -30,8 +30,7 @@ import { putCliOnPath } from "./capabilities/env.ts";
 import { commandAvailable } from "./capabilities/os.ts";
 import { ID, env } from "@corvi/configuration/node";
 
-// The CLI on PATH for every shell this server starts (see the function's own comment on why
-// this — and not a session environment entry — is what reaches a tmux pane). The checkout is
+// The CLI on PATH for every session this server starts (see the function's own comment). The checkout is
 // where this server's own code lives — derived from this file, not the cwd: every documented
 // launch sets the cwd too, but only this cannot be wrong. Before the first client is spawned
 // anywhere below.
@@ -75,7 +74,7 @@ setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).
 let instancePort: number | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    // The server takes its pty attachments with it; the tmux sessions (and the shells in them)
+    // The server takes its pty attachments with it; the host sessions (and the shells in them)
     // stay for the next server.
     closeAttachments();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);

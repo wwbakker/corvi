@@ -78,8 +78,8 @@ export const listActionsFor = (change: Change): Effect.Effect<readonly ActionSum
       .map(summaryOf);
   });
 
-/** A delivery with nowhere to go, or a tmux that would not: both are refusals at the route
- * boundary, not server faults. */
+/** A delivery with nowhere to go, or a write that would not land: both are refusals at the
+ * route boundary, not server faults. */
 const asBadRequest = (failure: BadRequestError | DeliveryFailure): BadRequestError => {
   if (failure instanceof BadRequestError) return failure;
   if ("_tag" in failure) return new BadRequestError({ message: "no window to run this in" });
@@ -120,8 +120,8 @@ export const runActionFor = (
     const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
 
     const dir = changeDir(change);
-    // A change whose only windows are tmux subagent windows must not get a throwaway shell just
-    // to have somewhere to paste: list what exists, and start a host window only when there is
+    // A change whose only windows are subagent windows must not get a throwaway shell just to
+    // have somewhere to paste: list what exists, and start a host window only when there is
     // nothing to target at all.
     let windows = yield* listWindows(change.id);
     if (windows.length === 0) {

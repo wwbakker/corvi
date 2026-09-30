@@ -21,9 +21,6 @@ const dir = await testTempDir("registry");
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
-  TMUX: process.env.TMUX,
-  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -31,9 +28,7 @@ const restoreEnv = (): void => {
     else process.env[key] = value;
   }
 };
-delete process.env.TMUX;
 process.env.CORVI_HOST_RUNTIME = "node";
-process.env.CORVI_TMUX_SOCKET = join(dir, "tmux.sock");
 const changeId = "REG-IO";
 const ids = (): string[] => registry.records(changeId).map((record) => record.id);
 

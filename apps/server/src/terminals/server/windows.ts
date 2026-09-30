@@ -14,8 +14,8 @@ import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
-import type { CommandFailure } from "@corvi/terminals/tmux";
-import type { TmuxWindow } from "../../integrations/types.ts";
+import type { CommandFailure, NewWindowOptions } from "@corvi/terminals/model";
+import type { RawWindow } from "../../integrations/types.ts";
 import { env } from "@corvi/configuration/node";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
@@ -46,10 +46,10 @@ const shell = (): string => process.env.SHELL ?? "/bin/sh";
 const windowId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
 /** The URL path the page opens the terminal socket on. The route and the client share this one
- * spelling, so it lives beside the route that serves it rather than in the tmux package. */
+ * spelling, so it lives beside the route that serves it. */
 export const terminalSocketPath = (id: string): string => `/api/changes/${encodeURIComponent(id)}/terminal/socket`;
 
-/** The checkout's own CLI entry, put in front of a host pane's PATH. An installed `corvi` from
+/** The checkout's own CLI entry, put in front of a host session's PATH. An installed `corvi` from
  * another checkout may not have this channel's commands, and the server's `putCliOnPath`
  * deliberately lets an installed one win for `start`/`stop` — so a host session seeds the
  * matching entry explicitly. */
@@ -58,7 +58,7 @@ const cliBinDir = (): string => join(fileURLToPath(new URL("../../../../../", im
 /** The change's context for a host window. The host replaces its own environment with this one
  * (`session.open` env is the whole environment), so the scrub here actually wins. `TMUX` and
  * `TMUX_PANE` are dropped: a host session is not a tmux pane, and a reporter that inherited them
- * would write to the user's own tmux server. */
+ * would write to a tmux server Corvi does not own. */
 const changeEnv = (changeId: string, dir: string): Record<string, string> => {
   const child = childEnv(process.env, { [env("CHANGE_ID")]: changeId, [env("CHANGE_DIR")]: dir });
   delete child.TMUX;
@@ -95,8 +95,7 @@ const hostLive = async (
   return { live, sessions: byId };
 };
 
-/** The tmux windows for a change that carry a subagent id. `ok:false` when tmux could not be
- * read; the caller must not treat that as "no windows". */
+/** The live host windows of a change, plus the session map the presenter reads status from. */
 const liveFor = async (
   changeId: string,
   keep: ReadonlySet<string>,
@@ -105,8 +104,8 @@ const liveFor = async (
   return { live: host.live, host: host.sessions };
 };
 
-/** The pane options a host window adds for the agent presenter: the status its reporter set,
- * through the CLI/HTTP store or the OSC parse, in the same vocabulary tmux pane options use. */
+/** The option facts a host window adds for the agent presenter: the status its reporter set,
+ * through the CLI/HTTP store or the OSC parse, in the same vocabulary the presenters read. */
 const agentOptions = (status: AgentStatus | undefined): Record<string, string> =>
   status === undefined
     ? {}
@@ -131,7 +130,7 @@ const commandOptions = (record: WindowRecord, session: SessionInfo | undefined):
 
 /** The raw window a host session presents as. A labelled one (an action run) uses the label as
  * its name and lets the presenter speak; a plain shell uses its directory. */
-const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined, status: AgentStatus | undefined): TmuxWindow => ({
+const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undefined, status: AgentStatus | undefined): RawWindow => ({
   index: 0,
   id: record.id,
   name: record.label ?? basename(dir),
@@ -281,7 +280,7 @@ export const newWindowRunningAsync = (
   changeId: string,
   dir: string,
   command: string,
-  options: { readonly cwd?: string; readonly keepOpen?: boolean; readonly announce?: { readonly label: string; readonly notify: boolean } },
+  options: NewWindowOptions,
 ): Promise<string> =>
   withRegistryLock(() =>
     openHostWindow(changeId, options.cwd ?? dir, [shell(), "-c", command], { cols: 100, rows: 30 }, {

@@ -7,8 +7,7 @@ test("subagentOfSession reads the host-seeded id, and is undefined outside a Cor
   expect(subagentOfSession({ CORVI_SUBAGENT_ID: "  reviewer-1  " })).toBe("reviewer-1");
   expect(subagentOfSession({ CORVI_SUBAGENT_ID: "" })).toBeUndefined();
   expect(subagentOfSession({})).toBeUndefined();
-  // A tmux pane without the host seed is not a subagent: the tmux fallback is gone, and the relay
-  // stays quiet rather than guessing.
+  // A session without the host seed is not a subagent: the relay stays quiet rather than guessing.
   expect(subagentOfSession({ TMUX_PANE: "%3" })).toBeUndefined();
 });
 

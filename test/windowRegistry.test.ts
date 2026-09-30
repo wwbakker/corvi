@@ -15,7 +15,6 @@ const record = (over: Partial<WindowRecord> & { id: string }): WindowRecord => (
 });
 
 const host = (id: string): LiveWindow => ({ id, kind: "host" });
-const tmux = (id: string, label?: string): LiveWindow => ({ id, kind: "tmux", ...(label !== undefined ? { label } : {}) });
 
 describe("window registry merge", () => {
   test("keeps order, labels and the active flag while the backings live", () => {
@@ -43,9 +42,9 @@ describe("window registry merge", () => {
   test("a rebuild with the same live set is idempotent: no loss and no duplication", () => {
     const first = mergeRecords(
       [record({ id: "a", label: "One", active: true }), record({ id: "b", label: "Two" })],
-      [host("a"), tmux("@1", "sub"), host("b")],
+      [host("a"), host("c"), host("b")],
     );
-    const second = mergeRecords(first, [host("a"), tmux("@1", "sub"), host("b")]);
+    const second = mergeRecords(first, [host("a"), host("c"), host("b")]);
     expect(second).toEqual(first);
     expect(second).toHaveLength(3);
   });
@@ -58,15 +57,6 @@ describe("window registry merge", () => {
     const again = mergeRecords([record({ id: "b", active: true })], [host("a"), host("b")]);
     expect(again.find((entry) => entry.id === "b")?.active).toBe(true);
     expect(again.find((entry) => entry.id === "a")?.active).toBe(false);
-  });
-
-  test("host and tmux windows aggregate into one list", () => {
-    const merged = mergeRecords([], [host("w-1"), tmux("@7", "subagent"), host("w-2")]);
-    expect(merged.map((entry) => [entry.id, entry.kind])).toEqual([
-      ["w-1", "host"],
-      ["@7", "tmux"],
-      ["w-2", "host"],
-    ]);
   });
 
   test("an empty live set empties the registry", () => {

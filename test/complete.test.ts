@@ -223,7 +223,6 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
     if (line.startsWith("gh repo view")) return "";
     if (line.startsWith("gh pr merge")) return opts.merge ?? { code: 0 };
     if (line.startsWith("git worktree remove --force")) return "";
-    if (line.startsWith("tmux ")) return "";
     return undefined;
   });
 

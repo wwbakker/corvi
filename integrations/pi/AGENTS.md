@@ -3,7 +3,7 @@
 ## Owns
 
 Pi's agent-state reporter: `src/agent-state.ts`, the pi extension that publishes Corvi's agent
-protocol (the `@agent_*` tmux pane options of docs/manual/terminals.md) from pi's own events —
+protocol (the status facts of docs/manual/terminals.md, via `corvi status`) from pi's own events —
 working/waiting, the agent's name, the session's name, and the first sentence of the last answer.
 It runs inside pi, not inside Corvi: `bun run extension:install:pi` symlinks the entry file into
 pi's extensions directory (`scripts/extension.ts` owns the mechanics).
@@ -28,7 +28,7 @@ deliberately share no code: each is loaded by its agent outside Corvi's module g
 ## Dependencies
 
 Type-only on `@earendil-works/pi-coding-agent` (pi provides the module at runtime). No `@corvi/*`
-packages, no Node built-ins: publishing is `pi.exec("tmux", …)`, fire and forget.
+packages, no Node built-ins: publishing is `pi.exec("corvi", […])`, fire and forget.
 
 ## Verification
 

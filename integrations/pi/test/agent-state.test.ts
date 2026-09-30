@@ -3,7 +3,7 @@ import { firstSentence, textOf } from "../src/agent-state.ts";
 
 /**
  * The pi reporter's pure half: what the notification says after the session's name, and which
- * text it reads from pi's messages. The rest is tmux options and pi events.
+ * text it reads from pi's messages. The rest is window facts and pi events.
  */
 test("the notification sentence is the first one, on a single line", () => {
   expect(firstSentence("I fixed the layout. Then I pushed.")).toBe("I fixed the layout.");

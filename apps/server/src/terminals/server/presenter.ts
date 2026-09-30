@@ -1,5 +1,5 @@
 import type { TerminalWindow } from "../../domain/terminal.ts";
-import type { TmuxWindow, WindowPresentation } from "../../integrations/types.ts";
+import type { RawWindow, WindowPresentation } from "../../integrations/types.ts";
 import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
 
@@ -14,7 +14,7 @@ import { commandWindowPresenter } from "@corvi/terminals/presenter";
  */
 
 /** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
-const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
+const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash"];
 
 /** One window as the page sees it, with the busy fact the overview counts — presentational
  * to the page, but the server's own accounting travels with it too. */
@@ -22,7 +22,7 @@ export type PresentedWindow = TerminalWindow & { busy: boolean };
 
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */
-const merged = (raw: TmuxWindow): WindowPresentation =>
+const merged = (raw: RawWindow): WindowPresentation =>
   [agentsWindowPresenter, commandWindowPresenter].reduce<WindowPresentation>((acc, presenter) => {
     const answer = presenter.present(raw);
     if (!answer) return acc; // a presenter with nothing to say contributes nothing
@@ -45,8 +45,8 @@ const merged = (raw: TmuxWindow): WindowPresentation =>
  * The first presenter that answers a field wins (registration order within an extension, load
  * order across them); what nobody answered, the core says:
  *
- * - the base name is the name you gave the window, or where it is — tmux's own default names
- *   a window after whatever runs in it, which says less than the directory does;
+ * - the base name is the name you gave the window, or where it is; what runs in it says less
+ *   than the directory does;
  * - the composed name appends what is running, unless it is a plain shell or already the
  *   whole label — so a prompt reads as a place, not a program;
  * - busy is "not a shell" — the heuristic the overview's terminals fact uses, with an agent
@@ -54,7 +54,7 @@ const merged = (raw: TmuxWindow): WindowPresentation =>
  *
  * Pure, and exported for the tests: the page renders exactly what this says.
  */
-export const presentWindow = (raw: TmuxWindow): PresentedWindow => {
+export const presentWindow = (raw: RawWindow): PresentedWindow => {
   const said = merged(raw);
   const base = raw.named ? raw.name : raw.directory || raw.name;
   const what = said.running ?? raw.command;

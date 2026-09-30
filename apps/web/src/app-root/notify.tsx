@@ -8,7 +8,7 @@ import type { Page } from "./Sidebar.tsx";
  * What a window wanting you turns into: a native notification in the app's window, the browser's
  * own where there is no host, and a toast in the page either way.
  *
- * The server does the detecting — it already reads `@agent` from tmux every tick — and says what
+ * The server does the detecting — it already reads the agent status every tick — and says what
  * happened on the `notify` event. The page does the deciding, because only the page knows what is
  * on screen; the host does the showing (the app's Electron window, apps/web/src/domain/host.ts), because
  * only it can raise the window and play the sound the notification setting asks for.
@@ -19,7 +19,7 @@ import type { HostNotice } from "../domain/host.ts";
 export type Notice = {
   /** The change the window belongs to. */
   change: string;
-  /** tmux's window id — stable across reordering, unlike the index. */
+  /** The window's backing session id — stable across reordering, unlike the index. */
   window: string;
   /** What the window is called: the session's name when it has one. */
   label: string;

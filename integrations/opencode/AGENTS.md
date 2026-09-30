@@ -3,7 +3,7 @@
 ## Owns
 
 opencode's agent-state reporter: `src/agent-state.ts`, the opencode plugin that publishes Corvi's
-agent protocol (the `@agent_*` tmux pane options of docs/manual/terminals.md) from opencode's
+agent protocol (the status facts of docs/manual/terminals.md, via `corvi status`) from opencode's
 event stream — working/waiting, the agent's name, the session's title, and the first sentence of
 the last answer. It runs inside opencode, not inside Corvi: `bun run extension:install:opencode`
 symlinks the entry file into opencode's plugin directory (`scripts/extension.ts` owns the
@@ -31,7 +31,7 @@ share no code: each is loaded by its agent outside Corvi's module graph.
 
 Type-only on `@opencode-ai/plugin` (opencode provides the module at runtime). No `@corvi/*`
 packages, no Node built-ins: publishing is the `BunShell` opencode hands the plugin
-(`input.$\`tmux …\``), fire and forget.
+(`input.$\`corvi …\``), fire and forget.
 
 ## Verification
 

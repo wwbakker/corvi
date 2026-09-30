@@ -31,7 +31,7 @@ export type ActionSummaryDto = typeof ActionSummarySchema.Type;
 
 export const RunActionRequestSchema = Schema.Struct({
   key: Schema.String,
-  /** The window the menu was opened on (tmux's `@3`): `target: active` means this one. */
+  /** The window the menu was opened on (its backing session id): `target: active` means this one. */
   window: Schema.optional(Schema.String),
 });
 export type RunActionRequestDto = typeof RunActionRequestSchema.Type;

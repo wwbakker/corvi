@@ -2,36 +2,20 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitFor, waitForUrl } from "./helpers.ts";
+import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitFor, waitForUrl } from "./helpers.ts";
 
 /**
  * The agent-status channel end to end: the endpoint, its validation, the presenter that reads the
- * store, and the `corvi status` CLI. The server runs on Node (the host does too); the tmux socket
- * is the run's own so the server's tmux reads never touch the user's server.
+ * store, and the `corvi status` CLI. The server and the terminal host run on Node.
  */
-// The tmux env this file sets, saved so a co-located test file does not inherit it.
-const savedTmuxEnv = {
-  TMUX: process.env.TMUX,
-  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
-  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
-};
-const restoreTmuxEnv = (): void => {
-  for (const [key, value] of Object.entries(savedTmuxEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-};
-
 let tmp: string;
-let tmuxTmp: string;
-let testSocket: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-STATUS";
 
 const startServer = async (): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp }), CORVI_TMUX_SOCKET: testSocket },
+    env: serverEnv(tmp),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -69,11 +53,6 @@ const windowsOf = async (): Promise<Record<string, { id: string; icon?: string; 
 
 beforeAll(async () => {
   tmp = await testTempDir("status");
-  tmuxTmp = await tmuxTempDir();
-  delete process.env.TMUX;
-  process.env.TMUX_TMPDIR = tmuxTmp;
-  testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "corvi");
-  await mkdir(join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`), { recursive: true });
   await startServer();
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
@@ -81,7 +60,6 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  restoreTmuxEnv();
   server?.kill();
   await server?.exited;
   await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" })

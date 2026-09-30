@@ -363,7 +363,7 @@ let contextMenu = true;
 /** The menu for where the click landed: the editing roles over a field or a selection, the link out
  * of the app, and the inspector while this runs from a checkout. Nothing to offer means no menu —
  * which is also what a page that handled the click itself gets, since a right-click the page has
- * cancelled never reaches here (the terminal's menu is tmux's, drawn in the grid). */
+ * cancelled never reaches here (the terminal's menu is the page's own). */
 const menuFor = (
   win: BrowserWindow,
   params: Electron.ContextMenuParams,
@@ -535,7 +535,7 @@ const run = async (): Promise<void> => {
     // "Restart now" after an update: the relaunch inherits this process's environment (the
     // launcher's CORVI_APP_ROOT among it), so the new window serves the same checkout — now on
     // its new code. Quitting stops the server this window owns, exactly as closing it does;
-    // terminals are tmux's and survive.
+    // terminals are the host's and survive.
     app.relaunch();
     app.quit();
   });
@@ -566,7 +566,7 @@ const run = async (): Promise<void> => {
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   if (serverPid === null || stopping) return;
-  // Quitting stops the server this window started; terminals are tmux's and survive it, which is
+  // Quitting stops the server this window started; terminals are the host's and survive it, which is
   // the same promise a restart of the server has always made.
   event.preventDefault();
   stopping = true;

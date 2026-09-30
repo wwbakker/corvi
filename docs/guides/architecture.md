@@ -56,7 +56,7 @@ unrelated issue, build, and agent operations.
 | `configuration` | Validated configuration snapshots, workspace selection, precedence and updates | Integration execution or a mutable singleton configuration object |
 | `changes` | Change invariants, persistence, archive location, plan/notes documents and associated metadata | Git commands, terminals, provider calls, HTTP or dashboard cards |
 | `repositories` | Repository facts, branches, worktree operations, safety assessment, diffs and commits | Corvi change-directory policy, persisted changes, GitHub calls or widgets |
-| `terminals` | Session/window identity, input, attachment and owned PTY resources | Agent conversation identity, change transitions or notifications policy |
+| `terminals` | The vocabulary shared by server and page: the new-window key, the CSI u sequences a terminal cannot encode, the command option names, and the pure window presenters | Agent conversation identity, change transitions or notifications policy |
 | `agents` | Corvi-facing session identity, supported capabilities, prompts and status | A provider's SDK types or the assumption that every agent is a terminal |
 | `actions` | Action files and their vocabulary, scope precedence, placeholder rendering, delivery to terminal sessions | Terminal/session mechanics, change lifecycle, HTTP handlers or JSX |
 | `workflows` | Create/start/complete/cancel, multi-repository operations, overview aggregation and action orchestration | Vendor CLI/HTTP encoding, storage primitives, JSX or HTTP responses |
@@ -208,7 +208,7 @@ failure, and duplicate handling require an explicit policy before status automat
 - Workspace-specific credentials and configuration are explicit values or scoped service instances,
   never whichever workspace a browser most recently selected.
 - A request or attachment owns its cancellation and acquired resources.
-- A terminal session is distinct from its PTY/browser attachment. Detaching must not kill a tmux
+- A terminal session is distinct from its PTY/browser attachment. Detaching must not kill a host
   session intended to survive the application.
 - An agent conversation has its own provider/session identity; its terminal association is optional.
 

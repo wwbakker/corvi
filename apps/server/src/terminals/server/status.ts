@@ -8,9 +8,8 @@
  * first and falls back to the status the host itself parsed from OSC (`session.status`), so the
  * CLI/HTTP channel and the OSC fallback share one shape.
  *
- * The trust model is the same as the tmux pane options it replaces: any process inside the pty
- * can name its own session id. A later slice's per-window token is the extension point, not this
- * one.
+ * The trust model is the reporter's: any process inside the pty can name its own session id. A
+ * later slice's per-window token is the extension point, not this one.
  */
 import type { SessionStatus } from "../host/protocol.ts";
 import { hostClient, hostRunning } from "./host.ts";

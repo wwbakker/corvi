@@ -184,8 +184,8 @@ export function TerminalPane({
       // second copy of the colour here, which is the kind of pair that drifts.
       theme: { background: wellTone(), foreground: "#e6edf3" },
       // Option-drag forces xterm's own selection where a full-screen program has enabled mouse
-      // reporting and would otherwise swallow the drag. The host path has no tmux echoing the
-      // mouse, but a program inside the shell can turn reporting on itself.
+      // reporting and would otherwise swallow the drag; a program inside the shell can turn
+      // reporting on itself.
       macOptionClickForcesSelection: platform === "mac",
     });
     const fit = new FitAddon();

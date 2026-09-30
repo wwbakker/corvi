@@ -9,8 +9,8 @@ import type { TerminalPresenter } from "@corvi/contracts/terminal";
  * server turns into the `@agent_*` window facts: pi's extension (`integrations/pi`), opencode's
  * plugin (`integrations/opencode`), or any other writer of the protocol.
  *
- * The facts are option-shaped because the presenter's input is, whether they came from a tmux
- * pane or from a host session's metadata; the host path synthesizes the same option names. The
+ * The facts are option-shaped because the presenter's input is, and the host path synthesizes
+ * the same option names. The
  * agent's name is published beside the state as `@agent_name` and the session's name as
  * `@agent_session_name` (pi names the session from your first message, opencode titles it after
  * the first exchange); when the session name is there it is the label, because "example-api -
@@ -30,7 +30,6 @@ const agentOf = (option: string | undefined): AgentState | undefined =>
  * where an agent speaks. Everything it leaves undefined — the label, the detail — the core
  * composes from the raw facts, exactly as it does for a plain shell. */
 export const agentsWindowPresenter: TerminalPresenter = {
-  paneOptions: ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"],
   present: (window) => {
     const agent = agentOf(window.options["@agent_status"]);
     if (!agent) return undefined;
@@ -42,7 +41,7 @@ export const agentsWindowPresenter: TerminalPresenter = {
       // The session's own name, when the agent has given it one; otherwise the core composes the
       // label from the repository, exactly as it does for a plain shell.
       label: name || undefined,
-      // An agent is `node` as far as tmux is concerned, which says nothing; what it told us
+      // An agent is `node` as far as the process table is concerned, which says nothing; what it told us
       // about itself says everything.
       running: `${who} ${agent}`,
       icon: "agent",

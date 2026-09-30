@@ -2,15 +2,14 @@ import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
-import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, until, waitForUrl } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
 /**
- * The terminal through a real browser. The pty is owned by the terminal host now, not tmux: the
- * page's xterm is a glass over a host session, the window strip is the server's registry, and the
- * shells outlive the server. The server runs on Node (the host does too); the tmux socket below
- * exists only to keep the server's tmux reads — subagent windows — off the user's own server.
+ * The terminal through a real browser. The pty is owned by the terminal host: the page's xterm
+ * is a glass over a host session, the window strip is the server's registry, and the shells
+ * outlive the server. The server runs on Node (the host does too).
  *
  * The terminal itself is a canvas, so the tests assert what a command *did* (a file) rather than
  * reading the drawn text. A typed line cannot be lost — the socket and the starting shell both
@@ -131,22 +130,7 @@ const haveBrowser = await (async (): Promise<boolean> => {
 const usable = haveBrowser;
 if (usable) requireFreshWebBundle();
 
-// The tmux env this file sets, saved so a co-located test file does not inherit it.
-const savedTmuxEnv = {
-  TMUX: process.env.TMUX,
-  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
-  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
-};
-const restoreTmuxEnv = (): void => {
-  for (const [key, value] of Object.entries(savedTmuxEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-};
-
 let tmp: string;
-let tmuxTmp: string;
-let testSocket: string;
 let browser: Browser;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
@@ -155,7 +139,7 @@ const second = "PROJ-TERM-2";
 
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp, CORVI_PORT: String(port) }), CORVI_TMUX_SOCKET: testSocket },
+    env: serverEnv(tmp, { CORVI_PORT: String(port) }),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -165,14 +149,6 @@ const startServer = async (port = 0): Promise<void> => {
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("term");
-  tmuxTmp = await tmuxTempDir();
-  // A tmux socket of this run's own. The product no longer reads tmux, but the socket keeps a
-  // stray `tmux` invocation from ever reaching the user's server.
-  delete process.env.TMUX;
-  process.env.TMUX_TMPDIR = tmuxTmp;
-  testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "corvi");
-  await mkdir(join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`), { recursive: true });
-  process.env.CORVI_TMUX_SOCKET = testSocket;
   await startServer();
   const repo = join(tmp, "repo");
   await runSh(["git", "init", "-b", "main", repo]);
@@ -188,7 +164,6 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  restoreTmuxEnv();
   if (!usable) return;
   await browser?.close();
   server?.kill();

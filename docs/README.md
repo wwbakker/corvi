@@ -22,8 +22,11 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 Read architecture and API design before changing a public surface. Read local package instructions
 when they exist. Historical implementation choices do not override these rules. Settled choices
-are decision records of their own: [architecture](decisions/architecture.md) and [leaving a page
-with unsaved edits](decisions/unsaved-changes.md).
+are decision records of their own: [architecture](decisions/architecture.md), [the terminal host
+and host sessions](decisions/terminal-host.md), [the agent-status
+channel](decisions/agent-status-channel.md), [renderer-owned screen
+state](decisions/renderer-owned-screen.md), and [leaving a page with unsaved
+edits](decisions/unsaved-changes.md).
 
 ## Repository and change contracts
 

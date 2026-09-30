@@ -24,9 +24,6 @@
     "@corvi/terminals": {
       "dependsOn": [
         "@corvi/contracts"
-      ],
-      "external": [
-        "effect"
       ]
     },
     "@corvi/agents": {

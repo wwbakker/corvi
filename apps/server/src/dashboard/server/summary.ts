@@ -13,7 +13,7 @@ export type { ChangeSummary };
  * What the overview's card says about a change: what the core knows about its terminals, plus
  * what the extensions say.
  *
- * Deliberately cheap: the terminals come from one tmux call, and each extension is asked once,
+ * Deliberately cheap: the terminals come from one windows read, and each extension is asked once,
  * in load order, inside the change's own workspace — so every subprocess carries its
  * environment. A contributor that fails contributes nothing: a vendor being down is not a
  * reason to blank the card, let alone fail the request. The icon's verdict is the worst of
@@ -21,7 +21,7 @@ export type { ChangeSummary };
  */
 export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown> =>
   Effect.gen(function* () {
-    // The core's own fact: tmux stays core, and busy is a presented fact — the merge in
+    // The core's own fact: windows stay core, and busy is a presented fact — the merge in
     // terminals/server/presenter.ts says which windows are work.
     const windows = yield* listWindows(change.id);
     const busy = windows.filter((w) => w.busy).length;

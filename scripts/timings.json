@@ -4,7 +4,6 @@
     "test/terminal.test.ts": 55872,
     "test/pages.test.ts": 19418,
     "test/events.test.ts": 17440,
-    "test/tmuxSessionEnv.test.ts": 7708,
     "test/repos.test.ts": 6230,
     "test/cancel.test.ts": 4930,
     "test/directoryPicker.page.test.ts": 4707,

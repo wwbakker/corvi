@@ -1,10 +1,10 @@
 /**
  * Which change a command is about, without a flag.
  *
- * Three sources, most explicit first: `--change`, then `CORVI_CHANGE_ID` (which the server sets
- * in every pane of a change's tmux session, `@corvi/terminals`' `contextEnv`), then the nearest
- * `change.json` at or above the working directory. The last one is what makes `corvi change
- * show` work when you are already standing in a change.
+ * Three sources, most explicit first: `--change`, then `CORVI_CHANGE_ID` (which the server seeds
+ * into every session of a change), then the nearest `change.json` at or above the working
+ * directory. The last one is what makes `corvi change show` work when you are already standing in
+ * a change.
  */
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";

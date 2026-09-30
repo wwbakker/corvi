@@ -2,8 +2,8 @@
  * The Corvi CLI: argv → a typed call on `@corvi/client` → stdout, and an exit code.
  *
  * It is a thin proxy over the running server (`docs/design`'s "applications assemble"): it never
- * touches change files or tmux, so the server stays the single writer and optimistic concurrency
- * keeps working. Everything it can do is also in the page; the CLI is for an agent, a script, or
+ * touches change files or the terminal host, so the server stays the single writer and optimistic
+ * concurrency keeps working. Everything it can do is also in the page; the CLI is for an agent, a script, or
  * a person in a checkout.
  *
  * Machine-first: every command takes `--json`, prints one JSON value on success, a JSON error

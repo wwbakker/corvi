@@ -6,7 +6,7 @@
  * derived from them.
  *
  * State is derived, never stored, with one exception: whether a turn was in flight cannot be
- * derived after a reboot (tmux and the reporter are gone), so `inFlight` is written before a
+ * derived after a reboot (the session and the reporter are gone), so `inFlight` is written before a
  * message is delivered and cleared when the reply settles. `interrupted` is exactly "in flight
  * and no live window". */
 import { Either, Schema } from "effect";

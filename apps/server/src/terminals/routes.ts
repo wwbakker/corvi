@@ -63,8 +63,7 @@ export const terminalsRoutes = guard({
   },
 
   // Every change's terminals, in one call: the navigation column lists them all, and asking
-  // per change would be a process per change every few seconds. A timed-out tmux is no news,
-  // not a failed request.
+  // per change would be a read per change every few seconds.
   "/api/terminals": {
     GET: () =>
       runRoute(
@@ -103,9 +102,8 @@ export const terminalsRoutes = guard({
               message: "this change is completed: its terminal is gone",
             });
           }
-          // The reason a terminal cannot start (the wrong runtime, no tmux) is an answer to
-          // this question, so the pane can say it instead of opening a socket that never comes
-          // up.
+          // The reason a terminal cannot start (the wrong runtime) is an answer to this
+          // question, so the pane can say it instead of opening a socket that never comes up.
           const unavailable = terminalUnavailable();
           if (unavailable) return json({ error: unavailable }, 500);
           return json({ url: terminalSocketPath(c.id) });

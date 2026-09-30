@@ -94,7 +94,7 @@ beforeAll(async () => {
     "utf8",
   );
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock") }),
+    env: serverEnv(tmp),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });

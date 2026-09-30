@@ -4,7 +4,7 @@ import { firstSentence, trackAnswer } from "../src/agent-state.ts";
 /**
  * The opencode reporter's pure half: the notification sentence and the shape of one answer as
  * opencode writes it (text parts accumulating over `message.part.updated` events). The rest is
- * tmux options and opencode events.
+ * window facts and opencode events.
  */
 test("the notification sentence is the first one, on a single line", () => {
   expect(firstSentence("I fixed the layout. Then I pushed.")).toBe("I fixed the layout.");

@@ -1136,4 +1136,4 @@ per-workspace enablement, notes, Pi reporting) moves to the owning package tests
   adapter's own removal refuses a dirty worktree unless forced.
 
 Tests keep the wrapper rules from the [testing guide](../guides/testing.md): isolated
-change/config/cache paths, a private tmux socket per run, and cleanup owned by the run token.
+change/config/cache paths and cleanup owned by the run token.

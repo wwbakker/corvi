@@ -198,7 +198,7 @@ export async function uninstall(
   }
   return {
     code: 0,
-    stdout: `removed: ${path}\ntmux keeps @agent_status on panes where ${target.name} is still running: tmux set -p -u @agent_status\n`,
+    stdout: `removed: ${path}\n`,
     stderr: "",
   };
 }

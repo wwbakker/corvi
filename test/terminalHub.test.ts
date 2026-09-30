@@ -18,9 +18,6 @@ import { testTempDir, waitFor } from "./helpers.ts";
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
-  TMUX: process.env.TMUX,
-  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -30,10 +27,6 @@ const restoreEnv = (): void => {
 };
 process.env.CORVI_HOST_RUNTIME = "node";
 const dir = await testTempDir("hub");
-// A tmux socket of this file's own: the window list reads tmux, and it must never reach the
-// user's server.
-delete process.env.TMUX;
-process.env.CORVI_TMUX_SOCKET = join(dir, "tmux.sock");
 
 type Collector = {
   readonly chunks: Uint8Array[];

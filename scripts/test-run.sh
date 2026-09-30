@@ -4,11 +4,11 @@
 #
 #   bash scripts/test-run.sh          # everything there is
 #   bash scripts/test-run.sh unit     # everything but the browser end-to-end files
-#   bash scripts/test-run.sh e2e      # only those (a browser, a tmux and a real server each)
+#   bash scripts/test-run.sh e2e      # only those (a browser and a real server each)
 #
 # Any further arguments go to `bun test` (`--retry=2`, a file filter, …).
 #
-# The token names everything the run makes — temp dirs, servers, tmux sockets — so
+# The token names everything the run makes — temp dirs, servers, hosts — so
 # scripts/clean-test.ts can end a crashed run's leftovers without ever touching a suite in
 # progress (its own documentation is the full story). The EXIT trap ends exactly this run's
 # leftovers whatever the tests did.

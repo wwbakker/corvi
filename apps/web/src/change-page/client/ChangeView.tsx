@@ -64,14 +64,14 @@ export function ChangeView({
   /** Results of the creation step, shown once: it is the one moment something can fail
    * without you having clicked it. */
   provision?: ProvisionResult[];
-  /** The change's tmux session, owned by the app so the navigation column can list its
+  /** The change's terminal session, owned by the app so the navigation column can list its
    * windows from any page. */
   terminal: {
     url: string | null;
     error: string | null;
     create: () => void;
   };
-  /** This change's tmux windows: what the terminal page's tabs are. */
+  /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
@@ -368,7 +368,6 @@ export function ChangeView({
           reference. The same row on both of a change's pages. */}
       {changeHeader}
       <CheatSheet
-        changeId={id}
         open={cheatSheet}
         onClose={() => {
           setCheatSheet(false);

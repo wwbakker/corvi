@@ -5,7 +5,7 @@
  *
  * The presenter is imported by path on purpose — it is the thing being reused, not a copy.
  */
-import type { TmuxWindow } from "../../packages/contracts/src/terminal.ts";
+import type { RawWindow } from "../../packages/contracts/src/terminal.ts";
 import { presentWindow, type PresentedWindow } from "../../apps/server/src/terminals/server/presenter.ts";
 
 export type StatusRecord = {
@@ -18,7 +18,7 @@ export type StatusRecord = {
 
 /** One live session as a raw tmux-shaped window, with the status merged in as pane options —
  * exactly the shape the real presenter reads. */
-export const windowOf = (id: string, status: StatusRecord | undefined): TmuxWindow => ({
+export const windowOf = (id: string, status: StatusRecord | undefined): RawWindow => ({
   index: 0,
   name: id,
   command: status ? "node" : "sh",

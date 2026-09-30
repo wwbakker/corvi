@@ -1,5 +1,5 @@
 import { existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { mkdir, mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
@@ -39,9 +39,8 @@ let announced = false;
  * one run's resources from another's, and a live run from a crashed one. */
 export const testRun = (): string => {
   const fromEnv = process.env.CORVI_TEST_RUN;
-  // A hand-set token the cleaner cannot read would leave this run's servers and tmux sockets
-  // behind as unattributable (`--all`-only). Refuse it here, before anything starts, rather than
-  // leak them.
+  // A hand-set token the cleaner cannot read would leave this run's servers and hosts behind as
+  // unattributable (`--all`-only). Refuse it here, before anything starts, rather than leak them.
   if (fromEnv !== undefined && fromEnv !== "" && !isRunToken(fromEnv)) {
     throw new Error(
       `CORVI_TEST_RUN=${fromEnv} is not a run token: scripts/clean-test.ts reads tokens as ` +
@@ -164,32 +163,20 @@ export const withRuntimeConfig = async <T>(
 
 /** Environment for a spawned test server: the OS picks the port (`CORVI_PORT=0`), and every
  * path is the file's own tmp dir, so parallel workers share nothing — not the changes, the
- * config, the built page, the cache file, or the tmux socket. `TMUX` is removed rather than
- * overridden: inside a tmux session it wins over `TMUX_TMPDIR`, and every tmux command the
- * server runs — `kill-server` included — would reach the session you are working in.
- * `CORVI_TMUX_SOCKET` is removed for the same reason: it is a blessed override for tests and
- * sandboxes (docs/guides/testing.md), so an inherited one would join this server to a
- * foreign tmux server instead of the per-file socket above. A file that wants its own socket
- * sets it deliberately after the scrub, as terminal.test.ts does. */
+ * config, the built page, or the cache file. */
 export const serverEnv = (
   tmp: string,
   extra: Record<string, string> = {},
-): Record<string, string | undefined> => {
-  const env: Record<string, string | undefined> = {
-    ...process.env,
-    CORVI_ROOT: join(tmp, "changes"),
-    CORVI_ARCHIVE_ROOT: join(tmp, "changes-archive"),
-    CORVI_CONFIG: join(tmp, "config.json"),
-    XDG_STATE_HOME: join(tmp, "state"),
-    CORVI_CACHE: join(tmp, "cache.json"),
-    TMUX_TMPDIR: tmp,
-    CORVI_PORT: "0",
-    ...extra,
-  };
-  delete env.TMUX;
-  delete env.CORVI_TMUX_SOCKET;
-  return env;
-};
+): Record<string, string | undefined> => ({
+  ...process.env,
+  CORVI_ROOT: join(tmp, "changes"),
+  CORVI_ARCHIVE_ROOT: join(tmp, "changes-archive"),
+  CORVI_CONFIG: join(tmp, "config.json"),
+  XDG_STATE_HOME: join(tmp, "state"),
+  CORVI_CACHE: join(tmp, "cache.json"),
+  CORVI_PORT: "0",
+  ...extra,
+});
 
 /** Read a spawned server's stdout until it says where it is listening (`corvi on <url>`,
  * apps/server/src/server.ts), and hand back the URL without its trailing slash. Readiness is the server's
@@ -382,40 +369,6 @@ export const withMachineLock = async <T>(what: string, body: () => Promise<T>): 
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }
-};
-
-/** `sun_path` is 104 bytes including the terminating NUL, so a path may be 103 characters. */
-const UNIX_SOCKET_PATH_MAX = 103;
-
-/** Where a test's private tmux server keeps its socket.
- *
- * Short because a unix socket path is capped at 103 characters, and macOS spends most of that
- * before a test has named anything. `$TMPDIR` there is `/var/folders/<2>/<24>/T`, which tmux
- * resolves to `/private/var/folders/...` — 56 characters on this machine — and tmux then appends
- * `/tmux-<uid>/default`, 17 more. That leaves 29 for the directory the test hands it, and
- * `testTempDir("term")` makes 32 of them (`corvi-<token>-term-XXXXXX`, with the 16-character token
- * `bun run test` sets). tmux then starts no server at all — "File name too long" on the connect —
- * and every terminal test fails against an empty pane with nothing to say why. On Linux `$TMPDIR`
- * is `/tmp` and none of this is ever close.
- *
- * So the socket gets a directory of its own: the run token, which is what lets the cleaner
- * attribute it, and one short word. No label and no random suffix — there is no room, and the
- * token already tells two runs apart. The `corvi-` prefix stays, because a socket under a
- * `$TMPDIR/corvi-*` directory is what makes the server a test's own (scripts/clean-test.ts). The
- * length is checked rather than hoped for, since the failure is otherwise silent. */
-export const tmuxTempDir = async (): Promise<string> => {
-  const dir = join(tmpdir(), `corvi-${testRun()}-tmux`);
-  await mkdir(dir, { recursive: true });
-  // Resolved, because that is the path tmux puts on the socket: /var/folders/... is a symlink
-  // into /private/var/folders/.... The check assumes tmux's own `<tmpdir>/tmux-<uid>/default`.
-  const socket = join(await realpath(dir), `tmux-${process.getuid?.() ?? 0}`, "default");
-  if (socket.length > UNIX_SOCKET_PATH_MAX) {
-    throw new Error(
-      `the test's tmux socket path is ${socket.length} characters, over the ${UNIX_SOCKET_PATH_MAX} ` +
-        `a unix socket allows: ${socket}. Shorten the run token (CORVI_TEST_RUN), or this directory's name.`,
-    );
-  }
-  return dir;
 };
 
 /**

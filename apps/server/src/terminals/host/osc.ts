@@ -7,7 +7,7 @@
  * the chunk, and validates the decoded payload before it can reach a presenter. Resync means the
  * introducer is dropped and the bytes after it are forwarded as ordinary output — a malformed
  * sequence's tail can reach the display, it is only its control prefix that is removed. The
- * payload is untrusted data from inside the pty — the same trust model tmux pane options had.
+ * payload is untrusted data from inside the pty — the same trust model the pane options had.
  */
 export type OscStatus = {
   readonly status: "working" | "waiting" | "clear";

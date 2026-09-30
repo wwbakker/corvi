@@ -27,9 +27,6 @@ process.env.CORVI_CONFIG = join(own, "config.json");
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
-  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
-  TMUX: process.env.TMUX,
-  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -38,10 +35,6 @@ const restoreEnv = (): void => {
   }
 };
 process.env.CORVI_HOST_RUNTIME = "node";
-// Every window is a host session now; the tmux socket is a leftover from the transitional
-// aggregation and is harmless, but the tests no longer read it.
-delete process.env.TMUX;
-process.env.CORVI_TMUX_SOCKET = join(own, "tmux.sock");
 await mkdir(join(own, "actions"), { recursive: true });
 await writeFile(configPath(), "{}");
 
