@@ -34,6 +34,11 @@ export type WindowRecord = {
   readonly kind: BackingKind;
   readonly label?: string;
   readonly command?: string;
+  /** A command window that stays after it ends (`keepOpen` or `notify`), so its frozen last
+   * output and exit state are shown rather than the window vanishing. */
+  readonly keepOpen?: boolean;
+  /** Whether the end of a kept window wants the user (the notification edge). */
+  readonly notify?: boolean;
   readonly active: boolean;
   readonly activity: boolean;
   readonly createdAt: string;
@@ -63,6 +68,29 @@ const write = (registry: Persisted): void => {
   const tmp = `${path()}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(registry));
   renameSync(tmp, path());
+};
+
+const same = (left: readonly WindowRecord[], right: readonly WindowRecord[]): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
+/** Write only when the change's records actually changed. The watcher polls every 1.5 s; a rebuild
+ * that rewrote the file on every tick would fight concurrent mutations. */
+const writeIfChanged = (registry: Persisted, changeId: string, next: readonly WindowRecord[]): void => {
+  if (same(registry.changes[changeId] ?? [], next)) return;
+  registry.changes[changeId] = [...next];
+  write(registry);
+};
+
+/** Serialize registry read-modify-writes in this process, so a poll's rebuild cannot clobber a
+ * route's mutation (or two mutations each other). Non-reentrant: only wrap top-level operations. */
+let queue: Promise<unknown> = Promise.resolve();
+export const withRegistryLock = <T>(work: () => Promise<T>): Promise<T> => {
+  const run = queue.then(work, work);
+  queue = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
 };
 
 /** Merge the persisted records with the live windows: keep a record's position, label and active
@@ -98,22 +126,44 @@ export const mergeRecords = (previous: readonly WindowRecord[], live: readonly L
   return ordered;
 };
 
-/** The change's records, rebuilt against the live windows and persisted. */
+/** The change's records, rebuilt against the live windows and persisted when they changed. */
 export const rebuild = (changeId: string, live: readonly LiveWindow[]): WindowRecord[] => {
   const registry = read();
   const merged = mergeRecords(registry.changes[changeId] ?? [], live);
-  registry.changes[changeId] = merged;
-  write(registry);
+  writeIfChanged(registry, changeId, merged);
   return merged;
 };
 
-/** Replace a change's records (after a mutation) and persist them. */
+/** Replace a change's records (after a mutation) and persist them when they changed. */
 export const save = (changeId: string, records: readonly WindowRecord[]): WindowRecord[] => {
   const registry = read();
-  registry.changes[changeId] = [...records];
-  write(registry);
+  writeIfChanged(registry, changeId, records);
   return [...records];
 };
+
+/** Forget a change's windows (a completed or cancelled change). */
+export const remove = (changeId: string): void => {
+  const registry = read();
+  if (registry.changes[changeId] === undefined) return;
+  delete registry.changes[changeId];
+  write(registry);
+};
+
+/** Drop registry entries for changes that no longer exist, so the file does not grow with every
+ * change id ever recorded. */
+export const prune = (keep: ReadonlySet<string>): void => {
+  const registry = read();
+  let changed = false;
+  for (const id of Object.keys(registry.changes)) {
+    if (keep.has(id)) continue;
+    delete registry.changes[id];
+    changed = true;
+  }
+  if (changed) write(registry);
+};
+
+/** The persisted records for one change. */
+export const records = (changeId: string): WindowRecord[] => read().changes[changeId] ?? [];
 
 /** The change ids the registry knows about, so an empty change still lists. */
 export const changes = (): string[] => Object.keys(read().changes);

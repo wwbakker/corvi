@@ -42,7 +42,7 @@ import { capabilitiesLayer, cacheLive, ChangesLive, GitFactsLive } from "../inte
 import { prLooseEnds } from "@corvi/github"
 import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira"
-import { stopTerminal } from "../terminals/server/index.ts"
+import { stopHostTerminals, stopTerminal } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "@corvi/github/client"
 import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities"
 import { runtimeCache } from "../capabilities/runtime.ts"
@@ -273,11 +273,19 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
 
 export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succeed(TerminalSessions, {
   stop: (changeId) =>
-    stopTerminal(changeId).pipe(
-      Effect.mapError(
-        (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
-      ),
-    ),
+    Effect.gen(function* () {
+      // The interactive terminals are host sessions now; tmux's stop is for the subagent windows
+      // that still live there. Both must end, or a completed change keeps a shell running.
+      yield* Effect.tryPromise({
+        try: () => stopHostTerminals(changeId),
+        catch: (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
+      });
+      yield* stopTerminal(changeId).pipe(
+        Effect.mapError(
+          (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
+        ),
+      );
+    }),
 })
 
 /** The repositories capability over the native link store, without the lifecycle services. */

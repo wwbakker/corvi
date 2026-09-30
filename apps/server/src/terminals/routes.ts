@@ -33,10 +33,10 @@ const terminalDir = (id: string): Promise<string | undefined> =>
   );
 
 export const terminalsRoutes = guard({
-  // The terminal's socket: one pty per connection, attached to the change's tmux session. The
-  // session is started before the upgrade, so a failure — a missing tmux, a Bun server, which
-  // never delivers pty output — comes back as an HTTP answer the pane can show rather than a
-  // socket that opens and stays silent.
+  // The terminal's socket: one WebSocket per connection, attached to the change's active host
+  // session. The session is started before the upgrade, so a failure — the wrong runtime, no
+  // host — comes back as an HTTP answer the pane can show rather than a socket that opens and
+  // stays silent.
   "/api/changes/:id/terminal/socket": async (req, srv) => {
     const id = decodeURIComponent(req.params.id);
     const dir = await terminalDir(id);
@@ -94,8 +94,8 @@ export const terminalsRoutes = guard({
       ),
   },
 
-  // The windows of the change's tmux session, and the two things you do to them. tmux is the
-  // source of truth: this only reads and pokes it. A timed-out tmux is an empty strip, not a
+  // The windows of the change's registry, and the three things you do to them. The registry is
+  // the source of truth for order and labels; a backing that cannot be read is stale data, not a
   // failed request.
   "/api/changes/:id/terminal/windows": {
     GET: (req) =>

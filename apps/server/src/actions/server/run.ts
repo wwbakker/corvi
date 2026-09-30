@@ -120,11 +120,17 @@ export const runActionFor = (
     const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
 
     const dir = changeDir(change);
-    yield* Effect.tryPromise({
-      try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
-      catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
-    });
-    const windows = yield* listWindows(change.id);
+    // A change whose only windows are tmux subagent windows must not get a throwaway shell just
+    // to have somewhere to paste: list what exists, and start a host window only when there is
+    // nothing to target at all.
+    let windows = yield* listWindows(change.id);
+    if (windows.length === 0) {
+      yield* Effect.tryPromise({
+        try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
+        catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+      });
+      windows = yield* listWindows(change.id);
+    }
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({
       window: window.id,
       label: window.label,

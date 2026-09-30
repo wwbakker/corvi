@@ -80,14 +80,24 @@ export class HostClient {
   /** The incarnation this client last saw for an id, used as the default `since` on re-attach. */
   private readonly activeIncarnation = new Map<string, number>();
   private buffer = "";
+  private closed = false;
 
   private constructor(socket: Socket) {
     this.socket = socket;
     socket.setEncoding("utf8");
     socket.on("data", (chunk: string) => this.receive(chunk));
     socket.on("error", () => socket.destroy());
-    // A dead host must not leave every in-flight call waiting out its timeout.
-    socket.on("close", () => this.rejectPending(new Error("the host connection closed")));
+    // A dead host must not leave every in-flight call waiting out its timeout, and a caller that
+    // caches this client must be able to tell it is gone.
+    socket.on("close", () => {
+      this.closed = true;
+      this.rejectPending(new Error("the host connection closed"));
+    });
+  }
+
+  /** Whether the connection has closed. A cached client is discarded when this is true. */
+  isClosed(): boolean {
+    return this.closed;
   }
 
   private rejectPending(error: Error): void {

@@ -11,7 +11,7 @@
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
  * path is involved, the directory its caller computed.
  */
-export { listWindows, allWindows, newWindow, selectWindow, moveWindow, ensureActiveHostWindow } from "./windows.ts";
+export { listWindows, allWindows, newWindow, selectWindow, moveWindow, ensureActiveHostWindow, stopHostTerminals } from "./windows.ts";
 export { presentWindow, type PresentedWindow } from "./presenter.ts";
 
 // Subagents still run in tmux windows until their slice moves them, so its operations stay

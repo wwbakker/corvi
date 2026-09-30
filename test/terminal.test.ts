@@ -20,15 +20,32 @@ import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
  */
 const fileText = (path: string): Promise<string> => Bun.file(path).text().catch(() => "");
 
-/** Run one command until its side effect appears. The retry covers the socket not being open yet:
- * once it is, the pty has buffered the line and runs it. */
+/** Run one command until its effect appears and settles. The retry covers the socket not being
+ * open yet; the settle loop lets a duplicate retry that was already typed finish writing, so the
+ * assertion after this does not read the file mid-truncate. */
 const runCommand = async (page: Page, command: string, file: string, want: string): Promise<void> => {
   for (let attempt = 0; attempt < 40; attempt++) {
     await page.keyboard.type(`${command}\n`);
-    if ((await fileText(file)) === want) return;
-    await Bun.sleep(500);
+    for (let settle = 0; settle < 6; settle++) {
+      if ((await fileText(file)) === want) {
+        await Bun.sleep(150);
+        if ((await fileText(file)) === want) return;
+      }
+      await Bun.sleep(150);
+    }
   }
   throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`);
+};
+
+/** Run one command until it writes anything to `file` (for output whose exact bytes vary). */
+const runToFile = async (page: Page, command: string, file: string): Promise<string> => {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await page.keyboard.type(`${command}\n`);
+    const text = await fileText(file);
+    if (text.length > 0) return text;
+    await Bun.sleep(500);
+  }
+  throw new Error(`the command never wrote ${file}`);
 };
 
 const haveBrowser = await (async (): Promise<boolean> => {
@@ -103,6 +120,19 @@ const openTerminal = async (change: string): Promise<{ page: Page; dir: string }
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   return { page, dir: join(tmp, "changes", change) };
+};
+
+/** Kill a change's live host session, as a crashed shell would leave the pane. */
+const killHostSession = async (change: string): Promise<void> => {
+  const { client } = await ensureHost({
+    socket: join(tmp, "state", "corvi", "host.sock"),
+    checkout: process.cwd(),
+    buildId: process.env.CORVI_BUILD ?? "dev",
+    runtime: "node",
+  });
+  const session = (await client.list()).find((entry) => entry.alive && entry.metadata?.change === change);
+  if (session !== undefined) await client.kill(session.id);
+  client.close();
 };
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
@@ -181,3 +211,40 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await first.page.close();
   await other.page.close();
 }, budget(120_000));
+
+test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
+  const { page, dir } = await openTerminal(id);
+  const out = join(dir, "pane-env.txt");
+  const env = await runToFile(page, `env > ${out}`, out);
+  // Line-anchored: the suite's own script text rides along in the environment, so a bare
+  // substring would false-positive on it.
+  const hasVar = (name: string): boolean => env.split("\n").some((line) => line.startsWith(`${name}=`));
+  expect(hasVar("ELECTRON_RUN_AS_NODE")).toBe(false);
+  expect(hasVar("CORVI_PORT")).toBe(false);
+  expect(hasVar("CORVI_ROOT")).toBe(false);
+  expect(hasVar("CORVI_CHANGE_ID")).toBe(true);
+  expect(env).toContain(`CORVI_CHANGE_DIR=${dir}`);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("closing the page detaches but keeps the shell", async () => {
+  const { page, dir } = await openTerminal(id);
+  await runCommand(page, `export CORVI_KEEP=yes; echo set > ${join(dir, "keep-set.txt")}`, join(dir, "keep-set.txt"), "set\n");
+  await page.close();
+
+  const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  await again.goto(`${url}/changes/${id}/terminals`);
+  await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await again.locator(".terminal-screen").click();
+  await runCommand(again, `echo $CORVI_KEEP > ${join(dir, "keep.txt")}`, join(dir, "keep.txt"), "yes\n");
+  expect(await fileText(join(dir, "keep.txt"))).toBe("yes\n");
+  await again.close();
+}, budget(120_000));
+
+test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
+  const { page, dir } = await openTerminal(id);
+  await runCommand(page, "echo ready > ready.txt", join(dir, "ready.txt"), "ready\n");
+  await killHostSession(id);
+  await until(() => page.locator(".terminal-gone").count(), 1, budget(30_000));
+  await page.close();
+}, budget(60_000));

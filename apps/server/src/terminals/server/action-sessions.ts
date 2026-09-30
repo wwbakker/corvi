@@ -24,7 +24,9 @@ const isTmuxWindow = (window: string): boolean => window.startsWith("@");
 const hostWrite = (window: string, data: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({
     try: async () => {
-      await writeToHostWindow(window, data);
+      // A dead or unknown window is a failed delivery, the same way tmux's `runOrThrow` is: the
+      // caller must not report success on a paste that never landed.
+      if (!(await writeToHostWindow(window, data))) throw new Error(`no live terminal for window ${window}`);
     },
     catch: asFailure,
   });

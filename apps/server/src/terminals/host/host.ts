@@ -222,9 +222,11 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       rows,
       // Raw bytes, not decoded strings: the pty owns the byte stream and so should we.
       encoding: null,
+      // A caller's env is the whole environment, not an extension of the host's: the server
+      // scrubs the launcher's variables before sending, and merging the host's own env back in
+      // would reinstate exactly the keys the scrub removed.
       env: {
-        ...baseEnv(),
-        ...(env ?? {}),
+        ...(env ?? baseEnv()),
         TERM: "xterm-256color",
         CORVI_SESSION_ID: id,
         CORVI_SESSION_INCARNATION: String(incarnation),

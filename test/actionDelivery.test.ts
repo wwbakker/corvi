@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Effect } from "effect";
 
@@ -7,6 +7,8 @@ import { writeActionFile } from "../apps/server/src/actions/server/files.ts";
 import { runActionFor } from "../apps/server/src/actions/server/run.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { closeHostClient } from "../apps/server/src/terminals/server/host.ts";
+import * as registry from "../apps/server/src/terminals/server/registry.ts";
+import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
@@ -21,6 +23,9 @@ import { testTempDir, waitFor } from "./helpers.ts";
 const own = await testTempDir("action-host");
 process.env.CORVI_CONFIG = join(own, "config.json");
 process.env.CORVI_HOST_RUNTIME = "node";
+// The window list reads tmux; a socket of this file's own keeps it off the user's server.
+delete process.env.TMUX;
+process.env.CORVI_TMUX_SOCKET = join(own, "tmux.sock");
 await mkdir(join(own, "actions"), { recursive: true });
 await writeFile(configPath(), "{}");
 
@@ -35,6 +40,7 @@ await mkdir(join(process.env.CORVI_ROOT ?? "", change.id), { recursive: true });
 
 afterAll(async () => {
   await closeHostClient();
+  await rm(own, { recursive: true, force: true });
 });
 
 test("an action runs in a host window and its command takes effect", async () => {
@@ -73,3 +79,32 @@ test("a prompt action pastes into a host window without submitting", async () =>
   // file. Submitting is the user's keystroke and the next test covers the delivered write path.
   expect(await Bun.file(stamp).exists()).toBe(false);
 }, 30_000);
+
+test("a kept command window freezes with its label and fires the notify edge", async () => {
+  const stamp = join(own, "frozen-output.txt");
+  await Effect.runPromise(
+    writeActionFile({
+      scope: "global",
+      id: "freeze",
+      text: `---\nlabel: Freeze me\nkind: command\ntarget: new\nnotify: true\nkeepOpen: true\n---\necho FROZEN-OUTPUT > ${stamp}\n`,
+    }),
+  );
+  const result = await Effect.runPromise(runActionFor(change, "global:freeze"));
+  expect(result.started).toBe(true);
+  const id = result.window?.id;
+  expect(id).toBeDefined();
+  // The record carries the announced label, not the raw command text.
+  const record = registry.records(change.id).find((entry) => entry.id === id);
+  expect(record?.label).toBe("Freeze me");
+  expect(record?.keepOpen).toBe(true);
+  expect(record?.notify).toBe(true);
+
+  await waitFor("the command to run", async () => (await Bun.file(stamp).text().catch(() => "")) === "FROZEN-OUTPUT\n", 20_000);
+  await waitFor("the retained window to present as finished", async () => {
+    const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
+    return frozen?.attention === true && frozen?.label === "Freeze me" && frozen?.busy === false;
+  }, 20_000);
+  const frozen = (await listWindowsAsync(change.id)).find((window) => window.id === id);
+  expect(frozen?.label).toBe("Freeze me");
+  expect(frozen?.note).toContain("exit code 0");
+}, 40_000);

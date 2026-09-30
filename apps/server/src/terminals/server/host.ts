@@ -24,15 +24,27 @@ export const hostRunning = (): boolean => existsSync(socketPath());
 
 let connection: Promise<HostClient> | undefined;
 
-/** The shared host client, started on first use and kept for the server's life. */
-export const hostClient = (): Promise<HostClient> => {
-  connection ??= ensureHost({
+/** The shared host client. The cache is discarded on a failed start and on a connection that has
+ * since closed, so the next call re-runs `ensureHost` (which starts or adopts) instead of reusing
+ * a poisoned promise forever. */
+export const hostClient = async (): Promise<HostClient> => {
+  const current = connection;
+  if (current !== undefined) {
+    const client = await current.catch(() => undefined);
+    if (client !== undefined && !client.isClosed()) return client;
+    if (connection === current) connection = undefined;
+  }
+  const started = ensureHost({
     socket: socketPath(),
     checkout: process.cwd(),
     buildId: process.env.CORVI_BUILD ?? "dev",
     ...(process.env.CORVI_HOST_RUNTIME !== undefined ? { runtime: process.env.CORVI_HOST_RUNTIME } : {}),
   }).then((result) => result.client);
-  return connection;
+  connection = started;
+  started.catch(() => {
+    if (connection === started) connection = undefined;
+  });
+  return started;
 };
 
 /** Shut the host down and forget it. Used by a test that must leave no process behind; the
