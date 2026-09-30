@@ -11,7 +11,9 @@
  * `session.idle`), with the answer assembled by the reporter's own `trackAnswer`; child sessions
  * (a subagent's own subagents) are ignored, as the reporter ignores them.
  *
- * Identity is `@subagent_id` on this pane, read with the plugin's shell (`input.$`).
+ * Identity is the environment's `CORVI_SUBAGENT_ID`, seeded per host session by the server; the
+ * window is launched with `--session <subagent id>`, so the session this window talks through is
+ * the subagent id, and a reopen resumes it.
  */
 import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
 
@@ -109,23 +111,18 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
   }
 };
 
-/** Read `@subagent_id` for this pane, retrying briefly: the server writes the option just after
- * the window starts, and a fresh window must not be permanently mute because it read too early. */
-const subagentOfPane = async (input: PluginInput, pane: string): Promise<string | undefined> => {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const result = await input.$`tmux display -p -t ${pane} '#{@subagent_id}'`.quiet().nothrow();
-    const id = result.stdout.toString().trim();
-    if (id !== "") return id;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  return undefined;
+/** The subagent id this session carries, from the environment the host seeded. Undefined when
+ * this is not a subagent session. */
+const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string | undefined => {
+  const id = env.CORVI_SUBAGENT_ID?.trim();
+  return id === undefined || id === "" ? undefined : id;
 };
 
 const relay: PluginModule = {
   id: "corvi-relay",
   server: async (input: PluginInput): Promise<Hooks> => {
-    const pane = process.env.TMUX_PANE;
-    if (!pane) return { event: async (): Promise<void> => {} };
+    const subagentId = subagentOfSession();
+    if (subagentId === undefined) return { event: async (): Promise<void> => {} };
 
     const answer = trackAnswer();
     let settle: ((text: string | undefined) => void) | undefined;
@@ -147,26 +144,23 @@ const relay: PluginModule = {
       };
     };
 
-    const subagentId = await subagentOfPane(input, pane);
-    if (subagentId !== undefined) {
-      // The window was launched with `--session <subagentId>`, so that is the visible session.
-      void relayLoop(subagentId, {
-        exec,
-        submit: async (text) => {
-          await input.client.session
-            .promptAsync({ path: { id: subagentId }, body: { parts: [{ type: "text", text }] } })
-            .catch((error: unknown) => {
-              console.error(`[corvi] injecting the message failed: ${error instanceof Error ? error.message : String(error)}`);
-            });
-        },
-        settled: () =>
-          new Promise<string | undefined>((resolve) => {
-            settle = resolve;
-          }),
-        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-        log: (message) => console.error(`[corvi] ${message}`),
-      });
-    }
+    // The window was launched with `--session <subagentId>`, so that is the visible session.
+    void relayLoop(subagentId, {
+      exec,
+      submit: async (text) => {
+        await input.client.session
+          .promptAsync({ path: { id: subagentId }, body: { parts: [{ type: "text", text }] } })
+          .catch((error: unknown) => {
+            console.error(`[corvi] injecting the message failed: ${error instanceof Error ? error.message : String(error)}`);
+          });
+      },
+      settled: () =>
+        new Promise<string | undefined>((resolve) => {
+          settle = resolve;
+        }),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      log: (message) => console.error(`[corvi] ${message}`),
+    });
 
     return {
       event: async ({ event }: { event: HookEvent }): Promise<void> => {
@@ -175,7 +169,7 @@ const relay: PluginModule = {
             case "message.updated": {
               const info = event.properties.info;
               // Only this window's own session: a child session is a subagent's own subagent.
-              if (subagentId !== undefined && info.sessionID !== subagentId) return;
+              if (info.sessionID !== subagentId) return;
               if (info.role === "user") {
                 if (info.summary) return;
                 answer.clear();
@@ -186,7 +180,7 @@ const relay: PluginModule = {
             }
             case "message.part.updated": {
               const part = event.properties.part;
-              if (subagentId !== undefined && part.sessionID !== subagentId) return;
+              if (part.sessionID !== subagentId) return;
               if (part.type === "text") answer.addPart(part.messageID, part.id, part.text, part.ignored);
               return;
             }

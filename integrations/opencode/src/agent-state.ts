@@ -1,16 +1,14 @@
 /**
  * Agent state: publishes whether opencode is working or waiting for you, why it is waiting, and
  * what the session is called, so anything outside the terminal can tell the difference — Corvi's
- * window strip and its notifications, a tmux status line, another program.
+ * window strip and its notifications, another program.
  *
- * The state is a tmux pane option, `@agent_status`; the agent's name is `@agent_name`; the
- * session's name is `@agent_session_name`; the first sentence of the last answer is
- * `@agent_last_message`. The vocabulary and the writer/reader rules are the reporter protocol in
- * docs/manual/terminals.md — this file is the opencode reporter, `integrations/pi` is pi's.
- *
- * A pane option rather than the terminal title: the title is shared and rewritten constantly, so
- * a title-based marker would vanish seconds after it appeared. Nobody else writes these options,
- * and tmux drops them when the pane dies, so a crashed agent leaves nothing stale behind.
+ * The one channel is the Corvi CLI (`corvi status`), which posts to the server; identity comes
+ * from the pty environment the host seeds (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`), so any
+ * Corvi session — an interactive shell, an action run, a subagent — is reported. Outside a Corvi
+ * session there is nothing to publish to. A program that cannot run the CLI may instead write the
+ * same status as an OSC 1337 `corvi=` sequence, which the host parses and the server treats as a
+ * fallback (docs/manual/terminals.md).
  *
  * It is an opencode plugin in the current module form (`{ id, server }`), installed by
  * `bun run extension:install:opencode`, which symlinks this file into opencode's plugin directory
@@ -79,10 +77,8 @@ const reporter: PluginModule = {
   id: "corvi-agent-state",
   server: async (input: PluginInput): Promise<Hooks> => {
     // Where this reporter can publish: a Corvi host session (the CLI/HTTP channel, identity from
-    // the pty environment) or a tmux pane (a subagent window, until it moves to a host session).
-    // Outside both there is nothing to publish to.
+    // the pty environment). Outside one there is nothing to publish to.
     const sessionId = process.env.CORVI_SESSION_ID;
-    const pane = process.env.TMUX_PANE;
     const inCorvi = sessionId !== undefined && sessionId !== "";
 
     /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
@@ -98,34 +94,20 @@ const reporter: PluginModule = {
     const answer = trackAnswer();
     const note = (): string | undefined => firstSentence(answer.answer()) || undefined;
 
-    /** Publish the whole status, through whichever channel is live. Both are fire-and-forget: a
-     * server or tmux that is gone must not disturb the agent loop. */
+    /** Publish the whole status. Fire-and-forget: a server or host that is gone must not disturb
+     * the agent loop. */
     const publish = (): void => {
-      if (inCorvi) {
-        const message = note();
-        const args = [
-          "status",
-          state,
-          "--name",
-          "opencode",
-          ...(title ? ["--session-name", title] : []),
-          ...(message ? ["--message", message] : []),
-        ];
-        void input.$`corvi ${args}`.catch(logFailure);
-        return;
-      }
-      if (!pane) return;
-      const set = (option: string, value: string | undefined): void => {
-        // The shell escapes interpolations, so a session name with spaces is one argument.
-        void (value
-          ? input.$`tmux set -p -t ${pane} ${option} ${value}`
-          : input.$`tmux set -p -t ${pane} -u ${option}`
-        ).catch(() => {});
-      };
-      set("@agent_status", state);
-      set("@agent_name", "opencode");
-      set("@agent_session_name", title);
-      set("@agent_last_message", note());
+      if (!inCorvi) return;
+      const message = note();
+      const args = [
+        "status",
+        state,
+        "--name",
+        "opencode",
+        ...(title ? ["--session-name", title] : []),
+        ...(message ? ["--message", message] : []),
+      ];
+      void input.$`corvi ${args}`.catch(logFailure);
     };
 
     // Subagent runs are real child sessions of their own and report their own busy/idle cycles
@@ -209,15 +191,9 @@ const reporter: PluginModule = {
         }
       },
       dispose: async (): Promise<void> => {
-        // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
-        if (inCorvi) {
-          void input.$`corvi status clear`.catch(logFailure);
-          return;
-        }
-        for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
-          if (!pane) continue;
-          void input.$`tmux set -p -t ${pane} -u ${option}`.catch(() => {});
-        }
+        // Leaving the session: it is not waiting for you, it is not there at all.
+        if (!inCorvi) return;
+        void input.$`corvi status clear`.catch(logFailure);
       },
     };
   },

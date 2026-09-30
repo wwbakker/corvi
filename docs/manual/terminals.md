@@ -35,27 +35,29 @@ the session is called, and the first sentence of its last answer. Corvi uses tha
 process name — `node` says nothing, and an idle agent is not counted as active work just because
 its process still exists.
 
-The facts are the pane options of the reporter protocol. A reporter is a small plugin inside
-the agent; the two included ones are `integrations/pi` and `integrations/opencode`. The reporter
-in a pane writes the `@agent_*` options on that pane (all writes fire and forget); `@subagent_id`
-is written by Corvi's own server, not the reporter. tmux drops every option when the pane dies, so
-a crashed agent leaves nothing stale behind. Status belongs to the active pane; an agent in an
-inactive split is not shown.
+The facts are the reporter protocol. A reporter is a small plugin inside the agent; the two
+included ones are `integrations/pi` and `integrations/opencode`. The reporter publishes through
+the Corvi CLI (`corvi status working --name pi --session-name … --message …`), which posts to the
+server; identity is the pty environment the terminal host seeds (`CORVI_SESSION_ID`), so any
+Corvi session — an interactive shell, an action run, a subagent — reports the same way. A program
+that cannot run the CLI may instead write the same facts as an OSC 1337 `corvi=<base64 json>`
+sequence, which the host parses and the server treats as a fallback. Status belongs to a session,
+not a pane; a crashed agent's status is cleared when its host session ends.
 
-| Option | Values | Meaning |
+| Fact | Values | Meaning |
 | --- | --- | --- |
-| `@agent_status` | `working` \| `waiting` | working: a run is in flight or retrying. waiting: settled and idle — it wants you. |
-| `@agent_name` | `pi` \| `opencode` | which agent reports from this pane. |
-| `@agent_session_name` | free text | the session's own name, once the agent has one. |
-| `@agent_last_message` | free text | the first sentence (at most 180 characters) of the last answer. |
-| `@subagent_id` | free text | the Corvi subagent this window carries, written by the server at window creation. |
+| status | `working` \| `waiting` | working: a run is in flight or retrying. waiting: settled and idle — it wants you. |
+| name | `pi` \| `opencode` | which agent reports from this session. |
+| session name | free text | the session's own name, once the agent has one. |
+| message | free text | the first sentence (at most 180 characters) of the last answer. |
 
-Corvi's window strip reads the options: the session name becomes the window's label, the status
-colours the icon and decides whether a notification is owed (the edge from working to waiting),
-and the last sentence is the note beside the name. A window whose reporter has not spoken — an old
-plugin, a plain shell — is presented as the terminal it plainly is. Anything else may read the
-options too (`tmux display -p '#{@agent_status}'`): the protocol is stated here for the included
-reporters, not as an extension mechanism for Corvi.
+Corvi's window strip reads those facts (as the `@agent_*` window options the presenter declares),
+through the CLI/HTTP store first and the host's OSC parse as the fallback: the session name
+becomes the window's label, the status colours the icon and decides whether a notification is
+owed (the edge from working to waiting), and the last sentence is the note beside the name. A
+session whose reporter has not spoken — an old plugin, a plain shell — is presented as the
+terminal it plainly is. Anything else may read the facts too (the `corvi status` endpoint): the
+protocol is stated here for the included reporters, not as an extension mechanism for Corvi.
 
 What marks each state, per reporter: pi's `agent_start` is working and `agent_settled` is waiting
 (a retry or a compaction is not settled). For opencode, message activity and busy/retry are

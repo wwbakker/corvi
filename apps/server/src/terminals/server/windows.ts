@@ -1,15 +1,13 @@
 /**
- * The change's windows: the registry merged with the live host sessions and tmux windows, and the
- * mutations the routes expose.
+ * The change's windows: the registry merged with the live host sessions, and the mutations the
+ * routes expose.
  *
- * Interactive terminals and action runs are `host` windows (a session id in the terminal host);
- * subagents are still `tmux` windows (a tmux window id, carrying `@subagent_id`). Both are
- * presented by the same pure presenter, and the registry gives them one ordered, labelled,
- * active-flagged list per change.
+ * Interactive terminals, action runs and subagents are all `host` windows (a session id in the
+ * terminal host). The registry gives them one ordered, labelled, active-flagged list per change,
+ * and the same pure presenter draws them.
  *
  * Reads rebuild the registry from the live set, so a server restart loses nothing and duplicates
- * nothing. The rebuild is skipped when tmux could not be read — a timed-out backing is not
- * evidence that its windows died, and persisting the empty result would erase labels and order.
+ * nothing.
  */
 import { randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
@@ -24,7 +22,7 @@ import { changeDir, listChanges, readChange } from "../../change/server/index.ts
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
 import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
 import { pruneSnapshots, snapshotKey } from "./snapshots.ts";
-import { paneOptions, presentWindow, type PresentedWindow } from "./presenter.ts";
+import { presentWindow, type PresentedWindow } from "./presenter.ts";
 import {
   prune as pruneRegistry,
   rebuild,
@@ -35,7 +33,6 @@ import {
   type LiveWindow,
   type WindowRecord,
 } from "./registry.ts";
-import { rawAllWindows, rawWindows } from "./tmux.ts";
 
 const asFailure = (error: unknown): CommandFailure => ({
   message: error instanceof Error ? error.message : String(error),
@@ -96,28 +93,12 @@ const hostLive = async (
 
 /** The tmux windows for a change that carry a subagent id. `ok:false` when tmux could not be
  * read; the caller must not treat that as "no windows". */
-const tmuxLive = async (
-  changeId: string,
-): Promise<{ live: LiveWindow[]; raw: Map<string, TmuxWindow>; ok: boolean }> => {
-  const result = await Effect.runPromise(Effect.either(rawWindows(changeId, paneOptions())));
-  if (result._tag === "Left") return { live: [], raw: new Map(), ok: false };
-  const live: LiveWindow[] = [];
-  const raw = new Map<string, TmuxWindow>();
-  for (const window of result.right) {
-    if (!window.options["@subagent_id"]) continue;
-    live.push({ id: window.id, kind: "tmux", label: window.name, command: window.command });
-    raw.set(window.id, window);
-  }
-  return { live, raw, ok: true };
-};
-
 const liveFor = async (
   changeId: string,
   keep: ReadonlySet<string>,
-): Promise<{ live: LiveWindow[]; host: Map<string, SessionInfo>; tmux: Map<string, TmuxWindow>; tmuxOk: boolean }> => {
+): Promise<{ live: LiveWindow[]; host: Map<string, SessionInfo> }> => {
   const host = await hostLive(changeId, keep);
-  const tmux = await tmuxLive(changeId);
-  return { live: [...host.live, ...tmux.live], host: host.sessions, tmux: tmux.raw, tmuxOk: tmux.ok };
+  return { live: host.live, host: host.sessions };
 };
 
 /** The pane options a host window adds for the agent presenter: the status its reporter set,
@@ -158,23 +139,22 @@ const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undef
   options: { ...agentOptions(status), ...commandOptions(record, session) },
 });
 
-/** The change's windows, presented. Rebuilds and persists the registry — but only when every
- * backing could be read. */
+/** The change's windows, presented. Rebuilds and persists the registry from the live host
+ * sessions. */
 export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =>
   withRegistryLock(async () => {
     const dir = await dirOf(changeId);
     const previous = registryRecords(changeId);
     const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-    const { live, host, tmux, tmuxOk } = await liveFor(changeId, keep);
-    const records = tmuxOk ? rebuild(changeId, live) : previous;
+    const { live, host } = await liveFor(changeId, keep);
+    const records = rebuild(changeId, live);
     return records.map((record, index) => {
       const session = host.get(record.id);
       const stored = session === undefined ? undefined : statusOf(session.id, session.incarnation);
       // `undefined` means nothing was reported (use the host's OSC parse); `null` is an explicit
       // clear and suppresses the fallback.
       const status = stored === undefined ? session?.status : (stored ?? undefined);
-      const source = tmux.get(record.id) ?? hostRaw(record, dir, session, status);
-      return presentWindow({ ...source, index });
+      return presentWindow({ ...hostRaw(record, dir, session, status), index });
     });
   });
 
@@ -195,8 +175,6 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   for (const session of sessions) {
     if (session.alive && session.metadata?.change && existing.has(session.metadata.change)) ids.add(session.metadata.change);
   }
-  const tmux = await Effect.runPromise(Effect.catchAll(rawAllWindows(paneOptions()), () => Effect.succeed({})));
-  for (const id of Object.keys(tmux)) if (existing.has(id)) ids.add(id);
   const result: Record<string, PresentedWindow[]> = {};
   for (const id of ids) result[id] = await listWindowsAsync(id);
   return result;
@@ -224,14 +202,12 @@ export const liveSnapshotKeys = (
       .map((session) => snapshotKey(session.id, session.incarnation)),
   );
 
-/** Rebuild, mark `id` active, and persist. A failed tmux read must not be treated as "every
- * tmux window died": the new host window is added to the persisted records instead of a
- * rebuild. Caller holds the registry lock. */
+/** Rebuild, mark `id` active, and persist. Caller holds the registry lock. */
 const activate = async (changeId: string, id: string, extra: RecordExtra = {}): Promise<WindowRecord[]> => {
   const previous = registryRecords(changeId);
   const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-  const { live, tmuxOk } = await liveFor(changeId, keep);
-  const base = tmuxOk ? rebuild(changeId, live) : previous;
+  const { live } = await liveFor(changeId, keep);
+  const base = rebuild(changeId, live);
   const present = base.some((record) => record.id === id)
     ? base
     : [...base, { id, kind: "host" as const, active: false, activity: false, createdAt: new Date().toISOString(), ...extra }];
@@ -239,6 +215,16 @@ const activate = async (changeId: string, id: string, extra: RecordExtra = {}): 
     changeId,
     present.map((record) => (record.id === id ? { ...record, active: true, activity: false, ...extra } : { ...record, active: false })),
   );
+};
+
+/** The host-session options a window beyond the defaults needs: a different working directory
+ * (a subagent runs in its own directory), a change env seeded from the change's directory (not
+ * the process cwd), extra environment, and extra metadata the host carries for discovery. */
+type HostWindowOptions = {
+  readonly cwd?: string;
+  readonly envDir?: string;
+  readonly env?: Record<string, string>;
+  readonly metadata?: Record<string, string>;
 };
 
 /** Open a host window running `command` (or a shell) and make it the active one. Caller holds the
@@ -249,16 +235,17 @@ const openHostWindow = async (
   command: readonly string[],
   size: { readonly cols: number; readonly rows: number },
   extra: RecordExtra = {},
+  options: HostWindowOptions = {},
 ): Promise<string> => {
   const client = await hostClient();
   const id = windowId();
   await client.open(id, {
-    cwd: dir,
+    cwd: options.cwd ?? dir,
     command: [...command],
     cols: size.cols,
     rows: size.rows,
-    env: changeEnv(changeId, dir),
-    metadata: { change: changeId, window: id },
+    env: { ...changeEnv(changeId, options.envDir ?? dir), ...options.env },
+    metadata: { change: changeId, window: id, ...options.metadata },
   });
   await activate(changeId, id, extra);
   return id;
@@ -267,8 +254,8 @@ const openHostWindow = async (
 const listRecords = async (changeId: string): Promise<WindowRecord[]> => {
   const previous = registryRecords(changeId);
   const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-  const { live, tmuxOk } = await liveFor(changeId, keep);
-  return tmuxOk ? rebuild(changeId, live) : previous;
+  const { live } = await liveFor(changeId, keep);
+  return rebuild(changeId, live);
 };
 
 /** A new interactive shell window. Returns the new record. */
@@ -300,6 +287,84 @@ export const newWindowRunningAsync = (
       ...(options.announce ? { notify: options.announce.notify } : {}),
     }),
   );
+
+/** Open a subagent's host window: the working directory is the subagent's own (which, with the
+ * harness's `--session-id`, is what resumes the same harness session on a reopen), the change env
+ * carries `CORVI_SUBAGENT_ID` so the relay can identify itself, and the metadata carries
+ * `subagentId` so the host list discovers it. */
+export const newSubagentWindowAsync = (
+  changeId: string,
+  args: {
+    readonly changeDir: string;
+    readonly cwd: string;
+    readonly subagentId: string;
+    readonly label: string;
+    readonly command: readonly string[];
+  },
+): Promise<string> =>
+  withRegistryLock(() =>
+    openHostWindow(
+      changeId,
+      args.changeDir,
+      args.command,
+      { cols: 100, rows: 30 },
+      { command: args.command.join(" "), label: args.label },
+      {
+        cwd: args.cwd,
+        envDir: args.changeDir,
+        env: { CORVI_SUBAGENT_ID: args.subagentId },
+        metadata: { subagentId: args.subagentId },
+      },
+    ),
+  );
+
+export const newSubagentWindow = (
+  changeId: string,
+  args: Parameters<typeof newSubagentWindowAsync>[1],
+): Effect.Effect<string, CommandFailure> => Effect.tryPromise({ try: () => newSubagentWindowAsync(changeId, args), catch: asFailure });
+
+/** Kill a subagent's host session and drop its registry record. */
+export const killHostWindowAsync = async (changeId: string, sessionId: string): Promise<void> =>
+  withRegistryLock(async () => {
+    if (hostRunning()) await (await hostClient()).kill(sessionId).catch(() => undefined);
+    save(changeId, (await listRecords(changeId)).filter((record) => record.id !== sessionId));
+  });
+
+export const killHostWindow = (changeId: string, sessionId: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => killHostWindowAsync(changeId, sessionId), catch: asFailure });
+
+/** A live subagent host session, as the subagent store sees it: the record's `window` id, its
+ * registry index (what the page focuses), and its reported status. */
+export type LiveSubagent = {
+  readonly window: string;
+  readonly index: number;
+  readonly agentStatus?: "working" | "waiting";
+};
+
+/** The live subagent host sessions of a change, keyed by subagent id. A host that is not running
+ * has none; presence is best-effort, never a request failure. Status comes from the CLI/HTTP
+ * store first, then the host's own OSC parse. */
+export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, LiveSubagent>> => {
+  const map = new Map<string, LiveSubagent>();
+  if (!hostRunning()) return map;
+  const indexOf = new Map(registryRecords(changeId).map((record, index) => [record.id, index]));
+  for (const session of await (await hostClient()).list()) {
+    if (!session.alive || session.metadata?.change !== changeId) continue;
+    const subagentId = session.metadata?.subagentId?.trim();
+    if (!subagentId) continue;
+    const stored = statusOf(session.id, session.incarnation);
+    const state = stored === undefined ? session.status?.state : (stored ?? undefined)?.state;
+    map.set(subagentId, {
+      window: session.id,
+      index: indexOf.get(session.id) ?? 0,
+      ...(state === "working" || state === "waiting" ? { agentStatus: state } : {}),
+    });
+  }
+  return map;
+};
+
+export const liveSubagents = (changeId: string): Effect.Effect<Map<string, LiveSubagent>, CommandFailure> =>
+  Effect.tryPromise({ try: () => liveSubagentsAsync(changeId), catch: asFailure });
 
 export const selectWindowAsync = (changeId: string, index: number): Promise<void> =>
   withRegistryLock(async () => {

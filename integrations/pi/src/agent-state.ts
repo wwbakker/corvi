@@ -1,23 +1,14 @@
 /**
- * Agent state: publishes whether pi is working or waiting for you, why it is waiting, what the
- * session is called, and that it is pi — so anything outside the terminal can tell the
- * difference — Corvi's window strip and its notifications, a tmux status line, another program.
+ * Agent state: publishes whether the agent is working or waiting for you, why it is waiting, what
+ * the session is called, and which harness it is — so anything outside the terminal can tell the
+ * difference: Corvi's window strip and its notifications, another program.
  *
- * The state is a tmux pane option, `@agent_status`; the agent's name is `@agent_name`; the
- * session's name is `@agent_session_name`; the first sentence of the last answer is
- * `@agent_last_message`. The vocabulary and the writer/reader rules are the reporter protocol in
- * docs/manual/terminals.md — this file is pi's reporter, `integrations/opencode` is opencode's.
- *
- *   tmux display -p '#{@agent_status}'          # this pane: working | waiting | unset
- *   tmux display -p '#{@agent_session_name}'    # this pane: the session's name, or empty
- *   tmux display -p '#{@agent_last_message}'    # this pane: why it wants you, or empty
- *   tmux list-windows -F '#{window_index} #{@agent_status}'  # every window of the session
- *
- * A pane option rather than the terminal title: the title is shared. pi rewrites it whenever
- * the session name changes — right after a run, when it names the session from your first
- * message — and the shell rewrites it between commands, so a title-based marker would vanish
- * seconds after it appeared. Nobody else writes `@agent_status`, and tmux drops
- * it when the pane dies, so a crashed agent leaves nothing stale behind.
+ * The one channel is the Corvi CLI (`corvi status`), which posts to the server; identity comes
+ * from the pty environment the host seeds (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`), so
+ * any Corvi session — an interactive shell, an action run, a subagent — is reported. Outside a
+ * Corvi session there is nothing to publish to, and every publish is a no-op. A program that
+ * cannot run the CLI may instead write the same status as an OSC 1337 `corvi=` sequence, which
+ * the host parses and the server treats as a fallback (docs/manual/terminals.md).
  *
  * Install it with `bun run extension:install:pi` in the Corvi repository, which symlinks this
  * file into `~/.pi/agent/extensions/`.
@@ -75,10 +66,9 @@ export const fullTextOf = (message: unknown): string => {
 
 export default function (pi: ExtensionAPI): void {
   // Where this reporter can publish: a Corvi host session (the CLI/HTTP channel, identity from
-  // the pty environment) or a tmux pane (a subagent window, until it moves to a host session).
-  // Outside both there is nothing to publish to, and every publish is a no-op.
+  // the pty environment). Outside one there is nothing to publish to, and every publish is a
+  // no-op.
   const sessionId = process.env.CORVI_SESSION_ID;
-  const pane = process.env.TMUX_PANE;
   const inCorvi = sessionId !== undefined && sessionId !== "";
 
   /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
@@ -92,32 +82,21 @@ export default function (pi: ExtensionAPI): void {
    * difference between "PROJ-1681 is waiting" and knowing why. */
   let lastSentence = "";
 
-  /** Publish the whole status the agent has, through whichever channel is live. The CLI command
-   * is fire-and-forget: a server or host that is gone must not disturb the agent loop. */
+  /** Publish the whole status the agent has. The CLI command is fire-and-forget: a server or
+   * host that is gone must not disturb the agent loop. */
   const publish = (): void => {
+    if (!inCorvi) return;
     const sessionName = pi.getSessionName();
-    if (inCorvi) {
-      void pi
-        .exec("corvi", [
-          "status",
-          state,
-          "--name",
-          "pi",
-          ...(sessionName ? ["--session-name", sessionName] : []),
-          ...(lastSentence ? ["--message", lastSentence] : []),
-        ])
-        .catch(logFailure);
-      return;
-    }
-    if (!pane) return;
-    const set = (option: string, value: string | undefined): void => {
-      const args = value ? ["set", "-p", "-t", pane, option, value] : ["set", "-p", "-t", pane, "-u", option];
-      void pi.exec("tmux", args).catch(() => {});
-    };
-    set("@agent_status", state);
-    set("@agent_name", "pi");
-    set("@agent_session_name", sessionName || undefined);
-    set("@agent_last_message", lastSentence || undefined);
+    void pi
+      .exec("corvi", [
+        "status",
+        state,
+        "--name",
+        "pi",
+        ...(sessionName ? ["--session-name", sessionName] : []),
+        ...(lastSentence ? ["--message", lastSentence] : []),
+      ])
+      .catch(logFailure);
   };
 
   pi.on("agent_start", async () => {
@@ -157,15 +136,9 @@ export default function (pi: ExtensionAPI): void {
   // name is the thing worth showing, so it is published whenever it changes.
   pi.on("session_info_changed", async () => publish());
 
-  // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
+  // Leaving the session: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
-    if (inCorvi) {
-      void pi.exec("corvi", ["status", "clear"]).catch(logFailure);
-      return;
-    }
-    if (!pane) return;
-    for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
-      void pi.exec("tmux", ["set", "-p", "-t", pane, "-u", option]).catch(() => {});
-    }
+    if (!inCorvi) return;
+    void pi.exec("corvi", ["status", "clear"]).catch(logFailure);
   });
 }

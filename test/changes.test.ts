@@ -420,17 +420,6 @@ test("the icons take the worst of what the repositories say", async () => {
   expect(worst(["none"])).toBe("none");
 });
 
-test("every change's windows come back from one call, and other sessions are not ours", async () => {
-  const { changeOfSession } = await import("../apps/server/src/terminals/server/index.ts");
-  // The navigation column lists the terminals of every change at once; asking tmux per change
-  // would be a process per change every few seconds.
-  expect(changeOfSession("corvi-PROJ-1")).toBe("PROJ-1");
-  expect(changeOfSession("corvi-PROJ-1671-2")).toBe("PROJ-1671-2");
-  // Sessions you started yourself are left alone, and not shown as terminals of a change.
-  expect(changeOfSession("work")).toBeUndefined();
-  expect(changeOfSession("")).toBeUndefined();
-});
-
 test("a change belongs to the context it was made in, and older ones to the first", async () => {
   const { inWorkspace, workspaceOf, ALL } = await import("../apps/web/src/workspace/client/workspaces.ts");
   const workspaces = [

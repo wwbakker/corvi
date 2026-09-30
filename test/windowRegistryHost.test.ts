@@ -9,10 +9,10 @@ import { testTempDir, waitFor } from "./helpers.ts";
 
 /**
  * The registry's I/O half, against real host windows: new windows persist in order with one
- * active, select and move mutate the persisted records, a fresh read (a simulated restart) sees
- * the same, and a failed tmux read does not erase them.
+ * active, select and move mutate the persisted records, and a fresh read (a simulated restart)
+ * sees the same. Since subagents moved to host sessions there is no second backing to merge.
  *
- * The tmux socket is this file's own, so the tmux reads here can never reach the user's server.
+ * The state dir is this file's own (helpers.ts); no process outside it is touched.
  */
 const dir = await testTempDir("registry");
 delete process.env.TMUX;
@@ -47,9 +47,9 @@ test("new windows persist in order with one active; select and move mutate them"
   expect(registry.read().changes[changeId]?.map((record) => record.id)).toEqual([second.id, first.id]);
 }, 30_000);
 
-test("a failed tmux read does not erase the registry", async () => {
+test("a read rebuilds from the live host sessions and keeps the persisted order", async () => {
   const before = ids();
-  await listWindowsAsync(changeId); // tmux is not running at this socket: the read fails
+  await listWindowsAsync(changeId);
   expect(ids()).toEqual(before);
 }, 30_000);
 

@@ -1,7 +1,6 @@
 /**
- * The terminal module's public face: the window registry over host sessions and tmux windows
- * (`windows.ts`), the pure presentation (`presenter.ts`), and the tmux operations subagents still
- * need (`tmux.ts`).
+ * The terminal module's public face: the window registry over host sessions (`windows.ts`) and
+ * the pure presentation (`presenter.ts`).
  *
  * The pty bridge (`session.ts`) is deliberately **not** re-exported here: it is the socket
  * boundary, and importing it would drag node-pty into every server consumer of `listWindows`.
@@ -10,19 +9,23 @@
  *
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
  * path is involved, the directory its caller computed.
+ *
+ * `tmux.ts` still holds the socket path the page connects to (`terminalSocketPath`); its other
+ * operations have no product caller since subagents moved to host sessions, and the package is
+ * scheduled for deletion in a later slice.
  */
-export { listWindows, allWindows, newWindow, selectWindow, moveWindow, ensureActiveHostWindow, stopHostTerminals } from "./windows.ts";
-export { presentWindow, type PresentedWindow } from "./presenter.ts";
-
-// Subagents still run in tmux windows until their slice moves them, so its operations stay
-// exported; the interactive/action paths use the host-backed `windows.ts` and `session.ts`.
 export {
-  terminalSocketPath,
-  stopTerminal,
-  changeOfSession,
-  ensureSession,
-  killWindow,
-  newWindowRunning,
-  setPaneOption,
-  sessions,
-} from "./tmux.ts";
+  listWindows,
+  allWindows,
+  newWindow,
+  selectWindow,
+  moveWindow,
+  ensureActiveHostWindow,
+  stopHostTerminals,
+  newSubagentWindow,
+  killHostWindow,
+  liveSubagents,
+  type LiveSubagent,
+} from "./windows.ts";
+export { presentWindow, type PresentedWindow } from "./presenter.ts";
+export { terminalSocketPath } from "./tmux.ts";

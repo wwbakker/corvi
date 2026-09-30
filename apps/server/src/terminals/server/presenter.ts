@@ -4,7 +4,8 @@ import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
 
 /**
- * The presentation half of the terminal: raw tmux facts in, the shape the page draws out.
+ * The presentation half of the terminal: raw window facts (host-session facts shaped in
+ * `windows.ts`) in, the shape the page draws out.
  *
  * Everything here is pure, and the window presenter is the agents package's own, imported
  * directly rather than read through a registry: the pipeline that lists windows stays a leaf. Presenters are global — they run no effects and take no capabilities, and a
@@ -15,23 +16,9 @@ import { commandWindowPresenter } from "@corvi/terminals/presenter";
 /** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
 const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash", "tmux"];
 
-/** One tmux window as the page sees it, with the busy fact the overview counts — presentational
+/** One window as the page sees it, with the busy fact the overview counts — presentational
  * to the page, but the server's own accounting travels with it too. */
 export type PresentedWindow = TerminalWindow & { busy: boolean };
-
-/** The pane options any presenter declared, once each, in load order — the FORMAT asks tmux
- * for exactly these, so the raw window carries what presenters know how to read. */
-export const paneOptions = (): string[] => {
-  const seen = new Set<string>();
-  for (const presenter of [agentsWindowPresenter, commandWindowPresenter]) {
-    for (const option of presenter.paneOptions ?? []) seen.add(option);
-  }
-  return [...seen];
-};
-
-/** The tmux FORMAT for a set of pane options lives with the tmux calls
- * (`@corvi/terminals/tmux`): the options come from the presenters, the format is tmux's own
- * vocabulary. */
 
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */

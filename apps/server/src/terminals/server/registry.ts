@@ -3,11 +3,10 @@
  * restart.
  *
  * The registry is the product's, not the substrate's: a window's order, label and active flag
- * outlive the host process or tmux window that backs it. The live set is rebuilt on every read by
- * merging the persisted records with the windows the backings actually have (`host` sessions
- * whose metadata names this change, `tmux` windows carrying a `@subagent_id`). A persisted record
- * whose backing is gone is dropped; a live backing with no record is appended. That is what makes
- * a restart lossless and non-duplicating.
+ * outlive the host process that backs it. The live set is rebuilt on every read by merging the
+ * persisted records with the windows the host sessions actually have (sessions whose metadata
+ * names this change). A persisted record whose backing is gone is dropped; a live backing with no
+ * record is appended. That is what makes a restart lossless and non-duplicating.
  *
  * `mergeRecords` is pure and unit-tested; `rebuild`/`save` are the only I/O.
  */

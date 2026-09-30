@@ -1,19 +1,19 @@
 /**
  * The conversational relay: the half of the extension that talks *to* Corvi, not just about the
- * pane.
+ * session.
  *
- * When this pi runs inside a Corvi subagent window (the pane carries `@subagent_id`), the relay
- * parks on `corvi subagent next` for the next inbound message, submits it into this session with
- * `pi.sendUserMessage` (a genuine user turn, submitted through the harness's own API — no
- * keystroke synthesis racing a human), waits for the run to settle, and relays the answer back
- * with `corvi subagent turn`.
+ * When this harness runs inside a Corvi subagent session (the host seeded `CORVI_SUBAGENT_ID`),
+ * the relay parks on `corvi subagent next` for the next inbound message, submits it into this
+ * session with `pi.sendUserMessage` (a genuine user turn, submitted through the harness's own API
+ * — no keystroke synthesis racing a human), waits for the run to settle, and relays the answer
+ * back with `corvi subagent turn`.
  *
  * It is deliberately thin: all protocol logic lives in the CLI/server, and this file only turns
  * events into exec calls. The loop is exported and takes its side effects as a value, so a test
  * drives it with a scripted harness instead of a live one.
  *
- * Identity is `@subagent_id` on this pane (`tmux display -p -t "$TMUX_PANE"`): per-pane by
- * construction, and dropped with the pane, so nothing stale survives.
+ * Identity is the environment's `CORVI_SUBAGENT_ID`, seeded per host session by the server, so a
+ * reopened subagent carries the same id and resumes the same relay.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
@@ -123,17 +123,11 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
   }
 };
 
-/** Read the subagent id this pane carries, or undefined when it is not a subagent window. The
- * server writes `@subagent_id` just after the window starts, so a few retries close that startup
- * race rather than leaving a fresh window permanently mute. */
-export const subagentOfPane = async (pi: ExtensionAPI, pane: string): Promise<string | undefined> => {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const result = await pi.exec("tmux", ["display", "-p", "-t", pane, "#{@subagent_id}"]).catch(() => undefined);
-    const id = result && result.code === 0 ? result.stdout.trim() : "";
-    if (id !== "") return id;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  return undefined;
+/** The subagent id this session carries, from the environment the host seeded. Undefined when
+ * this is not a subagent session: the reporter still speaks, the relay stays quiet. */
+export const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string | undefined => {
+  const id = env.CORVI_SUBAGENT_ID?.trim();
+  return id === undefined || id === "" ? undefined : id;
 };
 
 /** pi emits `session_start` again on `/reload`; a second loop would share the single settle slot
@@ -141,9 +135,6 @@ export const subagentOfPane = async (pi: ExtensionAPI, pane: string): Promise<st
 let relayStarted = false;
 
 export default function (pi: ExtensionAPI): void {
-  const pane = process.env.TMUX_PANE;
-  if (!pane) return; // no tmux: nothing to identify, nothing to relay
-
   // One settle per submitted turn: the handler below resolves it with the run's text.
   let settle: ((text: string | undefined) => void) | undefined;
   let lastAssistant = "";
@@ -165,8 +156,8 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on("session_start", async () => {
     if (relayStarted) return;
-    const subagentId = await subagentOfPane(pi, pane);
-    if (subagentId === undefined) return; // a plain pi window: the reporter still speaks, the relay stays quiet
+    const subagentId = subagentOfSession();
+    if (subagentId === undefined) return; // a plain session: the reporter still speaks, the relay stays quiet
     relayStarted = true;
     const harness: RelayHarness = {
       exec: async (args) => pi.exec("corvi", [...args]),

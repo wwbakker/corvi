@@ -24,7 +24,8 @@ import { testTempDir, waitFor } from "./helpers.ts";
 const own = await testTempDir("action-host");
 process.env.CORVI_CONFIG = join(own, "config.json");
 process.env.CORVI_HOST_RUNTIME = "node";
-// The window list reads tmux; a socket of this file's own keeps it off the user's server.
+// Every window is a host session now; the tmux socket is a leftover from the transitional
+// aggregation and is harmless, but the tests no longer read it.
 delete process.env.TMUX;
 process.env.CORVI_TMUX_SOCKET = join(own, "tmux.sock");
 await mkdir(join(own, "actions"), { recursive: true });
