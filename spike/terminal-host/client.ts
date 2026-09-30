@@ -105,7 +105,7 @@ export class HostClient {
     number,
     { resolve: (value: Record<string, unknown>) => void; reject: (error: Error) => void }
   >();
-  private readonly dataListeners = new Map<string, ((data: Buffer, incarnation: number) => void)[]>();
+  private readonly dataListeners = new Map<string, ((data: Buffer, incarnation: number, seq: number) => void)[]>();
   private readonly exitListeners = new Map<string, ((exitCode: number, signal: number, incarnation: number) => void)[]>();
   /** Highest byte offset received per `(id, incarnation)`. */
   private readonly received = new Map<string, number>();
@@ -147,7 +147,7 @@ export class HostClient {
       const incarnation = typeof message.incarnation === "number" ? message.incarnation : 0;
       const key = receivedKey(message.id, incarnation);
       this.received.set(key, Math.max(this.received.get(key) ?? 0, seq + data.length));
-      for (const listener of this.dataListeners.get(message.id) ?? []) listener(data, incarnation);
+      for (const listener of this.dataListeners.get(message.id) ?? []) listener(data, incarnation, seq);
       return;
     }
     if (message.type === "exit" && typeof message.id === "string") {
@@ -272,7 +272,7 @@ export class HostClient {
     expectOk(await this.call({ type: "session.kill", id }), `kill ${id}`);
   }
 
-  onData(id: string, listener: (data: Buffer, incarnation: number) => void): void {
+  onData(id: string, listener: (data: Buffer, incarnation: number, seq: number) => void): void {
     const listeners = this.dataListeners.get(id) ?? [];
     listeners.push(listener);
     this.dataListeners.set(id, listeners);

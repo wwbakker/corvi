@@ -4,117 +4,160 @@ Throwaway spike under `spike/screen/`. It adds the real xterm packages the event
 needs anyway (`@xterm/xterm`, `@xterm/headless`, `@xterm/addon-serialize`, latest) to the root
 devDependencies; no product code changed. Raw evidence: `spike/screen/evidence.txt`.
 
-`bash spike/screen/run.sh` → **29 assertions passed**: every restore-fidelity check, the metric
-sanity checks, the real-page smoke, and the leftover check.
+`bash spike/screen/run.sh` → **63 assertions passed**: every restore check (pre- and post-tail, for
+a normal and an alternate-screen snapshot), the independent cell/seq checks, the metric checks, the
+real-page smoke, and the leftover check.
 
 ## Verdict
 
-**Renderer-owned.** Both variants restore with equal, byte-for-byte fidelity; renderer-owned wins
-because Corvi has one live client and no multiclient, so a server-side emulator is a second copy of
-the screen that costs memory and CPU for no fidelity. The server stays a byte relay with the
-256 KiB replay buffer it already has.
+**Renderer-owned.** The decision stands, now on stronger evidence: both variants restore
+byte-for-byte from a snapshot taken *after* the feature-rich part of the stream and again while the
+alternate screen is live, compared immediately post-restore and again after the tail, with an
+independent per-cell attribute signature. A server-owned emulator would restore no better and would
+cost memory and CPU per session.
+
+The decision is **conditional on snapshot cadence**: renderer-owned preserves scrollback as of the
+last snapshot; periodic snapshots (or one on disconnect/idle) bound the gap. Server-owned keeps the
+screen *current* through a client crash without a snapshot, which is the one thing it buys.
 
 ## The stream and the checks
 
-`spike/screen/record.ts` records one real pty byte stream (`stream.bin`, **621 486 bytes**) from
-`emit.ts`: 9 000 lines of scrolling (past the host buffer), SGR colours/attributes, wide and emoji
-cells, cursor moves, an escape written in two pieces, an alternate-screen top-shaped TUI, a real
-`top -b -n1` capture, and a scrolling tail. It is fed in **7-byte chunks** so escapes and UTF-8
-sequences split across writes.
+`spike/screen/record.ts` records one real pty byte stream (`stream.bin`, **586,381 bytes**) from
+`emit.ts`: 9,000 lines of scrolling (past the host buffer), SGR colours/attributes, wide and emoji
+cells, cursor moves, an escape written in two pieces, an alternate-screen top-shaped TUI, and a
+scrolling tail. The TUI is **deterministic**; there is no real `top -b -n1`, so the committed stream
+no longer leaks this machine's process list, username or uptime (`grep` for the username/hostname is
+empty). It is fed in **7-byte chunks**, so escapes and UTF-8 split across writes.
 
-Restore is compared against a reference terminal fed the whole stream, by cursor, scroll
-(`baseY`/`viewportY`), every row's text (scrollback included), and the full serialization. All pass
-for both variants, including the real browser page.
+Restore is tested at two offsets, each compared against a terminal fed the same prefix:
 
-## What each variant costs
+- **after the features** (offset 523,381, before the final tail) — normal screen;
+- **while the alternate screen is active** (the `Tasks:` line inside `?1049h`) — alternate screen.
 
-The serialization itself is the same work wherever it runs (same core). The difference is *where
-the terminal lives, who pays for it, and when it serializes*:
+For each: snapshot, restore into a fresh terminal, compare **immediately** (cursor, `baseY`/
+`viewportY`, active buffer type, every row, and the independent cell signature) to the
+pre-disconnect screen; then feed the tail and compare again to the whole-stream reference (same
+measures plus `addon.serialize`). All pass, including the alternate-screen case.
+
+Gotcha found and fixed: the serialize addon already emits the alternate-screen enter itself; adding
+another `\x1b[?1049h` wipes the restored alt screen. The snapshot must not prepend one.
+
+## Independent fidelity
+
+Two checks that do **not** go through `addon.serialize`:
+
+- **Per-cell attributes** (`getLine().getCell(x)`: chars + bold/italic/underline/inverse/dim/
+  strikethrough + fg/bg colour) must match the reference for the normal and alternate snapshots,
+  before and after the tail. A serializer that drops SGR cannot pass on both sides.
+- **Per-event seq contiguity** on the client: while resuming mid-buffer, each data event's `seq`
+  must equal the previous event's `seq + length`, so a dropped chunk (not eviction) is visible.
+  Proven on the host contract session (`gap.firstSeqAtOffset`, `gap.seqContiguous`).
+
+## The absolute-cursor correction, honestly
+
+`snapshot()` appends `\x1b[row;colH` (Orca's fix). In **every tested case it is a no-op**: the
+addon's relative moves already land the cursor at the same cell, so the cross-geometry test
+(120×40 snapshot restored into 80×24) reports `cursor 0,23` with and without the correction
+(`crossGeometry.correctionChangesOutcome: false`). It is kept as an explicit, cheap guarantee that
+the cursor is stated absolutely rather than inferred from the addon's relative moves, which is what
+would break if the addon or geometry handling changes. It is **not** claimed to fix cross-geometry
+restore; restoring into a different size is inherently lossy and only asserted to stay in bounds.
+
+Immediate post-restore cursor and scroll are asserted in same geometry (`*.preCursor`,
+`*.preScroll`).
+
+## Resume-gap policy
+
+**Policy: when `attach since` reports `truncated`, discard the snapshot and reset the screen.**
+The snapshot's high-water offset is older than the host's oldest replayable byte, so no consistent
+screen can be rebuilt from snapshot + replay; the client clears and presents a fresh screen (and
+should say why). The alternative — requiring a snapshot cadence no longer than the host buffer —
+is a latency/persistence trade the implementation can layer on top; the chosen rule is the safe
+floor.
+
+Worst case: everything before `oldestSeq` is unrecoverable, so a reset loses the whole screen.
+Proven end to end on a host session producing 624,890 bytes with a 262,144-byte buffer: the
+snapshot high-water (0) predates `oldestSeq` (362,786), `attach(0)` is `truncated`, and the policy
+resolves to `reset` (`gap.highWaterPredatesOldest`, `gap.truncatedResets`); with no snapshot at
+all, **324,237 of 586,381 bytes (55%)** are past the buffer.
+
+The real mid-buffer dedupe test exists now too: `attach(since = oldestSeq + 10)` is **not**
+truncated, its first replayed byte is exactly `oldestSeq + 10`, and the sequence stays contiguous
+(`gap.midBufferReplays`, `gap.firstSeqAtOffset`, `gap.seqContiguous`).
+
+## Snapshot keyed to the incarnation
+
+A `SnapshotRecord` is `{sessionId, incarnation, highWater, data}`; `acceptSnapshot(record, id,
+incarnation)` requires both to match. A snapshot from a killed incarnation is rejected for the
+reopened one — shown both directly (`incarnation.acceptsSame`/`rejectsKilled`) and against the host:
+open `inc`, kill it, reopen (new incarnation), reject its old snapshot
+(`incarnation.hostReopenRejected`).
+
+## Numbers
 
 | | renderer-owned | server-owned |
 | --- | --- | --- |
-| restore fidelity (cursor/scroll/rows/serialized) | all pass | all pass |
-| real browser page restore | pass | (not built; core is the same) |
-| who holds the buffer | the page's xterm | a server `@xterm/headless` per session |
-| snapshot taken | on disconnect/idle | on every connect |
-| snapshot bytes @ 5 040 rows | 292 279 (mid-stream) | 277 961 |
-| snapshot bytes @ 50 040 rows | 2 830 729 (2.7 MB) | 2 830 729 (2.7 MB) |
-| snapshot time @ 5 040 rows | 17.07 ms | 17.07 ms |
-| snapshot time @ 50 040 rows | 206.84 ms | 206.84 ms |
-| extra memory @ 50 040 rows | +201.4 MB RSS (headless core) | +201.4 MB **server** RSS per session |
-| snapshot-on-connect latency | n/a (not on the connect path) | 17.77 ms @ 5 k, ~207 ms @ 50 k |
-| server CPU for an idle terminal | ~0 (relays bytes) | the core runs for every byte |
+| restore fidelity, normal snapshot | all pass | all pass |
+| restore fidelity, alt-screen snapshot | all pass | (core is the same) |
+| cell-attribute + seq-contiguity checks | pass | pass |
+| real browser page restore | pass | (not built) |
+| snapshot bytes @ 5,040 rows | 292,244 (after features) | 268,244 |
+| snapshot bytes @ 50,040 rows | 2,782,144 (2.65 MiB) | 2,782,144 |
+| snapshot time @ 5,040 / 50,040 rows | 17.6 ms / 216.0 ms | 17.6 ms / 216.0 ms |
+| extra memory @ 50,040 rows | 71.5–193.1 MB RSS (process-level, two builds) | same, on the **server** per session |
+| snapshot-on-connect | n/a (disconnect/idle) | 32.7 ms @ 5k, ~216 ms @ 50k |
+| browser heap after restore | 19,300,000 B (~18.4 MiB), 5,040 rows | — |
 
-The renderer-owned snapshot is taken when the client disconnects or goes idle, not when one
-connects; the connect path is a snapshot write plus `attach since`. The server-owned cost is paid
-per live session, for every byte, on the server — the exact thing Corvi wants to keep cheap.
+The snapshot work is the same wherever it runs (same core); the difference is where the terminal
+lives and who pays for it. Renderer memory is reported as a **range** across two builds, and is
+process-level RSS for the headless core, not isolated per-terminal; the plan's per-session figure
+would need a broker to measure precisely.
+
+## The 1 MiB cap, measured
+
+`addon.serialize({scrollback: N})` was called and the result restored, not extrapolated. The
+largest tested cap that fits 1 MiB is **N = 15,000** → **824,212 bytes**, restoring **15,040 rows**
+(the viewport plus the capped scrollback), well under the 50,040-row full size
+(`cap.fitsOneMiB`, `cap.truncatesRows`). A production cap of 1 MiB therefore means roughly the last
+15k scrollback rows per session.
 
 ## Decision details
 
-- **Where snapshots live.** The page holds the live buffer. On disconnect/idle it serializes with
-  `@xterm/addon-serialize` (+ the absolute-cursor correction) and hands the string to the server to
-  hold for the session in memory (optionally persisted under the session's state). The host's
-  256 KiB replay buffer covers bytes after the snapshot.
-- **Size cap.** Cap the stored snapshot (a starting point: 1 MiB/session) by serializing only the
-  most recent rows (`serialize({ scrollback: N })`) when the buffer is larger. Scrollback default
-  5 000 (max 50 000, as the plan proposes). At 50 k rows a full snapshot is ~2.7 MB and ~207 ms, so
-  a 1 MiB cap already implies truncating to roughly the last ~18 k rows — measured, not guessed.
-- **The `attach since` contract.** The client's high-water offset is the number of pty bytes it has
-  applied (the host's `lastSeq` it has consumed). It stores that with the snapshot and, on
-  reconnect, writes the snapshot then calls `attach(since = highWater)`. The host replies with
-  `oldestSeq`/`truncated`; if `truncated`, bytes before the snapshot's offset were already lost.
-  Proven with the Phase 1 host: with ~625 KB produced and a 256 KiB buffer,
-  `attach(since = 0)` → `truncated: true, oldestSeq = 362 838`, while
-  `attach(since = oldestSeq + 10)` → `truncated: false` (`contract.*`).
-- **The absolute-cursor fix.** The current addon emits relative cursor moves, which are only right
-  when the target has the same geometry; the spike appends an explicit `\x1b[row;colH` and verifies
-  the restored serialization equals the reference's. The real implementation should keep that
-  explicit move (and re-check it when the addon changes).
-
-## What a hard kill loses
-
-With no snapshot, both variants are limited by the host's replay buffer: of 621 486 bytes,
-**359 342 (58%) are before `oldestSeq`** and cannot be replayed (`hardKill.losesBytesWithoutSnapshot`).
-The renderer-owned snapshot at disconnect is precisely what preserves those earlier rows; a
-server-owned design preserves them only if the server serializes before the crash too. Neither
-scheme survives a hard kill with no prior snapshot.
-
-## Why not server-owned
-
-Server-owned is the right call when several clients watch one session, when the server must answer
-scrollback/search without a client, or when the client cannot be trusted to hold state. Corvi's
-decision record says the opposite: **one live client, no multiclient**. Against that, a
-server-owned emulator is a second screen copy that costs ~200 MB per 50 k-row session and ~207 ms
-per connect, and makes the server process every byte. It restores no better. The spike kept it
-minimal on purpose (a long-lived terminal, serialize-on-connect) and did not build a persistent
-server loop.
+- **Where snapshots live.** The page holds the live buffer; on disconnect/idle it serializes and
+  hands the string to the server for the session (memory, optionally disk). The host's 256 KiB
+  replay buffer covers bytes after the snapshot's high-water mark.
+- **The `attach since` contract.** High-water = pty bytes the client has applied. On reconnect:
+  write the snapshot, then `attach(since = highWater)`; the reply's `oldestSeq`/`truncated` decides
+  keep-or-reset (above).
+- **Scrollback** default 5,000, max 50,000; snapshot cap 1 MiB (~15k rows), measured.
 
 ## Deferred / not proven
 
-- **Images and links** were not exercised: the image addon is not in the repo, and the serialize
-  addon's handling of links/images needs its own check before relying on it.
-- **Restoring into a different geometry** (resize between snapshot and restore) is not covered; the
-  addon recommends same-size restore, and the absolute-cursor move should be re-checked there.
-- **Real page memory** was measured on the headless core (RSS); a browser `performance.memory` read
-  would be a better renderer-owned figure.
-- **Snapshot storage/eviction**, the 1 MiB cap tuning, and periodic (not only disconnect) snapshot
-  cadence are policy decisions left to the implementation.
-- The 5 k vs 50 k default scrollback and whether snapshots persist across a machine reboot remain
-  open (the plan's open question 4).
+- **Images and links** are not exercised: no image addon in the repo, and the serialize addon's
+  link/image handling needs its own check.
+- **Storage and eviction** of snapshots, the exact 1 MiB cap, and periodic (not only
+  disconnect/idle) snapshot cadence.
+- **Reboot persistence** of snapshots.
+- **Resize policy** beyond the cross-geometry bounds check: restoring into a different size is
+  lossy and the intended reflow/crop behaviour is undefined.
+- **Per-session memory** from a broker rather than process-level RSS; a browser `performance.memory`
+  figure was added (cheap) but is still whole-heap.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `spike/screen/emit.ts` | the content generator, run inside the recorded pty |
+| `spike/screen/emit.ts` | deterministic content generator (no real `top`), run inside the pty |
 | `spike/screen/record.ts` | records `stream.bin` from a real pty |
-| `spike/screen/stream.bin` | the committed recorded stream (621 486 bytes) |
-| `spike/screen/xterm.ts` | shared headless-terminal adapter, snapshot (+ absolute cursor), restore |
-| `spike/screen/run.ts` | both variants' fidelity, snapshot/memory metrics, `attach since` contract |
-| `spike/screen/page-entry.ts` | real `@xterm/xterm` restore check, bundled for the browser |
+| `spike/screen/stream.bin` | the committed recorded stream (586,381 bytes) |
+| `spike/screen/xterm.ts` | headless adapter, snapshot (+ absolute cursor), cell signature, snapshot key |
+| `spike/screen/run.ts` | fidelity at both snapshot points, metrics, cap, resume-gap policy, dedupe |
+| `spike/screen/page-entry.ts` | real `@xterm/xterm` restore check (+ heap), bundled for the browser |
 | `spike/screen/page-smoke.ts` | Playwright smoke: restore in Chromium and compare to headless |
-| `spike/screen/run.sh` | `set -euo pipefail`, 29 assertions, leftover check |
+| `spike/screen/run.sh` | `set -euo pipefail`, 63 assertions, leftover check |
 | `spike/screen/evidence.txt` | raw run output |
 | `spike/screen/RESULTS.md` | this file |
 
-`bun run typecheck` and `bun run lint` pass.
+`spike/terminal-host/client.ts` gained a third `seq` argument on `onData` (the only change outside
+`spike/screen/`) so the seq-contiguity check can see per-event offsets. `bun run typecheck` and
+`bun run lint` pass.

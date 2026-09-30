@@ -1,14 +1,22 @@
 == measurement ==
-{"checks":{"renderer.cursor":true,"renderer.scroll":true,"renderer.rows":true,"renderer.serialized":true,"renderer.noDuplicateOrLoss":true,"server.cursor":true,"server.scroll":true,"server.rows":true,"server.serialized":true,"metrics.snapshot50kLarger":true,"metrics.reached50kRows":true,"hardKill.losesBytesWithoutSnapshot":true,"contract.hostStartedFresh":true,"contract.producedEnough":true,"contract.stable":true,"contract.truncatedWhenOld":true,"contract.resumeNotTruncated":true},"metrics":{"referenceRows":5040,"rendererSnapshotBytes":292279,"rendererHighWater":372891,"serverSnapshotBytes":277961,"serverRows":5040,"rows_5k":5040,"snapshotBytes_5k":277961,"memoryRssMb_5k":10.4,"rows_50k":50040,"snapshotBytes_50k":2830729,"memoryRssMb_50k":224.6,"streamBytes":621486,"hostReplayBufferBytes":262144,"lostBytesWithoutSnapshot":359342,"contractOldestSeq":362786,"contractLastSeq":624890,"rssMb":450.3},"timings":{"serverSnapshotOnConnectMs":17.78,"snapshotMs_5k":16.53,"snapshotMs_50k":206.82}}
-metric rendererSnapshotBytes: 292279
-metric serverSnapshotBytes: 277961
-metric snapshotBytes_5k: 277961
-metric snapshotBytes_50k: 2830729
-metric snapshotMs_5k: 16.53
-metric snapshotMs_50k: 206.82
-metric lostBytesWithoutSnapshot: 359342
-metric serverSnapshotOnConnectMs: 17.78
+{"checks":{"stream.offsets":true,"rendererAfterFeatures.preCursor":true,"rendererAfterFeatures.preScroll":true,"rendererAfterFeatures.preBufferType":true,"rendererAfterFeatures.preRows":true,"rendererAfterFeatures.preCells":true,"rendererAfterFeatures.finalCursor":true,"rendererAfterFeatures.finalScroll":true,"rendererAfterFeatures.finalBufferType":true,"rendererAfterFeatures.finalRows":true,"rendererAfterFeatures.finalCells":true,"rendererAfterFeatures.finalSerialized":true,"rendererAltActive.preCursor":true,"rendererAltActive.preScroll":true,"rendererAltActive.preBufferType":true,"rendererAltActive.preRows":true,"rendererAltActive.preCells":true,"rendererAltActive.finalCursor":true,"rendererAltActive.finalScroll":true,"rendererAltActive.finalBufferType":true,"rendererAltActive.finalRows":true,"rendererAltActive.finalCells":true,"rendererAltActive.finalSerialized":true,"server.cursor":true,"server.scroll":true,"server.bufferType":true,"server.rows":true,"server.cells":true,"server.serialized":true,"crossGeometry.restores":true,"crossGeometry.cursorInBounds":true,"crossGeometry.correctionChangesOutcome":false,"incarnation.acceptsSame":true,"incarnation.rejectsKilled":true,"metrics.snapshot50kLarger":true,"metrics.reached50kRows":true,"cap.fitsOneMiB":true,"cap.truncatesRows":true,"hardKill.losesBytesWithoutSnapshot":true,"contract.hostStartedFresh":true,"incarnation.hostReopenRejected":true,"contract.producedEnough":true,"contract.stable":true,"gap.highWaterPredatesOldest":true,"gap.truncatedResets":true,"gap.midBufferReplays":true,"gap.firstSeqAtOffset":true,"gap.seqContiguous":true},"metrics":{"referenceRows":5040,"streamBytes":586381,"rendererSnapshotBytes":292244,"rendererHighWater":523381,"serverSnapshotBytes":268244,"serverRows":5040,"rows_5k":5040,"snapshotBytes_5k":268244,"memoryRssMb_5k":4.6,"rows_50k":50040,"snapshotBytes_50k":2782144,"memoryRssMb_50k_min":71.5,"memoryRssMb_50k_max":193.1,"capScrollback":15000,"capBytes":824212,"capRows":15040,"hostReplayBufferBytes":262144,"lostBytesWithoutSnapshot":324237,"contractOldestSeq":362786,"contractLastSeq":624890,"gapWorstCaseLossBytes":362786,"rssMb":583.6},"timings":{"serverSnapshotOnConnectMs":32.68,"snapshotMs_5k":17.6,"snapshotMs_50k":216.03},"notes":{"crossGeometryCursorWithFix":"0,23","crossGeometryCursorWithoutFix":"0,23"}}
+metric rendererSnapshotBytes: 292244
+metric serverSnapshotBytes: 268244
+metric snapshotBytes_5k: 268244
+metric snapshotBytes_50k: 2782144
+metric snapshotMs_5k: 17.6
+metric snapshotMs_50k: 216.03
+metric lostBytesWithoutSnapshot: 324237
+metric serverSnapshotOnConnectMs: 32.68
+metric capBytes: 824212
+metric capRows: 15040
+metric gapWorstCaseLossBytes: 362786
+memory 50k RSS range: 71.5 .. 193.1 MB
+cross-geometry cursor with fix: 0,23
+cross-geometry cursor without fix: 0,23
+cross-geometry correction changed outcome: false
 == real page smoke ==
-{"checks":{"page.noErrors":true,"page.cursorMatches":true,"page.scrollMatches":true,"page.linesMatch":true,"page.serializedMatches":true},"lines":5040}
+{"checks":{"page.noErrors":true,"page.cursorMatches":true,"page.scrollMatches":true,"page.linesMatch":true,"page.serializedMatches":true},"lines":5040,"heapBytes":19300000}
+browser heap bytes: 19300000
 == leftovers ==
-all 30 assertions passed
+all 63 assertions passed

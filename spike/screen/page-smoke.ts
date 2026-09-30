@@ -58,7 +58,7 @@ const result = (await page.evaluate(
   (args: { snapshot: string; tail: string; cols: number; rows: number; scrollback: number }) =>
     window.restoreCheck(args.snapshot, args.tail, args.cols, args.rows, args.scrollback),
   { snapshot: snap, tail: Buffer.from(stream.subarray(snapshotAt)).toString("base64"), cols: COLS, rows: ROWS, scrollback: SCROLLBACK },
-)) as { cursorX: number; cursorY: number; baseY: number; lines: string[]; serialized: string };
+)) as { cursorX: number; cursorY: number; baseY: number; lines: string[]; serialized: string; heapBytes: number };
 await browser.close();
 
 const expectedBuffer = expected.buffer.active;
@@ -72,6 +72,6 @@ const checks = {
   "page.serializedMatches": `${result.serialized}\x1b[${result.cursorY + 1};${result.cursorX + 1}H` === snapshot(expected, expectedAddon),
 };
 
-console.log(`READY ${JSON.stringify({ checks, lines: result.lines.length })}`);
+console.log(`READY ${JSON.stringify({ checks, lines: result.lines.length, heapBytes: result.heapBytes })}`);
 await new Promise<void>((resolve) => process.stdout.write("", () => resolve()));
 process.exit(0);

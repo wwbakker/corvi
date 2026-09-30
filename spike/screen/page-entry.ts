@@ -11,7 +11,7 @@ type RestoreCheck = (
   cols: number,
   rows: number,
   scrollback: number,
-) => Promise<{ cursorX: number; cursorY: number; baseY: number; lines: string[]; serialized: string }>;
+) => Promise<{ cursorX: number; cursorY: number; baseY: number; lines: string[]; serialized: string; heapBytes: number }>;
 
 declare global {
   interface Window {
@@ -33,6 +33,14 @@ window.restoreCheck = (snapshot, tailBase64, cols, rows, scrollback) =>
       const buffer = term.buffer.active;
       const lines: string[] = [];
       for (let y = 0; y < buffer.length; y++) lines.push(buffer.getLine(y)?.translateToString(true) ?? "");
-      resolve({ cursorX: buffer.cursorX, cursorY: buffer.cursorY, baseY: buffer.baseY, lines, serialized: addon.serialize() });
+      const memory = (performance as unknown as { memory?: { usedJSHeapSize?: number } }).memory;
+      resolve({
+        cursorX: buffer.cursorX,
+        cursorY: buffer.cursorY,
+        baseY: buffer.baseY,
+        lines,
+        serialized: addon.serialize(),
+        heapBytes: memory?.usedJSHeapSize ?? 0,
+      });
     });
   });
