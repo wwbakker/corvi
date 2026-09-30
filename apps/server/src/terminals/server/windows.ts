@@ -23,6 +23,7 @@ import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
 import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
+import { pruneSnapshots, snapshotKey } from "./snapshots.ts";
 import { paneOptions, presentWindow, type PresentedWindow } from "./presenter.ts";
 import {
   prune as pruneRegistry,
@@ -185,6 +186,11 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   pruneRegistry(existing);
   const sessions = hostRunning() ? await (await hostClient()).list() : [];
   pruneStatuses(new Set(sessions.filter((session) => session.alive).map((session) => `${session.id}#${session.incarnation}`)));
+  // A snapshot survives only while its session is live or its record asked to be kept open (a
+  // frozen command window is still worth looking behind). Everything else — a dead incarnation,
+  // a session that exited while detached — is pruned here, on the watcher's poll.
+  const keptOpen = keptOpenIds([...existing].map((changeId) => registryRecords(changeId)));
+  pruneSnapshots(liveSnapshotKeys(sessions, keptOpen));
   const ids = new Set<string>(existing);
   for (const session of sessions) {
     if (session.alive && session.metadata?.change && existing.has(session.metadata.change)) ids.add(session.metadata.change);
@@ -197,6 +203,26 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
 };
 
 type RecordExtra = Pick<WindowRecord, "command" | "label" | "keepOpen" | "notify">;
+
+/** The record ids that asked to be kept open, across every change's records. Pure, so the
+ * keep-open rule is testable without a registry file. */
+export const keptOpenIds = (recordsByChange: readonly (readonly WindowRecord[])[]): Set<string> => {
+  const ids = new Set<string>();
+  for (const records of recordsByChange) for (const record of records) if (record.keepOpen) ids.add(record.id);
+  return ids;
+};
+
+/** The `(id, incarnation)` snapshot keys to keep: live sessions, plus kept-open dead ones (their
+ * frozen output must still be replayable). Dead sessions that were not kept are pruned. */
+export const liveSnapshotKeys = (
+  sessions: readonly SessionInfo[],
+  keptOpen: ReadonlySet<string>,
+): Set<string> =>
+  new Set(
+    sessions
+      .filter((session) => session.alive || keptOpen.has(session.id))
+      .map((session) => snapshotKey(session.id, session.incarnation)),
+  );
 
 /** Rebuild, mark `id` active, and persist. A failed tmux read must not be treated as "every
  * tmux window died": the new host window is added to the persisted records instead of a

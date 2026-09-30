@@ -4,18 +4,23 @@
  *
  * The host owns the pty and its replay ring; this process only relays. A hub exists per
  * `(sessionId, incarnation)`, attaches to the host exactly once while at least one socket is
- * attached, and releases its host listeners when the last one detaches. The host's `attach since`
- * replays what was missed, so the hub keeps no output of its own — the flagship "shell keeps
- * running" case cannot grow a buffer here. `kill()` means detach, never kill: closing a page
- * leaves the shell running.
+ * attached, and releases its host data listener when the last one detaches. The host's
+ * `attach since` replays what was missed, so the hub keeps no output of its own — the flagship
+ * "shell keeps running" case cannot grow a buffer here. `kill()` means detach, never kill: closing
+ * a page leaves the shell running.
+ *
+ * One hub serves one live client. That is the page's model (one terminal, one xterm), and it is
+ * why a second `attach` on the same session is refused rather than fanning out: a subscriber that
+ * joins an already-attached hub would receive future bytes only, silently missing the snapshot's
+ * gap. Multi-client is a server-owned-screen slice's problem, not this one's.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
  *   - page to server: binary is what you typed; text is JSON control
  *     (`attach` with `since`, `snapshot` with `data`/`highWater`, `resize`);
  *   - server to page: binary is terminal output; text is JSON control
- *     (`snapshot` on connect, `reset` when there is none, `truncated` when the host's ring
- *     evicted past the requested offset).
+ *     (`snapshot` on connect, `reset` when there is none, `truncated` when the host's ring evicted
+ *     past the requested offset, `exit` when the session is gone and no reconnect should follow).
  *
  * The server sends the control frame first, on connect: a stored snapshot to replay, or `reset`
  * for a fresh terminal. The page replays it and only then sends `attach`, so the bytes from the
@@ -23,7 +28,7 @@
  */
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
-import { forgetSnapshot, snapshotOf, setSnapshot } from "./snapshots.ts";
+import { snapshotOf, setSnapshot } from "./snapshots.ts";
 import { ensureActiveHostWindow } from "./windows.ts";
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
@@ -44,10 +49,8 @@ type Subscriber = {
   readonly onExit: () => void;
 };
 
-type Listener = {
-  readonly data: (data: Buffer, incarnation: number, seq: number) => void;
-  readonly exit: (exitCode: number, signal: number, incarnation: number) => void;
-};
+type DataListener = (data: Buffer, incarnation: number, seq: number) => void;
+type ExitListener = (exitCode: number, signal: number, incarnation: number) => void;
 
 type Hub = {
   /** `sessionId#incarnation`: a reused session id gets a fresh hub with its own offset. */
@@ -58,9 +61,14 @@ type Hub = {
   /** The highest byte offset forwarded, so a re-attach resumes from there instead of replaying. */
   lastSeq: number;
   exited: boolean;
-  listener?: Listener;
-  attaching?: Promise<void>;
+  /** Registered while a socket is attached; removed on the last detach. */
+  dataListener?: DataListener;
+  /** Registered at open and kept until the session exits, so a session that dies while detached
+   * is still cleaned up rather than dangling forever. */
+  exitListener?: ExitListener;
+  /** The client the listeners belong to, for removal. */
   client?: HostClient;
+  attaching?: Promise<void>;
   /** While the initial attach is in flight, output is held here so a truncated replay can be
    * preceded by a `truncated` control frame instead of interleaved with it. */
   pendingReplay?: Uint8Array[];
@@ -78,42 +86,56 @@ const hubFor = (id: string, incarnation: number): Hub => {
   return hub;
 };
 
+/** The exit of a session is the hub's and the snapshot's cue, whether or not a socket is attached:
+ * a session that exits while detached must not leave a hub or a persisted snapshot behind. The
+ * snapshot is not forgotten here — the windows layer knows which records asked to be kept open,
+ * and keeps theirs. */
+const onSessionExit = (hub: Hub) => (): void => {
+  if (hub.exited) return;
+  hub.exited = true;
+  release(hub);
+  watchExitOff(hub);
+  for (const subscriber of hub.subscribers) subscriber.onExit();
+  hubs.delete(hub.key);
+};
+
+const watchExit = (hub: Hub, client: HostClient): void => {
+  if (hub.exitListener !== undefined) return;
+  hub.client = client;
+  hub.exitListener = onSessionExit(hub);
+  client.onExit(hub.id, hub.exitListener);
+};
+
+const watchExitOff = (hub: Hub): void => {
+  if (hub.client === undefined || hub.exitListener === undefined) return;
+  hub.client.offExit(hub.id, hub.exitListener);
+  hub.exitListener = undefined;
+};
+
+/** Remove the data listener so a detached hub stops receiving bytes. The exit listener stays. */
 const release = (hub: Hub): void => {
-  const client = hub.client;
-  const listener = hub.listener;
-  if (client !== undefined && listener !== undefined) {
-    client.offData(hub.id, listener.data);
-    client.offExit(hub.id, listener.exit);
+  if (hub.client !== undefined && hub.dataListener !== undefined) {
+    hub.client.offData(hub.id, hub.dataListener);
   }
-  hub.listener = undefined;
+  hub.dataListener = undefined;
 };
 
 /** Attach to the host once per hub, from the hub's current offset. A truncated replay is
  * announced with a `reset` control frame before the bytes so the page can discard the snapshot
  * it can no longer continue from. */
 const ensureAttached = async (hub: Hub): Promise<void> => {
-  if (hub.exited || hub.listener !== undefined) return;
+  if (hub.exited || hub.dataListener !== undefined) return;
   if (hub.attaching !== undefined) return hub.attaching;
   const promise = (async (): Promise<void> => {
     const client = await hostClient();
-    hub.client = client;
-    const listener: Listener = {
-      data: (data, _incarnation, seq) => {
-        hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
-        if (hub.pendingReplay !== undefined) hub.pendingReplay.push(data);
-        else for (const subscriber of hub.subscribers) subscriber.send(data);
-      },
-      exit: () => {
-        hub.exited = true;
-        release(hub);
-        forgetSnapshot(hub.id, hub.incarnation);
-        for (const subscriber of hub.subscribers) subscriber.onExit();
-        hubs.delete(hub.key);
-      },
+    watchExit(hub, client);
+    const dataListener: DataListener = (data, _incarnation, seq) => {
+      hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
+      if (hub.pendingReplay !== undefined) hub.pendingReplay.push(data);
+      else for (const subscriber of hub.subscribers) subscriber.send(data);
     };
-    hub.listener = listener;
-    client.onData(hub.id, listener.data);
-    client.onExit(hub.id, listener.exit);
+    hub.dataListener = dataListener;
+    client.onData(hub.id, dataListener);
     hub.pendingReplay = [];
     try {
       const reply = await client.attach(hub.id, hub.lastSeq);
@@ -149,8 +171,9 @@ const subscribe = async (hub: Hub, subscriber: Subscriber, since: number): Promi
   }
   hub.subscribers.add(subscriber);
   // A fresh subscription resumes from where its snapshot ended; the host replays from there. With
-  // a hub already attached (a second page), only future bytes reach the new subscriber.
-  if (hub.listener === undefined && hub.attaching === undefined) hub.lastSeq = Math.max(0, since);
+  // a hub already attached (a second page), only future bytes would reach the new subscriber,
+  // which is why the session refuses a second attach (see the module comment).
+  if (hub.dataListener === undefined && hub.attaching === undefined) hub.lastSeq = Math.max(0, since);
   await ensureAttached(hub);
   if (hub.exited) subscriber.onExit();
 };
@@ -159,7 +182,8 @@ const subscribe = async (hub: Hub, subscriber: Subscriber, since: number): Promi
 export type TerminalSession = {
   readonly sessionId: string;
   readonly incarnation: number;
-  /** Start delivering output to this subscriber, resuming the host at `since`. */
+  /** Start delivering output to this subscriber, resuming the host at `since`. A second call on
+   * the same session is refused: one hub serves one live client. */
   readonly attach: (
     send: (chunk: Uint8Array) => void,
     reset: (since: number) => void,
@@ -196,11 +220,15 @@ export const openSession = async (
   const client = await hostClient();
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
   const hub = hubFor(sessionId, incarnation);
+  // Watch the exit from the moment the session is opened, not only while a socket is attached: a
+  // detached session that exits must still clear its hub.
+  watchExit(hub, client);
   let subscriber: Subscriber | undefined;
   return {
     sessionId,
     incarnation,
     attach: (send, reset, onExit, since) => {
+      if (subscriber !== undefined) return; // one live client per session (module comment)
       subscriber = { send, reset, onExit };
       void subscribe(hub, subscriber, since).catch(() => subscriber?.onExit());
     },
@@ -214,8 +242,8 @@ export const openSession = async (
       if (subscriber === undefined) return;
       hub.subscribers.delete(subscriber);
       subscriber = undefined;
-      // The last socket leaving releases the host listener; the shell keeps running and the next
-      // attach resumes from `lastSeq` through the host's replay.
+      // The last socket leaving releases the host data listener; the shell keeps running and the
+      // next attach resumes through the host's replay. The exit watcher stays.
       if (hub.subscribers.size === 0 && !hub.exited) release(hub);
     },
   };
@@ -225,6 +253,7 @@ export const openSession = async (
 export const closeAttachments = (): void => {
   for (const hub of hubs.values()) {
     release(hub);
+    watchExitOff(hub);
     hub.subscribers.clear();
   }
   hubs.clear();
@@ -235,7 +264,7 @@ export const hubStats = (): { hubs: number; attached: number; subscribers: numbe
   let attached = 0;
   let subscribers = 0;
   for (const hub of hubs.values()) {
-    if (hub.listener !== undefined) attached++;
+    if (hub.dataListener !== undefined) attached++;
     subscribers += hub.subscribers.size;
   }
   return { hubs: hubs.size, attached, subscribers };
@@ -294,7 +323,16 @@ export const terminalSockets = {
         session.attach(
           (chunk) => ws.send(chunk),
           (since) => ws.send(JSON.stringify({ type: "truncated", since, incarnation: session.incarnation })),
-          () => ws.close(),
+          () => {
+            // The session is gone: tell the page so it does not reconnect into a new shell, then
+            // close. An abnormal close (the server died) carries no frame and the page retries.
+            try {
+              ws.send(JSON.stringify({ type: "exit" }));
+            } catch {
+              // the socket is already closing
+            }
+            ws.close();
+          },
           control.since,
         );
       } else if (control.type === "snapshot") {

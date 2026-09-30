@@ -51,7 +51,7 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-test("one host attach, output before any socket, and fan-out", async () => {
+test("one host attach, output before any socket, and a refused second attach", async () => {
   const session = await openSession("HUB-1", dir, { cols: 80, rows: 24 });
   // Produced before any socket attaches: the host buffers it and replays on attach.
   session.write("echo PRE_$(( 0 + 1 ))_MARK\n");
@@ -59,13 +59,18 @@ test("one host attach, output before any socket, and fan-out", async () => {
   session.attach(first.send, first.reset, first.onExit, 0);
   await waitFor("the pre-attach output", async () => saw(first, "PRE_1_MARK"), 15_000);
   expect(hubStats().attached).toBe(1);
+  expect(hubStats().subscribers).toBe(1);
 
+  // One live client per session: a second attach on the same socket is refused rather than
+  // silently fanning out. A late subscriber would miss the gap between its snapshot and the
+  // already-forwarded bytes — the one-live-client boundary (see the session module's comment).
   const second = collector();
   session.attach(second.send, second.reset, second.onExit, 0);
-  expect(hubStats().attached).toBe(1); // still one host attach for two sockets
-  session.write("echo BOTH_$(( 0 + 1 ))_MARK\n");
-  await waitFor("both sockets to see the new output", async () => saw(first, "BOTH_1_MARK") && saw(second, "BOTH_1_MARK"), 15_000);
-  expect(hubStats().subscribers).toBe(2);
+  expect(hubStats().subscribers).toBe(1);
+  session.write("echo ONE_$(( 0 + 1 ))_MARK\n");
+  await waitFor("the one subscriber to see the output", async () => saw(first, "ONE_1_MARK"), 15_000);
+  await Bun.sleep(200);
+  expect(saw(second, "ONE_1_MARK")).toBe(false);
 }, 30_000);
 
 test("detaching never kills the shell, and re-attaching resumes", async () => {

@@ -52,8 +52,10 @@ const runToFile = async (page: Page, command: string, file: string): Promise<str
  * has no DOM text to read, and the buffer is exactly what a snapshot is taken from. */
 type BrowserTerminal = {
   buffer: { active: { length: number; getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined } };
+  options: { fontSize: number };
   getSelection(): string;
   select(column: number, row: number, length: number): void;
+  focus(): void;
 };
 const terminalText = (page: Page): Promise<string> =>
   page.evaluate(() => {
@@ -75,6 +77,29 @@ const terminalSelection = (page: Page): Promise<string> =>
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     return element?.corviTerminal?.getSelection() ?? "";
   });
+const terminalFontSize = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    return element?.corviTerminal?.options.fontSize ?? 0;
+  });
+/** Select the first occurrence of `needle` in the buffer without disturbing the focus. */
+const selectInTerminal = async (page: Page, needle: string): Promise<void> => {
+  await page.evaluate((text) => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const term = element?.corviTerminal;
+    if (!term) return;
+    const buffer = term.buffer.active;
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y)?.translateToString(true) ?? "";
+      const at = line.indexOf(text);
+      if (at !== -1) {
+        term.select(at, y, text.length);
+        term.focus();
+        return;
+      }
+    }
+  }, needle);
+};
 
 /** Type one command until its output appears on the screen (not merely echoed). */
 const typeUntilText = async (page: Page, command: string, needle: string): Promise<void> => {
@@ -107,9 +132,9 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const second = "PROJ-TERM-2";
 
-const startServer = async (): Promise<void> => {
+const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp }), CORVI_TMUX_SOCKET: testSocket },
+    env: { ...serverEnv(tmp, { TMUX_TMPDIR: tmuxTmp, CORVI_PORT: String(port) }), CORVI_TMUX_SOCKET: testSocket },
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -203,19 +228,42 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 test.skipIf(!usable)("a terminal outlives the server that started it", async () => {
   const { page, dir } = await openTerminal(id);
   await runCommand(page, `export CORVI_SURVIVED=yes; echo set > ${join(dir, "survived-set.txt")}`, join(dir, "survived-set.txt"), "set\n");
+  // Deep scrollback that only the persisted snapshot can bring back: the host ring holds 256 KiB,
+  // and this marker is well before its end. Force the snapshot, then restart.
+  await typeUntilText(page, "seq 1 150 | sed 's/^/SRV-/'", "SRV-150");
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await Bun.sleep(300);
 
   server.kill();
   await server.exited;
   await startServer();
 
-  // A fresh page on the restarted server: the host survived, so the same shell answers.
+  // A fresh page on the restarted server: the host survived, so the same shell answers, and the
+  // persisted snapshot replays the scrollback.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await again.locator(".terminal-screen").click();
+  await until(async () => (await terminalText(again)).includes("SRV-150"), true, budget(20_000));
   await runCommand(again, `echo $CORVI_SURVIVED > ${join(dir, "survived.txt")}`, join(dir, "survived.txt"), "yes\n");
   expect(await fileText(join(dir, "survived.txt"))).toBe("yes\n");
   await again.close();
+  await page.close();
+}, budget(120_000));
+
+test.skipIf(!usable)("the page reconnects to a restarted server without a reload", async () => {
+  const { page, dir } = await openTerminal(id);
+  await runCommand(page, `echo ONE > ${join(dir, "reconnect-1.txt")}`, join(dir, "reconnect-1.txt"), "ONE\n");
+
+  // Restart on the same port: the page's URL (and so its WebSocket host) is unchanged, which is
+  // what a real relaunch on a fixed port looks like in development.
+  const port = Number(new URL(url).port);
+  server.kill();
+  await server.exited;
+  await startServer(port);
+
+  // The same page, no reload: the bounded-backoff reconnect brings the socket back itself.
+  await runCommand(page, `echo TWO > ${join(dir, "reconnect-2.txt")}`, join(dir, "reconnect-2.txt"), "TWO\n");
   await page.close();
 }, budget(120_000));
 
@@ -368,5 +416,128 @@ test.skipIf(!usable)("the menu's Open link opens the selected URL", async () => 
   await page.locator(".terminal-menu").waitFor({ timeout: 10_000 });
   await page.locator(".terminal-menu button", { hasText: "Open link" }).click();
   await until(async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0], "https://example.com/open-me", budget(10_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("the context-menu setting also silences the terminal's own menu", async () => {
+  const current = (await fetch(`${url}/api/settings`).then((response) => response.json())) as { file: Record<string, unknown> };
+  const write = (contextMenu: boolean): Promise<Response> =>
+    fetch(`${url}/api/settings`, { method: "PUT", body: JSON.stringify({ ...current.file, contextMenu }) });
+  try {
+    await write(false);
+    const { page } = await openTerminal(id);
+    const box = await page.locator(".terminal-screen").boundingBox();
+    expect(box).not.toBeNull();
+    await page.mouse.click(box!.x + 40, box!.y + 40, { button: "right" });
+    await Bun.sleep(300);
+    // The terminal's menu is the page's, and the page swallows the click before the handler runs.
+    expect(await page.locator(".terminal-menu").count()).toBe(0);
+    await page.close();
+  } finally {
+    await write(true);
+  }
+}, budget(60_000));
+
+test.skipIf(!usable)("the copy and paste chords go through the system clipboard", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "echo CLIP_MARKER", "CLIP_MARKER");
+  await page.evaluate(() => {
+    const clip = { copied: "", pasted: "PASTED_FROM_CLIP" };
+    (window as unknown as { __clip: typeof clip }).__clip = clip;
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          clip.copied = text;
+        },
+        readText: async () => clip.pasted,
+      },
+    });
+  });
+  // Select, then copy with the page's chord (the shell keeps Ctrl+C).
+  await selectInTerminal(page, "CLIP_MARKER");
+  await page.keyboard.press("Control+Shift+C");
+  await until(
+    async () => await page.evaluate(() => (window as unknown as { __clip: { copied: string } }).__clip.copied),
+    "CLIP_MARKER",
+    budget(10_000),
+  );
+  // Paste with the page's chord: the shell echoes it back onto the screen.
+  await page.keyboard.press("Control+Shift+V");
+  await until(async () => (await terminalText(page)).includes("PASTED_FROM_CLIP"), true, budget(10_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("middle-click pastes the system clipboard", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "echo MID_MARKER", "MID_MARKER");
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => undefined, readText: async () => "MIDDLE_PASTE" },
+    });
+  });
+  const box = await page.locator(".terminal-screen").boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.click(box!.x + 40, box!.y + 40, { button: "middle" });
+  await until(async () => (await terminalText(page)).includes("MIDDLE_PASTE"), true, budget(10_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("the font-size chords change and reset the terminal", async () => {
+  const { page } = await openTerminal(id);
+  expect(await terminalFontSize(page)).toBe(13);
+  await page.locator(".terminal-screen").click();
+  await page.keyboard.press("Control+Minus");
+  await until(() => terminalFontSize(page), 12, budget(5_000));
+  await page.keyboard.press("Control+Equal");
+  await until(() => terminalFontSize(page), 13, budget(5_000));
+  await page.keyboard.press("Control+Minus");
+  await page.keyboard.press("Control+Minus");
+  await page.keyboard.press("Control+Digit0");
+  await until(() => terminalFontSize(page), 13, budget(5_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("hiding the tab snapshots the screen immediately", async () => {
+  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+  // Record the control frames the page sends, and neutralise the 2s cadence so the hide is the only
+  // thing that can produce a snapshot in the window the test checks. That isolates the
+  // visibilitychange path from the periodic one (which the reload test already covers).
+  await page.addInitScript(() => {
+    const snapshots: unknown[] = [];
+    (window as unknown as { __snapshots: unknown[] }).__snapshots = snapshots;
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]): void {
+      if (typeof data === "string") {
+        try {
+          const value = JSON.parse(data) as { type?: string };
+          if (value.type === "snapshot") snapshots.push(value);
+        } catch {
+          // not a control frame
+        }
+      }
+      originalSend.call(this, data);
+    };
+    const originalSetInterval = window.setInterval.bind(window);
+    window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
+      if (timeout === 2000) return 0;
+      return originalSetInterval(handler, timeout, ...args);
+    }) as typeof window.setInterval;
+  });
+  await page.goto(`${url}/changes/${id}/terminals`);
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await typeUntilText(page, "echo HIDE_MARKER", "HIDE_MARKER");
+  expect(await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length)).toBe(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await until(
+    async () => await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length),
+    1,
+    budget(10_000),
+  );
   await page.close();
 }, budget(60_000));

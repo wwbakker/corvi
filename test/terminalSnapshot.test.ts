@@ -1,19 +1,24 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
+import { readFileSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { stateDir } from "@corvi/configuration/node";
 
-import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
-import { closeAttachments, openSession, terminalSockets } from "../apps/server/src/terminals/server/session.ts";
+import { hostClient, closeHostClient, type SessionInfo } from "../apps/server/src/terminals/server/host.ts";
+import { closeAttachments, hubStats, openSession, terminalSockets } from "../apps/server/src/terminals/server/session.ts";
+import { keptOpenIds, liveSnapshotKeys } from "../apps/server/src/terminals/server/windows.ts";
+import type { WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 import {
   SNAPSHOT_MAX_BYTES,
   SCROLLBACK_DEFAULT,
-  SCROLLBACK_MAX,
   absoluteCursor,
   byteLength,
   serializeTerminal,
 } from "../apps/web/src/terminals/client/snapshot.ts";
 import {
   clearSnapshots,
+  loadSnapshots,
+  pruneSnapshots,
   setSnapshot,
   snapshotOf,
   snapshotStats,
@@ -65,7 +70,6 @@ afterAll(async () => {
 test("the snapshot cap drops the oldest rows and keeps the recent screen", () => {
   // The defaults the terminal is built with.
   expect(SCROLLBACK_DEFAULT).toBe(5000);
-  expect(SCROLLBACK_MAX).toBe(50000);
   expect(SNAPSHOT_MAX_BYTES).toBe(1024 * 1024);
 
   // A serializer whose output grows with the rows it is asked for: the cap has to shrink the
@@ -81,9 +85,36 @@ test("the snapshot cap drops the oldest rows and keeps the recent screen", () =>
   expect(capped.endsWith(absoluteCursor(term))).toBe(true);
 });
 
+test("an oversized screen yields no snapshot rather than shipping one over the cap", () => {
+  // Even the viewport alone can exceed the cap; the floor is an empty snapshot, which the page
+  // skips and the server would refuse.
+  const serializer = { serialize: (): string => "x".repeat(500) };
+  const term = { buffer: { active: { cursorX: 0, cursorY: 0 } }, options: { scrollback: 10 } };
+  expect(serializeTerminal(term, serializer, 100)).toBe("");
+});
+
+test("a kept-open window's snapshot survives its dead session; a plain dead one is pruned", () => {
+  const record = (id: string, keepOpen: boolean): WindowRecord => ({
+    id,
+    kind: "host",
+    active: false,
+    activity: false,
+    createdAt: "2026-01-01T00:00:00.000Z",
+    ...(keepOpen ? { keepOpen } : {}),
+  });
+  const session = (id: string, incarnation: number, alive: boolean): SessionInfo =>
+    ({ id, incarnation, alive, exitCode: alive ? undefined : 0 }) as unknown as SessionInfo;
+  const kept = keptOpenIds([[record("kept", true), record("plain", false)]]);
+  expect(kept.has("kept")).toBe(true);
+  expect(kept.has("plain")).toBe(false);
+  // `kept` is dead but retained; `plain` is dead and dropped; `live` is alive and kept.
+  const keys = liveSnapshotKeys([session("kept", 1, false), session("plain", 1, false), session("live", 2, true)], kept);
+  expect(keys).toEqual(new Set(["kept#1", "live#2"]));
+});
+
 test("the snapshot store is keyed by incarnation and refuses oversized data", () => {
   setSnapshot("S", 1, "screen", 42);
-  expect(snapshotOf("S", 1)).toEqual({ data: "screen", highWater: 42 });
+  expect(snapshotOf("S", 1)).toMatchObject({ data: "screen", highWater: 42 });
   // A reused id with a new incarnation does not inherit the old snapshot.
   expect(snapshotOf("S", 2)).toBeUndefined();
   setSnapshot("S", 2, "second", 7);
@@ -96,6 +127,34 @@ test("the snapshot store is keyed by incarnation and refuses oversized data", ()
   setSnapshot("EMPTY", 1, "", 1);
   expect(snapshotOf("EMPTY", 1)).toBeUndefined();
   expect(snapshotStats().snapshots).toBe(before);
+});
+
+test("setSnapshot persists to the state dir, and load prunes to the live keys", () => {
+  setSnapshot("DISK", 1, "on-disk", 5);
+  const file = join(stateDir(), "terminal-snapshots.json");
+  const parsed = JSON.parse(readFileSync(file, "utf8")) as { version: number; snapshots: Record<string, unknown> };
+  expect(parsed.version).toBe(1);
+  expect(parsed.snapshots["DISK#1"]).toMatchObject({ data: "on-disk", highWater: 5 });
+
+  // A restart is a fresh read of the file. `afterEach` left the module unloaded, so this seeds a
+  // file as an earlier server would have and lets the store read it, then prunes a dead key.
+  clearSnapshots();
+  writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      snapshots: {
+        "BOOT#1": { data: "boot-screen", highWater: 9, savedAt: 1 },
+        "DEAD#1": { data: "dead-screen", highWater: 3, savedAt: 2 },
+      },
+    }),
+  );
+  loadSnapshots();
+  expect(snapshotOf("BOOT", 1)).toMatchObject({ data: "boot-screen", highWater: 9 });
+  pruneSnapshots(new Set(["BOOT#1"]));
+  expect(snapshotOf("DEAD", 1)).toBeUndefined();
+  const after = JSON.parse(readFileSync(file, "utf8")) as { snapshots: Record<string, unknown> };
+  expect(Object.keys(after.snapshots)).toEqual(["BOOT#1"]);
 });
 
 test("the server replays a stored snapshot, then resumes from its high-water offset", async () => {
@@ -111,7 +170,7 @@ test("the server replays a stored snapshot, then resumes from its high-water off
   // The page snapshots what it has applied; the server stores it.
   const highWater = receivedBytes(first.frames);
   terminalSockets.message(first, JSON.stringify({ type: "snapshot", data: "SNAP-DATA", highWater }));
-  expect(snapshotOf(first.data.session.sessionId, first.data.session.incarnation)).toEqual({ data: "SNAP-DATA", highWater });
+  expect(snapshotOf(first.data.session.sessionId, first.data.session.incarnation)).toMatchObject({ data: "SNAP-DATA", highWater });
 
   // Detach (the page closes), and produce output while nobody is attached.
   terminalSockets.close(first);
@@ -159,4 +218,37 @@ test("a truncated replay resets the page before the host's oldest byte", async (
   expect(firstBinaryAt).toBeGreaterThan(resetAt);
   const since = (JSON.parse(frames[resetAt] as string) as { since: number }).since;
   expect(since).toBeGreaterThan(0);
+}, 30_000);
+
+test("a session that exits while detached clears its hub", async () => {
+  const session = await openSession("SNAP-DETACH", dir, { cols: 80, rows: 24 });
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  terminalSockets.message(ws, JSON.stringify({ type: "attach", since: 0 }));
+  session.write("echo UP_$(( 0 + 1 ))_MARK\n");
+  await waitFor("the marker", async () => text(ws.frames).includes("UP_1_MARK"), 15_000);
+  terminalSockets.close(ws); // detach: the data listener is released, the exit watcher is not
+  expect(hubStats().hubs).toBe(1);
+  expect(hubStats().attached).toBe(0);
+
+  const client = await hostClient();
+  await client.kill(session.sessionId);
+  await waitFor("the hub to clear on a detached exit", async () => hubStats().hubs === 0, 15_000);
+}, 30_000);
+
+test("a session that exits while attached tells the page before closing", async () => {
+  const session = await openSession("SNAP-EXIT", dir, { cols: 80, rows: 24 });
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  terminalSockets.message(ws, JSON.stringify({ type: "attach", since: 0 }));
+  session.write("echo EXIT_$(( 0 + 1 ))_MARK\n");
+  await waitFor("the marker", async () => text(ws.frames).includes("EXIT_1_MARK"), 15_000);
+
+  const client = await hostClient();
+  await client.kill(session.sessionId);
+  await waitFor(
+    "the exit frame",
+    async () => ws.frames.some((frame) => typeof frame === "string" && (JSON.parse(frame) as { type?: string }).type === "exit"),
+    15_000,
+  );
 }, 30_000);

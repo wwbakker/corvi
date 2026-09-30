@@ -11,7 +11,6 @@
  * screen is what a restored terminal is for.
  */
 export const SCROLLBACK_DEFAULT = 5000;
-export const SCROLLBACK_MAX = 50000;
 export const SNAPSHOT_MAX_BYTES = 1024 * 1024;
 /** How often a changed screen is snapshotted while the socket is open. */
 export const SNAPSHOT_INTERVAL_MS = 2000;
@@ -46,5 +45,7 @@ export const serializeTerminal = (
     rows = target < rows ? target : rows - 1;
     data = draw(rows);
   }
-  return data;
+  // Even the viewport alone can exceed the cap. Hand back nothing rather than ship an oversized
+  // snapshot; the server would refuse it anyway, and the wire is saved the megabytes.
+  return byteLength(data) > maxBytes ? "" : data;
 };

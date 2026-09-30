@@ -132,6 +132,15 @@ export function TerminalPane({
   const dirty = useRef(false);
   /** A snapshot was asked for while writes were queued; taken when they drain. */
   const snapshotPending = useRef(false);
+  /** Reconnection: a bounded backoff while the server is down, stopped when the session itself is
+   * gone or the pane unmounts. */
+  const reconnectAttempt = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  /** The session told the page it is gone: a close after this is final, not a server restart. */
+  const sessionGone = useRef(false);
+  /** Bumped to trigger a reconnect attempt after the backoff. */
+  const [reconnect, setReconnect] = useState(0);
   /** Bumped when the terminal instance is recreated, so the socket effect reconnects after its
    * cleanup closed the old connection (a platform change, if one ever comes). */
   const [generation, setGeneration] = useState(0);
@@ -155,6 +164,14 @@ export function TerminalPane({
 
   // The xterm instance, once: it owns the screen for as long as the pane is mounted. The session
   // behind it is the socket's (below), so hiding the pane keeps the shells running.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (reconnectTimer.current !== null) clearTimeout(reconnectTimer.current);
+    };
+  }, []);
+
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -314,6 +331,9 @@ export function TerminalPane({
           term.reset();
           dirty.current = false;
           applied.current = typeof value.since === "number" ? value.since : 0;
+        } else if (value.type === "exit") {
+          // The session is gone: the close that follows is final, not a restart to retry.
+          sessionGone.current = true;
         }
         return;
       }
@@ -334,31 +354,49 @@ export function TerminalPane({
     // A resize that happened while this socket was connecting was queued; the shell starts at
     // the size it now has.
     ws.onopen = () => {
+      // A live connection resets the backoff and clears any earlier "gone" answer.
+      reconnectAttempt.current = 0;
+      sessionGone.current = false;
       if (!pendingResize.current) return;
       ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
       pendingResize.current = null;
     };
-    // A socket that closes (its session died, the server restarted) is forgotten, so hiding and
-    // showing the pane again reconnects to a fresh pty.
+    // A socket that closes (its session died, the server restarted) is forgotten. The offsets are
+    // reset here because the next connection starts a new stream: the server's first control frame
+    // (snapshot, reset or truncated) re-establishes the base. A server restart is retried with a
+    // bounded backoff; a session that says it is gone is not.
     ws.onclose = () => {
-      if (socket.current === ws) socket.current = null;
+      if (socket.current !== ws) return; // a superseded socket (another change's URL)
+      socket.current = null;
       pendingResize.current = null;
+      applied.current = 0;
+      outstanding.current = 0;
+      snapshotPending.current = false;
+      dirty.current = false;
+      if (sessionGone.current || !mounted.current) return;
+      reconnectAttempt.current = Math.min(reconnectAttempt.current + 1, 6);
+      const delay = Math.min(500 * 2 ** (reconnectAttempt.current - 1), 5000);
+      reconnectTimer.current = setTimeout(() => {
+        if (mounted.current) setReconnect((n) => n + 1);
+      }, delay);
     };
     socket.current = ws;
     openedFor.current = url;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
-  }, [url, visible, generation, takeSnapshot]);
+  }, [url, visible, generation, reconnect, takeSnapshot]);
 
   // A changed screen is snapshotted periodically, so a client crash loses at most this window of
-  // output; the server keeps only the latest.
+  // output; the server keeps only the latest. The cadence runs while the socket is open, not only
+  // while the pane is in front: a hidden pane still streams output, and stopping the cadence there
+  // would leave that output unsnapshotted until the pane is shown again.
   useEffect(() => {
-    if (!url || !visible) return;
+    if (!url) return;
     const timer = setInterval(() => {
       if (dirty.current) takeSnapshot();
     }, SNAPSHOT_INTERVAL_MS);
     return () => clearInterval(timer);
-  }, [url, visible, takeSnapshot]);
+  }, [url, takeSnapshot]);
 
   // Best-effort on leaving the page and on hiding the tab: the socket may not flush, but the
   // periodic snapshot usually already has.
