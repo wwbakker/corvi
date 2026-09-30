@@ -21,12 +21,26 @@ const dir = await testTempDir("hub");
 delete process.env.TMUX;
 process.env.CORVI_TMUX_SOCKET = join(dir, "tmux.sock");
 
-type Collector = { readonly chunks: string[]; readonly send: (chunk: string) => void; readonly onExit: () => void };
-const collector = (): Collector => {
-  const chunks: string[] = [];
-  return { chunks, send: (chunk) => chunks.push(chunk), onExit: () => undefined };
+type Collector = {
+  readonly chunks: Uint8Array[];
+  readonly resets: number[];
+  readonly send: (chunk: Uint8Array) => void;
+  readonly reset: (since: number) => void;
+  readonly onExit: () => void;
 };
-const saw = (collector: Collector, text: string): boolean => collector.chunks.join("").includes(text);
+const collector = (): Collector => {
+  const chunks: Uint8Array[] = [];
+  const resets: number[] = [];
+  return {
+    chunks,
+    resets,
+    send: (chunk) => chunks.push(chunk),
+    reset: (since) => resets.push(since),
+    onExit: () => undefined,
+  };
+};
+const saw = (collector: Collector, text: string): boolean =>
+  Buffer.concat(collector.chunks.map((chunk) => Buffer.from(chunk))).toString("utf8").includes(text);
 
 afterEach(() => {
   closeAttachments();
@@ -42,12 +56,12 @@ test("one host attach, output before any socket, and fan-out", async () => {
   // Produced before any socket attaches: the host buffers it and replays on attach.
   session.write("echo PRE_$(( 0 + 1 ))_MARK\n");
   const first = collector();
-  session.attach(first.send, first.onExit);
+  session.attach(first.send, first.reset, first.onExit, 0);
   await waitFor("the pre-attach output", async () => saw(first, "PRE_1_MARK"), 15_000);
   expect(hubStats().attached).toBe(1);
 
   const second = collector();
-  session.attach(second.send, second.onExit);
+  session.attach(second.send, second.reset, second.onExit, 0);
   expect(hubStats().attached).toBe(1); // still one host attach for two sockets
   session.write("echo BOTH_$(( 0 + 1 ))_MARK\n");
   await waitFor("both sockets to see the new output", async () => saw(first, "BOTH_1_MARK") && saw(second, "BOTH_1_MARK"), 15_000);
@@ -57,7 +71,7 @@ test("one host attach, output before any socket, and fan-out", async () => {
 test("detaching never kills the shell, and re-attaching resumes", async () => {
   const session = await openSession("HUB-2", dir, { cols: 80, rows: 24 });
   const first = collector();
-  session.attach(first.send, first.onExit);
+  session.attach(first.send, first.reset, first.onExit, 0);
   session.write("echo ALIVE_$(( 0 + 1 ))_MARK\n");
   await waitFor("the first output", async () => saw(first, "ALIVE_1_MARK"), 15_000);
 
@@ -67,7 +81,7 @@ test("detaching never kills the shell, and re-attaching resumes", async () => {
   expect(live).toHaveLength(1);
 
   const second = collector();
-  session.attach(second.send, second.onExit);
+  session.attach(second.send, second.reset, second.onExit, 0);
   session.write("echo AGAIN_$(( 0 + 1 ))_MARK\n");
   await waitFor("the shell to answer after re-attach", async () => saw(second, "AGAIN_1_MARK"), 15_000);
 }, 30_000);
@@ -76,7 +90,7 @@ test("attach/detach does not leak host listeners", async () => {
   const session = await openSession("HUB-3", dir, { cols: 80, rows: 24 });
   for (let cycle = 0; cycle < 3; cycle++) {
     const seen = collector();
-    session.attach(seen.send, seen.onExit);
+    session.attach(seen.send, seen.reset, seen.onExit, 0);
     session.write(`echo CYCLE_${cycle}_$(( 0 + 1 ))_MARK\n`);
     await waitFor(`cycle ${cycle} output`, async () => saw(seen, `CYCLE_${cycle}_1_MARK`), 15_000);
     session.kill();
@@ -84,10 +98,13 @@ test("attach/detach does not leak host listeners", async () => {
   }
   // If an old listener had leaked, the last word would be delivered twice.
   const last = collector();
-  session.attach(last.send, last.onExit);
+  session.attach(last.send, last.reset, last.onExit, 0);
   session.write("echo LEAK_$(( 0 + 1 ))_PROBE\n");
   await waitFor("the probe", async () => saw(last, "LEAK_1_PROBE"), 15_000);
   await Bun.sleep(200);
-  const occurrences = last.chunks.join("").split("LEAK_1_PROBE").length - 1;
+  const occurrences = last.chunks
+    .map((chunk) => Buffer.from(chunk).toString("utf8"))
+    .join("")
+    .split("LEAK_1_PROBE").length - 1;
   expect(occurrences).toBe(1);
 }, 30_000);

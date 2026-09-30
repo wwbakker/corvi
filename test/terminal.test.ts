@@ -48,6 +48,46 @@ const runToFile = async (page: Page, command: string, file: string): Promise<str
   throw new Error(`the command never wrote ${file}`);
 };
 
+/** The xterm buffer, read through the seam the pane sets on its host element: the WebGL canvas
+ * has no DOM text to read, and the buffer is exactly what a snapshot is taken from. */
+type BrowserTerminal = {
+  buffer: { active: { length: number; getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined } };
+  getSelection(): string;
+  select(column: number, row: number, length: number): void;
+};
+const terminalText = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const term = element?.corviTerminal;
+    if (!term) return "";
+    const buffer = term.buffer.active;
+    const lines: string[] = [];
+    for (let y = 0; y < buffer.length; y++) lines.push(buffer.getLine(y)?.translateToString(true) ?? "");
+    return lines.join("\n");
+  });
+const terminalLength = (page: Page): Promise<number> =>
+  page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    return element?.corviTerminal?.buffer.active.length ?? 0;
+  });
+const terminalSelection = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    return element?.corviTerminal?.getSelection() ?? "";
+  });
+
+/** Type one command until its output appears on the screen (not merely echoed). */
+const typeUntilText = async (page: Page, command: string, needle: string): Promise<void> => {
+  for (let attempt = 0; attempt < 40; attempt++) {
+    await page.keyboard.type(`${command}\n`);
+    for (let settle = 0; settle < 8; settle++) {
+      if ((await terminalText(page)).includes(needle)) return;
+      await Bun.sleep(200);
+    }
+  }
+  throw new Error(`the terminal never showed ${needle}`);
+};
+
 const haveBrowser = await (async (): Promise<boolean> => {
   try {
     return await Bun.file(chromium.executablePath()).exists();
@@ -246,5 +286,87 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   await runCommand(page, "echo ready > ready.txt", join(dir, "ready.txt"), "ready\n");
   await killHostSession(id);
   await until(() => page.locator(".terminal-gone").count(), 1, budget(30_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("xterm owns the screen: scrollback survives a snapshot and a reload", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "seq 1 400 | sed 's/^/ROW-/'", "ROW-400");
+  const before = await terminalLength(page);
+  expect(before).toBeGreaterThan(100);
+
+  // Force the snapshot now instead of waiting out the periodic cadence, then reload: the server
+  // replays the stored screen into the fresh page.
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await Bun.sleep(400);
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await until(async () => (await terminalText(page)).includes("ROW-400"), true, budget(20_000));
+  const restored = await terminalText(page);
+  expect(restored).toContain("ROW-400");
+  expect(restored).not.toContain("ROW-401");
+  // Restored, not doubled: a resume replays only from the snapshot's offset.
+  const after = await terminalLength(page);
+  expect(after).toBeGreaterThan(100);
+  expect(after).toBeLessThan(before + 50);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the page draws the terminal menu, and find selects a match", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "echo https://example.com/marker", "example.com");
+
+  const screen = page.locator(".terminal-screen");
+  const box = await screen.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.click(box!.x + 40, box!.y + 40, { button: "right" });
+  const menu = page.locator(".terminal-menu");
+  await menu.waitFor({ timeout: 10_000 });
+  const items = await menu.locator("button").allInnerTexts();
+  expect(items).toEqual(["Copy", "Paste", "Select all", "Clear", "Find", "Open link"]);
+
+  await menu.locator("button", { hasText: "Find" }).click();
+  const find = page.locator(".terminal-find input");
+  await find.waitFor({ timeout: 5_000 });
+  await find.fill("example.com");
+  await find.press("Enter");
+  await until(async () => (await terminalSelection(page)).includes("example.com"), true, budget(10_000));
+  await find.press("Escape");
+  await until(() => page.locator(".terminal-find").count(), 0, budget(5_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("the menu's Open link opens the selected URL", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "echo https://example.com/open-me", "open-me");
+  // Select the URL in the buffer, then ask the page's menu to open it. A dispatched contextmenu
+  // (rather than a right click) keeps the selection intact.
+  await page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const term = element?.corviTerminal;
+    if (!term) return;
+    const buffer = term.buffer.active;
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y)?.translateToString(true) ?? "";
+      const at = line.indexOf("https://example.com/open-me");
+      if (at !== -1) {
+        term.select(at, y, "https://example.com/open-me".length);
+        return;
+      }
+    }
+  });
+  await page.evaluate(() => {
+    (window as unknown as { __opened: string[] }).__opened = [];
+    (window as unknown as { open: (url: string) => null }).open = (url: string) => {
+      (window as unknown as { __opened: string[] }).__opened.push(url);
+      return null;
+    };
+  });
+  await page.evaluate(() => {
+    document.querySelector(".terminal-screen")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+  });
+  await page.locator(".terminal-menu").waitFor({ timeout: 10_000 });
+  await page.locator(".terminal-menu button", { hasText: "Open link" }).click();
+  await until(async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0], "https://example.com/open-me", budget(10_000));
   await page.close();
 }, budget(60_000));

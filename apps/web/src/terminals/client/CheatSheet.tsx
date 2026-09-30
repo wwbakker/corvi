@@ -1,51 +1,43 @@
 import { type JSX, useEffect, useRef } from "react";
 import type { Platform } from "@corvi/terminals/model";
 
-/** tmux keys worth knowing, since the terminal is a tmux session and nothing in the page hints
- * at that. Everything here is plain tmux: nothing Corvi invented. */
+/** The terminal page's own surface: a host session rendered by xterm.js, so the mouse, the
+ * scrollbar, find and the context menu are the page's, not tmux's. */
 const KEYS: [string, string][] = [
-  ["ctrl-b c", "new window"],
-  ["ctrl-b n / p", "next / previous window"],
-  ["ctrl-b <number>", "go to window by number"],
-  ["ctrl-b w", "list windows and pick one"],
-  ["ctrl-b ,", "rename the current window"],
-  ["ctrl-b &", "close the current window"],
-  ["ctrl-b %", "split left/right"],
-  ["ctrl-b \"", "split top/bottom"],
-  ["ctrl-b arrows", "move between panes"],
-  ["ctrl-b z", "zoom a pane in or out"],
-  ["ctrl-b [", "scroll back (q to leave); the wheel does this too"],
-  ["ctrl-b d", "detach — the session keeps running"],
-];
-
-/**
- * Copying out of a terminal in a browser. The mouse belongs to tmux (mouse mode is on), but tmux
- * hands its own copies to the page as OSC 52, so a plain drag — and a double or triple click —
- * is on the system clipboard by itself. The browser's selection is still one modifier away
- * (option on macOS, shift on Linux, the modifier xterm.js honours on each platform), and the
- * page takes the copy chords: macOS routes ⌘C through the app's Edit menu, while on Linux there
- * is no menu and Ctrl+C belongs to the shell, so it is the Ctrl+Shift pair. Middle-click pastes
- * the system clipboard. tmux's buffers are separate from the clipboard on both.
- */
-const COPYING_MAC: [string, string][] = [
-  ["drag", "select and copy to the Mac clipboard"],
-  ["double-click / triple-click", "copy a word / a line to the clipboard"],
-  ["⌥-drag, then ⌘C", "select with xterm itself, then copy"],
-  ["⌘V", "paste from the Mac clipboard"],
-  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the clipboard"],
-];
-
-const COPYING_LINUX: [string, string][] = [
-  ["drag", "select and copy to the system clipboard"],
-  ["double-click / triple-click", "copy a word / a line to the clipboard"],
-  ["Shift+drag", "select with xterm itself; Ctrl+Shift+C copies it"],
-  ["Ctrl+Shift+V", "paste the clipboard (Ctrl+V also pastes)"],
+  ["drag", "select; double and triple click select a word and a line"],
+  ["wheel / scrollbar", "scroll back through the history"],
+  ["right-click", "copy, paste, select all, clear, find, open a link"],
   ["middle-click", "paste the system clipboard"],
-  ["ctrl-b ]", "paste the tmux buffer — a separate thing from the clipboard"],
 ];
 
-const copying = (platform: Platform): [string, string][] =>
-  platform === "linux" ? COPYING_LINUX : COPYING_MAC;
+/** Chords the page takes, which differ by platform the way the rest of the app's do. */
+const CHORDS_MAC: [string, string][] = [
+  ["⌘T", "new window"],
+  ["⌘F", "find in the terminal (Enter next, ⇧Enter previous, Esc closes)"],
+  ["⌘+ / ⌘- / ⌘0", "font size up / down / reset"],
+  ["⌘-click", "open a link"],
+  ["⌘C", "copy the selection"],
+  ["⌘V", "paste"],
+];
+
+const CHORDS_LINUX: [string, string][] = [
+  ["ctrl-alt-t", "new window"],
+  ["ctrl+f", "find in the terminal (Enter next, shift+Enter previous, Esc closes)"],
+  ["ctrl+ / ctrl- / ctrl0", "font size up / down / reset"],
+  ["ctrl-click", "open a link"],
+  ["ctrl+shift+c", "copy the selection"],
+  ["ctrl+shift+v", "paste (ctrl+v also pastes)"],
+];
+
+/** Subagent windows are still tmux windows in the change's own session; these keys reach them. */
+const TMUX_KEYS: [string, string][] = [
+  ["ctrl-b n / p", "next / previous subagent window"],
+  ["ctrl-b w", "list the windows and pick one"],
+  ["ctrl-b [", "scroll back in a subagent window (q to leave)"],
+];
+
+const chords = (platform: Platform): [string, string][] =>
+  platform === "linux" ? CHORDS_LINUX : CHORDS_MAC;
 
 export function CheatSheet({
   changeId,
@@ -56,7 +48,7 @@ export function CheatSheet({
   changeId: string;
   open: boolean;
   onClose: () => void;
-  /** The server's platform: the copying rows are its business. */
+  /** The server's platform: the chords are its business. */
   platform: Platform;
 }): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
@@ -70,7 +62,7 @@ export function CheatSheet({
 
   return (
     <dialog ref={ref} onCancel={onClose} onClose={onClose}>
-      <h3>tmux cheat sheet</h3>
+      <h3>Terminal cheat sheet</h3>
       <table className="keys">
         <tbody>
           {KEYS.map(([key, what]) => (
@@ -82,9 +74,20 @@ export function CheatSheet({
             </tr>
           ))}
           <tr>
-            <th colSpan={2}>Copying and pasting</th>
+            <th colSpan={2}>The page's chords</th>
           </tr>
-          {copying(platform).map(([key, what]) => (
+          {chords(platform).map(([key, what]) => (
+            <tr key={key}>
+              <td>
+                <code>{key}</code>
+              </td>
+              <td>{what}</td>
+            </tr>
+          ))}
+          <tr>
+            <th colSpan={2}>Subagent windows (still tmux)</th>
+          </tr>
+          {TMUX_KEYS.map(([key, what]) => (
             <tr key={key}>
               <td>
                 <code>{key}</code>
@@ -95,8 +98,9 @@ export function CheatSheet({
         </tbody>
       </table>
       <p className="hint">
-        This tab is the tmux session <code>corvi-{changeId}</code>, started in the change directory.
-        Reach the same shells from any terminal with <code>tmux -L corvi attach -t corvi-{changeId}</code>.
+        The terminal is a host session: the shell outlives this page and the server. Subagent
+        windows still live in the change's tmux session, reachable with{" "}
+        <code>tmux -L corvi attach -t corvi-{changeId}</code>.
       </p>
       <div className="dialog-actions">
         <button type="button" className="primary" onClick={onClose}>
