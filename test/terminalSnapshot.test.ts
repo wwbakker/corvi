@@ -31,6 +31,20 @@ import { testTempDir, waitFor } from "./helpers.ts";
  * drawing over corrupt state. The protocol half runs against a real host session through fake
  * sockets; the serialization half runs against a real headless xterm.
  */
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedEnv = {
+  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+};
+const restoreEnv = (): void => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
 process.env.CORVI_HOST_RUNTIME = "node";
 const dir = await testTempDir("snapshot");
 delete process.env.TMUX;
@@ -65,6 +79,7 @@ afterEach(() => {
 afterAll(async () => {
   await closeHostClient();
   await rm(dir, { recursive: true, force: true });
+  restoreEnv();
 });
 
 test("the snapshot cap drops the oldest rows and keeps the recent screen", () => {

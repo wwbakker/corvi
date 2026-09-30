@@ -4,36 +4,41 @@
 
 ## Sessions and attachment
 
-Each change can have a tmux session named `corvi-<change id>`, started in its change directory on
-Corvi's own socket (`-L corvi`). Corvi attaches through node-pty and renders it with xterm.js.
+Each change's terminals are **host sessions** in the terminal host: one long-lived process per
+Corvi state directory (`host.sock`) that owns the ptys. The page attaches over a WebSocket and
+renders with xterm.js.
 
-Opening a terminal starts or attaches the session. Opening a dashboard does not. Closing the
-page or restarting Corvi detaches the client without losing shells: tmux owns the persistent
-session. Completing or cancelling a change explicitly closes its session before archiving it.
+Opening a terminal starts or attaches a session. Opening a dashboard does not. Closing the page or
+restarting Corvi detaches without losing shells: the host outlives the server that started it, so
+the shells keep running and the next page resumes them (restoring the scrollback from the page's
+last snapshot). Completing or cancelling a change explicitly stops its sessions before archiving
+it.
 
 This persistence is not a promise to restore processes after a machine reboot or to resume an
 agent conversation. Those are separate planned capabilities.
 
 ## Windows and navigation
 
-Windows appear under their change in the navigation column. A default label uses the active
-pane's directory and running command, such as `example-web - (vim)`. A plain shell adds no
-command suffix. Renaming a window with `Ctrl-b ,` keeps your chosen name.
+Windows appear under their change in the navigation column and in the strip above the terminal. A
+default label uses the window's directory, or the name an action or agent reported; an agent
+window takes its own session name once it has one. There is no tmux session underneath — a window
+*is* a host session, and the strip (not `Ctrl-b`) switches between them.
 
-The new-window control, **Cmd-T** on macOS, or **Ctrl-Alt-T** on Linux creates another window in
-the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
-desktop app can deliver it to Corvi. Keyboard focus stays with the terminal while switching windows.
+The new-window control, **Cmd-T** on macOS or **Ctrl-Alt-T** on Linux, creates another host session
+in the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
+desktop app can deliver it to Corvi. Keyboard focus stays with the terminal while switching
+windows.
 
-Use normal tmux commands for windows and split panes; the terminal's cheat sheet lists common
-shortcuts. Mouse mode supports scrolling through terminal history. A dot indicates output that
-arrived while you were looking elsewhere.
+The terminal owns the screen: drag to select, the wheel or the scrollbar scrolls back, and the
+right-click menu holds Copy, Paste, Select all, Clear, Find and Open link. A dot indicates output
+that arrived while you were looking elsewhere.
 
 ## Agent status and the reporter protocol
 
-An agent can say what it is doing in its pane: **working** or **waiting** for you, who it is, what
-the session is called, and the first sentence of its last answer. Corvi uses that instead of the
-process name — `node` says nothing, and an idle agent is not counted as active work just because
-its process still exists.
+An agent can say what it is doing in its session: **working** or **waiting** for you, who it is,
+what the session is called, and the first sentence of its last answer. Corvi uses that instead of
+the process name — `node` says nothing, and an idle agent is not counted as active work just
+because its process still exists.
 
 The facts are the reporter protocol. A reporter is a small plugin inside the agent; the two
 included ones are `integrations/pi` and `integrations/opencode`. The reporter publishes through
@@ -75,7 +80,7 @@ bun run extension:install:opencode   # or: bun run extension:uninstall:opencode
 These commands install Corvi's adapters into the agents; they do not install third-party code into
 Corvi. Each install points at `integrations/<agent>/src` — its entry `index.ts` composing the
 reporter (`agent-state.ts`), the subagent relay (`turns.ts`), and the CLI guide (`cli-guide.ts`, a
-sentence about `corvi` in the agent's prompt inside a Corvi pane and nowhere else) — in the shape
+sentence about `corvi` in the agent's prompt inside a Corvi session and nowhere else) — in the shape
 that agent's loader
 resolves: pi resolves a module's imports beside the file it loaded, so its install is the
 directory `~/.pi/agent/extensions/corvi/` (symlinks, entry at `index.ts`); opencode follows the
@@ -106,16 +111,13 @@ Several waiting windows can notify separately; each uses a stable window identit
 
 ## Troubleshooting and safety
 
-To inspect a session from another terminal, name Corvi's socket explicitly:
+The terminal host owns every pty. Its socket is `<state dir>/corvi/host.sock` (the state dir is
+`$XDG_STATE_HOME/corvi` unless overridden), and the window registry is `terminal-windows.json`
+beside it. A blank browser terminal with a live host session points to the connection or rendering
+path rather than lost shells; check the correct server's logs and the browser console. Stopping
+Corvi and starting it again leaves the host and its shells running by design.
 
-```sh
-tmux -L corvi attach -t corvi-<change-id>
-```
-
-A blank browser terminal with a working tmux attachment points to the connection or rendering
-path rather than lost shells. Check the correct server's logs and the browser console.
-
-`CORVI_TMUX_SOCKET` can select a specific socket for isolated tests. Never use the user socket as
-a fixture. Inside a Corvi pane, inherited `TMUX` points at that server: an unqualified
-`tmux kill-server` there would terminate every Corvi session. Follow the contributor
+Tests isolate themselves with their own state directory (`XDG_STATE_HOME`), so they never touch
+your host. An older build used a tmux server selected by `CORVI_TMUX_SOCKET`; that product surface
+is gone, and any leftover `corvi-*` tmux sessions are not Corvi's. Follow the contributor
 [resource-safety rules](../guides/testing.md#resource-safety) when diagnosing test leftovers.

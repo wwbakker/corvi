@@ -61,6 +61,19 @@ const longPollMs = (): number => Number(process.env.CORVI_SUBAGENT_POLL_MS) || 3
 
 const now = (): string => new Date().toISOString();
 
+/** One open per subagent at a time: two concurrent opens would otherwise both see "not live" and
+ * launch two host sessions for one id. An in-process lock is enough, since the server is the only
+ * writer of the instances. */
+const openLocks = new Map<string, Effect.Semaphore>();
+const openLock = (key: string): Effect.Semaphore => {
+  let lock = openLocks.get(key);
+  if (lock === undefined) {
+    lock = Effect.unsafeMakeSemaphore(1);
+    openLocks.set(key, lock);
+  }
+  return lock;
+};
+
 type Live = LiveSubagent;
 
 /** The live subagent host sessions of a change, keyed by subagent id. A host that is not running
@@ -143,25 +156,37 @@ const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
  * touches the terminal substrate. The caller persists the id under the lock. */
 export type SubagentLauncher = (change: Change, record: SubagentRecord) => Effect.Effect<string, BadRequestError>;
 
+/** The argv and working directory a subagent's host window runs: the harness pinned to the
+ * subagent id (`--session-id`/`--session`), in the subagent's own directory. Pure, so the resume
+ * contract a reopen depends on is testable without a harness. */
+export const subagentLaunch = (
+  changeDirPath: string,
+  record: SubagentRecord,
+): { readonly cwd: string; readonly command: string[] } => {
+  const launch = launchOf({
+    harness: record.harness,
+    sessionId: record.id,
+    label: record.label,
+    ...(record.model === undefined ? {} : { model: record.model }),
+    ...(record.effort === undefined ? {} : { effort: record.effort }),
+  });
+  return { cwd: instanceDir(changeDirPath, record.id), command: [launch.command, ...launch.args] };
+};
+
+/** The launcher a real subagent gets: its own host session, running the harness pinned to the
+ * subagent id. Reopening the same id runs the same argv in the same directory, which is what
+ * resumes the harness's own session. */
 const startWindow: SubagentLauncher = (change, record) =>
   Effect.gen(function* () {
     const changeDirPath = changeDir(change);
-    const dir = instanceDir(changeDirPath, record.id);
-    const launch = launchOf({
-      harness: record.harness,
-      sessionId: record.id,
-      label: record.label,
-      ...(record.model === undefined ? {} : { model: record.model }),
-      ...(record.effort === undefined ? {} : { effort: record.effort }),
-    });
-    // argv, not a shell line: the host execs the harness directly. The cwd is the subagent's own
-    // directory, which is what keys the harness's session storage.
+    const { cwd, command } = subagentLaunch(changeDirPath, record);
+    // argv, not a shell line: the host execs the harness directly.
     const window = yield* newSubagentWindow(change.id, {
       changeDir: changeDirPath,
-      cwd: dir,
+      cwd,
       subagentId: record.id,
       label: record.label,
-      command: [launch.command, ...launch.args],
+      command,
     }).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
     return window;
   });
@@ -243,15 +268,17 @@ export const openSubagent = (
   id: string,
   launcher: SubagentLauncher = startWindow,
 ): Effect.Effect<SubagentInstanceDto, NotFoundError | BadRequestError> =>
-  Effect.gen(function* () {
-    const record = yield* requireInstance(change, id);
-    const live = (yield* liveBySubagent(change.id)).get(id);
-    if (live !== undefined) return toDto(record, live);
-    const window = yield* launcher(change, record);
-    yield* opened(change, id, window);
-    yield* Effect.sync(() => announce("windows"));
-    return yield* refreshSubagent(change, id);
-  });
+  openLock(`${change.id}\u0000${id}`).withPermits(1)(
+    Effect.gen(function* () {
+      const record = yield* requireInstance(change, id);
+      const live = (yield* liveBySubagent(change.id)).get(id);
+      if (live !== undefined) return toDto(record, live);
+      const window = yield* launcher(change, record);
+      yield* opened(change, id, window);
+      yield* Effect.sync(() => announce("windows"));
+      return yield* refreshSubagent(change, id);
+    }),
+  );
 
 export const closeSubagent = (
   change: Change,

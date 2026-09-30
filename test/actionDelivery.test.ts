@@ -23,6 +23,20 @@ import { testTempDir, waitFor } from "./helpers.ts";
  */
 const own = await testTempDir("action-host");
 process.env.CORVI_CONFIG = join(own, "config.json");
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedEnv = {
+  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+};
+const restoreEnv = (): void => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
 process.env.CORVI_HOST_RUNTIME = "node";
 // Every window is a host session now; the tmux socket is a leftover from the transitional
 // aggregation and is harmless, but the tests no longer read it.
@@ -43,6 +57,7 @@ await mkdir(join(process.env.CORVI_ROOT ?? "", change.id), { recursive: true });
 afterAll(async () => {
   await closeHostClient();
   await rm(own, { recursive: true, force: true });
+  restoreEnv();
 });
 
 test("an action runs in a host window and its command takes effect", async () => {

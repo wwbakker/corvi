@@ -10,8 +10,7 @@
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
  * path is involved, the directory its caller computed.
  *
- * `tmux.ts` still holds the socket path the page connects to (`terminalSocketPath`); its other
- * operations have no product caller since subagents moved to host sessions, and the package is
+ * `tmux.ts` has no product caller since subagents moved to host sessions, and the package is
  * scheduled for deletion in a later slice.
  */
 export {
@@ -25,7 +24,7 @@ export {
   newSubagentWindow,
   killHostWindow,
   liveSubagents,
+  terminalSocketPath,
   type LiveSubagent,
 } from "./windows.ts";
 export { presentWindow, type PresentedWindow } from "./presenter.ts";
-export { terminalSocketPath } from "./tmux.ts";

@@ -388,8 +388,9 @@ test("completeChange: every step is journaled as it runs and the change is archi
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain(`gh pr merge 7 --squash`);
   expect(asked.some((line) => line.startsWith("git worktree remove --force"))).toBe(true);
-  // The terminal step is a host-session stop (`stopHostTerminals`), which does not go through the
-  // shell seam: the host owns the ptys, so there is no tmux command to observe here.
+  // The terminal step is a host-session stop, which does not go through the shell seam: the host
+  // owns the ptys, so there is no command to observe here. The stop itself is asserted against a
+  // real host through the lifecycle service in test/windowRegistryHost.test.ts.
 });
 
 test("contentInMain: contained, cherry-equivalent, and missing content", async () => {

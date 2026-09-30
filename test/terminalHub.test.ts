@@ -14,6 +14,20 @@ import { testTempDir, waitFor } from "./helpers.ts";
  * two sockets, output produced before a socket attaches is still delivered (from the host's
  * replay), fan-out, detach-never-kill, and no listener leak across attach/detach cycles.
  */
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedEnv = {
+  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+};
+const restoreEnv = (): void => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
 process.env.CORVI_HOST_RUNTIME = "node";
 const dir = await testTempDir("hub");
 // A tmux socket of this file's own: the window list reads tmux, and it must never reach the
@@ -49,6 +63,7 @@ afterEach(() => {
 afterAll(async () => {
   await closeHostClient();
   await rm(dir, { recursive: true, force: true });
+  restoreEnv();
 });
 
 test("one host attach, output before any socket, and a refused second attach", async () => {

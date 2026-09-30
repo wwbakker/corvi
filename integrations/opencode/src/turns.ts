@@ -113,8 +113,7 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
 
 /** The subagent id this session carries, from the environment the host seeded. Undefined when
  * this is not a subagent session. */
-const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string | undefined => {
-  const id = env.CORVI_SUBAGENT_ID?.trim();
+export const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string | undefined => {  const id = env.CORVI_SUBAGENT_ID?.trim();
   return id === undefined || id === "" ? undefined : id;
 };
 

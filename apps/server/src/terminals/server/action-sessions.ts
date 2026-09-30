@@ -2,14 +2,12 @@
  * The host-backed `ActionSessions`: a new action run opens a host session, a paste is a bracketed
  * write, and a submit is an Enter.
  *
- * Agent windows are still tmux windows (subagents keep their own substrate until their slice), so
- * a target whose id is a tmux window id (`@3`) is delivered through the tmux binding; everything
- * else is a host session.
+ * Every window is a host session now — interactive shells, action runs and subagents — so a
+ * target is always a session id (the `w-…` the registry holds).
  */
 import { Effect } from "effect";
 import type { ActionSessions } from "@corvi/actions/deliver";
 import type { CommandFailure } from "@corvi/terminals/tmux";
-import { sessions as tmuxSessions } from "./tmux.ts";
 import { newWindowRunningAsync, writeToHostWindow } from "./windows.ts";
 
 const asFailure = (error: unknown): CommandFailure => ({
@@ -18,13 +16,10 @@ const asFailure = (error: unknown): CommandFailure => ({
   exitCode: 1,
 });
 
-/** tmux window ids look like `@3`; host session ids never start with `@`. */
-const isTmuxWindow = (window: string): boolean => window.startsWith("@");
-
 const hostWrite = (window: string, data: string): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({
     try: async () => {
-      // A dead or unknown window is a failed delivery, the same way tmux's `runOrThrow` is: the
+      // A dead or unknown window is a failed delivery, the same way tmux's `runOrThrow` was: the
       // caller must not report success on a paste that never landed.
       if (!(await writeToHostWindow(window, data))) throw new Error(`no live terminal for window ${window}`);
     },
@@ -34,7 +29,6 @@ const hostWrite = (window: string, data: string): Effect.Effect<void, CommandFai
 export const actionSessions: ActionSessions = {
   newWindowRunning: (changeId, dir, command, options) =>
     Effect.tryPromise({ try: () => newWindowRunningAsync(changeId, dir, command, options), catch: asFailure }),
-  pastePromptTo: (window, text) =>
-    isTmuxWindow(window) ? tmuxSessions.pastePromptTo(window, text) : hostWrite(window, `\x1b[200~${text}\x1b[201~`),
-  submit: (window) => (isTmuxWindow(window) ? tmuxSessions.submit(window) : hostWrite(window, "\r")),
+  pastePromptTo: (window, text) => hostWrite(window, `\x1b[200~${text}\x1b[201~`),
+  submit: (window) => hostWrite(window, "\r"),
 };

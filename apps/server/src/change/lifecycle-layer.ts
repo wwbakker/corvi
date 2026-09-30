@@ -32,6 +32,10 @@ import {
   layer as changeLifecycleLayer,
   type PullRequestState,
 } from "@corvi/workflows/lifecycle"
+
+/** Re-exported so a server test can drive the terminal-stop capability this layer implements
+ * without depending on the workflows package's own entry point. */
+export { TerminalSessions } from "@corvi/workflows/lifecycle"
 import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
 import type { Change as LegacyChange, CompletionStep } from "../domain/change.ts"
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"

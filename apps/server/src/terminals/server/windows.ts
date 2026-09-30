@@ -45,6 +45,10 @@ const shell = (): string => process.env.SHELL ?? "/bin/sh";
 
 const windowId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
+/** The URL path the page opens the terminal socket on. The route and the client share this one
+ * spelling, so it lives beside the route that serves it rather than in the tmux package. */
+export const terminalSocketPath = (id: string): string => `/api/changes/${encodeURIComponent(id)}/terminal/socket`;
+
 /** The checkout's own CLI entry, put in front of a host pane's PATH. An installed `corvi` from
  * another checkout may not have this channel's commands, and the server's `putCliOnPath`
  * deliberately lets an installed one win for `start`/`stop` — so a host session seeds the
@@ -347,8 +351,12 @@ export type LiveSubagent = {
 export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, LiveSubagent>> => {
   const map = new Map<string, LiveSubagent>();
   if (!hostRunning()) return map;
-  const indexOf = new Map(registryRecords(changeId).map((record, index) => [record.id, index]));
-  for (const session of await (await hostClient()).list()) {
+  const sessions = await (await hostClient()).list();
+  // The index is the page's own: it comes from the same locked rebuild `listWindowsAsync` gives the
+  // window strip, not from the raw persisted records (which a concurrent open could leave stale).
+  const windows = await listWindowsAsync(changeId);
+  const indexOf = new Map(windows.map((window, index) => [window.id, index]));
+  for (const session of sessions) {
     if (!session.alive || session.metadata?.change !== changeId) continue;
     const subagentId = session.metadata?.subagentId?.trim();
     if (!subagentId) continue;

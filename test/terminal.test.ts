@@ -113,6 +113,14 @@ const typeUntilText = async (page: Page, command: string, needle: string): Promi
   throw new Error(`the terminal never showed ${needle}`);
 };
 
+/** Type one command exactly once and wait for its output. For a command whose effect cannot be
+ * repeated (a large stream), a retry would corrupt the test rather than help it; the shell must
+ * already be proven ready by a `runCommand` first, or the single line could be lost. */
+const typeOnceUntil = async (page: Page, command: string, needle: string, ms = 2000): Promise<void> => {
+  await page.keyboard.type(`${command}\n`);
+  await until(async () => (await terminalText(page)).includes(needle), true, budget(ms));
+};
+
 const haveBrowser = await (async (): Promise<boolean> => {
   try {
     return await Bun.file(chromium.executablePath()).exists();
@@ -122,6 +130,19 @@ const haveBrowser = await (async (): Promise<boolean> => {
 })();
 const usable = haveBrowser;
 if (usable) requireFreshWebBundle();
+
+// The tmux env this file sets, saved so a co-located test file does not inherit it.
+const savedTmuxEnv = {
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+};
+const restoreTmuxEnv = (): void => {
+  for (const [key, value] of Object.entries(savedTmuxEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
 
 let tmp: string;
 let tmuxTmp: string;
@@ -145,8 +166,8 @@ beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("term");
   tmuxTmp = await tmuxTempDir();
-  // A tmux socket of this run's own: the server's tmux reads (subagent windows) must never reach
-  // the user's server, and a private path beats $TMUX whatever it says.
+  // A tmux socket of this run's own. The product no longer reads tmux, but the socket keeps a
+  // stray `tmux` invocation from ever reaching the user's server.
   delete process.env.TMUX;
   process.env.TMUX_TMPDIR = tmuxTmp;
   testSocket = join(tmuxTmp, `tmux-${process.getuid?.() ?? 0}`, "corvi");
@@ -167,7 +188,7 @@ afterEach(async () => {
 });
 
 afterAll(async () => {
-  delete process.env.CORVI_TMUX_SOCKET;
+  restoreTmuxEnv();
   if (!usable) return;
   await browser?.close();
   server?.kill();
@@ -227,10 +248,26 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
 
 test.skipIf(!usable)("a terminal outlives the server that started it", async () => {
   const { page, dir } = await openTerminal(id);
-  await runCommand(page, `export CORVI_SURVIVED=yes; echo set > ${join(dir, "survived-set.txt")}`, join(dir, "survived-set.txt"), "set\n");
-  // Deep scrollback that only the persisted snapshot can bring back: the host ring holds 256 KiB,
-  // and this marker is well before its end. Force the snapshot, then restart.
-  await typeUntilText(page, "seq 1 150 | sed 's/^/SRV-/'", "SRV-150");
+  const before = join(dir, "survived-before.txt");
+  // Prove the shell has the variable before anything restarts: the export and the read are the
+  // same command, so the file cannot say "yes" unless the shell really exported it.
+  await runCommand(
+    page,
+    `export CORVI_SURVIVED=yes; echo "$CORVI_SURVIVED" > ${before}`,
+    before,
+    "yes\n",
+  );
+  expect(await fileText(before)).toBe("yes\n");
+  // A marker followed by more than the host ring's 256 KiB: by the time the snapshot is taken the
+  // ring has evicted the marker, so whatever brings it back after the restart can only be the
+  // persisted renderer snapshot (loaded on start since 5c3f8a6), not the ring's replay.
+  await typeOnceUntil(page, "echo SRV-DEEP-MARKER", "SRV-DEEP-MARKER", 15_000);
+  await typeOnceUntil(page, "head -c 280000 /dev/zero | tr '\\0' X; echo SRV-FILLER-DONE", "SRV-FILLER-DONE", 60_000);
+  expect(await terminalText(page)).toContain("SRV-DEEP-MARKER");
+  // Let the periodic cadence store a snapshot taken *after* the filler (its offset covers the whole
+  // stream), then force one too. A snapshot older than the ring would attach into a truncated
+  // replay whose reset clears the very marker this test is about.
+  await Bun.sleep(2500);
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await Bun.sleep(300);
 
@@ -238,18 +275,25 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await server.exited;
   await startServer();
 
-  // A fresh page on the restarted server: the host survived, so the same shell answers, and the
-  // persisted snapshot replays the scrollback.
+  // A fresh page on the restarted server: the deep marker proves the persisted snapshot was
+  // replayed, and the exported variable proves the same shell is underneath it.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await again.locator(".terminal-screen").click();
-  await until(async () => (await terminalText(again)).includes("SRV-150"), true, budget(20_000));
-  await runCommand(again, `echo $CORVI_SURVIVED > ${join(dir, "survived.txt")}`, join(dir, "survived.txt"), "yes\n");
+  // Assert the read that satisfied the wait, rather than a second read that could race a late
+  // reset: the scrollback really is back.
+  let restored = "";
+  await until(async () => {
+    restored = await terminalText(again);
+    return restored.includes("SRV-DEEP-MARKER");
+  }, true, budget(30_000));
+  expect(restored).toContain("SRV-DEEP-MARKER");
+  await runCommand(again, `echo "$CORVI_SURVIVED" > ${join(dir, "survived.txt")}`, join(dir, "survived.txt"), "yes\n");
   expect(await fileText(join(dir, "survived.txt"))).toBe("yes\n");
   await again.close();
   await page.close();
-}, budget(120_000));
+}, budget(180_000));
 
 test.skipIf(!usable)("the page reconnects to a restarted server without a reload", async () => {
   const { page, dir } = await openTerminal(id);
@@ -317,14 +361,17 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
 
 test.skipIf(!usable)("closing the page detaches but keeps the shell", async () => {
   const { page, dir } = await openTerminal(id);
-  await runCommand(page, `export CORVI_KEEP=yes; echo set > ${join(dir, "keep-set.txt")}`, join(dir, "keep-set.txt"), "set\n");
+  const exported = join(dir, "keep-exported.txt");
+  // The checked file holds the variable's value, so a half-delivered retry cannot pass without the
+  // export having run.
+  await runCommand(page, `export CORVI_KEEP=yes; echo "$CORVI_KEEP" > ${exported}`, exported, "yes\n");
   await page.close();
 
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await again.locator(".terminal-screen").click();
-  await runCommand(again, `echo $CORVI_KEEP > ${join(dir, "keep.txt")}`, join(dir, "keep.txt"), "yes\n");
+  await runCommand(again, `echo "$CORVI_KEEP" > ${join(dir, "keep.txt")}`, join(dir, "keep.txt"), "yes\n");
   expect(await fileText(join(dir, "keep.txt"))).toBe("yes\n");
   await again.close();
 }, budget(120_000));

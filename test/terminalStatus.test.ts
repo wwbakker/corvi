@@ -9,6 +9,19 @@ import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, tmuxTempDir, waitF
  * store, and the `corvi status` CLI. The server runs on Node (the host does too); the tmux socket
  * is the run's own so the server's tmux reads never touch the user's server.
  */
+// The tmux env this file sets, saved so a co-located test file does not inherit it.
+const savedTmuxEnv = {
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+};
+const restoreTmuxEnv = (): void => {
+  for (const [key, value] of Object.entries(savedTmuxEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
+
 let tmp: string;
 let tmuxTmp: string;
 let testSocket: string;
@@ -68,6 +81,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
+  restoreTmuxEnv();
   server?.kill();
   await server?.exited;
   await ensureHost({ socket: hostSocket(), checkout: process.cwd(), buildId: "dev", runtime: "node" })

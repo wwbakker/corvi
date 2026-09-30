@@ -1,10 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { Effect } from "effect";
 
 import { closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import { listWindowsAsync, moveWindowAsync, newWindowAsync, selectWindowAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
 /**
@@ -15,6 +17,20 @@ import { testTempDir, waitFor } from "./helpers.ts";
  * The state dir is this file's own (helpers.ts); no process outside it is touched.
  */
 const dir = await testTempDir("registry");
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedEnv = {
+  CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_TMUX_SOCKET: process.env.CORVI_TMUX_SOCKET,
+  TMUX: process.env.TMUX,
+  TMUX_TMPDIR: process.env.TMUX_TMPDIR,
+};
+const restoreEnv = (): void => {
+  for (const [key, value] of Object.entries(savedEnv)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
 delete process.env.TMUX;
 process.env.CORVI_HOST_RUNTIME = "node";
 process.env.CORVI_TMUX_SOCKET = join(dir, "tmux.sock");
@@ -25,6 +41,7 @@ afterAll(async () => {
   await stopHostTerminals(changeId);
   await closeHostClient();
   await rm(dir, { recursive: true, force: true });
+  restoreEnv();
 });
 
 test("new windows persist in order with one active; select and move mutate them", async () => {
@@ -53,9 +70,16 @@ test("a read rebuilds from the live host sessions and keeps the persisted order"
   expect(ids()).toEqual(before);
 }, 30_000);
 
-test("completing a change stops its host sessions and forgets its windows", async () => {
+test("completing/cancelling a change stops its host sessions through the lifecycle service", async () => {
   expect(ids().length).toBeGreaterThan(0);
-  await stopHostTerminals(changeId);
+  // The product's own stop (the `TerminalSessions` capability `completeChange`/`cancelChange`
+  // call), not the raw windows helper: this is the path a completed change takes.
+  await Effect.runPromise(
+    Effect.provide(
+      Effect.flatMap(TerminalSessions, (sessions) => sessions.stop(changeId as Parameters<typeof sessions.stop>[0])),
+      terminalSessionsLayer,
+    ),
+  );
   expect(registry.records(changeId)).toEqual([]);
   // The host sessions are killed, not merely forgotten.
   const { hostClient } = await import("../apps/server/src/terminals/server/host.ts");

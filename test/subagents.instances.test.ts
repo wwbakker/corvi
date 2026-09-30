@@ -12,9 +12,11 @@ import {
   createSubagent,
   listSubagents,
   nextForSubagent,
+  openSubagent,
   recordTurn,
   resultOfSubagent,
   sendToSubagent,
+  subagentLaunch,
   waitForTurn,
   type SubagentLauncher,
 } from "../apps/server/src/subagents/server/instances.ts";
@@ -45,6 +47,14 @@ const hostLauncher: SubagentLauncher = (change, record: SubagentRecord) =>
     command: ["sh", "-c", "sleep 30"],
   }).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
 
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedHostRuntime = process.env.CORVI_HOST_RUNTIME;
+const restoreEnv = (): void => {
+  if (savedHostRuntime === undefined) delete process.env.CORVI_HOST_RUNTIME;
+  else process.env.CORVI_HOST_RUNTIME = savedHostRuntime;
+};
+
 let tmp: string;
 let change: Change;
 
@@ -66,6 +76,7 @@ afterAll(async () => {
   // The host is the test file's only one; shutting it down kills every subagent session it owns
   // and leaves no process behind.
   await closeHostClient();
+  restoreEnv();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -269,6 +280,37 @@ test("wait --all waits for every subagent", async () => {
   );
   expect(waited.status).toBe("turn");
 });
+
+test("closing and reopening a subagent resumes the same pinned harness session", async () => {
+  const own = await isolatedChange();
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+
+  // The launch contract: the harness pinned to the subagent id, in the subagent's own directory.
+  const record = (await run(readInstance(changeDir(own), created.id)))!;
+  const launch = subagentLaunch(changeDir(own), record);
+  expect(launch.cwd).toBe(instanceDir(changeDir(own), created.id));
+  expect(launch.command[0]).toBe("pi");
+  expect(launch.command[launch.command.indexOf("--session-id") + 1]).toBe(created.id);
+  // The other harness pins with `--session`, and the cwd is the same subagent directory.
+  const opencode = subagentLaunch(changeDir(own), { ...record, harness: "opencode" });
+  expect(opencode.cwd).toBe(launch.cwd);
+  expect(opencode.command[opencode.command.indexOf("--session") + 1]).toBe(created.id);
+
+  // Close it: the host session dies and discovery forgets it.
+  await run(closeSubagent(own, created.id));
+  expect((await Effect.runPromise(liveSubagents(own.id))).has(created.id)).toBe(false);
+
+  // Reopen: the same id, the same launch, and a live session in the subagent's directory.
+  const reopened = await run(openSubagent(own, created.id, hostLauncher));
+  expect(reopened.id).toBe(created.id);
+  expect(reopened.presence).toBe("attached");
+  const reread = (await run(readInstance(changeDir(own), created.id)))!;
+  expect(subagentLaunch(changeDir(own), reread)).toEqual(launch);
+  const entry = (await Effect.runPromise(liveSubagents(own.id))).get(created.id);
+  const session = (await (await hostClient()).list()).find((candidate) => candidate.id === entry?.window);
+  expect(session?.cwd).toBe(instanceDir(changeDir(own), created.id));
+  expect(session?.metadata?.subagentId).toBe(created.id);
+}, 30_000);
 
 test("a subagent on a host session is discovered, presented, relays, and closes", async () => {
   const own = await isolatedChange();
