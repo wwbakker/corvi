@@ -4,8 +4,10 @@
  *
  * The parser is deliberately defensive: it holds only a *genuine partial prefix* of the
  * introducer, resyncs past a malformed or oversized sequence rather than discarding the rest of
- * the chunk, and validates the decoded payload before it can reach a presenter. The payload is
- * untrusted data from inside the pty — the same trust model tmux pane options had.
+ * the chunk, and validates the decoded payload before it can reach a presenter. Resync means the
+ * introducer is dropped and the bytes after it are forwarded as ordinary output — a malformed
+ * sequence's tail can reach the display, it is only its control prefix that is removed. The
+ * payload is untrusted data from inside the pty — the same trust model tmux pane options had.
  */
 export type OscStatus = {
   readonly status: "working" | "waiting" | "clear";
@@ -68,7 +70,8 @@ export type OscParse = {
 };
 
 /** Split pty bytes into displayable output and any status sequences. An incomplete sequence is
- * carried to the next chunk; a malformed one is resynced past, never leaked to the display. */
+ * carried to the next chunk; a malformed one has its introducer dropped and the rest resynced as
+ * ordinary output (so a broken reporter cannot swallow the chunk, though its tail can show). */
 export const parseOsc = (input: Buffer, carry: Buffer): OscParse => {
   let buf = carry.length > 0 ? Buffer.concat([carry, input]) : input;
   const out: Buffer[] = [];

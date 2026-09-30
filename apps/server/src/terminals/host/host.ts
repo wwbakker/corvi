@@ -36,7 +36,7 @@ import { randomBytes } from "node:crypto";
 import { chmodSync, unlinkSync, writeFileSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { spawn, type IPty } from "node-pty";
-import { parseRequest, requestTypeOf, PROTOCOL, type HostRequest, type Owner, type SessionInfo } from "./protocol.ts";
+import { parseRequest, requestIdFrom, requestTypeOf, PROTOCOL, type HostRequest, type Owner, type SessionInfo } from "./protocol.ts";
 import { parseOsc } from "./osc.ts";
 
 const MAX_BUFFER_BYTES = 256 * 1024;
@@ -96,6 +96,9 @@ type Session = {
   };
   /** Bytes held because they might be the start of a split OSC sequence. */
   oscCarry: Buffer;
+  /** The server's opaque metadata (at least a change id), returned by `session.list` so it can
+   * rebuild its registry after a restart. */
+  readonly metadata?: Record<string, string>;
   /** Set when this session object is superseded (killed-and-reopened); its late pty callbacks
    * must not emit for the reused id. */
   retired: boolean;
@@ -130,6 +133,9 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
   };
 
   const sessions = new Map<string, Session>();
+  // One number per id this host has opened, so a reopened id gets a fresh incarnation. A host
+  // lives for one app session and ids are bounded by open windows, so this does not need
+  // eviction; it would only matter if a host were long-lived across many distinct ids.
   const incarnations = new Map<string, number>();
   const connections = new Set<Connection>();
   let lastActive = Date.now();
@@ -197,6 +203,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
     cols: number,
     rows: number,
     env: Record<string, string> | undefined,
+    metadata: Record<string, string> | undefined,
   ): { opened: boolean; incarnation: number } => {
     const existing = sessions.get(id);
     if (existing?.alive) return { opened: false, incarnation: existing.incarnation };
@@ -235,6 +242,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       subscribers: new Set(),
       alive: true,
       oscCarry: Buffer.alloc(0),
+      ...(metadata !== undefined ? { metadata } : {}),
       retired: false,
     };
     sessions.set(id, session);
@@ -280,7 +288,6 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
   };
 
   type AttachReply = {
-    attached: boolean;
     alive: boolean;
     incarnation: number;
     oldestSeq: number;
@@ -290,18 +297,19 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
   };
 
   /** Replay from `since` and report the session's state, including whether the buffer had already
-   * dropped bytes before `since`. */
+   * dropped bytes before `since`. A negative `since` is clamped to the start. */
   const attach = (connection: Connection, id: string, since: number): AttachReply => {
     const session = sessions.get(id);
-    if (session === undefined) return { attached: false, alive: false, incarnation: 0, oldestSeq: 0, truncated: false };
+    if (session === undefined) return { alive: false, incarnation: 0, oldestSeq: 0, truncated: false };
+    const from = Math.max(0, since);
     connection.subscriptions.add(id);
     session.subscribers.add(connection);
     const oldestSeq = session.buffer[0]?.offset ?? session.emitted;
-    const truncated = since < oldestSeq;
+    const truncated = from < oldestSeq;
     for (const entry of session.buffer) {
       const end = entry.offset + entry.data.length;
-      if (end <= since) continue;
-      const skip = Math.max(0, since - entry.offset);
+      if (end <= from) continue;
+      const skip = Math.max(0, from - entry.offset);
       const data = skip === 0 ? entry.data : entry.data.subarray(skip);
       send(connection.socket, {
         type: "data",
@@ -312,7 +320,6 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       });
     }
     return {
-      attached: true,
       alive: session.alive,
       incarnation: session.incarnation,
       oldestSeq,
@@ -340,13 +347,20 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
       ...(session.signal !== undefined ? { signal: session.signal } : {}),
       ...(session.exitedAt !== undefined ? { exitedAt: session.exitedAt } : {}),
       ...(session.status !== undefined ? { status: session.status } : {}),
+      ...(session.metadata !== undefined ? { metadata: session.metadata } : {}),
     }));
 
   const handle = (connection: Connection, value: unknown): void => {
     const request = parseRequest(value);
     if (request === undefined) {
       const type = requestTypeOf(value);
-      send(connection.socket, { type: "error", request: type, message: `unknown or malformed request: ${type}` });
+      const requestId = requestIdFrom(value);
+      send(connection.socket, {
+        type: "error",
+        request: type,
+        ...(requestId !== undefined ? { requestId } : {}),
+        message: `unknown or malformed request: ${type}`,
+      });
       return;
     }
     if (request.type !== "hello" && !connection.authed) {
@@ -391,6 +405,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
             request.cols ?? 80,
             request.rows ?? 24,
             request.env,
+            request.metadata,
           ),
         );
         return;
@@ -419,8 +434,9 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
         return;
       case "session.write": {
         const session = request.id === undefined ? undefined : sessions.get(request.id);
-        if (session?.alive && request.data !== undefined) session.pty.write(Buffer.from(request.data, "base64"));
-        respond(connection, request, { applied: session?.alive === true });
+        const applied = session?.alive === true && request.data !== undefined;
+        if (applied && request.data !== undefined) session.pty.write(Buffer.from(request.data, "base64"));
+        respond(connection, request, { applied });
         return;
       }
       case "session.resize": {
@@ -458,10 +474,15 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
 
   let server: Server | undefined;
   let closing = false;
+  let idleInterval: ReturnType<typeof setInterval> | undefined;
 
   const close = async (): Promise<void> => {
     if (closing) return;
     closing = true;
+    if (idleInterval !== undefined) {
+      clearInterval(idleInterval);
+      idleInterval = undefined;
+    }
     if (idleTimer !== undefined) {
       clearTimeout(idleTimer);
       idleTimer = undefined;
@@ -503,10 +524,27 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
           const line = pending.slice(0, newline);
           pending = pending.slice(newline + 1);
           if (line.trim() === "") continue;
+          let value: unknown;
           try {
-            handle(connection, JSON.parse(line));
+            value = JSON.parse(line);
           } catch (error) {
+            // A line that is not JSON cannot carry a requestId; the client surfaces it as a
+            // protocol error rather than a reply to any call.
             send(socket, { type: "error", request: "parse", message: error instanceof Error ? error.message : String(error) });
+            continue;
+          }
+          try {
+            handle(connection, value);
+          } catch (error) {
+            // A throw inside handling still answers the caller, with its requestId when it had
+            // one.
+            const requestId = requestIdFrom(value);
+            send(socket, {
+              type: "error",
+              request: requestTypeOf(value),
+              ...(requestId !== undefined ? { requestId } : {}),
+              message: error instanceof Error ? error.message : String(error),
+            });
           }
         }
       });
@@ -541,7 +579,7 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
   // outliving. A live session always resets the clock, so an unattended terminal is never killed.
   if (idleMs > 0) {
     const period = Math.max(25, Math.floor(idleMs / 4));
-    setInterval(() => {
+    idleInterval = setInterval(() => {
       const alive = [...sessions.values()].some((session) => session.alive);
       if (connections.size === 0 && !alive && Date.now() - lastActive >= idleMs && idleTimer === undefined) {
         // Short grace: re-check once more so a connection accepted in the meantime cancels it.
@@ -551,7 +589,8 @@ export const startHost = async (options: HostOptions): Promise<HostHandle> => {
           if (connections.size === 0 && !stillAlive && Date.now() - lastActive >= idleMs) void close();
         }, 30);
       }
-    }, period).unref();
+    }, period);
+    idleInterval.unref();
   }
 
   return { owner, close };

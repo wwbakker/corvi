@@ -14,7 +14,7 @@
  * with its predecessor and `attach` can resume without duplication. A socket close rejects every
  * pending call at once. `close()` only detaches: the host and its ptys live on.
  */
-import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, linkSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -36,7 +36,6 @@ export type EnsureOptions = {
 };
 
 export type AttachResult = {
-  readonly attached: boolean;
   readonly alive: boolean;
   readonly incarnation: number;
   readonly oldestSeq: number;
@@ -73,6 +72,8 @@ export class HostClient {
   >();
   private readonly dataListeners = new Map<string, ((data: Buffer, incarnation: number, seq: number) => void)[]>();
   private readonly exitListeners = new Map<string, ((exitCode: number, signal: number, incarnation: number) => void)[]>();
+  /** Errors the host sent that are not a reply to a pending call (e.g. a parse failure). */
+  private readonly errorListeners = new Set<(error: { request: string; message: string }) => void>();
   /** Highest byte offset received per `(id, incarnation)`. */
   private readonly received = new Map<string, number>();
   /** The incarnation this client last saw for an id, used as the default `since` on re-attach. */
@@ -127,7 +128,17 @@ export class HostClient {
       if (waiter) {
         this.pending.delete(message.requestId);
         waiter.resolve(message);
+        return;
       }
+    }
+    // An error that is not a reply to a pending call still reaches a listener rather than being
+    // dropped: a parse failure carries no requestId, and a reply can outlive its caller.
+    if (message.type === "error") {
+      const error = {
+        request: typeof message.request === "string" ? message.request : "unknown",
+        message: typeof message.message === "string" ? message.message : "unknown error",
+      };
+      for (const listener of this.errorListeners) listener(error);
     }
   }
 
@@ -161,7 +172,14 @@ export class HostClient {
 
   async open(
     id: string,
-    options: { cwd: string; command?: string[]; cols?: number; rows?: number; env?: Record<string, string> },
+    options: {
+      cwd: string;
+      command?: string[];
+      cols?: number;
+      rows?: number;
+      env?: Record<string, string>;
+      metadata?: Record<string, string>;
+    },
   ): Promise<{ opened: boolean; incarnation: number }> {
     const reply = expectOk(
       await this.call({
@@ -172,6 +190,7 @@ export class HostClient {
         cols: options.cols ?? 80,
         rows: options.rows ?? 24,
         env: options.env,
+        metadata: options.metadata,
       }),
       `open ${id}`,
     );
@@ -190,7 +209,6 @@ export class HostClient {
     const incarnation = typeof reply.incarnation === "number" ? reply.incarnation : 0;
     this.activeIncarnation.set(id, incarnation);
     return {
-      attached: Boolean(reply.attached),
       alive: Boolean(reply.alive),
       incarnation,
       oldestSeq: typeof reply.oldestSeq === "number" ? reply.oldestSeq : 0,
@@ -249,6 +267,11 @@ export class HostClient {
     this.exitListeners.set(id, listeners);
   }
 
+  /** Errors the host sent that do not answer a pending call; never dropped. */
+  onError(listener: (error: { request: string; message: string }) => void): void {
+    this.errorListeners.add(listener);
+  }
+
   close(): void {
     this.socket.destroy();
   }
@@ -264,15 +287,30 @@ export class HostClient {
       candidate.once("error", reject);
     });
     const client = new HostClient(socket);
-    const token = readFileSync(`${socketPath}.token`, "utf8").trim();
-    const reply = await client.call({ type: "hello", token });
-    if (reply.type === "error") {
+    try {
+      const token = readFileSync(`${socketPath}.token`, "utf8").trim();
+      const reply = await client.call({ type: "hello", token });
+      if (reply.type === "error") throw new Error(`host refused the handshake: ${String(reply.message)}`);
+      return client;
+    } catch (error) {
+      // A failed handshake must not leave the socket open (the retry loop would leak one per try).
       client.close();
-      throw new Error(`host refused the handshake: ${String(reply.message)}`);
+      throw error;
     }
-    return client;
   }
 }
+
+/** Connect and read the owner record, closing the socket on any failure so a retry loop cannot
+ * leak connections. */
+const connectAndInfo = async (socketPath: string): Promise<{ client: HostClient; owner: HostOwner }> => {
+  const client = await HostClient.connect(socketPath);
+  try {
+    return { client, owner: await client.info() };
+  } catch (error) {
+    client.close();
+    throw error;
+  }
+};
 
 const hostScript = fileURLToPath(new URL("./main.ts", import.meta.url));
 
@@ -320,8 +358,11 @@ const stopStale = async (socketPath: string): Promise<void> => {
   const owner = readOwner(socketPath);
   try {
     const client = await HostClient.connect(socketPath);
-    await client.shutdown();
-    client.close();
+    try {
+      await client.shutdown();
+    } finally {
+      client.close();
+    }
   } catch {
     // no handshake; fall through to signals
   }
@@ -359,8 +400,8 @@ type Inspection =
 const inspect = async (socketPath: string): Promise<Inspection> => {
   if (!existsSync(socketPath)) return { kind: "none" };
   try {
-    const client = await HostClient.connect(socketPath);
-    return { kind: "host", client, owner: await client.info() };
+    const { client, owner } = await connectAndInfo(socketPath);
+    return { kind: "host", client, owner };
   } catch (error) {
     return { kind: "transient", error: error instanceof Error ? error.message : String(error) };
   }
@@ -369,15 +410,25 @@ const inspect = async (socketPath: string): Promise<Inspection> => {
 const sameOwner = (owner: HostOwner, options: EnsureOptions): boolean =>
   owner.checkout === options.checkout && owner.buildId === options.buildId && owner.protocol === PROTOCOL;
 
-/** Serialize check-and-spawn across processes. A lock left by a dead process is reclaimed. */
+/** Serialize check-and-spawn across processes. The holder pid is written to a temp file and
+ * `link`ed into place (atomic), so a reader never sees an empty lock; a lock whose holder is
+ * empty, non-positive or dead is reclaimed. */
 const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<T> => {
   const lockPath = `${socketPath}.lock`;
   const deadline = Date.now() + 10_000;
   for (;;) {
+    const tmp = `${lockPath}.${process.pid}.tmp`;
     try {
-      const fd = openSync(lockPath, "wx", 0o600);
-      writeFileSync(fd, String(process.pid));
-      closeSync(fd);
+      writeFileSync(tmp, String(process.pid), { mode: 0o600 });
+      try {
+        linkSync(tmp, lockPath);
+      } finally {
+        try {
+          unlinkSync(tmp);
+        } catch {
+          // already removed
+        }
+      }
       try {
         return await body();
       } finally {
@@ -388,14 +439,19 @@ const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<
         }
       }
     } catch (error) {
+      try {
+        unlinkSync(tmp);
+      } catch {
+        // never created
+      }
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       let holder = NaN;
       try {
         holder = Number(readFileSync(lockPath, "utf8").trim());
       } catch {
-        // vanished between open and read
+        // vanished between link and read
       }
-      if (!Number.isFinite(holder) || !processAlive(holder)) {
+      if (!Number.isFinite(holder) || holder <= 0 || !processAlive(holder)) {
         try {
           unlinkSync(lockPath);
         } catch {
@@ -411,6 +467,11 @@ const withLock = async <T>(socketPath: string, body: () => Promise<T>): Promise<
 
 const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: HostClient; adopted: boolean }> => {
   if (depth > 2) throw new Error(`could not start a host of our own at ${options.socket}`);
+  // Bun loads node-pty but never delivers a byte of pty output; a host spawned by it would look
+  // alive and be silent. The server runs on Node, so this only catches a caller that forgot.
+  if (options.runtime === undefined && process.versions.bun !== undefined) {
+    throw new Error('the terminal host needs Node — Bun never delivers pty output; pass runtime: "node"');
+  }
   const env = { ...process.env };
   if (process.versions.electron !== undefined) env.ELECTRON_RUN_AS_NODE = "1";
   const child = spawn(
@@ -430,8 +491,7 @@ const spawnHost = async (options: EnsureOptions, depth = 0): Promise<{ client: H
   for (;;) {
     if (existsSync(`${options.socket}.token`) && existsSync(options.socket)) {
       try {
-        const client = await HostClient.connect(options.socket);
-        const owner = await client.info();
+        const { client, owner } = await connectAndInfo(options.socket);
         if (sameOwner(owner, options)) return { client, adopted: false };
         // A racing host with different ownership won the bind: replace it and start ours.
         await retire(client, options.socket);

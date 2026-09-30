@@ -30,7 +30,9 @@ export type Owner = {
   readonly bun: string | undefined;
 };
 
-/** What `session.list` reports for one session, live or retained-dead. */
+/** What `session.list` reports for one session, live or retained-dead. The opaque `metadata` is
+ * whatever the server attached at open (at least a change id), so it can rebuild its registry
+ * after a restart. */
 export type SessionInfo = {
   readonly id: string;
   readonly incarnation: number;
@@ -43,6 +45,7 @@ export type SessionInfo = {
   readonly signal?: number;
   readonly exitedAt?: string;
   readonly status?: SessionStatus;
+  readonly metadata?: Record<string, string>;
 };
 
 type RequestBase = { readonly requestId?: number };
@@ -59,6 +62,7 @@ export type HostRequest =
       readonly cols?: number;
       readonly rows?: number;
       readonly env?: Record<string, string>;
+      readonly metadata?: Record<string, string>;
     } & RequestBase)
   | ({ readonly type: "session.attach"; readonly id: string; readonly since?: number } & RequestBase)
   | ({ readonly type: "session.detach"; readonly id?: string } & RequestBase)
@@ -78,15 +82,15 @@ const asNumber = (value: unknown): number | undefined =>
 const asStringArray = (value: unknown): string[] | undefined =>
   Array.isArray(value) && value.every((item) => typeof item === "string") ? [...(value as string[])] : undefined;
 
-/** An `env` map for `session.open`: every value must be a string, or the whole field is dropped. */
-const asEnv = (value: unknown): Record<string, string> | undefined => {
+/** A string-to-string map for `env` and `metadata`: a non-string value drops the field. */
+const asStringMap = (value: unknown): Record<string, string> | undefined => {
   if (!isRecord(value)) return undefined;
-  const env: Record<string, string> = {};
+  const map: Record<string, string> = {};
   for (const [key, entry] of Object.entries(value)) {
     if (typeof entry !== "string") return undefined;
-    env[key] = entry;
+    map[key] = entry;
   }
-  return env;
+  return map;
 };
 
 /** `requestId`, present only when the client sent a finite number. */
@@ -101,6 +105,10 @@ const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]
 /** The `type` of a candidate request, for an error reply to an unparseable message. */
 export const requestTypeOf = (value: unknown): string =>
   isRecord(value) && typeof value.type === "string" ? value.type : "unknown";
+
+/** The `requestId` of a candidate request, so an error reply can still be correlated. */
+export const requestIdFrom = (value: unknown): number | undefined =>
+  isRecord(value) ? asNumber(value.requestId) : undefined;
 
 /** Parse one raw client message. `undefined` means the shape is unknown or malformed; the host
  * answers an error rather than guessing. */
@@ -124,7 +132,8 @@ export const parseRequest = (value: unknown): HostRequest | undefined => {
         ...optional("command", asStringArray(value.command)),
         ...optional("cols", asNumber(value.cols)),
         ...optional("rows", asNumber(value.rows)),
-        ...optional("env", asEnv(value.env)),
+        ...optional("env", asStringMap(value.env)),
+        ...optional("metadata", asStringMap(value.metadata)),
         ...base,
       };
     }
