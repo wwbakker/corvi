@@ -1,11 +1,13 @@
 /**
- * The WebSocket's terminal half: one host subscription per session, fanned out to the page.
+ * The WebSocket's terminal half: one host subscription per session incarnation, fanned out to the
+ * page.
  *
- * The host owns the pty and its replay buffer; this process only relays. A hub exists per host
- * session, attaches to the host exactly once while at least one socket is attached, and releases
- * its host listeners when the last one detaches. The host's `attach since` replays what was
- * missed, so the hub keeps no output of its own — the flagship "shell keeps running" case cannot
- * grow a buffer here. `kill()` means detach, never kill: closing a page leaves the shell running.
+ * The host owns the pty and its replay buffer; this process only relays. A hub exists per
+ * `(sessionId, incarnation)`, attaches to the host exactly once while at least one socket is
+ * attached, and releases its host listeners when the last one detaches. The host's `attach since`
+ * replays what was missed, so the hub keeps no output of its own — the flagship "shell keeps
+ * running" case cannot grow a buffer here. `kill()` means detach, never kill: closing a page
+ * leaves the shell running.
  */
 import type { HostClient } from "../host/client.ts";
 import type { TerminalSession, TerminalSocket, TerminalWebSocket } from "@corvi/terminals/session";
@@ -24,6 +26,11 @@ export const terminalUnavailable = (): string | undefined =>
     ? "the terminal needs Node — Bun never delivers pty output; run the server with Node (`bun run dev` does)"
     : undefined;
 
+/** Sent before a replay that starts past the client's last offset: the screen's earlier bytes are
+ * gone, so clear it rather than draw the new stream over corrupt state. Slice 3's snapshots own
+ * the fuller resume. */
+const RESET = "\x1b[2J\x1b[3J\x1b[H";
+
 type Subscriber = { readonly send: (chunk: string) => void; readonly onExit: () => void };
 
 type Listener = {
@@ -32,7 +39,10 @@ type Listener = {
 };
 
 type Hub = {
+  /** `sessionId#incarnation`: a reused session id gets a fresh hub with its own offset. */
+  readonly key: string;
   readonly id: string;
+  incarnation: number;
   readonly subscribers: Set<Subscriber>;
   /** The highest byte offset forwarded, so a re-attach resumes from there instead of replaying. */
   lastSeq: number;
@@ -40,16 +50,20 @@ type Hub = {
   listener?: Listener;
   attaching?: Promise<void>;
   client?: HostClient;
+  /** While the initial attach is in flight, output is held here so a truncated replay can be
+   * preceded by a reset instead of interleaved with it. */
+  pendingReplay?: string[];
 };
 
 const hubs = new Map<string, Hub>();
 
-/** Get-or-create synchronously: two concurrent opens of one id cannot each make a hub. */
-const hubFor = (id: string): Hub => {
-  const existing = hubs.get(id);
+/** Get-or-create synchronously: two concurrent opens of one incarnation cannot each make a hub. */
+const hubFor = (id: string, incarnation: number): Hub => {
+  const key = `${id}#${incarnation}`;
+  const existing = hubs.get(key);
   if (existing !== undefined) return existing;
-  const hub: Hub = { id, subscribers: new Set(), lastSeq: 0, exited: false };
-  hubs.set(id, hub);
+  const hub: Hub = { key, id, incarnation, subscribers: new Set(), lastSeq: 0, exited: false };
+  hubs.set(key, hub);
   return hub;
 };
 
@@ -67,32 +81,46 @@ const release = (hub: Hub): void => {
 const ensureAttached = async (hub: Hub): Promise<void> => {
   if (hub.exited || hub.listener !== undefined) return;
   if (hub.attaching !== undefined) return hub.attaching;
-  const client = await hostClient();
-  hub.client = client;
-  const listener: Listener = {
-    data: (data, _incarnation, seq) => {
-      hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
-      const text = data.toString("utf8");
-      for (const subscriber of hub.subscribers) subscriber.send(text);
-    },
-    exit: () => {
-      hub.exited = true;
+  const promise = (async (): Promise<void> => {
+    const client = await hostClient();
+    hub.client = client;
+    const listener: Listener = {
+      data: (data, _incarnation, seq) => {
+        hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
+        const text = data.toString("utf8");
+        if (hub.pendingReplay !== undefined) hub.pendingReplay.push(text);
+        else for (const subscriber of hub.subscribers) subscriber.send(text);
+      },
+      exit: () => {
+        hub.exited = true;
+        release(hub);
+        for (const subscriber of hub.subscribers) subscriber.onExit();
+        hubs.delete(hub.key);
+      },
+    };
+    hub.listener = listener;
+    client.onData(hub.id, listener.data);
+    client.onExit(hub.id, listener.exit);
+    hub.pendingReplay = [];
+    try {
+      const reply = await client.attach(hub.id, hub.lastSeq);
+      hub.incarnation = reply.incarnation;
+      const replay = hub.pendingReplay;
+      hub.pendingReplay = undefined;
+      if (reply.truncated) for (const subscriber of hub.subscribers) subscriber.send(RESET);
+      for (const text of replay ?? []) for (const subscriber of hub.subscribers) subscriber.send(text);
+    } catch (error) {
+      hub.pendingReplay = undefined;
       release(hub);
-      for (const subscriber of hub.subscribers) subscriber.onExit();
-      hubs.delete(hub.id);
-    },
-  };
-  hub.listener = listener;
-  client.onData(hub.id, listener.data);
-  client.onExit(hub.id, listener.exit);
-  const attaching = client
-    .attach(hub.id, hub.lastSeq)
-    .then(() => undefined)
-    .finally(() => {
-      if (hub.attaching === attaching) hub.attaching = undefined;
-    });
-  hub.attaching = attaching;
-  return attaching;
+      throw error;
+    }
+  })();
+  hub.attaching = promise;
+  try {
+    await promise;
+  } finally {
+    if (hub.attaching === promise) hub.attaching = undefined;
+  }
 };
 
 const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
@@ -115,8 +143,9 @@ export const openSession = async (
   const unavailable = terminalUnavailable();
   if (unavailable !== undefined) throw new Error(unavailable);
   const sessionId = await ensureActiveHostWindow(changeId, dir, size);
-  const hub = hubFor(sessionId);
   const client = await hostClient();
+  const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
+  const hub = hubFor(sessionId, incarnation);
   let subscriber: Subscriber | undefined;
   return {
     attach: (send, onExit) => {

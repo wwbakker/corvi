@@ -352,9 +352,9 @@ export const TerminalStatusSchema = Schema.Struct({
   sessionId: Schema.String,
   incarnation: Schema.Number,
   status: Schema.Literal("working", "waiting", "clear"),
-  name: Schema.optional(Schema.String),
-  sessionName: Schema.optional(Schema.String),
-  message: Schema.optional(Schema.String),
+  name: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  sessionName: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  message: Schema.optional(Schema.String.pipe(Schema.maxLength(400))),
 })
 export type TerminalStatusDto = typeof TerminalStatusSchema.Type
 

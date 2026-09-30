@@ -17,7 +17,11 @@ import { hostClient, hostRunning } from "./host.ts";
 
 export type AgentStatus = SessionStatus;
 
-const statuses = new Map<string, AgentStatus>();
+/** A status report is a live fact about a running process, keyed by `(sessionId, incarnation)`.
+ * The value is the reported status, `null` for an explicit clear (a tombstone, so the presenter
+ * does not fall back to the host's OSC-parsed status), or absent when nothing was reported and
+ * the OSC value should be used. */
+const statuses = new Map<string, AgentStatus | null>();
 
 const key = (sessionId: string, incarnation: number): string => `${sessionId}#${incarnation}`;
 
@@ -41,11 +45,15 @@ export const setStatus = (sessionId: string, incarnation: number, status: AgentS
   statuses.set(key(sessionId, incarnation), status);
 };
 
+/** Clear the status. Stored as a tombstone rather than deleted: the presenter must not fall back
+ * to an older OSC status for a session the CLI explicitly cleared. */
 export const clearStatus = (sessionId: string, incarnation: number): void => {
-  statuses.delete(key(sessionId, incarnation));
+  statuses.set(key(sessionId, incarnation), null);
 };
 
-export const statusOf = (sessionId: string, incarnation: number): AgentStatus | undefined =>
+/** The reported status, or `null` for an explicit clear, or `undefined` when nothing was
+ * reported. */
+export const statusOf = (sessionId: string, incarnation: number): AgentStatus | null | undefined =>
   statuses.get(key(sessionId, incarnation));
 
 /** Forget statuses whose session incarnation is gone. */
@@ -54,7 +62,12 @@ export const pruneStatuses = (live: ReadonlySet<string>): void => {
 };
 
 /** Apply one endpoint report, validating it against the live sessions. Unknown or dead
- * incarnations are refused rather than stored for a window that cannot present them. */
+ * incarnations are refused rather than stored for a window that cannot present them.
+ *
+ * A session with a kill pending is still alive until the host observes the pty's exit, so a
+ * report for it is accepted; once `session.list` says `alive:false` it is refused. (The report's
+ * session-list round trip is per report; folding it into the host's push channel is a Phase 6
+ * item.) */
 export const applyStatus = async (input: StatusInput): Promise<void> => {
   if (!hostRunning()) throw new Error("no terminal host is running");
   const client = await hostClient();

@@ -12,7 +12,8 @@
  * evidence that its windows died, and persisting the empty result would erase labels and order.
  */
 import { randomBytes } from "node:crypto";
-import { basename } from "node:path";
+import { basename, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
 import type { CommandFailure } from "@corvi/terminals/tmux";
@@ -46,6 +47,12 @@ const shell = (): string => process.env.SHELL ?? "/bin/sh";
 
 const windowId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
+/** The checkout's own CLI entry, put in front of a host pane's PATH. An installed `corvi` from
+ * another checkout may not have this channel's commands, and the server's `putCliOnPath`
+ * deliberately lets an installed one win for `start`/`stop` — so a host session seeds the
+ * matching entry explicitly. */
+const cliBinDir = (): string => join(fileURLToPath(new URL("../../../../../", import.meta.url)), "apps", "cli", "bin");
+
 /** The change's context for a host window. The host replaces its own environment with this one
  * (`session.open` env is the whole environment), so the scrub here actually wins. `TMUX` and
  * `TMUX_PANE` are dropped: a host session is not a tmux pane, and a reporter that inherited them
@@ -54,6 +61,8 @@ const changeEnv = (changeId: string, dir: string): Record<string, string> => {
   const child = childEnv(process.env, { [env("CHANGE_ID")]: changeId, [env("CHANGE_DIR")]: dir });
   delete child.TMUX;
   delete child.TMUX_PANE;
+  const cli = cliBinDir();
+  child.PATH = child.PATH === undefined ? cli : `${cli}:${child.PATH}`;
   return child;
 };
 
@@ -159,7 +168,10 @@ export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =
     const records = tmuxOk ? rebuild(changeId, live) : previous;
     return records.map((record, index) => {
       const session = host.get(record.id);
-      const status = session === undefined ? undefined : (statusOf(session.id, session.incarnation) ?? session.status);
+      const stored = session === undefined ? undefined : statusOf(session.id, session.incarnation);
+      // `undefined` means nothing was reported (use the host's OSC parse); `null` is an explicit
+      // clear and suppresses the fallback.
+      const status = stored === undefined ? session?.status : (stored ?? undefined);
       const source = tmux.get(record.id) ?? hostRaw(record, dir, session, status);
       return presentWindow({ ...source, index });
     });

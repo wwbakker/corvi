@@ -109,6 +109,13 @@ test("a dead session's status is not presented, and a reused id starts clean", a
   expect((await postStatus({ sessionId, incarnation, status: "waiting", name: "pi" })).ok).toBe(true);
   const client = await hostClient();
   await client.kill(sessionId);
+  // `kill` only signals the pty; the session is alive until the host observes the exit, so wait
+  // for that before asserting the refusal (the endpoint accepts a session with a kill pending).
+  await waitFor(
+    "the kill to land",
+    async () => (await client.list()).find((entry) => entry.id === sessionId)?.alive === false,
+    15_000,
+  );
   // A status for the dead incarnation is refused.
   expect((await postStatus({ sessionId, incarnation, status: "working" })).ok).toBe(false);
   // The window is gone from the presentation.
@@ -185,10 +192,10 @@ test("a reporter inside the pty updates the window and fires the notify edge onc
     );
     const { sessionId } = await openWindow();
     const client = await hostClient();
-    // The reporter, run inside the pty: the CLI reads the session id and incarnation from the
-    // environment the host seeded, exactly as pi's extension would.
-    const cli = join(process.cwd(), "apps/cli/src/main.ts");
-    client.write(sessionId, `bun ${cli} status working --name pi --session-name 'Fix login' --server ${url}\n`);
+    // The reporter, run inside the pty: a bare `corvi` resolves through the PATH the host seeded,
+    // reads the session id and incarnation from the environment, and reaches this server. Exactly
+    // as pi's extension invokes it.
+    client.write(sessionId, "corvi status working --name pi --session-name 'Fix login'\n");
     await waitFor(
       "the working agent window",
       async () => (await windowsOf())[id]?.find((entry) => entry.id === sessionId)?.label === "Fix login",
@@ -196,7 +203,7 @@ test("a reporter inside the pty updates the window and fires the notify edge onc
     );
     // Let the watcher observe the working state (attention false) before the edge to waiting.
     await Bun.sleep(2500);
-    client.write(sessionId, `bun ${cli} status waiting --name pi --session-name 'Fix login' --server ${url}\n`);
+    client.write(sessionId, "corvi status waiting --name pi --session-name 'Fix login'\n");
     await waitFor(
       "the waiting window",
       async () => (await windowsOf())[id]?.find((entry) => entry.id === sessionId)?.attention === true,
@@ -205,8 +212,33 @@ test("a reporter inside the pty updates the window and fires the notify edge onc
     await Bun.sleep(2500);
     const notifies = events.filter((event) => event["label"] === "Fix login");
     expect(notifies).toHaveLength(1);
+    // A repeated waiting is not a new edge: still exactly one notification.
+    client.write(sessionId, "corvi status waiting --name pi --session-name 'Fix login'\n");
+    await Bun.sleep(3000);
+    expect(events.filter((event) => event["label"] === "Fix login")).toHaveLength(1);
   } finally {
     controller.abort();
     await stream;
   }
 }, 60_000);
+
+test("a status emitted as OSC presents through the presenter, and clear suppresses it", async () => {
+  const { sessionId, incarnation } = await openWindow();
+  const client = await hostClient();
+  const payload = Buffer.from(JSON.stringify({ status: "working", name: "pi", sessionName: "Osc session" }), "utf8").toString("base64");
+  client.write(sessionId, `printf '\\033]1337;corvi=${payload}\\007'; sleep 30\n`);
+  await waitFor(
+    "the OSC status to present",
+    async () => (await windowsOf())[id]?.find((entry) => entry.id === sessionId)?.label === "Osc session",
+    20_000,
+  );
+  const shown = (await windowsOf())[id]?.find((entry) => entry.id === sessionId);
+  expect(shown?.icon).toBe("agent");
+  // An explicit clear is a tombstone: it suppresses the host's OSC status too.
+  expect((await postStatus({ sessionId, incarnation, status: "clear" })).ok).toBe(true);
+  await waitFor(
+    "the clear to suppress the OSC status",
+    async () => (await windowsOf())[id]?.find((entry) => entry.id === sessionId)?.icon === "terminal",
+    20_000,
+  );
+}, 40_000);

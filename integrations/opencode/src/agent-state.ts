@@ -85,6 +85,12 @@ const reporter: PluginModule = {
     const pane = process.env.TMUX_PANE;
     const inCorvi = sessionId !== undefined && sessionId !== "";
 
+    /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
+     * say so somewhere the agent's operator can see. */
+    const logFailure = (error: unknown): void => {
+      console.error(`[corvi] status publish failed: ${error instanceof Error ? error.message : String(error)}`);
+    };
+
     let state: "working" | "waiting" = "waiting";
     let title: string | undefined;
     /** The last answer's first sentence: what a notification says after the session's name — the
@@ -105,7 +111,7 @@ const reporter: PluginModule = {
           ...(title ? ["--session-name", title] : []),
           ...(message ? ["--message", message] : []),
         ];
-        void input.$`corvi ${args}`.catch(() => {});
+        void input.$`corvi ${args}`.catch(logFailure);
         return;
       }
       if (!pane) return;
@@ -205,7 +211,7 @@ const reporter: PluginModule = {
       dispose: async (): Promise<void> => {
         // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
         if (inCorvi) {
-          void input.$`corvi status clear`.catch(() => {});
+          void input.$`corvi status clear`.catch(logFailure);
           return;
         }
         for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {

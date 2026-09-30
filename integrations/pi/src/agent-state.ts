@@ -81,6 +81,12 @@ export default function (pi: ExtensionAPI): void {
   const pane = process.env.TMUX_PANE;
   const inCorvi = sessionId !== undefined && sessionId !== "";
 
+  /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
+   * say so somewhere the agent's operator can see. */
+  const logFailure = (error: unknown): void => {
+    console.error(`[corvi] status publish failed: ${error instanceof Error ? error.message : String(error)}`);
+  };
+
   let state: "working" | "waiting" = "waiting";
   /** The last answer's first sentence: what a notification says after the session's name — the
    * difference between "PROJ-1681 is waiting" and knowing why. */
@@ -100,7 +106,7 @@ export default function (pi: ExtensionAPI): void {
           ...(sessionName ? ["--session-name", sessionName] : []),
           ...(lastSentence ? ["--message", lastSentence] : []),
         ])
-        .catch(() => {});
+        .catch(logFailure);
       return;
     }
     if (!pane) return;
@@ -154,7 +160,7 @@ export default function (pi: ExtensionAPI): void {
   // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
     if (inCorvi) {
-      void pi.exec("corvi", ["status", "clear"]).catch(() => {});
+      void pi.exec("corvi", ["status", "clear"]).catch(logFailure);
       return;
     }
     if (!pane) return;
