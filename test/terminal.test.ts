@@ -462,9 +462,25 @@ test.skipIf(!usable)("the copy and paste chords go through the system clipboard"
     "CLIP_MARKER",
     budget(10_000),
   );
+  // The platform's command key copies too (Cmd on macOS, Super on Linux).
+  await page.evaluate(() => {
+    (window as unknown as { __clip: { copied: string } }).__clip.copied = "";
+  });
+  await page.keyboard.press("Meta+C");
+  await until(
+    async () => await page.evaluate(() => (window as unknown as { __clip: { copied: string } }).__clip.copied),
+    "CLIP_MARKER",
+    budget(10_000),
+  );
   // Paste with the page's chord: the shell echoes it back onto the screen.
   await page.keyboard.press("Control+Shift+V");
   await until(async () => (await terminalText(page)).includes("PASTED_FROM_CLIP"), true, budget(10_000));
+  // And the command key pastes too.
+  await page.evaluate(() => {
+    (window as unknown as { __clip: { pasted: string } }).__clip.pasted = "META_PASTE";
+  });
+  await page.keyboard.press("Meta+V");
+  await until(async () => (await terminalText(page)).includes("META_PASTE"), true, budget(10_000));
   await page.close();
 }, budget(60_000));
 

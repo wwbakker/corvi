@@ -87,12 +87,13 @@ opencode takes a restart.
 
 - Shift-Enter, Ctrl-Enter, and their combination are sent using extended key sequences for
   applications that support them. Shift-Tab also passes through.
-- Plain mouse selection belongs to tmux. Its copies reach the system clipboard through OSC 52;
-  `Ctrl-b ]` still pastes from tmux's own buffer.
-- Option-drag on macOS or Shift-drag on Linux selects through the browser terminal instead.
-- macOS uses Cmd-C for that selection.
-- Linux uses Ctrl-Shift-C / Ctrl-Shift-V; middle-click also pastes. Ctrl-C remains the shell's
-  interrupt shortcut.
+- The terminal owns the screen: drag to select (double-click a word, triple-click a line), and the
+  wheel or the scrollbar scrolls back. The right-click menu offers Copy, Paste, Select all, Clear,
+  Find and Open link; middle-click pastes.
+- Copy with Ctrl-Shift-C or the platform's command key (Cmd-C on macOS, Super-C on Linux); paste
+  with Ctrl-Shift-V or Cmd-V / Super-V. Ctrl-C remains the shell's interrupt shortcut.
+- Cmd/Ctrl-F finds in the terminal, Cmd/Ctrl +/-/0 changes the font size, and Cmd/Ctrl-click opens
+  a link.
 
 ## Attention notifications
 

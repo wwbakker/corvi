@@ -23,9 +23,9 @@ import { SCROLLBACK_DEFAULT, SNAPSHOT_INTERVAL_MS, serializeTerminal } from "./s
 
 /** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
  * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
- * Shift the way every Linux terminal does, and a browser fires no paste shortcut for
- * Ctrl+Shift+V. Failures — a denied permission, a clipboard that will not answer — are silent:
- * the selection is still on screen. */
+ * Shift (Ctrl+Shift+C/V) or uses the platform's command key (Cmd on macOS, Super on Linux), and
+ * a browser fires no paste shortcut for Ctrl+Shift+V. Failures — a denied permission, a clipboard
+ * that will not answer — are silent: the selection is still on screen. */
 const copySelection = async (term: Terminal): Promise<void> => {
   const selection = term.getSelection();
   if (!selection) return;
@@ -463,9 +463,15 @@ export function TerminalPane({
     const onKey = (e: KeyboardEvent): void => {
       const term = terminal.current;
       if (!term) return;
-      // Swallowed even when there is nothing to copy or paste: a Shift chord must never turn
-      // into the control byte it would be without the Shift.
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.code === "KeyC" || e.code === "KeyV")) {
+      // Copy and paste are the page's: Ctrl+Shift+C/V everywhere, plus the platform's command
+      // key (Cmd on macOS, Super on Linux). Swallowed even when there is nothing to copy or
+      // paste, so a shifted chord never turns into the control byte it would be without it, and
+      // the shell keeps plain Ctrl+C as the interrupt.
+      const clipboardChord =
+        (e.code === "KeyC" || e.code === "KeyV") &&
+        !e.altKey &&
+        ((e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey));
+      if (clipboardChord) {
         e.preventDefault();
         e.stopImmediatePropagation();
         if (e.code === "KeyC") void copySelection(term);

@@ -18,6 +18,7 @@ const CHORDS_MAC: [string, string][] = [
   ["⌘-click", "open a link"],
   ["⌘C", "copy the selection"],
   ["⌘V", "paste"],
+  ["ctrl+shift+c / ctrl+shift+v", "copy / paste, the cross-platform chords"],
 ];
 
 const CHORDS_LINUX: [string, string][] = [
@@ -27,6 +28,7 @@ const CHORDS_LINUX: [string, string][] = [
   ["ctrl-click", "open a link"],
   ["ctrl+shift+c", "copy the selection"],
   ["ctrl+shift+v", "paste (ctrl+v also pastes)"],
+  ["super+c / super+v", "copy / paste"],
 ];
 
 /** Subagent windows are still tmux windows in the change's own session; these keys reach them. */
