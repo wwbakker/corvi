@@ -28,14 +28,17 @@ Leaving the wizard preserves one draft in the page. It appears under **Ideas** a
 its title. Reopening restores the fields and selections. **Discard** removes it; closing/reloading
 the application forgets it. No server-side change exists until **Create idea**.
 
-Creating an idea writes its record and `PLAN.md`, and opens the change on its plan. Selected
-repositories are linked for browsing; no branch/worktree is created and no ticket moves. The
-**Plan** tab edits the same file an agent can read. **Brief the agent** pastes the configured
-briefing into the change's terminal.
+Creating an idea writes its record and `PLAN.md`, and opens the change on its plan. The selected
+repositories get their checkouts straight away — the worktree and the change's branch exist from
+creation, so an agent works in them while the change is still an idea — and a linked Jira ticket
+is assigned to you. No ticket moves yet. The **Plan** tab edits the same file an agent can read.
+**Brief the agent** pastes the configured briefing into the change's terminal.
 
 **Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
-prepares the selected checkouts, and moves associated tickets. Partial provisioning failures are
-reported on the existing change so they can be addressed rather than losing the record.
+brings every checkout up to date, and moves associated tickets (a backlog ticket comes onto the
+active sprint). It never blocks on the checkouts: a partial failure or a refresh that could not
+fast-forward is reported on the existing change so it can be addressed rather than losing the
+record.
 
 ## Repositories and checkouts
 
@@ -67,6 +70,13 @@ Two branch questions per repository, split on purpose:
 - **Merges into** (`target`) — what a pull request targets. Offered for every row; another
   change's branch makes a stacked pull request. Unset means the repository's default. A record
   written before the split has one field serving both, and keeps meaning both.
+
+Freshness is checked twice. Corvi fetches before it creates or moves anything — a fetch that will
+not answer stops that repository's checkout and is reported; nothing is made from refs that may
+be stale — and it only ever fast-forwards a branch, never resets or rebases one. Where the base
+moved on and the branch has commits of its own, the checkout is left exactly as it is and the
+row says why. The check runs at creation and again at **Start work**, which is what brings an
+idea's checkout up to the base commits that landed while it sat.
 
 Repositories without a remote can still use local branches. Creating a worktree must not make
 the remote default branch the new branch's push upstream.
@@ -190,7 +200,8 @@ that would revive an archived checkout. Browsing a finished change does not star
 **Cancel change** removes local worktrees/links, closes the terminal, and archives the change as
 `Cancelled`. It does not close pull requests or move tickets. The result lists what remains open.
 
-The same removal protections apply: dirty work blocks cancellation; unpushed work requires
+The same removal protections apply: dirty work blocks cancellation — an idea's worktree is a
+real checkout and no exception; unpushed work requires
 acknowledgement and remains recoverable on a retained branch. Branch retention is reported from
 the actual removal result, not assumed before checking.
 

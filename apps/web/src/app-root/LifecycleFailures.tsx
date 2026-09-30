@@ -11,11 +11,19 @@ import type { ProvisionResult } from "./api.ts";
 export function LifecycleFailures({ results }: { results?: ProvisionResult[] }): JSX.Element | null {
   const failed = (results ?? []).filter((r) => !r.ok);
   if (failed.length === 0) return null;
+  // One banner per integration, as this card promises: a run can stop several repositories, and
+  // they are one story ("git"), not one banner each.
+  const byIntegration = new Map<string, string[]>();
+  for (const result of failed) {
+    const lines = byIntegration.get(result.integration) ?? [];
+    lines.push(result.error ?? "failed");
+    byIntegration.set(result.integration, lines);
+  }
   return (
     <>
-      {failed.map((r) => (
-        <div key={r.integration} className="error-banner">
-          {r.integration}: {r.error}
+      {[...byIntegration].map(([integration, errors]) => (
+        <div key={integration} className="error-banner">
+          {integration}: {errors.join(" · ")}
         </div>
       ))}
     </>

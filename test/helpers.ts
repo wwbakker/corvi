@@ -9,7 +9,7 @@ import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
-import { setRepos } from "../apps/server/src/vendors/git.ts";
+import { setRepos } from "../apps/server/src/change/provisioning.ts";
 import { sh, type Result } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";

@@ -62,6 +62,39 @@ test("a worktree entry describes what it holds", () => {
   expect(findWorktree(entries, "absent")).toBeUndefined();
 });
 
+test("a checkout the refresh left alone says why", () => {
+  // Commits of its own while the base moved on: a fast-forward-only refresh never rewrites
+  // that, and the row warns — the work sits on old ground.
+  const entry = JSON.parse(
+    `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
+      "remote":null,"base_state":{"own":2,"behind":1,"base":"main"}}`,
+  ) as WorktreeEntry;
+  expect(describe(entry)).toEqual({
+    detail: "left alone: 2 of its own, 1 behind main, clean, no upstream",
+    state: "warn",
+  });
+
+  // Fresh against its base is no warning at all.
+  const fresh = JSON.parse(
+    `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
+      "remote":{"branch":"PROJ-1-thing","ahead":0,"behind":0},"base_state":{"own":0,"behind":0,"base":"main"}}`,
+  ) as WorktreeEntry;
+  expect(describe(fresh)).toEqual({ detail: "clean", state: "ok" });
+
+  // Behind the base with nothing of its own is not "left alone" — a refresh would take it —
+  // and a fresh checkout with commits of its own is ordinary work, not a warning.
+  const behindOnly = JSON.parse(
+    `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
+      "remote":{"branch":"PROJ-1-thing","ahead":0,"behind":0},"base_state":{"own":0,"behind":3,"base":"main"}}`,
+  ) as WorktreeEntry;
+  expect(describe(behindOnly)).toEqual({ detail: "clean", state: "ok" });
+  const ownOnly = JSON.parse(
+    `{"branch":"PROJ-1-thing","path":"/r/PROJ-1-thing","working_tree":{},
+      "remote":{"branch":"PROJ-1-thing","ahead":2,"behind":0},"base_state":{"own":2,"behind":0,"base":"main"}}`,
+  ) as WorktreeEntry;
+  expect(describe(ownOnly)).toEqual({ detail: "clean, 2 unpushed", state: "pending" });
+});
+
 test("a pull request says what it is waiting for", () => {
   // Open threads and the review decision are both shown: approved-with-comments is a real state.
   expect(readiness({ reviewDecision: "APPROVED" }, 1)).toEqual({

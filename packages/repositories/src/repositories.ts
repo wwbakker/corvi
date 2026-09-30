@@ -50,8 +50,22 @@ export type BranchCleanup = "deleted" | "kept" | "absent"
 /** What provisioning an in-place checkout did, including the dirty case it leaves alone. */
 export type InPlaceOutcome = "already" | "switched" | "created" | "skipped-dirty"
 
+/** What a fast-forward-only refresh did: moved forward, already current, or left exactly as it
+ * was, with git's own reason. */
+export type ForwardOutcome =
+  | { readonly _tag: "Advanced"; readonly to: string }
+  | { readonly _tag: "Current" }
+  | { readonly _tag: "LeftAlone"; readonly reason: string }
+
 export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree" | "fetch" | "pull"
+  readonly operation:
+    | "inspect"
+    | "switch"
+    | "add-worktree"
+    | "remove-worktree"
+    | "fetch"
+    | "merge"
+    | "pull"
   readonly directory: string
   readonly message: string
   readonly cause?: unknown
@@ -75,6 +89,23 @@ export interface Interface {
   readonly defaultRemoteBranch: (
     directory: AbsolutePath,
   ) => Effect.Effect<string | undefined, NotARepository | CheckoutError>
+  /** Whether the repository has the named remote (or any remote). The fetch a provisioning run
+   * makes is `origin`'s, so that is the name freshness asks about. */
+  readonly hasRemote: (
+    directory: AbsolutePath,
+    remote?: string,
+  ) => Effect.Effect<boolean, NotARepository | CheckoutError>
+  /** Whether a ref resolves to a commit in the repository — the remote counterpart of a named
+   * existing branch, for instance. An unresolvable ref is false, never a failure. */
+  readonly refExists: (
+    directory: AbsolutePath,
+    ref: string,
+  ) => Effect.Effect<boolean, NotARepository | CheckoutError>
+  /** The base a new branch starts from, and a refresh fast-forwards toward: `origin/<default>`
+   * when a remote has one, else a local `main`/`master`; absent when neither exists. */
+  readonly defaultBranch: (
+    directory: AbsolutePath,
+  ) => Effect.Effect<string | undefined, NotARepository | CheckoutError>
   /** Whether the working tree holds staged, modified, untracked, or conflicted entries. */
   readonly workingTreeDirty: (
     directory: AbsolutePath,
@@ -82,15 +113,17 @@ export interface Interface {
   /** Moves the checkout to its upstream's tip exactly when that is a fast-forward. A dirty tree,
    * commits that were never pushed, or diverged histories fail rather than merging or rebasing. */
   readonly pullFastForward: (directory: AbsolutePath) => Effect.Effect<void, NotARepository | CheckoutError>
-  readonly switchBranch: (input: {
-    readonly worktree: AbsolutePath
-    readonly branch: string
-  }) => Effect.Effect<void, NotARepository | CheckoutError>
-  readonly addWorktree: (input: {
-    readonly source: AbsolutePath
+  /** Moves the checkout to `to` exactly when that is a fast-forward (`git merge --ff-only`).
+   * Everything else — own commits, diverged histories, uncommitted work a merge would clobber,
+   * a `to` that is not something to merge — is `LeftAlone` with git's own reason, and the
+   * checkout is left exactly as it was. A fast-forward that was possible and still failed (an
+   * index lock, an I/O problem) is an error, not a refusal: ancestry decides, not the exit code
+   * alone. Never a reset, never a rebase. */
+  readonly fastForwardBranch: (input: {
     readonly directory: AbsolutePath
-    readonly branch: string
-  }) => Effect.Effect<void, NotARepository | CheckoutError>
+    /** What to fast-forward to: the branch's freshness source, chosen by the caller. */
+    readonly to: string
+  }) => Effect.Effect<ForwardOutcome, NotARepository | CheckoutError>
   readonly removeWorktree: (input: {
     readonly worktree: AbsolutePath
     readonly force: boolean
@@ -110,7 +143,8 @@ export interface Interface {
     readonly branch: string
   }) => Effect.Effect<BranchCleanup, NotARepository | CheckoutError>
   /** Creates the linked worktree the change asked for. With `createMissing`, a missing branch
-   * is created from `base` (the repository default when absent) after a fetch; without it an
+   * is created from `base` (the repository default when absent) — the caller fetches first when
+   * that base must be current, which is what the provisioning policy does; without it an
    * existing branch is attached — local, or remote-only as a tracking branch — and a name that
    * exists nowhere is an error rather than silently created. */
   readonly provisionLinkedWorktree: (input: {
@@ -121,8 +155,9 @@ export interface Interface {
     readonly createMissing: boolean
   }) => Effect.Effect<void, NotARepository | CheckoutError>
   /** Switches the source checkout itself to the given branch. With `createMissing`, a missing
-   * branch is created from `base`; without it the branch — local, or remote-only as a tracking
-   * branch — is only switched to. A dirty checkout is left exactly as it is. */
+   * branch is created from `base` (the caller fetches first when that base must be current);
+   * without it the branch — local, or remote-only as a tracking branch — is only switched to. A
+   * dirty checkout is left exactly as it is. */
   readonly provisionInPlace: (input: {
     readonly source: AbsolutePath
     readonly branch: string
@@ -249,52 +284,73 @@ export const layer = Layer.effect(
       )
     })
 
-    const switchBranch = Effect.fn("Repositories.switchBranch")(function* (input: {
-      readonly worktree: AbsolutePath
-      readonly branch: string
-    }) {
-      const repository = yield* discover(input.worktree, "switch")
-      yield* git.sync.checkoutRemoteBranch(repository, { branch: input.branch }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "switch",
-              directory: input.worktree,
-              message: "could not switch the branch",
-              cause,
-            }),
-        ),
-      )
+    const hasRemote = Effect.fn("Repositories.hasRemote")(function* (
+      directory: AbsolutePath,
+      remote?: string,
+    ) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.repo.hasRemote(repository, remote), directory)
     })
 
-    const addWorktree = Effect.fn("Repositories.addWorktree")(function* (input: {
-      readonly source: AbsolutePath
+    const refExists = Effect.fn("Repositories.refExists")(function* (
+      directory: AbsolutePath,
+      ref: string,
+    ) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.history.refExists(repository, ref), directory)
+    })
+
+    const defaultBranch = Effect.fn("Repositories.defaultBranch")(function* (directory: AbsolutePath) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* inspect(git.history.defaultBranch(repository), directory)
+    })
+
+    const fastForwardBranch = Effect.fn("Repositories.fastForwardBranch")(function* (input: {
       readonly directory: AbsolutePath
-      readonly branch: string
+      readonly to: string
     }) {
-      const source = yield* discover(input.source, "add-worktree")
-      const worktree = yield* git.worktree.create({ repository: source, directory: input.directory }).pipe(
+      const repository = yield* discover(input.directory, "pull")
+      const before = yield* inspect(git.history.head(repository), input.directory)
+      // Git's own refusal is the explanation here — "Not possible to fast-forward", "not
+      // something we can merge", "would be overwritten by merge" — and it is an outcome, not an
+      // error: the checkout is left exactly as it was, which is the refresh's whole promise.
+      const merged = yield* git.sync.mergeFastForwardOnly(repository, { to: input.to }).pipe(
         Effect.mapError(
           (cause) =>
             new CheckoutError({
-              operation: "add-worktree",
+              operation: "merge",
               directory: input.directory,
-              message: "could not add the worktree",
+              message: cause.message,
               cause,
             }),
         ),
+        Effect.either,
       )
-      yield* git.sync.checkoutRemoteBranch(worktree, { branch: input.branch }).pipe(
-        Effect.mapError(
-          (cause) =>
-            new CheckoutError({
-              operation: "add-worktree",
-              directory: input.directory,
-              message: "could not check out the branch",
-              cause,
-            }),
-        ),
-      )
+      if (merged._tag === "Left") {
+        // A refusal is an outcome; a fast-forward that was possible and still failed is not.
+        // Ancestry decides — with the one exception the promise names: git declines to
+        // fast-forward over uncommitted work it would clobber, and that refusal is possible *and*
+        // deliberate. A dirty tree is `LeftAlone` with git's verdict; only a clean tree that
+        // could have moved and did not is broken infrastructure.
+        const possible = yield* git.history
+          .isAncestor(repository, { ancestor: before ?? "", descendant: input.to })
+          .pipe(Effect.catchAll(() => Effect.succeed(false)))
+        const dirty = possible
+          ? yield* git.status.dirty(repository).pipe(Effect.catchAll(() => Effect.succeed(false)))
+          : false
+        if (possible && !dirty)
+          return yield* new CheckoutError({
+            operation: "merge",
+            directory: input.directory,
+            message: merged.left.message,
+            cause: merged.left,
+          })
+        return { _tag: "LeftAlone", reason: merged.left.message } satisfies ForwardOutcome
+      }
+      const after = yield* inspect(git.history.head(repository), input.directory)
+      return (before === after
+        ? { _tag: "Current" }
+        : { _tag: "Advanced", to: input.to }) satisfies ForwardOutcome
     })
 
     const removeWorktree = Effect.fn("Repositories.removeWorktree")(function* (input: {
@@ -452,8 +508,6 @@ export const layer = Layer.effect(
       }
       const base =
         input.base ?? (yield* inspect(git.history.defaultBranch(repository), input.source))
-      if (yield* inspect(git.repo.hasRemote(repository), input.source))
-        yield* inspect(git.sync.fetchRemote(repository), input.source).pipe(Effect.either)
       yield* inspect(
         git.worktree.add({
           repository,
@@ -489,8 +543,6 @@ export const layer = Layer.effect(
       }
       const base =
         input.base ?? (yield* inspect(git.history.defaultBranch(repository), input.source))
-      if (yield* inspect(git.repo.hasRemote(repository), input.source))
-        yield* inspect(git.sync.fetchRemote(repository), input.source).pipe(Effect.either)
       yield* inspect(
         git.sync.switchToBranch(repository, {
           branch: input.branch,
@@ -508,14 +560,16 @@ export const layer = Layer.effect(
       inspectUpstream,
       incomingCommits,
       defaultRemoteBranch,
+      hasRemote,
+      refExists,
+      defaultBranch,
       workingTreeDirty,
       pullFastForward,
+      fastForwardBranch,
       assessRemoval,
       removeBranchIfIntegrated,
       provisionLinkedWorktree,
       provisionInPlace,
-      switchBranch,
-      addWorktree,
       removeWorktree,
     }
   }),

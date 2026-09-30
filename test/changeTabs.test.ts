@@ -7,7 +7,7 @@ import { Changes } from "../apps/server/src/integrations/api/capabilities.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import { integrationRoutes } from "../apps/server/src/integrations/routes.ts";
 import { changeDir, createChange } from "../apps/server/src/change/server/index.ts";
-import { provisionRepo } from "../apps/server/src/vendors/git.ts";
+import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { visibleChangeTabs } from "../apps/server/src/integrations/selectors.ts";
 import { runtimeConfig, workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
@@ -169,9 +169,7 @@ test("the Changes layer finds a change's checkout, and answers undefined where i
   // Nothing has provisioned this change yet: no worktree, so no checkout.
   expect(await checkout()).toBeUndefined();
 
-  await Effect.runPromise(
-    Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (r) => provisionRepo(change, r), { concurrency: 1 }),
-  );
+  await Effect.runPromise(provisionRepositories(change));
   const found = await checkout();
   // realpath on both sides: macOS temp dirs are symlinks into /private.
   expect(await realpath(found!)).toBe(await realpath(join(changeDir(change), basename(repo))));

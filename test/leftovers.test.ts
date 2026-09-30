@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join, basename } from "node:path";
 import { Effect } from "effect";
 import { createChange, archiveChange, changeDir, readChange } from "../apps/server/src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { dispatchIntegrationRoute } from "../apps/server/src/integrations/index.ts";
 import type { Leftover } from "@corvi/contracts/integrations/leftovers";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
@@ -83,7 +84,7 @@ test("the extension lists directories left by finished changes, and only those",
 test("deleting a leftover with a worktree in it prunes the repository afterwards", async () => {
   const change = await runEffect(createChange({ id: "PROJ-WT-LEFT", branch: "PROJ-WT-LEFT-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (r) => provisionRepo(change, r), { concurrency: 1 }));
+  await Effect.runPromise(provisionRepositories(change));
   // Resolved: the temporary directory is a symlink on macOS, and git reports where it lands.
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
   expect(worktree).toBe(await realpath(join(changeDir(change), basename(repo))));

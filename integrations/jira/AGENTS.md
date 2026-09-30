@@ -3,8 +3,8 @@
 ## Owns
 
 Jira as a Corvi integration: the issue vocabulary and HTTP client (`src/jiraHttp.ts`,
-`src/jira.ts`), the board/sprint/issue reads, the create/assign/transition flows, the settings
-reads for its site and account (`src/legacy.ts`), and the contributions the app composes
+`src/jira.ts`), the board/sprint/issue reads, the create/assign/sprint/transition flows, the
+settings reads for its site and account (`src/legacy.ts`), and the contributions the app composes
 (issue card, wizard step, title source, description section, completion start step).
 
 Settings are read from the `Settings` capability (the resolved config) plus the settings

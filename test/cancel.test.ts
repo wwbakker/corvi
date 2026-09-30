@@ -3,7 +3,8 @@ import { mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createChange, readChange, changeDir } from "../apps/server/src/change/server/index.ts";
-import { provisionRepo, checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { checkoutFor } from "../apps/server/src/vendors/git.ts";
+import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { Effect } from "effect";
 import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
@@ -90,7 +91,7 @@ test("cancelling takes back the worktree and leaves the branch", async () => {
   const repo = await clonedRepo("cancel-plain");
   const change = await runEffect(createChange({ id: "PROJ-CANCEL", branch: "PROJ-CANCEL-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(provisionRepositories(change));
   expect(await runEffect(checkoutFor(change, repo))).toBeDefined();
 
   const result = await runCancel(change);
@@ -115,7 +116,7 @@ test("what would be lost stops it, and what is recoverable asks first", async ()
   const repo = await clonedRepo("cancel-work");
   const change = await runEffect(createChange({ id: "PROJ-WORK", branch: "PROJ-WORK-x", checkouts: checkoutsOf([repo]) }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(provisionRepositories(change));
   const worktree = (await runEffect(checkoutFor(change, repo)))!;
 
   // Uncommitted: nowhere else, and no question makes it recoverable.
@@ -209,7 +210,7 @@ test("what cancelling leaves alone is said out loud", async () => {
     extensions: { jira: { key: "PROJ-LOOSE" } },
   }));
   // The same checkouts the git extension's change:created hook creates.
-  await Effect.runPromise(Effect.forEach(((change).checkouts ?? []).map((spec) => spec.path), (repo) => provisionRepo(change, repo), { concurrency: 1 }));
+  await Effect.runPromise(provisionRepositories(change));
 
   const result = (await runCancel(change)) as { loose: string[] };
   // The ticket and the branch: a cancelled change that quietly leaves those behind comes back in

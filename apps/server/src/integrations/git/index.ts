@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { gitRun, repoItem } from "../../vendors/git.ts";
+import { repoItem } from "../../vendors/git.ts";
+import { gitRun } from "../../change/provisioning.ts";
 import type { IncludedIntegration } from "../types.ts";
 
 /**
@@ -7,11 +8,12 @@ import type { IncludedIntegration } from "../types.ts";
  *
  * The implementation lives in apps/server/src/vendors/git.ts, because half the core — completing,
  * cancelling, committing, browsing — shares its helpers. This extension describes the card and
- * the two provisioning hooks; their effects require nothing beyond the capabilities, so the
- * host provides everything they need.
+ * its actions; their effects require nothing beyond the capabilities, so the host provides
+ * everything they need.
  *
- * Creating an idea only links its repositories for browsing; starting the work is what creates
- * the checkouts, so an idea that never starts leaves no branch and no worktree behind.
+ * Creating an idea cuts its checkouts straight away: the worktree and the change's branch are
+ * there while it is still an idea. What an idea never does is move a ticket — that waits for the
+ * start.
  */
 export default {
   name: "git",

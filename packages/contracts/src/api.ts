@@ -20,35 +20,25 @@ export const RepositoryViewSchema = Schema.Struct({
 })
 export type RepositoryViewDto = typeof RepositoryViewSchema.Type
 
-export const ProvisionFailureSchema = Schema.Struct({
-  repositoryId: RepositoryId,
-  code: Schema.Literal("not-a-repository", "checkout-failed"),
-  message: Schema.String,
-})
-
 /** What one provisioning target reported, shown after a create or a start: the integration,
  * whether it worked, and the first error when it did not. */
 export const ProvisionResultSchema = Schema.Struct({
   integration: Schema.String,
   ok: Schema.Boolean,
   error: Schema.optional(Schema.String),
+  detail: Schema.optional(Schema.String),
 })
 export type ProvisionResultDto = typeof ProvisionResultSchema.Type
 
-export const StartOutcomeSchema = Schema.Union(
-  Schema.Struct({
-    _tag: Schema.Literal("Started"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-  }),
-  Schema.Struct({
-    _tag: Schema.Literal("PartiallyStarted"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-    failures: Schema.Array(ProvisionFailureSchema),
-  }),
-)
-export type StartOutcomeDto = typeof StartOutcomeSchema.Type
+/** What one repository's freshness step reported after a create or a start: the checkout is
+ * advanced only by fast-forward, and everything else says why it stands where it does. */
+export const RefreshOutcomeSchema = Schema.Struct({
+  repositoryId: RepositoryId,
+  directoryName: DirectoryName,
+  state: Schema.Literal("advanced", "current", "left-alone", "fetch-failed", "none"),
+  detail: Schema.optional(Schema.String),
+})
+export type RefreshOutcomeDto = typeof RefreshOutcomeSchema.Type
 
 // --- The change record and the change page's reads -------------------------------------------
 
@@ -438,12 +428,16 @@ export const WindowActionBodySchema = Schema.Struct({
 })
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
 
-/** A started change, with what each integration reported while provisioning it. */
-export const StartedResponseSchema = Schema.Struct({
+/** A change with what its checkout run reported: the create, start and repository-edit
+ * responses all answer in this one shape. */
+export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
+  refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
 })
-export type StartedResponseDto = typeof StartedResponseSchema.Type
+export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
+
+/** A completed change's answer: the record and the notes its steps left. */
 
 export const CompletedResponseSchema = Schema.Struct({
   change: ChangeWireSchema,
