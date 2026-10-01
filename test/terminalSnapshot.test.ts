@@ -1,12 +1,12 @@
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
 
 import { hostClient, closeHostClient, type SessionInfo } from "../apps/server/src/terminals/server/host.ts";
 import { closeAttachments, hubStats, openSession, terminalSockets } from "../apps/server/src/terminals/server/session.ts";
-import { keptOpenIds, liveSnapshotKeys } from "../apps/server/src/terminals/server/windows.ts";
+import { keptOpenIds, liveSnapshotKeys, newWindowRunningAsync } from "../apps/server/src/terminals/server/windows.ts";
 import type { WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 import {
   SNAPSHOT_MAX_BYTES,
@@ -198,6 +198,38 @@ test("the server replays a stored snapshot, then resumes from its high-water off
   // Resumed, not replayed: the bytes before the snapshot are not drawn again.
   expect(text(second.frames)).not.toContain("FIRST_1_MARK");
   expect(second.frames.some((frame) => typeof frame === "string" && (JSON.parse(frame) as { type?: string }).type === "truncated")).toBe(false);
+}, 30_000);
+
+test("a dead kept-open session's replay reaches the page before its exit closes it", async () => {
+  const change = "SNAP-DEAD";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  // A kept-open command window whose pty has already exited: the case a person meets when they
+  // open a frozen action window after the command finished.
+  const id = await newWindowRunningAsync(change, changeDir, "echo DEAD_$(( 0 + 1 ))_MARK", {
+    keepOpen: true,
+    announce: { label: "Dead", notify: true },
+  });
+  await waitFor(
+    "the command to finish",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  terminalSockets.message(ws, JSON.stringify({ type: "attach", since: 0 }));
+  await waitFor("the dead session's replay", async () => text(ws.frames).includes("DEAD_1_MARK"), 15_000);
+  // The `exit` control frame closes the page's socket; sent before the replayed bytes, a kept-open
+  // window would open blank. The replay has to come first.
+  const order = ws.frames.map((frame) =>
+    typeof frame === "string" ? `control:${(JSON.parse(frame) as { type?: string }).type}` : "data",
+  );
+  const firstData = order.indexOf("data");
+  const firstExit = order.indexOf("control:exit");
+  expect(firstData).toBeGreaterThanOrEqual(0);
+  expect(firstExit).toBeGreaterThan(firstData);
 }, 30_000);
 
 test("a truncated replay resets the page before the host's oldest byte", async () => {

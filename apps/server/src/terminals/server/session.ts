@@ -95,8 +95,16 @@ const onSessionExit = (hub: Hub) => (): void => {
   hub.exited = true;
   release(hub);
   watchExitOff(hub);
-  for (const subscriber of hub.subscribers) subscriber.onExit();
-  hubs.delete(hub.key);
+  // A replay still in flight holds bytes the page has not seen yet — an already-dead session's
+  // ring is flushed after `client.attach` answers. Notifying now would close the page's socket
+  // before those bytes are sent, so the exit waits for the attach to settle (the flush runs
+  // inside it).
+  const finish = (): void => {
+    for (const subscriber of hub.subscribers) subscriber.onExit();
+    hubs.delete(hub.key);
+  };
+  if (hub.attaching !== undefined) void hub.attaching.then(finish, finish);
+  else finish();
 };
 
 const watchExit = (hub: Hub, client: HostClient): void => {
@@ -174,8 +182,9 @@ const subscribe = async (hub: Hub, subscriber: Subscriber, since: number): Promi
   // a hub already attached (a second page), only future bytes would reach the new subscriber,
   // which is why the session refuses a second attach (see the module comment).
   if (hub.dataListener === undefined && hub.attaching === undefined) hub.lastSeq = Math.max(0, since);
+  // If the session exits during the attach, `onSessionExit` defers its notification until the
+  // attach's replay is flushed, so there is nothing to do here.
   await ensureAttached(hub);
-  if (hub.exited) subscriber.onExit();
 };
 
 /** A host session the socket drives, with the identity its snapshot is keyed by. */
