@@ -306,7 +306,7 @@ export const moveIssueToActiveSprint = (
         (b.startDate ?? "").localeCompare(a.startDate ?? "") || Number(b.id) - Number(a.id),
     );
     if (!picked) return { detail: "left in the backlog: no active sprint" };
-    yield* jiraFetch(`/rest/agile/1.0/sprint/${picked.id}/issues`, {
+    yield* jiraFetch(`/rest/agile/1.0/sprint/${picked.id}/issue`, {
       site,
       method: "POST",
       body: { issues: [key] },
