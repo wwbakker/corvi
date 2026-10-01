@@ -329,6 +329,10 @@ export function ChangeView({
   const active = resolveChangePage(page, tabs ?? []);
   const activeId = active.kind === "tab" ? active.tab.id : active.kind;
 
+  /** The window the terminal shows: the active one, so the socket attaches to that window's own
+   * pty and switching tabs reconnects rather than leaving every tab on the first session. */
+  const activeWindowId = windows.find((window) => window.active)?.id ?? null;
+
   /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
    * reference. The change's name is deliberately not here: the navigation column carries it, and the
    * row is the window's, so both of a change's pages still begin the same way
@@ -467,6 +471,7 @@ export function ChangeView({
           changeId={id}
           platform={platform}
           terminal={terminal}
+          windowId={activeWindowId}
           windowsCount={windows.length}
           onFocusWindow={onFocusWindow}
         />
@@ -479,6 +484,7 @@ export function ChangeView({
           <TerminalPane
             changeId={id}
             url={terminal.url}
+            windowId={activeWindowId}
             error={terminal.error}
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}

@@ -48,9 +48,13 @@ export const terminalsRoutes = guard({
     // a missing or malformed pair falls back to the classic 80x24.
     const cols = Number(query.get("cols") ?? 80);
     const rows = Number(query.get("rows") ?? 24);
+    // Which window this socket is for: the page names it so switching tabs attaches to that
+    // window's own pty. Absent means the change's active window, which is what a first connect
+    // wants.
+    const windowId = query.get("window") ?? undefined;
     let session: TerminalSession;
     try {
-      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 });
+      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, windowId);
     } catch (e) {
       // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.

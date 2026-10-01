@@ -392,16 +392,22 @@ export const moveWindowAsync = (changeId: string, from: number, to: number): Pro
     save(changeId, records);
   });
 
-/** The host session the change's socket attaches to: the active host window, or a new one. */
+/** The host session the change's socket attaches to: the requested window, the active one, or a
+ * new one. A window id the registry does not hold (a stale tab) falls back to the active window. */
 export const ensureActiveHostWindow = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
+  windowId?: string,
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
+    const requested =
+      windowId === undefined ? undefined : records.find((record) => record.id === windowId && record.kind === "host");
     const active =
-      records.find((record) => record.active && record.kind === "host") ?? records.find((record) => record.kind === "host");
+      requested ??
+      records.find((record) => record.active && record.kind === "host") ??
+      records.find((record) => record.kind === "host");
     if (active !== undefined) return active.id;
     return openHostWindow(changeId, dir, [shell()], size);
   });

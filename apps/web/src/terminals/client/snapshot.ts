@@ -12,8 +12,11 @@
  */
 export const SCROLLBACK_DEFAULT = 5000;
 export const SNAPSHOT_MAX_BYTES = 1024 * 1024;
-/** How often a changed screen is snapshotted while the socket is open. */
-export const SNAPSHOT_INTERVAL_MS = 2000;
+/** How often a changed screen is snapshotted while the socket is hidden (a visible pane
+ * snapshots when output settles instead — serializing on a timer stalls typing). */
+export const SNAPSHOT_INTERVAL_MS = 5000;
+/** How long output must be quiet before a visible pane snapshots it. */
+export const SNAPSHOT_IDLE_MS = 1000;
 
 /** The bit of xterm the serializer needs, so the page's `Terminal` and the tests' headless one
  * both fit. */
@@ -30,7 +33,9 @@ export const byteLength = (text: string): number => new TextEncoder().encode(tex
 export const absoluteCursor = (term: SerializableTerminal): string =>
   `\x1b[${term.buffer.active.cursorY + 1};${term.buffer.active.cursorX + 1}H`;
 
-/** Serialize the terminal, dropping oldest scrollback rows until it fits `maxBytes`. */
+/** Serialize the terminal, dropping oldest scrollback rows until it fits `maxBytes`. The estimate
+ * is recomputed a bounded number of times (usually twice): the loop this replaces could
+ * re-serialize the whole buffer on every row step, and that cost showed up as a stall. */
 export const serializeTerminal = (
   term: SerializableTerminal,
   addon: Serializer,
@@ -39,9 +44,10 @@ export const serializeTerminal = (
   let rows = term.options.scrollback ?? SCROLLBACK_DEFAULT;
   const draw = (scrollback: number): string => `${addon.serialize({ scrollback })}${absoluteCursor(term)}`;
   let data = draw(rows);
-  while (byteLength(data) > maxBytes && rows > 0) {
+  for (let pass = 0; pass < 4 && byteLength(data) > maxBytes && rows > 0; pass++) {
     // Aim straight at the size, with a small margin so rounding does not land just over again.
-    const target = Math.floor((rows * maxBytes) / byteLength(data) * 0.95);
+    const perRow = byteLength(data) / Math.max(1, rows);
+    const target = Math.max(0, Math.floor((maxBytes / perRow) * 0.95));
     rows = target < rows ? target : rows - 1;
     data = draw(rows);
   }

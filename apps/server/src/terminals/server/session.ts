@@ -213,10 +213,11 @@ export const openSession = async (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
+  windowId?: string,
 ): Promise<TerminalSession> => {
   const unavailable = terminalUnavailable();
   if (unavailable !== undefined) throw new Error(unavailable);
-  const sessionId = await ensureActiveHostWindow(changeId, dir, size);
+  const sessionId = await ensureActiveHostWindow(changeId, dir, size, windowId);
   const client = await hostClient();
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
   const hub = hubFor(sessionId, incarnation);

@@ -19,7 +19,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
-import { SCROLLBACK_DEFAULT, SNAPSHOT_INTERVAL_MS, serializeTerminal } from "./snapshot.ts";
+import { SCROLLBACK_DEFAULT, SNAPSHOT_IDLE_MS, SNAPSHOT_INTERVAL_MS, serializeTerminal } from "./snapshot.ts";
 
 /** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
  * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
@@ -87,6 +87,7 @@ const readFontSize = (): number => {
 export function TerminalPane({
   changeId,
   url,
+  windowId,
   error,
   visible,
   focusRequest,
@@ -96,6 +97,9 @@ export function TerminalPane({
 }: {
   changeId: string;
   url: string | null;
+  /** Which of the change's windows this pane shows: the socket attaches to that window's own pty,
+   * and the pane reconnects when it changes. Absent means the change's active window. */
+  windowId?: string | null;
   error: string | null;
   /** Whether this is the page in front: what to focus, when to connect, and when the
    * new-window chord belongs to us. */
@@ -118,7 +122,8 @@ export function TerminalPane({
   const searchAddon = useRef<SearchAddon | null>(null);
   const serializeAddon = useRef<SerializeAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
-  /** The URL the open socket belongs to: a different change needs a different pty. */
+  /** The change and window the open socket belongs to: a different change or tab needs a
+   * different pty. */
   const openedFor = useRef<string | null>(null);
   /** A resize that arrives while the socket is still connecting: sent as soon as it opens. */
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
@@ -130,6 +135,8 @@ export function TerminalPane({
   const incarnation = useRef(0);
   /** The screen changed since the last snapshot. */
   const dirty = useRef(false);
+  /** The pending output-idle snapshot; cleared while output keeps arriving. */
+  const snapshotTimer = useRef<number | null>(null);
   /** A snapshot was asked for while writes were queued; taken when they drain. */
   const snapshotPending = useRef(false);
   /** Reconnection: a bounded backoff while the server is down, stopped when the session itself is
@@ -232,6 +239,8 @@ export function TerminalPane({
       socket.current = null;
       openedFor.current = null;
       pendingResize.current = null;
+      if (snapshotTimer.current !== null) clearTimeout(snapshotTimer.current);
+      snapshotTimer.current = null;
       applied.current = 0;
       outstanding.current = 0;
       dirty.current = false;
@@ -274,12 +283,28 @@ export function TerminalPane({
     dirty.current = false;
   }, []);
 
+  /** Snapshot once output has been quiet for a moment, off the input path: a fixed timer that
+   * serializes the buffer while you type is a visible stall. */
+  const scheduleSnapshot = useCallback((): void => {
+    if (snapshotTimer.current !== null) clearTimeout(snapshotTimer.current);
+    snapshotTimer.current = window.setTimeout(() => {
+      snapshotTimer.current = null;
+      const run = (): void => takeSnapshot();
+      if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(run);
+      else run();
+    }, SNAPSHOT_IDLE_MS);
+  }, [takeSnapshot]);
+
   // One socket, when the terminal is first shown and the URL is known. The fit happens before
   // the connect: the first size the shell sees is the right one, so switching to the terminal
   // is not a resize every full-screen program has to redraw for.
   useLayoutEffect(() => {
-    // Another change's URL (or none yet): the open pty belongs to the old change.
-    if (socket.current && openedFor.current !== url) {
+    // The URL names the change, the id names the window: a different change or a different tab
+    // needs a different pty. The screen being left is snapshotted first, so switching tabs stores
+    // it rather than losing it.
+    const target = `${url ?? ""}#${windowId ?? ""}`;
+    if (socket.current && openedFor.current !== target) {
+      takeSnapshot();
       socket.current.close();
       socket.current = null;
     }
@@ -290,7 +315,8 @@ export function TerminalPane({
     if (socket.current) return;
     fit.fit();
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}`);
+    const windowQuery = windowId === undefined || windowId === null ? "" : `&window=${encodeURIComponent(windowId)}`;
+    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
     ws.binaryType = "arraybuffer";
     // The server sends a control frame first — the stored snapshot, or `reset` when there is
     // none — and the page answers with `attach` once it has played it back.
@@ -345,6 +371,7 @@ export function TerminalPane({
         outstanding.current -= 1;
         applied.current += bytes.length;
         dirty.current = true;
+        scheduleSnapshot();
         if (outstanding.current === 0 && snapshotPending.current) {
           snapshotPending.current = false;
           takeSnapshot();
@@ -381,19 +408,18 @@ export function TerminalPane({
       }, delay);
     };
     socket.current = ws;
-    openedFor.current = url;
+    openedFor.current = target;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
-  }, [url, visible, generation, reconnect, takeSnapshot]);
+  }, [url, windowId, visible, generation, reconnect, takeSnapshot, scheduleSnapshot]);
 
-  // A changed screen is snapshotted periodically, so a client crash loses at most this window of
-  // output; the server keeps only the latest. The cadence runs while the socket is open, not only
-  // while the pane is in front: a hidden pane still streams output, and stopping the cadence there
-  // would leave that output unsnapshotted until the pane is shown again.
+  // A visible pane snapshots when output settles (scheduleSnapshot), so a fixed timer never
+  // serializes the buffer while you type. A hidden pane has no typing to disturb, so a slow timer
+  // keeps its still-streaming output snapshotted.
   useEffect(() => {
     if (!url) return;
     const timer = setInterval(() => {
-      if (dirty.current) takeSnapshot();
+      if (dirty.current && document.visibilityState === "hidden") takeSnapshot();
     }, SNAPSHOT_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [url, takeSnapshot]);

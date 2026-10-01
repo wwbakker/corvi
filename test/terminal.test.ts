@@ -286,11 +286,15 @@ test.skipIf(!usable)("the page reconnects to a restarted server without a reload
   await page.close();
 }, budget(120_000));
 
-test.skipIf(!usable)("the window strip is the server's registry: a new tab is a new shell", async () => {
-  const { page } = await openTerminal(id);
+test.skipIf(!usable)("the window strip is the server's registry: a new tab is its own shell", async () => {
+  const { page, dir } = await openTerminal(id);
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await tabs.first().waitFor({ timeout: 15_000 });
   expect(await tabs.count()).toBe(1);
+
+  // A marker in the first window's shell. The checked file holds the variable's own value, so it
+  // can only pass once the export ran.
+  await runCommand(page, `export TAB_MARK=one; echo "$TAB_MARK" > ${join(dir, "tab-set.txt")}`, join(dir, "tab-set.txt"), "one\n");
 
   await page.locator(".window-tab.new").click();
   expect(await until(() => tabs.count(), 2)).toBe(2);
@@ -299,12 +303,16 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is a 
   const entries = page.locator(".sidebar .entry.window");
   expect(await until(() => entries.count(), 2)).toBe(2);
 
-  // Selecting a tab makes it the active window.
+  // The new window is active and is its own pty: a fresh shell without the first one's marker.
+  await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "new-tab.txt")}`, join(dir, "new-tab.txt"), "none\n");
+
+  // Selecting the first tab attaches back to its own shell, marker intact.
   const label = (await tabs.first().innerText()).trim();
   await tabs.first().click();
   expect(await until(() => page.locator(".window-tab.current").innerText(), label)).toBe(label);
+  await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
   await page.close();
-}, budget(60_000));
+}, budget(90_000));
 
 test.skipIf(!usable)("another change's terminal is another pty", async () => {
   const first = await openTerminal(id);
