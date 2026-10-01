@@ -219,6 +219,10 @@ export const openSession = async (
   if (unavailable !== undefined) throw new Error(unavailable);
   const sessionId = await ensureActiveHostWindow(changeId, dir, size, windowId);
   const client = await hostClient();
+  // A window created before a page attached (a new tab, a subagent window) was opened at a
+  // default size. Set the pty to the size the page actually has before anything is drawn into it,
+  // or the shell wraps and backspaces on a grid the screen does not match.
+  await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
   const hub = hubFor(sessionId, incarnation);
   // Watch the exit from the moment the session is opened, not only while a socket is attached: a

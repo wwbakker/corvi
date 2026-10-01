@@ -52,6 +52,8 @@ const runToFile = async (page: Page, command: string, file: string): Promise<str
 type BrowserTerminal = {
   buffer: { active: { length: number; getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined } };
   options: { fontSize: number };
+  cols: number;
+  rows: number;
   getSelection(): string;
   select(column: number, row: number, length: number): void;
   focus(): void;
@@ -70,6 +72,13 @@ const terminalLength = (page: Page): Promise<number> =>
   page.evaluate(() => {
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     return element?.corviTerminal?.buffer.active.length ?? 0;
+  });
+/** The grid xterm is showing: what the pty has to match for wrapping and backspace to line up. */
+const terminalSize = (page: Page): Promise<{ cols: number; rows: number }> =>
+  page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const term = element?.corviTerminal;
+    return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   });
 const terminalSelection = (page: Page): Promise<string> =>
   page.evaluate(() => {
@@ -311,6 +320,33 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   await tabs.first().click();
   expect(await until(() => page.locator(".window-tab.current").innerText(), label)).toBe(label);
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("every window's pty is the size the page shows", async () => {
+  const { page, dir } = await openTerminal(id);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+
+  // Mark the first window's shell so the new one is provably a different pty; a window created
+  // before a page attached (a new tab, a subagent window) opens at a default size, and attaching
+  // must resize the pty to the page's grid or wrapping and backspace break.
+  await runCommand(page, `export GEO_MARK=old; echo "$GEO_MARK" > ${join(dir, "geo-set.txt")}`, join(dir, "geo-set.txt"), "old\n");
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), 2)).toBe(2);
+
+  // Retry until the command reaches the NEW shell (the marker is absent) and it writes its tty
+  // size; the old shell writes nothing, so a stray early keystroke cannot satisfy the check.
+  const file = join(dir, "size.txt");
+  let reported = "";
+  for (let attempt = 0; attempt < 40 && !/^\d+ \d+$/.test(reported); attempt++) {
+    await page.keyboard.type(`[ -z "$GEO_MARK" ] && stty size > ${file} || true\n`);
+    await Bun.sleep(200);
+    reported = (await fileText(file)).trim();
+  }
+  expect(reported).toMatch(/^\d+ \d+$/);
+  const [rows = 0, cols = 0] = reported.split(/\s+/).map(Number);
+  expect(await terminalSize(page)).toEqual({ cols, rows });
   await page.close();
 }, budget(90_000));
 
