@@ -28,6 +28,7 @@ const CHORDS_LINUX: [string, string][] = [
   ["ctrl-click", "open a link"],
   ["ctrl+shift+c", "copy the selection"],
   ["ctrl+shift+v", "paste (ctrl+v also pastes)"],
+  ["ctrl+insert / shift+insert", "copy / paste (the terminal convention)"],
   ["super+c / super+v", "copy / paste"],
 ];
 

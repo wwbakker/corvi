@@ -100,8 +100,9 @@ opencode takes a restart.
 - The terminal owns the screen: drag to select (double-click a word, triple-click a line), and the
   wheel or the scrollbar scrolls back. The right-click menu offers Copy, Paste, Select all, Clear,
   Find and Open link; middle-click pastes.
-- Copy with Ctrl-Shift-C or the platform's command key (Cmd-C on macOS, Super-C on Linux); paste
-  with Ctrl-Shift-V or Cmd-V / Super-V. Ctrl-C remains the shell's interrupt shortcut.
+- Copy with Ctrl-Shift-C or the platform's command key (Cmd-C on macOS, Super-C on Linux), or the
+  terminal convention Ctrl-Insert; paste with Ctrl-Shift-V or Cmd-V / Super-V, or Shift-Insert.
+  Ctrl-C remains the shell's interrupt shortcut.
 - Cmd/Ctrl-F finds in the terminal, Cmd/Ctrl +/-/0 changes the font size, and Cmd/Ctrl-click opens
   a link.
 

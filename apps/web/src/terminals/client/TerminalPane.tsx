@@ -463,18 +463,20 @@ export function TerminalPane({
     const onKey = (e: KeyboardEvent): void => {
       const term = terminal.current;
       if (!term) return;
-      // Copy and paste are the page's: Ctrl+Shift+C/V everywhere, plus the platform's command
-      // key (Cmd on macOS, Super on Linux). Swallowed even when there is nothing to copy or
-      // paste, so a shifted chord never turns into the control byte it would be without it, and
-      // the shell keeps plain Ctrl+C as the interrupt.
-      const clipboardChord =
-        (e.code === "KeyC" || e.code === "KeyV") &&
-        !e.altKey &&
-        ((e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey));
-      if (clipboardChord) {
+      // Copy and paste are the page's: Ctrl+Shift+C/V everywhere, the platform's command key
+      // (Cmd on macOS, Super on Linux), and the Linux terminal convention Ctrl+Insert / 
+      // Shift+Insert — which is what a compositor's "universal clipboard" sends a window it treats
+      // as a terminal. Swallowed even when there is nothing to copy or paste, so a shifted chord
+      // never turns into the control byte it would be without it, and the shell keeps plain Ctrl+C
+      // as the interrupt.
+      const commandChord =
+        !e.altKey && ((e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey));
+      const copy = (commandChord && e.code === "KeyC") || (e.code === "Insert" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
+      const paste = (commandChord && e.code === "KeyV") || (e.code === "Insert" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey);
+      if (copy || paste) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (e.code === "KeyC") void copySelection(term);
+        if (copy) void copySelection(term);
         else void pasteClipboard(term);
         return;
       }

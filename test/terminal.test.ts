@@ -503,6 +503,23 @@ test.skipIf(!usable)("the copy and paste chords go through the system clipboard"
   });
   await page.keyboard.press("Meta+V");
   await until(async () => (await terminalText(page)).includes("META_PASTE"), true, budget(10_000));
+  // The Linux terminal convention — what a compositor's universal clipboard sends a window it
+  // treats as a terminal: Ctrl+Insert copies, Shift+Insert pastes.
+  await selectInTerminal(page, "CLIP_MARKER");
+  await page.evaluate(() => {
+    (window as unknown as { __clip: { copied: string } }).__clip.copied = "";
+  });
+  await page.keyboard.press("Control+Insert");
+  await until(
+    async () => await page.evaluate(() => (window as unknown as { __clip: { copied: string } }).__clip.copied),
+    "CLIP_MARKER",
+    budget(10_000),
+  );
+  await page.evaluate(() => {
+    (window as unknown as { __clip: { pasted: string } }).__clip.pasted = "INSERT_PASTE";
+  });
+  await page.keyboard.press("Shift+Insert");
+  await until(async () => (await terminalText(page)).includes("INSERT_PASTE"), true, budget(10_000));
   await page.close();
 }, budget(60_000));
 
