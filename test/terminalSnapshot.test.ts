@@ -232,6 +232,74 @@ test("a dead kept-open session's replay reaches the page before its exit closes 
   expect(firstExit).toBeGreaterThan(firstData);
 }, 30_000);
 
+test("a session that exits before the page attaches still flushes its replay", async () => {
+  const change = "SNAP-RACE";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  // A kept-open window whose command exits shortly after it opens. Opening the session now
+  // registers the exit watcher, so the hub is already exited — no subscriber was attached to
+  // receive the replay — when the page finally attaches.
+  const id = await newWindowRunningAsync(change, changeDir, "echo RACE_$(( 0 + 1 ))_MARK; sleep 1", {
+    keepOpen: true,
+    announce: { label: "Race", notify: true },
+  });
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  await waitFor(
+    "the command to exit while no page is attached",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  terminalSockets.message(ws, JSON.stringify({ type: "attach", since: 0 }));
+  await waitFor("the replay of the already-exited session", async () => text(ws.frames).includes("RACE_1_MARK"), 15_000);
+  // The exit was known before this attach; the replay must still reach the page before the exit
+  // frame closes its socket, or a kept-open window opens blank.
+  const order = ws.frames.map((frame) =>
+    typeof frame === "string" ? `control:${(JSON.parse(frame) as { type?: string }).type}` : "data",
+  );
+  const firstData = order.indexOf("data");
+  const firstExit = order.indexOf("control:exit");
+  expect(firstData).toBeGreaterThanOrEqual(0);
+  expect(firstExit).toBeGreaterThan(firstData);
+}, 30_000);
+
+test("a truncated dead session resets, replays, then exits", async () => {
+  const change = "SNAP-TRUNC-DEAD";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  // More than the host's 256 KB ring, then a marker, in a window that then exits: the attach is
+  // both truncated and to a dead session, so the reset, the replay and the exit all cross one
+  // socket in that order.
+  const id = await newWindowRunningAsync(
+    change,
+    changeDir,
+    "head -c 400000 /dev/zero | tr '\\0' 'x'; echo TRUNC_DEAD_$(( 0 + 1 ))_MARK",
+    { keepOpen: true, announce: { label: "Truncated", notify: true } },
+  );
+  await waitFor(
+    "the command to finish",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  terminalSockets.message(ws, JSON.stringify({ type: "attach", since: 0 }));
+  await waitFor("the truncated replay's marker", async () => text(ws.frames).includes("TRUNC_DEAD_1_MARK"), 15_000);
+  const order = ws.frames.map((frame) =>
+    typeof frame === "string" ? `control:${(JSON.parse(frame) as { type?: string }).type}` : "data",
+  );
+  const truncatedAt = order.indexOf("control:truncated");
+  const firstData = order.indexOf("data");
+  const firstExit = order.indexOf("control:exit");
+  expect(truncatedAt).toBeGreaterThanOrEqual(0);
+  expect(firstData).toBeGreaterThan(truncatedAt);
+  expect(firstExit).toBeGreaterThan(firstData);
+}, 30_000);
+
 test("a truncated replay resets the page before the host's oldest byte", async () => {
   const first = fakeSocket(await openSession("SNAP-TRUNC", dir, { cols: 80, rows: 24 }));
   terminalSockets.open(first);

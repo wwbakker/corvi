@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
+import { SNAPSHOT_IDLE_MS, SNAPSHOT_INTERVAL_MS } from "../apps/web/src/terminals/client/snapshot.ts";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
 /**
@@ -613,43 +614,60 @@ test.skipIf(!usable)("the font-size chords change and reset the terminal", async
 
 test.skipIf(!usable)("hiding the tab snapshots the screen immediately", async () => {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  // Record the control frames the page sends, and neutralise the 2s cadence so the hide is the only
-  // thing that can produce a snapshot in the window the test checks. That isolates the
-  // visibilitychange path from the periodic one (which the reload test already covers).
-  await page.addInitScript(() => {
-    const snapshots: unknown[] = [];
-    (window as unknown as { __snapshots: unknown[] }).__snapshots = snapshots;
-    const originalSend = WebSocket.prototype.send;
-    WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]): void {
-      if (typeof data === "string") {
-        try {
-          const value = JSON.parse(data) as { type?: string };
-          if (value.type === "snapshot") snapshots.push(value);
-        } catch {
-          // not a control frame
+  // Record the control frames the page sends, and neutralise both snapshot timers so the hide is
+  // the only thing that can produce a snapshot in the window the test checks: a visible pane
+  // snapshots on the output-idle timeout, a hidden one on the periodic interval. That isolates the
+  // visibilitychange path from the cadence (which the reload test already covers).
+  await page.addInitScript(
+    ({ idleMs, intervalMs }) => {
+      const snapshots: unknown[] = [];
+      (window as unknown as { __snapshots: unknown[] }).__snapshots = snapshots;
+      const originalSend = WebSocket.prototype.send;
+      WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]): void {
+        if (typeof data === "string") {
+          try {
+            const value = JSON.parse(data) as { type?: string };
+            if (value.type === "snapshot") snapshots.push(value);
+          } catch {
+            // not a control frame
+          }
         }
-      }
-      originalSend.call(this, data);
-    };
-    const originalSetInterval = window.setInterval.bind(window);
-    window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
-      if (timeout === 2000) return 0;
-      return originalSetInterval(handler, timeout, ...args);
-    }) as typeof window.setInterval;
-  });
+        originalSend.call(this, data);
+      };
+      const originalSetTimeout = window.setTimeout.bind(window);
+      window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
+        if (timeout === idleMs) return 0;
+        return originalSetTimeout(handler, timeout, ...args);
+      }) as typeof window.setTimeout;
+      const originalSetInterval = window.setInterval.bind(window);
+      window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
+        if (timeout === intervalMs) return 0;
+        return originalSetInterval(handler, timeout, ...args);
+      }) as typeof window.setInterval;
+    },
+    { idleMs: SNAPSHOT_IDLE_MS, intervalMs: SNAPSHOT_INTERVAL_MS },
+  );
   await page.goto(`${url}/changes/${id}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
+  // The pane connects once before the window list arrives and reconnects — snapshotting the empty
+  // screen — when the change's active window becomes known. That connect is not this test's
+  // subject; the window it watches starts once the window is on screen.
+  await page.locator(".window-tab:not(.new):not(.overview)").first().waitFor({ timeout: 15_000 });
+  await page.evaluate(() => {
+    (window as unknown as { __snapshots: unknown[] }).__snapshots.length = 0;
+  });
   await typeUntilText(page, "echo HIDE_MARKER", "HIDE_MARKER");
   expect(await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length)).toBe(0);
   await page.evaluate(() => {
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await until(
+  const count = await until(
     async () => await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length),
     1,
     budget(10_000),
   );
+  expect(count).toBe(1);
   await page.close();
 }, budget(60_000));

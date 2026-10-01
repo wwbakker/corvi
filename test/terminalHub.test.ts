@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import { closeAttachments, hubStats, openSession } from "../apps/server/src/terminals/server/session.ts";
-import { testTempDir, waitFor } from "./helpers.ts";
+import { testTempDir, until, waitFor } from "./helpers.ts";
 
 /**
  * The WebSocket hub, against a real host session. The host must run on Node, so the server's host
@@ -33,7 +33,7 @@ type Collector = {
   readonly resets: number[];
   readonly send: (chunk: Uint8Array) => void;
   readonly reset: (since: number) => void;
-  readonly onExit: () => void;
+  onExit: () => void;
 };
 const collector = (): Collector => {
   const chunks: Uint8Array[] = [];
@@ -97,6 +97,33 @@ test("detaching never kills the shell, and re-attaching resumes", async () => {
   session.attach(second.send, second.reset, second.onExit, 0);
   session.write("echo AGAIN_$(( 0 + 1 ))_MARK\n");
   await waitFor("the shell to answer after re-attach", async () => saw(second, "AGAIN_1_MARK"), 25_000);
+}, 60_000);
+
+test("a second openSession for one session is refused at the hub, not fanned out", async () => {
+  const first = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
+  first.write("echo FIRST_$(( 0 + 1 ))_MARK\n");
+  const one = collector();
+  first.attach(one.send, one.reset, one.onExit, 0);
+  await waitFor("the first output", async () => saw(one, "FIRST_1_MARK"), 25_000);
+
+  // A second session object over the same host session and incarnation. The per-object guard in
+  // `openSession` cannot see it; the hub must, or the second page would silently get future bytes
+  // only. It answers with the exit instead.
+  const second = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
+  let exited = false;
+  const two = collector();
+  two.onExit = () => {
+    exited = true;
+  };
+  second.attach(two.send, two.reset, two.onExit, 0);
+  await until(async () => exited, true, 10_000);
+  expect(exited).toBe(true);
+  expect(hubStats().subscribers).toBe(1);
+
+  first.write("echo MORE_$(( 0 + 1 ))_MARK\n");
+  await waitFor("the first client to keep receiving", async () => saw(one, "MORE_1_MARK"), 25_000);
+  await Bun.sleep(200);
+  expect(saw(two, "MORE_1_MARK")).toBe(false);
 }, 60_000);
 
 test("attach/detach does not leak host listeners", async () => {

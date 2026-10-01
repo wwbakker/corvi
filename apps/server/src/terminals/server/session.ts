@@ -9,10 +9,11 @@
  * "shell keeps running" case cannot grow a buffer here. `kill()` means detach, never kill: closing
  * a page leaves the shell running.
  *
- * One hub serves one live client. That is the page's model (one terminal, one xterm), and it is
- * why a second `attach` on the same session is refused rather than fanning out: a subscriber that
- * joins an already-attached hub would receive future bytes only, silently missing the snapshot's
- * gap. Multi-client is a server-owned-screen slice's problem, not this one's.
+ * One hub serves one live client, enforced in `subscribe`: a second attach on the same hub is
+ * refused (its page is answered with the exit) rather than fanning out. That is the page's model
+ * (one terminal, one xterm) — a subscriber that joins an already-attached hub would receive
+ * future bytes only, silently missing the snapshot's gap. Multi-client is a server-owned-screen
+ * slice's problem, not this one's.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
@@ -86,6 +87,15 @@ const hubFor = (id: string, incarnation: number): Hub => {
   return hub;
 };
 
+/** Tell the hub's live client the session is gone, then forget the hub. Idempotent: whichever of
+ * an in-flight attach's two continuations runs second finds nothing left to tell. */
+const finish = (hub: Hub): void => {
+  const subscribers = [...hub.subscribers];
+  hub.subscribers.clear();
+  for (const subscriber of subscribers) subscriber.onExit();
+  hubs.delete(hub.key);
+};
+
 /** The exit of a session is the hub's and the snapshot's cue, whether or not a socket is attached:
  * a session that exits while detached must not leave a hub or a persisted snapshot behind. The
  * snapshot is not forgotten here — the windows layer knows which records asked to be kept open,
@@ -99,12 +109,8 @@ const onSessionExit = (hub: Hub) => (): void => {
   // ring is flushed after `client.attach` answers. Notifying now would close the page's socket
   // before those bytes are sent, so the exit waits for the attach to settle (the flush runs
   // inside it).
-  const finish = (): void => {
-    for (const subscriber of hub.subscribers) subscriber.onExit();
-    hubs.delete(hub.key);
-  };
-  if (hub.attaching !== undefined) void hub.attaching.then(finish, finish);
-  else finish();
+  if (hub.attaching !== undefined) void hub.attaching.then(() => finish(hub), () => finish(hub));
+  else finish(hub);
 };
 
 const watchExit = (hub: Hub, client: HostClient): void => {
@@ -132,11 +138,13 @@ const release = (hub: Hub): void => {
  * announced with a `reset` control frame before the bytes so the page can discard the snapshot
  * it can no longer continue from. */
 const ensureAttached = async (hub: Hub): Promise<void> => {
-  if (hub.exited || hub.dataListener !== undefined) return;
+  if (hub.dataListener !== undefined) return;
   if (hub.attaching !== undefined) return hub.attaching;
   const promise = (async (): Promise<void> => {
     const client = await hostClient();
-    watchExit(hub, client);
+    // A hub whose session already exited still attaches once, to flush the host's retained replay
+    // before the exit frame; only a live one needs its exit watched.
+    if (!hub.exited) watchExit(hub, client);
     const dataListener: DataListener = (data, _incarnation, seq) => {
       hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
       if (hub.pendingReplay !== undefined) hub.pendingReplay.push(data);
@@ -173,18 +181,24 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
 };
 
 const subscribe = async (hub: Hub, subscriber: Subscriber, since: number): Promise<void> => {
-  if (hub.exited) {
+  // One live client per hub, whoever asks: a second attach — a second socket, or a second
+  // `openSession` over the same host session — is refused rather than silently fanned out. Its
+  // page is answered with the exit.
+  if (hub.subscribers.size > 0) {
     subscriber.onExit();
     return;
   }
   hub.subscribers.add(subscriber);
   // A fresh subscription resumes from where its snapshot ended; the host replays from there. With
-  // a hub already attached (a second page), only future bytes would reach the new subscriber,
-  // which is why the session refuses a second attach (see the module comment).
+  // a hub already attached, only future bytes would reach the new subscriber, which is why the
+  // hub refuses a second attach (above).
   if (hub.dataListener === undefined && hub.attaching === undefined) hub.lastSeq = Math.max(0, since);
-  // If the session exits during the attach, `onSessionExit` defers its notification until the
-  // attach's replay is flushed, so there is nothing to do here.
+  // The attach also flushes the host's replay for a session that has already exited, and
+  // `onSessionExit` defers its notification until that flush is done; `finish` here covers the
+  // case where the exit happened before this subscribe, so a kept-open window opens with its
+  // last screen rather than blank.
   await ensureAttached(hub);
+  if (hub.exited && hub.subscribers.has(subscriber)) finish(hub);
 };
 
 /** A host session the socket drives, with the identity its snapshot is keyed by. */

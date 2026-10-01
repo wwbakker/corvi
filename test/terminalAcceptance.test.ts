@@ -182,6 +182,9 @@ const ptySize = async (page: Page, file: string, guard = ""): Promise<{ rows: nu
   const command = guard === "" ? `stty size > ${file}` : `[ ${guard} ] && stty size > ${file} || true`;
   let reported = "";
   for (let attempt = 0; attempt < 50 && !/^\d+ \d+$/.test(reported); attempt++) {
+    // Clear any half-typed line first: a reconnect mid-command can drop the opening quote of a
+    // guard and leave the shell at a `>` continuation, where the next retry would only pile on.
+    await page.keyboard.press("Control+C");
     await page.keyboard.type(`${command}\n`);
     await Bun.sleep(200);
     reported = (await fileText(file)).trim();
@@ -222,12 +225,17 @@ test.skipIf(!usable)("a line wider than the terminal wraps at the grid, and back
   expect(settled).toBe(`${expected.x},${expected.y}`);
   expect(await terminalCursor(page)).toEqual(expected);
 
-  // Backspace removes the wrapped tail and returns the cursor to the row above.
+  // Backspace removes the wrapped tail and returns the cursor to the exact cell the grid implies:
+  // the line ends at the right margin, which zsh reports as the start of the row below.
   for (let i = 0; i < tail.length; i++) await page.keyboard.press("Backspace");
-  await until(async () => (await terminalText(page)).includes(tail), false, budget(10_000));
-  const back = await terminalCursor(page);
-  expect(back.y).toBeLessThanOrEqual(y0 + 1);
-  expect(back.y).toBeGreaterThanOrEqual(y0);
+  const removed = await until(async () => (await terminalText(page)).includes(tail), false, budget(10_000));
+  expect(removed).toBe(false);
+  const back = await until(
+    () => terminalCursor(page).then((c) => `${c.x},${c.y}`),
+    `0,${y0 + 1}`,
+    budget(10_000),
+  );
+  expect(back).toBe(`0,${y0 + 1}`);
   await page.keyboard.press("Control+C");
   await page.close();
 }, budget(90_000));
@@ -278,6 +286,11 @@ test.skipIf(!usable)("each window keeps its own shell and its own screen across 
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   expect(await until(async () => (await terminalText(page)).includes("W1-DEEP-80"), true, budget(20_000))).toBe(true);
+  // The variable is re-read from the adopted shell, not merely the screen: the restart must not
+  // have silently started a fresh shell behind the same window.
+  const survived = join(dir, "win-survived.txt");
+  await runCommand(page, `echo "$WIN_ONE" > ${survived}`, survived, "yes\n");
+  expect(await fileText(survived)).toBe("yes\n");
   await tabs.nth(1).click();
   expect(await until(async () => (await terminalText(page)).includes("W2-DEEP-80"), true, budget(20_000))).toBe(true);
   expect(await terminalText(page)).not.toContain("W1-DEEP-80");
@@ -297,6 +310,9 @@ test.skipIf(!usable)("a subagent window is the size the page shows", async () =>
   // The pane shows the selected subagent's window, so the terminal here is that window's shell.
   await page.locator(".subagent-list .entry").first().waitFor({ timeout: 15_000 });
   await until(async () => (await page.locator(".subagent-list .entry .summary").first().innerText()) === "attached", true, budget(20_000));
+  // The pane reconnects when the subagent's window becomes active; prove the shell under it
+  // answers before typing the long guarded command, or a mid-type reconnect could split it.
+  await typeUntilText(page, "echo SUB-READY", "SUB-READY");
 
   // The guard is the subagent window's own environment: only its shell can answer.
   const size = await ptySize(page, join(tmp, "subagent-size.txt"), '-n "$CORVI_SUBAGENT_ID"');
