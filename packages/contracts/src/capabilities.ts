@@ -98,6 +98,8 @@ export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
  * host implements it from its own git layer, so integrations never reach into the application. */
 export class GitFacts extends Context.Tag("corvi/GitFacts")<GitFacts, {
   targetFor(change: ChangeWireDto, repo: string): Effect.Effect<string | undefined>;
+  /** Local branch a named existing selection attaches to; unknown when refs cannot be resolved. */
+  existingBranch(repo: string, name: string): Effect.Effect<string | undefined>;
   remoteDefaultBranch(repo: string): Effect.Effect<string | undefined>;
   contentInMain(repo: string, branch: string, base: string | undefined): Effect.Effect<boolean>;
 }>() {}

@@ -61,8 +61,12 @@ Which branch it uses:
   matters. Only possible in place: a branch already checked out somewhere cannot also live in a
   worktree.
 - **Existing branch:** a branch you name. It is only ever attached — a remote-only name gets a
-  local branch tracking it — and never created. In a worktree it is checked out there; in place
+  local branch tracking it — and never created from a base. A selection such as `origin/topic`
+  attaches local `topic`, not a detached commit. In a worktree it is checked out there; in place
   the repository's checkout switches to it (a dirty checkout is left alone and reported).
+  Exact local names take precedence, including names containing slashes. An ambiguous remote-only
+  name or a corresponding local branch tracking a different remote is reported without changing
+  the checkout or its upstream.
 
 Two branch questions per repository, split on purpose:
 
@@ -71,12 +75,18 @@ Two branch questions per repository, split on purpose:
   change's branch makes a stacked pull request. Unset means the repository's default. A record
   written before the split has one field serving both, and keeps meaning both.
 
-Freshness is checked twice. Corvi fetches before it creates or moves anything — a fetch that will
-not answer stops that repository's checkout and is reported; nothing is made from refs that may
+Freshness is checked twice. Existing branches refresh from their selected remote ref or upstream;
+new branches use the chosen base. Corvi fetches the relevant remote before it creates or moves
+anything — a fetch that will not answer stops that repository's checkout and is reported;
+nothing is made from refs that may
 be stale — and it only ever fast-forwards a branch, never resets or rebases one. Where the base
 moved on and the branch has commits of its own, the checkout is left exactly as it is and the
 row says why. The check runs at creation and again at **Start work**, which is what brings an
 idea's checkout up to the base commits that landed while it sat.
+
+A retry does not automatically repair a worktree that is detached or has been switched away from
+its expected branch. Inspect and preserve any work first, then explicitly switch to the intended
+local branch and retry. Older records naming `origin/…` remain supported without editing the record.
 
 Repositories without a remote can still use local branches. Creating a worktree must not make
 the remote default branch the new branch's push upstream.

@@ -12,6 +12,7 @@ import {
 import type { Capabilities, ExtensionStoreShape } from "./api/capabilities.ts";
 import { envOf, shWithEnv } from "../capabilities/shell.ts";
 import { contentInMain, remoteDefaultBranch } from "../vendors/git.ts";
+import { existingBranch } from "../capabilities/repositories.ts";
 import { defaultCache, type CacheStore } from "../capabilities/cache.ts";
 import { runtimeCache, runtimeConfig } from "../capabilities/runtime.ts";
 import { announce } from "../capabilities/bus.ts";
@@ -138,6 +139,7 @@ export const extensionStoreLayer = (extension: string | undefined): Layer.Layer<
  * module. */
 export const GitFactsLive = Layer.succeed(GitFacts, {
   targetFor: (change, repo) => targetFor(change, repo),
+  existingBranch: (repo, name) => existingBranch(repo, name).pipe(Effect.map((selected) => selected?.branch)),
   remoteDefaultBranch,
   contentInMain,
 });

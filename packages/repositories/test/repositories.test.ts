@@ -19,6 +19,7 @@ interface GitScript {
   readonly head?: Git.Interface["history"]["head"]
   readonly branchExists?: Git.Interface["history"]["branchExists"]
   readonly refExists?: Git.Interface["history"]["refExists"]
+  readonly resolveExistingBranch?: Git.Interface["history"]["resolveExistingBranch"]
   readonly isAncestor?: Git.Interface["history"]["isAncestor"]
   readonly upstream?: Git.Interface["history"]["upstream"]
   readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
@@ -50,6 +51,7 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           head: script.head ?? (() => Effect.succeed(undefined)),
           branchExists: script.branchExists ?? (() => Effect.succeed(false)),
           refExists: script.refExists ?? (() => Effect.succeed(false)),
+          resolveExistingBranch: script.resolveExistingBranch ?? (() => Effect.dieMessage("resolveExistingBranch is not scripted")),
           isAncestor: script.isAncestor ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
           defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
@@ -437,7 +439,7 @@ test("provisionLinkedWorktree attaches an existing branch", async () => {
   expect(added).toEqual([{ branch: "feature", create: false }])
 })
 
-test("attach-only never asks to create: a name that is nowhere is git's refusal", async () => {
+test("attach-only refuses a missing selection before any mutation", async () => {
   const added: Array<{ branch: string; create: boolean }> = []
   let asked = 0
   const result = await runEither(
@@ -452,6 +454,7 @@ test("attach-only never asks to create: a name that is nowhere is git's refusal"
     }),
     {
       discover: (dir) => Effect.succeed(String(dir) === "/source/repo" ? repository : undefined),
+      resolveExistingBranch: () => Effect.fail(new Git.OperationError({ operation: "checkout", message: "branch not found: nowhere" })),
       branchExists: () => {
         asked += 1
         return Effect.succeed(false)
@@ -465,7 +468,7 @@ test("attach-only never asks to create: a name that is nowhere is git's refusal"
     },
   )
   expect(Either.isLeft(result)).toBe(true)
-  expect(added).toEqual([{ branch: "nowhere", create: false }])
+  expect(added).toEqual([])
   expect(asked).toBe(0)
 })
 

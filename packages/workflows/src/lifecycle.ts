@@ -286,12 +286,16 @@ export const layer = Layer.effect(
       change: Change,
       link: Repository,
     ): Effect.Effect<RemovalOutcome, CheckoutError> =>
-      repositories
-        .assessRemoval({
-          worktree: AbsolutePath.make(checkoutLocationOf(change, link)),
-          branch: branchOf(change, link),
-        })
-        .pipe(
+      Effect.gen(function* () {
+        const worktree = AbsolutePath.make(checkoutLocationOf(change, link))
+        // A borrowed selection may name a remote ref; prove integration against the checkout's
+        // actual local commits, never against a remote tip that omits unpushed work.
+        const checkout = link.branch.kind === "existing" ? yield* repositories.inspectCheckout(worktree) : undefined
+        const branch = checkout
+          ? (checkout._tag === "Present" ? checkout.branch : undefined)
+          : branchOf(change, link)
+        return yield* repositories.assessRemoval({ worktree, branch })
+      }).pipe(
           Effect.either,
           Effect.flatMap((assessed): Effect.Effect<RemovalOutcome, CheckoutError> => {
             if (assessed._tag === "Right") return Effect.succeed(assessed.right)

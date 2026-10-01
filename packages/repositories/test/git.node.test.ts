@@ -501,6 +501,81 @@ test("provisionLinkedWorktree creates a worktree on a new branch from the remote
   expect(git(worktree, "symbolic-ref", "--short", "HEAD")).toBe("feature")
 })
 
+for (const location of ["new", "original"] as const) {
+  for (const selection of ["feature", "origin/feature", "origin/team/topic", "upstream/team/topic"]) {
+    for (const localExists of [false, true]) {
+      test(`existing ${selection}, local=${localExists}, ${location}: attached and tracking`, async () => {
+        const { repo, tmp } = await fixture()
+        const remote = selection.startsWith("upstream/") ? "upstream" : "origin"
+        const branch = selection === "feature" ? "feature" : selection.slice(remote.length + 1)
+        if (remote !== "origin") git(repo, "remote", "add", remote, "/nonexistent/upstream")
+        git(repo, "update-ref", `refs/remotes/${remote}/${branch}`, "HEAD")
+        if (localExists) git(repo, "branch", "--track", branch, `${remote}/${branch}`)
+        const directory = location === "new" ? join(tmp, "attached") : repo
+        await withRepositories(Effect.gen(function* () {
+          const repositories = yield* Repositories
+          const selected = yield* repositories.resolveExistingBranch(AbsolutePath.make(repo), selection)
+          expect(selected).toEqual({ branch, remote, remoteRef: `${remote}/${branch}` })
+          if (location === "new") yield* repositories.provisionLinkedWorktree({
+            source: AbsolutePath.make(repo), directory: AbsolutePath.make(directory), branch: selection, createMissing: false,
+          })
+          else yield* repositories.provisionInPlace({ source: AbsolutePath.make(repo), branch: selection, createMissing: false })
+        }))
+        expect(git(directory, "symbolic-ref", "--short", "HEAD")).toBe(branch)
+        expect(git(directory, "rev-parse", "--abbrev-ref", "@{upstream}")).toBe(`${remote}/${branch}`)
+        expect(git(directory, "rev-parse", "HEAD")).toBe(git(repo, "rev-parse", `${remote}/${branch}`))
+      })
+    }
+  }
+}
+
+test("existing branch resolution refuses missing, ambiguous, symbolic, and conflicting selections", async () => {
+  const { repo } = await fixture()
+  git(repo, "remote", "add", "upstream", "/nonexistent/upstream")
+  git(repo, "update-ref", "refs/remotes/upstream/feature", "HEAD")
+  const resolve = (name: string): Promise<import("../src/git.ts").ExistingBranch> =>
+    withRepositories(Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.resolveExistingBranch(AbsolutePath.make(repo), name)
+    }))
+  await expect(resolve("absent")).rejects.toThrow("branch not found")
+  await expect(resolve("feature")).rejects.toThrow("ambiguous remote branch")
+  await expect(resolve("origin/HEAD")).rejects.toThrow("branch not found")
+  git(repo, "branch", "--track", "feature", "upstream/feature")
+  await expect(resolve("origin/feature")).rejects.toThrow("tracks refs/remotes/upstream/feature")
+  expect(await resolve("feature")).toEqual({ branch: "feature", remote: "upstream", remoteRef: "upstream/feature" })
+  expect(git(repo, "symbolic-ref", "--short", "HEAD")).toBe("main")
+})
+
+test("exact slash-containing local names are not stripped as remote prefixes", async () => {
+  const { repo } = await fixture()
+  git(repo, "branch", "origin/feature")
+  const resolved = await withRepositories(Effect.gen(function* () {
+    const repositories = yield* Repositories
+    return yield* repositories.resolveExistingBranch(AbsolutePath.make(repo), "origin/feature")
+  }))
+  expect(resolved).toEqual({ branch: "origin/feature" })
+})
+
+test("an existing remote selection leaves dirty in-place work and occupied branches alone", async () => {
+  const { repo, tmp } = await fixture()
+  await writeFile(join(repo, "wip.txt"), "work\n")
+  const outcome = await withRepositories(Effect.gen(function* () {
+    const repositories = yield* Repositories
+    return yield* repositories.provisionInPlace({ source: AbsolutePath.make(repo), branch: "origin/feature", createMissing: false })
+  }))
+  expect(outcome).toBe("skipped-dirty")
+  expect(git(repo, "branch", "--list", "feature")).toBe("")
+  expect(git(repo, "symbolic-ref", "--short", "HEAD")).toBe("main")
+  git(repo, "branch", "--track", "feature", "origin/feature")
+  git(repo, "worktree", "add", join(tmp, "occupied"), "feature")
+  await expect(withRepositories(Effect.gen(function* () {
+    const repositories = yield* Repositories
+    return yield* repositories.provisionLinkedWorktree({ source: AbsolutePath.make(repo), directory: AbsolutePath.make(join(tmp, "second")), branch: "origin/feature", createMissing: false })
+  }))).rejects.toThrow()
+  expect(existsSync(join(tmp, "second"))).toBe(false)
+})
+
 test("provisionInPlace creates the branch in place and leaves a dirty checkout alone", async () => {
   const { makeRepo } = await fixture()
   const dir = await makeRepo("inplace-repo")

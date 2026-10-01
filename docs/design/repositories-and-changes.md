@@ -400,8 +400,14 @@ kind map to the capability's concrete inputs in the workflow: `location: origina
 `provisionInPlace`, `location: new` to `provisionLinkedWorktree`, `branch.kind: current` to
 neither (the checkout is adopted untouched), `branch.kind: change` passes `createMissing: true`
 and the link's `base`, and `branch.kind: existing` passes `createMissing: false` and the named
-branch. The capability only knows concrete sources and destinations; base selection
-(`origin/<default>`, else a local `main`/`master`) and the fetch are its own. `InPlaceOutcome` is
+branch. The capability resolves an existing selection against actual local and remote refs:
+provisioning attaches its local branch (explicitly creating a tracking branch when remote-only),
+verification compares that local name, and refresh uses its resolved remote/upstream ref. Exact
+local names win; ambiguous remote names and conflicting upstreams fail without mutation. The
+recorded selection remains unchanged. Existing selections fetch their resolved remote; new
+branches retain the origin fetch/default-base policy. The capability only knows concrete sources
+and destinations; it supplies base selection (`origin/<default>`, else a local `main`/`master`),
+while the workflow owns fetch-before-provision sequencing. `InPlaceOutcome` is
 `already | switched | created | skipped-dirty`, so a dirty checkout is reported rather than
 touched.
 
@@ -652,7 +658,7 @@ export const layer = Layer.effect(
     //   provision-> `provisionInPlace` / `provisionLinkedWorktree` (attach for `existing`);
     //               `skipped-dirty` becomes `LeftAlone`
     //   refresh  -> `fastForwardBranch` to `base ?? the repository default` for a change
-    //               branch, `origin/<name>` for an existing one
+    //               branch, the resolved remote/upstream ref for an existing one
     const provisionLink = (change: Change, repository: Repository): Effect<CheckoutOutcome>
 
     // One journal entry per repository (running -> done/failed with what the refresh did),

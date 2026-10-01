@@ -219,14 +219,10 @@ export const layer = Layer.effect(
           return Effect.succeed(undefined)
         case "change":
           return repository.base ? Effect.succeed(repository.base) : repositories.defaultBranch(source)
-        case "existing": {
-          // A local-only branch has nothing to advance toward; that is `None`, not a refresh
-          // against a ref that is not there.
-          const counterpart = `origin/${repository.branch.name}`
-          return repositories.refExists(source, counterpart).pipe(
-            Effect.map((exists) => (exists ? counterpart : undefined)),
+        case "existing":
+          return repositories.resolveExistingBranch(source, repository.branch.name).pipe(
+            Effect.map((selected) => selected.remoteRef),
           )
-        }
       }
     }
 
@@ -267,25 +263,39 @@ export const layer = Layer.effect(
               )
             : outcome({ _tag: "None", reason: "adopted as checked out" })
 
-        const remote = yield* repositories.hasRemote(source, "origin").pipe(Effect.either)
+        const selection = repository.branch.kind === "existing"
+          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.either)
+          : undefined
+        if (selection?._tag === "Left")
+          return outcome({ _tag: "None", reason: "could not resolve the branch" }, selection.left)
+        const selected = selection?._tag === "Right" ? selection.right : undefined
+        const remoteName = selected?.remote ?? "origin"
+        const remote = yield* repositories.hasRemote(source, remoteName).pipe(Effect.either)
         if (remote._tag === "Left")
           return outcome({ _tag: "None", reason: "could not read the repository" }, remote.left)
-        // The fetch is `origin`'s, so `origin` is what must exist — a repository whose only
-        // remote is another name has nothing this sequence fetches, and works from its local
-        // default.
+        // New branches still fetch origin; an existing selection fetches the remote its
+        // freshness ref belongs to, before attaching or advancing anything.
         if (remote.right) {
-          const fetched = yield* repositories.fetchRemote(source).pipe(Effect.either)
+          const fetched = yield* repositories.fetchRemote(source, remoteName).pipe(Effect.either)
           if (fetched._tag === "Left")
             return outcome({ _tag: "FetchFailed", reason: fetched.left.message }, fetched.left)
         }
 
-        const branch = repository.branch.kind === "existing" ? repository.branch.name : change.branch
-        // An existing branch is only ever attached — never created, whatever its name.
+        // Resolve again after fetching: deleted or changed refs must not be attached from stale
+        // metadata. Keep the recorded selection for provisioning and the local name for checks.
+        const refreshedSelection = repository.branch.kind === "existing"
+          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.either)
+          : undefined
+        if (refreshedSelection?._tag === "Left")
+          return outcome({ _tag: "None", reason: "could not resolve the branch" }, refreshedSelection.left)
+        const branch = refreshedSelection?._tag === "Right" ? refreshedSelection.right.branch : change.branch
+        const requestedBranch = repository.branch.kind === "existing" ? repository.branch.name : branch
+        // An existing branch is attached — a remote-only one gets a local tracking branch.
         const createMissing = repository.branch.kind === "change"
         const base = repository.branch.kind === "change" ? repository.base : undefined
         if (repository.location === "original") {
           const attempt = yield* repositories
-            .provisionInPlace({ source, branch, createMissing, ...(base ? { base } : {}) })
+            .provisionInPlace({ source, branch: requestedBranch, createMissing, ...(base ? { base } : {}) })
             .pipe(Effect.either)
           if (attempt._tag === "Left")
             return outcome({ _tag: "None", reason: "the checkout was not provisioned" }, attempt.left)
@@ -298,7 +308,7 @@ export const layer = Layer.effect(
             .provisionLinkedWorktree({
               source,
               directory: AbsolutePath.make(checkoutLocation),
-              branch,
+              branch: requestedBranch,
               createMissing,
               ...(base ? { base } : {}),
             })
