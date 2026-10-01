@@ -328,6 +328,19 @@ test.skipIf(!usable)("every window's pty is the size the page shows", async () =
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
   await tabs.first().waitFor({ timeout: 15_000 });
 
+  // (a) the change's first window: its shell starts at the page's grid (the subagent's window is
+  // pinned in test/terminalAcceptance.test.ts).
+  const firstFile = join(dir, "size-first.txt");
+  let firstReported = "";
+  for (let attempt = 0; attempt < 40 && !/^\d+ \d+$/.test(firstReported); attempt++) {
+    await page.keyboard.type(`stty size > ${firstFile}\n`);
+    await Bun.sleep(200);
+    firstReported = (await fileText(firstFile)).trim();
+  }
+  expect(firstReported).toMatch(/^\d+ \d+$/);
+  const [firstRows = 0, firstCols = 0] = firstReported.split(/\s+/).map(Number);
+  expect(await terminalSize(page)).toEqual({ cols: firstCols, rows: firstRows });
+
   // Mark the first window's shell so the new one is provably a different pty; a window created
   // before a page attached (a new tab, a subagent window) opens at a default size, and attaching
   // must resize the pty to the page's grid or wrapping and backspace break.
