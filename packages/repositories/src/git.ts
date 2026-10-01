@@ -37,6 +37,13 @@ export class OperationError extends Data.TaggedError("Git.OperationError")<{
   readonly cause?: unknown
 }> {}
 
+/** A selected branch's attachment and freshness names, resolved from local Git metadata. */
+export type ExistingBranch = {
+  readonly branch: string
+  readonly remoteRef?: string
+  readonly remote?: string
+}
+
 /** One commit an upstream has that the checkout does not, as a list reads it. */
 export type IncomingCommit = {
   readonly sha: string
@@ -59,6 +66,11 @@ export interface Interface {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly head: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly branchExists: (repository: Repository, branch: string) => Effect.Effect<boolean, OperationError>
+    /** Resolve a local or remote branch selection without creating or switching anything. */
+    readonly resolveExistingBranch: (
+      repository: Repository,
+      name: string,
+    ) => Effect.Effect<ExistingBranch, OperationError>
     /** Whether a ref resolves to a commit — a remote counterpart like `origin/feature`, for
      * instance. An unresolvable ref is false, not a failure. */
     readonly refExists: (repository: Repository, ref: string) => Effect.Effect<boolean, OperationError>
@@ -113,10 +125,11 @@ export interface Interface {
       input: { readonly to: string },
     ) => Effect.Effect<void, OperationError>
     /** `git switch <branch>`, or `git switch --create <branch> --no-track <base>` when creating;
-     * a creation without a base branches from HEAD. */
+     * a creation without a base branches from HEAD. `track` explicitly creates a local branch
+     * tracking that remote ref instead of using `base`. */
     readonly switchToBranch: (
       repository: Repository,
-      input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
+      input: { readonly branch: string; readonly create?: boolean; readonly base?: string; readonly track?: string },
     ) => Effect.Effect<void, OperationError>
   }
   readonly worktree: {
@@ -125,14 +138,17 @@ export interface Interface {
       readonly directory: AbsolutePath
       readonly force: boolean
     }) => Effect.Effect<void, OperationError>
-    /** Adds a linked worktree: for an existing branch, or creating the branch from `base`
-     * (branches from HEAD when no base is given, and never setting up an upstream). */
+    /** Adds a linked worktree: for an existing local branch, creating one from `base`
+     * (branches from HEAD when no base is given, without an upstream), or explicitly creating a
+     * tracking branch from `track`. Never pass a remote ref as the attachment branch. */
     readonly add: (input: {
       readonly repository: Repository
       readonly directory: AbsolutePath
       readonly branch: string
       readonly base?: string
       readonly create: boolean
+      /** Create a local tracking branch from this remote ref, not from `base`. */
+      readonly track?: string
     }) => Effect.Effect<Repository, OperationError>
   }
 }

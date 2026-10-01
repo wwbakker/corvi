@@ -137,8 +137,16 @@ const effectiveBranchName = (
   change: Change,
   repo: string,
   worktree: string | undefined,
-): Effect.Effect<string> => {
+): Effect.Effect<string, BadRequestError, GitFacts> => {
   const spec = (change.checkouts ?? []).find((entry) => entry.path === repo);
+  if (spec?.branch.kind === "existing") {
+    const name = spec.branch.name;
+    return Effect.flatMap(GitFacts, (facts) => facts.existingBranch(repo, name)).pipe(
+      Effect.flatMap((branch) => branch
+        ? Effect.succeed(branch)
+        : Effect.fail(new BadRequestError({ message: `could not resolve existing branch ${name} in ${repo}` }))),
+    );
+  }
   const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
   if (effective._tag === "Recorded") return Effect.succeed(effective.name);
   if (!worktree) return Effect.succeed(change.branch);

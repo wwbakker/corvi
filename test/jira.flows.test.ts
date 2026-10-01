@@ -1281,11 +1281,12 @@ const startStub = (options: {
       return json({ issues: options.backlog === false ? [] : [{ key: "PROJ-1" }] });
     if (url.pathname === "/rest/agile/1.0/board/169/sprint")
       return json({ values: options.sprints ?? [] });
-    if (url.pathname.startsWith("/rest/agile/1.0/sprint/") && method === "POST")
+    // Jira's move endpoint is singular /issue; the plural /issues route does not exist.
+    if (/^\/rest\/agile\/1\.0\/sprint\/\d+\/issue$/.test(url.pathname) && method === "POST")
       return options.sprintMoveStatus && options.sprintMoveStatus >= 400
         ? text("sprint refused", options.sprintMoveStatus)
         : noContent();
-    return text(`unexpected ${method} ${url.pathname}`, 500);
+    return text(`unexpected ${method} ${url.pathname}`, 404);
   });
 
 test("a linked ticket is assigned to me from the moment it is linked", async () => {
@@ -1349,8 +1350,11 @@ test("starting work takes a backlog ticket into the active sprint with the lates
   const result = await runEffect(moveIssueOnStart(ticketed()));
   expect(result.detail).toBe("In Progress · moved to Sprint 2");
 
-  const moved = fetchCalls.find((c) => c.url.pathname === "/rest/agile/1.0/sprint/2/issues")!;
+  const moved = fetchCalls.find((c) => c.url.pathname === "/rest/agile/1.0/sprint/2/issue")!;
+  expect(moved).toBeDefined();
+  expect(moved.init?.method).toBe("POST");
   expect(JSON.parse(moved.init?.body as string)).toEqual({ issues: ["PROJ-1"] });
+  expect(fetchCalls.some((c) => c.url.pathname.endsWith("/issues"))).toBe(false);
   // Only active sprints were candidates.
   const listed = fetchCalls.find((c) => c.url.pathname === "/rest/agile/1.0/board/169/sprint")!;
   expect(listed.url.searchParams.get("state")).toBe("active");
@@ -1369,7 +1373,7 @@ test("only a backlog ticket moves: one already in a sprint stays put", async () 
 
   const result = await runEffect(moveIssueOnStart(ticketed()));
   expect(result.detail).toBe("In Progress · left in its sprint");
-  expect(fetchCalls.some((c) => c.url.pathname.includes("/sprint/5/issues"))).toBe(false);
+  expect(fetchCalls.some((c) => c.url.pathname.includes("/sprint/5/issue"))).toBe(false);
 });
 
 test("with no active sprint the ticket stays in the backlog, and that is not a failure", async () => {

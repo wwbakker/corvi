@@ -96,6 +96,62 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       })
     })
 
+    const resolveExistingBranch = Effect.fn("Git.history.resolveExistingBranch")(function* (
+      repository: Git.Repository,
+      name: string,
+    ) {
+      const fail = (message: string): Git.OperationError =>
+        new Git.OperationError({ operation: "checkout", directory: repository.worktree, message })
+      const refs = yield* run("checkout", repository.worktree, [
+        "for-each-ref",
+        "--format=%(refname)%09%(upstream)%09%(symref)",
+        "refs/heads",
+        "refs/remotes",
+      ])
+      if (refs.exitCode !== 0) return yield* fail(refs.stderr.trim() || "could not read branches")
+      const remotes = yield* run("checkout", repository.worktree, ["remote"])
+      if (remotes.exitCode !== 0) return yield* fail(remotes.stderr.trim() || "could not read remotes")
+      const remoteNames = remotes.stdout.trim().split("\n").filter(Boolean)
+        .sort((a, b) => b.length - a.length)
+      const entries = refs.stdout.split("\n").filter(Boolean).map((line) => {
+        const [ref = "", upstream = "", symref = ""] = line.split("\t")
+        return { ref, upstream, symref }
+      })
+      const locals = entries.filter((entry) => entry.ref.startsWith("refs/heads/"))
+      const remoteBranches = entries.filter((entry) => entry.ref.startsWith("refs/remotes/") && !entry.symref)
+      const remoteOf = (ref: string): string | undefined =>
+        remoteNames.find((remote) => ref.startsWith(`refs/remotes/${remote}/`))
+      const resolved = (branch: string, ref?: string): Git.ExistingBranch => {
+        const remote = ref ? remoteOf(ref) : undefined
+        return { branch, ...(remote && ref ? { remote, remoteRef: ref.slice("refs/remotes/".length) } : {}) }
+      }
+      // Exact local names win, including names with slashes or names that look remote-qualified.
+      const local = locals.find((entry) => entry.ref === `refs/heads/${name}`)
+      if (local) {
+        const upstream = remoteBranches.find((entry) => entry.ref === local.upstream)?.ref
+        const counterpart = remoteBranches.find((entry) => entry.ref === `refs/remotes/origin/${name}`)?.ref
+        return resolved(name, upstream ?? (!local.upstream ? counterpart : undefined))
+      }
+      const explicit = remoteBranches.find((entry) => entry.ref === `refs/remotes/${name}`)
+      const candidates = explicit
+        ? [explicit]
+        : remoteBranches.filter((entry) => {
+            const remote = remoteOf(entry.ref)
+            return remote && entry.ref === `refs/remotes/${remote}/${name}`
+          })
+      if (candidates.length !== 1)
+        return yield* fail(candidates.length ? `ambiguous remote branch: ${name}` : `branch not found: ${name}`)
+      const selected = candidates[0]
+      if (!selected) return yield* fail(`branch not found: ${name}`)
+      const remote = remoteOf(selected.ref)
+      if (!remote) return yield* fail(`branch has no configured remote: ${name}`)
+      const branch = selected.ref.slice(`refs/remotes/${remote}/`.length)
+      const corresponding = locals.find((entry) => entry.ref === `refs/heads/${branch}`)
+      if (corresponding?.upstream && corresponding.upstream !== selected.ref)
+        return yield* fail(`local branch ${branch} tracks ${corresponding.upstream}, not ${selected.ref}`)
+      return resolved(branch, selected.ref)
+    })
+
     const refExists = Effect.fn("Git.history.refExists")(function* (
       repository: Git.Repository,
       ref: string,
@@ -356,11 +412,13 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
 
     const switchToBranch = Effect.fn("Git.sync.switchToBranch")(function* (
       repository: Git.Repository,
-      input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
+      input: { readonly branch: string; readonly create?: boolean; readonly base?: string; readonly track?: string },
     ) {
-      const args = input.create
-        ? ["switch", "--create", input.branch, ...(input.base ? ["--no-track", input.base] : [])]
-        : ["switch", input.branch]
+      const args = input.track
+        ? ["switch", "--create", input.branch, "--track", input.track]
+        : input.create
+          ? ["switch", "--create", input.branch, ...(input.base ? ["--no-track", input.base] : [])]
+          : ["switch", input.branch]
       const result = yield* run("checkout", repository.worktree, args)
       if (result.exitCode !== 0)
         return yield* new Git.OperationError({
@@ -395,19 +453,22 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
       readonly branch: string
       readonly base?: string
       readonly create: boolean
+      readonly track?: string
     }) {
-      const args = input.create
-        ? [
-            "-c",
-            "branch.autoSetupMerge=false",
-            "worktree",
-            "add",
-            "-b",
-            input.branch,
-            input.directory,
-            ...(input.base ? [input.base] : []),
-          ]
-        : ["worktree", "add", input.directory, input.branch]
+      const args = input.track
+        ? ["worktree", "add", "--track", "-b", input.branch, input.directory, input.track]
+        : input.create
+          ? [
+              "-c",
+              "branch.autoSetupMerge=false",
+              "worktree",
+              "add",
+              "-b",
+              input.branch,
+              input.directory,
+              ...(input.base ? [input.base] : []),
+            ]
+          : ["worktree", "add", input.directory, input.branch]
       const result = yield* run("create", input.repository.worktree, args)
       if (result.exitCode !== 0)
         return yield* new Git.OperationError({
@@ -416,7 +477,15 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
           message: result.stderr.trim() || "git worktree add failed",
         })
       const repository = yield* discover(input.directory)
-      if (repository) return repository
+      if (repository) {
+        const attached = yield* branch(repository)
+        if (attached === input.branch) return repository
+        return yield* new Git.OperationError({
+          operation: "create",
+          directory: input.directory,
+          message: `created checkout is not attached to ${input.branch}`,
+        })
+      }
       return yield* new Git.OperationError({
         operation: "create",
         directory: input.directory,
@@ -430,6 +499,7 @@ export const layer: Layer.Layer<Git.Service, never, Command> = Layer.effect(
         branch,
         head,
         branchExists,
+        resolveExistingBranch,
         refExists,
         isAncestor,
         upstream,

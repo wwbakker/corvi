@@ -253,8 +253,11 @@ test("a repository edit reports its checkout failures with the edit", async () =
   }
 });
 
-test("an existing branch advances toward its remote counterpart", async () => {
-  const repo = await clonedRepo("ideation-existing");
+for (const selection of ["feature", "origin/feature"]) {
+test(`an existing branch ${selection} advances toward its remote counterpart`, async () => {
+  const suffix = selection.replaceAll("/", "-");
+  const repoName = `ideation-existing-${suffix}`;
+  const repo = await clonedRepo(repoName);
   // The branch the user keeps: made and pushed here, then the remote moves on from a second
   // clone while the local one stands still.
   await runSh(["git", "checkout", "-b", "feature"], repo);
@@ -266,8 +269,8 @@ test("an existing branch advances toward its remote counterpart", async () => {
   // is where `feature` will live.
   await runSh(["git", "checkout", "main"], repo);
 
-  const other = join(tmp, "ideation-existing-other");
-  await runSh(["git", "clone", "--quiet", join(tmp, "ideation-existing.git"), other]);
+  const other = join(tmp, `${repoName}-other`);
+  await runSh(["git", "clone", "--quiet", join(tmp, `${repoName}.git`), other]);
   await runSh(["git", "config", "user.email", "t@t"], other);
   await runSh(["git", "config", "user.name", "t"], other);
   await runSh(["git", "checkout", "feature"], other);
@@ -278,22 +281,25 @@ test("an existing branch advances toward its remote counterpart", async () => {
 
   const idea = await runEffect(
     createChange({
-      id: "idea-existing",
+      id: `idea-existing-${suffix}`,
       state: "Ideation",
       checkouts: [
-        { path: repo, location: "new" as const, branch: { kind: "existing" as const, name: "feature" } },
+        { path: repo, location: "new" as const, branch: { kind: "existing" as const, name: selection } },
       ],
     }),
   );
-  await runEffect(provisionRepositories(idea));
+  const provision = await runEffect(provisionRepositories(idea));
+  expect(provision.provision.every((entry) => entry.ok)).toBe(true);
 
   const worktree = join(changeDir(idea), basename(repo));
   expect((await lstat(worktree)).isDirectory()).toBe(true);
+  expect((await runSh(["git", "symbolic-ref", "--short", "HEAD"], worktree)).stdout.trim()).toBe("feature");
   // Attached, then fast-forwarded to its remote counterpart's tip.
   const inWorktree = (await runSh(["git", "rev-parse", "HEAD"], worktree)).stdout.trim();
   const remoteTip = (await runSh(["git", "rev-parse", "origin/feature"], repo)).stdout.trim();
   expect(inWorktree).toBe(remoteTip);
 });
+}
 
 test("an idea cannot be completed, only started", async () => {
   const idea = await runEffect(createChange({ id: "idea-complete", state: "Ideation" }));

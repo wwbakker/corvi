@@ -13,8 +13,8 @@ export type CheckoutInspection =
   | { readonly _tag: "Missing" }
   | { readonly _tag: "Present"; readonly branch?: string; readonly head?: string }
 
-/** One commit the upstream has and the checkout does not. */
-export type { IncomingCommit } from "./git.ts"
+/** Branch-resolution and incoming-commit facts owned by the Git adapter. */
+export type { IncomingCommit, ExistingBranch } from "./git.ts"
 
 /** What the checkout and its upstream say about each other: how far they have drifted, where the
  * upstream's tip is, and where the remote lives — the facts an update decides on. */
@@ -74,7 +74,13 @@ export class CheckoutError extends Data.TaggedError("CheckoutError")<{
 export interface Interface {
   readonly inspectCheckout: (directory: AbsolutePath) => Effect.Effect<CheckoutInspection, CheckoutError>
   /** Fetches the remote, so the upstream facts read after it are current. */
-  readonly fetchRemote: (directory: AbsolutePath) => Effect.Effect<void, NotARepository | CheckoutError>
+  readonly fetchRemote: (directory: AbsolutePath, remote?: string) => Effect.Effect<void, NotARepository | CheckoutError>
+  /** Resolve a local/remote selection to the local attachment name and its freshness ref.
+   * Reads only; missing/ambiguous refs and conflicting upstreams fail without mutation. */
+  readonly resolveExistingBranch: (
+    directory: AbsolutePath,
+    name: string,
+  ) => Effect.Effect<Git.ExistingBranch, NotARepository | CheckoutError>
   /** What the checkout and its upstream say about each other (see `UpstreamFacts`). Reads local
    * state only; `fetchRemote` first when the answer must be current. */
   readonly inspectUpstream: (
@@ -89,8 +95,7 @@ export interface Interface {
   readonly defaultRemoteBranch: (
     directory: AbsolutePath,
   ) => Effect.Effect<string | undefined, NotARepository | CheckoutError>
-  /** Whether the repository has the named remote (or any remote). The fetch a provisioning run
-   * makes is `origin`'s, so that is the name freshness asks about. */
+  /** Whether the repository has the named remote (or any remote). */
   readonly hasRemote: (
     directory: AbsolutePath,
     remote?: string,
@@ -220,11 +225,23 @@ export const layer = Layer.effect(
       return { _tag: "Present", branch, head } satisfies CheckoutInspection
     })
 
-    const fetchRemote = Effect.fn("Repositories.fetchRemote")(function* (directory: AbsolutePath) {
+    const resolveExistingBranch = Effect.fn("Repositories.resolveExistingBranch")(function* (
+      directory: AbsolutePath,
+      name: string,
+    ) {
+      const repository = yield* discover(directory, "inspect")
+      return yield* git.history.resolveExistingBranch(repository, name).pipe(
+        Effect.mapError((cause) =>
+          new CheckoutError({ operation: "inspect", directory, message: cause.message, cause }),
+        ),
+      )
+    })
+
+    const fetchRemote = Effect.fn("Repositories.fetchRemote")(function* (directory: AbsolutePath, remote?: string) {
       const repository = yield* discover(directory, "fetch")
       // The Git answer is the explanation here ("could not resolve host" and friends), and it is
       // what an update's journal shows — the wrapped message would say only "fetch failed".
-      yield* git.sync.fetchRemote(repository).pipe(
+      yield* git.sync.fetchRemote(repository, remote).pipe(
         Effect.mapError(
           (cause) =>
             new CheckoutError({
@@ -487,13 +504,28 @@ export const layer = Layer.effect(
       readonly createMissing: boolean
     }) {
       const repository = yield* discover(input.source, "add-worktree")
-      // A checkout already at the destination is the state this wanted.
+      // Never switch an existing destination: it may hold user work or a detached HEAD. The
+      // caller verifies its expected local branch before reporting success or refreshing it.
       const existing = yield* inspect(git.repo.discover(input.directory), input.source)
       if (existing) return
-      // An existing branch is only ever attached: `git worktree add` attaches a local branch, or
-      // creates a tracking branch for a remote-only name, and refuses a name that is nowhere.
-      const attachable =
-        !input.createMissing || (yield* inspect(git.history.branchExists(repository, input.branch), input.source))
+      // An explicit remote ref passed straight to worktree add detaches HEAD. Resolve it first,
+      // and request tracking creation only when the corresponding local branch is absent.
+      if (!input.createMissing) {
+        const selected = yield* resolveExistingBranch(input.source, input.branch)
+        const local = yield* inspect(git.history.branchExists(repository, selected.branch), input.source)
+        yield* inspect(
+          git.worktree.add({
+            repository,
+            directory: input.directory,
+            branch: selected.branch,
+            create: false,
+            ...(!local && selected.remoteRef ? { track: selected.remoteRef } : {}),
+          }),
+          input.source,
+        )
+        return
+      }
+      const attachable = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
       if (attachable) {
         yield* inspect(
           git.worktree.add({
@@ -527,13 +559,21 @@ export const layer = Layer.effect(
       readonly createMissing: boolean
     }) {
       const repository = yield* discover(input.source, "switch")
+      const selected = !input.createMissing ? yield* resolveExistingBranch(input.source, input.branch) : undefined
+      const branch = selected?.branch ?? input.branch
       const current = yield* inspect(git.history.branch(repository), input.source)
-      if (current === input.branch) return "already" as const
+      if (current === branch) return "already" as const
       if (yield* inspect(git.status.dirty(repository), input.source)) return "skipped-dirty" as const
       if (!input.createMissing) {
-        // Attach-only: `git switch` moves to a local branch, or creates a tracking branch for a
-        // remote-only name, and refuses a name that is nowhere.
-        yield* inspect(git.sync.switchToBranch(repository, { branch: input.branch }), input.source)
+        // Attach the resolved local name; an explicit remote ref is not a switchable branch.
+        const local = yield* inspect(git.history.branchExists(repository, branch), input.source)
+        yield* inspect(
+          git.sync.switchToBranch(repository, {
+            branch,
+            ...(!local && selected?.remoteRef ? { track: selected.remoteRef } : {}),
+          }),
+          input.source,
+        )
         return "switched" as const
       }
       const exists = yield* inspect(git.history.branchExists(repository, input.branch), input.source)
@@ -556,6 +596,7 @@ export const layer = Layer.effect(
 
     return {
       inspectCheckout,
+      resolveExistingBranch,
       fetchRemote,
       inspectUpstream,
       incomingCommits,

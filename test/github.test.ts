@@ -202,6 +202,29 @@ const runExtensionEither = <A, E>(
 ): Promise<Either.Either<A, E>> =>
   Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell))));
 
+test("an existing remote-qualified selection looks up the PR for its attached local branch", async () => {
+  const repo = await testTempDir("gh-existing-branch");
+  try {
+    const shell = ghShell({
+      repo,
+      prs: [pr()],
+      gh: (line) => {
+        if (line === "git rev-parse --show-toplevel") return repo;
+        if (line === "git rev-parse --git-dir" || line === "git rev-parse --git-common-dir") return ".git";
+        if (line.startsWith("git for-each-ref --format="))
+          return "refs/heads/feature\trefs/remotes/origin/feature\t\nrefs/remotes/origin/feature\t\t\n";
+        return undefined;
+      },
+    });
+    const selected = change({ checkouts: [{ path: repo, location: "new", branch: { kind: "existing", name: "origin/feature" } }] });
+    expect(await runWithShell(shell, prSummary(selected, repo))).toMatchObject({ number: 7 });
+    expect(shell.calls.some((call) => call.cmd.join(" ").startsWith("gh pr list --head feature "))).toBe(true);
+    expect(shell.calls.some((call) => call.cmd.join(" ").includes("origin/feature@{upstream}"))).toBe(false);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
 // --- Pure decisions ---------------------------------------------------------------------------
 
 test("readiness: an unresolved comment keeps its tone when the pull request also conflicts", () => {

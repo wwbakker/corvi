@@ -44,9 +44,11 @@ interface Script {
   forward?: import("@corvi/repositories").ForwardOutcome
   /** Whether a named branch's remote counterpart exists (the default). */
   counterpart?: boolean
+  selected?: import("@corvi/repositories").ExistingBranch
   /** Where a user or agent moved the checkout after provisioning — the refresh must not touch
    * it. */
   switchedTo?: string
+  inspectAfterProvision?: CheckoutInspection
   /** The remote names `hasRemote` was asked about. */
   remotesAsked: string[]
   /** What each scripted provisioning left checked out, per directory. */
@@ -128,6 +130,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           inspectCheckout: (directory) => {
             if (state.inspectFailure) return Effect.fail(state.inspectFailure)
             const provisioned = state.branches.get(String(directory))
+            if (provisioned && state.inspectAfterProvision) return Effect.succeed(state.inspectAfterProvision)
             const observed = state.switchedTo ?? provisioned
             return Effect.succeed(
               observed === undefined
@@ -145,7 +148,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
           pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
           provisionLinkedWorktree: (input) => {
-            state.branches.set(String(input.directory), input.branch)
+            state.branches.set(String(input.directory), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
             state.calls.push(
               `worktree ${input.directory} ${input.branch} ${input.createMissing ? "create" : "attach"}` +
                 (input.base ? ` from ${input.base}` : ""),
@@ -163,7 +166,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
             return state.slow ? attempt.pipe(Effect.delay("20 millis")) : attempt
           },
           provisionInPlace: (input) => {
-            state.branches.set(String(input.source), input.branch)
+            state.branches.set(String(input.source), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
             state.calls.push(
               `in-place ${input.branch} ${input.createMissing ? "create" : "attach"}` +
                 (input.base ? ` from ${input.base}` : ""),
@@ -175,8 +178,12 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
             return Effect.succeed(state.remote ?? true)
           },
           refExists: () => Effect.succeed(state.counterpart ?? true),
-          fetchRemote: (directory) => {
-            state.calls.push(`fetch ${directory}`)
+          resolveExistingBranch: (_source, name) => Effect.succeed(state.selected ?? {
+            branch: name.startsWith("origin/") ? name.slice("origin/".length) : name,
+            ...((state.counterpart ?? true) ? { remote: "origin", remoteRef: name.startsWith("origin/") ? name : `origin/${name}` } : {}),
+          }),
+          fetchRemote: (directory, remote) => {
+            state.calls.push(`fetch ${directory}` + (remote && remote !== "origin" ? ` from ${remote}` : ""))
             return state.fetchFailsFor && String(directory).endsWith(`/${state.fetchFailsFor}`)
               ? Effect.fail(
                   new CheckoutError({
@@ -433,6 +440,44 @@ test("the fetch asks about origin — the remote it fetches", async () => {
     }),
   )
   expect(state.remotesAsked).toEqual(["origin"])
+})
+
+for (const remote of ["origin", "upstream"]) {
+  for (const location of ["new", "original"] as const) {
+    test(`a ${remote}-qualified selection in ${location} verifies the local name and refreshes the selected ref`, async () => {
+      const state = script({
+        links: [link("repo", location, { kind: "existing", name: `${remote}/team/topic` })],
+        selected: { branch: "team/topic", remote, remoteRef: `${remote}/team/topic` },
+      })
+      const result = await run(state, Effect.gen(function* () {
+        const changeWork = yield* work
+        return yield* changeWork.startChange(ChangeId.make("example"))
+      }))
+      expect(Either.isRight(result)).toBe(true)
+      if (Either.isRight(result)) expect(result.right._tag).toBe("Started")
+      expect(state.remotesAsked).toEqual([remote])
+      const fetched = state.calls.findIndex((call) => call.startsWith("fetch"))
+      const provisioned = state.calls.findIndex((call) => call.startsWith(location === "new" ? "worktree" : "in-place"))
+      expect(fetched).toBeLessThan(provisioned)
+      const directory = location === "new" ? "/workspace/example/repo" : "/sources/repo"
+      expect(state.calls).toContain(`forward ${directory} to ${remote}/team/topic`)
+      expect(state.calls.some((call) => call.includes("origin/origin/"))).toBe(false)
+    })
+  }
+}
+
+test("a detached destination is reported, never refreshed or silently repaired", async () => {
+  const state = script({
+    links: [link("repo", "new", { kind: "existing", name: "origin/feature" })],
+    inspectAfterProvision: { _tag: "Present", head: "detached-work" },
+  })
+  const result = await run(state, Effect.gen(function* () {
+    const changeWork = yield* work
+    return yield* changeWork.provisionChange(ChangeId.make("example"))
+  }))
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result)) expect(result.right[0]?.error?.message).toBe("the checkout is not on feature")
+  expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
 })
 
 test("a local-only existing branch has nothing to fast-forward to", async () => {

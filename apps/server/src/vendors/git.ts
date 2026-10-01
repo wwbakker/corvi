@@ -9,6 +9,7 @@ import {
 } from "../domain/change.ts";
 import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
 import { shOrThrow } from "../capabilities/shell.ts";
+import { existingBranch } from "../capabilities/repositories.ts";
 import { changeDir } from "../change/server/store.ts";
 import { isMac, commandAvailable } from "../capabilities/os.ts";
 import { type CliError } from "@corvi/contracts/errors";
@@ -223,6 +224,8 @@ export const branchNameOf = (
   repo: string,
   spec: CheckoutSpec | undefined = specFor(change, repo),
 ): Effect.Effect<string | undefined> => {
+  if (spec?.branch.kind === "existing")
+    return existingBranch(repo, spec.branch.name).pipe(Effect.map((selected) => selected?.branch));
   const effective = effectiveBranchOf(change.branch, spec?.branch ?? { kind: "change" });
   return effective._tag === "Recorded" ? Effect.succeed(effective.name) : currentBranch(repo);
 };
@@ -588,7 +591,8 @@ const inPlaceItem = (change: Change, repo: string, spec: CheckoutSpec): Effect.E
         actions: [{ id: "add", label: `Switch to ${change.branch}`, arg: repo }],
       };
     }
-    if (spec.branch.kind === "existing" && branch !== spec.branch.name) {
+    const expected = spec.branch.kind === "existing" ? yield* branchNameOf(change, repo, spec) : undefined;
+    if (spec.branch.kind === "existing" && (!expected || branch !== expected)) {
       return {
         label,
         detail: dirty
