@@ -12,12 +12,14 @@
  * has applied, so an attach can serialize a consistent screen and resume the live bytes after it.
  * `serialize` appends an absolute-cursor correction and `\e[?25h`: the serialize addon emits DEC
  * modes (bracketed paste among them) but not DECTCEM, so a cursor a full-screen program hid would
- * otherwise stay hidden.
+ * otherwise stay hidden. A screen larger than the cap serializes to its most recent rows with a
+ * `truncated` flag, never to the empty string: the empty result means a genuinely empty screen.
  *
- * Boundary: resume is exact while the store holds the screen. After a server restart the hub seeds
- * the stored screen and attaches the host from its offset; if the host's ring has already evicted
- * past that offset there is a gap (see `./session.ts` for the policy), otherwise the resume is
- * byte-exact. Without a stored screen it rebuilds from the ring, bounded by the ring.
+ * Boundary: the screen content is exact while the store holds it. After a server restart the hub
+ * seeds the stored screen and attaches the host from its offset; if the host's ring has already
+ * evicted past that offset there is a gap (see `./session.ts` for the policy). The serialize addon
+ * restores the text and the modes it knows, not every parser state, and the offset can fall
+ * mid-escape, so "exact" is screen-content exact rather than byte-exact.
  */
 import { createRequire } from "node:module";
 import { SerializeAddon } from "@xterm/addon-serialize";
@@ -43,10 +45,14 @@ export const SCREEN_SCROLLBACK = 5000;
 const SHOW_CURSOR = "\x1b[?25h";
 
 export type ScreenSnapshot = {
-  /** The serialized screen, replayable into a fresh xterm. */
+  /** The serialized screen, replayable into a fresh xterm. Only a genuinely empty screen is "". */
   readonly data: string;
   /** The host byte offset the screen has applied; live bytes resume from here. */
   readonly offset: number;
+  /** The screen exceeded the cap and `data` is the most recent rows that fit, not the whole
+   * scrollback. `data` is never "" when this is true, so a truncated screen is never mistaken for
+   * an empty one (a blank page, or a store entry to drop). */
+  readonly truncated: boolean;
 };
 
 export type Screen = {
@@ -129,22 +135,30 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
       });
     },
     serialize: () => {
-      // Draw the screen with `rows` of scrollback, trimmed to fit the store's cap: the estimate is
-      // recomputed a bounded number of times, so a huge screen is not re-serialized per row.
       const bytes = (text: string): number => new TextEncoder().encode(text).length;
       const draw = (scrollback: number): string => {
         const serialized = addon.serialize({ scrollback });
         return serialized === "" ? "" : `${serialized}${absoluteCursor(term)}${SHOW_CURSOR}`;
       };
+      const full = draw(SCREEN_SCROLLBACK);
+      // A screen larger than the cap is trimmed to its most recent rows, with a bounded number of
+      // estimate passes rather than one re-serialize per row. `data` is never "" for a screen that
+      // has content: the trimmed draw can come back empty when all content is in the dropped
+      // scrollback, so the full draw is the floor. That keeps the empty sentinel meaning
+      // "genuinely empty" only — a blank page or a store entry to drop must not be a truncation.
       let rows = SCREEN_SCROLLBACK;
-      let data = draw(rows);
-      for (let pass = 0; pass < 4 && bytes(data) > SNAPSHOT_MAX_BYTES && rows > 0; pass++) {
-        const perRow = bytes(data) / Math.max(1, rows);
-        rows = Math.max(0, Math.min(rows - 1, Math.floor((SNAPSHOT_MAX_BYTES / perRow) * 0.95)));
-        data = draw(rows);
+      let data = full;
+      let truncated = false;
+      if (bytes(data) > SNAPSHOT_MAX_BYTES) {
+        truncated = true;
+        for (let pass = 0; pass < 4 && bytes(data) > SNAPSHOT_MAX_BYTES && rows > 0; pass++) {
+          const perRow = bytes(data) / Math.max(1, rows);
+          rows = Math.max(0, Math.min(rows - 1, Math.floor((SNAPSHOT_MAX_BYTES / perRow) * 0.95)));
+          data = draw(rows);
+        }
+        if (data === "") data = full;
       }
-      // Even the viewport alone can exceed the cap: hand back nothing rather than ship it.
-      return { data: bytes(data) > SNAPSHOT_MAX_BYTES ? "" : data, offset: applied };
+      return { data, offset: applied, truncated };
     },
     resize: (cols, rows) => term.resize(cols, rows),
     dispose: () => term.dispose(),

@@ -34,8 +34,8 @@
  */
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
-import { makeScreen, type Screen } from "./screen.ts";
-import { setSnapshots, snapshotOf, type SnapshotInput } from "./snapshots.ts";
+import { makeScreen, type Screen, type ScreenSnapshot } from "./screen.ts";
+import { SNAPSHOT_MAX_BYTES, forgetSnapshot, setSnapshots, snapshotOf, type SnapshotInput } from "./snapshots.ts";
 import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
 
 /** How often a dirty screen is written to the store. Serializing a 5,000-row screen is ~17 ms and
@@ -110,6 +110,10 @@ type Hub = {
   lastPersist: number;
   /** The screen has been disposed; a stale `TerminalSession` must not attach to it. */
   disposed?: boolean;
+  /** The host ring's join from the attach reply: where its oldest retained byte is and whether the
+   * replay was truncated. The ring tail can begin mid-escape, so this records the join for
+   * diagnostics and a future "history before X"; it is not needed for the resume itself. */
+  ring?: { readonly oldestSeq: number; readonly truncated: boolean };
 };
 
 const hubs = new Map<string, Hub>();
@@ -151,6 +155,8 @@ const hubFor = (
   // high-water back.
   const stored = snapshotOf(id, incarnation);
   if (stored !== undefined && stored.data !== "") {
+    // Seed across geometry can reflow: a screen stored at one grid size, seeded into a window the
+    // page now shows at another, is reflowed by the headless terminal. The P3 record should say so.
     hub.screen.seed(stored.data, stored.highWater);
     hub.received = stored.highWater;
     hub.lastPersist = Date.now();
@@ -159,18 +165,23 @@ const hubFor = (
   return hub;
 };
 
-/** A dirty screen's serialization, ready for the store, or undefined when there is nothing to
- * store (empty, or a viewport that alone exceeds the cap) or the serializer threw. It never drops
- * the screen's previous entry; `dirty` stays set on a failure so a later cadence retries. */
-const screenSnapshot = (hub: Hub): SnapshotInput | undefined => {
+const byteLength = (text: string): number => new TextEncoder().encode(text).length;
+
+/** What a dirty screen yields for the store: an `input` to write, `"empty"` when the screen is
+ * genuinely empty (so any stored entry is dropped), or undefined when there is nothing to do — a
+ * clean screen, a serializer that threw, or a serialization too large for the store's cap, in
+ * which case the previous entry is kept and the screen stays dirty. */
+const screenSnapshot = (hub: Hub): SnapshotInput | "empty" | undefined => {
   if (!hub.dirty) return undefined;
+  let snapshot: ScreenSnapshot;
   try {
-    const { data, offset } = hub.screen.serialize();
-    if (data === "") return undefined;
-    return { sessionId: hub.id, incarnation: hub.incarnation, data, highWater: offset };
+    snapshot = hub.screen.serialize();
   } catch {
     return undefined;
   }
+  if (snapshot.data === "") return "empty";
+  if (byteLength(snapshot.data) > SNAPSHOT_MAX_BYTES) return undefined;
+  return { sessionId: hub.id, incarnation: hub.incarnation, data: snapshot.data, highWater: snapshot.offset };
 };
 
 /** Mark screens stored: `dirty` clears only after the write succeeded. */
@@ -183,22 +194,35 @@ const markStored = (entries: readonly { readonly hub: Hub }[], at: number): void
 
 /** Write one dirty screen (exit, idle release). */
 const persistScreen = (hub: Hub): void => {
-  const input = screenSnapshot(hub);
-  if (input === undefined) return;
-  setSnapshots([input]);
+  const result = screenSnapshot(hub);
+  if (result === undefined) return;
+  if (result === "empty") {
+    forgetSnapshot(hub.id, hub.incarnation);
+    hub.dirty = false;
+    return;
+  }
+  setSnapshots([result]);
   markStored([{ hub }], Date.now());
 };
 
 /** Write every dirty screen in one pass, for the controlled shutdown. Synchronous on purpose: a
  * signal handler has no time to await, and the store persists with a rename. */
 export const flushScreens = (): void => {
-  const due = [...hubs.values()].flatMap((hub) => {
-    const input = screenSnapshot(hub);
-    return input === undefined ? [] : [{ hub, input }];
-  });
-  if (due.length === 0) return;
-  setSnapshots(due.map((entry) => entry.input));
-  markStored(due, Date.now());
+  const due: { hub: Hub; input: SnapshotInput }[] = [];
+  const empty: Hub[] = [];
+  for (const hub of hubs.values()) {
+    const result = screenSnapshot(hub);
+    if (result === "empty") empty.push(hub);
+    else if (result !== undefined) due.push({ hub, input: result });
+  }
+  if (due.length > 0) {
+    setSnapshots(due.map((entry) => entry.input));
+    markStored(due, Date.now());
+  }
+  for (const hub of empty) {
+    forgetSnapshot(hub.id, hub.incarnation);
+    hub.dirty = false;
+  }
 };
 
 /** Drop a screen without killing its shell: release the host attachment, mark it disposed so a
@@ -220,19 +244,25 @@ const sweep = (): void => {
   const cadence = cadenceMs();
   const idle = idleMs();
   const due: { hub: Hub; input: SnapshotInput }[] = [];
+  const empty: Hub[] = [];
   const releasing: Hub[] = [];
   for (const hub of [...hubs.values()]) {
     if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
     const dueForCadence = hub.dirty && now - hub.lastPersist >= cadence;
     const idleNow = hub.subscribers.size === 0 && now - hub.lastActivity >= idle;
     if (!dueForCadence && !idleNow) continue;
-    const input = screenSnapshot(hub); // persist before releasing, so nothing is lost
-    if (input !== undefined) due.push({ hub, input });
+    const result = screenSnapshot(hub); // persist before releasing, so nothing is lost
+    if (result === "empty") empty.push(hub);
+    else if (result !== undefined) due.push({ hub, input: result });
     if (idleNow) releasing.push(hub);
   }
   if (due.length > 0) {
     setSnapshots(due.map((entry) => entry.input));
     markStored(due, now);
+  }
+  for (const hub of empty) {
+    forgetSnapshot(hub.id, hub.incarnation);
+    hub.dirty = false;
   }
   for (const hub of releasing) releaseScreen(hub);
 };
@@ -326,7 +356,11 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     hub.dataListener = listener;
     client.onData(hub.id, listener);
     try {
-      await client.attach(hub.id, hub.received);
+      const reply = await client.attach(hub.id, hub.received);
+      // Record the ring's join. A truncated replay from a seeded screen is the gap policy's case;
+      // the oldest byte can fall mid-escape, so this is a diagnostic/future-use fact, not part of
+      // the resume.
+      hub.ring = { oldestSeq: reply.oldestSeq, truncated: reply.truncated };
     } catch (error) {
       // Do not stay half-attached: a later connect retries this from the same offset.
       release(hub);
@@ -402,6 +436,24 @@ export type TerminalWebSocket = {
   readonly close: () => void;
 };
 
+/** Create the server screen for a host window (idempotent) and start feeding it. Called when the
+ * window is *opened*, not only when a page attaches: a window with no page (a subagent, a command)
+ * must capture its startup before the host's ring can evict it, or a page attaching later would
+ * miss the base. The idle release is what drops a screen no page ever attaches to. */
+export const ensureScreen = async (
+  changeId: string,
+  sessionId: string,
+  incarnation: number,
+  size: { readonly cols: number; readonly rows: number },
+): Promise<void> => {
+  const client = await hostClient();
+  const hub = hubFor(changeId, sessionId, incarnation, size);
+  hub.lastActivity = Date.now();
+  hub.screen.resize(size.cols, size.rows);
+  watchExit(hub, client);
+  await ensureAttached(hub);
+};
+
 /** Start (or reuse) the change's active host window and hand back a session the socket drives.
  * Async so the route can start the host before upgrading. */
 export const openSession = async (
@@ -419,16 +471,10 @@ export const openSession = async (
   // or the shell wraps and backspaces on a grid the screen does not match.
   await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
+  // Idempotent: the screen already exists for a window `windows.ts` opened (and is attached); it
+  // is created here only for a window this route started itself.
+  await ensureScreen(changeId, sessionId, incarnation, size);
   const hub = hubFor(changeId, sessionId, incarnation, size);
-  hub.lastActivity = Date.now();
-  // The screen is the page's grid too. The pty was just resized; an existing screen follows.
-  hub.screen.resize(size.cols, size.rows);
-  watchExit(hub, client);
-  // The screen exists from here on, so the host listener stays: it is fed with no page attached,
-  // which is what makes returning to a busy window exact. Wait for the attach, so the first
-  // snapshot already carries the ring and a dead kept-open session still has its output; a failed
-  // attach surfaces to the caller (and leaves the hub retryable).
-  await ensureAttached(hub);
   let subscriber: Subscriber | undefined;
   return {
     sessionId,

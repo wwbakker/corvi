@@ -87,7 +87,7 @@ test("the screen serializes DEC modes and always shows the cursor", async () => 
 
 test("an empty screen serializes to nothing, and resize follows the page", () => {
   const screen = makeScreen({ cols: 80, rows: 24 });
-  expect(screen.serialize()).toEqual({ data: "", offset: 0 });
+  expect(screen.serialize()).toEqual({ data: "", offset: 0, truncated: false });
   screen.resize(120, 40);
   expect(screen.cols).toBe(120);
   expect(screen.rows).toBe(40);
@@ -209,6 +209,8 @@ test("a stored screen is seeded and the ring applies on top when the ring has a 
 
   // A stored screen ending in a deep marker, at offset 0 — before the ring's oldest byte, so the
   // host cannot replay from it. The policy keeps the deep screen and lets the ring land on top.
+  // Dispose the hub the window was opened with, so the next `openSession` is the restart path.
+  closeAttachments();
   const seed = makeScreen({ cols: 80, rows: 24 });
   seed.write(bytes("DEEP-SEED-MARK\r\n"), 0);
   await seed.whenApplied(byteLength("DEEP-SEED-MARK\r\n"));
@@ -301,7 +303,9 @@ test("a persisted and reseeded hub resumes from the stored high-water, not the r
   const emitted = (await (await hostClient()).list()).find((entry) => entry.id === id)?.lastSeq ?? 0;
 
   // A stored screen at the host's end, holding a deep marker. The ring's oldest byte is far behind
-  // it; the hub must claim the stored offset rather than the ring's.
+  // it; the hub must claim the stored offset rather than the ring's. Dispose the hub the window
+  // was opened with, so this is the restart path.
+  closeAttachments();
   const seed = makeScreen({ cols: 80, rows: 24 });
   seed.write(bytes("DEEP-AT-H\r\n"), 0);
   await seed.whenApplied(byteLength("DEEP-AT-H\r\n"));
@@ -340,6 +344,80 @@ test("a stale session cannot attach after its screen was released", async () => 
     delete process.env.CORVI_SCREEN_IDLE_MS;
   }
 }, 30_000);
+
+test("a window with no page captures its whole startup, before the ring evicts it", async () => {
+  const change = "SNAP-NOPAGE";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  // A window opened with no page: it draws a base, waits for the screen to attach, then emits far
+  // more than the host ring holds. Only the screen created when the window opened can keep the
+  // base once the ring has evicted it.
+  const id = await newWindowRunningAsync(
+    change,
+    changeDir,
+    "printf 'NO-PAGE-BASE-MARK\\n'; sleep 0.5; head -c 320000 /dev/zero | tr '\\0' X; echo NO-PAGE-TAIL",
+    { keepOpen: true, announce: { label: "NoPage", notify: true } },
+  );
+  await waitFor(
+    "the command to finish",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  await waitFor("the screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  const screen = String(control(ws.frames)[0]?.data ?? "");
+  expect(screen).toContain("NO-PAGE-BASE-MARK"); // the startup draw, which the ring no longer holds
+  expect(screen).toContain("NO-PAGE-TAIL"); // and the recent output
+}, 30_000);
+
+test("an over-cap screen serializes to a truncated screen, never the empty sentinel", async () => {
+  const screen = makeScreen({ cols: 500, rows: 50 });
+  // 2.5 MB on a 500-column grid: 5,000 rows of X's, past the 1 MiB cap.
+  const chunk = "X".repeat(5000);
+  let seq = 0;
+  for (let i = 0; i < 500; i++) {
+    screen.write(bytes(chunk), seq);
+    seq += chunk.length;
+  }
+  await screen.whenApplied(seq);
+  const snapshot = screen.serialize();
+  expect(snapshot.truncated).toBe(true);
+  expect(snapshot.data).not.toBe(""); // never the empty sentinel the page reads as `reset`
+  expect(snapshot.offset).toBe(seq);
+  screen.dispose();
+});
+
+test("an over-cap screen does not blank the page and does not drop the stored screen", async () => {
+  const session = await openSession("SNAP-OVER", dir, { cols: 500, rows: 50 });
+  session.write("echo OVERCAP-BASE\n");
+  await waitEmitted(session.sessionId);
+  await Bun.sleep(300);
+  flushScreens();
+  expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("OVERCAP-BASE");
+
+  // Overfill past the cap, then flush: the store must keep a screen (the trimmed one, or the
+  // previous entry), and the page must get a non-empty snapshot rather than a blank `reset`.
+  session.write("head -c 2500000 /dev/zero | tr '\\0' X; echo OVERCAP-END\n");
+  await waitFor(
+    "the fill",
+    async () => ((await (await hostClient()).list()).find((entry) => entry.id === session.sessionId)?.lastSeq ?? 0) > 2000000,
+    30_000,
+  );
+  await Bun.sleep(500);
+  flushScreens();
+  expect(snapshotOf(session.sessionId, session.incarnation)).toBeDefined();
+
+  const snapshots: { data: string; offset: number }[] = [];
+  session.attach(
+    () => undefined,
+    (frame) => snapshots.push(frame),
+    () => undefined,
+  );
+  await waitFor("the page snapshot", async () => snapshots.length > 0, 15_000);
+  expect(snapshots[0]?.data).not.toBe("");
+}, 60_000);
 
 test("a kept-open window's snapshot store entry survives its dead session; a plain dead one is pruned", () => {
   const record = (id: string, keepOpen: boolean): WindowRecord => ({

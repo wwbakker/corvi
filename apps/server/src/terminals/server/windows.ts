@@ -20,6 +20,7 @@ import { env } from "@corvi/configuration/node";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
+import { ensureScreen } from "./session.ts";
 import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
 import { pruneSnapshots, snapshotKey } from "./snapshots.ts";
 import { presentWindow, type PresentedWindow } from "./presenter.ts";
@@ -247,7 +248,7 @@ const openHostWindow = async (
 ): Promise<string> => {
   const client = await hostClient();
   const id = windowId();
-  await client.open(id, {
+  const { incarnation } = await client.open(id, {
     cwd: options.cwd ?? dir,
     command: [...command],
     cols: size.cols,
@@ -256,6 +257,11 @@ const openHostWindow = async (
     metadata: { change: changeId, window: id, ...options.metadata },
   });
   await activate(changeId, id, extra);
+  // The screen exists for the window's whole life, not only while a page is attached: a window
+  // opened with no page (a subagent, a command) captures its startup before the host's ring can
+  // evict it. Best-effort here — a failed host attach is retried by the next `openSession`, and a
+  // screen no page ever attaches to is released by the idle sweep.
+  await ensureScreen(changeId, id, incarnation, size).catch(() => undefined);
   return id;
 };
 
