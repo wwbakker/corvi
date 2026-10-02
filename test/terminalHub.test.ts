@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import { closeAttachments, hubStats, openSession } from "../apps/server/src/terminals/server/session.ts";
-import { testTempDir, until, waitFor } from "./helpers.ts";
+import { testTempDir, waitFor } from "./helpers.ts";
 
 /**
  * The WebSocket hub and its server-owned screen, against a real host session. The host must run
@@ -97,7 +97,7 @@ afterAll(async () => {
   restoreEnv();
 });
 
-test("the screen is fed with no page attached, and a second attach is refused", async () => {
+test("the screen is fed with no page attached", async () => {
   const session = await openSession("HUB-1", dir, { cols: 80, rows: 24 });
   const before = collector();
   session.attach(before.send, before.snapshot, before.onExit);
@@ -111,22 +111,31 @@ test("the screen is fed with no page attached, and a second attach is refused", 
   const command = "echo PRE_$(( 0 + 1 ))_MARK\n";
   await runAndWait(session, command);
 
+  let firstExited = false;
   const first = collector();
+  first.onExit = () => {
+    firstExited = true;
+  };
   session.attach(first.send, first.snapshot, first.onExit);
   await waitFor("the snapshot", async () => first.snapshots.length > 0, 25_000);
   expect(screenOf(first)).toContain("PRE_1_MARK");
   expect(hubStats().attached).toBe(1);
   expect(hubStats().subscribers).toBe(1);
 
-  // One live client per hub: a second attach is refused rather than fanned out into a stream it
-  // got no snapshot for.
+  // A reattach is a new socket (a new `openSession`), not a second `attach` on the same object.
+  // The previous page's socket is still closing, so its subscriber is still in the hub: the
+  // reattach supersedes it and is served the screen, rather than being answered with `exit`.
+  const reattached = await openSession("HUB-1", dir, { cols: 80, rows: 24 });
   const second = collector();
-  session.attach(second.send, second.snapshot, second.onExit);
+  reattached.attach(second.send, second.snapshot, second.onExit);
+  expect(firstExited).toBe(true);
+  await waitFor("the second snapshot", async () => second.snapshots.length > 0, 25_000);
+  expect(screenOf(second)).toContain("PRE_1_MARK");
   expect(hubStats().subscribers).toBe(1);
-  session.write("echo ONE_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the one subscriber to see the output", async () => saw(first, "ONE_1_MARK"), 25_000);
+  reattached.write("echo ONE_$(( 0 + 1 ))_MARK\n");
+  await waitFor("the new subscriber to see the output", async () => saw(second, "ONE_1_MARK"), 25_000);
   await Bun.sleep(200);
-  expect(saw(second, "ONE_1_MARK")).toBe(false);
+  expect(saw(first, "ONE_1_MARK")).toBe(false);
 }, 60_000);
 
 test("detaching never kills the shell or the screen, and re-attaching resumes from it", async () => {
@@ -151,31 +160,31 @@ test("detaching never kills the shell or the screen, and re-attaching resumes fr
   expect(screenOf(second)).toContain("ALIVE_1_MARK");
 }, 60_000);
 
-test("a second openSession for one session is refused at the hub, not fanned out", async () => {
+test("a second openSession over one session supersedes the first page, not fans out", async () => {
   const first = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
   first.write("echo FIRST_$(( 0 + 1 ))_MARK\n");
+  let firstExited = false;
   const one = collector();
+  one.onExit = () => {
+    firstExited = true;
+  };
   first.attach(one.send, one.snapshot, one.onExit);
   await waitFor("the first output", async () => saw(one, "FIRST_1_MARK"), 25_000);
 
   // A second session object over the same host session and incarnation. The per-object guard in
-  // `openSession` cannot see it; the hub must, or the second page would silently get a second
-  // stream. It answers with the exit instead.
+  // `openSession` cannot see it; the hub supersedes the old page, so the reattach is served the
+  // screen and the old page is told the session is gone instead of both receiving the stream.
   const second = await openSession("HUB-4", dir, { cols: 80, rows: 24 });
-  let exited = false;
   const two = collector();
-  two.onExit = () => {
-    exited = true;
-  };
   second.attach(two.send, two.snapshot, two.onExit);
-  await until(async () => exited, true, 10_000);
-  expect(exited).toBe(true);
+  expect(firstExited).toBe(true);
+  await waitFor("the second snapshot", async () => screenOf(two).includes("FIRST_1_MARK"), 25_000);
   expect(hubStats().subscribers).toBe(1);
 
   first.write("echo MORE_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the first client to keep receiving", async () => saw(one, "MORE_1_MARK"), 25_000);
+  await waitFor("the new client to keep receiving", async () => saw(two, "MORE_1_MARK"), 25_000);
   await Bun.sleep(200);
-  expect(saw(two, "MORE_1_MARK")).toBe(false);
+  expect(saw(one, "MORE_1_MARK")).toBe(false);
 }, 60_000);
 
 test("two concurrent attaches: the second is refused, and the screen keeps every byte", async () => {

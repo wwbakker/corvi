@@ -164,6 +164,9 @@ let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const second = "PROJ-TERM-2";
 const live = "PROJ-LIVE";
+/** Its own change, so the rapid-switch test's extra window does not shift the shared change's tab
+ * counts that later tests assume. */
+const rapid = "PROJ-RAPID";
 
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
@@ -187,6 +190,9 @@ beforeAll(async () => {
   const repo3 = join(tmp, "repo3");
   await runSh(["git", "init", "-b", "main", repo3]);
   await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: live, checkouts: checkoutsOf([repo3]) }) });
+  const repo4 = join(tmp, "repo4");
+  await runSh(["git", "init", "-b", "main", repo4]);
+  await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: rapid, checkouts: checkoutsOf([repo4]) }) });
   browser = await chromium.launch();
 }, budget(120_000));
 
@@ -339,6 +345,37 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
   await page.close();
 }, budget(90_000));
+
+test.skipIf(!usable)("rapid window switching keeps the screen the tab names", async () => {
+  const { page } = await openTerminal(rapid);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+
+  // One marker per window's shell, so the rendered buffer says which screen the pane holds.
+  await typeUntilText(page, "echo RAPID_A_MARK", "RAPID_A_MARK");
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), 2)).toBe(2);
+  await typeUntilText(page, "echo RAPID_B_MARK", "RAPID_B_MARK");
+
+  // A -> B -> A back to back: the second click lands as soon as it can, before B's screen has had
+  // time to settle. Repeated, because the bug is about arrival order. (The guard itself is pinned
+  // deterministically in test/socketTarget.test.ts.)
+  for (let round = 0; round < 5; round++) {
+    await tabs.nth(1).click();
+    await tabs.nth(0).click();
+    expect(
+      await until(
+        () => page.locator(".window-tab.current").getAttribute("data-window-index"),
+        "0",
+        budget(20_000),
+      ),
+    ).toBe("0");
+    // A's screen came back, and B's is not in it.
+    await until(async () => (await terminalText(page)).includes("RAPID_A_MARK"), true, budget(20_000));
+    expect(await terminalText(page)).not.toContain("RAPID_B_MARK");
+  }
+  await page.close();
+}, budget(120_000));
 
 test.skipIf(!usable)("every window's pty is the size the page shows", async () => {
   const { page, dir } = await openTerminal(id);

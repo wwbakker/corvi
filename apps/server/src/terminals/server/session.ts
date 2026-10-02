@@ -379,12 +379,21 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
  * then hand the page the snapshot and every byte since. */
 const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   // Claim the hub synchronously: the guard and the claim are one step, so two attaches racing the
-  // await below cannot both pass — the second would orphan the first's held bytes. A second
-  // attach — a second socket, or a second `openSession` — is answered with the exit.
-  if (hub.disposed === true || hub.subscribers.size > 0 || hub.attachingPage === true) {
+  // await below cannot both pass — the second would orphan the first's held bytes. An attach still
+  // serializing its snapshot owns `hub.hold`, so it is refused for the same reason.
+  if (hub.disposed === true || hub.attachingPage === true) {
     subscriber.onExit();
     return;
   }
+  // One live client per hub, newest wins. An established subscriber may be the previous socket
+  // still closing — the page switched away and back before the server processed the close — so a
+  // reattach supersedes it instead of being refused, which would strand the returning pane on an
+  // `exit`. The superseded page is told the session is gone so it does not keep a stream it got no
+  // snapshot for. A genuine second tab is not distinguishable from this at the hub, so it
+  // supersedes too.
+  const superseded = [...hub.subscribers];
+  hub.subscribers.clear();
+  for (const old of superseded) old.onExit();
   hub.attachingPage = true;
   hub.lastActivity = Date.now();
   const cutoff = hub.received;

@@ -18,6 +18,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
+import { shouldKeepSocket } from "./socketTarget.ts";
 
 /** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
 const SCROLLBACK = 5000;
@@ -132,8 +133,14 @@ export function TerminalPane({
   const openedFor = useRef<string | null>(null);
   /** A resize that arrives while the socket is still connecting: sent as soon as it opens. */
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
-  /** The host session id the open socket resolved to, from the control frame's `sessionId`. */
-  const attachedSession = useRef<string | null>(null);
+  /** The host session id the **current** socket resolved to, from its own control frame's
+   * `sessionId`. A superseded socket's late frame must not claim it, so the message handler
+   * ignores frames from a socket that is no longer `socket.current`. */
+  const socketSession = useRef<string | null>(null);
+  /** Whether the current socket opened without naming a pane, so the server resolved the active
+   * one for it. Only then may a later target that names that same pane be treated as a rename
+   * rather than a switch: after a real switch, a same-named target is a fresh socket's job. */
+  const openedUnnamed = useRef(false);
   /** The same id as state, so the view can say "attached" only while it matches the window the
    * page names: a stale socket's claim drops in the very render the window changes. */
   const [attached, setAttached] = useState<string | null>(null);
@@ -247,7 +254,8 @@ export function TerminalPane({
       openedFor.current = null;
       pendingResize.current = null;
       delete (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal;
-      attachedSession.current = null;
+      socketSession.current = null;
+      openedUnnamed.current = false;
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
@@ -277,11 +285,17 @@ export function TerminalPane({
     // needs a different pty. The server keeps the screen of the one being left.
     const target = `${url ?? ""}#${sessionId ?? ""}`;
     if (socket.current && openedFor.current !== target) {
-      // The first connect happens before the window list arrives, and the server resolves the
-      // active window for it. When the caller then names that same window, the socket is already
-      // attached: renaming the target is not a replay, and reconnecting would drop keystrokes in
-      // the gap between the two sockets.
-      if (sessionId != null && attachedSession.current === sessionId) {
+      // Only the unnamed first connect may be renamed: the server resolved the active pane for it,
+      // and the window list then names that same pane, so a reconnect would drop keystrokes in the
+      // gap. Any other change is a switch to a different pane, and only a fresh socket can be
+      // trusted to have resolved it — a stale socket's `sessionId` (rapid A → B → A) is not
+      // evidence that this socket serves A.
+      const kept = shouldKeepSocket({
+        unnamed: openedUnnamed.current,
+        resolved: socketSession.current,
+        sessionId,
+      });
+      if (kept) {
         openedFor.current = target;
       } else {
         socket.current.close();
@@ -299,6 +313,7 @@ export function TerminalPane({
     const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (event: MessageEvent) => {
+      if (socket.current !== ws) return; // a superseded socket: its screen is not this pane's
       if (typeof event.data === "string") {
         let value: { type?: unknown; data?: unknown; sessionId?: unknown };
         try {
@@ -307,7 +322,7 @@ export function TerminalPane({
           return;
         }
         if (typeof value.sessionId === "string") {
-          attachedSession.current = value.sessionId;
+          socketSession.current = value.sessionId;
           setAttached(value.sessionId);
         }
         if (value.type === "reset") {
@@ -331,6 +346,7 @@ export function TerminalPane({
     // A resize that happened while this socket was connecting was queued; the shell starts at
     // the size it now has.
     ws.onopen = () => {
+      if (socket.current !== ws) return; // a superseded socket
       // A live connection resets the backoff and clears any earlier "gone" answer.
       reconnectAttempt.current = 0;
       sessionGone.current = false;
@@ -344,7 +360,7 @@ export function TerminalPane({
     ws.onclose = () => {
       if (socket.current !== ws) return; // a superseded socket (another change's URL)
       socket.current = null;
-      attachedSession.current = null;
+      socketSession.current = null;
       setAttached(null);
       pendingResize.current = null;
       if (sessionGone.current || !mounted.current) return;
@@ -356,6 +372,8 @@ export function TerminalPane({
     };
     socket.current = ws;
     openedFor.current = target;
+    socketSession.current = null;
+    openedUnnamed.current = sessionId === undefined || sessionId === null;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
   }, [url, sessionId, visible, generation, reconnect]);
