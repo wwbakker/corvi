@@ -158,6 +158,41 @@ test("a second openSession for one session is refused at the hub, not fanned out
   expect(saw(two, "MORE_1_MARK")).toBe(false);
 }, 60_000);
 
+test("two concurrent attaches: the second is refused, and the screen keeps every byte", async () => {
+  const a = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
+  const b = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
+  // A stream whose tail races the attach's serialize window.
+  a.write("seq 1 300 | sed 's/^/RACE-/'; echo RACE-DONE\n");
+  const one = collector();
+  const two = collector();
+  let refused = false;
+  two.onExit = () => {
+    refused = true;
+  };
+  // Both attaches in one tick: the hub's guard-and-claim must be synchronous, or the second
+  // would overwrite the first's held bytes and orphan them from the screen.
+  a.attach(one.send, one.snapshot, one.onExit);
+  b.attach(two.send, two.snapshot, two.onExit);
+  expect(refused).toBe(true);
+  await waitFor("the first snapshot", async () => one.snapshots.length > 0, 15_000);
+  expect(two.snapshots).toHaveLength(0);
+  expect(two.chunks).toHaveLength(0);
+  expect(hubStats().subscribers).toBe(1);
+  await waitFor("the stream to drain", async () => saw(one, "RACE-DONE"), 25_000);
+
+  // No byte was orphaned: the screen applied every byte the host emitted. A later attach's
+  // snapshot reports the offset it serialized, which must be the host's last emitted offset.
+  const total = (await (await hostClient()).list()).find((entry) => entry.id === a.sessionId)?.lastSeq ?? 0;
+  await Bun.sleep(300);
+  a.kill();
+  const c = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
+  const probe = collector();
+  c.attach(probe.send, probe.snapshot, probe.onExit);
+  await waitFor("the probe snapshot", async () => probe.snapshots.length > 0, 15_000);
+  expect(probe.snapshots[0]?.offset).toBe(total);
+  expect(screenOf(probe)).toContain("RACE-DONE");
+}, 60_000);
+
 test("attach/detach does not leak host listeners", async () => {
   const session = await openSession("HUB-3", dir, { cols: 80, rows: 24 });
   for (let cycle = 0; cycle < 3; cycle++) {

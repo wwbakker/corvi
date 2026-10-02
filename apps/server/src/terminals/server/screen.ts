@@ -13,6 +13,10 @@
  * `serialize` appends an absolute-cursor correction and `\e[?25h`: the serialize addon emits DEC
  * modes (bracketed paste among them) but not DECTCEM, so a cursor a full-screen program hid would
  * otherwise stay hidden.
+ *
+ * Boundary: resume is exact within one server lifetime. After a server restart the screen is
+ * rebuilt from the host's 256 KiB ring, so history older than the ring is gone until P2 seeds the
+ * screen from the persisted store (`./snapshots.ts`).
  */
 import { createRequire } from "node:module";
 import { SerializeAddon } from "@xterm/addon-serialize";

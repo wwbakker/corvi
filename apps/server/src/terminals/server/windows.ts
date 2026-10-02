@@ -193,6 +193,11 @@ export const keptOpenIds = (recordsByChange: readonly (readonly WindowRecord[])[
   return ids;
 };
 
+/** Whether one window record asked to be kept open. The session hub uses this to keep a dead
+ * kept-open window's screen (its frozen output) while letting the rest go before P2's eviction. */
+export const isKeptOpen = (changeId: string, windowId: string): boolean =>
+  registryRecords(changeId).some((record) => record.id === windowId && record.keepOpen === true);
+
 /** The `(id, incarnation)` snapshot keys to keep: live sessions, plus kept-open dead ones (their
  * frozen output must still be replayable). Dead sessions that were not kept are pruned. */
 export const liveSnapshotKeys = (

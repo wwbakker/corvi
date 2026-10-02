@@ -154,17 +154,13 @@ test("a session that exits while attached tells the page before closing", async 
   await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), 15_000);
 }, 30_000);
 
-test("a session that exits with no page keeps its screen until the tests reset", async () => {
+test("a session that exits with no page releases its screen when not kept open", async () => {
   const session = await openSession("SNAP-DETACH", dir, { cols: 80, rows: 24 });
   expect(hubStats().hubs).toBe(1);
   const client = await hostClient();
   await client.kill(session.sessionId);
-  await Bun.sleep(500);
-  // The screen is the session's history, and a page may still attach for it; P2 evicts dead
-  // incarnations, and the tests reset the world here.
-  expect(hubStats().hubs).toBe(1);
-  closeAttachments();
-  expect(hubStats().hubs).toBe(0);
+  // A non-kept-open window's frozen screen is not wanted; P2 owns the full policy.
+  await waitFor("the hub to clear on a detached exit", async () => hubStats().hubs === 0, 15_000);
 }, 30_000);
 
 test("a dead kept-open window's screen is served on a later attach", async () => {

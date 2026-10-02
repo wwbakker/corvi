@@ -19,13 +19,13 @@
  *
  *   - page to server: binary is what you typed; text is JSON control (`resize`);
  *   - server to page: binary is terminal output; text is JSON control (`snapshot` with the
- *     serialized screen and its `highWater` offset, `reset` when the screen is empty, `exit` when
- *     the session is gone and no reconnect should follow).
+ *     serialized screen, `reset` when the screen is empty, `exit` when the session is gone and no
+ *     reconnect should follow).
  */
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen } from "./screen.ts";
-import { ensureActiveHostWindow } from "./windows.ts";
+import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
 
@@ -54,6 +54,8 @@ type Held = { readonly seq: number; readonly data: Buffer };
 type Hub = {
   /** `sessionId#incarnation`: a reused session id gets a fresh hub and screen. */
   readonly key: string;
+  /** The change the window belongs to, for the keep-open check on exit. */
+  readonly changeId: string;
   readonly id: string;
   incarnation: number;
   readonly screen: Screen;
@@ -68,22 +70,29 @@ type Hub = {
   /** The client the listeners belong to, for removal. */
   client?: HostClient;
   attaching?: Promise<void>;
-  /** While a page is attaching: the offset captured, and the bytes after it, held until the
-   * snapshot is sent and the subscriber registered. */
-  hold?: { readonly cutoff: number; readonly chunks: Held[] };
-  /** An attach is in its serialize/register window; the session's exit waits for it to finish. */
+  /** While a page is attaching: the bytes after its cutoff, held until the snapshot is sent and
+   * the subscriber registered. Set synchronously with `attachingPage`, which is the claim. */
+  hold?: Held[];
+  /** An attach has claimed the hub (its guard and claim are one synchronous step); the session's
+   * exit waits for it to finish. */
   attachingPage?: boolean;
 };
 
 const hubs = new Map<string, Hub>();
 
 /** Get-or-create synchronously: two concurrent opens of one incarnation cannot each make a hub. */
-const hubFor = (id: string, incarnation: number, size: { readonly cols: number; readonly rows: number }): Hub => {
+const hubFor = (
+  changeId: string,
+  id: string,
+  incarnation: number,
+  size: { readonly cols: number; readonly rows: number },
+): Hub => {
   const key = `${id}#${incarnation}`;
   const existing = hubs.get(key);
   if (existing !== undefined) return existing;
   const hub: Hub = {
     key,
+    changeId,
     id,
     incarnation,
     screen: makeScreen(size),
@@ -111,13 +120,20 @@ const onSessionExit = (hub: Hub) => (): void => {
   if (hub.exited) return;
   hub.exited = true;
   watchExitOff(hub);
-  // An attach may be serializing the last screen; it finishes the hub after it serves that. A
-  // session that exits with no page attached keeps its screen — it is the session's history, and
-  // a page may still attach — until P2's eviction (or the tests' reset) drops it.
+  // A dead session emits nothing: stop listening now. An attach serializing the last screen is
+  // allowed to finish first, so it serves what the session left.
+  release(hub);
   if (hub.attachingPage) return;
-  if (hub.subscribers.size === 0) return;
-  if (hub.attaching !== undefined) void hub.attaching.then(() => finish(hub), () => finish(hub));
-  else finish(hub);
+  if (hub.subscribers.size > 0) {
+    finish(hub);
+    return;
+  }
+  // No page: the screen may still be wanted, but only a kept-open window froze its output on
+  // purpose. P2 owns the full eviction policy; this is the cheap stopgap for the rest.
+  if (!isKeptOpen(hub.changeId, hub.id)) {
+    hub.screen.dispose();
+    hubs.delete(hub.key);
+  }
 };
 
 const watchExit = (hub: Hub, client: HostClient): void => {
@@ -144,7 +160,8 @@ const release = (hub: Hub): void => {
 
 /** Attach to the host once, from the offset already received, and feed every byte to the screen.
  * The screen starts empty and the host replays its ring, so this is the session's whole history
- * the ring still holds; the first chunk's `seq` anchors the screen's offset. */
+ * the ring still holds; the first chunk's `seq` anchors the screen's offset. A failed attach
+ * releases the listener and rethrows, so the hub stays retryable. */
 const ensureAttached = async (hub: Hub): Promise<void> => {
   if (hub.dataListener !== undefined) return;
   if (hub.attaching !== undefined) return hub.attaching;
@@ -154,7 +171,7 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     const listener: DataListener = (data, _incarnation, seq) => {
       hub.received = Math.max(hub.received, seq + data.length);
       if (hub.hold !== undefined) {
-        hub.hold.chunks.push({ seq, data });
+        hub.hold.push({ seq, data });
         return;
       }
       hub.screen.write(data, seq);
@@ -162,7 +179,13 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     };
     hub.dataListener = listener;
     client.onData(hub.id, listener);
-    await client.attach(hub.id, hub.received);
+    try {
+      await client.attach(hub.id, hub.received);
+    } catch (error) {
+      // Do not stay half-attached: a later connect retries this from the same offset.
+      release(hub);
+      throw error;
+    }
   })();
   hub.attaching = promise;
   try {
@@ -175,23 +198,24 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
 /** Serve one page: serialize the screen at the offset received so far, hold the bytes after it,
  * then hand the page the snapshot and every byte since. */
 const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
-  // One live client per hub, as before: a second attach is answered with the exit rather than
-  // silently fanned out into a stream it did not get a snapshot for.
-  if (hub.subscribers.size > 0) {
+  // Claim the hub synchronously: the guard and the claim are one step, so two attaches racing the
+  // await below cannot both pass — the second would orphan the first's held bytes. A second
+  // attach — a second socket, or a second `openSession` — is answered with the exit.
+  if (hub.subscribers.size > 0 || hub.attachingPage === true) {
     subscriber.onExit();
     return;
   }
-  const cutoff = hub.received;
-  hub.hold = { cutoff, chunks: [] };
   hub.attachingPage = true;
+  const cutoff = hub.received;
+  hub.hold = [];
   try {
     await hub.screen.whenApplied(cutoff);
     const { data, offset } = hub.screen.serialize();
     subscriber.snapshot({ data, offset });
     hub.subscribers.add(subscriber);
-    const chunks = hub.hold?.chunks ?? [];
+    const held = hub.hold;
     hub.hold = undefined;
-    for (const chunk of chunks) {
+    for (const chunk of held) {
       hub.screen.write(chunk.data, chunk.seq);
       subscriber.send(chunk.data);
     }
@@ -248,14 +272,15 @@ export const openSession = async (
   // or the shell wraps and backspaces on a grid the screen does not match.
   await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
-  const hub = hubFor(sessionId, incarnation, size);
+  const hub = hubFor(changeId, sessionId, incarnation, size);
   // The screen is the page's grid too. The pty was just resized; an existing screen follows.
   hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
   // The screen exists from here on, so the host listener stays: it is fed with no page attached,
   // which is what makes returning to a busy window exact. Wait for the attach, so the first
-  // snapshot already carries the ring and a dead kept-open session still has its output.
-  await ensureAttached(hub).catch(() => undefined);
+  // snapshot already carries the ring and a dead kept-open session still has its output; a failed
+  // attach surfaces to the caller (and leaves the hub retryable).
+  await ensureAttached(hub);
   let subscriber: Subscriber | undefined;
   return {
     sessionId,
@@ -327,20 +352,12 @@ export const terminalSockets = {
     const { session } = ws.data;
     session.attach(
       (chunk) => ws.send(chunk),
-      ({ data, offset }) => {
+      ({ data }) => {
         if (data === "") {
-          ws.send(JSON.stringify({ type: "reset", since: 0, incarnation: session.incarnation, sessionId: session.sessionId }));
+          ws.send(JSON.stringify({ type: "reset", incarnation: session.incarnation, sessionId: session.sessionId }));
           return;
         }
-        ws.send(
-          JSON.stringify({
-            type: "snapshot",
-            data,
-            highWater: offset,
-            incarnation: session.incarnation,
-            sessionId: session.sessionId,
-          }),
-        );
+        ws.send(JSON.stringify({ type: "snapshot", data, incarnation: session.incarnation, sessionId: session.sessionId }));
       },
       () => {
         // The session is gone: tell the page so it does not reconnect into a new shell, then

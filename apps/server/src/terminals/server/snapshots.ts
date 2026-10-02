@@ -7,8 +7,9 @@
  * scrollback beyond 256 KB is what P2 restores). It holds `data` and the host byte offset it
  * covers (`highWater`), and is keyed by incarnation so a reused session id never inherits its
  * predecessor's screen. Dead incarnations are pruned by the windows layer (`pruneSnapshots`),
- * which knows which records asked to be kept open. The store is loaded on start and pruned, but
- * nothing writes it while P1 has no server-side cadence.
+ * which knows which records asked to be kept open. `server.ts` loads the store on start and
+ * `windows.ts` prunes it to the live keys, but nothing writes it while P1 has no server-side
+ * cadence — the prune is dead work on an empty store until P2.
  *
  * Historically it held the page's renderer-owned snapshots; the pivot moved the screen to the
  * server, so the shape it stores is unchanged and the writer becomes the server in P2.
