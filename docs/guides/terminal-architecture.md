@@ -58,8 +58,9 @@ opaque to it and is how the server re-associates windows after a restart.
 - `registry.ts` + `windows.ts` — the persisted registry (`stateDir()/terminal-windows.json`): a
   **window** is an opaque id holding an ordered list of **panes** (host session ids) and an active
   pane, plus a label, the active flag, order and activity. `rebuild` merges the live host sessions
-  into the saved records — the registry is authoritative for which panes a window holds, so a
-  closing pane is not resurrected while its pty exits — and a restart keeps labels and order;
+  into the saved records — it adopts a live pane whose metadata names an existing window (a split
+  that crashed before its record was saved), and a pane the user closed is tombstoned so a pty that
+  outlives the kill cannot resurrect the window. A restart keeps labels and order;
   `new`/`select`/`move` and `split`/`close-pane`/`focus-pane` mutate it, and opening a pane creates
   its screen. This is what the tab strip and navigation read; the page still renders one pane per
   window until 5b composes the grid.

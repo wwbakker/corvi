@@ -65,17 +65,17 @@ describe("window registry merge", () => {
     expect(mergeRecords([record({ id: "a", active: true })], [])).toEqual([]);
   });
 
-  test("the registry decides pane membership: a live session it does not list is not adopted", () => {
+  test("adopts a live pane the record does not list, so a crash mid-split is not orphaned", () => {
     const previous = [record({ id: "a", panes: ["p1", "p2"], activePane: "p2", active: true })];
-    // A live session the record does not list (a split in flight, or a closing pane whose pty has
-    // not exited) must not join the window.
+    // p3 is live but unlisted: a split that saved its session but not its record. It is adopted
+    // into the window whose metadata named it, rather than becoming an invisible shell.
     const merged = mergeRecords(previous, [{ id: "a", kind: "host", panes: ["p1", "p2", "p3"] }]);
-    expect(merged[0]?.panes).toEqual(["p1", "p2"]);
+    expect(merged[0]?.panes).toEqual(["p1", "p2", "p3"]);
     expect(merged[0]?.activePane).toBe("p2");
     // A pane whose session is gone is dropped; the first remaining pane is focused when the active
     // one is gone.
     const after = mergeRecords(merged, [{ id: "a", kind: "host", panes: ["p1", "p3"] }]);
-    expect(after[0]?.panes).toEqual(["p1"]);
+    expect(after[0]?.panes).toEqual(["p1", "p3"]);
     expect(after[0]?.activePane).toBe("p1");
   });
 });

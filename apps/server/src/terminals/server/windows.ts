@@ -46,6 +46,17 @@ const shell = (): string => process.env.SHELL ?? "/bin/sh";
 
 const freshId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
+/** Session ids the user explicitly closed. `pty.kill()` signals SIGHUP, which a process can
+ * ignore, so the pty (and the host session) can outlive the close; without this tombstone a later
+ * rebuild would re-adopt it and recreate the window. Ids are random, so a tombstone never blocks a
+ * new session, and `hostLive` drops each one once its pty is gone. */
+const closedSessions = new Set<string>();
+
+/** Tombstone a pane's session id as explicitly closed. */
+const markClosed = (sessionId: string): void => {
+  closedSessions.add(sessionId);
+};
+
 /** The URL path the page opens the terminal socket on. The route and the client share this one
  * spelling, so it lives beside the route that serves it. */
 export const terminalSocketPath = (id: string): string => `/api/changes/${encodeURIComponent(id)}/terminal/socket`;
@@ -86,12 +97,18 @@ const hostLive = async (
   if (!hostRunning()) return { live: [], sessions: new Map() };
   const client = await hostClient();
   const sessions = await client.list();
+  // Drop tombstones whose pty is gone: once the host no longer reports the session alive it cannot
+  // be re-adopted, so the set stays bounded by the lingering-kill window.
+  const aliveIds = new Set(sessions.filter((session) => session.alive).map((session) => session.id));
+  for (const id of closedSessions) if (!aliveIds.has(id)) closedSessions.delete(id);
   const grouped = new Map<string, string[]>();
   const byId = new Map<string, SessionInfo>();
   for (const session of sessions) {
     if (session.metadata?.change !== changeId) continue;
     const window = session.metadata?.window ?? session.id;
     if (!session.alive) clearStatus(session.id, session.incarnation);
+    // An explicitly closed pane is never re-adopted, even while its pty lingers.
+    if (closedSessions.has(session.id)) continue;
     if (!session.alive && !(keep.has(window) && known.has(session.id))) continue;
     const panes = grouped.get(window) ?? [];
     panes.push(session.id);
@@ -182,7 +199,7 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
   // A snapshot survives only while its session is live or its record asked to be kept open (a
   // frozen command window is still worth looking behind). Everything else — a dead incarnation,
   // a session that exited while detached — is pruned here, on the watcher's poll.
-  const keptOpen = keptOpenIds([...existing].map((changeId) => registryRecords(changeId)));
+  const keptOpen = keptOpenPanes([...existing].map((changeId) => registryRecords(changeId)));
   pruneSnapshots(liveSnapshotKeys(sessions, keptOpen));
   const ids = new Set<string>(existing);
   for (const session of sessions) {
@@ -195,31 +212,37 @@ export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[
 
 type RecordExtra = Pick<WindowRecord, "command" | "label" | "keepOpen" | "notify">;
 
-/** The record ids that asked to be kept open, across every change's records. Pure, so the
- * keep-open rule is testable without a registry file. */
-export const keptOpenIds = (recordsByChange: readonly (readonly WindowRecord[])[]): Set<string> => {
+/** The pane session ids whose window asked to be kept open, across every change's records. A pane
+ * is named directly, not by its window, so closing a pane releases its own retained screen even
+ * when the window (and its other panes) live on. Pure, so the rule is testable without a registry
+ * file. */
+export const keptOpenPanes = (recordsByChange: readonly (readonly WindowRecord[])[]): Set<string> => {
   const ids = new Set<string>();
-  for (const records of recordsByChange) for (const record of records) if (record.keepOpen) ids.add(record.id);
+  for (const records of recordsByChange) {
+    for (const record of records) {
+      if (!record.keepOpen) continue;
+      for (const pane of record.panes) ids.add(pane);
+    }
+  }
   return ids;
 };
 
-/** Whether a window asked to be kept open, named by its window id or any of its pane session ids.
- * The session hub holds a pane's screen after the session exits for a kept-open window. */
-export const isKeptOpen = (changeId: string, id: string): boolean =>
-  registryRecords(changeId).some(
-    (record) => record.keepOpen === true && (record.id === id || record.panes.includes(id)),
-  );
+/** Whether a pane's window asked to be kept open. The session hub holds a pane's screen after its
+ * session exits only while the record still lists that pane, so a pane the user closed is released
+ * — even the window's first, whose session id equals the window id. */
+export const isKeptOpen = (changeId: string, paneSessionId: string): boolean =>
+  registryRecords(changeId).some((record) => record.keepOpen === true && record.panes.includes(paneSessionId));
 
-/** The `(id, incarnation)` snapshot keys to keep: live sessions, plus kept-open dead ones (their
- * frozen output must still be replayable). A session is kept when its window asked to; a pane's
- * session id may differ from its window id. Dead sessions that were not kept are pruned. */
+/** The `(id, incarnation)` snapshot keys to keep: live sessions, plus the panes of a kept-open
+ * window (their frozen output must still be replayable). A closed pane is no longer in its record,
+ * so its snapshot is pruned; dead sessions that were not kept are pruned too. */
 export const liveSnapshotKeys = (
   sessions: readonly SessionInfo[],
   keptOpen: ReadonlySet<string>,
 ): Set<string> =>
   new Set(
     sessions
-      .filter((session) => session.alive || keptOpen.has(session.metadata?.window ?? session.id))
+      .filter((session) => session.alive || keptOpen.has(session.id))
       .map((session) => snapshotKey(session.id, session.incarnation)),
   );
 
@@ -378,6 +401,7 @@ export const killHostWindowAsync = async (changeId: string, sessionId: string): 
     const records = await listRecords(changeId);
     const record = records.find((r) => r.panes.includes(sessionId));
     if (record === undefined) {
+      markClosed(sessionId);
       if (hostRunning()) await (await hostClient()).kill(sessionId).catch(() => undefined);
       return;
     }
@@ -456,23 +480,34 @@ export const splitPaneAsync = (changeId: string, windowId: string, direction: "r
     const active = sessions.find((session) => session.id === record.activePane);
     const cwd = active?.cwd ?? (await dirOf(changeId));
     const paneId = freshId();
+    // The pane's metadata names the window, so a rebuild adopts it the moment its session exists:
+    // a crash between opening it and the focus save cannot orphan it.
     await openPane(changeId, windowId, paneId, cwd, [shell()], { cols: 100, rows: 30 });
-    // The registry is authoritative for pane membership, so the new pane is added explicitly: the
-    // rebuild would not adopt a live session the record does not list.
-    const after = await listRecords(changeId);
-    save(
-      changeId,
-      after.map((entry) =>
-        entry.id === windowId
-          ? { ...entry, panes: [...entry.panes, paneId], activePane: paneId, active: true, activity: false }
-          : { ...entry, active: false },
-      ),
-    );
+    try {
+      const after = await listRecords(changeId);
+      save(
+        changeId,
+        after.map((entry) => {
+          if (entry.id !== windowId) return { ...entry, active: false };
+          const panes = entry.panes.includes(paneId) ? entry.panes : [...entry.panes, paneId];
+          return { ...entry, panes, activePane: paneId, active: true, activity: false };
+        }),
+      );
+    } catch (error) {
+      // The session is live but could not be recorded; close it rather than leave a pane nothing
+      // will show. A crash cannot be caught, but the adopt rule recovers the pane on the next read.
+      markClosed(paneId);
+      if (hostRunning()) await (await hostClient()).kill(paneId).catch(() => undefined);
+      throw error;
+    }
   });
 
 /** Kill a pane and drop it from its window; the window goes too when it was the last pane. The
  * caller holds the registry lock (this is the shared half of close-pane and subagent close). */
 const closePaneUnlocked = async (changeId: string, windowId: string, paneSessionId: string): Promise<void> => {
+  // Tombstone before signalling: the pty can outlive `kill` (a process that ignores SIGHUP), and a
+  // rebuild must not re-adopt it in the meantime.
+  markClosed(paneSessionId);
   if (hostRunning()) await (await hostClient()).kill(paneSessionId).catch(() => undefined);
   const records = await listRecords(changeId);
   const record = records.find((entry) => entry.id === windowId);
@@ -506,23 +541,19 @@ export const focusPaneAsync = (changeId: string, windowId: string, paneSessionId
     );
   });
 
-/** The host session the change's socket attaches to: the requested pane, the requested window's
- * active pane, the active window's active pane, or a new window. A stale pane id falls through;
- * callers that name no pane get the active one. */
+/** The host session the change's socket attaches to: the requested pane, the active window's
+ * active pane, or a new window. A stale pane id falls through; callers that name no pane get the
+ * active one. */
 export const ensureActiveHostWindow = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
-  windowId?: string,
   sessionId?: string,
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
     if (sessionId !== undefined && records.some((record) => record.panes.includes(sessionId))) return sessionId;
-    const requested =
-      windowId === undefined ? undefined : records.find((record) => record.id === windowId && record.kind === "host");
     const active =
-      requested ??
       records.find((record) => record.active && record.kind === "host") ??
       records.find((record) => record.kind === "host");
     if (active !== undefined && active.activePane !== "") return active.activePane;
@@ -542,7 +573,9 @@ export const stopHostTerminals = (changeId: string): Promise<void> =>
     if (hostRunning()) {
       const client = await hostClient();
       for (const session of await client.list()) {
-        if (session.metadata?.change === changeId) await client.kill(session.id).catch(() => undefined);
+        if (session.metadata?.change !== changeId) continue;
+        markClosed(session.id);
+        await client.kill(session.id).catch(() => undefined);
       }
     }
     removeRecords(changeId);

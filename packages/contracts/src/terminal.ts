@@ -16,7 +16,8 @@ export type RawWindow = {
   named: boolean;
   /** The window facts a presenter reads, by name ("@agent_status" → "working"). */
   options: Record<string, string>;
-  /** The backing session id of the active pane (`w-…`): what the page attaches to. */
+  /** The window id (`w-…`): opaque and stable across reordering, unlike the index. The page
+   * attaches to `activePane`, which for a single-pane window is the same string. */
   id: string;
   /** The window's pane session ids, in order. */
   readonly panes: readonly string[];

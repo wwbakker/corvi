@@ -139,9 +139,11 @@ export const withRegistryLock = <T>(work: () => Promise<T>): Promise<T> => {
 
 /** Merge the persisted records with the live windows: keep a record's position, pane order, label
  * and active flags while its panes live, drop records whose panes are all gone, and append new
- * windows. The registry is authoritative for pane **membership**: a live session the record does
- * not list (a split in flight, or a pane being closed whose pty has not exited yet) does not join
- * the window. Pure. */
+ * windows. The registry is authoritative for a window's **identity**, but a live pane whose
+ * metadata names an existing window is adopted even when the record does not list it yet (a split
+ * that crashed between opening its session and saving): otherwise that shell would be invisible
+ * and immortal. A pane the user closed never reaches here — `hostLive` tombstones it, so it
+ * cannot be re-adopted while its pty lingers. Pure. */
 export const mergeRecords = (previous: readonly WindowRecord[], live: readonly LiveWindow[]): WindowRecord[] => {
   const remaining = new Map(live.map((window) => [window.id, window]));
   const ordered: WindowRecord[] = [];
@@ -150,7 +152,10 @@ export const mergeRecords = (previous: readonly WindowRecord[], live: readonly L
     if (window === undefined) continue;
     remaining.delete(record.id);
     const livePanes = new Set(window.panes);
-    const panes = record.panes.filter((pane) => livePanes.has(pane));
+    const panes = [
+      ...record.panes.filter((pane) => livePanes.has(pane)),
+      ...window.panes.filter((pane) => !record.panes.includes(pane)),
+    ];
     if (panes.length === 0) continue; // every pane is gone: the window is too
     const activePane = panes.includes(record.activePane) ? record.activePane : (panes[0] ?? "");
     ordered.push({

@@ -7,7 +7,7 @@ import { stateDir } from "@corvi/configuration/node";
 import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import { closeAttachments, flushScreens, hubStats, openSession, terminalSockets, type TerminalSession } from "../apps/server/src/terminals/server/session.ts";
 import { makeScreen, SCREEN_SCROLLBACK } from "../apps/server/src/terminals/server/screen.ts";
-import { keptOpenIds, liveSnapshotKeys, newWindowRunningAsync } from "../apps/server/src/terminals/server/windows.ts";
+import { keptOpenPanes, liveSnapshotKeys, newWindowRunningAsync } from "../apps/server/src/terminals/server/windows.ts";
 import {
   SNAPSHOT_MAX_BYTES,
   clearSnapshots,
@@ -450,7 +450,7 @@ test("a kept-open window's snapshot store entry survives its dead session; a pla
   });
   const session = (id: string, incarnation: number, alive: boolean): SessionInfo =>
     ({ id, incarnation, alive, exitCode: alive ? undefined : 0 }) as unknown as SessionInfo;
-  const kept = keptOpenIds([[record("kept", true), record("plain", false)]]);
+  const kept = keptOpenPanes([[record("kept", true), record("plain", false)]]);
   expect(kept.has("kept")).toBe(true);
   expect(kept.has("plain")).toBe(false);
   // `kept` is dead but retained; `plain` is dead and dropped; `live` is alive and kept.

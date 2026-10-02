@@ -466,7 +466,7 @@ export const openSession = async (
   if (unavailable !== undefined) throw new Error(unavailable);
   // `paneSessionId` names the pane the page wants to attach to; absent means the active window's
   // active pane. A stale id falls through to the active pane.
-  const sessionId = await ensureActiveHostWindow(changeId, dir, size, undefined, paneSessionId);
+  const sessionId = await ensureActiveHostWindow(changeId, dir, size, paneSessionId);
   const client = await hostClient();
   // A window created before a page attached (a new tab, a subagent window) was opened at a
   // default size. Set the pty to the size the page actually has before anything is drawn into it,
