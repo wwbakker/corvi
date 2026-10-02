@@ -96,12 +96,15 @@ test("a window holds panes: split adds and focuses one, focus-pane moves, close-
 test("closing the last pane does not resurrect the window while its pty lingers", async () => {
   // A command that ignores SIGHUP: `pty.kill()` cannot end it promptly, so its host session stays
   // alive after the close. It exits on its own after ~2 s.
+  const ready = join(dir, "lingering-ready.txt");
   const id = await newWindowRunningAsync(
     changeId,
     dir,
-    `trap '' HUP; i=0; while [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done`,
+    `trap '' HUP; echo ready > ${ready}; i=0; while [ $i -lt 20 ]; do sleep 0.1; i=$((i+1)); done`,
     {},
   );
+  // The trap must be installed before the signal, or the default SIGHUP ends the shell first.
+  await waitFor("the shell to ignore SIGHUP", async () => await Bun.file(ready).exists(), 15_000);
   await closePaneAsync(changeId, id, id);
   expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
   // The lingering session is alive; a rebuild must not re-adopt it and recreate the window.
