@@ -41,6 +41,11 @@ let fakePath = "";
 
 const fileText = (path: string): Promise<string> => Bun.file(path).text().catch(() => "");
 
+/** Wait until the pane's socket is attached to the window the page names: the pty is alive by then
+ * and buffers input until the shell reads it, so a command typed afterwards cannot be lost. */
+const awaitAttached = (page: Page): Promise<void> =>
+  page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(60_000) }).then(() => undefined);
+
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp, { CORVI_PORT: String(port), PATH: fakePath }),
@@ -102,6 +107,7 @@ const openTerminal = async (change: string, page = "terminals"): Promise<Page> =
   await found.goto(`${url}/changes/${change}/${page}`);
   await found.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await found.locator(".terminal-screen").click();
+  await awaitAttached(found);
   return found;
 };
 
@@ -147,38 +153,33 @@ const terminalCursor = (page: Page): Promise<{ x: number; y: number }> =>
     return { x: term?.buffer.active.cursorX ?? 0, y: term?.buffer.active.cursorY ?? 0 };
   });
 
-/** Type one command until its output appears on the screen (not merely echoed). */
+/** Type one command and wait for its output to appear on the screen (not merely be echoed). */
 const typeUntilText = async (page: Page, command: string, needle: string): Promise<void> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await page.keyboard.type(`${command}\n`);
-    for (let settle = 0; settle < 8; settle++) {
-      if ((await terminalText(page)).includes(needle)) return;
-      await Bun.sleep(200);
-    }
+  await awaitAttached(page);
+  await page.keyboard.type(`${command}\n`);
+  const shown = await until(async () => (await terminalText(page)).includes(needle), true, budget(30_000));
+  if (!shown) {
+    throw new Error(`the terminal never showed ${needle} (tail ${JSON.stringify((await terminalText(page)).slice(-200))})`);
   }
-  throw new Error(`the terminal never showed ${needle} (tail ${JSON.stringify((await terminalText(page)).slice(-200))})`);
 };
 
-/** Run one command until its effect appears, with the file holding the exact bytes the command
- * writes, so a half-delivered retry cannot satisfy the check. */
+/** Run one command and wait for its exact effect. The command is typed once, after the attach
+ * gate, so no retry can run it twice. */
 const runCommand = async (page: Page, command: string, file: string, want: string): Promise<void> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await page.keyboard.type(`${command}\n`);
-    for (let settle = 0; settle < 6; settle++) {
-      if ((await fileText(file)) === want) {
-        await Bun.sleep(150);
-        if ((await fileText(file)) === want) return;
-      }
-      await Bun.sleep(150);
-    }
+  await awaitAttached(page);
+  await page.keyboard.type(`${command}\n`);
+  const wrote = await until(async () => (await fileText(file)) === want, true, budget(60_000));
+  if (!wrote) {
+    throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`);
   }
-  throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)}`);
+  expect(await fileText(file)).toBe(want);
 };
 
 /** Ask the shell under the page for its tty size. `guard` is a shell predicate the target window
- * alone satisfies, so a retry cannot be answered by another window's shell; the retry covers the
- * socket not being open yet. */
+ * alone satisfies, so a retry cannot be answered by another window's shell; the attach gate above
+ * covers the socket, and the small retry covers the pane re-attaching to the subagent's window. */
 const ptySize = async (page: Page, file: string, guard = ""): Promise<{ rows: number; cols: number }> => {
+  await awaitAttached(page);
   const command = guard === "" ? `stty size > ${file}` : `[ ${guard} ] && stty size > ${file} || true`;
   let reported = "";
   for (let attempt = 0; attempt < 50 && !/^\d+ \d+$/.test(reported); attempt++) {

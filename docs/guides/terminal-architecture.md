@@ -111,6 +111,19 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
 - The pty size always matches the grid the page shows — a window created before its page opens is
   resized on attach.
 
+## Deliberate trades
+
+- Every replay clears the screen and shows the cursor (`\e[?25h`), and the clear is keyed by
+  `(sessionId, incarnation)`: a replay for the pty already on screen keeps the private modes the
+  shell asked for (bracketed paste), while a replay for a different pty resets them. A cursor-hiding
+  TUI therefore shows a cursor again until its next redraw. The alternatives are worse: trusting
+  the replay to carry DECTCEM never works (the serializer does not emit it), and a plain shell after
+  pi would have no cursor at all.
+- A truncated replay with no snapshot cannot restore private modes the shell set before the host's
+  replay ring began — bracketed paste among them. The shell re-asserts them at its next prompt; the
+  page does not guess, and carrying them on the truncated frame would need the server to track a
+  mode it cannot observe.
+
 ## Known limitations
 
 - Children that ignore HUP or are `setsid`/`nohup`'d survive a host SIGKILL (no cgroup supervision).

@@ -193,8 +193,17 @@ test("the server replays a stored snapshot, then resumes from its high-water off
   const second = fakeSocket(await openSession("SNAP-RESUME", dir, { cols: 80, rows: 24 }));
   terminalSockets.open(second);
   const opening = control(second.frames);
-  expect(opening).toHaveLength(1);
-  expect(opening[0]).toMatchObject({ type: "snapshot", data: "SNAP-DATA", highWater });
+  // The control frame's shape is pinned: the page keys the replay's private modes by
+  // `(sessionId, incarnation)`, so both travel with the snapshot.
+  expect(opening).toEqual([
+    {
+      type: "snapshot",
+      data: "SNAP-DATA",
+      highWater,
+      incarnation: second.data.session.incarnation,
+      sessionId: second.data.session.sessionId,
+    },
+  ]);
   terminalSockets.message(second, JSON.stringify({ type: "attach", since: highWater }));
   await waitFor("the resumed marker", async () => text(second.frames).includes("SECOND_1_MARK"), 15_000);
   // Resumed, not replayed: the bytes before the snapshot are not drawn again.
@@ -328,8 +337,23 @@ test("a truncated replay resets the page before the host's oldest byte", async (
   const firstBinaryAt = frames.findIndex((frame) => typeof frame !== "string");
   expect(resetAt).toBeGreaterThanOrEqual(0);
   expect(firstBinaryAt).toBeGreaterThan(resetAt);
-  const since = (JSON.parse(frames[resetAt] as string) as { since: number }).since;
+  const since = (JSON.parse(frames[resetAt] as string) as { since?: number }).since;
   expect(since).toBeGreaterThan(0);
+  // The truncated frame's shape too: it is the page's cue to reset to the host's oldest byte, and
+  // it carries the session so the reset can be keyed to the pty it belongs to.
+  const truncated = JSON.parse(frames[resetAt] as string) as {
+    type?: unknown;
+    since?: unknown;
+    incarnation?: unknown;
+    sessionId?: unknown;
+  };
+  expect(truncated).toEqual({
+    type: "truncated",
+    since: expect.any(Number),
+    incarnation: second.data.session.incarnation,
+    sessionId: second.data.session.sessionId,
+  });
+  expect(Number(truncated.since)).toBeGreaterThan(0);
 }, 30_000);
 
 test("a session that exits while detached clears its hub", async () => {

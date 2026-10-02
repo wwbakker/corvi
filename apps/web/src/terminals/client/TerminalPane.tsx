@@ -146,9 +146,15 @@ export function TerminalPane({
   const outstanding = useRef(0);
   /** The incarnation the current connection is attached to, echoed in every control frame. */
   const incarnation = useRef(0);
-  /** The host session the screen currently holds, from the control frames' `sessionId`. A replay
-   * for the same session keeps the private modes the shell asked for; a different one resets. */
+  /** The host session the screen currently holds, keyed `(sessionId, incarnation)`: a replay for
+   * the same pty keeps the private modes the shell asked for, while a same-id reopen (a new
+   * incarnation, default modes) counts as fresh. */
   const currentSession = useRef<string | null>(null);
+  /** The host session id the open socket resolved to, from the control frame's `sessionId`. */
+  const attachedSession = useRef<string | null>(null);
+  /** The same id as state, so the view can say "attached" only while it matches the window the
+   * page names: a stale socket's claim drops in the very render the window changes. */
+  const [attached, setAttached] = useState<string | null>(null);
   /** The screen changed since the last snapshot. */
   const dirty = useRef(false);
   /** The pending output-idle snapshot; cleared while output keeps arriving. */
@@ -273,6 +279,7 @@ export function TerminalPane({
       outstanding.current = 0;
       dirty.current = false;
       delete (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal;
+      attachedSession.current = null;
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
@@ -332,9 +339,17 @@ export function TerminalPane({
     // it rather than losing it.
     const target = `${url ?? ""}#${windowId ?? ""}`;
     if (socket.current && openedFor.current !== target) {
-      takeSnapshot();
-      socket.current.close();
-      socket.current = null;
+      // The first connect happens before the window list arrives, and the server resolves the
+      // active window for it. When the caller then names that same window, the socket is already
+      // attached: renaming the target is not a replay, and reconnecting would drop keystrokes in
+      // the gap between the two sockets.
+      if (windowId != null && attachedSession.current === windowId) {
+        openedFor.current = target;
+      } else {
+        takeSnapshot();
+        socket.current.close();
+        socket.current = null;
+      }
     }
     if (!url || !visible) return;
     const term = terminal.current;
@@ -363,9 +378,15 @@ export function TerminalPane({
         }
         const frameIncarnation = typeof value.incarnation === "number" ? value.incarnation : incarnation.current;
         incarnation.current = frameIncarnation;
-        // Which session this frame is for: a replay for the session already on screen keeps its
-        // private modes (bracketed paste), a different one starts fresh.
-        const frameSession = typeof value.sessionId === "string" ? value.sessionId : currentSession.current;
+        if (typeof value.sessionId === "string") {
+          attachedSession.current = value.sessionId;
+          setAttached(value.sessionId);
+        }
+        // Which session this frame is for: a replay for the pty already on screen keeps its private
+        // modes (bracketed paste), a different one — a new window, or the same id reopened with a
+        // new incarnation and default modes — starts fresh.
+        const frameSession =
+          typeof value.sessionId === "string" ? `${value.sessionId}#${frameIncarnation}` : currentSession.current;
         const freshSession = frameSession !== currentSession.current;
         currentSession.current = frameSession;
         if (value.type === "reset") {
@@ -428,6 +449,8 @@ export function TerminalPane({
     ws.onclose = () => {
       if (socket.current !== ws) return; // a superseded socket (another change's URL)
       socket.current = null;
+      attachedSession.current = null;
+      setAttached(null);
       pendingResize.current = null;
       applied.current = 0;
       outstanding.current = 0;
@@ -659,7 +682,16 @@ export function TerminalPane({
       )}
       {/* No tooltip: the window's own row already says which change's terminal this is, and a
           floating "terminal for …" over the grid is in the way of reading it. */}
-      <div ref={host} className="terminal-screen" hidden={!url} onContextMenu={onContextMenu} />
+      <div
+        ref={host}
+        className="terminal-screen"
+        hidden={!url}
+        // The pane is attached only while the open socket is for the window the page currently
+        // names (or the page names none and the server resolved one): the tests' readiness gate
+        // must not pass on the socket a window switch is about to replace.
+        data-attached={attached !== null && (windowId === undefined || windowId === null || attached === windowId) ? "1" : undefined}
+        onContextMenu={onContextMenu}
+      />
       {menu && (
         <div
           className="terminal-menu"

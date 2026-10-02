@@ -26,19 +26,18 @@ trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run="$CORVI_TEST_RUN
 
 bun run build:web
 
-# The browser end-to-end files, named so CI can give them their own job — and their own retries —
-# while the rest of the suite runs where no browser is installed. Everything else is found by
-# walking the workspaces, so a new test file needs no entry here — except a new *browser* file,
-# which joins this list (they are found by their playwright import; this list is maintained
-# beside it).
-e2e=(test/terminal.test.ts test/terminalAcceptance.test.ts test/pages.test.ts test/directoryPicker.page.test.ts test/plan.page.test.ts test/actions.page.test.ts test/subagents.page.test.ts test/subagentsChange.page.test.ts)
+# The browser end-to-end files are the ones that import a Playwright browser at runtime; the rest
+# run where no browser is installed. The list is derived from that import, so a new browser file
+# cannot drift out of it (a helper that only names a Playwright type does not count).
+e2e=()
 unit=()
 while IFS= read -r found; do
   file="${found#./}"
-  case " ${e2e[*]} " in
-    *" ${file} "*) ;;
-    *) unit+=("$file") ;;
-  esac
+  if grep -qE '^[[:space:]]*import[[:space:]]+\{[^}]*(chromium|webkit|firefox)[^}]*\}[[:space:]]*from[[:space:]]*"playwright"' "$found"; then
+    e2e+=("$file")
+  else
+    unit+=("$file")
+  fi
 done < <(find . -name "*.test.ts" -not -path "./node_modules/*" | sort)
 
 # `--timings` orders the files slowest-first, so the longest ones start first and the workers

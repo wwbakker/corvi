@@ -13,39 +13,40 @@ import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
  * outlive the server. The server runs on Node (the host does too).
  *
  * The terminal itself is a canvas, so the tests assert what a command *did* (a file) rather than
- * reading the drawn text. A typed line cannot be lost — the socket and the starting shell both
- * buffer input — and the command is retried until its effect appears, which is the readiness gate.
+ * reading the drawn text. A command is typed only once the pane's socket is attached: the pty is
+ * alive by then and buffers input until the shell reads it, so the line cannot be lost and a
+ * retry cannot run it twice.
  *
  * Skipped where the browser is missing, since the rest of Corvi works without it.
  */
 const fileText = (path: string): Promise<string> => Bun.file(path).text().catch(() => "");
 
-/** Run one command until its effect appears and settles. The retry covers the socket not being
- * open yet; the settle loop lets a duplicate retry that was already typed finish writing, so the
- * assertion after this does not read the file mid-truncate. */
+/** Wait until the pane's socket is attached to a live session. The pty is alive by then and
+ * buffers input until the shell reads it, so a command typed afterwards cannot be lost; the wait
+ * scales with machine load, so a busy machine delays the test rather than cascading it. */
+const awaitAttached = (page: Page): Promise<void> =>
+  page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(60_000) }).then(() => undefined);
+
+/** Run one command and wait for its exact effect. The command is typed once, after the attach
+ * gate, so no retry can run it twice. */
 const runCommand = async (page: Page, command: string, file: string, want: string): Promise<void> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await page.keyboard.type(`${command}\n`);
-    for (let settle = 0; settle < 6; settle++) {
-      if ((await fileText(file)) === want) {
-        await Bun.sleep(150);
-        if ((await fileText(file)) === want) return;
-      }
-      await Bun.sleep(150);
-    }
+  await awaitAttached(page);
+  await page.keyboard.type(`${command}\n`);
+  const wrote = await until(async () => (await fileText(file)) === want, true, budget(60_000));
+  if (!wrote) {
+    throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`);
   }
-  throw new Error(`the command never wrote ${file} with ${JSON.stringify(want)} (saw ${JSON.stringify(await fileText(file))})`);
+  expect(await fileText(file)).toBe(want);
 };
 
-/** Run one command until it writes anything to `file` (for output whose exact bytes vary). */
+/** Run one command and wait for it to write anything to `file` (for output whose exact bytes vary). */
 const runToFile = async (page: Page, command: string, file: string): Promise<string> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await page.keyboard.type(`${command}\n`);
-    const text = await fileText(file);
-    if (text.length > 0) return text;
-    await Bun.sleep(500);
-  }
-  throw new Error(`the command never wrote ${file}`);
+  await awaitAttached(page);
+  await page.keyboard.type(`${command}\n`);
+  await until(async () => (await fileText(file)).length > 0, true, budget(60_000));
+  const text = await fileText(file);
+  if (text.length === 0) throw new Error(`the command never wrote ${file}`);
+  return text;
 };
 
 /** The xterm buffer, read through the seam the pane sets on its host element: the WebGL canvas
@@ -117,22 +118,20 @@ const selectInTerminal = async (page: Page, needle: string): Promise<void> => {
   }, needle);
 };
 
-/** Type one command until its output appears on the screen (not merely echoed). */
+/** Type one command and wait for its output to appear on the screen (not merely be echoed). */
 const typeUntilText = async (page: Page, command: string, needle: string): Promise<void> => {
-  for (let attempt = 0; attempt < 40; attempt++) {
-    await page.keyboard.type(`${command}\n`);
-    for (let settle = 0; settle < 8; settle++) {
-      if ((await terminalText(page)).includes(needle)) return;
-      await Bun.sleep(200);
-    }
+  await awaitAttached(page);
+  await page.keyboard.type(`${command}\n`);
+  const shown = await until(async () => (await terminalText(page)).includes(needle), true, budget(30_000));
+  if (!shown) {
+    throw new Error(`the terminal never showed ${needle} (tail ${JSON.stringify((await terminalText(page)).slice(-200))})`);
   }
-  throw new Error(`the terminal never showed ${needle}`);
 };
 
-/** Type one command exactly once and wait for its output. For a command whose effect cannot be
- * repeated (a large stream), a retry would corrupt the test rather than help it; the shell must
- * already be proven ready by a `runCommand` first, or the single line could be lost. */
+/** Type one command and wait for its output. The attach gate makes a lost keystroke a bug rather
+ * than a retry, so a command whose effect cannot be repeated (a large stream) is safe here. */
 const typeOnceUntil = async (page: Page, command: string, needle: string, ms = 2000): Promise<void> => {
+  await awaitAttached(page);
   await page.keyboard.type(`${command}\n`);
   await until(async () => (await terminalText(page)).includes(needle), true, budget(ms));
 };
@@ -209,6 +208,7 @@ const openTerminal = async (change: string): Promise<{ page: Page; dir: string }
   await page.goto(`${url}/changes/${change}/terminals`);
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
   return { page, dir: join(tmp, "changes", change) };
 };
 
@@ -268,10 +268,15 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
   await typeOnceUntil(page, "echo SRV-DEEP-MARKER", "SRV-DEEP-MARKER", 15_000);
   await typeOnceUntil(page, "head -c 280000 /dev/zero | tr '\\0' X; echo SRV-FILLER-DONE", "SRV-FILLER-DONE", 60_000);
   expect(await terminalText(page)).toContain("SRV-DEEP-MARKER");
-  // Let the periodic cadence store a snapshot taken *after* the filler (its offset covers the whole
-  // stream), then force one too. A snapshot older than the ring would attach into a truncated
-  // replay whose reset clears the very marker this test is about.
-  await Bun.sleep(2500);
+  // Wait for the output to settle — the idle snapshot fires then, with no write outstanding —
+  // rather than a guessed sleep a busy machine turns into a missing snapshot. A snapshot older
+  // than the ring would attach into a truncated replay whose reset clears the very marker this
+  // test is about.
+  await until(async () => {
+    const settled = await terminalText(page);
+    await Bun.sleep(1500);
+    return (await terminalText(page)) === settled;
+  }, true, budget(60_000));
   await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
   await Bun.sleep(300);
 
@@ -335,10 +340,11 @@ test.skipIf(!usable)("the window strip is the server's registry: a new tab is it
   // The new window is active and is its own pty: a fresh shell without the first one's marker.
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "new-tab.txt")}`, join(dir, "new-tab.txt"), "none\n");
 
-  // Selecting the first tab attaches back to its own shell, marker intact.
-  const label = (await tabs.first().innerText()).trim();
+  // Selecting the first tab attaches back to its own shell, marker intact. Both tabs share a label
+  // (two shells in the change directory), so the index is what says the switch landed; the pane's
+  // own attach follows it, and `runCommand` waits for that before typing.
   await tabs.first().click();
-  expect(await until(() => page.locator(".window-tab.current").innerText(), label)).toBe(label);
+  expect(await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), "0", budget(20_000))).toBe("0");
   await runCommand(page, `echo "\${TAB_MARK:-none}" > ${join(dir, "first-tab.txt")}`, join(dir, "first-tab.txt"), "one\n");
   await page.close();
 }, budget(90_000));
@@ -682,19 +688,23 @@ test.skipIf(!usable)("the cursor is a visible block, and a program that hid it d
   expect(options.cursor?.toLowerCase()).not.toBe(options.background?.toLowerCase());
 
   // A full-screen program hides the cursor (DECTCEM). The pane must show it again when the next
-  // screen is replaid, or a plain shell after it would have no cursor at all. The hidden flag is
-  // xterm's own DECTCEM state, the only place it is observable.
-  const cursorHidden = (): Promise<boolean | undefined> =>
-    page.evaluate(() => {
+  // screen is replaid, or a plain shell after it would have no cursor at all. DECTCEM has no
+  // public xterm API, so the probe reads xterm's own hidden flag — and pins that the path exists:
+  // if a later xterm moves it, this says so instead of passing vacuously.
+  const cursorHidden = async (): Promise<boolean> => {
+    const hidden = await page.evaluate(() => {
       type Internals = { _core?: { coreService?: { isCursorHidden?: boolean } } };
       const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal & Internals }) | null)?.corviTerminal;
       return term?._core?.coreService?.isCursorHidden;
     });
+    expect(typeof hidden).toBe("boolean");
+    return hidden as boolean;
+  };
   await page.evaluate(() => {
     const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null)?.corviTerminal;
     term?.write("\u001b[?25l");
   });
-  expect(await until(() => cursorHidden().then((hidden) => hidden === true), true, budget(10_000))).toBe(true);
+  expect(await until(async () => (await cursorHidden()) === true, true, budget(10_000))).toBe(true);
 
   // A new window and back: each attach replays through the pane's erase, which shows the cursor.
   const tabs = page.locator(".window-tab:not(.new):not(.overview)");
@@ -702,7 +712,7 @@ test.skipIf(!usable)("the cursor is a visible block, and a program that hid it d
   await page.locator(".window-tab.new").click();
   expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
   await tabs.first().click();
-  expect(await until(() => cursorHidden().then((hidden) => hidden === false), true, budget(20_000))).toBe(true);
+  expect(await until(async () => (await cursorHidden()) === false, true, budget(20_000))).toBe(true);
   await page.close();
 }, budget(60_000));
 
