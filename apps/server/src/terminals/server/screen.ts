@@ -14,13 +14,15 @@
  * modes (bracketed paste among them) but not DECTCEM, so a cursor a full-screen program hid would
  * otherwise stay hidden.
  *
- * Boundary: resume is exact within one server lifetime. After a server restart the screen is
- * rebuilt from the host's 256 KiB ring, so history older than the ring is gone until P2 seeds the
- * screen from the persisted store (`./snapshots.ts`).
+ * Boundary: resume is exact while the store holds the screen. After a server restart the hub seeds
+ * the stored screen and attaches the host from its offset; if the host's ring has already evicted
+ * past that offset there is a gap (see `./session.ts` for the policy), otherwise the resume is
+ * byte-exact. Without a stored screen it rebuilds from the ring, bounded by the ring.
  */
 import { createRequire } from "node:module";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import type { Terminal as XTerm } from "@xterm/headless";
+import { SNAPSHOT_MAX_BYTES } from "./snapshots.ts";
 
 // `@xterm/headless` ships CommonJS, and Node's ESM named-export detection does not see its
 // exports, so it is loaded through `require`; the typings come from the package directly.
@@ -52,6 +54,10 @@ export type Screen = {
   readonly rows: number;
   /** Feed host bytes at the offset they start at. Bytes must arrive in order. */
   write(bytes: Uint8Array, seq: number): void;
+  /** Load a stored serialized screen and set the host offset it covers. The bytes are the store's
+   * replay, not host bytes; the offset is the host offset they represent, so a host attach can
+   * resume from it. */
+  seed(data: string, offset: number): void;
   /** Resolve once the parser has applied every byte before `seq`. */
   whenApplied(seq: number): Promise<void>;
   /** The parsed screen, its offset, and the corrections a fresh xterm needs to show it. */
@@ -103,6 +109,14 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
         settle();
       });
     },
+    seed: (data, offset) => {
+      // The seed is a screen replay, not host bytes: apply it, then claim the host offset it
+      // covers so a later attach resumes exactly from there.
+      term.write(data, () => {
+        applied = offset;
+        settle();
+      });
+    },
     whenApplied: (seq) => {
       if (applied >= seq) return Promise.resolve();
       return new Promise((resolve) => {
@@ -110,13 +124,22 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
       });
     },
     serialize: () => {
-      const serialized = addon.serialize();
-      // An empty screen serializes to "": keep it empty so the route can answer `reset` instead of
-      // a snapshot of blank lines.
-      return {
-        data: serialized === "" ? "" : `${serialized}${absoluteCursor(term)}${SHOW_CURSOR}`,
-        offset: applied,
+      // Draw the screen with `rows` of scrollback, trimmed to fit the store's cap: the estimate is
+      // recomputed a bounded number of times, so a huge screen is not re-serialized per row.
+      const bytes = (text: string): number => new TextEncoder().encode(text).length;
+      const draw = (scrollback: number): string => {
+        const serialized = addon.serialize({ scrollback });
+        return serialized === "" ? "" : `${serialized}${absoluteCursor(term)}${SHOW_CURSOR}`;
       };
+      let rows = SCREEN_SCROLLBACK;
+      let data = draw(rows);
+      for (let pass = 0; pass < 4 && bytes(data) > SNAPSHOT_MAX_BYTES && rows > 0; pass++) {
+        const perRow = bytes(data) / Math.max(1, rows);
+        rows = Math.max(0, Math.min(rows - 1, Math.floor((SNAPSHOT_MAX_BYTES / perRow) * 0.95)));
+        data = draw(rows);
+      }
+      // Even the viewport alone can exceed the cap: hand back nothing rather than ship it.
+      return { data: bytes(data) > SNAPSHOT_MAX_BYTES ? "" : data, offset: applied };
     },
     resize: (cols, rows) => term.resize(cols, rows),
     dispose: () => term.dispose(),

@@ -15,6 +15,12 @@
  * `kill()` means detach, never kill: closing a page leaves the shell and the screen running, and
  * the host listener stays because the screen exists. The exit of the session ends the hub.
  *
+ * Persistence: a screen is written to `./snapshots.ts` while it is dirty on a cadence, and
+ * synchronously on a controlled shutdown. A screen with no page and no output for a timeout is
+ * released — the store keeps it, so a later attach still resumes exactly, and the host is left
+ * holding nothing. On creation a screen is seeded from the store, and the host attaches from the
+ * stored offset; see `hubFor` and `ensureAttached` for the gap policy.
+ *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
  *   - page to server: binary is what you typed; text is JSON control (`resize`);
@@ -25,7 +31,23 @@
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen } from "./screen.ts";
+import { forgetSnapshot, setSnapshot, snapshotOf } from "./snapshots.ts";
 import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
+
+/** How often a dirty screen is written to the store. Serializing a 5,000-row screen is ~17 ms and
+ * only dirty screens are serialized, so a busy session costs at most one such write per cadence
+ * and a quiet one costs nothing. The shutdown flush makes the last moments exact regardless. A
+ * test can shorten it with `CORVI_SCREEN_CADENCE_MS`. */
+const SNAPSHOT_CADENCE_MS = 5000;
+/** A screen with no page and no output for this long is released: the store keeps it for a later
+ * attach, and the host is left holding nothing. A test can shorten it with `CORVI_SCREEN_IDLE_MS`. */
+const SCREEN_IDLE_MS = 5 * 60_000;
+/** The lifecycle sweep's tick: it decides whether each screen is due to persist or to be released.
+ * Cheap (it iterates hubs), so the cadence and timeout can be read per tick. */
+const SWEEP_TICK_MS = 250;
+
+const cadenceMs = (): number => Number(process.env.CORVI_SCREEN_CADENCE_MS) || SNAPSHOT_CADENCE_MS;
+const idleMs = (): number => Number(process.env.CORVI_SCREEN_IDLE_MS) || SCREEN_IDLE_MS;
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
 
@@ -76,6 +98,12 @@ type Hub = {
   /** An attach has claimed the hub (its guard and claim are one synchronous step); the session's
    * exit waits for it to finish. */
   attachingPage?: boolean;
+  /** The screen changed since it was last written to the store. */
+  dirty: boolean;
+  /** When the screen last saw a byte or a page, for the idle release. */
+  lastActivity: number;
+  /** When the screen was last written to the store, for the cadence. */
+  lastPersist: number;
 };
 
 const hubs = new Map<string, Hub>();
@@ -99,18 +127,84 @@ const hubFor = (
     subscribers: new Set(),
     received: 0,
     exited: false,
+    dirty: false,
+    lastActivity: Date.now(),
+    lastPersist: 0,
   };
+  // Seed the screen from the store when one exists for this exact incarnation. The host then
+  // attaches from `received` (the stored offset), so a clean resume is byte-exact. Gap policy:
+  // when the host's ring has already evicted past the stored offset there is a hole between it and
+  // the ring's oldest byte. We keep the deep screen and let the ring's bytes land on top of it,
+  // rather than rebuilding — the store exists for deep history, and rebuilding would forfeit it;
+  // the hole is bounded by the ring size and the program's next redraw usually heals the visible
+  // screen. A host that cannot be attached from the stored offset at all is rebuilt from the ring
+  // by `ensureAttached` (it attaches from `received`, which the host clamps to its oldest byte).
+  const stored = snapshotOf(id, incarnation);
+  if (stored !== undefined && stored.data !== "") {
+    hub.screen.seed(stored.data, stored.highWater);
+    hub.received = stored.highWater;
+    hub.lastPersist = Date.now();
+  }
   hubs.set(key, hub);
   return hub;
 };
 
-/** Tell the hub's live client the session is gone, dispose the screen, and forget the hub. */
+/** Write a dirty screen to the store. An empty screen drops any stored entry rather than leave a
+ * stale one. Called on the cadence, on the idle release, on exit, and on the shutdown flush. */
+const persistScreen = (hub: Hub): void => {
+  if (!hub.dirty) return;
+  hub.dirty = false;
+  const { data, offset } = hub.screen.serialize();
+  if (data === "") forgetSnapshot(hub.id, hub.incarnation);
+  else setSnapshot(hub.id, hub.incarnation, data, offset);
+};
+
+/** Write every dirty screen to the store, for the controlled shutdown. Synchronous on purpose: a
+ * signal handler has no time to await, and `setSnapshot` persists with a rename. */
+export const flushScreens = (): void => {
+  for (const hub of hubs.values()) persistScreen(hub);
+};
+
+/** Drop a screen without killing its shell: persist what it holds, release the host attachment, and
+ * forget the hub. A later attach reseeds it from the store. */
+const releaseScreen = (hub: Hub): void => {
+  persistScreen(hub);
+  release(hub);
+  watchExitOff(hub);
+  hub.screen.dispose();
+  hubs.delete(hub.key);
+};
+
+/** The lifecycle tick: persist dirty screens on the cadence, release screens a timeout past their
+ * last activity. Cheap enough to run often, so both intervals can be read per tick (and shortened
+ * by a test). */
+const sweep = (): void => {
+  const now = Date.now();
+  const cadence = cadenceMs();
+  const idle = idleMs();
+  for (const hub of [...hubs.values()]) {
+    if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
+    if (hub.dirty && now - hub.lastPersist >= cadence) {
+      persistScreen(hub);
+      hub.lastPersist = now;
+    }
+    if (hub.subscribers.size === 0 && now - hub.lastActivity >= idle) releaseScreen(hub);
+  }
+};
+
+// The sweep is the only timer the module owns; it must not keep a test process alive.
+setInterval(sweep, SWEEP_TICK_MS).unref();
+
+/** Tell the hub's live client the session is gone and forget the hub — unless the window asked to
+ * be kept open, whose frozen screen stays for a later look. */
 const finish = (hub: Hub): void => {
   const subscribers = [...hub.subscribers];
   hub.subscribers.clear();
   release(hub);
-  hub.screen.dispose();
-  hubs.delete(hub.key);
+  if (!isKeptOpen(hub.changeId, hub.id)) {
+    hub.screen.dispose();
+    hubs.delete(hub.key);
+  }
   for (const subscriber of subscribers) subscriber.onExit();
 };
 
@@ -120,6 +214,9 @@ const onSessionExit = (hub: Hub) => (): void => {
   if (hub.exited) return;
   hub.exited = true;
   watchExitOff(hub);
+  // The session's last screen is worth keeping before the hub lets go: a kept-open window's frozen
+  // output survives a restart through it.
+  persistScreen(hub);
   // A dead session emits nothing: stop listening now. An attach serializing the last screen is
   // allowed to finish first, so it serves what the session left.
   release(hub);
@@ -170,6 +267,8 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     if (!hub.exited) watchExit(hub, client);
     const listener: DataListener = (data, _incarnation, seq) => {
       hub.received = Math.max(hub.received, seq + data.length);
+      hub.lastActivity = Date.now();
+      hub.dirty = true;
       if (hub.hold !== undefined) {
         hub.hold.push({ seq, data });
         return;
@@ -206,6 +305,7 @@ const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     return;
   }
   hub.attachingPage = true;
+  hub.lastActivity = Date.now();
   const cutoff = hub.received;
   hub.hold = [];
   try {
@@ -273,6 +373,7 @@ export const openSession = async (
   await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
   const hub = hubFor(changeId, sessionId, incarnation, size);
+  hub.lastActivity = Date.now();
   // The screen is the page's grid too. The pty was just resized; an existing screen follows.
   hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
@@ -301,8 +402,9 @@ export const openSession = async (
       if (subscriber === undefined) return;
       hub.subscribers.delete(subscriber);
       subscriber = undefined;
+      hub.lastActivity = Date.now();
       // The last page leaving leaves the screen and the host listener: the screen belongs to the
-      // session, not to the page.
+      // session, not to the page. The idle sweep releases it only after a quiet timeout.
     },
   };
 };

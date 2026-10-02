@@ -22,7 +22,7 @@ import {
   startUpdateChecks,
   type AppUpdateOptions,
 } from "./app-update/update.ts";
-import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
+import { terminalSockets, closeAttachments, flushScreens, type TerminalSocket } from "./terminals/server/session.ts";
 import { loadSnapshots } from "./terminals/server/snapshots.ts";
 import { migrateStoredRecords } from "@corvi/changes/node";
 import { changePairs } from "./change/server/store.ts";
@@ -43,8 +43,8 @@ const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
 
-// The renderer-owned snapshots persisted by an earlier server, loaded before the watcher or any
-// page can prune them: this is what keeps deep scrollback across a Corvi restart.
+// The server-owned screens persisted by the last run, loaded before the watcher or any page can
+// prune them: this is what keeps deep scrollback across a Corvi restart.
 loadSnapshots();
 
 // One sweep of the record formats at startup: a change.json still in format 1 is projected to
@@ -74,8 +74,9 @@ setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).
 let instancePort: number | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    // The server takes its pty attachments with it; the host sessions (and the shells in them)
-    // stay for the next server.
+    // Flush the screens to the store before the server takes its pty attachments with it; the host
+    // sessions (and the shells in them) stay for the next server.
+    flushScreens();
     closeAttachments();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())

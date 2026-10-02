@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
 
 import { hostClient, closeHostClient } from "../apps/server/src/terminals/server/host.ts";
-import { closeAttachments, hubStats, openSession, terminalSockets, type TerminalSession } from "../apps/server/src/terminals/server/session.ts";
+import { closeAttachments, flushScreens, hubStats, openSession, terminalSockets, type TerminalSession } from "../apps/server/src/terminals/server/session.ts";
 import { makeScreen, SCREEN_SCROLLBACK } from "../apps/server/src/terminals/server/screen.ts";
 import { keptOpenIds, liveSnapshotKeys, newWindowRunningAsync } from "../apps/server/src/terminals/server/windows.ts";
 import {
@@ -184,6 +184,87 @@ test("a dead kept-open window's screen is served on a later attach", async () =>
   terminalSockets.open(ws);
   await waitFor("the dead screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
   expect(control(ws.frames)[0]?.data).toContain("DEAD_1_MARK");
+  // The session is dead and the page is told so, but the window asked to be kept open: its screen
+  // stays for the next look rather than being evicted with the rest.
+  await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), 15_000);
+  expect(hubStats().hubs).toBe(1);
+}, 30_000);
+
+test("a stored screen is seeded and the ring applies on top when the ring has a gap", async () => {
+  const change = "SNAP-GAP";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  const id = await newWindowRunningAsync(
+    change,
+    changeDir,
+    "echo RING-TAIL; head -c 320000 /dev/zero | tr '\\0' X; echo GAP-DONE",
+    { keepOpen: true, announce: { label: "Gap", notify: true } },
+  );
+  await waitFor(
+    "the command to finish",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+  const incarnation = (await (await hostClient()).list()).find((entry) => entry.id === id)?.incarnation ?? 0;
+
+  // A stored screen ending in a deep marker, at offset 0 — before the ring's oldest byte, so the
+  // host cannot replay from it. The policy keeps the deep screen and lets the ring land on top.
+  const seed = makeScreen({ cols: 80, rows: 24 });
+  seed.write(bytes("DEEP-SEED-MARK\r\n"), 0);
+  await seed.whenApplied(byteLength("DEEP-SEED-MARK\r\n"));
+  const seeded = seed.serialize();
+  seed.dispose();
+  setSnapshot(id, incarnation, seeded.data, 0);
+
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  await waitFor("the seeded screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  const screen = String(control(ws.frames)[0]?.data ?? "");
+  expect(screen).toContain("DEEP-SEED-MARK"); // the store's deep history survives the gap
+  expect(screen).toContain("GAP-DONE"); // and the ring's tail landed on top
+}, 30_000);
+
+test("the cadence persists a dirty screen", async () => {
+  process.env.CORVI_SCREEN_CADENCE_MS = "300";
+  try {
+    const session = await openSession("SNAP-CADENCE", dir, { cols: 80, rows: 24 });
+    session.write("echo CADENCE_MARK\n");
+    await waitEmitted(session.sessionId);
+    await waitFor(
+      "the store to fill",
+      async () => (snapshotOf(session.sessionId, session.incarnation)?.data ?? "").includes("CADENCE_MARK"),
+      15_000,
+    );
+  } finally {
+    delete process.env.CORVI_SCREEN_CADENCE_MS;
+  }
+}, 30_000);
+
+test("flushScreens writes a dirty screen synchronously", async () => {
+  const session = await openSession("SNAP-FLUSH", dir, { cols: 80, rows: 24 });
+  session.write("echo FLUSH_MARK\n");
+  await waitEmitted(session.sessionId);
+  await Bun.sleep(300);
+  flushScreens();
+  expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
+}, 30_000);
+
+test("a quiet unattended screen is released and kept in the store", async () => {
+  process.env.CORVI_SCREEN_IDLE_MS = "1500";
+  try {
+    const session = await openSession("SNAP-IDLE", dir, { cols: 80, rows: 24 });
+    session.write("echo IDLE_MARK\n");
+    await waitEmitted(session.sessionId);
+    await Bun.sleep(300);
+    await waitFor("the screen to be released", async () => hubStats().hubs === 0, 15_000);
+    // The store keeps it, so a later attach reseeds rather than rebuilds; the shell itself is
+    // untouched and still alive.
+    expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("IDLE_MARK");
+    expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
+  } finally {
+    delete process.env.CORVI_SCREEN_IDLE_MS;
+  }
 }, 30_000);
 
 test("a kept-open window's snapshot store entry survives its dead session; a plain dead one is pruned", () => {

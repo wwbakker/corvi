@@ -253,7 +253,7 @@ test.skipIf(!usable)("the terminal tab runs a shell in the change directory", as
   await page.close();
 }, budget(90_000));
 
-test.skipIf(!usable)("a terminal outlives the server that started it", async () => {
+test.skipIf(!usable)("a terminal outlives the server that started it, deep scrollback and all", async () => {
   const { page, dir } = await openTerminal(id);
   const before = join(dir, "survived-before.txt");
   // Prove the shell has the variable before anything restarts: the export and the read are the
@@ -265,21 +265,30 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
     "yes\n",
   );
   expect(await fileText(before)).toBe("yes\n");
-  // Recent output, still in the host's 256 KiB ring, is what the restarted server's screen is
-  // rebuilt from (deep scrollback needs the server-side persistence P2 adds).
-  await typeOnceUntil(page, "echo SRV-RECENT-MARKER", "SRV-RECENT-MARKER", 15_000);
+  // A marker followed by more than the host ring's 256 KiB: by the time the server is killed the
+  // ring has evicted the marker, so only the screen the server persisted can bring it back.
+  await typeOnceUntil(page, "echo SRV-DEEP-MARKER", "SRV-DEEP-MARKER", 15_000);
+  await typeOnceUntil(page, "head -c 320000 /dev/zero | tr '\\0' X; echo SRV-FILLER-DONE", "SRV-FILLER-DONE", 60_000);
+  expect(await terminalText(page)).toContain("SRV-DEEP-MARKER");
 
   server.kill();
   await server.exited;
   await startServer();
 
-  // A fresh page on the restarted server: the shell is the same one (the variable), and its
-  // recent screen was rebuilt from the ring.
+  // A fresh page on the restarted server: the deep marker proves the persisted screen was seeded,
+  // and the exported variable proves the same shell is underneath it.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await again.locator(".terminal-screen").click();
-  expect(await until(async () => (await terminalText(again)).includes("SRV-RECENT-MARKER"), true, budget(30_000))).toBe(true);
+  // Assert the read that satisfied the wait, rather than a second read that could race a late
+  // reset: the scrollback really is back.
+  let restored = "";
+  await until(async () => {
+    restored = await terminalText(again);
+    return restored.includes("SRV-DEEP-MARKER");
+  }, true, budget(30_000));
+  expect(restored).toContain("SRV-DEEP-MARKER");
   await runCommand(again, `echo "$CORVI_SURVIVED" > ${join(dir, "survived.txt")}`, join(dir, "survived.txt"), "yes\n");
   expect(await fileText(join(dir, "survived.txt"))).toBe("yes\n");
   await again.close();

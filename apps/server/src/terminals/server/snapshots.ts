@@ -1,28 +1,25 @@
 /**
  * The persisted server-owned screens, per `(sessionId, incarnation)`.
  *
- * **P2 wires this**: it seeds a screen from the stored snapshot on server start, resumes the host
- * from its offset, serializes periodically and on exit, and prunes dead incarnations. Until then
- * the hub keeps its screen in memory only, so a restart rebuilds from the host ring (the deep
- * scrollback beyond 256 KB is what P2 restores). It holds `data` and the host byte offset it
- * covers (`highWater`), and is keyed by incarnation so a reused session id never inherits its
- * predecessor's screen. Dead incarnations are pruned by the windows layer (`pruneSnapshots`),
- * which knows which records asked to be kept open. `server.ts` loads the store on start and
- * `windows.ts` prunes it to the live keys, but nothing writes it while P1 has no server-side
- * cadence — the prune is dead work on an empty store until P2.
+ * The hub (`./session.ts`) writes a screen here while it is dirty on a cadence and synchronously
+ * on a controlled shutdown. `server.ts` loads the store on start; when a screen is created for a
+ * session the hub seeds it from the stored entry and attaches the host from the stored offset, so
+ * deep scrollback survives a Corvi restart even past the host's 256 KiB ring. Dead incarnations
+ * are pruned by the windows layer (`pruneSnapshots`) down to the live and kept-open keys.
  *
- * Historically it held the page's renderer-owned snapshots; the pivot moved the screen to the
- * server, so the shape it stores is unchanged and the writer becomes the server in P2.
+ * A snapshot is `data` plus the host byte offset it covers (`highWater`), keyed by incarnation so
+ * a reused session id never inherits its predecessor's screen. The shape is the one the page's
+ * renderer-owned store used; only the writer moved to the server.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
 
 export type Snapshot = {
-  /** The serialized terminal, written back through xterm on the page. */
+  /** The serialized screen, replayed into a headless xterm (or a page) to reconstruct it. */
   readonly data: string;
-  /** The host byte offset the terminal had applied when this snapshot was taken. The page
-   * attaches with `since = highWater`, so bytes after it are replayed, never doubled. */
+  /** The host byte offset the screen had applied when this was taken. A host attach resumes from
+   * it, so bytes after it are replayed, never doubled. */
   readonly highWater: number;
   /** When the snapshot was stored, for the total-size eviction order. */
   readonly savedAt: number;
@@ -92,9 +89,9 @@ const evictToBudget = (): void => {
   }
 };
 
-/** Store the page's latest snapshot, replacing any earlier one for the same session. An
- * oversized or empty snapshot is dropped: the page already trims, and a snapshot that cannot be
- * played back is worse than none. */
+/** Store a screen's latest serialization, replacing any earlier one for the same session. An
+ * oversized or empty serialization is dropped: a screen that cannot be played back is worse than
+ * none (an empty one is handled by `forgetSnapshot`). */
 export const setSnapshot = (sessionId: string, incarnation: number, data: string, highWater: number): void => {
   if (typeof data !== "string" || data.length === 0) return;
   if (!Number.isFinite(highWater) || highWater < 0) return;
