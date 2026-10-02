@@ -164,6 +164,8 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
       directory: "example-api",
       named: false,
       options: {},
+      panes: ["w-1"],
+      activePane: "w-1",
       ...over,
     });
   // A window named after its command says less than the directory does.

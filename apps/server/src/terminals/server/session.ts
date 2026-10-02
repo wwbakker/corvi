@@ -460,11 +460,13 @@ export const openSession = async (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
-  windowId?: string,
+  paneSessionId?: string,
 ): Promise<TerminalSession> => {
   const unavailable = terminalUnavailable();
   if (unavailable !== undefined) throw new Error(unavailable);
-  const sessionId = await ensureActiveHostWindow(changeId, dir, size, windowId);
+  // `paneSessionId` names the pane the page wants to attach to; absent means the active window's
+  // active pane. A stale id falls through to the active pane.
+  const sessionId = await ensureActiveHostWindow(changeId, dir, size, undefined, paneSessionId);
   const client = await hostClient();
   // A window created before a page attached (a new tab, a subagent window) was opened at a
   // default size. Set the pty to the size the page actually has before anything is drawn into it,

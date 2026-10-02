@@ -23,6 +23,8 @@ test("terminals and the terminal URL decode", async () => {
                 attention: false,
                 active: true,
                 activity: false,
+                panes: ["@1"],
+                activePane: "@1",
               },
             ],
           })

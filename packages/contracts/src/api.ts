@@ -334,6 +334,10 @@ export const TerminalWindowSchema = Schema.Struct({
   note: Schema.optional(Schema.String),
   active: Schema.Boolean,
   activity: Schema.Boolean,
+  /** The window's pane session ids, in order; each is a host session the page can attach to. */
+  panes: Schema.Array(Schema.String),
+  /** The focused pane's session id. */
+  activePane: Schema.String,
 })
 export type TerminalWindowDto = typeof TerminalWindowSchema.Type
 
@@ -444,12 +448,16 @@ export type ReposBodyDto = typeof ReposBodySchema.Type
 export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) })
 export type ForceBodyDto = typeof ForceBodySchema.Type
 
-/** The window actions the terminal bar offers. */
+/** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane` name the window
+ * and, where it matters, the pane session; `select`/`move` keep their index. */
 export const WindowActionBodySchema = Schema.Struct({
-  action: Schema.Literal("new", "select", "move"),
+  action: Schema.Literal("new", "select", "move", "split", "close-pane", "focus-pane"),
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
+  direction: Schema.optional(Schema.Literal("right", "down")),
+  window: Schema.optional(Schema.String),
+  pane: Schema.optional(Schema.String),
 })
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
 

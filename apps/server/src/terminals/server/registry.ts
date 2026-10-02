@@ -18,19 +18,26 @@ import { stateDir } from "@corvi/configuration/node";
  * persisted record so older files still read. */
 export type BackingKind = "host";
 
-/** A window that currently exists, as the backings report it. */
+/** A window that currently exists, as the backings report it: the live panes are the host
+ * sessions whose metadata names this window. */
 export type LiveWindow = {
   readonly id: string;
   readonly kind: BackingKind;
+  /** The live pane session ids, in the host's order. */
+  readonly panes: readonly string[];
   readonly label?: string;
   readonly command?: string;
 };
 
-/** A window as the product remembers it. `id` is the backing's id, which is stable for the life
- * of the backing and across a server restart. */
+/** A window as the product remembers it. `id` is the window's own, opaque and stable for its life
+ * and across a server restart; `panes` are the host sessions it holds, in order. */
 export type WindowRecord = {
   readonly id: string;
   readonly kind: BackingKind;
+  /** The pane session ids, in order. A pane is a host session; the window is a container. */
+  readonly panes: readonly string[];
+  /** The focused pane's session id. */
+  readonly activePane: string;
   readonly label?: string;
   readonly command?: string;
   /** A command window that stays after it ends (`keepOpen` or `notify`), so its frozen last
@@ -50,16 +57,54 @@ const path = (): string => join(stateDir(), FILE);
 
 const empty = (): Persisted => ({ version: 1, changes: {} });
 
-/** Read the registry, treating anything unreadable as empty. A corrupt file is a reset, not a
- * server failure: the window labels are a convenience, never the shells themselves. */
+/** Read the registry, treating anything unreadable as empty, and migrate a record written before
+ * panes existed: its id was its session id, so it loads as a one-pane window whose window id is
+ * that same string (which stays its id even if that pane later closes). A corrupt file is a
+ * reset, not a server failure: the window labels are a convenience, never the shells themselves. */
 export const read = (): Persisted => {
   try {
-    const parsed = JSON.parse(readFileSync(path(), "utf8")) as Partial<Persisted>;
+    const parsed = JSON.parse(readFileSync(path(), "utf8")) as {
+      version?: unknown;
+      changes?: Record<string, unknown>;
+    };
     if (parsed.version !== 1 || typeof parsed.changes !== "object" || parsed.changes === null) return empty();
-    return { version: 1, changes: parsed.changes };
+    const changes: Record<string, WindowRecord[]> = {};
+    for (const [changeId, records] of Object.entries(parsed.changes)) changes[changeId] = migrateRecords(records);
+    return { version: 1, changes };
   } catch {
     return empty();
   }
+};
+
+/** One persisted record, with the pane fields a file from before the pivot does not have. */
+export const migrateRecords = (records: unknown): WindowRecord[] => {
+  if (!Array.isArray(records)) return [];
+  const out: WindowRecord[] = [];
+  for (const raw of records) {
+    if (raw === null || typeof raw !== "object") continue;
+    const record = raw as Partial<WindowRecord> & { readonly id?: unknown };
+    if (typeof record.id !== "string") continue;
+    const panes =
+      Array.isArray(record.panes) && record.panes.length > 0 && record.panes.every((pane) => typeof pane === "string")
+        ? [...record.panes]
+        : [record.id];
+    const activePane =
+      typeof record.activePane === "string" && panes.includes(record.activePane) ? record.activePane : panes[0]!;
+    out.push({
+      id: record.id,
+      kind: "host",
+      panes,
+      activePane,
+      ...(typeof record.label === "string" ? { label: record.label } : {}),
+      ...(typeof record.command === "string" ? { command: record.command } : {}),
+      ...(record.keepOpen === true ? { keepOpen: true } : {}),
+      ...(record.notify === true ? { notify: true } : {}),
+      active: record.active === true,
+      activity: record.activity === true,
+      createdAt: typeof record.createdAt === "string" ? record.createdAt : new Date().toISOString(),
+    });
+  }
+  return out;
 };
 
 const write = (registry: Persisted): void => {
@@ -92,8 +137,11 @@ export const withRegistryLock = <T>(work: () => Promise<T>): Promise<T> => {
   return run;
 };
 
-/** Merge the persisted records with the live windows: keep a record's position, label and active
- * flag while its backing lives, drop records whose backing is gone, append new backings. Pure. */
+/** Merge the persisted records with the live windows: keep a record's position, pane order, label
+ * and active flags while its panes live, drop records whose panes are all gone, and append new
+ * windows. The registry is authoritative for pane **membership**: a live session the record does
+ * not list (a split in flight, or a pane being closed whose pty has not exited yet) does not join
+ * the window. Pure. */
 export const mergeRecords = (previous: readonly WindowRecord[], live: readonly LiveWindow[]): WindowRecord[] => {
   const remaining = new Map(live.map((window) => [window.id, window]));
   const ordered: WindowRecord[] = [];
@@ -101,17 +149,27 @@ export const mergeRecords = (previous: readonly WindowRecord[], live: readonly L
     const window = remaining.get(record.id);
     if (window === undefined) continue;
     remaining.delete(record.id);
+    const livePanes = new Set(window.panes);
+    const panes = record.panes.filter((pane) => livePanes.has(pane));
+    if (panes.length === 0) continue; // every pane is gone: the window is too
+    const activePane = panes.includes(record.activePane) ? record.activePane : (panes[0] ?? "");
     ordered.push({
       ...record,
       kind: window.kind,
+      panes,
+      activePane,
       ...(window.label !== undefined ? { label: window.label } : {}),
       ...(window.command !== undefined ? { command: window.command } : {}),
     });
   }
   for (const window of remaining.values()) {
+    const panes = [...window.panes];
+    if (panes.length === 0) continue;
     ordered.push({
       id: window.id,
       kind: window.kind,
+      panes,
+      activePane: panes[0] ?? "",
       ...(window.label !== undefined ? { label: window.label } : {}),
       ...(window.command !== undefined ? { command: window.command } : {}),
       active: false,

@@ -21,6 +21,8 @@ const tab = (over: Partial<TerminalWindow>): TerminalWindow => ({
   attention: false,
   active: true,
   activity: false,
+  panes: ["@1"],
+  activePane: "@1",
   ...over,
 });
 

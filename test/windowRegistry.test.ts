@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
+import { mergeRecords, migrateRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 
 /**
  * The registry's pure half: how persisted records and the live backings become one ordered list.
@@ -8,13 +8,15 @@ import { mergeRecords, type LiveWindow, type WindowRecord } from "../apps/server
  */
 const record = (over: Partial<WindowRecord> & { id: string }): WindowRecord => ({
   kind: "host",
+  panes: [over.id],
+  activePane: over.id,
   active: false,
   activity: false,
   createdAt: "2026-01-01T00:00:00.000Z",
   ...over,
 });
 
-const host = (id: string): LiveWindow => ({ id, kind: "host" });
+const host = (id: string): LiveWindow => ({ id, kind: "host", panes: [id] });
 
 describe("window registry merge", () => {
   test("keeps order, labels and the active flag while the backings live", () => {
@@ -61,5 +63,38 @@ describe("window registry merge", () => {
 
   test("an empty live set empties the registry", () => {
     expect(mergeRecords([record({ id: "a", active: true })], [])).toEqual([]);
+  });
+
+  test("the registry decides pane membership: a live session it does not list is not adopted", () => {
+    const previous = [record({ id: "a", panes: ["p1", "p2"], activePane: "p2", active: true })];
+    // A live session the record does not list (a split in flight, or a closing pane whose pty has
+    // not exited) must not join the window.
+    const merged = mergeRecords(previous, [{ id: "a", kind: "host", panes: ["p1", "p2", "p3"] }]);
+    expect(merged[0]?.panes).toEqual(["p1", "p2"]);
+    expect(merged[0]?.activePane).toBe("p2");
+    // A pane whose session is gone is dropped; the first remaining pane is focused when the active
+    // one is gone.
+    const after = mergeRecords(merged, [{ id: "a", kind: "host", panes: ["p1", "p3"] }]);
+    expect(after[0]?.panes).toEqual(["p1"]);
+    expect(after[0]?.activePane).toBe("p1");
+  });
+});
+
+describe("registry migration", () => {
+  test("a record from before panes loads as a one-pane window whose id is its session id", () => {
+    const migrated = migrateRecords([
+      { id: "w-1", kind: "host", label: "One", active: true, activity: false, createdAt: "2026-01-01T00:00:00.000Z" },
+    ]);
+    expect(migrated).toHaveLength(1);
+    expect(migrated[0]?.id).toBe("w-1");
+    expect(migrated[0]?.panes).toEqual(["w-1"]);
+    expect(migrated[0]?.activePane).toBe("w-1");
+    expect(migrated[0]?.label).toBe("One");
+    expect(migrated[0]?.active).toBe(true);
+  });
+
+  test("a malformed record is dropped, not guessed at", () => {
+    expect(migrateRecords([{ label: "no id" }, null, 3])).toEqual([]);
+    expect(migrateRecords("not an array")).toEqual([]);
   });
 });

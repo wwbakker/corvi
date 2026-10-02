@@ -56,15 +56,16 @@ export function SubagentsPane({
   changeId,
   platform,
   terminal,
-  windowId,
+  sessionId,
   windowsCount,
   onFocusWindow,
 }: {
   changeId: string;
   platform: Platform;
   terminal: { url: string | null; error: string | null; create: () => void };
-  /** The window the embedded terminal shows: the active one, which selecting a subagent sets. */
-  windowId: string | null;
+  /** The active window's focused pane that the embedded terminal shows; selecting a subagent sets
+   * it. */
+  sessionId: string | null;
   windowsCount: number;
   /** Switch the shared session to a window **without** leaving this page. */
   onFocusWindow: (index: number) => void;
@@ -171,7 +172,7 @@ export function SubagentsPane({
         <TerminalPane
           changeId={changeId}
           url={terminal.url}
-          windowId={windowId}
+          sessionId={sessionId}
           error={terminal.error}
           visible
           platform={platform}

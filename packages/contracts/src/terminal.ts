@@ -16,8 +16,12 @@ export type RawWindow = {
   named: boolean;
   /** The window facts a presenter reads, by name ("@agent_status" → "working"). */
   options: Record<string, string>;
-  /** The backing session id (`w-…`): stable across reordering, unlike the index. */
+  /** The backing session id of the active pane (`w-…`): what the page attaches to. */
   id: string;
+  /** The window's pane session ids, in order. */
+  readonly panes: readonly string[];
+  /** The focused pane's session id. */
+  readonly activePane: string;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
@@ -58,7 +62,8 @@ export type TerminalPresenter = {
  * it is called and which icon it draws, and the page renders that. */
 export type TerminalWindow = {
   index: number;
-  /** The backing session id (`w-…`): stable across reordering, unlike the index. */
+  /** The window id (`w-…`): stable across reordering, unlike the index. Opaque and independent of
+   * the panes it holds. */
   id: string;
   /** What the navigation calls it. */
   label: string;
@@ -76,4 +81,8 @@ export type TerminalWindow = {
   active: boolean;
   /** Output arrived since you last looked at it. */
   activity: boolean;
+  /** The window's pane session ids, in order: each is a host session the page can attach to. */
+  readonly panes: readonly string[];
+  /** The focused pane's session id. The page renders this pane until 5b composes the rest. */
+  readonly activePane: string;
 };

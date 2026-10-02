@@ -96,14 +96,36 @@ test("an empty screen serializes to nothing, and resize follows the page", () =>
 
 const byteLength = (text: string): number => new TextEncoder().encode(text).length;
 
-/** Wait for the host to have emitted at least one byte for the session, so a write is on its way
- * to the hub before a test attaches. */
-const waitEmitted = async (sessionId: string): Promise<void> =>
-  waitFor(
-    "the host to emit",
-    async () => ((await (await hostClient()).list()).find((entry) => entry.id === sessionId)?.lastSeq ?? 0) > 0,
+/** The host's emitted byte offset for a session (monotonic). */
+const lastSeq = async (sessionId: string): Promise<number> =>
+  (await (await hostClient()).list()).find((entry) => entry.id === sessionId)?.lastSeq ?? 0;
+
+/** Write a command once the shell's prompt has settled, then wait until the host has emitted the
+ * command's echo *and* its output. The settle makes the byte delta unambiguous: the echo is
+ * `command.length` bytes, so waiting past it plus the output line means the marker reached the
+ * screen. */
+const runAndWait = async (
+  session: { sessionId: string; write: (data: string) => void },
+  command: string,
+): Promise<void> => {
+  let previous = -1;
+  await waitFor(
+    "the shell's prompt to settle",
+    async () => {
+      const now = await lastSeq(session.sessionId);
+      const stable = now > 0 && now === previous;
+      previous = now;
+      return stable;
+    },
     15_000,
   );
+  session.write(command);
+  await waitFor(
+    "the host to emit the command's output",
+    async () => (await lastSeq(session.sessionId)) >= previous + command.length + 12,
+    15_000,
+  );
+};
 
 type FakeSocket = {
   readonly data: { readonly session: TerminalSession };
@@ -125,9 +147,8 @@ const control = (frames: (string | Uint8Array)[]): Record<string, unknown>[] =>
 
 test("a page gets the server's snapshot first, then the live bytes after its offset", async () => {
   const session = await openSession("SNAP-1", dir, { cols: 80, rows: 24 });
-  session.write("echo FIRST_$(( 0 + 1 ))_MARK\n");
-  await waitEmitted(session.sessionId);
-  await Bun.sleep(300);
+  const command = "echo FIRST_$(( 0 + 1 ))_MARK\n";
+  await runAndWait(session, command);
   const first = fakeSocket(session);
   terminalSockets.open(first);
   await waitFor("the snapshot frame", async () => control(first.frames).some((frame) => frame.type === "snapshot"), 15_000);
@@ -231,8 +252,8 @@ test("the cadence persists a dirty screen", async () => {
   process.env.CORVI_SCREEN_CADENCE_MS = "300";
   try {
     const session = await openSession("SNAP-CADENCE", dir, { cols: 80, rows: 24 });
-    session.write("echo CADENCE_MARK\n");
-    await waitEmitted(session.sessionId);
+    const command = "echo CADENCE_MARK\n";
+    await runAndWait(session, command);
     await waitFor(
       "the store to fill",
       async () => (snapshotOf(session.sessionId, session.incarnation)?.data ?? "").includes("CADENCE_MARK"),
@@ -245,9 +266,8 @@ test("the cadence persists a dirty screen", async () => {
 
 test("flushScreens writes a dirty screen synchronously", async () => {
   const session = await openSession("SNAP-FLUSH", dir, { cols: 80, rows: 24 });
-  session.write("echo FLUSH_MARK\n");
-  await waitEmitted(session.sessionId);
-  await Bun.sleep(300);
+  const command = "echo FLUSH_MARK\n";
+  await runAndWait(session, command);
   flushScreens();
   expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
 }, 30_000);
@@ -256,9 +276,8 @@ test("a quiet unattended screen is released and kept in the store", async () => 
   process.env.CORVI_SCREEN_IDLE_MS = "1500";
   try {
     const session = await openSession("SNAP-IDLE", dir, { cols: 80, rows: 24 });
-    session.write("echo IDLE_MARK\n");
-    await waitEmitted(session.sessionId);
-    await Bun.sleep(300);
+    const command = "echo IDLE_MARK\n";
+    await runAndWait(session, command);
     await waitFor("the screen to be released", async () => hubStats().hubs === 0, 15_000);
     // The store keeps it, so a later attach reseeds rather than rebuilds; the shell itself is
     // untouched and still alive.
@@ -391,9 +410,8 @@ test("an over-cap screen serializes to a truncated screen, never the empty senti
 
 test("an over-cap screen does not blank the page and does not drop the stored screen", async () => {
   const session = await openSession("SNAP-OVER", dir, { cols: 500, rows: 50 });
-  session.write("echo OVERCAP-BASE\n");
-  await waitEmitted(session.sessionId);
-  await Bun.sleep(300);
+  const command = "echo OVERCAP-BASE\n";
+  await runAndWait(session, command);
   flushScreens();
   expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("OVERCAP-BASE");
 
@@ -423,6 +441,8 @@ test("a kept-open window's snapshot store entry survives its dead session; a pla
   const record = (id: string, keepOpen: boolean): WindowRecord => ({
     id,
     kind: "host",
+    panes: [id],
+    activePane: id,
     active: false,
     activity: false,
     createdAt: "2026-01-01T00:00:00.000Z",

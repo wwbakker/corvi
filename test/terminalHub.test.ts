@@ -56,14 +56,36 @@ const saw = (collector: Collector, text: string): boolean => live(collector).inc
 const screenOf = (collector: Collector): string =>
   collector.snapshots.map((frame) => frame.data).join("");
 
-/** Wait for the host to have emitted at least one byte for the session, so a write is on its way
- * to the hub before a test attaches. */
-const waitEmitted = async (sessionId: string): Promise<void> =>
-  waitFor(
-    "the host to emit",
-    async () => ((await (await hostClient()).list()).find((entry) => entry.id === sessionId)?.lastSeq ?? 0) > 0,
+/** The host's emitted byte offset for a session (monotonic). */
+const lastSeq = async (sessionId: string): Promise<number> =>
+  (await (await hostClient()).list()).find((entry) => entry.id === sessionId)?.lastSeq ?? 0;
+
+/** Write a command once the shell's prompt has settled, then wait until the host has emitted the
+ * command's echo *and* its output. The settle makes the byte delta unambiguous: the echo is
+ * `command.length` bytes, so waiting past it plus the output line means the marker reached the
+ * screen. */
+const runAndWait = async (
+  session: { sessionId: string; write: (data: string) => void },
+  command: string,
+): Promise<void> => {
+  let previous = -1;
+  await waitFor(
+    "the shell's prompt to settle",
+    async () => {
+      const now = await lastSeq(session.sessionId);
+      const stable = now > 0 && now === previous;
+      previous = now;
+      return stable;
+    },
     15_000,
   );
+  session.write(command);
+  await waitFor(
+    "the host to emit the command's output",
+    async () => (await lastSeq(session.sessionId)) >= previous + command.length + 12,
+    15_000,
+  );
+};
 
 afterEach(() => {
   closeAttachments();
@@ -86,9 +108,8 @@ test("the screen is fed with no page attached, and a second attach is refused", 
 
   // Produced with no page attached: the screen is still fed it, so a later attach's snapshot
   // carries it without any byte replay.
-  session.write("echo PRE_$(( 0 + 1 ))_MARK\n");
-  await waitEmitted(session.sessionId);
-  await Bun.sleep(300);
+  const command = "echo PRE_$(( 0 + 1 ))_MARK\n";
+  await runAndWait(session, command);
 
   const first = collector();
   session.attach(first.send, first.snapshot, first.onExit);
@@ -122,9 +143,8 @@ test("detaching never kills the shell or the screen, and re-attaching resumes fr
   expect(alive).toHaveLength(1);
 
   // Produced while detached, then served to the new page from the screen.
-  session.write("echo AGAIN_$(( 0 + 1 ))_MARK\n");
-  await waitEmitted(session.sessionId);
-  await Bun.sleep(300);
+  const command = "echo AGAIN_$(( 0 + 1 ))_MARK\n";
+  await runAndWait(session, command);
   const second = collector();
   session.attach(second.send, second.snapshot, second.onExit);
   await waitFor("the resumed screen", async () => screenOf(second).includes("AGAIN_1_MARK"), 25_000);

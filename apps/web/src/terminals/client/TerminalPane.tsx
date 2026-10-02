@@ -93,7 +93,7 @@ const readFontSize = (): number => {
 export function TerminalPane({
   changeId,
   url,
-  windowId,
+  sessionId,
   error,
   visible,
   focusRequest,
@@ -103,9 +103,9 @@ export function TerminalPane({
 }: {
   changeId: string;
   url: string | null;
-  /** Which of the change's windows this pane shows: the socket attaches to that window's own pty,
-   * and the pane reconnects when it changes. Absent means the change's active window. */
-  windowId?: string | null;
+  /** Which pane this shows: the socket attaches to that pane's own pty, and the pane reconnects
+   * when it changes. Absent means the change's active window's active pane. */
+  sessionId?: string | null;
   error: string | null;
   /** Whether this is the page in front: what to focus, when to connect, and when the
    * new-window chord belongs to us. */
@@ -273,15 +273,15 @@ export function TerminalPane({
   // the connect: the first size the shell sees is the right one, so switching to the terminal
   // is not a resize every full-screen program has to redraw for.
   useLayoutEffect(() => {
-    // The URL names the change, the id names the window: a different change or a different tab
+    // The URL names the change, the id names the pane: a different change or a different tab
     // needs a different pty. The server keeps the screen of the one being left.
-    const target = `${url ?? ""}#${windowId ?? ""}`;
+    const target = `${url ?? ""}#${sessionId ?? ""}`;
     if (socket.current && openedFor.current !== target) {
       // The first connect happens before the window list arrives, and the server resolves the
       // active window for it. When the caller then names that same window, the socket is already
       // attached: renaming the target is not a replay, and reconnecting would drop keystrokes in
       // the gap between the two sockets.
-      if (windowId != null && attachedSession.current === windowId) {
+      if (sessionId != null && attachedSession.current === sessionId) {
         openedFor.current = target;
       } else {
         socket.current.close();
@@ -295,7 +295,7 @@ export function TerminalPane({
     if (socket.current) return;
     fit.fit();
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const windowQuery = windowId === undefined || windowId === null ? "" : `&window=${encodeURIComponent(windowId)}`;
+    const windowQuery = sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
     const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
     ws.binaryType = "arraybuffer";
     ws.onmessage = (event: MessageEvent) => {
@@ -358,7 +358,7 @@ export function TerminalPane({
     openedFor.current = target;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
-  }, [url, windowId, visible, generation, reconnect]);
+  }, [url, sessionId, visible, generation, reconnect]);
 
   // A shown or resized pane re-fits, and tells the pty. Before paint, so the grid and the shell
   // agree by the time the frame is visible.
@@ -554,7 +554,7 @@ export function TerminalPane({
         // The pane is attached only while the open socket is for the window the page currently
         // names (or the page names none and the server resolved one): the tests' readiness gate
         // must not pass on the socket a window switch is about to replace.
-        data-attached={attached !== null && (windowId === undefined || windowId === null || attached === windowId) ? "1" : undefined}
+        data-attached={attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId) ? "1" : undefined}
         onContextMenu={onContextMenu}
       />
       {menu && (

@@ -329,9 +329,11 @@ export function ChangeView({
   const active = resolveChangePage(page, tabs ?? []);
   const activeId = active.kind === "tab" ? active.tab.id : active.kind;
 
-  /** The window the terminal shows: the active one, so the socket attaches to that window's own
-   * pty and switching tabs reconnects rather than leaving every tab on the first session. */
-  const activeWindowId = windows.find((window) => window.active)?.id ?? null;
+  /** The pane the terminal shows: the active window's focused pane, so the socket attaches to
+   * that pane's own pty and switching windows or panes reconnects. A split window's other panes
+   * are composed in 5b; the page renders the active one for now. */
+  const activeWindow = windows.find((window) => window.active);
+  const activePaneId = activeWindow?.activePane ?? activeWindow?.id ?? null;
 
   /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
    * reference. The change's name is deliberately not here: the navigation column carries it, and the
@@ -471,7 +473,7 @@ export function ChangeView({
           changeId={id}
           platform={platform}
           terminal={terminal}
-          windowId={activeWindowId}
+          sessionId={activePaneId}
           windowsCount={windows.length}
           onFocusWindow={onFocusWindow}
         />
@@ -484,7 +486,7 @@ export function ChangeView({
           <TerminalPane
             changeId={id}
             url={terminal.url}
-            windowId={activeWindowId}
+            sessionId={activePaneId}
             error={terminal.error}
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}

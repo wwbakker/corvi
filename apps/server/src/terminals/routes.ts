@@ -6,22 +6,28 @@ import { runRoute } from "../capabilities/effect/run.ts";
 import { guard } from "../capabilities/web.ts";
 import {
   allWindows,
+  closePane,
+  focusPane,
   listWindows,
   moveWindow,
   newWindow,
   selectWindow,
+  splitPane,
   terminalSocketPath,
 } from "./server/index.ts";
 import { openSession, terminalUnavailable, type TerminalSocket, type TerminalSession } from "./server/session.ts";
 import { applyStatus } from "./server/status.ts";
 import { bodyAs, json, withChange } from "../capabilities/web.ts";
 
-/** A window action: what to do, with the indices the action needs. */
+/** A window action: what to do, with the indices and ids the action needs. */
 const WindowBody = Schema.Struct({
   action: Schema.String,
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
+  direction: Schema.optional(Schema.Literal("right", "down")),
+  window: Schema.optional(Schema.String),
+  pane: Schema.optional(Schema.String),
 });
 
 /** The change's directory, or undefined when it cannot have a terminal: it does not exist, or
@@ -48,13 +54,12 @@ export const terminalsRoutes = guard({
     // a missing or malformed pair falls back to the classic 80x24.
     const cols = Number(query.get("cols") ?? 80);
     const rows = Number(query.get("rows") ?? 24);
-    // Which window this socket is for: the page names it so switching tabs attaches to that
-    // window's own pty. Absent means the change's active window, which is what a first connect
-    // wants.
-    const windowId = query.get("window") ?? undefined;
+    // Which pane this socket is for: the page names a session id so it can attach to any pane,
+    // not only the window's active one. Absent means the active window's active pane.
+    const sessionId = query.get("session") ?? undefined;
     let session: TerminalSession;
     try {
-      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, windowId);
+      session = await openSession(id, dir, { cols: cols || 80, rows: rows || 24 }, sessionId);
     } catch (e) {
       // The client reads `{ error }` (apps/web/src/app-root/api.ts); this is the one failure that never
       // becomes a typed taxonomy error, so it is shaped here.
@@ -130,10 +135,17 @@ export const terminalsRoutes = guard({
       withChange(req.params.id, (c) =>
         Effect.gen(function* () {
           const body = yield* bodyAs(req, WindowBody);
+          const windowId = body.window;
           if (body.action === "new") yield* newWindow(c.id, changeDir(c));
           else if (body.action === "select") yield* selectWindow(c.id, body.index ?? 0);
           else if (body.action === "move") {
             yield* moveWindow(c.id, body.from ?? 0, body.to ?? 0);
+          } else if (body.action === "split" && windowId !== undefined) {
+            yield* splitPane(c.id, windowId, body.direction ?? "right");
+          } else if (body.action === "close-pane" && windowId !== undefined && body.pane !== undefined) {
+            yield* closePane(c.id, windowId, body.pane);
+          } else if (body.action === "focus-pane" && windowId !== undefined && body.pane !== undefined) {
+            yield* focusPane(c.id, windowId, body.pane);
           } else {
             return yield* new BadRequestError({ message: `unknown window action: ${body.action}` });
           }

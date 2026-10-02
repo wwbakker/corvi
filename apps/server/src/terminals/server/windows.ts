@@ -44,7 +44,7 @@ const asFailure = (error: unknown): CommandFailure => ({
 /** The shell a new window runs: the user's own, or `/bin/sh` when the server has none. */
 const shell = (): string => process.env.SHELL ?? "/bin/sh";
 
-const windowId = (): string => `w-${randomBytes(5).toString("hex")}`;
+const freshId = (): string => `w-${randomBytes(5).toString("hex")}`;
 
 /** The URL path the page opens the terminal socket on. The route and the client share this one
  * spelling, so it lives beside the route that serves it. */
@@ -74,34 +74,42 @@ const dirOf = async (changeId: string): Promise<string> => {
   return change === null ? process.cwd() : changeDir(change);
 };
 
-/** The host sessions for a change. Alive ones, plus retained-dead ones whose record asked to be
- * kept open (a command window that froze on its output). A host that is not running has no
- * sessions; it is not started just to be asked. */
+/** The host sessions for a change, grouped into windows. A live session is a pane; a dead one is
+ * only included when its window asked to keep it (`keep`) *and* the persisted record still lists
+ * it (`known`), so a pane the user closed does not reappear as a frozen one. A host that is not
+ * running has no sessions; it is not started just to be asked. */
 const hostLive = async (
   changeId: string,
   keep: ReadonlySet<string>,
+  known: ReadonlySet<string>,
 ): Promise<{ live: LiveWindow[]; sessions: Map<string, SessionInfo> }> => {
   if (!hostRunning()) return { live: [], sessions: new Map() };
   const client = await hostClient();
   const sessions = await client.list();
-  const live: LiveWindow[] = [];
+  const grouped = new Map<string, string[]>();
   const byId = new Map<string, SessionInfo>();
   for (const session of sessions) {
     if (session.metadata?.change !== changeId) continue;
+    const window = session.metadata?.window ?? session.id;
     if (!session.alive) clearStatus(session.id, session.incarnation);
-    if (!session.alive && !keep.has(session.id)) continue;
-    live.push({ id: session.id, kind: "host" });
+    if (!session.alive && !(keep.has(window) && known.has(session.id))) continue;
+    const panes = grouped.get(window) ?? [];
+    panes.push(session.id);
+    grouped.set(window, panes);
     byId.set(session.id, session);
   }
+  const live: LiveWindow[] = [...grouped].map(([id, panes]) => ({ id, kind: "host" as const, panes }));
   return { live, sessions: byId };
 };
 
-/** The live host windows of a change, plus the session map the presenter reads status from. */
-const liveFor = async (
-  changeId: string,
-  keep: ReadonlySet<string>,
-): Promise<{ live: LiveWindow[]; host: Map<string, SessionInfo> }> => {
-  const host = await hostLive(changeId, keep);
+/** The live host windows of a change, plus the session map the presenter reads status from. The
+ * keep-open and known-pane sets come from the persisted records, so a rebuild cannot resurrect a
+ * pane that was explicitly closed. */
+const liveFor = async (changeId: string): Promise<{ live: LiveWindow[]; host: Map<string, SessionInfo> }> => {
+  const previous = registryRecords(changeId);
+  const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
+  const known = new Set(previous.flatMap((record) => [...record.panes]));
+  const host = await hostLive(changeId, keep, known);
   return { live: host.live, host: host.sessions };
 };
 
@@ -141,6 +149,8 @@ const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undef
   directory: basename(dir),
   named: true,
   options: { ...agentOptions(status), ...commandOptions(record, session) },
+  panes: [...record.panes],
+  activePane: record.activePane,
 });
 
 /** The change's windows, presented. Rebuilds and persists the registry from the live host
@@ -148,12 +158,11 @@ const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undef
 export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =>
   withRegistryLock(async () => {
     const dir = await dirOf(changeId);
-    const previous = registryRecords(changeId);
-    const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-    const { live, host } = await liveFor(changeId, keep);
+    const { live, host } = await liveFor(changeId);
     const records = rebuild(changeId, live);
     return records.map((record, index) => {
-      const session = host.get(record.id);
+      // A window's label and status come from its active pane; a split window is still one tab.
+      const session = host.get(record.activePane) ?? host.get(record.panes[0] ?? "");
       const stored = session === undefined ? undefined : statusOf(session.id, session.incarnation);
       // `undefined` means nothing was reported (use the host's OSC parse); `null` is an explicit
       // clear and suppresses the fallback.
@@ -194,35 +203,48 @@ export const keptOpenIds = (recordsByChange: readonly (readonly WindowRecord[])[
   return ids;
 };
 
-/** Whether one window record asked to be kept open. The session hub uses this to keep a dead
- * kept-open window's screen (its frozen output) while letting the rest go before P2's eviction. */
-export const isKeptOpen = (changeId: string, windowId: string): boolean =>
-  registryRecords(changeId).some((record) => record.id === windowId && record.keepOpen === true);
+/** Whether a window asked to be kept open, named by its window id or any of its pane session ids.
+ * The session hub holds a pane's screen after the session exits for a kept-open window. */
+export const isKeptOpen = (changeId: string, id: string): boolean =>
+  registryRecords(changeId).some(
+    (record) => record.keepOpen === true && (record.id === id || record.panes.includes(id)),
+  );
 
 /** The `(id, incarnation)` snapshot keys to keep: live sessions, plus kept-open dead ones (their
- * frozen output must still be replayable). Dead sessions that were not kept are pruned. */
+ * frozen output must still be replayable). A session is kept when its window asked to; a pane's
+ * session id may differ from its window id. Dead sessions that were not kept are pruned. */
 export const liveSnapshotKeys = (
   sessions: readonly SessionInfo[],
   keptOpen: ReadonlySet<string>,
 ): Set<string> =>
   new Set(
     sessions
-      .filter((session) => session.alive || keptOpen.has(session.id))
+      .filter((session) => session.alive || keptOpen.has(session.metadata?.window ?? session.id))
       .map((session) => snapshotKey(session.id, session.incarnation)),
   );
 
-/** Rebuild, mark `id` active, and persist. Caller holds the registry lock. */
-const activate = async (changeId: string, id: string, extra: RecordExtra = {}): Promise<WindowRecord[]> => {
-  const previous = registryRecords(changeId);
-  const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-  const { live } = await liveFor(changeId, keep);
+/** Rebuild, apply a patch, mark `id` active, and persist. Caller holds the registry lock. */
+const activate = async (changeId: string, id: string, patch: Partial<WindowRecord> = {}): Promise<WindowRecord[]> => {
+  const { live } = await liveFor(changeId);
   const base = rebuild(changeId, live);
   const present = base.some((record) => record.id === id)
     ? base
-    : [...base, { id, kind: "host" as const, active: false, activity: false, createdAt: new Date().toISOString(), ...extra }];
+    : [
+        ...base,
+        {
+          id,
+          kind: "host" as const,
+          panes: [id],
+          activePane: id,
+          active: false,
+          activity: false,
+          createdAt: new Date().toISOString(),
+          ...patch,
+        },
+      ];
   return save(
     changeId,
-    present.map((record) => (record.id === id ? { ...record, active: true, activity: false, ...extra } : { ...record, active: false })),
+    present.map((record) => (record.id === id ? { ...record, ...patch, active: true, activity: false } : { ...record, active: false })),
   );
 };
 
@@ -246,29 +268,42 @@ const openHostWindow = async (
   extra: RecordExtra = {},
   options: HostWindowOptions = {},
 ): Promise<string> => {
+  const id = freshId();
+  // The first pane's session id is the window id, so a legacy single-pane record (whose id was
+  // its session id) is just a window with that one pane; a split pane gets its own id.
+  await openPane(changeId, id, id, dir, command, size, options);
+  await activate(changeId, id, extra);
+  return id;
+};
+
+/** Open one pane (a host session) of a window and create and attach its screen. The metadata
+ * names both the window and the pane, so the registry rebuild re-associates it and a split's
+ * pane is not mistaken for a window of its own. */
+const openPane = async (
+  changeId: string,
+  windowId: string,
+  paneId: string,
+  dir: string,
+  command: readonly string[],
+  size: { readonly cols: number; readonly rows: number },
+  options: HostWindowOptions = {},
+): Promise<void> => {
   const client = await hostClient();
-  const id = windowId();
-  const { incarnation } = await client.open(id, {
+  const { incarnation } = await client.open(paneId, {
     cwd: options.cwd ?? dir,
     command: [...command],
     cols: size.cols,
     rows: size.rows,
     env: { ...changeEnv(changeId, options.envDir ?? dir), ...options.env },
-    metadata: { change: changeId, window: id, ...options.metadata },
+    metadata: { change: changeId, window: windowId, pane: paneId, ...options.metadata },
   });
-  await activate(changeId, id, extra);
-  // The screen exists for the window's whole life, not only while a page is attached: a window
-  // opened with no page (a subagent, a command) captures its startup before the host's ring can
-  // evict it. Best-effort here — a failed host attach is retried by the next `openSession`, and a
-  // screen no page ever attaches to is released by the idle sweep.
-  await ensureScreen(changeId, id, incarnation, size).catch(() => undefined);
-  return id;
+  // The screen exists for the pane's whole life, not only while a page is attached: a pane opened
+  // with no page (a subagent, a command) captures its startup before the host's ring can evict it.
+  await ensureScreen(changeId, paneId, incarnation, size).catch(() => undefined);
 };
 
 const listRecords = async (changeId: string): Promise<WindowRecord[]> => {
-  const previous = registryRecords(changeId);
-  const keep = new Set(previous.filter((record) => record.keepOpen).map((record) => record.id));
-  const { live } = await liveFor(changeId, keep);
+  const { live } = await liveFor(changeId);
   return rebuild(changeId, live);
 };
 
@@ -337,11 +372,16 @@ export const newSubagentWindow = (
   args: Parameters<typeof newSubagentWindowAsync>[1],
 ): Effect.Effect<string, CommandFailure> => Effect.tryPromise({ try: () => newSubagentWindowAsync(changeId, args), catch: asFailure });
 
-/** Kill a subagent's host session and drop its registry record. */
+/** Kill a subagent's host session and drop its pane, or the window if it was the last pane. */
 export const killHostWindowAsync = async (changeId: string, sessionId: string): Promise<void> =>
   withRegistryLock(async () => {
-    if (hostRunning()) await (await hostClient()).kill(sessionId).catch(() => undefined);
-    save(changeId, (await listRecords(changeId)).filter((record) => record.id !== sessionId));
+    const records = await listRecords(changeId);
+    const record = records.find((r) => r.panes.includes(sessionId));
+    if (record === undefined) {
+      if (hostRunning()) await (await hostClient()).kill(sessionId).catch(() => undefined);
+      return;
+    }
+    await closePaneUnlocked(changeId, record.id, sessionId);
   });
 
 export const killHostWindow = (changeId: string, sessionId: string): Effect.Effect<void, CommandFailure> =>
@@ -372,9 +412,10 @@ export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, 
     if (!subagentId) continue;
     const stored = statusOf(session.id, session.incarnation);
     const state = stored === undefined ? session.status?.state : (stored ?? undefined)?.state;
+    const windowId = session.metadata?.window ?? session.id;
     map.set(subagentId, {
       window: session.id,
-      index: indexOf.get(session.id) ?? 0,
+      index: indexOf.get(windowId) ?? 0,
       ...(state === "working" || state === "waiting" ? { agentStatus: state } : {}),
     });
   }
@@ -403,23 +444,88 @@ export const moveWindowAsync = (changeId: string, from: number, to: number): Pro
     save(changeId, records);
   });
 
-/** The host session the change's socket attaches to: the requested window, the active one, or a
- * new one. A window id the registry does not hold (a stale tab) falls back to the active window. */
+/** Split the window: a new pane in the active pane's directory, focused. `direction` is the
+ * page's to compose (5b); the server records the pane and focuses it. Caller holds the lock. */
+export const splitPaneAsync = (changeId: string, windowId: string, direction: "right" | "down"): Promise<void> =>
+  withRegistryLock(async () => {
+    void direction;
+    const records = await listRecords(changeId);
+    const record = records.find((entry) => entry.id === windowId);
+    if (record === undefined || record.activePane === "") return;
+    const sessions = hostRunning() ? await (await hostClient()).list() : [];
+    const active = sessions.find((session) => session.id === record.activePane);
+    const cwd = active?.cwd ?? (await dirOf(changeId));
+    const paneId = freshId();
+    await openPane(changeId, windowId, paneId, cwd, [shell()], { cols: 100, rows: 30 });
+    // The registry is authoritative for pane membership, so the new pane is added explicitly: the
+    // rebuild would not adopt a live session the record does not list.
+    const after = await listRecords(changeId);
+    save(
+      changeId,
+      after.map((entry) =>
+        entry.id === windowId
+          ? { ...entry, panes: [...entry.panes, paneId], activePane: paneId, active: true, activity: false }
+          : { ...entry, active: false },
+      ),
+    );
+  });
+
+/** Kill a pane and drop it from its window; the window goes too when it was the last pane. The
+ * caller holds the registry lock (this is the shared half of close-pane and subagent close). */
+const closePaneUnlocked = async (changeId: string, windowId: string, paneSessionId: string): Promise<void> => {
+  if (hostRunning()) await (await hostClient()).kill(paneSessionId).catch(() => undefined);
+  const records = await listRecords(changeId);
+  const record = records.find((entry) => entry.id === windowId);
+  if (record === undefined) return;
+  const panes = record.panes.filter((pane) => pane !== paneSessionId);
+  if (panes.length === 0) {
+    save(changeId, records.filter((entry) => entry.id !== windowId));
+    return;
+  }
+  const activePane = record.activePane === paneSessionId ? panes[0]! : record.activePane;
+  save(changeId, records.map((entry) => (entry.id === windowId ? { ...entry, panes, activePane } : entry)));
+};
+
+/** Close one pane; the window survives if it has another. */
+export const closePaneAsync = (changeId: string, windowId: string, paneSessionId: string): Promise<void> =>
+  withRegistryLock(() => closePaneUnlocked(changeId, windowId, paneSessionId));
+
+/** Focus one pane of a window, and bring its window to the front. */
+export const focusPaneAsync = (changeId: string, windowId: string, paneSessionId: string): Promise<void> =>
+  withRegistryLock(async () => {
+    const records = await listRecords(changeId);
+    const record = records.find((entry) => entry.id === windowId);
+    if (record === undefined || !record.panes.includes(paneSessionId)) return;
+    save(
+      changeId,
+      records.map((entry) =>
+        entry.id === windowId
+          ? { ...entry, active: true, activity: false, activePane: paneSessionId }
+          : { ...entry, active: false },
+      ),
+    );
+  });
+
+/** The host session the change's socket attaches to: the requested pane, the requested window's
+ * active pane, the active window's active pane, or a new window. A stale pane id falls through;
+ * callers that name no pane get the active one. */
 export const ensureActiveHostWindow = (
   changeId: string,
   dir: string,
   size: { readonly cols: number; readonly rows: number },
   windowId?: string,
+  sessionId?: string,
 ): Promise<string> =>
   withRegistryLock(async () => {
     const records = await listRecords(changeId);
+    if (sessionId !== undefined && records.some((record) => record.panes.includes(sessionId))) return sessionId;
     const requested =
       windowId === undefined ? undefined : records.find((record) => record.id === windowId && record.kind === "host");
     const active =
       requested ??
       records.find((record) => record.active && record.kind === "host") ??
       records.find((record) => record.kind === "host");
-    if (active !== undefined) return active.id;
+    if (active !== undefined && active.activePane !== "") return active.activePane;
     return openHostWindow(changeId, dir, [shell()], size);
   });
 
@@ -458,3 +564,15 @@ export const selectWindow = (changeId: string, index: number): Effect.Effect<voi
 
 export const moveWindow = (changeId: string, from: number, to: number): Effect.Effect<void, CommandFailure> =>
   Effect.tryPromise({ try: () => moveWindowAsync(changeId, from, to), catch: asFailure });
+
+export const splitPane = (
+  changeId: string,
+  windowId: string,
+  direction: "right" | "down",
+): Effect.Effect<void, CommandFailure> => Effect.tryPromise({ try: () => splitPaneAsync(changeId, windowId, direction), catch: asFailure });
+
+export const closePane = (changeId: string, windowId: string, paneSessionId: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => closePaneAsync(changeId, windowId, paneSessionId), catch: asFailure });
+
+export const focusPane = (changeId: string, windowId: string, paneSessionId: string): Effect.Effect<void, CommandFailure> =>
+  Effect.tryPromise({ try: () => focusPaneAsync(changeId, windowId, paneSessionId), catch: asFailure });

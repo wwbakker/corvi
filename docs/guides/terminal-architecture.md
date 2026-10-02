@@ -55,11 +55,14 @@ opaque to it and is how the server re-associates windows after a restart.
 - `screen.ts` — the headless screen: a `@xterm/headless` terminal per `(sessionId, incarnation)`
   at the page's grid with 5,000 rows of scrollback, the serialize addon, a monotonic applied host
   offset, `seed(data, offset)` for a stored screen, and a 1 MiB serialization trim.
-- `registry.ts` + `windows.ts` — the persisted registry (`stateDir()/terminal-windows.json`):
-  window id (= host session id), label, active flag, order, activity. `rebuild` merges the live
-  host sessions into the saved records, so a restart keeps labels and order; `new`/`select`/`move`
-  mutate it, and opening a window creates its screen. This is what the tab strip and navigation
-  read.
+- `registry.ts` + `windows.ts` — the persisted registry (`stateDir()/terminal-windows.json`): a
+  **window** is an opaque id holding an ordered list of **panes** (host session ids) and an active
+  pane, plus a label, the active flag, order and activity. `rebuild` merges the live host sessions
+  into the saved records — the registry is authoritative for which panes a window holds, so a
+  closing pane is not resurrected while its pty exits — and a restart keeps labels and order;
+  `new`/`select`/`move` and `split`/`close-pane`/`focus-pane` mutate it, and opening a pane creates
+  its screen. This is what the tab strip and navigation read; the page still renders one pane per
+  window until 5b composes the grid.
 - `snapshots.ts` — the persisted server screens, keyed by `(sessionId, incarnation)`, 1 MiB each,
   loaded on start and pruned to live + kept incarnations.
 - `status.ts` — the agent-status store: `working`/`waiting`/`clear`, validated, incarnation-keyed,
@@ -71,10 +74,11 @@ opaque to it and is how the server re-associates windows after a restart.
 
 ## Routes — `apps/server/src/terminals/routes.ts`
 
-- `GET /api/changes/:id/terminal/socket?cols&rows&window` — the pty WebSocket. `window` names the
-  window whose pty to attach; absent means the active one.
+- `GET /api/changes/:id/terminal/socket?cols&rows&session` — the pane's WebSocket. `session` names
+  the pane session to attach; absent means the active window's active pane.
 - `GET /api/changes/:id/terminal` — the socket URL and why a terminal cannot start.
-- `GET /api/changes/:id/terminal/windows`, `POST` actions `new`/`select`/`move`, `GET /api/terminals`.
+- `GET /api/changes/:id/terminal/windows`, `POST` actions `new`/`select`/`move`/`split`/`close-pane`/
+  `focus-pane`, `GET /api/terminals`.
 - `POST /api/terminals/status` — the agent-status channel.
 
 ## The page — `apps/web/src/terminals/client/`
@@ -86,7 +90,8 @@ opaque to it and is how the server re-associates windows after a restart.
 - `WindowTabs.tsx` / `CheatSheet.tsx` — the tab strip and the key reference.
 
 App state lives in `apps/web/src/app-root/state.ts` (`useWindows`, `useTerminal`); `ChangeView.tsx`
-passes the active window id to the pane, and `SubagentsPane.tsx` passes the selected subagent's.
+passes the active window's focused pane id to the pane, and `SubagentsPane.tsx` passes the selected
+subagent's.
 
 ## Agent status
 
@@ -114,7 +119,8 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
 
 - The host owns sessions; the server owns windows/changes and the screen; the page renders it. No
   layer reaches across.
-- A window id is a host session id; a session is identified by `(id, incarnation)`.
+- A window id is opaque; a window holds one or more panes, each a host session identified by
+  `(id, incarnation)`.
 - Detaching, hiding a pane, or restarting the server never kills a shell; completing or cancelling
   a change does.
 - The pty size always matches the grid the page shows — a window created before its page opens is
@@ -144,3 +150,5 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
   seeded into a differently sized window reflows, and `savedAt` is not refreshed on liveness (a
   quiet live screen can be evicted before a churning one under the total-size cap).
 - The status/first-byte trust model equals tmux's: a per-window token is the remote extension point.
+- A split window's panes exist server-side, each with its own host session and screen; the page
+  renders only the active pane until 5b composes the grid.

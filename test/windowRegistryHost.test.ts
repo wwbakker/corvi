@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import { closeHostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
-import { listWindowsAsync, moveWindowAsync, newWindowAsync, selectWindowAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
+import { closePaneAsync, focusPaneAsync, listWindowsAsync, moveWindowAsync, newWindowAsync, selectWindowAsync, splitPaneAsync, stopHostTerminals } from "../apps/server/src/terminals/server/windows.ts";
 import { TerminalSessions, terminalSessionsLayer } from "../apps/server/src/change/lifecycle-layer.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
 
@@ -64,6 +64,49 @@ test("a read rebuilds from the live host sessions and keeps the persisted order"
   await listWindowsAsync(changeId);
   expect(ids()).toEqual(before);
 }, 30_000);
+
+test("a window holds panes: split adds and focuses one, focus-pane moves, close-pane removes", async () => {
+  const window = await newWindowAsync(changeId, dir);
+  let record = registry.records(changeId).find((entry) => entry.id === window.id)!;
+  expect(record.panes).toEqual([window.id]);
+  expect(record.activePane).toBe(window.id);
+
+  await splitPaneAsync(changeId, window.id, "right");
+  record = registry.records(changeId).find((entry) => entry.id === window.id)!;
+  expect(record.panes).toHaveLength(2);
+  const pane = record.panes.find((entry) => entry !== window.id)!;
+  // The window id is stable; the new pane is the focused one.
+  expect(record.id).toBe(window.id);
+  expect(record.activePane).toBe(pane);
+
+  await focusPaneAsync(changeId, window.id, window.id);
+  expect(registry.records(changeId).find((entry) => entry.id === window.id)?.activePane).toBe(window.id);
+
+  // Closing the split pane leaves the window with its first pane.
+  await closePaneAsync(changeId, window.id, pane);
+  record = registry.records(changeId).find((entry) => entry.id === window.id)!;
+  expect(record.panes).toEqual([window.id]);
+
+  // Closing the last pane drops the window.
+  await closePaneAsync(changeId, window.id, window.id);
+  expect(registry.records(changeId).some((entry) => entry.id === window.id)).toBe(false);
+}, 60_000);
+
+test("the socket resolves the pane it names, not the active one", async () => {
+  const window = await newWindowAsync(changeId, dir);
+  await splitPaneAsync(changeId, window.id, "right");
+  const record = registry.records(changeId).find((entry) => entry.id === window.id)!;
+  const firstPane = record.panes[0]!;
+  const secondPane = record.panes[1]!;
+  expect(record.activePane).toBe(secondPane); // the split is focused
+
+  const { openSession, closeAttachments, flushScreens } = await import("../apps/server/src/terminals/server/session.ts");
+  // The page names the first pane; the session it gets is that pane's, not the active one.
+  const session = await openSession(changeId, dir, { cols: 80, rows: 24 }, firstPane);
+  expect(session.sessionId).toBe(firstPane);
+  flushScreens();
+  closeAttachments();
+}, 60_000);
 
 test("completing/cancelling a change stops its host sessions through the lifecycle service", async () => {
   expect(ids().length).toBeGreaterThan(0);

@@ -332,6 +332,8 @@ test("the overview counts windows that are running something, not windows", asyn
       directory: "",
       named: false,
       options: {},
+      panes: ["@1"],
+      activePane: "@1",
       ...over,
     }).busy;
   // A prompt is not work; a build, an editor and a server are.
@@ -367,6 +369,8 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       directory: "example-api",
       named: false,
       options,
+      panes: ["@1"],
+      activePane: "@1",
     });
   // What an agent's reporter publishes as the `@agent_status` fact.
   expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });

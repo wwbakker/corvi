@@ -62,7 +62,8 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
   return {
     index: raw.index,
     id: raw.id,
-    label,
+    // A split window is still one tab; the count says it holds more than one pane.
+    label: raw.panes.length > 1 ? `${label} (${raw.panes.length} panes)` : label,
     detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
     icon: said.icon ?? "terminal",
     state: said.state ?? "idle",
@@ -71,5 +72,7 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     attention: said.attention ?? false,
     note: said.note,
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
+    panes: raw.panes,
+    activePane: raw.activePane,
   };
 };

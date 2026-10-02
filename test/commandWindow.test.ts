@@ -19,6 +19,8 @@ const window = (options: Record<string, string>): RawWindow => ({
   directory: "demo",
   named: false,
   options,
+  panes: ["@9"],
+  activePane: "@9",
 });
 
 test("a window Corvi did not set up is not this presenter's", () => {
