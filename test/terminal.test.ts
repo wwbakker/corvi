@@ -52,12 +52,19 @@ const runToFile = async (page: Page, command: string, file: string): Promise<str
  * has no DOM text to read, and the buffer is exactly what a snapshot is taken from. */
 type BrowserTerminal = {
   buffer: { active: { length: number; getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined } };
-  options: { fontSize: number };
+  options: {
+    fontSize: number;
+    cursorStyle?: string;
+    cursorInactiveStyle?: string;
+    cursorBlink?: boolean;
+    theme?: { cursor?: string; background?: string; foreground?: string };
+  };
   cols: number;
   rows: number;
   getSelection(): string;
   select(column: number, row: number, length: number): void;
   focus(): void;
+  write(data: string): void;
 };
 const terminalText = (page: Page): Promise<string> =>
   page.evaluate(() => {
@@ -128,6 +135,18 @@ const typeUntilText = async (page: Page, command: string, needle: string): Promi
 const typeOnceUntil = async (page: Page, command: string, needle: string, ms = 2000): Promise<void> => {
   await page.keyboard.type(`${command}\n`);
   await until(async () => (await terminalText(page)).includes(needle), true, budget(ms));
+};
+
+/** Put `text` on the system clipboard and paste it with the page's own chord (Ctrl+Shift+V), the
+ * path a person takes, without depending on the browser's real clipboard. */
+const pasteText = async (page: Page, text: string): Promise<void> => {
+  await page.evaluate((clip: string) => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => undefined, readText: async () => clip },
+    });
+  }, text);
+  await page.keyboard.press("Control+Shift+V");
 };
 
 const haveBrowser = await (async (): Promise<boolean> => {
@@ -594,6 +613,96 @@ test.skipIf(!usable)("middle-click pastes the system clipboard", async () => {
   expect(box).not.toBeNull();
   await page.mouse.click(box!.x + 40, box!.y + 40, { button: "middle" });
   await until(async () => (await terminalText(page)).includes("MIDDLE_PASTE"), true, budget(10_000));
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("a multi-line paste is inserted, not executed", async () => {
+  const { page, dir } = await openTerminal(id);
+  await typeUntilText(page, "echo PASTE-READY", "PASTE-READY");
+  const one = join(dir, "paste-one.txt");
+  const two = join(dir, "paste-two.txt");
+  await pasteText(page, "touch paste-one.txt\ntouch paste-two.txt\n");
+  // Both lines sit in the shell's edit buffer — a bracketed paste — so nothing has run yet.
+  expect(await until(async () => (await terminalText(page)).includes("paste-two.txt"), true, budget(10_000))).toBe(true);
+  await Bun.sleep(500);
+  expect(await Bun.file(one).exists()).toBe(false);
+  expect(await Bun.file(two).exists()).toBe(false);
+  // Submitting runs both.
+  await page.keyboard.press("Enter");
+  await until(async () => (await Bun.file(one).exists()) && (await Bun.file(two).exists()), true, budget(10_000));
+  expect(await Bun.file(one).exists()).toBe(true);
+  expect(await Bun.file(two).exists()).toBe(true);
+  await page.close();
+}, budget(60_000));
+
+test.skipIf(!usable)("a multi-line paste is still inserted after a reload", async () => {
+  const { page, dir } = await openTerminal(id);
+  await typeUntilText(page, "echo PASTE-RELOAD-READY", "PASTE-RELOAD-READY");
+  // Store a snapshot and come back to it: the restored screen must still carry bracketed paste,
+  // or the paste that follows would submit every line.
+  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
+  await Bun.sleep(400);
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await typeUntilText(page, "echo PASTE-AFTER-RELOAD", "PASTE-AFTER-RELOAD");
+  const one = join(dir, "paste-reload-one.txt");
+  const two = join(dir, "paste-reload-two.txt");
+  await pasteText(page, "touch paste-reload-one.txt\ntouch paste-reload-two.txt\n");
+  expect(await until(async () => (await terminalText(page)).includes("paste-reload-two.txt"), true, budget(10_000))).toBe(true);
+  await Bun.sleep(500);
+  expect(await Bun.file(one).exists()).toBe(false);
+  expect(await Bun.file(two).exists()).toBe(false);
+  await page.keyboard.press("Enter");
+  await until(async () => (await Bun.file(one).exists()) && (await Bun.file(two).exists()), true, budget(10_000));
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the cursor is a visible block, and a program that hid it does not keep it hidden", async () => {
+  const { page } = await openTerminal(id);
+  // Ready first: the attach's control frame shows the cursor, and a late one would undo the hide
+  // this test sets up next.
+  await typeUntilText(page, "echo CURSOR-READY", "CURSOR-READY");
+  const options = await page.evaluate(() => {
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null)?.corviTerminal;
+    return {
+      style: term?.options.cursorStyle,
+      inactive: term?.options.cursorInactiveStyle,
+      blink: term?.options.cursorBlink,
+      cursor: term?.options.theme?.cursor,
+      background: term?.options.theme?.background,
+    };
+  });
+  // A filled block in both focus states, blinking, in a colour that contrasts with the surface.
+  expect(options.style).toBe("block");
+  expect(options.inactive).toBe("block");
+  expect(options.blink).toBe(true);
+  expect(options.cursor).toBeTruthy();
+  expect(options.cursor?.toLowerCase()).not.toBe("none");
+  expect(options.cursor?.toLowerCase()).not.toBe(options.background?.toLowerCase());
+
+  // A full-screen program hides the cursor (DECTCEM). The pane must show it again when the next
+  // screen is replaid, or a plain shell after it would have no cursor at all. The hidden flag is
+  // xterm's own DECTCEM state, the only place it is observable.
+  const cursorHidden = (): Promise<boolean | undefined> =>
+    page.evaluate(() => {
+      type Internals = { _core?: { coreService?: { isCursorHidden?: boolean } } };
+      const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal & Internals }) | null)?.corviTerminal;
+      return term?._core?.coreService?.isCursorHidden;
+    });
+  await page.evaluate(() => {
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null)?.corviTerminal;
+    term?.write("\u001b[?25l");
+  });
+  expect(await until(() => cursorHidden().then((hidden) => hidden === true), true, budget(10_000))).toBe(true);
+
+  // A new window and back: each attach replays through the pane's erase, which shows the cursor.
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  const before = await tabs.count();
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
+  await tabs.first().click();
+  expect(await until(() => cursorHidden().then((hidden) => hidden === false), true, budget(20_000))).toBe(true);
   await page.close();
 }, budget(60_000));
 

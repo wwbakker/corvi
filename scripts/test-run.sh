@@ -2,7 +2,7 @@
 #
 # The test suite's runner: a run token, isolated roots, a cleanup trap, then `bun test`.
 #
-#   bash scripts/test-run.sh          # everything there is
+#   bash scripts/test-run.sh          # the unit files across workers, then the browser files one by one
 #   bash scripts/test-run.sh unit     # everything but the browser end-to-end files
 #   bash scripts/test-run.sh e2e      # only those (a browser and a real server each)
 #
@@ -41,29 +41,40 @@ while IFS= read -r found; do
   esac
 done < <(find . -name "*.test.ts" -not -path "./node_modules/*" | sort)
 
+# `--timings` orders the files slowest-first, so the longest ones start first and the workers
+# finish together (bun's own file of measured durations, refreshed with --update-timings — in
+# the `=` form of the flag, since a space-separated value is taken for a test-file filter
+# instead).
+timings=(--timings=scripts/timings.json)
+
+# Two ways to run: everything but the browser files across CPU-count workers, and the end-to-end
+# files one at a time — each of those starts servers and a browser, where a timing guess cannot
+# turn three of them into a race for one runner's cores.
+run_parallel() { bun test --timeout 30000 --parallel "${timings[@]}" "$@"; }
+run_serial() { bun test --timeout 30000 "${timings[@]}" "$@"; }
+
 case "$mode" in
-  all) files=() ;; # discovery: every test file there is
-  unit) files=("${unit[@]}") ;;
-  e2e) files=("${e2e[@]}") ;;
+  unit) run_parallel ${unit[@]+"${unit[@]}"} "$@" ;;
+  e2e) run_serial ${e2e[@]+"${e2e[@]}"} "$@" ;;
+  all)
+    # A pass-through argument is a filter or a flag (`--retry=2`), and the one-shot discovery is
+    # what the caller asked for; the split below is the default, unfiltered suite.
+    if [ "$#" -gt 0 ]; then
+      run_parallel "$@"
+      exit $?
+    fi
+    # Non-browser files first, across workers, then the browser end-to-end files one at a time.
+    # Running them in one parallel sweep makes the e2e files contend with the rest for the
+    # machine: a terminal file that passes in seconds isolated cascades under the load.
+    if [ "${#unit[@]}" -gt 0 ]; then
+      run_parallel "${unit[@]}"
+    fi
+    if [ "${#e2e[@]}" -gt 0 ]; then
+      run_serial "${e2e[@]}"
+    fi
+    ;;
   *)
     echo "usage: scripts/test-run.sh [all|unit|e2e] [bun test arguments...]" >&2
     exit 2
     ;;
 esac
-
-# `--timings` orders the files slowest-first, so the longest ones start first and the workers
-# finish together (bun's own file of measured durations, refreshed with --update-timings — in
-# the `=` form of the flag, since a space-separated value is taken for a test-file filter
-# instead).
-# The end-to-end files each start servers and a browser: one at a time, where a timing guess
-# cannot turn three of them into a race for one runner's cores. Everything else runs across
-# CPU-count workers.
-timings=(--timings=scripts/timings.json)
-# `all` passes no file list at all — discovery is every test file there is. The `[@]+` guard is
-# what keeps a list empty rather than unbound on bash 3.2, where "${files[@]}" under `set -u` is
-# an unbound variable.
-if [ "$mode" = "e2e" ]; then
-  exec bun test --timeout 30000 "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
-else
-  exec bun test --timeout 30000 --parallel "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
-fi

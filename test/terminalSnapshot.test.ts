@@ -171,7 +171,9 @@ test("the server replays a stored snapshot, then resumes from its high-water off
   const first = fakeSocket(await openSession("SNAP-RESUME", dir, { cols: 80, rows: 24 }));
   terminalSockets.open(first);
   // No snapshot yet: a fresh reset.
-  expect(control(first.frames)).toEqual([{ type: "reset", since: 0, incarnation: first.data.session.incarnation }]);
+  expect(control(first.frames)).toEqual([
+    { type: "reset", since: 0, incarnation: first.data.session.incarnation, sessionId: first.data.session.sessionId },
+  ]);
 
   terminalSockets.message(first, JSON.stringify({ type: "attach", since: 0 }));
   first.data.session.write("echo FIRST_$(( 0 + 1 ))_MARK\n");

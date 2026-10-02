@@ -11,7 +11,9 @@ bun run boundaries
 bun run test
 ```
 
-The test should take around 1 minute. Set timeout at 3 minutes.
+The suite runs in two passes: the non-browser files across workers (a few seconds), then the
+browser end-to-end files one at a time, server-and-browser each (about two minutes). Allow five
+minutes for `bun run test`.
 
 `bun run boundaries` checks the workspace dependency graph declared in `architecture.json`:
 decoded imports, declared dependencies, deep imports, relative escapes, and cycles for extracted

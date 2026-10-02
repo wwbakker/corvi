@@ -37,10 +37,23 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
   if (text) term.paste(text);
 };
 
-/** The surface the sheet and xterm have to agree on: the terminal's background is `--well`
- * (apps/web/src/app-root/styles.css), and a second copy of the colour here is a copy that drifts. */
-const wellTone = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue("--well").trim();
+/** A colour from the sheet's tokens (apps/web/src/app-root/styles.css): the terminal's surface
+ * must read as the app's, and a second copy of the palette here is a copy that drifts. */
+const themeColor = (name: string): string =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** Clear the screen and scrollback, home the cursor, and show it. `term.reset()` is deliberately
+ * kept for a genuinely different session: it also drops the private modes the shell asked for
+ * (bracketed paste), and it does *not* clear DECTCEM, so a `\e[?25l` from a full-screen program
+ * would otherwise stick across every reset. A same-session replay clears the screen without
+ * touching the modes, and the cursor is shown unconditionally. */
+const CLEAR_SCREEN = "\x1b[2J\x1b[3J\x1b[H";
+const SHOW_CURSOR = "\x1b[?25h";
+const eraseScreen = (term: Terminal, fresh: boolean): void => {
+  if (fresh) term.reset();
+  else term.write(CLEAR_SCREEN);
+  term.write(SHOW_CURSOR);
+};
 
 /** The provider the clipboard addon writes through. A program can send its copy as an OSC 52
  * sequence with the selection field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as
@@ -133,6 +146,9 @@ export function TerminalPane({
   const outstanding = useRef(0);
   /** The incarnation the current connection is attached to, echoed in every control frame. */
   const incarnation = useRef(0);
+  /** The host session the screen currently holds, from the control frames' `sessionId`. A replay
+   * for the same session keeps the private modes the shell asked for; a different one resets. */
+  const currentSession = useRef<string | null>(null);
   /** The screen changed since the last snapshot. */
   const dirty = useRef(false);
   /** The pending output-idle snapshot; cleared while output keeps arriving. */
@@ -186,10 +202,22 @@ export function TerminalPane({
       // xterm owns the screen now: the scrollback is real, and the scrollbar comes with it.
       scrollback: SCROLLBACK_DEFAULT,
       fontSize: readFontSize(),
+      // A cursor you can find: xterm draws an outline when the terminal is not focused and takes
+      // the cursor colour from the foreground, which disappears over a like-coloured cell. A
+      // filled block in both states, in the sheet's text colour with the well under it, is visible
+      // wherever it sits.
+      cursorBlink: true,
+      cursorStyle: "block",
+      cursorInactiveStyle: "block",
       // The terminal is the deepest surface the app has, and the sheet owns it: xterm takes the
       // background from the same `--well` token (apps/web/src/app-root/styles.css) rather than a
       // second copy of the colour here, which is the kind of pair that drifts.
-      theme: { background: wellTone(), foreground: "#e6edf3" },
+      theme: {
+        background: themeColor("--well"),
+        foreground: "#e6edf3",
+        cursor: themeColor("--text"),
+        cursorAccent: themeColor("--well"),
+      },
       // Option-drag forces xterm's own selection where a full-screen program has enabled mouse
       // reporting and would otherwise swallow the drag; a program inside the shell can turn
       // reporting on itself.
@@ -327,7 +355,7 @@ export function TerminalPane({
     };
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data === "string") {
-        let value: { type?: unknown; data?: unknown; highWater?: unknown; since?: unknown; incarnation?: unknown };
+        let value: { type?: unknown; data?: unknown; highWater?: unknown; since?: unknown; incarnation?: unknown; sessionId?: unknown };
         try {
           value = JSON.parse(event.data) as typeof value;
         } catch {
@@ -335,15 +363,20 @@ export function TerminalPane({
         }
         const frameIncarnation = typeof value.incarnation === "number" ? value.incarnation : incarnation.current;
         incarnation.current = frameIncarnation;
+        // Which session this frame is for: a replay for the session already on screen keeps its
+        // private modes (bracketed paste), a different one starts fresh.
+        const frameSession = typeof value.sessionId === "string" ? value.sessionId : currentSession.current;
+        const freshSession = frameSession !== currentSession.current;
+        currentSession.current = frameSession;
         if (value.type === "reset") {
           // No snapshot: a fresh screen, attached from the beginning.
-          term.reset();
+          eraseScreen(term, freshSession);
           dirty.current = false;
           applied.current = 0;
           attach(0);
         } else if (value.type === "snapshot" && typeof value.data === "string" && typeof value.highWater === "number") {
           // Replay the stored screen, then resume from the offset it covered.
-          term.reset();
+          eraseScreen(term, freshSession);
           dirty.current = false;
           const highWater = value.highWater;
           outstanding.current += 1;
@@ -354,7 +387,7 @@ export function TerminalPane({
           });
         } else if (value.type === "truncated") {
           // The host evicted past the snapshot: discard it and start from the host's oldest byte.
-          term.reset();
+          eraseScreen(term, freshSession);
           dirty.current = false;
           applied.current = typeof value.since === "number" ? value.since : 0;
         } else if (value.type === "exit") {

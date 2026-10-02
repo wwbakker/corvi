@@ -330,7 +330,7 @@ export const terminalSockets = {
     const { session } = ws.data;
     const snapshot = snapshotOf(session.sessionId, session.incarnation);
     if (snapshot === undefined) {
-      ws.send(JSON.stringify({ type: "reset", since: 0, incarnation: session.incarnation }));
+      ws.send(JSON.stringify({ type: "reset", since: 0, incarnation: session.incarnation, sessionId: session.sessionId }));
       return;
     }
     ws.send(
@@ -339,6 +339,7 @@ export const terminalSockets = {
         data: snapshot.data,
         highWater: snapshot.highWater,
         incarnation: session.incarnation,
+        sessionId: session.sessionId,
       }),
     );
   },
@@ -350,7 +351,7 @@ export const terminalSockets = {
       if (control.type === "attach") {
         session.attach(
           (chunk) => ws.send(chunk),
-          (since) => ws.send(JSON.stringify({ type: "truncated", since, incarnation: session.incarnation })),
+          (since) => ws.send(JSON.stringify({ type: "truncated", since, incarnation: session.incarnation, sessionId: session.sessionId })),
           () => {
             // The session is gone: tell the page so it does not reconnect into a new shell, then
             // close. An abnormal close (the server died) carries no frame and the page retries.
