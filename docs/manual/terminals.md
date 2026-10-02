@@ -13,8 +13,9 @@ renders with xterm.js.
 
 Opening a terminal starts or attaches a session. Opening a dashboard does not. Closing the page or
 restarting Corvi detaches without losing shells: the host outlives the server that started it, so
-the shells keep running and the next page resumes them (restoring the scrollback from the page's
-last snapshot). Completing or cancelling a change explicitly stops its sessions before archiving
+the shells keep running and the next page resumes them (restoring the scrollback from the screen
+the server keeps, which also survives a Corvi restart). Completing or cancelling a change
+explicitly stops its sessions before archiving
 it.
 
 This persistence is not a promise to restore processes after a machine reboot or to resume an

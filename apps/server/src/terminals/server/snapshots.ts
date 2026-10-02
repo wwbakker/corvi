@@ -9,7 +9,8 @@
  *
  * A snapshot is `data` plus the host byte offset it covers (`highWater`), keyed by incarnation so
  * a reused session id never inherits its predecessor's screen. The shape is the one the page's
- * renderer-owned store used; only the writer moved to the server.
+ * store used; the writer is now the hub (`./session.ts`), and the decision is
+ * `docs/decisions/server-owned-screen.md`.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,8 +26,8 @@ export type Snapshot = {
   readonly savedAt: number;
 };
 
-/** 1 MiB, the cap Phase 3 measured: the page serializes the most recent rows when a full
- * serialize would exceed it, and the server refuses an oversized one rather than hold it. */
+/** 1 MiB, the cap Phase 3 measured: the screen serializes its most recent rows when a full
+ * serialize would exceed it, and the store refuses an oversized one rather than hold it. */
 export const SNAPSHOT_MAX_BYTES = 1024 * 1024;
 /** The whole store's persisted budget. Above it the oldest snapshots are evicted; a handful of
  * live sessions fits easily, and the file cannot grow without bound. */

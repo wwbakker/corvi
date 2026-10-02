@@ -725,7 +725,7 @@ test.skipIf(!usable)("a static marker in a continuously-updating window survives
   await tabs.first().waitFor({ timeout: 15_000 });
 
   // A marker drawn once, then a loop that keeps the screen updating at a fixed position forever:
-  // the screen never goes idle, so a page-owned snapshot cadence would never run. The server's
+  // the screen never goes idle, so a page-side snapshot cadence would never run. The server's
   // screen is current regardless.
   await typeUntilText(
     page,

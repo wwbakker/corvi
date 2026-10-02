@@ -1,6 +1,7 @@
 # Renderer-owned screen state
 
-Status: accepted and implemented.
+Status: **superseded** by [server-owned screen state](server-owned-screen.md). Kept as the record of
+what was chosen and why; the design below is no longer current.
 
 | Decision | Reason and boundary |
 | --- | --- |

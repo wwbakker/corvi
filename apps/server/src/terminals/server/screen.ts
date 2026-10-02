@@ -4,7 +4,7 @@
  *
  * The page no longer owns the buffer. The host's 256 KiB ring holds only incremental,
  * cursor-addressed bytes, so a continuously updating full-screen window left a reattaching page
- * redrawing its update block on a blank screen — the renderer-owned snapshot cadence has nothing
+ * redrawing its update block on a blank screen — a renderer-side snapshot cadence has nothing
  * to snapshot while output never goes idle. A second emulator on the server costs ~12 bytes a
  * cell (`Uint32Array(3 * cols)`), ~7–15 MB at the 5,000-row default, and makes a resume exact.
  *

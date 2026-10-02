@@ -1,15 +1,16 @@
 # Terminal architecture
 
-Corvi does not use tmux. A pty **host** owns the shells, the server owns a **window registry**,
-and the page's xterm owns the **screen**. This guide is the map of those pieces, their contracts
-and how a byte travels between them. It is the current state, not a proposal.
+Corvi does not use tmux. A pty **host** owns the shells, the server owns a **window registry** and
+a headless **screen** per session, and the page's xterm renders that screen. This guide is the map
+of those pieces, their contracts and how a byte travels between them. It is the current state, not
+a proposal.
 
 ## The three roles
 
 | Role | Process | Owns |
 | --- | --- | --- |
-| Page | Electron/Chromium renderer | The screen: xterm buffer, scrollback, selection, context menu, find, links, snapshots, reconnect |
-| Server | `apps/server/src/server.ts` (Node) | The product: change ↔ window ↔ session registry, labels, agent status, notifications, HTTP/WS |
+| Page | Electron/Chromium renderer | The rendering: xterm buffer, scrollback, selection, context menu, find, links, reconnect |
+| Server | `apps/server/src/server.ts` (Node) | The product: change ↔ window ↔ session registry, the screen per session, labels, agent status, notifications, HTTP/WS |
 | Host | `apps/server/src/terminals/host/main.ts` (Node, detached) | The ptys: session lifetime, byte replay, exit state, idle shutdown |
 
 The host survives the server and the app; the page reconnects to a surviving shell.
@@ -19,7 +20,8 @@ The host survives the server and the app; the page reconnects to a surviving she
   ────                                    ──────                                ─────────────
   TerminalPane ──WS──► routes.ts ──► session.ts hub ──► host.ts client ──unix──► host.ts ──► node-pty
   WindowTabs   ◄──── windows.ts + registry.ts (window ↔ session ↔ change)         sessions + replay
-  snapshot.ts  ────► snapshots.ts (persisted per session+incarnation)              incarnation + seq
+  renderer     ◄──── session.ts hub ◄── screen.ts (headless xterm)               incarnation + seq
+                                          └────► snapshots.ts (persisted store)
   status view  ◄──── status.ts ◄── corvi status ◄── integrations/{pi,opencode}     OSC status parse
   SubagentsPane◄──── subagents/server/instances.ts (a subagent is a host session)
 ```
@@ -43,15 +45,23 @@ opaque to it and is how the server re-associates windows after a restart.
 ## The server terminal module — `apps/server/src/terminals/server/`
 
 - `host.ts` — one `HostClient` for the server, re-ensured when the host dies.
-- `session.ts` — the WebSocket bridge and hub. One host attach per session; output is binary
-  frames, control is JSON (`snapshot`/`reset`/`truncated`/`exit` from the server; `attach`/
-  `snapshot`/`resize` from the page). It resizes the pty to the page's grid on attach (a window
-  created before its page opened carries a default size), and detaching never kills the shell.
+- `session.ts` — the WebSocket bridge and hub. One host attach per session for the life of its
+  screen, not only while a page is attached; it feeds the screen, serves a page the serialized
+  screen and then the live bytes, writes dirty screens to the store on a cadence and on shutdown,
+  and releases a screen no page has touched for a timeout. Server→page control is `snapshot`
+  (the replay), `reset` (an empty screen) and `exit`; the page sends binary keystrokes and
+  `resize`. It resizes the pty and the screen to the page's grid on attach, and detaching never
+  kills the shell.
+- `screen.ts` — the headless screen: a `@xterm/headless` terminal per `(sessionId, incarnation)`
+  at the page's grid with 5,000 rows of scrollback, the serialize addon, a monotonic applied host
+  offset, `seed(data, offset)` for a stored screen, and a 1 MiB serialization trim.
 - `registry.ts` + `windows.ts` — the persisted registry (`stateDir()/terminal-windows.json`):
   window id (= host session id), label, active flag, order, activity. `rebuild` merges the live
   host sessions into the saved records, so a restart keeps labels and order; `new`/`select`/`move`
-  mutate it. This is what the tab strip and navigation read.
-- `snapshots.ts` — the persisted screen snapshots, keyed by `(sessionId, incarnation)`, 1 MiB each.
+  mutate it, and opening a window creates its screen. This is what the tab strip and navigation
+  read.
+- `snapshots.ts` — the persisted server screens, keyed by `(sessionId, incarnation)`, 1 MiB each,
+  loaded on start and pruned to live + kept incarnations.
 - `status.ts` — the agent-status store: `working`/`waiting`/`clear`, validated, incarnation-keyed,
   cleared when the session exits.
 - `action-sessions.ts` — host-backed action delivery (open a window running a command, bracketed
@@ -69,11 +79,10 @@ opaque to it and is how the server re-associates windows after a restart.
 
 ## The page — `apps/web/src/terminals/client/`
 
-- `TerminalPane.tsx` — xterm owns the screen: real scrollback and scrollbar, native selection,
-  a page context menu, find, links, font chords, clipboard chords (Ctrl+Shift, Cmd/Super,
-  Ctrl/Shift+Insert), the WS protocol, the snapshot handshake and a bounded reconnect.
-- `snapshot.ts` — `serializeTerminal` (`@xterm/addon-serialize` + an absolute-cursor correction)
-  with a 1 MiB cap; a visible pane snapshots when output settles, a hidden one on a slow timer.
+- `TerminalPane.tsx` — xterm renders the server's screen: real scrollback and scrollbar, native
+  selection, a page context menu, find, links, font chords, clipboard chords (Ctrl+Shift, Cmd/Super,
+  Ctrl/Shift+Insert), the WS protocol and a bounded reconnect. It replays the `snapshot`/`reset`
+  frame and streams the binary output after it; it sends only input and `resize`.
 - `WindowTabs.tsx` / `CheatSheet.tsx` — the tab strip and the key reference.
 
 App state lives in `apps/web/src/app-root/state.ts` (`useWindows`, `useTerminal`); `ChangeView.tsx`
@@ -103,8 +112,8 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
 
 ## Invariants
 
-- The host owns sessions; the server owns windows/changes; the page owns the screen. No layer
-  reaches across.
+- The host owns sessions; the server owns windows/changes and the screen; the page renders it. No
+  layer reaches across.
 - A window id is a host session id; a session is identified by `(id, incarnation)`.
 - Detaching, hiding a pane, or restarting the server never kills a shell; completing or cancelling
   a change does.
@@ -113,22 +122,25 @@ running the action command, the prompt is a bracketed write, submit is Enter, an
 
 ## Deliberate trades
 
-- Every replay clears the screen and shows the cursor (`\e[?25h`), and the clear is keyed by
-  `(sessionId, incarnation)`: a replay for the pty already on screen keeps the private modes the
-  shell asked for (bracketed paste), while a replay for a different pty resets them. A cursor-hiding
-  TUI therefore shows a cursor again until its next redraw. The alternatives are worse: trusting
-  the replay to carry DECTCEM never works (the serializer does not emit it), and a plain shell after
-  pi would have no cursor at all.
-- A truncated replay with no snapshot cannot restore private modes the shell set before the host's
-  replay ring began — bracketed paste among them. The shell re-asserts them at its next prompt; the
-  page does not guess, and carrying them on the truncated frame would need the server to track a
-  mode it cannot observe.
+- The server's snapshot carries the modes the shell asked for (the serialize addon emits bracketed
+  paste) and always shows the cursor (`\e[?25h`), so the page resets into the replay and a
+  cursor-hiding TUI shows a cursor again until its next redraw. The alternative — trusting a replay
+  to carry DECTCEM — never works (the serializer does not emit it), and a plain shell after pi would
+  have no cursor at all.
+- A stored screen is seeded into the server's headless terminal even when the host's ring has
+  evicted past its offset (the gap policy in
+  [server-owned screen state](../decisions/server-owned-screen.md)): the deep history is kept and
+  the ring's incremental bytes land on top. A TUI that never fully redraws can look scrambled until
+  its next paint, and the hole is bounded by the ring, not by the missing span.
+- "Exact" resume is screen-content exact: the serializer restores the text and the modes it knows,
+  not every parser state, and the stored offset can fall mid-escape.
 
 ## Known limitations
 
 - Children that ignore HUP or are `setsid`/`nohup`'d survive a host SIGKILL (no cgroup supervision).
 - The agent-status channel has no heartbeat: a reporter that dies mid-turn leaves `working` until
   the session exits.
-- Snapshots are page-owned and persisted server-side; images and links are not covered, and a
-  snapshot taken at a different geometry restores approximately.
+- The screen is server-owned and persisted, but images and links are not covered, a stored screen
+  seeded into a differently sized window reflows, and `savedAt` is not refreshed on liveness (a
+  quiet live screen can be evicted before a churning one under the total-size cap).
 - The status/first-byte trust model equals tmux's: a per-window token is the remote extension point.

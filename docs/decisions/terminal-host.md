@@ -18,6 +18,6 @@ and the window registry live under the Corvi state directory. `CORVI_HOST_RUNTIM
 seam that points the server's host client at a Node runtime.
 
 **Boundary.** This is process survival, not machine-reboot restore: a reboot loses the host and
-its sessions. The page's screen state is separate (see
-[renderer-owned screen state](renderer-owned-screen.md)). One hub serves one live client; splits
+its sessions. The screen state is separate (see
+[server-owned screen state](server-owned-screen.md)). One hub serves one live client; splits
 and multi-client are separate later decisions.

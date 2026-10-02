@@ -15,7 +15,7 @@ Start with [AGENTS.md](../AGENTS.md) and [CONTRIBUTING.md](../CONTRIBUTING.md).
 | Guide | Owns |
 | --- | --- |
 | [Architecture](guides/architecture.md) | Package responsibilities, dependency direction, runtime and UI composition |
-| [Terminal](guides/terminal-architecture.md) | The pty host, the window registry, the page-owned screen, the status channel and subagents |
+| [Terminal](guides/terminal-architecture.md) | The pty host, the window registry, the server-owned screen, the status channel and subagents |
 | [API design](guides/api-design.md) | Public capabilities, schemas, errors, examples, review checklist |
 | [Effect conventions](guides/effect-conventions.md) | Service construction, execution, state and resource ownership |
 | [Style](guides/style.md) | Naming, typing, module organization, comments |
@@ -25,8 +25,8 @@ Read architecture and API design before changing a public surface. Read local pa
 when they exist. Historical implementation choices do not override these rules. Settled choices
 are decision records of their own: [architecture](decisions/architecture.md), [the terminal host
 and host sessions](decisions/terminal-host.md), [the agent-status
-channel](decisions/agent-status-channel.md), [renderer-owned screen
-state](decisions/renderer-owned-screen.md), and [leaving a page with unsaved
+channel](decisions/agent-status-channel.md), [server-owned screen
+state](decisions/server-owned-screen.md), and [leaving a page with unsaved
 edits](decisions/unsaved-changes.md).
 
 ## Repository and change contracts
