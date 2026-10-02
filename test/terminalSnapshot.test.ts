@@ -19,7 +19,7 @@ import {
 } from "../apps/server/src/terminals/server/snapshots.ts";
 import type { WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 import type { SessionInfo } from "../apps/server/src/terminals/server/host.ts";
-import { testTempDir, waitFor } from "./helpers.ts";
+import { testTempDir, until, waitFor } from "./helpers.ts";
 
 /**
  * The server-owned screen and the hub's snapshot handshake, plus the (still-unused) snapshot
@@ -262,6 +262,80 @@ test("a quiet unattended screen is released and kept in the store", async () => 
     // untouched and still alive.
     expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("IDLE_MARK");
     expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
+  } finally {
+    delete process.env.CORVI_SCREEN_IDLE_MS;
+  }
+}, 30_000);
+
+test("a seeded screen's applied offset never regresses when a ring byte lands behind it", async () => {
+  const screen = makeScreen({ cols: 80, rows: 24 });
+  screen.seed("SEEDED-SCREEN\r\n", 1000);
+  await screen.whenApplied(1000);
+  expect(screen.serialize().offset).toBe(1000);
+  // The gap policy's case: the host ring replays from an offset behind the seed. The bytes are
+  // drawn, but the applied offset must stay at the seed's high-water — a regressed offset would
+  // be persisted and the next resume would replay bytes already covered.
+  screen.write(bytes("RING-TAIL"), 10);
+  await Bun.sleep(50);
+  expect(screen.serialize().offset).toBe(1000);
+  expect(screen.serialize().data).toContain("RING-TAIL");
+  screen.dispose();
+});
+
+test("a persisted and reseeded hub resumes from the stored high-water, not the ring", async () => {
+  const change = "SNAP-MONO";
+  const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
+  await mkdir(changeDir, { recursive: true });
+  const id = await newWindowRunningAsync(
+    change,
+    changeDir,
+    "echo DEEP-AT-H; head -c 320000 /dev/zero | tr '\\0' X; echo RING-END",
+    { keepOpen: true, announce: { label: "Mono", notify: true } },
+  );
+  await waitFor(
+    "the command to finish",
+    async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
+    15_000,
+  );
+  const incarnation = (await (await hostClient()).list()).find((entry) => entry.id === id)?.incarnation ?? 0;
+  const emitted = (await (await hostClient()).list()).find((entry) => entry.id === id)?.lastSeq ?? 0;
+
+  // A stored screen at the host's end, holding a deep marker. The ring's oldest byte is far behind
+  // it; the hub must claim the stored offset rather than the ring's.
+  const seed = makeScreen({ cols: 80, rows: 24 });
+  seed.write(bytes("DEEP-AT-H\r\n"), 0);
+  await seed.whenApplied(byteLength("DEEP-AT-H\r\n"));
+  const seeded = seed.serialize();
+  seed.dispose();
+  setSnapshot(id, incarnation, seeded.data, emitted);
+
+  const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
+  const snapshots: { data: string; offset: number }[] = [];
+  session.attach(() => undefined, (frame) => snapshots.push(frame), () => undefined);
+  await waitFor("the seeded screen", async () => snapshots.length > 0, 15_000);
+  expect(snapshots[0]?.data).toContain("DEEP-AT-H");
+  expect(snapshots[0]?.offset).toBe(emitted);
+}, 30_000);
+
+test("a stale session cannot attach after its screen was released", async () => {
+  process.env.CORVI_SCREEN_IDLE_MS = "1500";
+  try {
+    const session = await openSession("SNAP-STALE", dir, { cols: 80, rows: 24 });
+    await waitFor("the screen to be released", async () => hubStats().hubs === 0, 15_000);
+    // The session object predates the release; attaching now must be refused rather than touch
+    // the disposed screen.
+    let exited = false;
+    const snapshots: { data: string; offset: number }[] = [];
+    session.attach(
+      () => undefined,
+      (frame) => snapshots.push(frame),
+      () => {
+        exited = true;
+      },
+    );
+    await until(async () => exited, true, 5_000);
+    expect(exited).toBe(true);
+    expect(snapshots).toHaveLength(0);
   } finally {
     delete process.env.CORVI_SCREEN_IDLE_MS;
   }

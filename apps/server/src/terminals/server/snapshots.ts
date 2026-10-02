@@ -89,14 +89,42 @@ const evictToBudget = (): void => {
   }
 };
 
-/** Store a screen's latest serialization, replacing any earlier one for the same session. An
- * oversized or empty serialization is dropped: a screen that cannot be played back is worse than
- * none (an empty one is handled by `forgetSnapshot`). */
+export type SnapshotInput = {
+  readonly sessionId: string;
+  readonly incarnation: number;
+  readonly data: string;
+  readonly highWater: number;
+};
+
+/** Whether a serialization is worth storing: non-empty, finite offset, within the cap. */
+const acceptable = (data: string, highWater: number): boolean =>
+  typeof data === "string" &&
+  data.length > 0 &&
+  Number.isFinite(highWater) &&
+  highWater >= 0 &&
+  byteLength(data) <= SNAPSHOT_MAX_BYTES;
+
+/** Store one screen's serialization. */
 export const setSnapshot = (sessionId: string, incarnation: number, data: string, highWater: number): void => {
-  if (typeof data !== "string" || data.length === 0) return;
-  if (!Number.isFinite(highWater) || highWater < 0) return;
-  if (byteLength(data) > SNAPSHOT_MAX_BYTES) return;
-  snapshots.set(keyOf(sessionId, incarnation), { data, highWater: Math.floor(highWater), savedAt: Date.now() });
+  setSnapshots([{ sessionId, incarnation, data, highWater }]);
+};
+
+/** Store a batch, replacing any earlier entry per session and persisting the file once: a cadence
+ * tick with several dirty screens should not rewrite the whole store once per screen. An
+ * unacceptable entry is skipped; the caller keeps its screen dirty so the next tick retries. */
+export const setSnapshots = (entries: readonly SnapshotInput[]): void => {
+  let changed = false;
+  const savedAt = Date.now();
+  for (const entry of entries) {
+    if (!acceptable(entry.data, entry.highWater)) continue;
+    snapshots.set(keyOf(entry.sessionId, entry.incarnation), {
+      data: entry.data,
+      highWater: Math.floor(entry.highWater),
+      savedAt,
+    });
+    changed = true;
+  }
+  if (!changed) return;
   evictToBudget();
   persist();
 };

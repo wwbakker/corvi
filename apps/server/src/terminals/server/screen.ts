@@ -82,7 +82,9 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
   const addon = new SerializeAddon();
   term.loadAddon(addon);
 
-  /** The host offset of the last byte the parser has applied. */
+  /** The host offset of the last byte the parser has applied. Monotonic: a ring byte that lands
+   * behind an earlier (seeded) offset must not pull it back, or the regressed high-water would be
+   * persisted and the next resume would replay bytes already covered. */
   let applied = 0;
   let waiters: { readonly atLeast: number; readonly resolve: () => void }[] = [];
 
@@ -104,16 +106,19 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
     },
     write: (bytes, seq) => {
       // The parser is asynchronous; the callback is where the offset and the attach waits move.
+      // Monotonic: the gap policy can land ring bytes behind a seeded offset, and those must not
+      // pull the applied offset back (the screen still draws them, the offset just stays ahead).
       term.write(bytes, () => {
-        applied = seq + bytes.length;
+        applied = Math.max(applied, seq + bytes.length);
         settle();
       });
     },
     seed: (data, offset) => {
       // The seed is a screen replay, not host bytes: apply it, then claim the host offset it
-      // covers so a later attach resumes exactly from there.
+      // covers so a later attach resumes exactly from there. Monotonic for the same reason as
+      // `write`: a seed applied after a ring chunk must not pull the offset back either.
       term.write(data, () => {
-        applied = offset;
+        applied = Math.max(applied, offset);
         settle();
       });
     },

@@ -17,9 +17,13 @@
  *
  * Persistence: a screen is written to `./snapshots.ts` while it is dirty on a cadence, and
  * synchronously on a controlled shutdown. A screen with no page and no output for a timeout is
- * released — the store keeps it, so a later attach still resumes exactly, and the host is left
- * holding nothing. On creation a screen is seeded from the store, and the host attaches from the
- * stored offset; see `hubFor` and `ensureAttached` for the gap policy.
+ * released — the store keeps it, so a later attach still resumes, and the server drops its host
+ * attachment. (The host's own idle timeout is disabled while the server holds its connection, so
+ * this release is what frees the host's interest; the host idles once the server exits.) On
+ * creation a screen is seeded from the store and the host attaches from the stored offset; see
+ * `hubFor` for the gap policy and its visible cost. "Exact" here is screen-content exact: the
+ * serializer restores the text and the modes it knows, not every parser state, and the stored
+ * offset can fall mid-escape.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
@@ -31,7 +35,7 @@
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen } from "./screen.ts";
-import { forgetSnapshot, setSnapshot, snapshotOf } from "./snapshots.ts";
+import { setSnapshots, snapshotOf, type SnapshotInput } from "./snapshots.ts";
 import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
 
 /** How often a dirty screen is written to the store. Serializing a 5,000-row screen is ~17 ms and
@@ -104,6 +108,8 @@ type Hub = {
   lastActivity: number;
   /** When the screen was last written to the store, for the cadence. */
   lastPersist: number;
+  /** The screen has been disposed; a stale `TerminalSession` must not attach to it. */
+  disposed?: boolean;
 };
 
 const hubs = new Map<string, Hub>();
@@ -132,13 +138,17 @@ const hubFor = (
     lastPersist: 0,
   };
   // Seed the screen from the store when one exists for this exact incarnation. The host then
-  // attaches from `received` (the stored offset), so a clean resume is byte-exact. Gap policy:
-  // when the host's ring has already evicted past the stored offset there is a hole between it and
-  // the ring's oldest byte. We keep the deep screen and let the ring's bytes land on top of it,
-  // rather than rebuilding — the store exists for deep history, and rebuilding would forfeit it;
-  // the hole is bounded by the ring size and the program's next redraw usually heals the visible
-  // screen. A host that cannot be attached from the stored offset at all is rebuilt from the ring
-  // by `ensureAttached` (it attaches from `received`, which the host clamps to its oldest byte).
+  // attaches from `received` (the stored offset), so one server's resume is exact — with the
+  // caveats in the module and `screen.ts` docs: "exact" is the screen content the serializer can
+  // restore (text and the modes it knows, not every parser state, and the stored offset can fall
+  // mid-escape). Gap policy: when the host's ring has already evicted past the stored offset,
+  // there is a hole between it and the ring's oldest byte. We keep the deep screen and let the
+  // ring's incremental bytes land on top of it rather than rebuild — the store exists for deep
+  // history, and rebuilding would forfeit it. The visible cost is that those incremental bytes
+  // address a screen state from an older offset, so a TUI that never fully redraws can look
+  // scrambled until its next paint; the hole is bounded by the 256 KiB ring, not by the missing
+  // span. `screen.write`'s monotonic offset keeps the ring's older seqs from pulling the stored
+  // high-water back.
   const stored = snapshotOf(id, incarnation);
   if (stored !== undefined && stored.data !== "") {
     hub.screen.seed(stored.data, stored.highWater);
@@ -149,47 +159,82 @@ const hubFor = (
   return hub;
 };
 
-/** Write a dirty screen to the store. An empty screen drops any stored entry rather than leave a
- * stale one. Called on the cadence, on the idle release, on exit, and on the shutdown flush. */
+/** A dirty screen's serialization, ready for the store, or undefined when there is nothing to
+ * store (empty, or a viewport that alone exceeds the cap) or the serializer threw. It never drops
+ * the screen's previous entry; `dirty` stays set on a failure so a later cadence retries. */
+const screenSnapshot = (hub: Hub): SnapshotInput | undefined => {
+  if (!hub.dirty) return undefined;
+  try {
+    const { data, offset } = hub.screen.serialize();
+    if (data === "") return undefined;
+    return { sessionId: hub.id, incarnation: hub.incarnation, data, highWater: offset };
+  } catch {
+    return undefined;
+  }
+};
+
+/** Mark screens stored: `dirty` clears only after the write succeeded. */
+const markStored = (entries: readonly { readonly hub: Hub }[], at: number): void => {
+  for (const { hub } of entries) {
+    hub.dirty = false;
+    hub.lastPersist = at;
+  }
+};
+
+/** Write one dirty screen (exit, idle release). */
 const persistScreen = (hub: Hub): void => {
-  if (!hub.dirty) return;
-  hub.dirty = false;
-  const { data, offset } = hub.screen.serialize();
-  if (data === "") forgetSnapshot(hub.id, hub.incarnation);
-  else setSnapshot(hub.id, hub.incarnation, data, offset);
+  const input = screenSnapshot(hub);
+  if (input === undefined) return;
+  setSnapshots([input]);
+  markStored([{ hub }], Date.now());
 };
 
-/** Write every dirty screen to the store, for the controlled shutdown. Synchronous on purpose: a
- * signal handler has no time to await, and `setSnapshot` persists with a rename. */
+/** Write every dirty screen in one pass, for the controlled shutdown. Synchronous on purpose: a
+ * signal handler has no time to await, and the store persists with a rename. */
 export const flushScreens = (): void => {
-  for (const hub of hubs.values()) persistScreen(hub);
+  const due = [...hubs.values()].flatMap((hub) => {
+    const input = screenSnapshot(hub);
+    return input === undefined ? [] : [{ hub, input }];
+  });
+  if (due.length === 0) return;
+  setSnapshots(due.map((entry) => entry.input));
+  markStored(due, Date.now());
 };
 
-/** Drop a screen without killing its shell: persist what it holds, release the host attachment, and
- * forget the hub. A later attach reseeds it from the store. */
+/** Drop a screen without killing its shell: release the host attachment, mark it disposed so a
+ * stale `TerminalSession` cannot attach to it, and forget the hub. A later attach reseeds from
+ * the store. */
 const releaseScreen = (hub: Hub): void => {
-  persistScreen(hub);
   release(hub);
   watchExitOff(hub);
+  hub.disposed = true;
   hub.screen.dispose();
   hubs.delete(hub.key);
 };
 
 /** The lifecycle tick: persist dirty screens on the cadence, release screens a timeout past their
  * last activity. Cheap enough to run often, so both intervals can be read per tick (and shortened
- * by a test). */
+ * by a test). One store write per tick however many screens are due. */
 const sweep = (): void => {
   const now = Date.now();
   const cadence = cadenceMs();
   const idle = idleMs();
+  const due: { hub: Hub; input: SnapshotInput }[] = [];
+  const releasing: Hub[] = [];
   for (const hub of [...hubs.values()]) {
     if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
-    if (hub.dirty && now - hub.lastPersist >= cadence) {
-      persistScreen(hub);
-      hub.lastPersist = now;
-    }
-    if (hub.subscribers.size === 0 && now - hub.lastActivity >= idle) releaseScreen(hub);
+    const dueForCadence = hub.dirty && now - hub.lastPersist >= cadence;
+    const idleNow = hub.subscribers.size === 0 && now - hub.lastActivity >= idle;
+    if (!dueForCadence && !idleNow) continue;
+    const input = screenSnapshot(hub); // persist before releasing, so nothing is lost
+    if (input !== undefined) due.push({ hub, input });
+    if (idleNow) releasing.push(hub);
   }
+  if (due.length > 0) {
+    setSnapshots(due.map((entry) => entry.input));
+    markStored(due, now);
+  }
+  for (const hub of releasing) releaseScreen(hub);
 };
 
 // The sweep is the only timer the module owns; it must not keep a test process alive.
@@ -202,6 +247,7 @@ const finish = (hub: Hub): void => {
   hub.subscribers.clear();
   release(hub);
   if (!isKeptOpen(hub.changeId, hub.id)) {
+    hub.disposed = true;
     hub.screen.dispose();
     hubs.delete(hub.key);
   }
@@ -228,6 +274,7 @@ const onSessionExit = (hub: Hub) => (): void => {
   // No page: the screen may still be wanted, but only a kept-open window froze its output on
   // purpose. P2 owns the full eviction policy; this is the cheap stopgap for the rest.
   if (!isKeptOpen(hub.changeId, hub.id)) {
+    hub.disposed = true;
     hub.screen.dispose();
     hubs.delete(hub.key);
   }
@@ -300,7 +347,7 @@ const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   // Claim the hub synchronously: the guard and the claim are one step, so two attaches racing the
   // await below cannot both pass — the second would orphan the first's held bytes. A second
   // attach — a second socket, or a second `openSession` — is answered with the exit.
-  if (hub.subscribers.size > 0 || hub.attachingPage === true) {
+  if (hub.disposed === true || hub.subscribers.size > 0 || hub.attachingPage === true) {
     subscriber.onExit();
     return;
   }
@@ -415,6 +462,7 @@ export const closeAttachments = (): void => {
     release(hub);
     watchExitOff(hub);
     hub.subscribers.clear();
+    hub.disposed = true;
     hub.screen.dispose();
   }
   hubs.clear();
