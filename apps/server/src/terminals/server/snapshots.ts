@@ -1,17 +1,17 @@
 /**
- * The latest renderer-owned snapshot per `(sessionId, incarnation)`, held in memory and persisted
- * to the state dir.
+ * The persisted server-owned screens, per `(sessionId, incarnation)`.
  *
- * Phase 3 chose renderer-owned screen state: the page's xterm owns the buffer and serializes it,
- * and this store is the one place the server keeps a page's snapshot so a reconnect can replay it
- * before attaching. It holds `data` and the host byte offset it covers (`highWater`), never an
- * emulator — the server stays a relay. Persisting it is what makes the flagship "restart Corvi and
- * the terminal is still there" keep its scrollback past the host's 256 KiB ring; the shells
- * themselves are the host's.
+ * **P2 wires this**: it seeds a screen from the stored snapshot on server start, resumes the host
+ * from its offset, serializes periodically and on exit, and prunes dead incarnations. Until then
+ * the hub keeps its screen in memory only, so a restart rebuilds from the host ring (the deep
+ * scrollback beyond 256 KB is what P2 restores). It holds `data` and the host byte offset it
+ * covers (`highWater`), and is keyed by incarnation so a reused session id never inherits its
+ * predecessor's screen. Dead incarnations are pruned by the windows layer (`pruneSnapshots`),
+ * which knows which records asked to be kept open. The store is loaded on start and pruned, but
+ * nothing writes it while P1 has no server-side cadence.
  *
- * A snapshot is keyed by incarnation, so a reused session id never inherits its predecessor's
- * screen. Dead incarnations are pruned by the windows layer (`pruneSnapshots`), which knows which
- * records asked to be kept open (`keepOpen`) and must keep their frozen output.
+ * Historically it held the page's renderer-owned snapshots; the pivot moved the screen to the
+ * server, so the shape it stores is unchanged and the writer becomes the server in P2.
  */
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";

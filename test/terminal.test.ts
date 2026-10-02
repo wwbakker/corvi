@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
-import { SNAPSHOT_IDLE_MS, SNAPSHOT_INTERVAL_MS } from "../apps/web/src/terminals/client/snapshot.ts";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
 /**
@@ -164,6 +163,7 @@ let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 const id = "PROJ-TERM";
 const second = "PROJ-TERM-2";
+const live = "PROJ-LIVE";
 
 const startServer = async (port = 0): Promise<void> => {
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
@@ -184,6 +184,9 @@ beforeAll(async () => {
   const repo2 = join(tmp, "repo2");
   await runSh(["git", "init", "-b", "main", repo2]);
   await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: second, checkouts: checkoutsOf([repo2]) }) });
+  const repo3 = join(tmp, "repo3");
+  await runSh(["git", "init", "-b", "main", repo3]);
+  await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: live, checkouts: checkoutsOf([repo3]) }) });
   browser = await chromium.launch();
 }, budget(120_000));
 
@@ -262,42 +265,21 @@ test.skipIf(!usable)("a terminal outlives the server that started it", async () 
     "yes\n",
   );
   expect(await fileText(before)).toBe("yes\n");
-  // A marker followed by more than the host ring's 256 KiB: by the time the snapshot is taken the
-  // ring has evicted the marker, so whatever brings it back after the restart can only be the
-  // persisted renderer snapshot (loaded on start since 5c3f8a6), not the ring's replay.
-  await typeOnceUntil(page, "echo SRV-DEEP-MARKER", "SRV-DEEP-MARKER", 15_000);
-  await typeOnceUntil(page, "head -c 280000 /dev/zero | tr '\\0' X; echo SRV-FILLER-DONE", "SRV-FILLER-DONE", 60_000);
-  expect(await terminalText(page)).toContain("SRV-DEEP-MARKER");
-  // Wait for the output to settle — the idle snapshot fires then, with no write outstanding —
-  // rather than a guessed sleep a busy machine turns into a missing snapshot. A snapshot older
-  // than the ring would attach into a truncated replay whose reset clears the very marker this
-  // test is about.
-  await until(async () => {
-    const settled = await terminalText(page);
-    await Bun.sleep(1500);
-    return (await terminalText(page)) === settled;
-  }, true, budget(60_000));
-  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-  await Bun.sleep(300);
+  // Recent output, still in the host's 256 KiB ring, is what the restarted server's screen is
+  // rebuilt from (deep scrollback needs the server-side persistence P2 adds).
+  await typeOnceUntil(page, "echo SRV-RECENT-MARKER", "SRV-RECENT-MARKER", 15_000);
 
   server.kill();
   await server.exited;
   await startServer();
 
-  // A fresh page on the restarted server: the deep marker proves the persisted snapshot was
-  // replayed, and the exported variable proves the same shell is underneath it.
+  // A fresh page on the restarted server: the shell is the same one (the variable), and its
+  // recent screen was rebuilt from the ring.
   const again = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   await again.goto(`${url}/changes/${id}/terminals`);
   await again.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await again.locator(".terminal-screen").click();
-  // Assert the read that satisfied the wait, rather than a second read that could race a late
-  // reset: the scrollback really is back.
-  let restored = "";
-  await until(async () => {
-    restored = await terminalText(again);
-    return restored.includes("SRV-DEEP-MARKER");
-  }, true, budget(30_000));
-  expect(restored).toContain("SRV-DEEP-MARKER");
+  expect(await until(async () => (await terminalText(again)).includes("SRV-RECENT-MARKER"), true, budget(30_000))).toBe(true);
   await runCommand(again, `echo "$CORVI_SURVIVED" > ${join(dir, "survived.txt")}`, join(dir, "survived.txt"), "yes\n");
   expect(await fileText(join(dir, "survived.txt"))).toBe("yes\n");
   await again.close();
@@ -442,23 +424,20 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   await page.close();
 }, budget(60_000));
 
-test.skipIf(!usable)("xterm owns the screen: scrollback survives a snapshot and a reload", async () => {
+test.skipIf(!usable)("the server's screen survives a reload with its scrollback", async () => {
   const { page } = await openTerminal(id);
   await typeUntilText(page, "seq 1 400 | sed 's/^/ROW-/'", "ROW-400");
   const before = await terminalLength(page);
   expect(before).toBeGreaterThan(100);
 
-  // Force the snapshot now instead of waiting out the periodic cadence, then reload: the server
-  // replays the stored screen into the fresh page.
-  await page.evaluate(() => window.dispatchEvent(new Event("pagehide")));
-  await Bun.sleep(400);
+  // The screen belongs to the server; a reload asks for it again and gets it whole.
   await page.reload();
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await until(async () => (await terminalText(page)).includes("ROW-400"), true, budget(20_000));
   const restored = await terminalText(page);
   expect(restored).toContain("ROW-400");
   expect(restored).not.toContain("ROW-401");
-  // Restored, not doubled: a resume replays only from the snapshot's offset.
+  // Restored, not doubled.
   const after = await terminalLength(page);
   expect(after).toBeGreaterThan(100);
   expect(after).toBeLessThan(before + 50);
@@ -731,62 +710,34 @@ test.skipIf(!usable)("the font-size chords change and reset the terminal", async
   await page.close();
 }, budget(60_000));
 
-test.skipIf(!usable)("hiding the tab snapshots the screen immediately", async () => {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
-  // Record the control frames the page sends, and neutralise both snapshot timers so the hide is
-  // the only thing that can produce a snapshot in the window the test checks: a visible pane
-  // snapshots on the output-idle timeout, a hidden one on the periodic interval. That isolates the
-  // visibilitychange path from the cadence (which the reload test already covers).
-  await page.addInitScript(
-    ({ idleMs, intervalMs }) => {
-      const snapshots: unknown[] = [];
-      (window as unknown as { __snapshots: unknown[] }).__snapshots = snapshots;
-      const originalSend = WebSocket.prototype.send;
-      WebSocket.prototype.send = function (this: WebSocket, data: Parameters<WebSocket["send"]>[0]): void {
-        if (typeof data === "string") {
-          try {
-            const value = JSON.parse(data) as { type?: string };
-            if (value.type === "snapshot") snapshots.push(value);
-          } catch {
-            // not a control frame
-          }
-        }
-        originalSend.call(this, data);
-      };
-      const originalSetTimeout = window.setTimeout.bind(window);
-      window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
-        if (timeout === idleMs) return 0;
-        return originalSetTimeout(handler, timeout, ...args);
-      }) as typeof window.setTimeout;
-      const originalSetInterval = window.setInterval.bind(window);
-      window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]): number => {
-        if (timeout === intervalMs) return 0;
-        return originalSetInterval(handler, timeout, ...args);
-      }) as typeof window.setInterval;
-    },
-    { idleMs: SNAPSHOT_IDLE_MS, intervalMs: SNAPSHOT_INTERVAL_MS },
+test.skipIf(!usable)("a static marker in a continuously-updating window survives a switch and a reconnect", async () => {
+  const { page } = await openTerminal(live);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+
+  // A marker drawn once, then a loop that keeps the screen updating at a fixed position forever:
+  // the screen never goes idle, so a page-owned snapshot cadence would never run. The server's
+  // screen is current regardless.
+  await typeUntilText(
+    page,
+    "clear; printf '\\e[1;1HSRV-LIVE-MARKER'; while :; do printf '\\e[2;1HUPDATE-%d ' $RANDOM; sleep 0.02; done",
+    "SRV-LIVE-MARKER",
   );
-  await page.goto(`${url}/changes/${id}/terminals`);
+  await until(async () => (await terminalText(page)).includes("UPDATE-"), true, budget(10_000));
+
+  // Switching to a new window and back must not lose the marker: it lives in the server's screen.
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), 2)).toBe(2);
+  await tabs.first().click();
+  expect(await until(async () => (await terminalText(page)).includes("SRV-LIVE-MARKER"), true, budget(20_000))).toBe(true);
+
+  // A reconnecting page gets the same screen.
+  await page.reload();
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
-  // The pane connects once before the window list arrives and reconnects — snapshotting the empty
-  // screen — when the change's active window becomes known. That connect is not this test's
-  // subject; the window it watches starts once the window is on screen.
-  await page.locator(".window-tab:not(.new):not(.overview)").first().waitFor({ timeout: 15_000 });
-  await page.evaluate(() => {
-    (window as unknown as { __snapshots: unknown[] }).__snapshots.length = 0;
-  });
-  await typeUntilText(page, "echo HIDE_MARKER", "HIDE_MARKER");
-  expect(await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length)).toBe(0);
-  await page.evaluate(() => {
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
-    document.dispatchEvent(new Event("visibilitychange"));
-  });
-  const count = await until(
-    async () => await page.evaluate(() => (window as unknown as { __snapshots: unknown[] }).__snapshots.length),
-    1,
-    budget(10_000),
-  );
-  expect(count).toBe(1);
+  expect(await until(async () => (await terminalText(page)).includes("SRV-LIVE-MARKER"), true, budget(20_000))).toBe(true);
+
+  // Clean up: the loop is the foreground process of this shell.
+  await page.keyboard.press("Control+C");
   await page.close();
-}, budget(60_000));
+}, budget(90_000));

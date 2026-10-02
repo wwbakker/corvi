@@ -15,11 +15,12 @@ import {
 } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
-import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
-import { SCROLLBACK_DEFAULT, SNAPSHOT_IDLE_MS, SNAPSHOT_INTERVAL_MS, serializeTerminal } from "./snapshot.ts";
+
+/** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
+const SCROLLBACK = 5000;
 
 /** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
  * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
@@ -42,18 +43,9 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
 const themeColor = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
-/** Clear the screen and scrollback, home the cursor, and show it. `term.reset()` is deliberately
- * kept for a genuinely different session: it also drops the private modes the shell asked for
- * (bracketed paste), and it does *not* clear DECTCEM, so a `\e[?25l` from a full-screen program
- * would otherwise stick across every reset. A same-session replay clears the screen without
- * touching the modes, and the cursor is shown unconditionally. */
-const CLEAR_SCREEN = "\x1b[2J\x1b[3J\x1b[H";
+/** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
+ * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
 const SHOW_CURSOR = "\x1b[?25h";
-const eraseScreen = (term: Terminal, fresh: boolean): void => {
-  if (fresh) term.reset();
-  else term.write(CLEAR_SCREEN);
-  term.write(SHOW_CURSOR);
-};
 
 /** The provider the clipboard addon writes through. A program can send its copy as an OSC 52
  * sequence with the selection field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as
@@ -90,9 +82,10 @@ const readFontSize = (): number => {
  * itself.
  *
  * Which window you are in, and how to get to another, is the navigation column's job. This is the
- * terminal, the focus, and the new-window chord. xterm owns the screen — scrollback, selection,
- * scrollbar, find, links — and the page serializes it so the server can replay it on reconnect
- * (`./snapshot.ts`).
+ * terminal, the focus, and the new-window chord. The server owns the screen (a headless xterm fed
+ * every host byte, `apps/server/src/terminals/server/screen.ts`); this xterm is its renderer — the
+ * scrollback, selection, scrollbar, find and links are drawn here, and a connect replays the
+ * server's snapshot before the live bytes.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.
@@ -133,34 +126,17 @@ export function TerminalPane({
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
   const searchAddon = useRef<SearchAddon | null>(null);
-  const serializeAddon = useRef<SerializeAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
   /** The change and window the open socket belongs to: a different change or tab needs a
    * different pty. */
   const openedFor = useRef<string | null>(null);
   /** A resize that arrives while the socket is still connecting: sent as soon as it opens. */
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
-  /** The host byte offset the terminal has applied, and the writes still queued. A snapshot only
-   * records the applied offset, so a resume replays what was in flight rather than skipping it. */
-  const applied = useRef(0);
-  const outstanding = useRef(0);
-  /** The incarnation the current connection is attached to, echoed in every control frame. */
-  const incarnation = useRef(0);
-  /** The host session the screen currently holds, keyed `(sessionId, incarnation)`: a replay for
-   * the same pty keeps the private modes the shell asked for, while a same-id reopen (a new
-   * incarnation, default modes) counts as fresh. */
-  const currentSession = useRef<string | null>(null);
   /** The host session id the open socket resolved to, from the control frame's `sessionId`. */
   const attachedSession = useRef<string | null>(null);
   /** The same id as state, so the view can say "attached" only while it matches the window the
    * page names: a stale socket's claim drops in the very render the window changes. */
   const [attached, setAttached] = useState<string | null>(null);
-  /** The screen changed since the last snapshot. */
-  const dirty = useRef(false);
-  /** The pending output-idle snapshot; cleared while output keeps arriving. */
-  const snapshotTimer = useRef<number | null>(null);
-  /** A snapshot was asked for while writes were queued; taken when they drain. */
-  const snapshotPending = useRef(false);
   /** Reconnection: a bounded backoff while the server is down, stopped when the session itself is
    * gone or the pane unmounts. */
   const reconnectAttempt = useRef(0);
@@ -206,7 +182,7 @@ export function TerminalPane({
     if (!element) return;
     const term = new Terminal({
       // xterm owns the screen now: the scrollback is real, and the scrollbar comes with it.
-      scrollback: SCROLLBACK_DEFAULT,
+      scrollback: SCROLLBACK,
       fontSize: readFontSize(),
       // A cursor you can find: xterm draws an outline when the terminal is not focused and takes
       // the cursor colour from the foreground, which disappears over a like-coloured cell. A
@@ -236,8 +212,6 @@ export function TerminalPane({
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     const search = new SearchAddon();
     term.loadAddon(search);
-    const serialize = new SerializeAddon();
-    term.loadAddon(serialize);
     // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection.
     term.loadAddon(
       new WebLinksAddon((event, uri) => {
@@ -262,9 +236,8 @@ export function TerminalPane({
     terminal.current = term;
     fitAddon.current = fit;
     searchAddon.current = search;
-    serializeAddon.current = serialize;
     // The page tests read the buffer through the host element: xterm's WebGL canvas has no DOM
-    // text to read, and the buffer is exactly what the snapshot is taken from.
+    // text to read, and the buffer is what the page's tests read.
     (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
@@ -273,18 +246,12 @@ export function TerminalPane({
       socket.current = null;
       openedFor.current = null;
       pendingResize.current = null;
-      if (snapshotTimer.current !== null) clearTimeout(snapshotTimer.current);
-      snapshotTimer.current = null;
-      applied.current = 0;
-      outstanding.current = 0;
-      dirty.current = false;
       delete (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal;
       attachedSession.current = null;
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
       searchAddon.current = null;
-      serializeAddon.current = null;
     };
   }, [platform]);
 
@@ -302,41 +269,12 @@ export function TerminalPane({
     }
   }, [fontSize]);
 
-  // Serialize the screen and hand it to the server, which stores it for the next connect. Only the
-  // applied offset is recorded, so it is taken when no write is in flight.
-  const takeSnapshot = useCallback((): void => {
-    const ws = socket.current;
-    const term = terminal.current;
-    const addon = serializeAddon.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN || !term || !addon) return;
-    if (outstanding.current > 0) {
-      snapshotPending.current = true;
-      return;
-    }
-    const data = serializeTerminal(term, addon);
-    ws.send(JSON.stringify({ type: "snapshot", data, highWater: applied.current, incarnation: incarnation.current }));
-    dirty.current = false;
-  }, []);
-
-  /** Snapshot once output has been quiet for a moment, off the input path: a fixed timer that
-   * serializes the buffer while you type is a visible stall. */
-  const scheduleSnapshot = useCallback((): void => {
-    if (snapshotTimer.current !== null) clearTimeout(snapshotTimer.current);
-    snapshotTimer.current = window.setTimeout(() => {
-      snapshotTimer.current = null;
-      const run = (): void => takeSnapshot();
-      if (typeof window.requestIdleCallback === "function") window.requestIdleCallback(run);
-      else run();
-    }, SNAPSHOT_IDLE_MS);
-  }, [takeSnapshot]);
-
   // One socket, when the terminal is first shown and the URL is known. The fit happens before
   // the connect: the first size the shell sees is the right one, so switching to the terminal
   // is not a resize every full-screen program has to redraw for.
   useLayoutEffect(() => {
     // The URL names the change, the id names the window: a different change or a different tab
-    // needs a different pty. The screen being left is snapshotted first, so switching tabs stores
-    // it rather than losing it.
+    // needs a different pty. The server keeps the screen of the one being left.
     const target = `${url ?? ""}#${windowId ?? ""}`;
     if (socket.current && openedFor.current !== target) {
       // The first connect happens before the window list arrives, and the server resolves the
@@ -346,7 +284,6 @@ export function TerminalPane({
       if (windowId != null && attachedSession.current === windowId) {
         openedFor.current = target;
       } else {
-        takeSnapshot();
         socket.current.close();
         socket.current = null;
       }
@@ -361,76 +298,35 @@ export function TerminalPane({
     const windowQuery = windowId === undefined || windowId === null ? "" : `&window=${encodeURIComponent(windowId)}`;
     const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
     ws.binaryType = "arraybuffer";
-    // The server sends a control frame first — the stored snapshot, or `reset` when there is
-    // none — and the page answers with `attach` once it has played it back.
-    const attach = (since: number): void => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "attach", since, incarnation: incarnation.current }));
-      }
-    };
     ws.onmessage = (event: MessageEvent) => {
       if (typeof event.data === "string") {
-        let value: { type?: unknown; data?: unknown; highWater?: unknown; since?: unknown; incarnation?: unknown; sessionId?: unknown };
+        let value: { type?: unknown; data?: unknown; sessionId?: unknown };
         try {
           value = JSON.parse(event.data) as typeof value;
         } catch {
           return;
         }
-        const frameIncarnation = typeof value.incarnation === "number" ? value.incarnation : incarnation.current;
-        incarnation.current = frameIncarnation;
         if (typeof value.sessionId === "string") {
           attachedSession.current = value.sessionId;
           setAttached(value.sessionId);
         }
-        // Which session this frame is for: a replay for the pty already on screen keeps its private
-        // modes (bracketed paste), a different one — a new window, or the same id reopened with a
-        // new incarnation and default modes — starts fresh.
-        const frameSession =
-          typeof value.sessionId === "string" ? `${value.sessionId}#${frameIncarnation}` : currentSession.current;
-        const freshSession = frameSession !== currentSession.current;
-        currentSession.current = frameSession;
         if (value.type === "reset") {
-          // No snapshot: a fresh screen, attached from the beginning.
-          eraseScreen(term, freshSession);
-          dirty.current = false;
-          applied.current = 0;
-          attach(0);
-        } else if (value.type === "snapshot" && typeof value.data === "string" && typeof value.highWater === "number") {
-          // Replay the stored screen, then resume from the offset it covered.
-          eraseScreen(term, freshSession);
-          dirty.current = false;
-          const highWater = value.highWater;
-          outstanding.current += 1;
-          term.write(value.data, () => {
-            outstanding.current -= 1;
-            applied.current = highWater;
-            attach(highWater);
-          });
-        } else if (value.type === "truncated") {
-          // The host evicted past the snapshot: discard it and start from the host's oldest byte.
-          eraseScreen(term, freshSession);
-          dirty.current = false;
-          applied.current = typeof value.since === "number" ? value.since : 0;
+          // No screen yet: a fresh terminal, then the live bytes.
+          term.reset();
+          term.write(SHOW_CURSOR);
+        } else if (value.type === "snapshot" && typeof value.data === "string") {
+          // The server's screen, replayed into a fresh terminal, then the live bytes after it.
+          term.reset();
+          term.write(value.data);
         } else if (value.type === "exit") {
           // The session is gone: the close that follows is final, not a restart to retry.
           sessionGone.current = true;
         }
         return;
       }
-      // Raw output, binary. Count the offset in the write callback: the snapshot records what the
-      // terminal has actually applied, not what the socket has received.
+      // Raw output, binary: the live bytes the snapshot resumed from.
       const bytes = event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : new Uint8Array(event.data as ArrayBufferLike);
-      outstanding.current += 1;
-      term.write(bytes, () => {
-        outstanding.current -= 1;
-        applied.current += bytes.length;
-        dirty.current = true;
-        scheduleSnapshot();
-        if (outstanding.current === 0 && snapshotPending.current) {
-          snapshotPending.current = false;
-          takeSnapshot();
-        }
-      });
+      term.write(bytes);
     };
     // A resize that happened while this socket was connecting was queued; the shell starts at
     // the size it now has.
@@ -442,20 +338,15 @@ export function TerminalPane({
       ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
       pendingResize.current = null;
     };
-    // A socket that closes (its session died, the server restarted) is forgotten. The offsets are
-    // reset here because the next connection starts a new stream: the server's first control frame
-    // (snapshot, reset or truncated) re-establishes the base. A server restart is retried with a
-    // bounded backoff; a session that says it is gone is not.
+    // A socket that closes (its session died, the server restarted) is forgotten. The next
+    // connection starts with the server's snapshot; a server restart is retried with a bounded
+    // backoff, a session that says it is gone is not.
     ws.onclose = () => {
       if (socket.current !== ws) return; // a superseded socket (another change's URL)
       socket.current = null;
       attachedSession.current = null;
       setAttached(null);
       pendingResize.current = null;
-      applied.current = 0;
-      outstanding.current = 0;
-      snapshotPending.current = false;
-      dirty.current = false;
       if (sessionGone.current || !mounted.current) return;
       reconnectAttempt.current = Math.min(reconnectAttempt.current + 1, 6);
       const delay = Math.min(500 * 2 ** (reconnectAttempt.current - 1), 5000);
@@ -467,33 +358,7 @@ export function TerminalPane({
     openedFor.current = target;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
     // the host client attached, which is what leaves the shells running.
-  }, [url, windowId, visible, generation, reconnect, takeSnapshot, scheduleSnapshot]);
-
-  // A visible pane snapshots when output settles (scheduleSnapshot), so a fixed timer never
-  // serializes the buffer while you type. A hidden pane has no typing to disturb, so a slow timer
-  // keeps its still-streaming output snapshotted.
-  useEffect(() => {
-    if (!url) return;
-    const timer = setInterval(() => {
-      if (dirty.current && document.visibilityState === "hidden") takeSnapshot();
-    }, SNAPSHOT_INTERVAL_MS);
-    return () => clearInterval(timer);
-  }, [url, takeSnapshot]);
-
-  // Best-effort on leaving the page and on hiding the tab: the socket may not flush, but the
-  // periodic snapshot usually already has.
-  useEffect(() => {
-    const onPageHide = (): void => takeSnapshot();
-    const onVisibility = (): void => {
-      if (document.visibilityState === "hidden") takeSnapshot();
-    };
-    window.addEventListener("pagehide", onPageHide);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("pagehide", onPageHide);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [takeSnapshot]);
+  }, [url, windowId, visible, generation, reconnect]);
 
   // A shown or resized pane re-fits, and tells the pty. Before paint, so the grid and the shell
   // agree by the time the frame is visible.

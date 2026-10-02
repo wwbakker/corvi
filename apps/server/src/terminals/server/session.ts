@@ -1,35 +1,30 @@
 /**
- * The WebSocket's terminal half: one host subscription per session incarnation, fanned out to the
- * page.
+ * The WebSocket's terminal half: the server-owned screen and the hub that feeds it.
  *
- * The host owns the pty and its replay ring; this process only relays. A hub exists per
- * `(sessionId, incarnation)`, attaches to the host exactly once while at least one socket is
- * attached, and releases its host data listener when the last one detaches. The host's
- * `attach since` replays what was missed, so the hub keeps no output of its own — the flagship
- * "shell keeps running" case cannot grow a buffer here. `kill()` means detach, never kill: closing
- * a page leaves the shell running.
+ * One hub exists per `(sessionId, incarnation)`. It owns the single host attachment for that
+ * session — always, while the screen exists, not only while a page is attached — feeds every host
+ * byte into a headless xterm (`./screen.ts`), and serves pages from it. A page that connects gets
+ * a `snapshot` of the serialized screen with the host byte offset it covers, then the live bytes
+ * after that offset. The page sends only input and `resize`; the offset is the server's.
  *
- * One hub serves one live client, enforced in `subscribe`: a second attach on the same hub is
- * refused (its page is answered with the exit) rather than fanning out. That is the page's model
- * (one terminal, one xterm) — a subscriber that joins an already-attached hub would receive
- * future bytes only, silently missing the snapshot's gap. Multi-client is a server-owned-screen
- * slice's problem, not this one's.
+ * The race an attach has to close: bytes that arrive between serializing the screen and
+ * registering the subscriber. `subscribe` holds those bytes — they are not fed to the screen —
+ * until the snapshot has been sent and the subscriber registered, then replays them in order, so
+ * the page sees the screen as of the snapshot and every byte after it, once.
+ *
+ * `kill()` means detach, never kill: closing a page leaves the shell and the screen running, and
+ * the host listener stays because the screen exists. The exit of the session ends the hub.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
- *   - page to server: binary is what you typed; text is JSON control
- *     (`attach` with `since`, `snapshot` with `data`/`highWater`, `resize`);
- *   - server to page: binary is terminal output; text is JSON control
- *     (`snapshot` on connect, `reset` when there is none, `truncated` when the host's ring evicted
- *     past the requested offset, `exit` when the session is gone and no reconnect should follow).
- *
- * The server sends the control frame first, on connect: a stored snapshot to replay, or `reset`
- * for a fresh terminal. The page replays it and only then sends `attach`, so the bytes from the
- * host never race the snapshot they resume from.
+ *   - page to server: binary is what you typed; text is JSON control (`resize`);
+ *   - server to page: binary is terminal output; text is JSON control (`snapshot` with the
+ *     serialized screen and its `highWater` offset, `reset` when the screen is empty, `exit` when
+ *     the session is gone and no reconnect should follow).
  */
 import type { HostClient } from "../host/client.ts";
 import { hostClient } from "./host.ts";
-import { snapshotOf, setSnapshot } from "./snapshots.ts";
+import { makeScreen, type Screen } from "./screen.ts";
 import { ensureActiveHostWindow } from "./windows.ts";
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
@@ -45,70 +40,82 @@ export const terminalUnavailable = (): string | undefined =>
 type Subscriber = {
   /** One output chunk, as the bytes the host delivered. */
   readonly send: (chunk: Uint8Array) => void;
-  /** The host evicted past the page's snapshot: discard it and treat `since` as the new base. */
-  readonly reset: (since: number) => void;
+  /** The serialized screen and the host offset it covers, sent before any live byte. */
+  readonly snapshot: (frame: { readonly data: string; readonly offset: number }) => void;
   readonly onExit: () => void;
 };
 
 type DataListener = (data: Buffer, incarnation: number, seq: number) => void;
 type ExitListener = (exitCode: number, signal: number, incarnation: number) => void;
 
+/** A host chunk held while a page attach serializes. */
+type Held = { readonly seq: number; readonly data: Buffer };
+
 type Hub = {
-  /** `sessionId#incarnation`: a reused session id gets a fresh hub with its own offset. */
+  /** `sessionId#incarnation`: a reused session id gets a fresh hub and screen. */
   readonly key: string;
   readonly id: string;
   incarnation: number;
+  readonly screen: Screen;
   readonly subscribers: Set<Subscriber>;
-  /** The highest byte offset forwarded, so a re-attach resumes from there instead of replaying. */
-  lastSeq: number;
+  /** The host offset of the last byte received (fed to the screen, or held for an attach). */
+  received: number;
   exited: boolean;
-  /** Registered while a socket is attached; removed on the last detach. */
+  /** Registered at open and kept while the screen exists, so the screen stays fed with no page. */
   dataListener?: DataListener;
-  /** Registered at open and kept until the session exits, so a session that dies while detached
-   * is still cleaned up rather than dangling forever. */
+  /** Registered at open and kept until the session exits. */
   exitListener?: ExitListener;
   /** The client the listeners belong to, for removal. */
   client?: HostClient;
   attaching?: Promise<void>;
-  /** While the initial attach is in flight, output is held here so a truncated replay can be
-   * preceded by a `truncated` control frame instead of interleaved with it. */
-  pendingReplay?: Uint8Array[];
+  /** While a page is attaching: the offset captured, and the bytes after it, held until the
+   * snapshot is sent and the subscriber registered. */
+  hold?: { readonly cutoff: number; readonly chunks: Held[] };
+  /** An attach is in its serialize/register window; the session's exit waits for it to finish. */
+  attachingPage?: boolean;
 };
 
 const hubs = new Map<string, Hub>();
 
 /** Get-or-create synchronously: two concurrent opens of one incarnation cannot each make a hub. */
-const hubFor = (id: string, incarnation: number): Hub => {
+const hubFor = (id: string, incarnation: number, size: { readonly cols: number; readonly rows: number }): Hub => {
   const key = `${id}#${incarnation}`;
   const existing = hubs.get(key);
   if (existing !== undefined) return existing;
-  const hub: Hub = { key, id, incarnation, subscribers: new Set(), lastSeq: 0, exited: false };
+  const hub: Hub = {
+    key,
+    id,
+    incarnation,
+    screen: makeScreen(size),
+    subscribers: new Set(),
+    received: 0,
+    exited: false,
+  };
   hubs.set(key, hub);
   return hub;
 };
 
-/** Tell the hub's live client the session is gone, then forget the hub. Idempotent: whichever of
- * an in-flight attach's two continuations runs second finds nothing left to tell. */
+/** Tell the hub's live client the session is gone, dispose the screen, and forget the hub. */
 const finish = (hub: Hub): void => {
   const subscribers = [...hub.subscribers];
   hub.subscribers.clear();
-  for (const subscriber of subscribers) subscriber.onExit();
+  release(hub);
+  hub.screen.dispose();
   hubs.delete(hub.key);
+  for (const subscriber of subscribers) subscriber.onExit();
 };
 
-/** The exit of a session is the hub's and the snapshot's cue, whether or not a socket is attached:
- * a session that exits while detached must not leave a hub or a persisted snapshot behind. The
- * snapshot is not forgotten here — the windows layer knows which records asked to be kept open,
- * and keeps theirs. */
+/** The exit of a session ends the hub whenever it happens, page or no page. An attach that is
+ * serializing the last screen is allowed to finish first, so it serves what the session left. */
 const onSessionExit = (hub: Hub) => (): void => {
   if (hub.exited) return;
   hub.exited = true;
-  release(hub);
   watchExitOff(hub);
-  // A replay still in flight holds bytes the page has not seen yet — an already-dead session's
-  // ring is flushed after `client.attach` answers. Notifying now would close the page's socket
-  // before those bytes are sent, so the exit waits for the attach to settle (the flush runs
-  // inside it).
+  // An attach may be serializing the last screen; it finishes the hub after it serves that. A
+  // session that exits with no page attached keeps its screen — it is the session's history, and
+  // a page may still attach — until P2's eviction (or the tests' reset) drops it.
+  if (hub.attachingPage) return;
+  if (hub.subscribers.size === 0) return;
   if (hub.attaching !== undefined) void hub.attaching.then(() => finish(hub), () => finish(hub));
   else finish(hub);
 };
@@ -126,7 +133,8 @@ const watchExitOff = (hub: Hub): void => {
   hub.exitListener = undefined;
 };
 
-/** Remove the data listener so a detached hub stops receiving bytes. The exit listener stays. */
+/** Remove the host data listener. Called on exit and on the tests' reset; never on detach, because
+ * the screen exists whether or not a page is attached. */
 const release = (hub: Hub): void => {
   if (hub.client !== undefined && hub.dataListener !== undefined) {
     hub.client.offData(hub.id, hub.dataListener);
@@ -134,43 +142,27 @@ const release = (hub: Hub): void => {
   hub.dataListener = undefined;
 };
 
-/** Attach to the host once per hub, from the hub's current offset. A truncated replay is
- * announced with a `reset` control frame before the bytes so the page can discard the snapshot
- * it can no longer continue from. */
+/** Attach to the host once, from the offset already received, and feed every byte to the screen.
+ * The screen starts empty and the host replays its ring, so this is the session's whole history
+ * the ring still holds; the first chunk's `seq` anchors the screen's offset. */
 const ensureAttached = async (hub: Hub): Promise<void> => {
   if (hub.dataListener !== undefined) return;
   if (hub.attaching !== undefined) return hub.attaching;
   const promise = (async (): Promise<void> => {
     const client = await hostClient();
-    // A hub whose session already exited still attaches once, to flush the host's retained replay
-    // before the exit frame; only a live one needs its exit watched.
     if (!hub.exited) watchExit(hub, client);
-    const dataListener: DataListener = (data, _incarnation, seq) => {
-      hub.lastSeq = Math.max(hub.lastSeq, seq + data.length);
-      if (hub.pendingReplay !== undefined) hub.pendingReplay.push(data);
-      else for (const subscriber of hub.subscribers) subscriber.send(data);
-    };
-    hub.dataListener = dataListener;
-    client.onData(hub.id, dataListener);
-    hub.pendingReplay = [];
-    try {
-      const reply = await client.attach(hub.id, hub.lastSeq);
-      hub.incarnation = reply.incarnation;
-      const replay = hub.pendingReplay;
-      hub.pendingReplay = undefined;
-      if (reply.truncated) {
-        // The ring evicted past the requested offset: the replay starts at `oldestSeq`, so the
-        // page's snapshot (and everything before `oldestSeq`) is gone. Reset to that new base;
-        // `lastSeq` only moves forward, since the buffered replay already advanced it.
-        hub.lastSeq = Math.max(hub.lastSeq, reply.oldestSeq);
-        for (const subscriber of hub.subscribers) subscriber.reset(reply.oldestSeq);
+    const listener: DataListener = (data, _incarnation, seq) => {
+      hub.received = Math.max(hub.received, seq + data.length);
+      if (hub.hold !== undefined) {
+        hub.hold.chunks.push({ seq, data });
+        return;
       }
-      for (const data of replay ?? []) for (const subscriber of hub.subscribers) subscriber.send(data);
-    } catch (error) {
-      hub.pendingReplay = undefined;
-      release(hub);
-      throw error;
-    }
+      hub.screen.write(data, seq);
+      for (const subscriber of hub.subscribers) subscriber.send(data);
+    };
+    hub.dataListener = listener;
+    client.onData(hub.id, listener);
+    await client.attach(hub.id, hub.received);
   })();
   hub.attaching = promise;
   try {
@@ -180,38 +172,47 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
   }
 };
 
-const subscribe = async (hub: Hub, subscriber: Subscriber, since: number): Promise<void> => {
-  // One live client per hub, whoever asks: a second attach — a second socket, or a second
-  // `openSession` over the same host session — is refused rather than silently fanned out. Its
-  // page is answered with the exit.
+/** Serve one page: serialize the screen at the offset received so far, hold the bytes after it,
+ * then hand the page the snapshot and every byte since. */
+const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
+  // One live client per hub, as before: a second attach is answered with the exit rather than
+  // silently fanned out into a stream it did not get a snapshot for.
   if (hub.subscribers.size > 0) {
     subscriber.onExit();
     return;
   }
-  hub.subscribers.add(subscriber);
-  // A fresh subscription resumes from where its snapshot ended; the host replays from there. With
-  // a hub already attached, only future bytes would reach the new subscriber, which is why the
-  // hub refuses a second attach (above).
-  if (hub.dataListener === undefined && hub.attaching === undefined) hub.lastSeq = Math.max(0, since);
-  // The attach also flushes the host's replay for a session that has already exited, and
-  // `onSessionExit` defers its notification until that flush is done; `finish` here covers the
-  // case where the exit happened before this subscribe, so a kept-open window opens with its
-  // last screen rather than blank.
-  await ensureAttached(hub);
-  if (hub.exited && hub.subscribers.has(subscriber)) finish(hub);
+  const cutoff = hub.received;
+  hub.hold = { cutoff, chunks: [] };
+  hub.attachingPage = true;
+  try {
+    await hub.screen.whenApplied(cutoff);
+    const { data, offset } = hub.screen.serialize();
+    subscriber.snapshot({ data, offset });
+    hub.subscribers.add(subscriber);
+    const chunks = hub.hold?.chunks ?? [];
+    hub.hold = undefined;
+    for (const chunk of chunks) {
+      hub.screen.write(chunk.data, chunk.seq);
+      subscriber.send(chunk.data);
+    }
+  } finally {
+    hub.hold = undefined;
+    hub.attachingPage = false;
+  }
+  // The session may have exited while the snapshot was serialized; its exit was deferred to here.
+  if (hub.exited) finish(hub);
 };
 
-/** A host session the socket drives, with the identity its snapshot is keyed by. */
+/** A host session the socket drives, with the identity its screen is keyed by. */
 export type TerminalSession = {
   readonly sessionId: string;
   readonly incarnation: number;
-  /** Start delivering output to this subscriber, resuming the host at `since`. A second call on
-   * the same session is refused: one hub serves one live client. */
+  /** Start serving this page: the screen's snapshot, then live bytes. A second call is refused:
+   * one hub serves one live client. */
   readonly attach: (
     send: (chunk: Uint8Array) => void,
-    reset: (since: number) => void,
+    snapshot: (frame: { readonly data: string; readonly offset: number }) => void,
     onExit: () => void,
-    since: number,
   ) => void;
   readonly write: (data: string) => void;
   readonly resize: (cols: number, rows: number) => void;
@@ -247,42 +248,47 @@ export const openSession = async (
   // or the shell wraps and backspaces on a grid the screen does not match.
   await client.resize(sessionId, size.cols, size.rows).catch(() => undefined);
   const incarnation = (await client.list()).find((entry) => entry.id === sessionId)?.incarnation ?? 0;
-  const hub = hubFor(sessionId, incarnation);
-  // Watch the exit from the moment the session is opened, not only while a socket is attached: a
-  // detached session that exits must still clear its hub.
+  const hub = hubFor(sessionId, incarnation, size);
+  // The screen is the page's grid too. The pty was just resized; an existing screen follows.
+  hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
+  // The screen exists from here on, so the host listener stays: it is fed with no page attached,
+  // which is what makes returning to a busy window exact. Wait for the attach, so the first
+  // snapshot already carries the ring and a dead kept-open session still has its output.
+  await ensureAttached(hub).catch(() => undefined);
   let subscriber: Subscriber | undefined;
   return {
     sessionId,
-    incarnation,
-    attach: (send, reset, onExit, since) => {
+    incarnation: hub.incarnation,
+    attach: (send, snapshot, onExit) => {
       if (subscriber !== undefined) return; // one live client per session (module comment)
-      subscriber = { send, reset, onExit };
-      void subscribe(hub, subscriber, since).catch(() => subscriber?.onExit());
+      subscriber = { send, snapshot, onExit };
+      void subscribe(hub, subscriber).catch(() => subscriber?.onExit());
     },
     write: (data) => {
       void client.write(sessionId, data);
     },
     resize: (cols, rows) => {
       void client.resize(sessionId, cols, rows);
+      hub.screen.resize(cols, rows);
     },
     kill: () => {
       if (subscriber === undefined) return;
       hub.subscribers.delete(subscriber);
       subscriber = undefined;
-      // The last socket leaving releases the host data listener; the shell keeps running and the
-      // next attach resumes through the host's replay. The exit watcher stays.
-      if (hub.subscribers.size === 0 && !hub.exited) release(hub);
+      // The last page leaving leaves the screen and the host listener: the screen belongs to the
+      // session, not to the page.
     },
   };
 };
 
-/** Drop every attachment. The host and its shells live on. */
+/** Drop every hub and screen. The host and its shells live on; the tests reset with this. */
 export const closeAttachments = (): void => {
   for (const hub of hubs.values()) {
     release(hub);
     watchExitOff(hub);
     hub.subscribers.clear();
+    hub.screen.dispose();
   }
   hubs.clear();
 };
@@ -299,20 +305,11 @@ export const hubStats = (): { hubs: number; attached: number; subscribers: numbe
 };
 
 /** The control frames the page sends, parsed once. */
-type PageControl =
-  | { readonly type: "attach"; readonly since: number }
-  | { readonly type: "snapshot"; readonly data: string; readonly highWater: number }
-  | { readonly type: "resize"; readonly cols: number; readonly rows: number };
+type PageControl = { readonly type: "resize"; readonly cols: number; readonly rows: number };
 
 const pageControl = (message: string): PageControl | undefined => {
   try {
-    const value = JSON.parse(message) as { type?: unknown; since?: unknown; data?: unknown; highWater?: unknown; cols?: unknown; rows?: unknown };
-    if (value.type === "attach" && typeof value.since === "number") {
-      return { type: "attach", since: Math.max(0, Math.floor(value.since)) };
-    }
-    if (value.type === "snapshot" && typeof value.data === "string" && typeof value.highWater === "number") {
-      return { type: "snapshot", data: value.data, highWater: value.highWater };
-    }
+    const value = JSON.parse(message) as { type?: unknown; cols?: unknown; rows?: unknown };
     if (value.type === "resize" && typeof value.cols === "number" && typeof value.rows === "number") {
       return { type: "resize", cols: Math.max(1, Math.floor(value.cols)), rows: Math.max(1, Math.floor(value.rows)) };
     }
@@ -324,51 +321,44 @@ const pageControl = (message: string): PageControl | undefined => {
 
 /** The WebSocket handlers `server.ts` installs. */
 export const terminalSockets = {
-  /** Send the control frame first: the stored snapshot to replay, or `reset` for a fresh screen.
-   * The page answers with `attach` once it has played the frame back. */
+  /** Serve the page: the screen's snapshot first (or `reset` when it is empty), then live bytes.
+   * The page sends nothing to start; the server owns the offset. */
   open(ws: TerminalWebSocket): void {
     const { session } = ws.data;
-    const snapshot = snapshotOf(session.sessionId, session.incarnation);
-    if (snapshot === undefined) {
-      ws.send(JSON.stringify({ type: "reset", since: 0, incarnation: session.incarnation, sessionId: session.sessionId }));
-      return;
-    }
-    ws.send(
-      JSON.stringify({
-        type: "snapshot",
-        data: snapshot.data,
-        highWater: snapshot.highWater,
-        incarnation: session.incarnation,
-        sessionId: session.sessionId,
-      }),
+    session.attach(
+      (chunk) => ws.send(chunk),
+      ({ data, offset }) => {
+        if (data === "") {
+          ws.send(JSON.stringify({ type: "reset", since: 0, incarnation: session.incarnation, sessionId: session.sessionId }));
+          return;
+        }
+        ws.send(
+          JSON.stringify({
+            type: "snapshot",
+            data,
+            highWater: offset,
+            incarnation: session.incarnation,
+            sessionId: session.sessionId,
+          }),
+        );
+      },
+      () => {
+        // The session is gone: tell the page so it does not reconnect into a new shell, then
+        // close. An abnormal close (the server died) carries no frame and the page retries.
+        try {
+          ws.send(JSON.stringify({ type: "exit" }));
+        } catch {
+          // the socket is already closing
+        }
+        ws.close();
+      },
     );
   },
   message(ws: TerminalWebSocket, message: string | Uint8Array): void {
     if (typeof message === "string") {
       const control = pageControl(message);
       if (control === undefined) return;
-      const { session } = ws.data;
-      if (control.type === "attach") {
-        session.attach(
-          (chunk) => ws.send(chunk),
-          (since) => ws.send(JSON.stringify({ type: "truncated", since, incarnation: session.incarnation, sessionId: session.sessionId })),
-          () => {
-            // The session is gone: tell the page so it does not reconnect into a new shell, then
-            // close. An abnormal close (the server died) carries no frame and the page retries.
-            try {
-              ws.send(JSON.stringify({ type: "exit" }));
-            } catch {
-              // the socket is already closing
-            }
-            ws.close();
-          },
-          control.since,
-        );
-      } else if (control.type === "snapshot") {
-        setSnapshot(session.sessionId, session.incarnation, control.data, control.highWater);
-      } else {
-        session.resize(control.cols, control.rows);
-      }
+      ws.data.session.resize(control.cols, control.rows);
       return;
     }
     ws.data.session.write(new TextDecoder().decode(message));
