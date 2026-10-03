@@ -1,5 +1,6 @@
-/** The raw facts tmux reports about one window, before anyone says what to call it. */
-export type TmuxWindow = {
+/** The raw facts about one window — synthesized from the host session that backs it — before
+ * anyone says what to call it. */
+export type RawWindow = {
   index: number;
   name: string;
   /** What is running in the active pane: zsh, nvim, gradle, ... */
@@ -10,14 +11,18 @@ export type TmuxWindow = {
   /** Directory of the active pane: which repository the window is in, which is usually what
    * you want to know about it. */
   directory: string;
-  /** Whether the name is one you gave it. tmux renames a window after whatever runs in it
-   * until you name it yourself, which switches automatic renaming off. */
+  /** Whether the name is one you gave it: a labelled host window is named; a plain shell is
+   * named by its directory. */
   named: boolean;
-  /** The pane options any presenter declared, by option name ("@agent" → "working"). */
+  /** The window facts a presenter reads, by name ("@agent_status" → "working"). */
   options: Record<string, string>;
-  /** tmux's own window id (`@3`): stable across reordering, unlike the index the session shows
-   * and the tabs move around. */
+  /** The window id (`w-…`): opaque and stable across reordering, unlike the index. The page
+   * attaches to `activePane`, which for a single-pane window is the same string. */
   id: string;
+  /** The window's pane session ids, in order. */
+  readonly panes: readonly string[];
+  /** The focused pane's session id. */
+  readonly activePane: string;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
@@ -46,21 +51,20 @@ export type WindowPresentation = {
   note?: string;
 };
 
-/** Says how a tmux window is presented: which pane options to read for it, and what those
- * options mean. Pure — plain tmux data in, plain data out — so it runs wherever the windows
- * are listed, with no workspace and no services in sight. */
+/** Says how a window is presented: which facts to read for it, and what those facts mean. Pure —
+ * plain window data in, plain data out — so it runs wherever the windows are listed, with no
+ * workspace and no services in sight. */
 export type TerminalPresenter = {
-  /** Pane options to read for every window of every session, e.g. ["@agent"]. */
-  paneOptions?: string[];
   /** Nothing to say about this window is `undefined` — it simply falls through. */
-  present(window: TmuxWindow): WindowPresentation | undefined;
+  present(window: RawWindow): WindowPresentation | undefined;
 };
 
-/** One tmux window of a change, as the navigation shows it: presented, not raw — the server
- * says what it is called and which icon it draws, and the page renders that. */
+/** One window of a change, as the navigation shows it: presented, not raw — the server says what
+ * it is called and which icon it draws, and the page renders that. */
 export type TerminalWindow = {
   index: number;
-  /** tmux's own window id (`@3`): stable across reordering, unlike the index. */
+  /** The window id (`w-…`): stable across reordering, unlike the index. Opaque and independent of
+   * the panes it holds. */
   id: string;
   /** What the navigation calls it. */
   label: string;
@@ -78,4 +82,8 @@ export type TerminalWindow = {
   active: boolean;
   /** Output arrived since you last looked at it. */
   activity: boolean;
+  /** The window's pane session ids, in order: each is a host session the page can attach to. */
+  readonly panes: readonly string[];
+  /** The focused pane's session id. The page renders this pane until 5b composes the rest. */
+  readonly activePane: string;
 };

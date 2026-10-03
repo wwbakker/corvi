@@ -2,10 +2,8 @@
 # The Corvi CLI's entry: `corvi`, wherever a Corvi terminal finds it.
 #
 # A Corvi terminal carries this directory on its PATH because the server puts it in front of its
-# own PATH before spawning any tmux client (putCliOnPath, apps/server/src/capabilities/env.ts):
-# tmux pins PATH and SHELL to the pane's creating client and ignores session and server
-# environment updates for them, so the clients' environment — not a session entry — is what a
-# pane's shell starts from. The shim never shadows anything: where a `corvi` already resolves
+# own PATH (putCliOnPath, apps/server/src/capabilities/env.ts), and the terminal host starts every
+# session from that environment. The shim never shadows anything: where a `corvi` already resolves
 # (the Linux launcher, or another checkout's shim), the server leaves PATH alone and that one
 # keeps winning, `start`/`stop` and all. Self-locating, through symlinks: the checkout this file
 # really lives in is the checkout whose CLI runs, so nothing is baked in at install time.

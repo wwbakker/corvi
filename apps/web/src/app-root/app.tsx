@@ -233,7 +233,7 @@ function App(): JSX.Element {
   };
 
   // A notification click comes back through the host as a plain function: activate the window,
-  // then open the change and the tmux window it was about. The window id is looked up in the
+  // then open the change and the window it was about. The window id is looked up in the
   // live list, because the index it had when the notification was made may belong to another
   // window by the time it is clicked.
   const openWindow = (change: string, windowId: string): void => {

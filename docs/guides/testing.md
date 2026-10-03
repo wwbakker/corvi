@@ -11,7 +11,9 @@ bun run boundaries
 bun run test
 ```
 
-The test should take around 1 minute. Set timeout at 3 minutes.
+The suite runs in two passes: the non-browser files across workers (a few seconds), then the
+browser end-to-end files one at a time, server-and-browser each (about two minutes). Allow five
+minutes for `bun run test`.
 
 `bun run boundaries` checks the workspace dependency graph declared in `architecture.json`:
 decoded imports, declared dependencies, deep imports, relative escapes, and cycles for extracted
@@ -31,16 +33,13 @@ so a lone `bun test test/foo.test.ts` cannot write `~/.config/corvi/config.json`
 per-run root and its cleanup trap.
 
 Install dependencies with `bun install --frozen-lockfile`. Browser tests need
-`bunx playwright install chromium`; tmux tests need tmux. Report skipped browser/native/platform
-checks separately from passes. Do not claim macOS coverage from a Linux run.
+`bunx playwright install chromium`. Report skipped browser/native/platform checks separately from
+passes. Do not claim macOS coverage from a Linux run.
 
-Two environment traps around the page and tmux tests. The bundle one no longer fails silently:
-page tests serve the built bundle, so a bare `bun test` after an edit runs `apps/web/dist` as it
-was — the page tests refuse a stale bundle (`requireFreshWebBundle`) and name the build that
-fixes it (`bun run build:web`; `bun run test` builds). The tmux one still fails silently: tmux
-starts no server at all when its socket path exceeds 103 characters, so window lists come back
-empty with nothing to say why; that is why `test/terminal.test.ts` gives its socket the short
-directory `tmuxTempDir` makes.
+One environment trap around the page tests. The bundle one no longer fails silently: page tests
+serve the built bundle, so a bare `bun test` after an edit runs `apps/web/dist` as it was — the
+page tests refuse a stale bundle (`requireFreshWebBundle`) and name the build that fixes it
+(`bun run build:web`; `bun run test` builds).
 
 The node-pty dependency is pinned for working native prebuilds, including executable permission
 on the macOS spawn helper. Before changing that pin, verify spawn, output, resize, and shutdown
@@ -97,7 +96,7 @@ Keep the existing lint protection until the replacement covers its boundary.
   its branch retained unless integration into the base is proven. In-place checkouts are not deleted.
 - Destructive operations use fresh relevant facts, not stale dashboard answers.
 - Completing/cancelling a change retains readable records/documents and reports partial failure.
-- Browsing a dashboard starts no terminal. Detaching/restarting the server preserves tmux sessions;
+- Browsing a dashboard starts no terminal. Detaching/restarting the server preserves host sessions;
   an explicit completion/cancellation stops only its owned session.
 - Workspace configuration, credentials, and cached results do not cross contexts.
 - Secrets are masked in client responses and logs; config writes retain owner-only permissions.
@@ -109,25 +108,21 @@ before a write does not prove atomicity. Treat retry safety and crash recovery a
 
 ## Resource safety
 
-Only ownership authorizes cleanup. Never use `pkill`, kill by port/process name, or an unqualified
-`tmux kill-server`. Do not stop or automate the user's installed app to verify a change.
+Only ownership authorizes cleanup. Never use `pkill`, kill by port/process name, or a broad signal
+to a process you did not start. Do not stop or automate the user's installed app to verify a change.
 
 Current fixtures live in `test/helpers.ts`:
 
 - `testRun()` gives a validated run token: two lowercase base36 words separated by a dot.
 - `testTempDir(label)` allocates paths the cleaner can attribute to that run.
-- `serverEnv(...)` isolates data/cache/config and removes inherited `TMUX`/`CORVI_TMUX_SOCKET`.
+- `serverEnv(...)` isolates data/cache/config for a spawned server.
 - `requireFreshWebBundle()` refuses a page run whose built bundle is older than the sources it
   is built from — the silent trap above, made loud; `test/webBundle.test.ts` pins both directions.
-- `tmuxTempDir()` keeps socket paths within the Unix socket length limit (103 bytes plus NUL on
-  macOS). Every test tmux command names its private socket with `-S`.
 - Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
   the ownership marker when the entrypoint moves. Normal app/dev servers have no test marker.
 
-Corvi's user sessions use `-L corvi` unless explicitly configured otherwise. The default tmux
-socket is not a test fixture; inside a pane, inherited `TMUX` can point at the user's server.
-Never use either for tests. Do not invent unrelated paths under the reserved `$TMPDIR/corvi-`
-prefix: the cleaner treats unowned entries there as leftovers.
+Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: the cleaner treats
+unowned entries there as leftovers.
 
 Inspect first, then clean only the known run:
 

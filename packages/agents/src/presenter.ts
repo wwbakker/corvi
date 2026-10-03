@@ -1,27 +1,24 @@
 import type { TerminalPresenter } from "@corvi/contracts/terminal";
 
 /**
- * What a coding agent in a tmux window is doing, as it says itself.
+ * What a coding agent in a terminal window is doing, as it says itself.
  *
  * A window running pi or opencode looks like any other `node` process, so nothing here can tell
  * "thinking" from "waiting for you to answer" — which is the one thing worth knowing about it.
- * The agent's reporter sets `@agent_status` on its pane (`tmux set -p @agent_status working`):
- * pi's extension (`integrations/pi`), opencode's plugin (`integrations/opencode`), or any other
- * writer of the protocol.
+ * The agent's reporter publishes its status through the Corvi CLI (`corvi status`), which the
+ * server turns into the `@agent_*` window facts: pi's extension (`integrations/pi`), opencode's
+ * plugin (`integrations/opencode`), or any other writer of the protocol.
  *
- * A pane option rather than the pane title: the title is shared with the agent's own session name
- * and with the shell, which rewrite it constantly, so a marker there would not survive. Nobody
- * else writes these options, and tmux drops them when the pane dies, so a crashed agent leaves
- * nothing stale behind.
- *
- * The agent's name is published beside it as `@agent_name` and the session's name as
+ * The facts are option-shaped because the presenter's input is, and the host path synthesizes
+ * the same option names. The
+ * agent's name is published beside the state as `@agent_name` and the session's name as
  * `@agent_session_name` (pi names the session from your first message, opencode titles it after
  * the first exchange); when the session name is there it is the label, because "example-api -
  * (opencode working)" says less about what is in the window than the name the session was given
  * does. The state stays in the icon's colour.
  *
  * The vocabulary is the reporter protocol stated in docs/manual/terminals.md: the core never
- * parses `@agent_status`, it only carries the pane options presenters declare.
+ * parses `@agent_status`, it only carries the window options presenters declare.
  */
 const AGENT_STATES = ["working", "waiting"] as const;
 type AgentState = (typeof AGENT_STATES)[number];
@@ -29,19 +26,10 @@ type AgentState = (typeof AGENT_STATES)[number];
 const agentOf = (option: string | undefined): AgentState | undefined =>
   AGENT_STATES.find((state) => state === option);
 
-/** The presenter: reads `@agent_status` from every window's active pane and answers for the windows
+/** The presenter: reads `@agent_status` from every window's facts and answers for the windows
  * where an agent speaks. Everything it leaves undefined — the label, the detail — the core
- * composes from the tmux facts, exactly as it does for a plain shell. */
+ * composes from the raw facts, exactly as it does for a plain shell. */
 export const agentsWindowPresenter: TerminalPresenter = {
-  paneOptions: [
-    "@agent_status",
-    "@agent_name",
-    "@agent_session_name",
-    "@agent_last_message",
-    // The server writes this one (not the reporter): the subagent a live window carries. Listed
-    // here so the raw window the server matches against always asks tmux for it.
-    "@subagent_id",
-  ],
   present: (window) => {
     const agent = agentOf(window.options["@agent_status"]);
     if (!agent) return undefined;
@@ -53,7 +41,7 @@ export const agentsWindowPresenter: TerminalPresenter = {
       // The session's own name, when the agent has given it one; otherwise the core composes the
       // label from the repository, exactly as it does for a plain shell.
       label: name || undefined,
-      // An agent is `node` as far as tmux is concerned, which says nothing; what it told us
+      // An agent is `node` as far as the process table is concerned, which says nothing; what it told us
       // about itself says everything.
       running: `${who} ${agent}`,
       icon: "agent",

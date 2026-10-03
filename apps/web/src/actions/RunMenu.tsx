@@ -1,4 +1,4 @@
-/** The terminal page's menu: the actions this window may run, then the tmux cheat sheet, behind
+/** The terminal page's menu: the actions this window may run, then the terminal cheat sheet, behind
  * the one button that replaced it.
  *
  * The list is fetched when the menu opens — discovery is per request, so an edited or newly
@@ -94,7 +94,7 @@ export function RunMenu({
             : "In a new window",
       onSelect: () => run(found),
     })),
-    { label: "tmux cheat sheet", separated: true, onSelect: onOpenCheatSheet },
+    { label: "terminal cheat sheet", separated: true, onSelect: onOpenCheatSheet },
   ];
 
   return (

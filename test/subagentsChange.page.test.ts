@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
 
 /**
  * The change page's Subagents section: the selected subagent's conversation beside its terminal,
@@ -94,7 +94,7 @@ beforeAll(async () => {
     "utf8",
   );
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
-    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock") }),
+    env: serverEnv(tmp),
     stdout: "pipe",
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
@@ -105,6 +105,7 @@ afterAll(async () => {
   await closePages(browser, "subagents-change");
   await browser?.close();
   server?.kill();
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

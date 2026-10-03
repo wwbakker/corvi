@@ -2,41 +2,30 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 
 import type { Action } from "../src/model.ts";
-import type { NewWindowOptions, Sessions } from "@corvi/terminals/tmux";
+import type { NewWindowOptions } from "@corvi/terminals/model";
 import {
   deliverAction,
   selectTargetWindow,
+  type ActionSessions,
   type CandidateWindow,
   type DeliverRequest,
   type Delivery,
 } from "../src/deliver.ts";
 
-/** A Sessions that records what it was asked to do. Unscripted operations record themselves and
- * answer with an empty success, so a test only scripts what it cares about. */
+/** An ActionSessions that records what it was asked to do. */
 const recording = (): {
-  sessions: Sessions;
+  sessions: ActionSessions;
   calls: string[];
   started: { command: string; options: NewWindowOptions }[];
 } => {
   const calls: string[] = [];
   const started: { command: string; options: NewWindowOptions }[] = [];
-  const sessions: Sessions = {
-    sessionName: (id) => `corvi-${id}`,
-    terminalSocketPath: (id) => `/api/changes/${id}/terminal/socket`,
-    attachCommand: () => ["tmux"],
-    stopTerminal: () => Effect.void,
-    windows: () => Effect.succeed([]),
-    allWindows: () => Effect.succeed({}),
-    changeOfSession: () => undefined,
-    newWindow: () => Effect.void,
+  const sessions: ActionSessions = {
     newWindowRunning: (_id, _dir, command, options) => {
       started.push({ command, options });
       calls.push(`new:${command}`);
-      return Effect.succeed(`@${started.length}`);
+      return Effect.succeed(`w-${started.length}`);
     },
-    selectWindow: () => Effect.void,
-    moveWindow: () => Effect.void,
-    ensureSession: () => Effect.void,
     pastePromptTo: (window, text) => {
       calls.push(`paste:${window}:${text}`);
       return Effect.void;
@@ -45,8 +34,6 @@ const recording = (): {
       calls.push(`submit:${window}`);
       return Effect.void;
     },
-    setPaneOption: () => Effect.void,
-    killWindow: () => Effect.void,
   };
   return { sessions, calls, started };
 };
@@ -73,9 +60,9 @@ const command: Action = {
 };
 
 const windows: readonly CandidateWindow[] = [
-  { window: "@1", label: "shell", kind: "plain", active: false },
-  { window: "@2", label: "pi working", kind: "agent", active: true },
-  { window: "@3", label: "tests", kind: "plain", active: false },
+  { window: "w-1", label: "shell", kind: "plain", active: false },
+  { window: "w-2", label: "pi working", kind: "agent", active: true },
+  { window: "w-3", label: "tests", kind: "plain", active: false },
 ];
 
 const request = (overrides: Partial<DeliverRequest>): DeliverRequest => ({
@@ -88,10 +75,10 @@ const request = (overrides: Partial<DeliverRequest>): DeliverRequest => ({
 });
 
 test("the window rule: the one you are on when it fits, else the leftmost that does", () => {
-  expect(selectTargetWindow(windows, "agent")?.window).toBe("@2"); // active and an agent
-  expect(selectTargetWindow(windows, "agent", "@1")?.window).toBe("@2"); // on a shell: leftmost agent
-  expect(selectTargetWindow(windows, "here", "@3")?.window).toBe("@3"); // the window the menu was on
-  expect(selectTargetWindow(windows, "here")?.window).toBe("@2");
+  expect(selectTargetWindow(windows, "agent")?.window).toBe("w-2"); // active and an agent
+  expect(selectTargetWindow(windows, "agent", "w-1")?.window).toBe("w-2"); // on a shell: leftmost agent
+  expect(selectTargetWindow(windows, "here", "w-3")?.window).toBe("w-3"); // the window the menu was on
+  expect(selectTargetWindow(windows, "here")?.window).toBe("w-2");
   expect(selectTargetWindow(windows.filter((w) => w.kind === "plain"), "agent")).toBeUndefined();
 });
 
@@ -100,8 +87,8 @@ test("a prompt to the agent is pasted and left for reading; submit sends it", ()
   const delivery = Effect.runSync(
     deliverAction(noSubmit.sessions, request({})).pipe(Effect.orElseSucceed(() => ({ submitted: false, started: false }))),
   );
-  expect(delivery).toEqual({ submitted: false, started: false, window: { id: "@2", label: "pi working" } });
-  expect(noSubmit.calls).toEqual(["paste:@2:Look at it"]);
+  expect(delivery).toEqual({ submitted: false, started: false, window: { id: "w-2", label: "pi working" } });
+  expect(noSubmit.calls).toEqual(["paste:w-2:Look at it"]);
 
   const submitted = recording();
   Effect.runSync(
@@ -109,7 +96,7 @@ test("a prompt to the agent is pasted and left for reading; submit sends it", ()
       Effect.orElseSucceed(() => ({ submitted: false, started: false })),
     ),
   );
-  expect(submitted.calls).toEqual(["paste:@2:Look at it", "submit:@2"]);
+  expect(submitted.calls).toEqual(["paste:w-2:Look at it", "submit:w-2"]);
 });
 
 test("an agent asked for with none running starts one and pastes into it", () => {
@@ -120,9 +107,9 @@ test("an agent asked for with none running starts one and pastes into it", () =>
     ),
   );
   expect(delivery.started).toBe(true);
-  expect(delivery.window?.id).toBe("@1");
+  expect(delivery.window?.id).toBe("w-1");
   expect(started).toEqual([{ command: "pi", options: { keepOpen: false } }]);
-  expect(calls).toEqual(["new:pi", "paste:@1:Look at it", "submit:@1"]);
+  expect(calls).toEqual(["new:pi", "paste:w-1:Look at it", "submit:w-1"]);
 });
 
 test("a prompt into a new window uses its start, never a bare shell", () => {
@@ -133,7 +120,7 @@ test("a prompt into a new window uses its start, never a bare shell", () => {
     ),
   );
   expect(started[0]?.command).toBe("pi");
-  expect(calls).toEqual(["new:pi", "paste:@1:Look at it"]);
+  expect(calls).toEqual(["new:pi", "paste:w-1:Look at it"]);
 });
 
 test("a command window runs the body; notify freezes it and announces the ending", () => {
@@ -152,7 +139,7 @@ test("a command window runs the body; notify freezes it and announces the ending
       Effect.orElseSucceed(() => ({ submitted: false, started: false })),
     ),
   );
-  expect(delivery).toEqual({ submitted: true, started: true, window: { id: "@1" } });
+  expect(delivery).toEqual({ submitted: true, started: true, window: { id: "w-1" } });
   // notify implies keeping the window: a notification you cannot look behind is half a feature.
   expect(notified.started[0]?.options).toEqual({
     keepOpen: true,
@@ -165,11 +152,11 @@ test("a command in the shell you are on is pasted and submitted; nowhere is a re
   const delivery: Delivery = Effect.runSync(
     deliverAction(
       here.sessions,
-      request({ action: { ...command, target: "active" }, explicitWindow: "@3", text: "bun test" }),
+      request({ action: { ...command, target: "active" }, explicitWindow: "w-3", text: "bun test" }),
     ).pipe(Effect.orElseSucceed(() => ({ submitted: false, started: false }))),
   );
-  expect(delivery.window).toEqual({ id: "@3", label: "tests" });
-  expect(here.calls).toEqual(["paste:@3:bun test", "submit:@3"]);
+  expect(delivery.window).toEqual({ id: "w-3", label: "tests" });
+  expect(here.calls).toEqual(["paste:w-3:bun test", "submit:w-3"]);
 
   const none = recording();
   const failure = Effect.runSync(

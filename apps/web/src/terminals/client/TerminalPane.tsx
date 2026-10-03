@@ -14,14 +14,20 @@ import {
   type ClipboardSelectionType,
 } from "@xterm/addon-clipboard";
 import { FitAddon } from "@xterm/addon-fit";
+import { SearchAddon } from "@xterm/addon-search";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { csiuFor, isNewWindowKey, type Platform } from "@corvi/terminals/model";
+import { shouldKeepSocket } from "./socketTarget.ts";
+
+/** How much scrollback the page keeps: as much as the server serializes, so a resume is whole. */
+const SCROLLBACK = 5000;
 
 /** Copy the terminal's selection to the system clipboard, or paste the clipboard back. The page
  * owns these chords because a terminal cannot: Ctrl+C is the interrupt, so copying keeps the
- * Shift the way every Linux terminal does, and a browser fires no paste shortcut for
- * Ctrl+Shift+V. Failures — a denied permission, a clipboard that will not answer — are silent:
- * the selection is still on screen. */
+ * Shift (Ctrl+Shift+C/V) or uses the platform's command key (Cmd on macOS, Super on Linux), and
+ * a browser fires no paste shortcut for Ctrl+Shift+V. Failures — a denied permission, a clipboard
+ * that will not answer — are silent: the selection is still on screen. */
 const copySelection = async (term: Terminal): Promise<void> => {
   const selection = term.getSelection();
   if (!selection) return;
@@ -33,17 +39,44 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
   if (text) term.paste(text);
 };
 
-/** The surface the sheet and xterm have to agree on: the terminal's background is `--well`
- * (apps/web/src/app-root/styles.css), and a second copy of the colour here is a copy that drifts. */
-const wellTone = (): string =>
-  getComputedStyle(document.documentElement).getPropertyValue("--well").trim();
+/** The end (exclusive) of a selection clamped to its last non-empty cell, or undefined when the
+ * selection covers only blank cells. xterm's range can run into empty rows when the drag goes past
+ * the content; trimming there keeps both the highlight and the copied text honest. */
+const clampSelectionEnd = (
+  term: Terminal,
+  start: { readonly x: number; readonly y: number },
+  end: { readonly x: number; readonly y: number },
+): { readonly x: number; readonly y: number } | undefined => {
+  const buffer = term.buffer.active;
+  for (let y = end.y; y >= start.y; y--) {
+    const line = buffer.getLine(y);
+    if (line === undefined) continue;
+    // `end` is exclusive: on the end row the selection stops before `end.x`; on an inner row it runs
+    // to the line's end.
+    const lastX = y === end.y ? end.x - 1 : line.length - 1;
+    for (let x = lastX; x >= (y === start.y ? start.x : 0); x--) {
+      const cell = line.getCell(x);
+      if (cell !== undefined && cell.getChars().trim() !== "") return { x: x + 1, y };
+    }
+  }
+  return undefined;
+};
 
-/** The provider the clipboard addon writes through. tmux sends its copies with the selection
- * field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as the clipboard; the addon
- * passes that through and the base provider would ignore it. A failure — a denied permission, a
- * clipboard that will not answer — is swallowed the way `copySelection` swallows its own: the
- * selection is still on screen, and the addon's promise goes back into xterm's parser, so the
- * input pipeline must not break. */
+/** A colour from the sheet's tokens (apps/web/src/app-root/styles.css): the terminal's surface
+ * must read as the app's, and a second copy of the palette here is a copy that drifts. */
+const themeColor = (name: string): string =>
+  getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+/** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
+ * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
+const SHOW_CURSOR = "\x1b[?25h";
+
+/** The provider the clipboard addon writes through. A program can send its copy as an OSC 52
+ * sequence with the selection field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as
+ * the clipboard; the addon passes that through and the base provider would ignore it. A failure —
+ * a denied permission, a clipboard that will not answer — is swallowed the way `copySelection`
+ * swallows its own: the selection is still on screen, and the addon's promise goes back into
+ * xterm's parser, so the input pipeline must not break. */
 class QuietClipboardProvider extends BrowserClipboardProvider {
   override writeText(selection: ClipboardSelectionType, text: string): Promise<void> {
     // Only the system clipboard exists here; an empty selection and `c` both mean it. (`p`, the
@@ -53,12 +86,30 @@ class QuietClipboardProvider extends BrowserClipboardProvider {
   }
 }
 
+/** The font size is a page preference, kept across reloads; a terminal that remembers the size
+ * you set is the least a native-feeling one does. */
+const FONT_SIZE_KEY = "corvi.terminal.fontSize";
+const FONT_SIZE_DEFAULT = 13;
+const FONT_SIZE_MIN = 8;
+const FONT_SIZE_MAX = 32;
+const readFontSize = (): number => {
+  try {
+    const value = Number(localStorage.getItem(FONT_SIZE_KEY));
+    return Number.isInteger(value) && value >= FONT_SIZE_MIN && value <= FONT_SIZE_MAX ? value : FONT_SIZE_DEFAULT;
+  } catch {
+    return FONT_SIZE_DEFAULT;
+  }
+};
+
 /**
- * The change's terminal: a pty attached to the change's tmux session, rendered by xterm.js in
- * the page itself.
+ * The change's terminal: a pty owned by the terminal host, rendered by xterm.js in the page
+ * itself.
  *
- * Which window you are in, and how to get to another, is the navigation column's job. This is
- * the terminal, the focus, and the new-window chord.
+ * Which window you are in, and how to get to another, is the navigation column's job. This is the
+ * terminal, the focus, and the new-window chord. The server owns the screen (a headless xterm fed
+ * every host byte, `apps/server/src/terminals/server/screen.ts`); this xterm is its renderer — the
+ * scrollback, selection, scrollbar, find and links are drawn here, and a connect replays the
+ * server's snapshot before the live bytes.
  *
  * The URL is fetched by the app on arrival rather than here, so opening the page does not wait
  * behind the dashboard's CLI calls for one of the browser's six connections.
@@ -66,6 +117,7 @@ class QuietClipboardProvider extends BrowserClipboardProvider {
 export function TerminalPane({
   changeId,
   url,
+  sessionId,
   error,
   visible,
   focusRequest,
@@ -75,6 +127,9 @@ export function TerminalPane({
 }: {
   changeId: string;
   url: string | null;
+  /** Which pane this shows: the socket attaches to that pane's own pty, and the pane reconnects
+   * when it changes. Absent means the change's active window's active pane. */
+  sessionId?: string | null;
   error: string | null;
   /** Whether this is the page in front: what to focus, when to connect, and when the
    * new-window chord belongs to us. */
@@ -94,18 +149,44 @@ export function TerminalPane({
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const fitAddon = useRef<FitAddon | null>(null);
+  const searchAddon = useRef<SearchAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
-  /** The URL the open socket belongs to: a different change needs a different pty. */
+  /** The change and window the open socket belongs to: a different change or tab needs a
+   * different pty. */
   const openedFor = useRef<string | null>(null);
   /** A resize that arrives while the socket is still connecting: sent as soon as it opens. */
   const pendingResize = useRef<{ cols: number; rows: number } | null>(null);
+  /** The host session id the **current** socket resolved to, from its own control frame's
+   * `sessionId`. A superseded socket's late frame must not claim it, so the message handler
+   * ignores frames from a socket that is no longer `socket.current`. */
+  const socketSession = useRef<string | null>(null);
+  /** Whether the current socket opened without naming a pane, so the server resolved the active
+   * one for it. Only then may a later target that names that same pane be treated as a rename
+   * rather than a switch: after a real switch, a same-named target is a fresh socket's job. */
+  const openedUnnamed = useRef(false);
+  /** The same id as state, so the view can say "attached" only while it matches the window the
+   * page names: a stale socket's claim drops in the very render the window changes. */
+  const [attached, setAttached] = useState<string | null>(null);
+  /** Reconnection: a bounded backoff while the server is down, stopped when the session itself is
+   * gone or the pane unmounts. */
+  const reconnectAttempt = useRef(0);
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  /** The session told the page it is gone: a close after this is final, not a server restart. */
+  const sessionGone = useRef(false);
+  /** Bumped to trigger a reconnect attempt after the backoff. */
+  const [reconnect, setReconnect] = useState(0);
   /** Bumped when the terminal instance is recreated, so the socket effect reconnects after its
    * cleanup closed the old connection (a platform change, if one ever comes). */
   const [generation, setGeneration] = useState(0);
+  const [fontSize, setFontSize] = useState<number>(readFontSize);
+  const [findOpen, setFindOpen] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
-  // a killed tmux server does. The window list going empty and staying empty is what that looks
-  // like from here; waiting a moment tells "starting" from "lost".
+  // a killed server does. The window list going empty and staying empty is what that looks like
+  // from here; waiting a moment tells "starting" from "lost".
   const [lostWhileOpen, setLostWhileOpen] = useState(false);
   useEffect(() => {
     if (!visible || windows > 0) {
@@ -116,33 +197,57 @@ export function TerminalPane({
     return () => clearTimeout(timer);
   }, [visible, windows]);
 
-  // The xterm instance, once: it owns the screen for as long as the pane is mounted. The
-  // session behind it is the socket's (below), so hiding the pane keeps the shells running.
+  // The xterm instance, once: it owns the screen for as long as the pane is mounted. The session
+  // behind it is the socket's (below), so hiding the pane keeps the shells running.
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (reconnectTimer.current !== null) clearTimeout(reconnectTimer.current);
+    };
+  }, []);
+
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     const term = new Terminal({
-      // tmux owns scrolling (mouse on), and it repaints in place rather than scrolling the outer
-      // terminal: xterm's own scrollback is never what you scroll, and the scrollbar would only
-      // be an empty bar down the right edge.
-      scrollback: 0,
-      fontSize: 13,
+      // xterm owns the screen now: the scrollback is real, and the scrollbar comes with it.
+      scrollback: SCROLLBACK,
+      fontSize: readFontSize(),
+      // A cursor you can find: xterm draws an outline when the terminal is not focused and takes
+      // the cursor colour from the foreground, which disappears over a like-coloured cell. A
+      // filled block in both states, in the sheet's text colour with the well under it, is visible
+      // wherever it sits.
+      cursorBlink: true,
+      cursorStyle: "block",
+      cursorInactiveStyle: "block",
       // The terminal is the deepest surface the app has, and the sheet owns it: xterm takes the
-      // background from the same `--well` token (apps/web/src/app-root/styles.css) rather than a second copy
-      // of the colour here, which is the kind of pair that drifts.
-      theme: { background: wellTone(), foreground: "#e6edf3" },
-      // With tmux's mouse mode on, the mouse belongs to tmux and a plain drag never reaches
-      // xterm: it is tmux's selection, which lands on the system clipboard on its own (the
-      // addon loaded below). Option-drag hands it back to xterm for xterm's own selection, the
-      // only way to get one on macOS.
+      // background from the same `--well` token (apps/web/src/app-root/styles.css) rather than a
+      // second copy of the colour here, which is the kind of pair that drifts.
+      theme: {
+        background: themeColor("--well"),
+        foreground: "#e6edf3",
+        cursor: themeColor("--text"),
+        cursorAccent: themeColor("--well"),
+      },
+      // Option-drag forces xterm's own selection where a full-screen program has enabled mouse
+      // reporting and would otherwise swallow the drag; a program inside the shell can turn
+      // reporting on itself.
       macOptionClickForcesSelection: platform === "mac",
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
-    // tmux sends its own copies — a drag, a double click, an explicit copy — to the terminal as
-    // an OSC 52 sequence; xterm ignores it without this addon, which writes the system clipboard
-    // (the tmux side is `set-clipboard on` in tmux.ts).
+    // A program (or a login script) can send its copy as OSC 52; xterm ignores it without this
+    // addon, which writes the system clipboard.
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
+    const search = new SearchAddon();
+    term.loadAddon(search);
+    // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection.
+    term.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        if (event.ctrlKey || event.metaKey) window.open(uri, "_blank", "noopener");
+      }),
+    );
     term.open(element);
     try {
       // Chromium composites hardware-accelerated (the reason for the Electron host); where it
@@ -158,29 +263,88 @@ export function TerminalPane({
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(chunk));
     });
+    // A selection dragged into empty rows ends at the last non-empty cell: xterm's range can run
+    // into blanks, so clamp it on every change (both the highlight and `getSelection()` come from
+    // the range). Mid-drag each move clamps its own trailing blanks and dragging back still works;
+    // `clamping` stops the re-entrant change our own `select` fires.
+    let clamping = false;
+    const selection = term.onSelectionChange(() => {
+      if (clamping) return;
+      const position = term.getSelectionPosition();
+      if (position === undefined) return;
+      const end = clampSelectionEnd(term, position.start, position.end);
+      if (end === undefined || (end.x === position.end.x && end.y === position.end.y)) return;
+      const length = (end.y - position.start.y) * term.cols + (end.x - position.start.x);
+      if (length <= 0) return;
+      clamping = true;
+      try {
+        term.select(position.start.x, position.start.y, length);
+      } finally {
+        clamping = false;
+      }
+    });
     terminal.current = term;
     fitAddon.current = fit;
+    searchAddon.current = search;
+    // The page tests read the buffer through the host element: xterm's WebGL canvas has no DOM
+    // text to read, and the buffer is what the page's tests read.
+    (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal = term;
     setGeneration((n) => n + 1);
     return () => {
       input.dispose();
+      selection.dispose();
       socket.current?.close();
       socket.current = null;
       openedFor.current = null;
       pendingResize.current = null;
+      delete (element as HTMLElement & { corviTerminal?: Terminal }).corviTerminal;
+      socketSession.current = null;
+      openedUnnamed.current = false;
       term.dispose();
       terminal.current = null;
       fitAddon.current = null;
+      searchAddon.current = null;
     };
   }, [platform]);
+
+  // The font size can change without rebuilding the terminal, which would lose the screen.
+  useEffect(() => {
+    const term = terminal.current;
+    if (term) {
+      term.options.fontSize = fontSize;
+      fitAddon.current?.fit();
+    }
+    try {
+      localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
+    } catch {
+      // private mode: the size is just not remembered
+    }
+  }, [fontSize]);
 
   // One socket, when the terminal is first shown and the URL is known. The fit happens before
   // the connect: the first size the shell sees is the right one, so switching to the terminal
   // is not a resize every full-screen program has to redraw for.
   useLayoutEffect(() => {
-    // Another change's URL (or none yet): the open pty belongs to the old change.
-    if (socket.current && openedFor.current !== url) {
-      socket.current.close();
-      socket.current = null;
+    // The URL names the change, the id names the pane: a different change or a different tab
+    // needs a different pty. The server keeps the screen of the one being left.
+    const target = `${url ?? ""}#${sessionId ?? ""}`;
+    if (socket.current && openedFor.current !== target) {
+      // Only the unnamed first connect may be renamed: the server resolved the active pane for it,
+      // and the window list then names that same pane, so a reconnect would drop keystrokes in the
+      // gap. Any other change is a switch to a different pane, and only a fresh socket can be
+      // trusted to have resolved it — a stale socket's `sessionId` (rapid A → B → A) is not
+      // evidence that this socket serves A.
+      const kept = shouldKeepSocket({
+        unnamed: openedUnnamed.current,
+        resolved: socketSession.current,
+        sessionId,
+      });
+      if (kept) {
+        openedFor.current = target;
+      } else {
+        socket.current.close();
+        socket.current = null;
+      }
     }
     if (!url || !visible) return;
     const term = terminal.current;
@@ -189,29 +353,74 @@ export function TerminalPane({
     if (socket.current) return;
     fit.fit();
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
-    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}`);
+    const windowQuery = sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
+    const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
+    ws.binaryType = "arraybuffer";
     ws.onmessage = (event: MessageEvent) => {
-      // Output only: the server never sends a control frame.
-      if (typeof event.data === "string") term.write(event.data);
+      if (socket.current !== ws) return; // a superseded socket: its screen is not this pane's
+      if (typeof event.data === "string") {
+        let value: { type?: unknown; data?: unknown; sessionId?: unknown };
+        try {
+          value = JSON.parse(event.data) as typeof value;
+        } catch {
+          return;
+        }
+        if (typeof value.sessionId === "string") {
+          socketSession.current = value.sessionId;
+          setAttached(value.sessionId);
+        }
+        if (value.type === "reset") {
+          // No screen yet: a fresh terminal, then the live bytes.
+          term.reset();
+          term.write(SHOW_CURSOR);
+        } else if (value.type === "snapshot" && typeof value.data === "string") {
+          // The server's screen, replayed into a fresh terminal, then the live bytes after it.
+          term.reset();
+          term.write(value.data);
+        } else if (value.type === "exit") {
+          // The session is gone: the close that follows is final, not a restart to retry.
+          sessionGone.current = true;
+        }
+        return;
+      }
+      // Raw output, binary: the live bytes the snapshot resumed from.
+      const bytes = event.data instanceof ArrayBuffer ? new Uint8Array(event.data) : new Uint8Array(event.data as ArrayBufferLike);
+      term.write(bytes);
     };
     // A resize that happened while this socket was connecting was queued; the shell starts at
     // the size it now has.
     ws.onopen = () => {
+      if (socket.current !== ws) return; // a superseded socket
+      // A live connection resets the backoff and clears any earlier "gone" answer.
+      reconnectAttempt.current = 0;
+      sessionGone.current = false;
       if (!pendingResize.current) return;
       ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
       pendingResize.current = null;
     };
-    // A socket that closes (its session died, the server restarted) is forgotten, so hiding and
-    // showing the pane again reconnects to a fresh pty.
+    // A socket that closes (its session died, the server restarted) is forgotten. The next
+    // connection starts with the server's snapshot; a server restart is retried with a bounded
+    // backoff, a session that says it is gone is not.
     ws.onclose = () => {
-      if (socket.current === ws) socket.current = null;
+      if (socket.current !== ws) return; // a superseded socket (another change's URL)
+      socket.current = null;
+      socketSession.current = null;
+      setAttached(null);
       pendingResize.current = null;
+      if (sessionGone.current || !mounted.current) return;
+      reconnectAttempt.current = Math.min(reconnectAttempt.current + 1, 6);
+      const delay = Math.min(500 * 2 ** (reconnectAttempt.current - 1), 5000);
+      reconnectTimer.current = setTimeout(() => {
+        if (mounted.current) setReconnect((n) => n + 1);
+      }, delay);
     };
     socket.current = ws;
-    openedFor.current = url;
+    openedFor.current = target;
+    socketSession.current = null;
+    openedUnnamed.current = sessionId === undefined || sessionId === null;
     // Deliberately no cleanup: hiding the pane (the dashboard, another change's page) must keep
-    // the tmux client attached, which is what leaves the shells running.
-  }, [url, visible, generation]);
+    // the host client attached, which is what leaves the shells running.
+  }, [url, sessionId, visible, generation, reconnect]);
 
   // A shown or resized pane re-fits, and tells the pty. Before paint, so the grid and the shell
   // agree by the time the frame is visible.
@@ -237,9 +446,7 @@ export function TerminalPane({
     return () => observer.disconnect();
   }, []);
 
-  // Middle-click pastes the system clipboard, the way a Linux terminal does. With mouse mode on
-  // xterm would report the click to tmux, whose MouseDown2Pane pastes tmux's own buffer instead;
-  // capture on the host stops the event before xterm's listener on the inner element.
+  // Middle-click pastes the system clipboard, the way a Linux terminal does.
   useEffect(() => {
     const element = host.current;
     if (!element) return;
@@ -256,22 +463,44 @@ export function TerminalPane({
     return () => element.removeEventListener("mousedown", onDown, true);
   }, []);
 
-  // The keys xterm cannot encode are sent by the page itself, and the clipboard chords are the
-  // page's too. Capture phase, ahead of xterm's own textarea handler, which would send a plain
-  // carriage return for the one and a control byte for the other.
+  // The keys xterm cannot encode are sent by the page itself, and the clipboard, find and
+  // font-size chords are the page's too. Capture phase, ahead of xterm's own textarea handler,
+  // which would send a plain carriage return for the one and a control byte for the other.
   useEffect(() => {
     const element = host.current;
     if (!element) return;
     const onKey = (e: KeyboardEvent): void => {
       const term = terminal.current;
       if (!term) return;
-      // Swallowed even when there is nothing to copy or paste: a Shift chord must never turn
-      // into the control byte it would be without the Shift.
-      if (e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey && (e.code === "KeyC" || e.code === "KeyV")) {
+      // Copy and paste are the page's: Ctrl+Shift+C/V everywhere, the platform's command key
+      // (Cmd on macOS, Super on Linux), and the Linux terminal convention Ctrl+Insert / 
+      // Shift+Insert — which is what a compositor's "universal clipboard" sends a window it treats
+      // as a terminal. Swallowed even when there is nothing to copy or paste, so a shifted chord
+      // never turns into the control byte it would be without it, and the shell keeps plain Ctrl+C
+      // as the interrupt.
+      const commandChord =
+        !e.altKey && ((e.ctrlKey && e.shiftKey && !e.metaKey) || (e.metaKey && !e.ctrlKey && !e.shiftKey));
+      const copy = (commandChord && e.code === "KeyC") || (e.code === "Insert" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey);
+      const paste = (commandChord && e.code === "KeyV") || (e.code === "Insert" && e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey);
+      if (copy || paste) {
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (e.code === "KeyC") void copySelection(term);
+        if (copy) void copySelection(term);
         else void pasteClipboard(term);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.code === "KeyF") {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        setFindOpen(true);
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && (e.code === "Minus" || e.code === "Equal" || e.code === "Digit0")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.code === "Digit0") setFontSize(FONT_SIZE_DEFAULT);
+        else if (e.code === "Minus") setFontSize((n) => Math.max(FONT_SIZE_MIN, n - 1));
+        else setFontSize((n) => Math.min(FONT_SIZE_MAX, n + 1));
         return;
       }
       const sequence = csiuFor(e);
@@ -300,30 +529,136 @@ export function TerminalPane({
   // Opening it should be enough to start typing — and so should closing anything that took the
   // keyboard away, which is what `focusRequest` counts.
   useEffect(() => {
-    if (visible) terminal.current?.focus();
-  }, [visible, url, focusRequest]);
+    if (visible && !findOpen) terminal.current?.focus();
+  }, [visible, url, focusRequest, findOpen]);
 
+  // The page's own menu: a right click belongs to the page, not the browser (a terminal has
+  // nothing to Inspect), and it holds what a terminal's menu holds.
   const onContextMenu = useCallback((e: ReactMouseEvent): void => {
-    // A right click is tmux's: with mouse mode on, the pty reports it to the pane and tmux draws
-    // its own menu in the grid. The browser does not know that happened and would show its own
-    // over it regardless — there is nothing in a terminal to Inspect Element on, so it is
-    // switched off rather than merely out of the way.
     e.preventDefault();
+    setMenu({ x: e.clientX, y: e.clientY });
   }, []);
+
+  // Anywhere else dismisses the menu. The menu stops propagation on its own pointerdown, so a
+  // click on an item runs before this sees it.
+  useEffect(() => {
+    if (!menu) return;
+    const close = (): void => setMenu(null);
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("blur", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("blur", close);
+    };
+  }, [menu]);
+
+  const closeMenu = useCallback((): void => {
+    setMenu(null);
+    terminal.current?.focus();
+  }, []);
+
+  const runFromMenu = useCallback((action: () => void): void => {
+    setMenu(null);
+    action();
+    terminal.current?.focus();
+  }, []);
+
+  const closeFind = useCallback((): void => {
+    setFindOpen(false);
+    setFindText("");
+    searchAddon.current?.clearDecorations();
+    terminal.current?.focus();
+  }, []);
+
+  const selection = terminal.current?.getSelection().trim() ?? "";
+  const selectionIsUrl = /^https?:\/\/\S+$/i.test(selection);
 
   return (
     <div className="terminal">
       {lostWhileOpen && (
         <div className="terminal-gone">
-          The tmux session for this change is gone: the shells in it, and anything that was
+          The terminal session for this change is gone: the shells in it, and anything that was
           running in them, are lost. Reload this page to start a fresh session.
         </div>
       )}
       {error && <div className="error-banner">{error}</div>}
       {!url && !error && <p className="hint">starting terminal…</p>}
+      {findOpen && (
+        <div className="terminal-find">
+          <input
+            autoFocus
+            value={findText}
+            placeholder="Find"
+            aria-label="Find in terminal"
+            onChange={(e) => {
+              setFindText(e.target.value);
+              searchAddon.current?.findNext(e.target.value, { incremental: true });
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) searchAddon.current?.findPrevious(findText);
+                else searchAddon.current?.findNext(findText);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                closeFind();
+              }
+            }}
+          />
+        </div>
+      )}
       {/* No tooltip: the window's own row already says which change's terminal this is, and a
           floating "terminal for …" over the grid is in the way of reading it. */}
-      <div ref={host} className="terminal-screen" hidden={!url} onContextMenu={onContextMenu} />
+      <div
+        ref={host}
+        className="terminal-screen"
+        hidden={!url}
+        // The pane is attached only while the open socket is for the window the page currently
+        // names (or the page names none and the server resolved one): the tests' readiness gate
+        // must not pass on the socket a window switch is about to replace.
+        data-attached={attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId) ? "1" : undefined}
+        onContextMenu={onContextMenu}
+      />
+      {menu && (
+        <div
+          className="terminal-menu"
+          role="menu"
+          style={{ left: menu.x, top: menu.y }}
+          onContextMenu={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <button role="menuitem" onClick={() => runFromMenu(() => void copySelection(terminal.current!))}>
+            Copy
+          </button>
+          <button role="menuitem" onClick={() => runFromMenu(() => void pasteClipboard(terminal.current!))}>
+            Paste
+          </button>
+          <button role="menuitem" onClick={() => runFromMenu(() => terminal.current?.selectAll())}>
+            Select all
+          </button>
+          <button role="menuitem" onClick={() => runFromMenu(() => terminal.current?.clear())}>
+            Clear
+          </button>
+          <button
+            role="menuitem"
+            onClick={() =>
+              runFromMenu(() => {
+                setFindOpen(true);
+                setFindText("");
+              })
+            }
+          >
+            Find
+          </button>
+          <button
+            role="menuitem"
+            disabled={!selectionIsUrl}
+            onClick={() => runFromMenu(() => void window.open(selection, "_blank", "noopener"))}
+          >
+            Open link
+          </button>
+        </div>
+      )}
     </div>
   );
 }

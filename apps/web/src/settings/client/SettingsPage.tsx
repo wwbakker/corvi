@@ -498,7 +498,7 @@ export function SettingsPage({
         <div className="form">
           <CheckField
             label="Right-click menu"
-            hint="The browser's own menu over the page: copy, paste, and — in a checkout — the inspector. Off leaves right-click to the page, which is what a browser would then not show either. The terminal is unaffected: its menu is tmux's."
+            hint="The browser's own menu over the page: copy, paste, and — in a checkout — the inspector. Off leaves right-click to the page, which is what a browser would then not show either. The terminal's own menu (copy, paste, find, links) follows this too."
             // Shown is the default, so an absent key reads as on (see the note at the top of this
             // file on flags and JSON).
             checked={value("contextMenu") ?? inherited("contextMenu") ?? true}

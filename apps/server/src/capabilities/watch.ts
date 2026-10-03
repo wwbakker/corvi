@@ -40,7 +40,7 @@ export const forgetWatchedNews = (event: EventName): void => {
 /** One channel of the watcher: read, drop consecutive duplicates (including consecutive failed
  * reads, which `Stream.changes` folds together), and say the event name when there is news.
  *
- * A read that fails — no tmux server yet, a change being written as we look — is not news: it
+ * A read that fails — no host yet, a change being written as we look — is not news: it
  * arrives as `Option.none()`, which the stream drops, and the next tick will find it. */
 const channel = (
   event: EventName,
@@ -67,9 +67,9 @@ const channel = (
   );
 
 /**
- * The windows tick: one tmux read per interval, used for two things. The serialized read is the
+ * The windows tick: one windows read per interval, used for two things. The serialized read is the
  * `windows` event. The attention edges are computed against the previous successful read — keyed
- * by tmux window id, because reordering the tabs changes indices and an index-keyed diff would
+ * by window id, because reordering the tabs changes indices and an index-keyed diff would
  * report a window that merely moved — and only the edge into "wants you" is news. The state
  * lives in the watcher run, like `last`: a fresh watcher only seeds the picture, so a server
  * that has just started (or a page that has just connected) does not announce every waiting
@@ -81,7 +81,7 @@ const windowsNews = (state: Attention): Stream.Stream<News> =>
   Stream.repeatEffectWithSchedule(
     Effect.gen(function* () {
       const read = yield* Effect.exit(allWindows());
-      if (!Exit.isSuccess(read)) return []; // no tmux yet, or a read being written as we look
+      if (!Exit.isSuccess(read)) return []; // no host yet, or a read being written as we look
       const windows = read.value;
       const news: News[] = [];
       const serialized = JSON.stringify(windows);
@@ -120,7 +120,7 @@ const windowsNews = (state: Attention): Stream.Stream<News> =>
   ).pipe(Stream.flatMap((news) => Stream.fromIterable(news)));
 
 /**
- * Watch the cheap, local things: the change files, and what tmux has. Neither costs a network
+ * Watch the cheap, local things: the change files, and what the windows are. Neither costs a network
  * call, so this runs while anyone is connected and stops when nobody is. `sink` is the
  * transport's broadcast; the effect runs until it is interrupted.
  *

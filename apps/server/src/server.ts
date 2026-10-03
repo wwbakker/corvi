@@ -7,7 +7,7 @@ import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { identityRoutes } from "./app-root/identity.ts";
-import { removeInstanceRecord, writeInstanceRecord } from "./app-root/instance.ts";
+import { pruneInstanceRecords, removeInstanceRecord, writeInstanceRecord } from "./app-root/instance.ts";
 import { actionsRoutes } from "./actions/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
@@ -22,15 +22,15 @@ import {
   startUpdateChecks,
   type AppUpdateOptions,
 } from "./app-update/update.ts";
-import { terminalSockets, closeAttachments, type TerminalSocket } from "./terminals/server/session.ts";
+import { terminalSockets, closeAttachments, flushScreens, type TerminalSocket } from "./terminals/server/session.ts";
+import { loadSnapshots } from "./terminals/server/snapshots.ts";
 import { migrateStoredRecords } from "@corvi/changes/node";
 import { changePairs } from "./change/server/store.ts";
 import { putCliOnPath } from "./capabilities/env.ts";
 import { commandAvailable } from "./capabilities/os.ts";
 import { ID, env } from "@corvi/configuration/node";
 
-// The CLI on PATH for every shell this server starts (see the function's own comment on why
-// this — and not a session environment entry — is what reaches a tmux pane). The checkout is
+// The CLI on PATH for every session this server starts (see the function's own comment). The checkout is
 // where this server's own code lives — derived from this file, not the cwd: every documented
 // launch sets the cwd too, but only this cannot be wrong. Before the first client is spawned
 // anywhere below.
@@ -42,6 +42,10 @@ putCliOnPath(resolve(import.meta.dirname, "../../.."), commandAvailable("corvi")
 const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
+
+// The server-owned screens persisted by the last run, loaded before the watcher or any page can
+// prune them: this is what keeps deep scrollback across a Corvi restart.
+loadSnapshots();
 
 // One sweep of the record formats at startup: a change.json still in format 1 is projected to
 // the current one before the first request. Reported and never fatal — every read migrates
@@ -70,8 +74,9 @@ setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).
 let instancePort: number | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
-    // The server takes its pty attachments with it; the tmux sessions (and the shells in them)
-    // stay for the next server.
+    // Flush the screens to the store before the server takes its pty attachments with it; the host
+    // sessions (and the shells in them) stay for the next server.
+    flushScreens();
     closeAttachments();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())
@@ -111,6 +116,9 @@ const server = await serve<TerminalSocket>({
 });
 
 instancePort = server.port;
+// Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the
+// readiness line and immediately looks for the record sees only live servers to probe.
+await pruneInstanceRecords();
 // Before the readiness line, so a client that reads the line and immediately looks for the
 // record cannot lose the race.
 await writeInstanceRecord(server.url.toString(), server.port);

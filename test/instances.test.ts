@@ -4,7 +4,7 @@ import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 /**
  * Two application instances share nothing: each has its own changes root, config, built page,
- * cache file and tmux socket (`serverEnv`), and stopping one must not take the other's resources
+ * cache file (`serverEnv`), and stopping one must not take the other's resources
  * with it. This is the scoped-shutdown guarantee the runtime ownership work is about, proved at
  * the process boundary — the only place two instances can genuinely be observed.
  */

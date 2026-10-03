@@ -22,7 +22,7 @@ type Keyish = {
 };
 
 export const isNewWindowKey = (e: Keyish, platform: Platform): boolean => {
-  // macOS: cmd-t, with ctrl and alt excluded so tmux's ctrl-b chords stay tmux's.
+  // macOS: cmd-t, with ctrl and alt excluded so the shell's control chords stay the shell's.
   const cmd = e.metaKey && !e.ctrlKey && !e.altKey;
   // ctrl-alt rather than meta on Linux: Super is the window manager's, and a keydown that
   // reaches the page with it held is a coin toss.
@@ -34,9 +34,9 @@ export const isNewWindowKey = (e: Keyish, platform: Platform): boolean => {
  * Modifiers are a bitfield above 1: shift 1, alt 2, ctrl 4.
  *
  * xterm.js encodes Enter as a plain carriage return whatever modifier is held — it implements
- * neither the legacy encoding for shift-Enter nor the modern one — so the sequence is sent by
- * the page itself, over tmux's `extended-keys = csi-u`. Plain Enter, alt-Enter and anything
- * with the command key are left to xterm, which encodes those correctly. */
+ * neither the legacy encoding for shift-Enter nor the modern one — so the page sends the sequence
+ * itself. Plain Enter, alt-Enter and anything with the command key are left to xterm, which
+ * encodes those correctly. */
 const CSI_U: Record<string, string> = {
   "shift": "\x1b[13;2u",
   "ctrl": "\x1b[13;5u",
@@ -49,13 +49,34 @@ export const csiuFor = (e: Keyish): string | undefined => {
   return CSI_U[held];
 };
 
-/** The pane options a window set by Corvi's command wrapper carries: what it is running, how it
+/** The window facts a window set by Corvi's command wrapper carries: what it is running, how it
  * ended, and whether its ending wants the user. This vocabulary is the terminal package's own —
  * as `@agent_status` is the agents package's — so the wrapper that writes it and the presenter
  * that reads it share these names and nobody hardcodes a spelling.
  *
- * tmux keeps them with the pane: a pane that dies for good takes them along (a crashed run
- * leaves nothing stale), and one kept by `remain-on-exit` holds them for the presenter. */
+ * The host keeps them with the session: a session that ends takes them along (a crashed run
+ * leaves nothing stale), and a kept window holds them for the presenter. */
 export const COMMAND_ACTION_OPTION = "@corvi_action";
 export const COMMAND_EXIT_OPTION = "@corvi_exit";
 export const COMMAND_NOTIFY_OPTION = "@corvi_notify";
+
+/** One command's outcome, as the process layer reports it. Exit codes are data: a missing host
+ * or a killed session are normal answers here. */
+export type CommandFailure = {
+  readonly message: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+};
+
+/** What a window running one command does when it ends. `keepOpen` freezes it over its output
+ * instead of closing it with the command; `announce` records what ran and how it ended, with
+ * `notify` marking the ending as wanting the user. `cwd` forces the working directory (a subagent
+ * runs in its own directory). */
+export type NewWindowOptions = {
+  readonly keepOpen?: boolean;
+  readonly announce?: {
+    readonly label: string;
+    readonly notify: boolean;
+  };
+  readonly cwd?: string;
+};

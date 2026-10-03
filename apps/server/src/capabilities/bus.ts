@@ -85,7 +85,7 @@ export function announce(event: EventName): void {
  *
  * The request is needed, not just its response: a closed tab is an *aborted request*, and the
  * stream's own `cancel` is not called for it. Without listening to the signal the client is
- * never forgotten, and the watcher keeps looking at the disk and at tmux twice a second for
+ * never forgotten, and the watcher keeps looking at the disk and at the windows twice a second for
  * browsers closed long ago. The abort listener and the client fiber's scope finalization both
  * forget the client, so either path alone is enough.
  */
@@ -154,7 +154,7 @@ export const events = (req: Request): Effect.Effect<Response> =>
   });
 
 /** Who is listening and whether the server is therefore looking. Exposed for the test that the
- * watcher stops: a process quietly polling the disk and tmux twice a second for a browser closed
+ * watcher stops: a process quietly polling the disk and the windows twice a second for a browser closed
  * this morning is the failure worth guarding against. */
 export const watchState = (): { listeners: number; watching: boolean } => ({
   listeners: clients.size,

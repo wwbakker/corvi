@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
 
 /**
  * The auto-update surface in the engine the app renders in: the notice, the icon, and the
@@ -46,6 +46,7 @@ afterAll(async () => {
   await closePages(browser, "update");
   await browser?.close();
   server?.kill();
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

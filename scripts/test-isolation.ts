@@ -24,9 +24,8 @@ import { join } from "node:path";
 
 /** The names whose "else" case is a real directory in someone's home — exactly what the
  * `bun run test` wrapper exports, and nothing more: tests pin behaviour that depends on the
- * rest being unset (the tmux socket defaults to `-L corvi`, and a complete-flow test asserts
- * that exact command). Sockets and caches are the fixtures' job (`serverEnv`, `tmuxTempDir`),
- * as docs/guides/testing.md prescribes. */
+ * rest being unset. Caches are the fixtures' job (`serverEnv`), as docs/guides/testing.md
+ * prescribes. */
 const ISOLATED = [
   "CORVI_CONFIG",
   "CORVI_ROOT",

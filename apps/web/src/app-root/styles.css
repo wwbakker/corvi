@@ -1692,12 +1692,61 @@ button.create:hover:not(:disabled) {
   height: 100%;
 }
 
-/* xterm's stylesheet keeps `overflow-y: scroll` on the viewport whatever the scrollback is: on
-   a machine that shows scrollbars always, that is a pale empty bar down the right of the
-   terminal, and the fit addon reserves its width. tmux owns scrolling (mouse on) and the
-   scrollback is 0, so there is nothing here to scroll. */
-.terminal-screen .xterm .xterm-viewport {
-  overflow-y: hidden;
+/* The page's own menu: positioned at the click, above xterm's layers. */
+.terminal-menu {
+  position: fixed;
+  z-index: 40;
+  min-width: 160px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+}
+
+.terminal-menu button {
+  text-align: left;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  cursor: default;
+}
+
+.terminal-menu button:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.terminal-menu button:disabled {
+  color: color-mix(in srgb, var(--text) 40%, transparent);
+}
+
+/* The find bar floats over the top of the terminal; Escape or a click elsewhere closes it. */
+.terminal-find {
+  position: absolute;
+  top: 6px;
+  right: 18px;
+  z-index: 30;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.terminal-find input {
+  width: 220px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--well);
+  color: var(--text);
+  font-size: 13px;
 }
 
 /* The shells are gone but the frame is not: said plainly, so a broken terminal is not mistaken

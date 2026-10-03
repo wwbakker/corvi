@@ -17,14 +17,8 @@ let url: string;
 
 beforeAll(async () => {
   tmp = await testTempDir("events");
-  // A tmux of its own, or none. The host's default socket carries the app's own `corvi-*`
-  // sessions, and the watcher would read their windows and say `windows` in the middle of a
-  // test — a terminal that is none of this test's business. Its own TMUX_TMPDIR, with the
-  // inherited TMUX removed, leaves `tmux list-windows` nothing to find. The directory must
-  // exist: tmux ignores a TMUX_TMPDIR it cannot enter and falls back to the default socket.
-  // Both come from serverEnv, which also gives the server port 0: the OS picks a free one,
-  // so parallel workers never land on the same port, and readiness is the server's own
-  // `corvi on <url>` line rather than a poll.
+  // serverEnv gives the server port 0: the OS picks a free one, so parallel workers never land on
+  // the same port, and readiness is the server's own `corvi on <url>` line rather than a poll.
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     env: serverEnv(tmp),
     stdout: "pipe",
@@ -161,7 +155,7 @@ test("the watcher runs while a page is listening, and stops when it goes", async
 
   await stop();
   // Asked of the server, because the point is that the process is not looking at the disk and at
-  // tmux twice a second for a browser that has been closed since this morning. `stop` waited for
+  // the windows twice a second for a browser that has been closed since this morning. `stop` waited for
   // the listener to be forgotten, and the watcher is ref-counted by that set: it stops with the
   // last client.
   expect(await listeners()).toEqual({ listeners: 0, watching: false });

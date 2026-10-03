@@ -223,7 +223,6 @@ const completionShell = (opts: CompletionShellOptions): FakeShell =>
     if (line.startsWith("gh repo view")) return "";
     if (line.startsWith("gh pr merge")) return opts.merge ?? { code: 0 };
     if (line.startsWith("git worktree remove --force")) return "";
-    if (line.startsWith("tmux ")) return "";
     return undefined;
   });
 
@@ -384,11 +383,13 @@ test("completeChange: every step is journaled as it runs and the change is archi
   // The record moved into the archive, journal and all.
   expect(await Bun.file(join(changeDir(change), "change.json")).exists()).toBe(false);
   expect((await runEffect(readChange(change.id)))?.state).toBe("Completed");
-  // Every command went through the scripted seam — no real CLI, server or tmux.
+  // Every command went through the scripted seam — no real CLI or server.
   const asked = (shell.calls as ShellCall[]).map((c) => c.cmd.join(" "));
   expect(asked).toContain(`gh pr merge 7 --squash`);
   expect(asked.some((line) => line.startsWith("git worktree remove --force"))).toBe(true);
-  expect(asked).toContain(`tmux -L corvi kill-session -t corvi-${change.id}`);
+  // The terminal step is a host-session stop, which does not go through the shell seam: the host
+  // owns the ptys, so there is no command to observe here. The stop itself is asserted against a
+  // real host through the lifecycle service in test/windowRegistryHost.test.ts.
 });
 
 test("contentInMain: contained, cherry-equivalent, and missing content", async () => {

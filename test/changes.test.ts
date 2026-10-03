@@ -16,7 +16,7 @@ import { repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../apps/se
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
 import { Effect } from "effect";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
+import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import { checkoutsOf, runEffect, runSetRepos, runSh, withRuntimeConfig  } from "./helpers.ts";
 
@@ -326,7 +326,7 @@ test("the overview counts windows that are running something, not windows", asyn
   // Busy is a presented fact now: the merge in terminals/server/presenter.ts says which windows
   // are work.
   const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
-  const busy = (over: Partial<TmuxWindow>): boolean =>
+  const busy = (over: Partial<RawWindow>): boolean =>
     presentWindow({
       index: 0,
       id: "@1",
@@ -337,6 +337,8 @@ test("the overview counts windows that are running something, not windows", asyn
       directory: "",
       named: false,
       options: {},
+      panes: ["@1"],
+      activePane: "@1",
       ...over,
     }).busy;
   // A prompt is not work; a build, an editor and a server are.
@@ -345,7 +347,7 @@ test("the overview counts windows that are running something, not windows", asyn
     busy({ command: "-zsh" }),
     busy({ command: "nvim" }),
     busy({ command: "gradle" }),
-    busy({}), // no session, or tmux told us nothing
+    busy({}), // no session, or the window told us nothing
   ]).toEqual([false, false, true, true, false]);
 
   // An agent says what it is doing, and is believed: an agent at its prompt is `node`, which would
@@ -372,8 +374,10 @@ test("an agent's own account of itself is read from the @agent_status pane optio
       directory: "example-api",
       named: false,
       options,
+      panes: ["@1"],
+      activePane: "@1",
     });
-  // What an agent's reporter sets with `tmux set -p @agent_status ...`.
+  // What an agent's reporter publishes as the `@agent_status` fact.
   expect(presented({ "@agent_status": "working" })).toMatchObject({ label: "example-api - (agent working)", icon: "agent", state: "ok" });
   expect(presented({ "@agent_status": "waiting" })).toMatchObject({ label: "example-api - (agent waiting)", icon: "agent", state: "idle" });
   // The reporter also says who it is, and the name goes in the label.
@@ -423,17 +427,6 @@ test("the icons take the worst of what the repositories say", async () => {
   // Nothing to say is its own state: a change without pull requests has no builds, not green.
   expect(worst([])).toBe("none");
   expect(worst(["none"])).toBe("none");
-});
-
-test("every change's windows come back from one call, and other sessions are not ours", async () => {
-  const { changeOfSession } = await import("../apps/server/src/terminals/server/index.ts");
-  // The navigation column lists the terminals of every change at once; asking tmux per change
-  // would be a process per change every few seconds.
-  expect(changeOfSession("corvi-PROJ-1")).toBe("PROJ-1");
-  expect(changeOfSession("corvi-PROJ-1671-2")).toBe("PROJ-1671-2");
-  // Sessions you started yourself are left alone, and not shown as terminals of a change.
-  expect(changeOfSession("work")).toBeUndefined();
-  expect(changeOfSession("")).toBeUndefined();
 });
 
 test("a change belongs to the context it was made in, and older ones to the first", async () => {

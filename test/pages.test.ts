@@ -55,7 +55,7 @@ beforeAll(async () => {
   await runSh(["git", "add", "."], repo);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
-  // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
+  // serverEnv gives the file its own changes, config, page build and cache, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
