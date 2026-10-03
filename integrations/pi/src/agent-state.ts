@@ -18,6 +18,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { logLine } from "./node/log.ts";
 
+/** The heartbeat interval while working; the default keeps a window that lost its reporter from
+ * saying "working" for long, and `0` disables it. `CORVI_STATUS_HEARTBEAT_MS` overrides it. */
+const heartbeatMs = (): number => {
+  const value = Number(process.env.CORVI_STATUS_HEARTBEAT_MS);
+  return Number.isFinite(value) && value >= 0 ? value : 20_000;
+};
+
 /** The first sentence of the last assistant message, as one line: the notification says the
  * session's name and then this, so it has to be short and finite. A message that never ends a
  * sentence is cut and marked. */
@@ -72,7 +79,6 @@ export default function (pi: ExtensionAPI): void {
   // no-op.
   const sessionId = process.env.CORVI_SESSION_ID;
   const inCorvi = sessionId !== undefined && sessionId !== "";
-
   /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
    * say so somewhere the agent's operator can see. */
   const logFailure = (error: unknown): void => {
@@ -101,11 +107,29 @@ export default function (pi: ExtensionAPI): void {
       .catch(logFailure);
   };
 
+  // While working, re-publish on an interval: a reporter that dies mid-turn would otherwise leave
+  // the window saying "working" forever. The server also treats an old `working` as stale, so a
+  // silently dead reporter clears on its own. `CORVI_STATUS_HEARTBEAT_MS=0` disables it.
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  const stopHeartbeat = (): void => {
+    if (heartbeat === undefined) return;
+    clearInterval(heartbeat);
+    heartbeat = undefined;
+  };
+  const startHeartbeat = (): void => {
+    stopHeartbeat();
+    const ms = heartbeatMs();
+    if (!inCorvi || ms === 0) return;
+    heartbeat = setInterval(publish, ms);
+    heartbeat.unref?.();
+  };
+
   pi.on("agent_start", async () => {
     state = "working";
     // The previous answer is no longer the news while a new one is being written.
     lastSentence = "";
     publish();
+    startHeartbeat();
   });
 
   // Remember the answer here; publish it when the run settles. `agent_end` may still be followed
@@ -124,6 +148,7 @@ export default function (pi: ExtensionAPI): void {
   // queued follow-up messages, and none of those are "waiting for you".
   pi.on("agent_settled", async () => {
     state = "waiting";
+    stopHeartbeat();
     publish();
   });
 
@@ -131,6 +156,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on("session_start", async () => {
     state = "waiting";
     lastSentence = "";
+    stopHeartbeat();
     publish();
   });
 
@@ -140,6 +166,7 @@ export default function (pi: ExtensionAPI): void {
 
   // Leaving the session: it is not waiting for you, it is not there at all.
   pi.on("session_shutdown", async () => {
+    stopHeartbeat();
     if (!inCorvi) return;
     void pi.exec("corvi", ["status", "clear"]).catch(logFailure);
   });

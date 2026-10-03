@@ -55,6 +55,36 @@ export const clearStatus = (sessionId: string, incarnation: number): void => {
 export const statusOf = (sessionId: string, incarnation: number): AgentStatus | null | undefined =>
   statuses.get(key(sessionId, incarnation));
 
+/** A `working` status older than this is stale: its reporter died mid-turn (the extension
+ * heartbeats while working), so it must present as no status rather than pin the window on
+ * "working" forever. `waiting` has no heartbeat and is left alone. A test can shorten it with
+ * `CORVI_STATUS_TTL_MS`. */
+const STATUS_TTL_MS = 60_000;
+const statusTtlMs = (): number => {
+  const value = Number(process.env.CORVI_STATUS_TTL_MS);
+  return Number.isFinite(value) && value >= 0 ? value : STATUS_TTL_MS;
+};
+
+/** Whether a status is a stale `working` (its reporter stopped heartbeating). Pure over `now`, so
+ * the rule is a unit test's own. */
+export const isStale = (status: AgentStatus | null | undefined, now: number = Date.now()): boolean => {
+  if (status === null || status === undefined || status.state !== "working") return false;
+  const at = Date.parse(status.at);
+  return Number.isFinite(at) && now - at > statusTtlMs();
+};
+
+/** The status to present: the store's value, or the host's OSC-parsed fallback when nothing was
+ * reported (`stored === undefined`), with an explicit clear (`stored === null`) suppressing the
+ * fallback. A stale `working` presents as no status. One helper, so the CLI store and the OSC
+ * fallback share the TTL rule. */
+export const presentStatus = (
+  stored: AgentStatus | null | undefined,
+  fallback: AgentStatus | undefined,
+): AgentStatus | undefined => {
+  const status = stored === undefined ? fallback : (stored ?? undefined);
+  return isStale(status) ? undefined : status;
+};
+
 /** Forget statuses whose session incarnation is gone. */
 export const pruneStatuses = (live: ReadonlySet<string>): void => {
   for (const existing of statuses.keys()) if (!live.has(existing)) statuses.delete(existing);

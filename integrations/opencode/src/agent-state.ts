@@ -20,6 +20,13 @@ import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
 
 import { logLine } from "./node/log.ts";
 
+/** The heartbeat interval while working; the default keeps a window that lost its reporter from
+ * saying "working" for long, and `0` disables it. `CORVI_STATUS_HEARTBEAT_MS` overrides it. */
+const heartbeatMs = (): number => {
+  const value = Number(process.env.CORVI_STATUS_HEARTBEAT_MS);
+  return Number.isFinite(value) && value >= 0 ? value : 20_000;
+};
+
 /** The events opencode sends its plugins, derived from the hook signature so this file needs no
  * second dependency on the SDK package. */
 type HookEvent = Parameters<NonNullable<Hooks["event"]>>[0]["event"];
@@ -112,6 +119,30 @@ const reporter: PluginModule = {
       void input.$`corvi ${args}`.catch(logFailure);
     };
 
+    // While working, re-publish on an interval: a reporter that dies mid-turn would otherwise leave
+    // the window saying "working" forever. The server also treats an old `working` as stale.
+    // `CORVI_STATUS_HEARTBEAT_MS=0` disables it.
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const stopHeartbeat = (): void => {
+      if (heartbeat === undefined) return;
+      clearInterval(heartbeat);
+      heartbeat = undefined;
+    };
+    const startHeartbeat = (): void => {
+      stopHeartbeat();
+      const ms = heartbeatMs();
+      if (!inCorvi || ms === 0) return;
+      heartbeat = setInterval(publish, ms);
+      heartbeat.unref?.();
+    };
+    /** Move to `next`, keeping the heartbeat on only while working, and publish. */
+    const setState = (next: "working" | "waiting"): void => {
+      state = next;
+      if (next === "working") startHeartbeat();
+      else stopHeartbeat();
+      publish();
+    };
+
     // Subagent runs are real child sessions of their own and report their own busy/idle cycles
     // inside the parent's run; they are not this window waiting for you. Their session ids arrive
     // with `session.created`/`session.updated` carrying a `parentID`.
@@ -133,8 +164,7 @@ const reporter: PluginModule = {
                 // A new prompt: a run is on, and the previous answer is no longer the news.
                 if (info.summary) return; // a generated summary, not a prompt
                 answer.clear();
-                state = "working";
-                publish();
+                setState("working");
               } else if (!info.summary) {
                 answer.begin(info.id);
               }
@@ -150,23 +180,20 @@ const reporter: PluginModule = {
               if (isChild(event.properties.sessionID)) return;
               // busy, or retrying: a run is in flight or on its way back. A retry is not "waiting
               // for you" — pi's settled-vs-ended distinction says the same.
-              state = status.type === "idle" ? "waiting" : "working";
-              publish();
+              setState(status.type === "idle" ? "waiting" : "working");
               return;
             }
             case "session.idle": {
               // The deprecated twin of `session.status` idle; both may arrive, and settling twice
               // changes nothing.
               if (isChild(event.properties.sessionID)) return;
-              state = "waiting";
-              publish();
+              setState("waiting");
               return;
             }
             case "session.error": {
               // An error wants you — the attention is the same waiting state, and the last answer
               // is still what it said before failing.
-              state = "waiting";
-              publish();
+              setState("waiting");
               return;
             }
             case "session.created":
@@ -193,6 +220,7 @@ const reporter: PluginModule = {
         }
       },
       dispose: async (): Promise<void> => {
+        stopHeartbeat();
         // Leaving the session: it is not waiting for you, it is not there at all.
         if (!inCorvi) return;
         void input.$`corvi status clear`.catch(logFailure);

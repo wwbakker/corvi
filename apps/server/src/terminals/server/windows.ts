@@ -21,7 +21,7 @@ import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
 import { ensureScreen } from "./session.ts";
-import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
+import { clearStatus, presentStatus, pruneStatuses, statusOf, type AgentStatus } from "./status.ts";
 import { pruneSnapshots, snapshotKey } from "./snapshots.ts";
 import { presentWindow, type PresentedWindow } from "./presenter.ts";
 import {
@@ -209,9 +209,9 @@ export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =
       // A window's label and status come from its active pane; a split window is still one tab.
       const session = host.get(record.activePane) ?? host.get(record.panes[0] ?? "");
       const stored = session === undefined ? undefined : statusOf(session.id, session.incarnation);
-      // `undefined` means nothing was reported (use the host's OSC parse); `null` is an explicit
-      // clear and suppresses the fallback.
-      const status = stored === undefined ? session?.status : (stored ?? undefined);
+      // A stored value wins (`null` is an explicit clear); otherwise the host's OSC parse. A stale
+      // `working` (a reporter that died mid-turn) presents as no status.
+      const status = presentStatus(stored, session?.status);
       return presentWindow({ ...hostRaw(record, dir, session, status), index });
     });
   });
@@ -472,7 +472,7 @@ export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, 
     const subagentId = session.metadata?.subagentId?.trim();
     if (!subagentId) continue;
     const stored = statusOf(session.id, session.incarnation);
-    const state = stored === undefined ? session.status?.state : (stored ?? undefined)?.state;
+    const state = presentStatus(stored, session.status)?.state;
     const windowId = session.metadata?.window ?? session.id;
     map.set(subagentId, {
       window: session.id,

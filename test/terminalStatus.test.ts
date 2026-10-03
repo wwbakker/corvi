@@ -2,6 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { ensureHost, type HostClient } from "../apps/server/src/terminals/host/client.ts";
+import { isStale, presentStatus, type AgentStatus } from "../apps/server/src/terminals/server/status.ts";
 import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitFor, waitForUrl } from "./helpers.ts";
 
 /**
@@ -234,3 +235,35 @@ test("a status emitted as OSC presents through the presenter, and clear suppress
     20_000,
   );
 }, 40_000);
+
+// --- Pure TTL rules -------------------------------------------------------------------------
+
+const agedStatus = (state: "working" | "waiting", ageMs: number): AgentStatus => ({
+  state,
+  at: new Date(Date.now() - ageMs).toISOString(),
+});
+
+test("a stale working status presents as no status; waiting has no TTL", () => {
+  process.env.CORVI_STATUS_TTL_MS = "1000";
+  try {
+    expect(isStale(agedStatus("working", 500))).toBe(false);
+    expect(isStale(agedStatus("working", 5000))).toBe(true);
+    // A reporter that died while waiting is still waiting; only `working` heartbeats.
+    expect(isStale(agedStatus("waiting", 5000))).toBe(false);
+    expect(isStale(null)).toBe(false);
+    expect(isStale(undefined)).toBe(false);
+
+    // Presentation: a stored value wins, `null` is an explicit clear (suppresses the fallback),
+    // `undefined` falls back to the host's OSC value, and a stale `working` presents as none.
+    const fresh = agedStatus("working", 0);
+    const stale = agedStatus("working", 5000);
+    const waiting = agedStatus("waiting", 5000);
+    expect(presentStatus(fresh, undefined)).toBe(fresh);
+    expect(presentStatus(null, fresh)).toBeUndefined();
+    expect(presentStatus(undefined, fresh)).toBe(fresh);
+    expect(presentStatus(stale, waiting)).toBeUndefined();
+    expect(presentStatus(waiting, undefined)).toBe(waiting);
+  } finally {
+    delete process.env.CORVI_STATUS_TTL_MS;
+  }
+});
