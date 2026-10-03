@@ -4,10 +4,13 @@ import { fileURLToPath } from "node:url";
 
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import {
+  applyCutoffForTest,
   closeAttachments,
+  holdChunkForTest,
   hubGrid,
   hubStats,
   openSession,
+  setReceivedForTest,
   terminalSockets,
   type TerminalSession,
 } from "../apps/server/src/terminals/server/session.ts";
@@ -208,6 +211,33 @@ test("a second open during a mid-repaint first view is served, not closed", asyn
   } finally {
     delete process.env.REPRINT_DELAY_MS;
   }
+}, 30_000);
+
+test("bytes held when a page leaves mid-snapshot are still fed, so the next view is served", async () => {
+  const change = "REPRINT-DRAIN";
+  const session = await openSession(change, dir, { cols: 80, rows: 24 });
+  const id = session.sessionId;
+  const incarnation = session.incarnation;
+  // A cutoff the screen has not reached keeps the serve waiting with its hold open (the real race
+  // is narrow; the seams stage it exactly).
+  setReceivedForTest(id, incarnation, 1000);
+  const one = fakeSocket(session);
+  terminalSockets.open(one);
+  let held = false;
+  for (let i = 0; i < 2000 && !held; i++) {
+    held = holdChunkForTest(id, incarnation, 1010, "DRAIN-HELD\r\n");
+    if (!held) await Bun.sleep(1);
+  }
+  expect(held).toBe(true);
+  // The page leaves mid-snapshot; the held chunk must still reach the screen, or the next serve's
+  // `whenApplied` waits on a byte the screen never saw.
+  session.kill();
+  applyCutoffForTest(id, incarnation, 1000, "CUTOFF");
+  const second = await openSession(change, dir, { cols: 80, rows: 24 });
+  const two = fakeSocket(second);
+  terminalSockets.open(two);
+  await waitFor("the second snapshot", async () => control(two.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  expect(firstScreen(two.frames)).toContain("DRAIN-HELD");
 }, 30_000);
 
 test("a page that leaves mid-repaint leaves no ghost subscriber, and the hub is released", async () => {

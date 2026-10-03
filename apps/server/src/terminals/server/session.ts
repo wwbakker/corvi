@@ -37,6 +37,7 @@
  *     reconnect should follow).
  */
 import type { HostClient } from "../host/client.ts";
+import { appendFileSync } from "node:fs";
 import { hostClient } from "./host.ts";
 import { makeScreen, type Screen, type ScreenSnapshot } from "./screen.ts";
 import { SNAPSHOT_MAX_BYTES, forgetSnapshot, setSnapshots, snapshotOf, type SnapshotInput } from "./snapshots.ts";
@@ -72,6 +73,19 @@ const SWEEP_TICK_MS = 250;
 
 const cadenceMs = (): number => envMs("CORVI_SCREEN_CADENCE_MS", SNAPSHOT_CADENCE_MS);
 const unattendedMs = (): number => envMs("CORVI_SCREEN_IDLE_MS", SCREEN_UNATTENDED_MS);
+
+/** Append a terminal failure to the app log (or stderr), so a page reporting "the session is gone"
+ * can be traced to the serve that failed. */
+const logFailure = (message: string, error: unknown): void => {
+  const text = `[terminals] ${message}: ${error instanceof Error ? error.message : String(error)}`;
+  const log = process.env.CORVI_LOG;
+  try {
+    if (log !== undefined && log !== "") appendFileSync(log, `[${new Date().toISOString()}] ${text}\n`);
+    else console.error(text);
+  } catch {
+    // a failure to log a failure is still not a crash
+  }
+};
 
 /** A millisecond override from the environment, or the fallback. `Number(x) || fallback` cannot
  * express `0`, which a test may want. */
@@ -542,6 +556,14 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
   }
 };
 
+/** Start a serve, catching a post-`finally` throw so it never becomes an unhandled rejection. */
+const startServe = (hub: Hub, subscriber: Subscriber): void => {
+  void serve(hub, subscriber).catch((error: unknown) => {
+    logFailure(`serving ${hub.key} threw after its finally`, error);
+    subscriber.onExit();
+  });
+};
+
 /** Serve one page: serialize the screen at the offset received so far, hold the bytes after it,
  * then hand the page the snapshot and every byte since. */
 const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
@@ -549,7 +571,6 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   // await below cannot both pass — the second would orphan the first's held bytes.
   hub.attachingPage = true;
   hub.unattendedSince = undefined;
-  let added = false;
   let queuedNext = false;
   try {
     // One live client per hub, newest wins. An established subscriber may be the previous socket
@@ -584,7 +605,6 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
       const { data, offset } = hub.screen.serialize();
       subscriber.snapshot({ data, offset });
       hub.subscribers.add(subscriber);
-      added = true;
       const held = hub.hold;
       hub.hold = undefined;
       for (const chunk of held) {
@@ -592,23 +612,34 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
         if (!subscriber.cancelled) subscriber.send(chunk.data);
       }
     } finally {
+      // Whatever was held but not delivered must still reach the screen: `hub.received` already
+      // covers it, so a later `whenApplied(cutoff)` would otherwise wait forever — a dead hub with
+      // an attach queue that never drains. The happy path consumed `hold` above, so it is empty
+      // here.
+      for (const chunk of hub.hold ?? []) hub.screen.write(chunk.data, chunk.seq);
       hub.hold = undefined;
     }
-  } catch {
-    // A failed first view must not leave the hub attached with its clock off: drop the listener,
-    // forget the subscriber and let the sweep release the hub, and tell the page so it can retry.
+  } catch (error) {
+    // A page this attach could not serve gets the exit, and the hub stays retryable. The attach
+    // released the host listener on its own failure, so a later failure (serialize, send) must not
+    // drop a healthy hub's listener.
+    logFailure(`serving ${hub.key} failed`, error);
     hub.subscribers.delete(subscriber);
-    release(hub);
     subscriber.onExit();
   } finally {
     hub.attachingPage = false;
-    // A subscriber that was never added must not pin the screen: restart the unattended clock.
-    if (!added) noteAttendance(hub);
+    // Restart the unattended clock unless a subscriber is attached (`noteAttendance` clears it when
+    // one is): a serve that added nothing — or threw after adding — must not pin the screen.
+    noteAttendance(hub);
     const queued = hub.queued;
     hub.queued = undefined;
-    if (queued !== undefined && hub.disposed !== true) {
-      queuedNext = true;
-      void serve(hub, queued);
+    if (queued !== undefined) {
+      if (hub.disposed !== true) {
+        queuedNext = true;
+        startServe(hub, queued);
+      } else {
+        queued.onExit();
+      }
     }
   }
   // The session may have exited while the snapshot was serialized; its exit was deferred to here.
@@ -628,7 +659,7 @@ const subscribe = (hub: Hub, subscriber: Subscriber): void => {
     hub.queued = subscriber;
     return;
   }
-  void serve(hub, subscriber);
+  startServe(hub, subscriber);
 };
 
 /** A host session the socket drives, with the identity its screen is keyed by. */
@@ -799,6 +830,32 @@ export const hubGrid = (
 ): { readonly cols: number; readonly rows: number } | undefined => {
   const hub = hubs.get(`${sessionId}#${incarnation}`);
   return hub === undefined ? undefined : { cols: hub.screen.cols, rows: hub.screen.rows };
+};
+
+/** Test seam: report host bytes without feeding the screen, so a test can open a serve's window at
+ * a cutoff the screen has not reached. */
+export const setReceivedForTest = (sessionId: string, incarnation: number, seq: number): void => {
+  const hub = hubs.get(`${sessionId}#${incarnation}`);
+  if (hub !== undefined) hub.received = Math.max(hub.received, seq);
+};
+
+/** Test seam: push a chunk into a serve's hold (the post-cutoff window). Returns false when no serve
+ * is holding, so a test can poll for the window. */
+export const holdChunkForTest = (sessionId: string, incarnation: number, seq: number, data: string): boolean => {
+  const hub = hubs.get(`${sessionId}#${incarnation}`);
+  if (hub === undefined || hub.hold === undefined || hub.disposed === true) return false;
+  hub.hold.push({ seq, data: Buffer.from(data) });
+  hub.received = Math.max(hub.received, seq + data.length);
+  return true;
+};
+
+/** Test seam: let the screen reach a serve's cutoff (the bytes the host produced before the hold
+ * began), so the serve proceeds and the hold window closes. */
+export const applyCutoffForTest = (sessionId: string, incarnation: number, seq: number, data: string): void => {
+  const hub = hubs.get(`${sessionId}#${incarnation}`);
+  if (hub === undefined) return;
+  hub.screen.write(Buffer.from(data), seq);
+  hub.received = Math.max(hub.received, seq + data.length);
 };
 
 /** The control frames the page sends, parsed once. */
