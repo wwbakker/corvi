@@ -79,34 +79,44 @@ const createLogGate = (
   };
 };
 
-/** Resolve with the value, or with `undefined` as soon as the signal aborts: a disposed relay must
- * not park forever on a promise the old runtime will never settle. */
-const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | undefined> => {
-  if (signal === undefined) return promise;
+/** Whether the runtime is gone. A helper, not `signal.aborted === true` inline: `aborted` is a
+ * readonly property, so TypeScript narrows an inline check to `false` for every later await. */
+const isAborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
+
+/** One abort promise per signal: racing this everywhere means one `abort` listener for the relay's
+ * whole life, not one per turn and per backoff (an `AbortSignal` accumulates listeners silently). */
+const abortPromises = new WeakMap<AbortSignal, Promise<undefined>>();
+const aborted = (signal: AbortSignal): Promise<undefined> => {
   if (signal.aborted) return Promise.resolve(undefined);
-  return Promise.race([
-    promise,
-    new Promise<undefined>((resolve) => signal.addEventListener("abort", () => resolve(undefined), { once: true })),
-  ]);
+  const existing = abortPromises.get(signal);
+  if (existing !== undefined) return existing;
+  const promise = new Promise<undefined>((resolve) =>
+    signal.addEventListener("abort", () => resolve(undefined), { once: true }),
+  );
+  abortPromises.set(signal, promise);
+  return promise;
 };
 
-/** Sleep, resolving early when the runtime is torn down, so a disposed relay stops promptly. */
-const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
-  new Promise((resolve) => {
-    if (signal?.aborted) {
-      resolve();
-      return;
-    }
+/** Resolve with the value, or with `undefined` as soon as the signal aborts: a disposed relay must
+ * not park forever on work the old runtime will never finish. */
+export const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | undefined> => {
+  if (signal === undefined) return promise;
+  return Promise.race([promise, aborted(signal)]);
+};
+
+/** Sleep, resolving early when the runtime is torn down, so a disposed relay stops promptly. The
+ * abort promise is shared, so a backoff adds no listener of its own. */
+export const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  if (signal === undefined) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
+    void aborted(signal).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
   });
+};
 
 const parse = <T>(text: string): T | undefined => {
   try {
@@ -135,7 +145,7 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
   for (let attempt = 0; ; attempt += 1) {
     if (harness.signal?.aborted) return;
     // `--` before the text: a reply that begins with a dash is data, not a flag.
-    const result = await harness.exec([
+    const result = await abortable(harness.exec([
       "subagent",
       "turn",
       "--subagent",
@@ -145,7 +155,8 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       "--json",
       "--",
       text,
-    ]);
+    ]), harness.signal);
+    if (result === undefined || isAborted(harness.signal)) return;
     if (result.code === 0) return;
     gate.fail(`relaying the turn failed (attempt ${attempt + 1}): ${result.stderr.trim()}`);
     await harness.sleep(backoffMs(attempt, harness.random ?? Math.random));
@@ -159,14 +170,18 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
   let after: number | undefined;
   let attempt = 0;
   while (!harness.signal?.aborted) {
-    const next = await call<NextResult>(harness, [
+    const next = await abortable(call<NextResult>(harness, [
       "subagent",
       "next",
       "--subagent",
       subagentId,
       "--json",
       ...(after === undefined ? [] : ["--after", String(after)]),
-    ]);
+    ]), harness.signal);
+    // A poll that lost the race, or resolved just as the runtime was torn down, must not be
+    // processed: the server has claimed its message, and a mid-poll abort leaves the turn as the
+    // existing `interrupted` (its deliberate recovery path, never requeued).
+    if (next === undefined || isAborted(harness.signal)) return;
     if ("failed" in next) {
       gate.fail(next.failed);
       await harness.sleep(backoffMs(attempt, random));
@@ -186,14 +201,15 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     const message = next.value.message;
     after = message.number;
     try {
-      await harness.submit(message.body);
+      await abortable(Promise.resolve(harness.submit(message.body)), harness.signal);
     } catch (error) {
       harness.log?.(`submitting message ${message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
+    if (isAborted(harness.signal)) return;
     const settled = await abortable(harness.settled(), harness.signal);
     // The runtime was torn down while the run was in flight: nobody will read a reply, so stop
     // rather than relay it into a disposed harness.
-    if (harness.signal?.aborted) return;
+    if (isAborted(harness.signal)) return;
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
     await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
   }
@@ -257,8 +273,9 @@ const relay: PluginModule = {
     });
 
     return {
-      // opencode's teardown hook: abort the relay so an unloaded/reloaded plugin stops polling a
-      // disposed runtime instead of running on.
+      // opencode calls this through `@opencode-ai/plugin`'s `Hooks.dispose` when it unloads or
+      // reloads the plugin. A subagent's pane closing ends the subagent anyway, so a `dispose`
+      // that never fires is still bounded.
       dispose: async (): Promise<void> => {
         controller.abort();
       },

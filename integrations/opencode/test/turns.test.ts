@@ -1,8 +1,15 @@
 import { expect, test } from "bun:test";
+import { getEventListeners } from "node:events";
 
 import type { PluginInput } from "@opencode-ai/plugin";
 
-import relay, { relayLoop, subagentOfSession, type ExecResult, type RelayHarness } from "../src/turns.ts";
+import relay, {
+  abortableSleep,
+  relayLoop,
+  subagentOfSession,
+  type ExecResult,
+  type RelayHarness,
+} from "../src/turns.ts";
 
 test("subagentOfSession reads the host-seeded id, and is undefined outside a Corvi session", () => {
   expect(subagentOfSession({ CORVI_SUBAGENT_ID: "reviewer-1" })).toBe("reviewer-1");
@@ -154,7 +161,7 @@ const until = async (read: () => boolean, ms = 3000): Promise<void> => {
   while (!read() && Date.now() < deadline) await Bun.sleep(10);
 };
 
-test("the relay stops when its signal aborts", async () => {
+test("an abort cuts the backoff short and stops the relay", async () => {
   const controller = new AbortController();
   let nexts = 0;
   const harness: RelayHarness = {
@@ -164,15 +171,75 @@ test("the relay stops when its signal aborts", async () => {
     },
     submit: async () => {},
     settled: async () => "never",
-    sleep: async () => {
-      controller.abort();
-    },
+    // The wiring's sleep, not a plain timer: an external abort must cut the backoff short. A plain
+    // timer would let the loop return only after the backoff (the old `while` would pass too).
+    sleep: (ms) => abortableSleep(ms, controller.signal),
     signal: controller.signal,
     log: () => {},
   };
+  const started = Date.now();
+  setTimeout(() => controller.abort(), 20);
   await relayLoop("s1", harness);
-  // The abort in the sleep stops the loop before another poll.
+  expect(Date.now() - started).toBeLessThan(300);
   expect(nexts).toBe(1);
+});
+
+test("a poll that resolves after the abort is not submitted", async () => {
+  const controller = new AbortController();
+  const submitted: string[] = [];
+  let release: (() => void) | undefined;
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      if (args[1] !== "next") return { code: 0, stdout: "{}", stderr: "" };
+      await new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return {
+        code: 0,
+        stdout: JSON.stringify({ status: "message", message: { number: 1, body: "late" } }),
+        stderr: "",
+      };
+    },
+    submit: async (text) => {
+      submitted.push(text);
+    },
+    settled: async () => "reply",
+    sleep: async () => {},
+    signal: controller.signal,
+    log: () => {},
+  };
+  const loop = relayLoop("s1", harness);
+  await until(() => release !== undefined);
+  controller.abort();
+  release?.();
+  await loop;
+  // The server has claimed the message; a torn-down runtime must not submit it.
+  expect(submitted).toEqual([]);
+});
+
+test("relaying does not accumulate abort listeners", async () => {
+  const controller = new AbortController();
+  let polls = 0;
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      if (args[1] !== "next") return { code: 0, stdout: "{}", stderr: "" };
+      polls += 1;
+      // Yield to the macrotask queue each poll, or the test's own timer would starve.
+      await Bun.sleep(0);
+      return { code: 0, stdout: JSON.stringify({ status: "none" }), stderr: "" };
+    },
+    submit: async () => {},
+    settled: async () => undefined,
+    sleep: async () => {},
+    signal: controller.signal,
+    log: () => {},
+  };
+  const loop = relayLoop("s1", harness);
+  await until(() => polls >= 20);
+  // One listener for the relay, not one per poll.
+  expect(getEventListeners(controller.signal, "abort")).toHaveLength(1);
+  controller.abort();
+  await loop;
 });
 
 test("aborting while a run is in flight leaves the loop rather than parking", async () => {
