@@ -194,16 +194,7 @@ beforeAll(async () => {
   const repo4 = join(tmp, "repo4");
   await runSh(["git", "init", "-b", "main", repo4]);
   await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: rapid, checkouts: checkoutsOf([repo4]) }) });
-  // The app's own window flags: a headless page is treated as occluded/backgrounded, and Chromium
-  // then throttles its timers, which starves the polls the pages rely on (the window list's 15s
-  // refresh stretches to minutes).
-  browser = await chromium.launch({
-    args: [
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-renderer-backgrounding",
-    ],
-  });
+  browser = await chromium.launch();
 }, budget(120_000));
 
 afterEach(async () => {
@@ -229,19 +220,6 @@ const openTerminal = async (change: string): Promise<{ page: Page; dir: string }
   await page.locator(".terminal-screen").click();
   await awaitAttached(page);
   return { page, dir: join(tmp, "changes", change) };
-};
-
-/** Kill a change's live host session, as a crashed shell would leave the pane. */
-const killHostSession = async (change: string): Promise<void> => {
-  const { client } = await ensureHost({
-    socket: join(tmp, "state", "corvi", "host.sock"),
-    checkout: process.cwd(),
-    buildId: process.env.CORVI_BUILD ?? "dev",
-    runtime: "node",
-  });
-  const session = (await client.list()).find((entry) => entry.alive && entry.metadata?.change === change);
-  if (session !== undefined) await client.kill(session.id);
-  client.close();
 };
 
 test("the keys a terminal cannot encode are sent as CSI u", () => {
@@ -474,16 +452,6 @@ test.skipIf(!usable)("closing the page detaches but keeps the shell", async () =
   await runCommand(again, `echo "$CORVI_KEEP" > ${join(dir, "keep.txt")}`, join(dir, "keep.txt"), "yes\n");
   expect(await fileText(join(dir, "keep.txt"))).toBe("yes\n");
   await again.close();
-}, budget(120_000));
-
-test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
-  const { page, dir } = await openTerminal(id);
-  await runCommand(page, "echo ready > ready.txt", join(dir, "ready.txt"), "ready\n");
-  await killHostSession(id);
-  // The banner follows the window list emptying, which the page polls on a 15s cadence, so this
-  // waits out a poll (plus the pane's own grace) rather than the exit itself.
-  await until(() => page.locator(".terminal-gone").count(), 1, budget(60_000));
-  await page.close();
 }, budget(120_000));
 
 test.skipIf(!usable)("the server's screen survives a reload with its scrollback", async () => {

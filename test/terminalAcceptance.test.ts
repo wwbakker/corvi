@@ -72,14 +72,7 @@ beforeAll(async () => {
     stderr: process.env.CORVI_TEST_LOUD ? "inherit" : "ignore",
   });
   url = await waitForUrl(server);
-  // The flags keep a headless page's timers unthrottled (see test/terminal.test.ts).
-  browser = await chromium.launch({
-    args: [
-      "--disable-background-timer-throttling",
-      "--disable-backgrounding-occluded-windows",
-      "--disable-renderer-backgrounding",
-    ],
-  });
+  browser = await chromium.launch();
 }, budget(120_000));
 
 afterEach(async () => {
