@@ -508,15 +508,20 @@ export type TerminalWebSocket = {
  * consumer from growing the server's memory and pinning it. */
 const WS_BACKPRESSURE_BYTES = 1 << 20;
 /** How long a fresh page may stay over the bound while its first snapshot drains. A large screen on
- * a slow link leaves the socket queued above the bound at attach; closing then would cycle
- * reconnect-snapshot-reconnect. Once the queue has been under the bound, or this grace passes, the
- * steady-state bound applies. */
+ * a slow link leaves the socket queued above the bound at attach, so closing immediately would
+ * cycle reconnect-snapshot-reconnect; the grace **rate-limits** that cycle to one per grace rather
+ * than removing it. Once the queue has been under the bound, or the grace passes, the steady-state
+ * bound applies. A test can shorten it with `CORVI_BACKPRESSURE_GRACE_MS`. */
 const WS_BACKPRESSURE_GRACE_MS = 5000;
+const backpressureGraceMs = (): number =>
+  Number(process.env.CORVI_BACKPRESSURE_GRACE_MS) || WS_BACKPRESSURE_GRACE_MS;
 
 /** Create the server screen for a host window (idempotent) and start feeding it. Called when the
  * window is *opened*, not only when a page attaches: a window with no page (a subagent, a command)
- * must capture its startup before the host's ring can evict it, or a page attaching later would
- * miss the base. The unattended release is what drops a screen no page ever attaches to. */
+ * captures its startup within the unattended grace, or for as long as the output fits the host's
+ * 256 KiB ring, so a page attaching soon after misses nothing; a streaming session past the grace
+ * falls to the gap policy (the stored screen plus the ring tail). The unattended release is what
+ * drops a screen no page ever attaches to. */
 export const ensureScreen = async (
   changeId: string,
   sessionId: string,
@@ -633,7 +638,7 @@ export const terminalSockets = {
     session.attach(
       (chunk) => {
         const queued = ws.bufferedAmount ?? 0;
-        if (!drained && (queued <= WS_BACKPRESSURE_BYTES || Date.now() - openedAt >= WS_BACKPRESSURE_GRACE_MS)) {
+        if (!drained && (queued <= WS_BACKPRESSURE_BYTES || Date.now() - openedAt >= backpressureGraceMs())) {
           drained = true;
         }
         // A page that cannot keep up is re-synced from the screen rather than buffered without

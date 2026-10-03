@@ -132,10 +132,30 @@ type FakeSocket = {
   readonly frames: (string | Uint8Array)[];
   readonly send: (chunk: string | Uint8Array) => void;
   readonly close: () => void;
+  /** The queued-bytes figure the backpressure check reads; a test sets it to simulate a slow page. */
+  bufferedAmount: number;
+  /** Whether the backpressure path closed this socket. */
+  readonly closed: () => boolean;
+  /** How many times it was closed: the grace must yield one per window, not one per byte. */
+  readonly closeCount: () => number;
 };
 const fakeSocket = (session: TerminalSession): FakeSocket => {
   const frames: (string | Uint8Array)[] = [];
-  return { data: { session }, frames, send: (chunk) => frames.push(chunk), close: () => undefined };
+  let closes = 0;
+  const socket: FakeSocket = {
+    data: { session },
+    frames,
+    send: (chunk) => frames.push(chunk),
+    close: () => {
+      closes += 1;
+      // The server's own close path, so the hub stops sending to a socket the backpressure closed.
+      terminalSockets.close(socket);
+    },
+    bufferedAmount: 0,
+    closed: () => closes > 0,
+    closeCount: () => closes,
+  };
+  return socket;
 };
 const text = (frames: (string | Uint8Array)[]): string =>
   frames
@@ -161,6 +181,49 @@ test("a page gets the server's snapshot first, then the live bytes after its off
   session.write("echo SECOND_$(( 0 + 1 ))_MARK\n");
   await waitFor("the live bytes", async () => text(first.frames).includes("SECOND_1_MARK"), 15_000);
   expect(text(first.frames).split("SECOND_1_MARK").length - 1).toBe(1);
+}, 30_000);
+
+test("the backpressure bound closes a page that stops draining, without an exit", async () => {
+  const session = await openSession("SNAP-BP", dir, { cols: 80, rows: 24 });
+  const ws = fakeSocket(session);
+  terminalSockets.open(ws);
+  await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), 15_000);
+  // A send with the queue under the bound arms the steady-state bound.
+  await runAndWait(session, "echo BP_ARM\n");
+  await waitFor("the armed chunk", async () => text(ws.frames).includes("BP_ARM"), 15_000);
+  expect(ws.closed()).toBe(false);
+
+  // The page stops reading: the next live byte is not queued behind it without bound.
+  ws.bufferedAmount = (1 << 20) + 1;
+  session.write("echo BP_OVER\n");
+  await waitFor("the lagging socket to close", async () => ws.closed(), 15_000);
+  expect(ws.closeCount()).toBe(1);
+  // No `exit`: the page must reconnect to a fresh snapshot, not treat the session as gone.
+  expect(control(ws.frames).some((frame) => frame.type === "exit")).toBe(false);
+  expect(text(ws.frames)).not.toContain("BP_OVER");
+}, 30_000);
+
+test("the backpressure grace defers the close, then allows one per grace window", async () => {
+  process.env.CORVI_BACKPRESSURE_GRACE_MS = "400";
+  try {
+    const session = await openSession("SNAP-BP-GRACE", dir, { cols: 80, rows: 24 });
+    const ws = fakeSocket(session);
+    // Over the bound from the first live byte: a large snapshot draining on a slow link.
+    ws.bufferedAmount = (1 << 20) + 1;
+    terminalSockets.open(ws);
+    await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), 15_000);
+    session.write("echo BP_EARLY\n");
+    await waitFor("the chunk inside the grace", async () => text(ws.frames).includes("BP_EARLY"), 15_000);
+    expect(ws.closed()).toBe(false); // deferred: the snapshot is still draining
+
+    await Bun.sleep(500); // past the grace
+    session.write("echo BP_LATE\n");
+    await waitFor("the socket to close after the grace", async () => ws.closed(), 15_000);
+    expect(ws.closeCount()).toBe(1);
+    expect(control(ws.frames).some((frame) => frame.type === "exit")).toBe(false);
+  } finally {
+    delete process.env.CORVI_BACKPRESSURE_GRACE_MS;
+  }
 }, 30_000);
 
 test("a session that exits while attached tells the page before closing", async () => {
@@ -384,7 +447,7 @@ test("a stale session cannot attach after its screen was released", async () => 
   }
 }, 30_000);
 
-test("a window with no page captures its whole startup, before the ring evicts it", async () => {
+test("a window with no page captures its startup within the grace, before the ring evicts it", async () => {
   const change = "SNAP-NOPAGE";
   const changeDir = join(process.env.CORVI_ROOT ?? dir, change);
   await mkdir(changeDir, { recursive: true });

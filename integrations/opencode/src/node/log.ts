@@ -25,13 +25,15 @@ const source = (env: NodeJS.ProcessEnv): string => {
 export const logLine = (message: string, env: NodeJS.ProcessEnv = process.env): void => {
   const path = env.CORVI_LOG;
   if (path === undefined || path === "") {
+    // No Corvi log to file into (plain pi/opencode outside a Corvi session): stderr is the only
+    // place left, and it is not a Corvi pane.
     console.error(`[corvi] ${message}`);
     return;
   }
   try {
     appendFileSync(path, `[${new Date().toISOString()}] [${source(env)}] ${message}\n`);
   } catch {
-    // A log that cannot be written must not break the agent loop.
-    console.error(`[corvi] ${message}`);
+    // With a log file there is nothing safe to fall back to: stderr is the pane this sink exists
+    // to keep clean, so the line is dropped rather than drawn into the agent's screen.
   }
 };

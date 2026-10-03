@@ -13,16 +13,76 @@
  */
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { rm } from "node:fs/promises";
 import type { RawData } from "ws";
-
-import { checkoutsOf, runSh, serverEnv, testRun, testTempDir, waitForUrl } from "../test/helpers.ts";
 
 const require = createRequire(import.meta.url);
 // `ws` is the server's own dependency; the benchmark speaks the same WebSocket to it and to the
 // inspector, so it uses the same client.
 const WebSocket = require("../apps/server/node_modules/ws/index.js") as typeof import("ws").default;
+
+/** A temp dir whose name says it is this benchmark's, so `clean-test` can sweep what it leaves. */
+const benchTempDir = (label: string): Promise<string> => mkdtemp(join(tmpdir(), `corvi-${label}-`));
+
+/** The environment a spawned server gets: isolated roots in the temp dir, a random port. */
+const serverEnv = (tmp: string, extra: Record<string, string> = {}): Record<string, string | undefined> => ({
+  ...process.env,
+  CORVI_ROOT: join(tmp, "changes"),
+  CORVI_ARCHIVE_ROOT: join(tmp, "changes-archive"),
+  CORVI_CONFIG: join(tmp, "config.json"),
+  XDG_STATE_HOME: join(tmp, "state"),
+  CORVI_CACHE: join(tmp, "cache.json"),
+  CORVI_PORT: "0",
+  ...extra,
+});
+
+/** Read the server's startup line (`corvi on <url>`) and hand back the URL. */
+const waitForUrl = async (proc: ReturnType<typeof Bun.spawn>, timeoutMs = 60_000): Promise<string> => {
+  const reader = (proc.stdout as ReadableStream<Uint8Array>).getReader();
+  const decoder = new TextDecoder();
+  let seen = "";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<string>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`the server did not come up within ${timeoutMs}ms:\n${seen}`)), timeoutMs);
+  });
+  const found = (async (): Promise<string> => {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`the server exited before it was up:\n${seen}`);
+      seen += decoder.decode(value, { stream: true });
+      const match = /corvi on (http:\/\/127\.0\.0\.1:\d+\/)/.exec(seen);
+      if (match?.[1]) return match[1].replace(/\/$/, "");
+    }
+  })();
+  try {
+    return await Promise.race([found, timeout]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
+/** Run a command to completion, ignoring its output. */
+const runSh = async (cmd: readonly string[], cwd?: string): Promise<void> => {
+  await Bun.spawn([...cmd], { cwd, stdout: "ignore", stderr: "ignore" }).exited;
+};
+
+/** The checkout specs that create a change in the benchmark repo. */
+const checkoutsOf = (paths: readonly string[]): { path: string; location: "new"; branch: { kind: "change" } }[] =>
+  paths.map((path) => ({ path, location: "new" as const, branch: { kind: "change" as const } }));
+
+/** Stop the host the server started, by the pid it recorded. A benchmark must leave no host (and
+ * no shell) behind: an `ensureHost().shutdown()` handshake can time out under its own flood, which
+ * is how earlier runs leaked one host per run. */
+const stopHost = (socket: string): void => {
+  try {
+    const pid = Number(readFileSync(`${socket}.pid`, "utf8").trim());
+    if (Number.isInteger(pid) && pid > 0) process.kill(pid, "SIGKILL");
+  } catch {
+    // already gone, or never started
+  }
+};
 
 const flag = (name: string, fallback: number): number => {
   const at = process.argv.indexOf(`--${name}`);
@@ -132,7 +192,7 @@ const profileFor = async (durationMs: number): Promise<string> => {
 const main = async (): Promise<void> => {
   // The run token names the temp dirs and the host, so `scripts/clean-test.ts` can sweep this.
   process.env.CORVI_TEST_RUN = process.env.CORVI_TEST_RUN ?? `${Date.now().toString(36)}.${process.pid.toString(36)}`;
-  const tmp = await testTempDir("bench");
+  const tmp = await benchTempDir("bench");
   const server = Bun.spawn(["node", "apps/server/src/server.ts"], {
     cwd: root,
     env: serverEnv(tmp, grace > 0 ? { CORVI_SCREEN_IDLE_MS: String(grace) } : {}),
@@ -274,9 +334,8 @@ const main = async (): Promise<void> => {
   } finally {
     server.kill();
     await server.exited;
-    // The host outlives the server by design; the test's own cleaner sweeps it by run token, but a
-    // benchmark should leave nothing behind either.
-    await runSh(["bun", "scripts/clean-test.ts", "--kill", "--prune"], root).catch(() => undefined);
+    // The host outlives the server by design; stop it by pid, then remove the temp dir.
+    stopHost(join(tmp, "state", "corvi", "host.sock"));
     await rm(tmp, { recursive: true, force: true });
   }
 };

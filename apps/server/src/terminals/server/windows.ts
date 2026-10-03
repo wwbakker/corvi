@@ -349,7 +349,8 @@ const openPane = async (
     metadata: { change: changeId, window: windowId, pane: paneId, ...options.metadata },
   });
   // The screen exists for the pane's whole life, not only while a page is attached: a pane opened
-  // with no page (a subagent, a command) captures its startup before the host's ring can evict it.
+  // with no page (a subagent, a command) captures its startup for the unattended grace (or while
+  // the output fits the host's ring), so a page attaching soon after misses nothing.
   await ensureScreen(changeId, paneId, incarnation, size).catch(() => undefined);
 };
 

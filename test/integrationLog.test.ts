@@ -52,6 +52,23 @@ test("without CORVI_LOG, the line falls back to stderr", () => {
   expect(seen).toEqual(["[corvi] plain pi", "[corvi] plain opencode"]);
 });
 
+test("with CORVI_LOG set but unwritable, the line is dropped, not written to the pane", () => {
+  const original = console.error;
+  const seen: string[] = [];
+  console.error = ((...args: unknown[]) => {
+    seen.push(args.join(" "));
+  }) as typeof console.error;
+  try {
+    // A missing parent directory makes the append fail.
+    piLog("dropped gently", { CORVI_LOG: join(dir, "missing", "log"), CORVI_SUBAGENT_ID: "sub-9" });
+    opencodeLog("dropped too", { CORVI_LOG: join(dir, "missing", "log") });
+  } finally {
+    console.error = original;
+  }
+  // The pane is the place the sink exists to avoid; a failed write does not go there.
+  expect(seen).toEqual([]);
+});
+
 test("the two extensions state the sink once", async () => {
   const pi = await Bun.file("integrations/pi/src/node/log.ts").text();
   const opencode = await Bun.file("integrations/opencode/src/node/log.ts").text();

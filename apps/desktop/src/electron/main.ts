@@ -255,7 +255,8 @@ const startServer = (port: number, checkout: string): void => {
   serverPid = child.pid ?? null;
   if (isLinux && serverPid !== null) writeFileSync(pidFile(port), String(serverPid));
   logLine(log, `starting the server on port ${port} (pid ${serverPid ?? "unknown"})`);
-  child.on("exit", (code, signal) => logLine(log, `the server process exited (code ${code ?? "none"}, signal ${signal ?? "none"})`));
+  // `close` fires once the stdio pipes are done too, so it is the last word on the child's death;
+  // `exit` would only add a second line for the same event.
   child.on("close", (code, signal) => logLine(log, `the server process closed (code ${code ?? "none"}, signal ${signal ?? "none"})`));
 };
 
