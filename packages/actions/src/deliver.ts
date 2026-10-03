@@ -12,12 +12,12 @@
 import { Effect } from "effect";
 
 import type { Action } from "./model.ts";
-import type { CommandFailure, NewWindowOptions, Sessions } from "@corvi/terminals/tmux";
+import type { CommandFailure, NewWindowOptions } from "@corvi/terminals/model";
 
 export type WindowKind = "agent" | "plain";
 
 export type CandidateWindow = {
-  /** tmux's own window id (`@3`): stable across the reordering the tabs do. */
+  /** The window's id: stable across the reordering the tabs do. */
   readonly window: string;
   readonly label: string;
   readonly kind: WindowKind;
@@ -56,6 +56,20 @@ export type NoWindowForAction = {
 
 export type DeliveryFailure = CommandFailure | NoWindowForAction;
 
+/** The terminal operations action delivery needs: start a window and write to one. The host
+ * implements it for every window now; delivery does not care how, only that a window can be
+ * started and written to. */
+export type ActionSessions = {
+  readonly newWindowRunning: (
+    changeId: string,
+    dir: string,
+    command: string,
+    options: NewWindowOptions,
+  ) => Effect.Effect<string, CommandFailure>;
+  readonly pastePromptTo: (window: string, text: string) => Effect.Effect<void, CommandFailure>;
+  readonly submit: (window: string) => Effect.Effect<void, CommandFailure>;
+};
+
 /** The window a delivery wants: the one you are on when it is of the right kind, else the
  * leftmost of the right kind. `here` is the pane you are on, whatever kind it is. Pure. */
 export const selectTargetWindow = (
@@ -73,7 +87,7 @@ export const selectTargetWindow = (
 /** Run one action over the terminal operations. The session exists before this is called (the
  * route ensures it, as the brief always did), so there is always a pane to ask. */
 export const deliverAction = (
-  sessions: Sessions,
+  sessions: ActionSessions,
   request: DeliverRequest,
 ): Effect.Effect<Delivery, DeliveryFailure> =>
   Effect.gen(function* () {

@@ -2,17 +2,21 @@
 #
 # The test suite's runner: a run token, isolated roots, a cleanup trap, then `bun test`.
 #
-#   bash scripts/test-run.sh          # everything there is
+#   bash scripts/test-run.sh          # the unit files across workers, then the browser files one by one
 #   bash scripts/test-run.sh unit     # everything but the browser end-to-end files
-#   bash scripts/test-run.sh e2e      # only those (a browser, a tmux and a real server each)
+#   bash scripts/test-run.sh e2e      # only those (a browser and a real server each)
 #
 # Any further arguments go to `bun test` (`--retry=2`, a file filter, …).
 #
-# The token names everything the run makes — temp dirs, servers, tmux sockets — so
+# The token names everything the run makes — temp dirs, servers, hosts — so
 # scripts/clean-test.ts can end a crashed run's leftovers without ever touching a suite in
 # progress (its own documentation is the full story). The EXIT trap ends exactly this run's
 # leftovers whatever the tests did.
 set -euo pipefail
+
+# A Corvi pane exports its own identity and log path. Scrub them so the suite is hermetic whether
+# it is launched from a pane or a plain shell; each test sets the roots and identities it needs.
+unset CORVI_LOG CORVI_SESSION_ID CORVI_SESSION_INCARNATION CORVI_CHANGE_ID CORVI_CHANGE_DIR CORVI_SUBAGENT_ID
 
 mode="${1:-all}"
 if [ "$#" -gt 0 ]; then shift; fi
@@ -26,44 +30,54 @@ trap 'status=$?; bun scripts/clean-test.ts --kill --prune --run="$CORVI_TEST_RUN
 
 bun run build:web
 
-# The browser end-to-end files, named so CI can give them their own job — and their own retries —
-# while the rest of the suite runs where no browser is installed. Everything else is found by
-# walking the workspaces, so a new test file needs no entry here — except a new *browser* file,
-# which joins this list (they are found by their playwright import; this list is maintained
-# beside it).
-e2e=(test/terminal.test.ts test/pages.test.ts test/directoryPicker.page.test.ts test/plan.page.test.ts test/actions.page.test.ts test/subagents.page.test.ts test/subagentsChange.page.test.ts)
+# The browser end-to-end files are the ones that import a Playwright browser at runtime; the rest
+# run where no browser is installed. The list is derived from that import, so a new browser file
+# cannot drift out of it (a helper that only names a Playwright type does not count).
+e2e=()
 unit=()
 while IFS= read -r found; do
   file="${found#./}"
-  case " ${e2e[*]} " in
-    *" ${file} "*) ;;
-    *) unit+=("$file") ;;
-  esac
+  if grep -qE '^[[:space:]]*import[[:space:]]+\{[^}]*(chromium|webkit|firefox)[^}]*\}[[:space:]]*from[[:space:]]*"playwright"' "$found"; then
+    e2e+=("$file")
+  else
+    unit+=("$file")
+  fi
 done < <(find . -name "*.test.ts" -not -path "./node_modules/*" | sort)
-
-case "$mode" in
-  all) files=() ;; # discovery: every test file there is
-  unit) files=("${unit[@]}") ;;
-  e2e) files=("${e2e[@]}") ;;
-  *)
-    echo "usage: scripts/test-run.sh [all|unit|e2e] [bun test arguments...]" >&2
-    exit 2
-    ;;
-esac
 
 # `--timings` orders the files slowest-first, so the longest ones start first and the workers
 # finish together (bun's own file of measured durations, refreshed with --update-timings — in
 # the `=` form of the flag, since a space-separated value is taken for a test-file filter
 # instead).
-# The end-to-end files each start servers and a browser: one at a time, where a timing guess
-# cannot turn three of them into a race for one runner's cores. Everything else runs across
-# CPU-count workers.
 timings=(--timings=scripts/timings.json)
-# `all` passes no file list at all — discovery is every test file there is. The `[@]+` guard is
-# what keeps a list empty rather than unbound on bash 3.2, where "${files[@]}" under `set -u` is
-# an unbound variable.
-if [ "$mode" = "e2e" ]; then
-  exec bun test --timeout 30000 "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
-else
-  exec bun test --timeout 30000 --parallel "${timings[@]}" ${files[@]+"${files[@]}"} "$@"
-fi
+
+# Two ways to run: everything but the browser files across CPU-count workers, and the end-to-end
+# files one at a time — each of those starts servers and a browser, where a timing guess cannot
+# turn three of them into a race for one runner's cores.
+run_parallel() { bun test --timeout 30000 --parallel "${timings[@]}" "$@"; }
+run_serial() { bun test --timeout 30000 "${timings[@]}" "$@"; }
+
+case "$mode" in
+  unit) run_parallel ${unit[@]+"${unit[@]}"} "$@" ;;
+  e2e) run_serial ${e2e[@]+"${e2e[@]}"} "$@" ;;
+  all)
+    # A pass-through argument is a filter or a flag (`--retry=2`), and the one-shot discovery is
+    # what the caller asked for; the split below is the default, unfiltered suite.
+    if [ "$#" -gt 0 ]; then
+      run_parallel "$@"
+      exit $?
+    fi
+    # Non-browser files first, across workers, then the browser end-to-end files one at a time.
+    # Running them in one parallel sweep makes the e2e files contend with the rest for the
+    # machine: a terminal file that passes in seconds isolated cascades under the load.
+    if [ "${#unit[@]}" -gt 0 ]; then
+      run_parallel "${unit[@]}"
+    fi
+    if [ "${#e2e[@]}" -gt 0 ]; then
+      run_serial "${e2e[@]}"
+    fi
+    ;;
+  *)
+    echo "usage: scripts/test-run.sh [all|unit|e2e] [bun test arguments...]" >&2
+    exit 2
+    ;;
+esac

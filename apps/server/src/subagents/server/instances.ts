@@ -2,20 +2,21 @@
  * Subagent instances: create, open, close, message, and wait.
  *
  * Composes three things: the instance store (`@corvi/agents/node`, one directory per subagent),
- * the terminal (`@corvi/terminals`, one tmux window per attached subagent), and the waiter
- * registry (`./waiters.ts`, the long poll's parking lot). The server is the single writer of the
- * `session.json` records and the message files; **every** read-modify-write of a record goes
- * through the store's per-subagent lock (`mutateRecord`/`appendMessageAndPatch`/`claimInbound`),
- * so two concurrent requests cannot interleave a cursor, an in-flight marker, or a log.
+ * the terminal (one host session per attached subagent, discovered by its session metadata), and
+ * the waiter registry (`./waiters.ts`, the long poll's parking lot). The server is the single
+ * writer of the `session.json` records and the message files; **every** read-modify-write of a
+ * record goes through the store's per-subagent lock (`mutateRecord`/`appendMessageAndPatch`/
+ * `claimInbound`), so two concurrent requests cannot interleave a cursor, an in-flight marker, or
+ * a log.
  *
- * Presence is a live window carrying `@subagent_id` — written by the server here, read back with
- * the window list. Activity is the reporter's `@agent_status`. The one stored fact is `inFlight`:
- * whether a turn was in flight cannot be derived after a reboot, so it is written when `next`
- * hands a message over and cleared when the reply settles.
+ * Presence is a live host session whose metadata carries `subagentId`, opened here and read back
+ * with the host list. Activity is the reporter's status (the CLI/HTTP store, or the host's OSC
+ * parse). The one stored fact is `inFlight`: whether a turn was in flight cannot be derived after
+ * a reboot, so it is written when `next` hands a message over and cleared when the reply settles.
  */
 import { Effect } from "effect";
 
-import { launchOf, launchCommand } from "@corvi/agents/harness";
+import { launchOf } from "@corvi/agents/harness";
 import {
   viewOf,
   type SubagentMessage,
@@ -45,11 +46,10 @@ import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/
 import { announce } from "../../capabilities/bus.ts";
 import { changeDir } from "../../change/server/index.ts";
 import {
-  ensureSession,
-  killWindow,
-  newWindowRunning,
-  sessions,
-  setPaneOption,
+  killHostWindow,
+  liveSubagents,
+  newSubagentWindow,
+  type LiveSubagent,
 } from "../../terminals/server/index.ts";
 import type { Change } from "../../domain/change.ts";
 import { resolveProfileFor } from "./run.ts";
@@ -61,30 +61,25 @@ const longPollMs = (): number => Number(process.env.CORVI_SUBAGENT_POLL_MS) || 3
 
 const now = (): string => new Date().toISOString();
 
-type Live = { readonly window: string; readonly index: number; readonly agentStatus?: "working" | "waiting" };
+/** One open per subagent at a time: two concurrent opens would otherwise both see "not live" and
+ * launch two host sessions for one id. An in-process lock is enough, since the server is the only
+ * writer of the instances. */
+const openLocks = new Map<string, Effect.Semaphore>();
+const openLock = (key: string): Effect.Semaphore => {
+  let lock = openLocks.get(key);
+  if (lock === undefined) {
+    lock = Effect.unsafeMakeSemaphore(1);
+    openLocks.set(key, lock);
+  }
+  return lock;
+};
 
-/** The live windows carrying a `@subagent_id`, keyed by subagent id. A tmux that times out is
- * an empty map: presence is best-effort, never a request failure. */
+type Live = LiveSubagent;
+
+/** The live subagent host sessions of a change, keyed by subagent id. A host that is not running
+ * is an empty map: presence is best-effort, never a request failure. */
 const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
-  Effect.map(
-    sessions.windows(changeId, ["@subagent_id", "@agent_status"]).pipe(
-      Effect.catchAll(() => Effect.succeed([])),
-    ),
-    (windows) => {
-      const map = new Map<string, Live>();
-      for (const window of windows) {
-        const id = window.options["@subagent_id"]?.trim();
-        if (!id) continue;
-        const status = window.options["@agent_status"];
-        map.set(id, {
-          window: window.id,
-          index: window.index,
-          ...(status === "working" || status === "waiting" ? { agentStatus: status } : {}),
-        });
-      }
-      return map;
-    },
-  );
+  liveSubagents(changeId).pipe(Effect.catchAll(() => Effect.succeed(new Map<string, Live>())));
 
 const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentInstanceDto => {
   const view = viewOf(
@@ -156,31 +151,43 @@ const uniqueId = (change: Change, label: string): Effect.Effect<string> =>
     }
   });
 
-/** How an instance's window is opened. The default creates the tmux window and returns its id;
+/** How an instance's window is opened. The default creates the host session and returns its id;
  * a test can supply one that returns a fake id, which is the only part of create/open that
- * touches tmux. The caller persists the id under the lock. */
+ * touches the terminal substrate. The caller persists the id under the lock. */
 export type SubagentLauncher = (change: Change, record: SubagentRecord) => Effect.Effect<string, BadRequestError>;
 
+/** The argv and working directory a subagent's host window runs: the harness pinned to the
+ * subagent id (`--session-id`/`--session`), in the subagent's own directory. Pure, so the resume
+ * contract a reopen depends on is testable without a harness. */
+export const subagentLaunch = (
+  changeDirPath: string,
+  record: SubagentRecord,
+): { readonly cwd: string; readonly command: string[] } => {
+  const launch = launchOf({
+    harness: record.harness,
+    sessionId: record.id,
+    label: record.label,
+    ...(record.model === undefined ? {} : { model: record.model }),
+    ...(record.effort === undefined ? {} : { effort: record.effort }),
+  });
+  return { cwd: instanceDir(changeDirPath, record.id), command: [launch.command, ...launch.args] };
+};
+
+/** The launcher a real subagent gets: its own host session, running the harness pinned to the
+ * subagent id. Reopening the same id runs the same argv in the same directory, which is what
+ * resumes the harness's own session. */
 const startWindow: SubagentLauncher = (change, record) =>
   Effect.gen(function* () {
-    const dir = instanceDir(changeDir(change), record.id);
-    yield* ensureSession(change.id, changeDir(change)).pipe(
-      Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
-    );
-    const launch = launchOf({
-      harness: record.harness,
-      sessionId: record.id,
+    const changeDirPath = changeDir(change);
+    const { cwd, command } = subagentLaunch(changeDirPath, record);
+    // argv, not a shell line: the host execs the harness directly.
+    const window = yield* newSubagentWindow(change.id, {
+      changeDir: changeDirPath,
+      cwd,
+      subagentId: record.id,
       label: record.label,
-      ...(record.model === undefined ? {} : { model: record.model }),
-      ...(record.effort === undefined ? {} : { effort: record.effort }),
-    });
-    const window = yield* newWindowRunning(change.id, dir, launchCommand(launch), {
-      keepOpen: false,
-      cwd: dir,
+      command,
     }).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
-    yield* setPaneOption(window, "@subagent_id", record.id).pipe(
-      Effect.mapError((failure) => new BadRequestError({ message: failure.message })),
-    );
     return window;
   });
 
@@ -261,15 +268,17 @@ export const openSubagent = (
   id: string,
   launcher: SubagentLauncher = startWindow,
 ): Effect.Effect<SubagentInstanceDto, NotFoundError | BadRequestError> =>
-  Effect.gen(function* () {
-    const record = yield* requireInstance(change, id);
-    const live = (yield* liveBySubagent(change.id)).get(id);
-    if (live !== undefined) return toDto(record, live);
-    const window = yield* launcher(change, record);
-    yield* opened(change, id, window);
-    yield* Effect.sync(() => announce("windows"));
-    return yield* refreshSubagent(change, id);
-  });
+  openLock(`${change.id}\u0000${id}`).withPermits(1)(
+    Effect.gen(function* () {
+      const record = yield* requireInstance(change, id);
+      const live = (yield* liveBySubagent(change.id)).get(id);
+      if (live !== undefined) return toDto(record, live);
+      const window = yield* launcher(change, record);
+      yield* opened(change, id, window);
+      yield* Effect.sync(() => announce("windows"));
+      return yield* refreshSubagent(change, id);
+    }),
+  );
 
 export const closeSubagent = (
   change: Change,
@@ -278,7 +287,7 @@ export const closeSubagent = (
   Effect.gen(function* () {
     const record = yield* requireInstance(change, id);
     if (record.window !== undefined) {
-      yield* killWindow(record.window).pipe(Effect.catchAll(() => Effect.void));
+      yield* killHostWindow(change.id, record.window).pipe(Effect.catchAll(() => Effect.void));
     }
     yield* mutateRecord(changeDir(change), id, (current) => ({
       write: true,

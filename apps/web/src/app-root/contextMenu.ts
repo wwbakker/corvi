@@ -6,8 +6,10 @@
  * the host does not read it. In a browser the page can only take the menu away, which is what "no"
  * means there.
  *
- * Neither touches a page that handles its own right-click: the terminal cancels the event so tmux
- * can draw its menu in the grid, and a cancelled event never reaches the host (nor the browser).
+ * The terminal draws its own menu (copy, paste, find, links), so the setting has to reach it too:
+ * while the setting is off the page swallows the right-click in the capture phase, before the
+ * terminal's own handler (or the host) ever sees it. That is the one place a page menu would
+ * otherwise survive the setting.
  */
 import { useEffect } from "react";
 import { hostOf } from "./host.ts";
@@ -22,12 +24,15 @@ export function useContextMenu(enabled: boolean): void {
     hostOf()?.setContextMenu?.(enabled);
   }, [enabled]);
 
-  // A browser's own menu is the page's to suppress, and only while the setting says no. In the app
-  // this also keeps the click from reaching the host at all, so the two agree by construction.
+  // A browser's own menu is the page's to suppress, and only while the setting says no. Capture and
+  // stop: the terminal's React handler is on the bubble path, so this keeps it from drawing either.
   useEffect(() => {
     if (enabled) return;
-    const stop = (e: Event): void => e.preventDefault();
-    document.addEventListener("contextmenu", stop);
-    return () => document.removeEventListener("contextmenu", stop);
+    const stop = (e: Event): void => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener("contextmenu", stop, true);
+    return () => document.removeEventListener("contextmenu", stop, true);
   }, [enabled]);
 }

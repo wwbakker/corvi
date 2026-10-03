@@ -155,7 +155,7 @@ export const SubagentInstanceSchema = Schema.Struct({
   activity: Schema.Literal("idle", "working"),
   interrupted: Schema.Boolean,
   awaitingReply: Schema.Boolean,
-  /** The tmux window index of the live window, for the page to focus it. */
+  /** The window index of the live window, for the page to focus it. */
   windowIndex: Schema.optional(Schema.Number),
   log: Schema.mutable(Schema.Array(SubagentSystemEventSchema)),
   messages: Schema.mutable(Schema.Array(SubagentMessageSchema)),

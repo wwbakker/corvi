@@ -1,31 +1,30 @@
 /**
- * The terminal module's public face: the tmux session handling (bound in `tmux.ts` over
- * `@corvi/terminals/tmux`) and the presented-window shape (`presenter.ts`).
+ * The terminal module's public face: the window registry over host sessions (`windows.ts`) and
+ * the pure presentation (`presenter.ts`).
  *
- * The pty bridge (`session.ts`) is deliberately **not** re-exported here. It is the socket
- * boundary, and importing it would drag node-pty into every server consumer of `stopTerminal`
- * or `listWindows`. The files that speak the socket directly (`terminals/routes.ts`,
- * `server.ts`) import `./session.ts` as a leaf instead.
+ * The pty bridge (`session.ts`) is deliberately **not** re-exported here: it is the socket
+ * boundary, and importing it would drag node-pty into every server consumer of `listWindows`.
+ * The files that speak the socket directly (`terminals/routes.ts`, `server.ts`) import
+ * `./session.ts` as a leaf instead.
  *
  * The module knows sessions, not changes: every entry point takes the change's id and, where a
- * path is involved, the change directory its caller computed. There is no import of the change
- * module here.
+ * path is involved, the directory its caller computed.
  */
 export {
-  sessionName,
-  terminalSocketPath,
-  stopTerminal,
-  changeOfSession,
+  listWindows,
+  allWindows,
   newWindow,
-  newWindowRunning,
   selectWindow,
   moveWindow,
-  ensureSession,
-  pastePromptTo,
-  submit,
-  setPaneOption,
-  killWindow,
-  sessions,
-} from "./tmux.ts";
-
-export { listWindows, allWindows, presentWindow, type PresentedWindow } from "./presenter.ts";
+  splitPane,
+  closePane,
+  focusPane,
+  ensureActiveHostWindow,
+  stopHostTerminals,
+  newSubagentWindow,
+  killHostWindow,
+  liveSubagents,
+  terminalSocketPath,
+  type LiveSubagent,
+} from "./windows.ts";
+export { presentWindow, type PresentedWindow } from "./presenter.ts";

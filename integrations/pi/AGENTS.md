@@ -3,7 +3,7 @@
 ## Owns
 
 Pi's agent-state reporter: `src/agent-state.ts`, the pi extension that publishes Corvi's agent
-protocol (the `@agent_*` tmux pane options of docs/manual/terminals.md) from pi's own events —
+protocol (the status facts of docs/manual/terminals.md, via `corvi status`) from pi's own events —
 working/waiting, the agent's name, the session's name, and the first sentence of the last answer.
 It runs inside pi, not inside Corvi: `bun run extension:install:pi` symlinks the entry file into
 pi's extensions directory (`scripts/extension.ts` owns the mechanics).
@@ -12,6 +12,10 @@ pi's extensions directory (`scripts/extension.ts` owns the mechanics).
   pane gate (`CORVI_CHANGE_ID`), so nothing appears outside Corvi. Its text is deliberately
   duplicated in `integrations/opencode/src/cli-guide.ts` (the two extensions share no code) and
   pinned equal by `test/cliGuide.test.ts`.
+- `./node/log`: the extension log sink — Corvi's own errors (a failed command, a failed publish)
+  are appended to the app log (`CORVI_LOG`) rather than written to the pane's screen, which Corvi
+  parses and persists. Duplicated in `integrations/opencode/src/node/log.ts` and pinned equal by
+  `test/integrationLog.test.ts`.
 
 ## Does not own
 
@@ -28,7 +32,8 @@ deliberately share no code: each is loaded by its agent outside Corvi's module g
 ## Dependencies
 
 Type-only on `@earendil-works/pi-coding-agent` (pi provides the module at runtime). No `@corvi/*`
-packages, no Node built-ins: publishing is `pi.exec("tmux", …)`, fire and forget.
+packages; the only Node built-in is `node:fs` (the log sink's synchronous append). Publishing is
+`pi.exec("corvi", […])`, fire and forget.
 
 ## Verification
 

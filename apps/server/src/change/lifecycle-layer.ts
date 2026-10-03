@@ -32,6 +32,10 @@ import {
   layer as changeLifecycleLayer,
   type PullRequestState,
 } from "@corvi/workflows/lifecycle"
+
+/** Re-exported so a server test can drive the terminal-stop capability this layer implements
+ * without depending on the workflows package's own entry point. */
+export { TerminalSessions } from "@corvi/workflows/lifecycle"
 import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
 import type { Change as LegacyChange, CompletionStep } from "../domain/change.ts"
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
@@ -42,7 +46,7 @@ import { capabilitiesLayer, cacheLive, ChangesLive, GitFactsLive } from "../inte
 import { prLooseEnds } from "@corvi/github"
 import { closeIssueOnComplete, planIssueClose } from "@corvi/github/issues"
 import { jiraLooseEnds, moveIssueOnComplete, planIssueCompletion } from "@corvi/jira"
-import { stopTerminal } from "../terminals/server/index.ts"
+import { stopHostTerminals } from "../terminals/server/index.ts"
 import { forgetPrs, mergePr, mergeReadiness, refreshReadiness } from "@corvi/github/client"
 import type { Cache, Changes, GitFacts } from "@corvi/contracts/capabilities"
 import { runtimeCache } from "../capabilities/runtime.ts"
@@ -273,11 +277,14 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
 
 export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succeed(TerminalSessions, {
   stop: (changeId) =>
-    stopTerminal(changeId).pipe(
-      Effect.mapError(
-        (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
-      ),
-    ),
+    Effect.gen(function* () {
+      // Every terminal is a host session now (interactive shells, action runs and subagents), so
+      // one stop ends them all; a completed change keeps no shell running.
+      yield* Effect.tryPromise({
+        try: () => stopHostTerminals(changeId),
+        catch: (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
+      });
+    }),
 })
 
 /** The repositories capability over the native link store, without the lifecycle services. */

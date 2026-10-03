@@ -2,9 +2,12 @@
 import {
   TerminalsResponseSchema,
   TerminalWindowSchema,
+  TerminalStatusResponseSchema,
   UrlSchema,
   WindowActionBodySchema,
   type TerminalWindowDto,
+  type TerminalStatusDto,
+  type TerminalStatusResponseDto,
   type TerminalsResponseDto,
   type UrlDto,
   type WindowActionBodyDto,
@@ -26,6 +29,8 @@ export interface TerminalsApi {
     changeId: ChangeId,
     action: WindowActionBodyDto,
   ) => Promise<TerminalWindowDto[]>
+  /** Report an agent status for one host session (the CLI reporter transport). */
+  readonly setStatus: (body: TerminalStatusDto) => Promise<TerminalStatusResponseDto>
 }
 
 export const makeTerminalsApi = (send: Send): TerminalsApi => {
@@ -41,5 +46,7 @@ export const makeTerminalsApi = (send: Send): TerminalsApi => {
         mutableArray(TerminalWindowSchema),
         await send("POST", `${change(changeId)}/terminal/windows`, { body: action }),
       ),
+    setStatus: async (body) =>
+      decode(TerminalStatusResponseSchema, await send("POST", "/terminals/status", { body })),
   }
 }

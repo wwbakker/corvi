@@ -53,7 +53,7 @@ Acquire resources with `Effect.acquireRelease`/scoped Layers and register finali
 Use scoped fibers for background work; the owning scope controls their cancellation.
 
 An application owns its listeners, caches, and integration instances. Requests and PTY attachments
-have narrower scopes. A tmux session intended to outlive Corvi is not an attachment-owned resource:
+have narrower scopes. A terminal host session intended to outlive Corvi is not an attachment-owned resource:
 closing a socket releases the PTY client, not the persistent session.
 
 Adapt callbacks once, capturing the necessary runtime/services and cancellation. Unregister native

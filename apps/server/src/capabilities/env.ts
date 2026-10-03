@@ -11,9 +11,10 @@
  * started by hand at the app's port and data root. Everything else — the login environment the
  * app's server was given, `PATH`, `HOME`, the SSH agent — passes through untouched.
  *
- * `TMUX` and `TMUX_PANE` are deliberately kept: they are how a tool inside a pane addresses its
- * own server, and the product relies on that — the agent reporters the manual documents
- * (`integrations/pi`, `integrations/opencode`), and any prompt that asks tmux where it is.
+ * `TMUX` and `TMUX_PANE` are passed through by this scrub, but the terminal's own environment
+ * builder drops them for host sessions (`terminals/server/windows.ts`): a shell Corvi starts is
+ * not a tmux pane, and a program that found those variables would talk to a tmux server that is
+ * not Corvi's.
  *
  * The caller's additions are applied *after* the scrub, so a workspace can set any of these
  * variables on purpose (`shell.ts` applies the workspace's configured `env` this way), and the
@@ -39,7 +40,7 @@ export const childEnv = (
 /** The CLI's shim directory (`apps/cli/bin/corvi`) in front of a PATH — or nothing to do, when
  * a `corvi` already resolves. The shadowing rule is deliberate: where a launcher installed one
  * (Linux, `bun run app:install`), it keeps winning, `start`/`stop` and all, and the shim never
- * shadows it. Pure, so the rule is a unit test's own (`test/tmuxSessionEnv.test.ts`). */
+ * shadows it. Pure, so the rule is a unit test's own (`test/env.test.ts`). */
 export const cliAwarePath = (input: {
   readonly root: string;
   readonly path: string | undefined;
@@ -49,16 +50,12 @@ export const cliAwarePath = (input: {
     ? undefined
     : `${join(input.root, "apps", "cli", "bin")}${input.path === undefined ? "" : `:${input.path}`}`;
 
-/** Put the CLI on this process's PATH — once at startup (apps/server/src/server.ts). tmux builds
- * each pane's environment from the **creating client's** and pins `PATH`/`SHELL` to it: session-
- * and server-level environments cannot set `PATH` at all (`new-session -e`, `new-window -e` and
- * `set-environment` are all ignored for it), and every client Corvi spawns — the tmux commands
- * through `sh()`, the attach ptys through `childEnv` above — inherits this process's
- * environment. A pane's own shell then keeps what its rc files prepend or append, but may still
- * replace PATH outright; that residual is documented in docs/manual/install.md. Whether a
- * `corvi` already resolves is the caller's question (`commandAvailable` lives in `./os.ts`, and
- * importing it here would close a cycle back through `shell.ts`), so this module keeps its one
- * dependency. */
+/** Put the CLI on this process's PATH — once at startup (apps/server/src/server.ts). The host
+ * spawns every session with this process's environment (the terminal's own builder adds the
+ * change's context on top), so a shim on the server's PATH is what makes `corvi` resolve inside
+ * a session. Whether one already resolves is the caller's question (`commandAvailable` lives in
+ * `./os.ts`, and importing it here would close a cycle back through `shell.ts`), so this module
+ * keeps its one dependency. */
 export const putCliOnPath = (root: string, corviAvailable: boolean): void => {
   const path = cliAwarePath({ root, path: process.env.PATH, corviAvailable });
   if (path !== undefined) process.env.PATH = path;

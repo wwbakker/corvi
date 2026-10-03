@@ -3,7 +3,7 @@
  *
  * The page runs in two kinds of place — the app's own window (Electron, docs/manual/install.md)
  * and a real browser. Only the app has a host: it shows the notification the page asks for, and
- * answers a click by asking the page to open the change and tmux window the notice was about. A
+ * answers a click by asking the page to open the change and the window the notice was about. A
  * browser has no bridge, so the page falls back to the browser's own `Notification`
  * (apps/web/src/app-root/notify.tsx), which is the same entry point a click uses.
  *
@@ -27,7 +27,7 @@ export type HostNotice = {
   sound: boolean;
   /** The change the window belongs to. */
   change: string;
-  /** tmux's window id — stable across reordering, unlike the index. */
+  /** The window's backing session id — stable across reordering, unlike the index. */
   window: string;
 };
 

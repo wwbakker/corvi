@@ -7,7 +7,7 @@
 export type { Card } from "./api/cards.ts";
 export type { WizardStep } from "./api/wizard.ts";
 export type {
-  TmuxWindow,
+  RawWindow,
   WindowPresentation,
   TerminalPresenter,
 } from "@corvi/contracts/terminal";

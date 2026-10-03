@@ -8,17 +8,13 @@
  *   bun run test:clean --prune          # ...and remove the temp dirs and pid-files it ended
  *   bun run test:clean --verbose        # also say so when there is nothing
  *
- * Tests start real things — servers on Node, whole tmux servers — and an aborted run leaves them
+ * Tests start real things — servers and terminal hosts on Node — and an aborted run leaves them
  * behind. Killing those by port or by process name is how a live Corvi.app server was once
  * destroyed: from the outside they look exactly like test leftovers. So ownership here is
- * decided only by things a test's processes carry and the app's never do:
- *
- *   - a tmux server is a test's when its socket is under a `$TMPDIR/corvi-*` directory (the tests
- *     name it explicitly with -S and give it to the server as CORVI_TMUX_SOCKET; Corvi's own
- *     terminals live on the `corvi` socket, and anything else on the default socket is yours);
- *   - a server is a test's when its command line carries `--corvi-test-run`, which the tests pass
- *     and apps/server/src/server.ts ignores. The app's server (`electron apps/server/src/server.ts`) and a dev server
- *     (`node apps/server/src/server.ts`) carry no marker.
+ * decided only by things a test's processes carry and the app's never do: a server is a test's
+ * when its command line carries `--corvi-test-run`, which the tests pass and
+ * apps/server/src/server.ts ignores. The app's server (`electron apps/server/src/server.ts`) and
+ * a dev server (`node apps/server/src/server.ts`) carry no marker.
  *
  * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` that no live run names is
  * a stray, and `--prune` removes it. Do not name your own scratch files `corvi-…` there — a
@@ -29,7 +25,6 @@
  * from the human labels a temp dir also carries. Its resources carry the token too:
  *
  *   - the server in `--corvi-test-run=<token>`;
- *   - the tmux socket, under `<tmpdir>/corvi-<token>-...`;
  *   - and the run itself in `<tmpdir>/corvi-<token>.pid`, written by `testRun()` (test/helpers.ts)
  *     and holding its pid for as long as it lives.
  *
@@ -59,19 +54,10 @@ export const testRoots = async (): Promise<string[]> => {
  * `$TMPDIR/corvi-x` is `/var/folders/.../T//corvi-x` and would not match the `T/corvi-` prefix. */
 const normalize = (path: string): string => path.replace(/\/{2,}/g, "/");
 
-const underTestRoot = (path: string, roots: readonly string[]): boolean => {
-  const candidate = normalize(path);
-  return roots.some((root) => candidate.startsWith(`${normalize(root)}/corvi-`));
-};
-
 /** Whether a command line belongs to a test run: only the marker every test server carries.
  * Pure and exported, so test/clean.test.ts can pin the shapes this must never confuse: a test's
  * server, the app's (`electron apps/server/src/server.ts`), and a dev server (`node apps/server/src/server.ts`). */
 export const isTestCommand = (command: string): boolean => command.includes("--corvi-test-run");
-
-/** Whether a tmux socket belongs to a test run. */
-export const isTestSocket = (socket: string, roots: readonly string[]): boolean =>
-  underTestRoot(socket, roots);
 
 /** A run token: two base36 words joined by a dot. The dot is what makes it recognisable in a
  * path that also carries a human label, and what keeps `corvi-term-abc` (label `term`) from being
@@ -116,28 +102,6 @@ const processes = async (): Promise<Proc[]> => {
     .map((match) => ({ pid: Number(match[1]), command: match[2]! }));
 };
 
-/** The tmux sockets test runs left under the temporary directories. Resolved and deduped: the two
- * spellings of the temp root are one directory, and its sockets are one set. */
-const testSockets = async (roots: readonly string[]): Promise<string[]> => {
-  const sockets = new Set<string>();
-  for (const root of roots) {
-    for (const dir of await readdir(root, { withFileTypes: true }).catch(() => [])) {
-      if (!dir.isDirectory() || !dir.name.startsWith("corvi-")) continue;
-      const testDir = join(root, dir.name);
-      for (const inner of await readdir(testDir, { withFileTypes: true }).catch(() => [])) {
-        if (!inner.isDirectory() || !inner.name.startsWith("tmux-")) continue;
-        const socketDir = join(testDir, inner.name);
-        // The directory, not the socket: fs.realpath on a socket fails with EOPNOTSUPP on macOS.
-        const resolved = await realpath(socketDir).catch(() => socketDir);
-        for (const file of await readdir(socketDir, { withFileTypes: true }).catch(() => [])) {
-          if (file.isSocket()) sockets.add(join(resolved, file.name));
-        }
-      }
-    }
-  }
-  return [...sockets];
-};
-
 /** Whether a run is still alive: its pid-file names a live process. A missing file, a malformed
  * one, or a dead pid all mean the run is gone. */
 const liveToken = (token: string, roots: readonly string[]): boolean => {
@@ -152,16 +116,12 @@ const liveToken = (token: string, roots: readonly string[]): boolean => {
   return false;
 };
 
-/** The only processes this tool is ever allowed to end: the runtimes a test server can be. tmux
- * servers are ended through their own socket (known to be a test's) rather than by pid, so the
- * pattern here need not know a tmux server from a tmux client. */
+/** The only processes this tool is ever allowed to end: the runtimes a test server can be. */
 const isKillable = (command: string): boolean =>
   /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
 /** What the report lists as left alone: the things this tool could plausibly have ended and did
- * not — a server. tmux is deliberately absent: it is only ever ended through a socket proven to
- * be a test's, so a tmux process in this list would be noise at best and the test server just
- * killed at worst. */
+ * not — a server. */
 const looksLikeApp = (command: string): boolean =>
   /(?:^|\/)(?:bun|node)(?: |$).*src\/server\.ts/.test(command);
 
@@ -231,7 +191,6 @@ const main = async (): Promise<void> => {
 
   const roots = await testRoots();
   const procs = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command));
-  const sockets = await testSockets(roots);
 
   /** How a resource is judged: `chosen` (ended, or listed as such), `live` (a suite in progress),
    * or `unnamed` (a test-owned resource with no run token: an old run, or the app's). */
@@ -249,10 +208,9 @@ const main = async (): Promise<void> => {
   };
 
   const chosenProcs = procs.filter((p) => verdict(tokenOf(p.command)) === "chosen");
-  const chosenSockets = sockets.filter((s) => verdict(tokenFromPath(s)) === "chosen");
 
-  if (!procs.length && !sockets.length) {
-    if (verbose) console.log("no test processes or tmux servers are running");
+  if (!procs.length) {
+    if (verbose) console.log("no test processes are running");
     if (prune) {
       // Quiescent: nothing test-owned is running, so a `corvi-*` entry no run names is a stray
       // (an old run's, or a fixed-path log), and the old prune's behaviour is right.
@@ -267,14 +225,11 @@ const main = async (): Promise<void> => {
   }
 
   console.log(
-    `${kill ? "ending" : "found"} ${chosenProcs.length} test process(es) and ${chosenSockets.length} test tmux server(s)` +
+    `${kill ? "ending" : "found"} ${chosenProcs.length} test process(es)` +
       (all ? " (--all)" : run !== undefined ? ` (run ${run})` : " of runs that are gone") +
-      ` — ${procs.length + sockets.length} test-owned in all:`,
+      ` — ${procs.length} test-owned in all:`,
   );
   for (const p of procs) console.log(`  ${p.pid} ${p.command.slice(0, 120)} ${note(tokenOf(p.command))}`);
-  for (const socket of sockets) {
-    console.log(`  tmux server on ${socket} ${note(tokenFromPath(socket))}`);
-  }
   const untouched = (await processes()).filter((p) => looksLikeApp(p.command) && !isTestCommand(p.command));
   if (untouched.length) {
     console.log(`${untouched.length} server/terminal process(es) left alone (not test-owned):`);
@@ -292,7 +247,6 @@ const main = async (): Promise<void> => {
       // gone between the listing and now
     }
   }
-  for (const socket of chosenSockets) await sh(["tmux", "-S", socket, "kill-server"]);
   await Bun.sleep(500);
   for (const p of chosenProcs) {
     if (!alive(p.pid)) continue;

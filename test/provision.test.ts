@@ -17,7 +17,7 @@ import { versionInLines } from "@corvi/azure-devops/pipelines";
 import { deploySettingsOf } from "@corvi/azure-devops/deploySettings";
 import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
-import type { TmuxWindow } from "../apps/server/src/integrations/types.ts";
+import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
 
@@ -184,12 +184,12 @@ test("the artifact version is read from the build log lines", () => {
 });
 
 test("a terminal window is labelled by where it is, or what you named it", () => {
-  // The server-side composition, exactly as a window crosses to the page: raw tmux facts in,
-  // the presented shape out.
-  const w = (over: Partial<TmuxWindow>): PresentedWindow =>
+  // The server-side composition, exactly as a window crosses to the page: raw facts in, the
+  // presented shape out.
+  const w = (over: Partial<RawWindow>): PresentedWindow =>
     presentWindow({
       index: 0,
-      id: "@1",
+      id: "w-1",
       name: "zsh",
       command: "zsh",
       active: true,
@@ -197,21 +197,23 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
       directory: "example-api",
       named: false,
       options: {},
+      panes: ["w-1"],
+      activePane: "w-1",
       ...over,
     });
-  // tmux's default name is the command, which says less than the directory does.
+  // A window named after its command says less than the directory does.
   expect(w({}).label).toBe("example-api");
   // Any plain shell, not only zsh: a prompt is a place, not a program — bash and sh included,
   // which is what a machine whose shell is not zsh used to get wrong.
   expect(w({ command: "bash" }).label).toBe("example-api");
   expect(w({ command: "sh" }).label).toBe("example-api");
   expect(w({}).attention).toBe(false);
-  expect(w({}).id).toBe("@1");
+  expect(w({}).id).toBe("w-1");
   expect(w({ command: "vim" }).label).toBe("example-api - (vim)");
   // A window you named yourself keeps its name, wherever it wandered off to.
   expect(w({ name: "deploy", command: "gradle", named: true }).label).toBe("deploy - (gradle)");
-  // An agent is `node` to tmux, which says nothing; what it says about itself replaces that,
-  // read from the `@agent_status` pane option the reporters write. A reporter that names itself
+  // An agent is `node` to the process table, which says nothing; what it says about itself
+  // replaces that, read from the `@agent_status` fact the reporters publish. A reporter that names itself
   // (`@agent_name`) is called by its name — "pi working", "opencode waiting" — otherwise "agent".
   const working = w({ command: "node", options: { "@agent_status": "working" } });
   expect(working.label).toBe("example-api - (agent working)");

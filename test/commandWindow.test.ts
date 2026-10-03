@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import type { TmuxWindow } from "@corvi/contracts/terminal";
+import type { RawWindow } from "@corvi/contracts/terminal";
 import {
   COMMAND_ACTION_OPTION,
   COMMAND_EXIT_OPTION,
@@ -8,8 +8,8 @@ import {
 } from "@corvi/terminals/model";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
 
-/** A window as tmux reports it, with the wrapper's pane options in the active pane. */
-const window = (options: Record<string, string>): TmuxWindow => ({
+/** A window's raw facts, with the wrapper's option names the presenter reads. */
+const window = (options: Record<string, string>): RawWindow => ({
   index: 1,
   id: "@9",
   name: "wrap",
@@ -19,6 +19,8 @@ const window = (options: Record<string, string>): TmuxWindow => ({
   directory: "demo",
   named: false,
   options,
+  panes: ["@9"],
+  activePane: "@9",
 });
 
 test("a window Corvi did not set up is not this presenter's", () => {

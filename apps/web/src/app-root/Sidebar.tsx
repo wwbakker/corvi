@@ -98,7 +98,7 @@ export function Sidebar({
   onChooseWorkspace: (id: string) => void;
   current?: Change;
   page: Page;
-  /** Every change's tmux windows, keyed by change: the terminals sit under their own change. */
+  /** Every change's terminal windows, keyed by change: they sit under their own change. */
   windows: Record<string, TerminalWindow[]>;
   onHome: () => void;
   /** Start an idea: it belongs beside the Ideas heading, where the entries it adds to begin —

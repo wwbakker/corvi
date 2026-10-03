@@ -21,6 +21,8 @@
     "@corvi/shell": "workspace:*",
     "@corvi/terminals": "workspace:*",
     "@corvi/workflows": "workspace:*",
+    "@xterm/addon-serialize": "0.14.0",
+    "@xterm/headless": "6.0.0",
     "effect": "catalog:",
     "node-pty": "1.2.0-beta.15",
     "ws": "^8.21.3"

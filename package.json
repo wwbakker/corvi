@@ -38,6 +38,7 @@
     "typecheck": "tsc --noEmit",
     "boundaries": "bun scripts/architecture.ts",
     "outline": "bun scripts/outline.ts",
+    "bench:screens": "bun scripts/bench-screens.ts",
     "lint": "eslint .",
     "effect:lint": "effect-language-service diagnostics --project tsconfig.json --format text",
     "shot": "bun scripts/shot.ts",

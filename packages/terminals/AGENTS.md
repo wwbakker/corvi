@@ -2,31 +2,36 @@
 
 ## Owns
 
-Session and window identity, input handling, attachment and owned PTY resources.
+The pure terminal vocabulary shared by the server and the page, and the command window's
+presentation.
 
-- `./model`: the pure keyboard vocabulary — the platform word, the new-window key test, and the
-  CSI-u sequences a terminal cannot encode by itself. No imports.
-- `./tmux`: the tmux operations (attach argv, window listing/creating/moving, prompt paste,
-  session recycling) over a `Host` the app supplies — command execution and the product's names.
-- `./session`: one pty per socket, the buffer before the upgrade, the attachments this process
-  owns and closes on shutdown, and the socket handlers, over a `PtySpawner` the app supplies.
+- `./model`: the platform word, the new-window key test, the CSI-u sequences a terminal cannot
+  encode by itself, the command option names a kept/finished window carries, and the
+  `CommandFailure`/`NewWindowOptions` types the delivery path shares. No imports.
+- `./presenter`: `commandWindowPresenter`, which reads the command option names and says what a
+  run window is (finished, wanting you). Pure, over `@corvi/contracts`' presenter types.
+
+The pty, the host, the window registry and the socket bridge live in the application
+(`apps/server/src/terminals`); this package holds only what both halves of a window's vocabulary
+must agree on.
 
 ## Does not own
 
-Agent conversation identity, change transitions, notifications policy. The presenter
-aggregation stays in the app (`apps/server/src/terminals/server/presenter.ts`) because it composes the
-agents integration; the routes stay in `apps/server/src/terminals/routes.ts` because they are transport.
+Agent conversation identity, change transitions, notifications policy, the presenters that
+compose the agents integration, or the terminal routes. The presenter aggregation stays in the
+app (`apps/server/src/terminals/server/presenter.ts`); the routes stay in
+`apps/server/src/terminals/routes.ts` because they are transport.
 
 ## Public entrypoints
 
-- `@corvi/terminals/model`: `Platform`, `isNewWindowKey`, `csiuFor`
-- `@corvi/terminals/tmux`: `make(host)`, `formatFor`, `parseWindow`
-- `@corvi/terminals/session`: `makeAttachments(attachCommand, spawnPty)`
+- `@corvi/terminals/model`: `Platform`, `isNewWindowKey`, `csiuFor`, `COMMAND_*_OPTION`,
+  `CommandFailure`, `NewWindowOptions`
+- `@corvi/terminals/presenter`: `commandWindowPresenter`
 
 ## Dependencies
 
-`@corvi/contracts` (the raw window type) and `effect` (the tmux operations' effect types).
-No Node built-ins: process execution and pty spawning are the app's ports.
+`@corvi/contracts` (the presenter and raw-window types). No Node built-ins and no `effect`:
+session/process execution is the application's capability, not this package's.
 
 ## Verification
 

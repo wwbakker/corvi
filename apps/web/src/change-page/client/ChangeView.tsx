@@ -64,14 +64,14 @@ export function ChangeView({
   /** Results of the creation step, shown once: it is the one moment something can fail
    * without you having clicked it. */
   provision?: ProvisionResult[];
-  /** The change's tmux session, owned by the app so the navigation column can list its
+  /** The change's terminal session, owned by the app so the navigation column can list its
    * windows from any page. */
   terminal: {
     url: string | null;
     error: string | null;
     create: () => void;
   };
-  /** This change's tmux windows: what the terminal page's tabs are. */
+  /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
@@ -332,6 +332,12 @@ export function ChangeView({
   const active = resolveChangePage(page, tabs ?? []);
   const activeId = active.kind === "tab" ? active.tab.id : active.kind;
 
+  /** The pane the terminal shows: the active window's focused pane, so the socket attaches to
+   * that pane's own pty and switching windows or panes reconnects. A split window's other panes
+   * are composed in 5b; the page renders the active one for now. */
+  const activeWindow = windows.find((window) => window.active);
+  const activePaneId = activeWindow?.activePane ?? activeWindow?.id ?? null;
+
   /** The window's own row: the change's terminals as tabs, and — on the terminal page — the key
    * reference. The change's name is deliberately not here: the navigation column carries it, and the
    * row is the window's, so both of a change's pages still begin the same way
@@ -371,7 +377,6 @@ export function ChangeView({
           reference. The same row on both of a change's pages. */}
       {changeHeader}
       <CheatSheet
-        changeId={id}
         open={cheatSheet}
         onClose={() => {
           setCheatSheet(false);
@@ -471,6 +476,7 @@ export function ChangeView({
           changeId={id}
           platform={platform}
           terminal={terminal}
+          sessionId={activePaneId}
           windowsCount={windows.length}
           onFocusWindow={onFocusWindow}
         />
@@ -483,6 +489,7 @@ export function ChangeView({
           <TerminalPane
             changeId={id}
             url={terminal.url}
+            sessionId={activePaneId}
             error={terminal.error}
             visible={active.kind === "terminals"}
             focusRequest={focusRequest}

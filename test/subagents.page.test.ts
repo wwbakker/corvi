@@ -1,7 +1,7 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -64,6 +64,7 @@ afterAll(async () => {
   await closePages(browser, "subagents");
   await browser?.close();
   server?.kill();
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

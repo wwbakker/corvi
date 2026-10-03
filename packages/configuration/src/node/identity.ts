@@ -48,6 +48,19 @@ export const isMac = process.platform === "darwin";
 /** Linux. Anything else (Windows) is unsupported and gets neither platform's favours. */
 export const isLinux = process.platform === "linux";
 
+/** Whether a process with this pid is currently running. `process.kill(pid, 0)` sends no signal;
+ * it throws `ESRCH` when the process is gone, `EPERM` when it exists but belongs to another user
+ * (so `EPERM` still means alive). A pid that is not a positive integer is not a process. */
+export const pidAlive = (pid: number): boolean => {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
 /** The platform as one word, for whoever is told only once: the client reads it from
  * /api/workspaces and switches its key hints and shortcuts on it. */
 export const platformName = isMac ? "mac" : isLinux ? "linux" : "other";

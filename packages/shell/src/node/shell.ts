@@ -48,7 +48,7 @@ const stripAnsi = (s: string): string => s.replace(/\u001b\[[0-9;]*m/g, "").trim
 
 /** How a call is grouped in the trace: the tool and its subcommand, not the arguments. */
 const traceKey = (cmd: readonly string[]): string =>
-  ["git", "gh", "az", "tmux"].includes(cmd[0] ?? "")
+  ["git", "gh", "az"].includes(cmd[0] ?? "")
     ? cmd.slice(0, cmd[0] === "az" ? 3 : 2).join(" ")
     : (cmd[0] ?? "");
 
