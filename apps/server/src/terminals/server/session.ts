@@ -560,7 +560,11 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
 const startServe = (hub: Hub, subscriber: Subscriber): void => {
   void serve(hub, subscriber).catch((error: unknown) => {
     logFailure(`serving ${hub.key} threw after its finally`, error);
-    subscriber.onExit();
+    try {
+      subscriber.onExit();
+    } catch {
+      // the page is already gone; the exit frame is best-effort
+    }
   });
 };
 
@@ -605,17 +609,18 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
       const { data, offset } = hub.screen.serialize();
       subscriber.snapshot({ data, offset });
       hub.subscribers.add(subscriber);
-      const held = hub.hold;
-      hub.hold = undefined;
-      for (const chunk of held) {
+      // Consume the held bytes one at a time (shift, then write/send), so a `send` that throws
+      // leaves the rest of `hold` for the finally to drain to the screen instead of losing them.
+      while (hub.hold !== undefined && hub.hold.length > 0) {
+        const chunk = hub.hold.shift()!;
         hub.screen.write(chunk.data, chunk.seq);
         if (!subscriber.cancelled) subscriber.send(chunk.data);
       }
     } finally {
       // Whatever was held but not delivered must still reach the screen: `hub.received` already
       // covers it, so a later `whenApplied(cutoff)` would otherwise wait forever — a dead hub with
-      // an attach queue that never drains. The happy path consumed `hold` above, so it is empty
-      // here.
+      // an attach queue that never drains. The happy path shifted `hold` empty (or left only what a
+      // throw skipped), so nothing is written twice.
       for (const chunk of hub.hold ?? []) hub.screen.write(chunk.data, chunk.seq);
       hub.hold = undefined;
     }

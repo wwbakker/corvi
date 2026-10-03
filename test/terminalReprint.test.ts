@@ -240,6 +240,44 @@ test("bytes held when a page leaves mid-snapshot are still fed, so the next view
   expect(firstScreen(two.frames)).toContain("DRAIN-HELD");
 }, 30_000);
 
+test("a send that throws mid-replay still leaves the rest of the hold for the screen", async () => {
+  const change = "REPRINT-SEND";
+  const session = await openSession(change, dir, { cols: 80, rows: 24 });
+  const id = session.sessionId;
+  const incarnation = session.incarnation;
+  setReceivedForTest(id, incarnation, 1000);
+  // A socket whose first send throws: the happy path's replay loop must leave the remaining held
+  // chunks for the finally to drain, not lose them with the local batch.
+  let sent = 0;
+  const throwing: FakeSocket = {
+    data: { session },
+    frames: [],
+    send: () => {
+      sent += 1;
+      // The first send is the snapshot; the second is the first held chunk.
+      if (sent === 2) throw new Error("send exploded");
+    },
+    close: () => undefined,
+  };
+  terminalSockets.open(throwing);
+  let held = 0;
+  for (let i = 0; i < 4000 && held < 2; i++) {
+    if (held === 0 && holdChunkForTest(id, incarnation, 1010, "SEND-HELD-1\r\n")) held = 1;
+    else if (held === 1 && holdChunkForTest(id, incarnation, 1030, "SEND-HELD-2\r\n")) held = 2;
+    if (held < 2) await Bun.sleep(1);
+  }
+  expect(held).toBe(2);
+  // Let the serve reach its cutoff; its replay sends the first held chunk, which throws.
+  applyCutoffForTest(id, incarnation, 1000, "CUTOFF");
+  await Bun.sleep(50);
+  const second = await openSession(change, dir, { cols: 80, rows: 24 });
+  const two = fakeSocket(second);
+  terminalSockets.open(two);
+  await waitFor("the second snapshot", async () => control(two.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  // The chunk the throw skipped still reached the screen, so the next serve could serialize past it.
+  expect(firstScreen(two.frames)).toContain("SEND-HELD-2");
+}, 30_000);
+
 test("a page that leaves mid-repaint leaves no ghost subscriber, and the hub is released", async () => {
   process.env.REPRINT_DELAY_MS = "500";
   process.env.CORVI_SCREEN_IDLE_MS = "300";
