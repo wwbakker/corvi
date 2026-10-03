@@ -2,9 +2,6 @@
 
 ![A change's terminal](../images/terminal.png)
 
-<!-- The capture above predates the host-session UI and still shows a tmux status bar. Regenerate
-     it from a running app; scripts/shot.ts writes to shots/, so the file here is replaced by hand. -->
-
 ## Sessions and attachment
 
 Each change's terminals are **host sessions** in the terminal host: one long-lived process per
@@ -26,7 +23,9 @@ agent conversation. Those are separate planned capabilities.
 Windows appear under their change in the navigation column and in the strip above the terminal. A
 default label uses the window's directory, or the name an action or agent reported; an agent
 window takes its own session name once it has one. There is no session manager underneath — a window
-*is* a host session, and the strip switches between them.
+*is* a host session, and the strip switches between them. When more windows exist than fit, the
+strip wraps to a second row instead of showing a horizontal scrollbar. The strip is capped at two
+rows and scrolls once there are more; the **Actions** menu sits vertically centred in the strip.
 
 The new-window control, **Cmd-T** on macOS or **Ctrl-Alt-T** on Linux, creates another host session
 in the current window's directory. In a normal Chrome tab, Cmd-T remains a browser shortcut; the
