@@ -37,15 +37,52 @@ export type RelayHarness = {
   /** Stop the loop (a test aborts it). */
   readonly signal?: AbortSignal;
   readonly log?: (message: string) => void;
+  /** The jitter source; a test injects a fixed value to pin the backoff. */
+  readonly random?: () => number;
 };
 
 type NextResult =
   | { readonly status: "message"; readonly message: { readonly number: number; readonly body: string } }
   | { readonly status: "interrupted" | "none" };
 
-/** How long to wait before re-issuing after a failed or interrupted call. The CLI's own long
- * poll is ~30s; this is the retry gap after an error. */
-const RETRY_MS = 1000;
+/** The relay's retry backoff: exponential from this base, capped, with equal jitter. */
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30_000;
+/** How often one failure streak may log. A failing `next` must not fill the pane's log with one
+ * line per process, which is exactly the feedback loop this backoff exists to break. */
+const LOG_EVERY_MS = 30_000;
+
+/** The delay for a failed attempt: exponential from the base, capped, with equal jitter (half
+ * fixed, half random) so a fleet of relays does not retry in lockstep. */
+const backoffMs = (attempt: number, random: () => number): number => {
+  const capped = Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_MAX_MS);
+  return Math.round(capped / 2 + random() * (capped / 2));
+};
+
+/** A rate limiter for one failure streak. */
+type LogGate = { fail(message: string): void; ok(): void };
+
+/** Rate-limit one failure streak: the first failure logs at once, then at most one line every
+ * `everyMs` while it keeps failing. A success reopens it, so the next streak speaks. */
+const createLogGate = (
+  log: ((message: string) => void) | undefined,
+  everyMs = LOG_EVERY_MS,
+): LogGate => {
+  let lastAt = 0;
+  let due = true;
+  return {
+    fail: (message: string): void => {
+      const now = Date.now();
+      if (!due && now - lastAt < everyMs) return;
+      due = false;
+      lastAt = now;
+      log?.(message);
+    },
+    ok: (): void => {
+      due = true;
+    },
+  };
+};
 
 const parse = <T>(text: string): T | undefined => {
   try {
@@ -55,18 +92,24 @@ const parse = <T>(text: string): T | undefined => {
   }
 };
 
-const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<T | undefined> => {
+/** A CLI call's answer, or the reason it did not answer usefully. */
+type CallResult<T> = { readonly value: T } | { readonly failed: string };
+
+const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<CallResult<T>> => {
   const result = await harness.exec(args);
   if (result.code !== 0) {
-    harness.log?.(`corvi ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`);
-    return undefined;
+    return { failed: `corvi ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}` };
   }
-  return parse<T>(result.stdout);
+  const value = parse<T>(result.stdout);
+  return value === undefined
+    ? { failed: `corvi ${args.join(" ")} answered malformed JSON` }
+    : { value };
 };
 
 /** Relay one settled reply, retrying with backoff: this is the one call whose payload would be
  * lost if it never lands, so a server restart must not drop it. */
 const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
+  const gate = createLogGate(harness.log);
   for (let attempt = 0; ; attempt += 1) {
     if (harness.signal?.aborted) return;
     // `--` before the text: a reply that begins with a dash is data, not a flag.
@@ -82,14 +125,17 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       text,
     ]);
     if (result.code === 0) return;
-    harness.log?.(`relaying the turn failed (attempt ${attempt + 1}): ${result.stderr.trim()}`);
-    await harness.sleep(Math.min(RETRY_MS * 2 ** attempt, 30_000));
+    gate.fail(`relaying the turn failed (attempt ${attempt + 1}): ${result.stderr.trim()}`);
+    await harness.sleep(backoffMs(attempt, harness.random ?? Math.random));
   }
 };
 
 /** The loop: next → submit → settle → turn, forever. Exported for a scripted test. */
 export const relayLoop = async (subagentId: string, harness: RelayHarness): Promise<void> => {
+  const random = harness.random ?? Math.random;
+  const gate = createLogGate(harness.log);
   let after: number | undefined;
+  let attempt = 0;
   while (!harness.signal?.aborted) {
     const next = await call<NextResult>(harness, [
       "subagent",
@@ -99,27 +145,34 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
       "--json",
       ...(after === undefined ? [] : ["--after", String(after)]),
     ]);
-    if (next === undefined) {
-      await harness.sleep(RETRY_MS);
+    if ("failed" in next) {
+      gate.fail(next.failed);
+      await harness.sleep(backoffMs(attempt, random));
+      attempt += 1;
       continue;
     }
-    if (next.status === "interrupted") {
-      harness.log?.("the previous turn did not settle; waiting for a new message");
-      await harness.sleep(RETRY_MS);
+    if (next.value.status === "interrupted") {
+      gate.fail("the previous turn did not settle; waiting for a new message");
+      await harness.sleep(backoffMs(attempt, random));
+      attempt += 1;
       continue;
     }
-    if (next.status !== "message") continue; // the long poll's own deadline: re-issue at once
-    after = next.message.number;
+    // A success — a message or the long poll's own deadline — resets the streak.
+    gate.ok();
+    attempt = 0;
+    if (next.value.status !== "message") continue; // the long poll's deadline: re-issue at once
+    const message = next.value.message;
+    after = message.number;
     try {
-      await harness.submit(next.message.body);
+      await harness.submit(message.body);
     } catch (error) {
-      harness.log?.(`submitting message ${next.message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
+      harness.log?.(`submitting message ${message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
     const settled = await harness.settled();
     // A settled run with no text (an abort) still closes the turn, so the subagent is not stranded
     // in flight forever; the note is honest about there being no reply.
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
-    await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
+    await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
   }
 };
 

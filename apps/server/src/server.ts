@@ -7,7 +7,7 @@ import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { identityRoutes } from "./app-root/identity.ts";
-import { removeInstanceRecord, writeInstanceRecord } from "./app-root/instance.ts";
+import { pruneInstanceRecords, removeInstanceRecord, writeInstanceRecord } from "./app-root/instance.ts";
 import { actionsRoutes } from "./actions/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
@@ -116,6 +116,9 @@ const server = await serve<TerminalSocket>({
 });
 
 instancePort = server.port;
+// Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the
+// readiness line and immediately looks for the record sees only live servers to probe.
+await pruneInstanceRecords();
 // Before the readiness line, so a client that reads the line and immediately looks for the
 // record cannot lose the race.
 await writeInstanceRecord(server.url.toString(), server.port);

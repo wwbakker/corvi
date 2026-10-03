@@ -28,7 +28,7 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +53,17 @@ const isLinux = process.platform === "linux";
 const logPath = (): string =>
   isMac ? join(homedir(), "Library", "Logs", `${ID}.log`) : join(stateDir(), "log");
 const pidFile = (port: number): string => join(stateDir(), `${ID}-app-${port}.pid`);
+
+/** A timestamped line in the server's log file. The child's own stdout/stderr already go there;
+ * this is the window's half — a start line and the child's end — so a silent exit has a visible
+ * cause instead of a log that simply stops. The fd is the child's, already open for append. */
+const logLine = (fd: number, message: string): void => {
+  try {
+    writeSync(fd, `[${new Date().toISOString()}] ${message}\n`);
+  } catch {
+    // a log that cannot be written is never a reason to fail the launch
+  }
+};
 
 /**
  * What this copy is called, as Electron found it before the rename below: a packaged bundle's
@@ -243,6 +254,9 @@ const startServer = (port: number, checkout: string): void => {
   server = child;
   serverPid = child.pid ?? null;
   if (isLinux && serverPid !== null) writeFileSync(pidFile(port), String(serverPid));
+  logLine(log, `starting the server on port ${port} (pid ${serverPid ?? "unknown"})`);
+  child.on("exit", (code, signal) => logLine(log, `the server process exited (code ${code ?? "none"}, signal ${signal ?? "none"})`));
+  child.on("close", (code, signal) => logLine(log, `the server process closed (code ${code ?? "none"}, signal ${signal ?? "none"})`));
 };
 
 /** Send a signal to the process group the server leads: the login shell execs the server, so

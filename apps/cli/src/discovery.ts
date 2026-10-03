@@ -11,14 +11,17 @@
  * makes several servers (a dev server and the app) safe to have running at once.
  *
  * A clue is a hint, never an authority: an unreachable record or pid-file is a failed probe, not
- * an error. Only "nobody answered", or "several answered and the change is ambiguous", is.
+ * an error. A record whose process is gone is not even tried, and a record whose process is alive
+ * gets a longer probe deadline than a bare address, so a busy-but-serving server is not reported
+ * absent (which would start the caller's retry loop against the server that is already busy). Only
+ * "nobody answered", or "several answered and the change is ambiguous", is.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { Schema } from "effect";
 
 import { makeCorviClient } from "@corvi/client";
-import { ID, env, stateDir } from "@corvi/configuration/node";
+import { ID, env, pidAlive, stateDir } from "@corvi/configuration/node";
 import { InstanceRecordSchema, type InstanceRecord } from "@corvi/contracts/instance";
 
 import { CliFailure, EXIT } from "./errors.ts";
@@ -30,6 +33,10 @@ const DEV_PORT = 4000;
 /** How long a candidate gets to answer before it is treated as absent. A server parked on the
  * dev-default port that never replies must not hang every command behind it. */
 export const PROBE_TIMEOUT_MS = 750;
+/** How long a record whose server is confirmed alive gets. A known-live server can be momentarily
+ * busy (opening a terminal serializes a screen), and reporting it absent starts the caller's retry
+ * loop — more load on the server that is already busy. */
+export const PROBE_TIMEOUT_LIVE_MS = 2000;
 
 /** A candidate's trust: 0 is `--server`, 1 is `CORVI_URL`, 2 is a state file, 3 the dev default. */
 const EXPLICIT = 0;
@@ -46,22 +53,27 @@ const stripTrailingSlash = (url: string): string => {
   return url.slice(0, end);
 };
 
-/** The instance records in `dir`, ordered by port and dropping any that do not parse (a crashed
- * or foreign writer). */
-export const instanceRecords = async (dir: string = stateDir()): Promise<readonly InstanceRecord[]> => {
+/** An instance record with the liveness of the server that wrote it, so a caller can skip a
+ * record left by a crash without probing its port. */
+export type DiscoveredInstance = InstanceRecord & { readonly live: boolean };
+
+/** The instance records in `dir`, ordered live first and then by port, dropping any that do not
+ * parse (a crashed or foreign writer). */
+export const instanceRecords = async (dir: string = stateDir()): Promise<readonly DiscoveredInstance[]> => {
   const names = await readdir(dir).catch(() => [] as string[]);
-  const records: InstanceRecord[] = [];
+  const records: DiscoveredInstance[] = [];
   for (const name of names) {
     if (!name.startsWith(FILE_PREFIX) || !name.endsWith(".json")) continue;
     const text = await readFile(join(dir, name), "utf8").catch(() => undefined);
     if (text === undefined) continue;
     try {
-      records.push(Schema.decodeUnknownSync(InstanceRecordSchema)(JSON.parse(text)));
+      const record = Schema.decodeUnknownSync(InstanceRecordSchema)(JSON.parse(text));
+      records.push({ ...record, live: pidAlive(record.pid) });
     } catch {
       // A record that does not parse is a hint, not a failure.
     }
   }
-  return records.sort((left, right) => left.port - right.port);
+  return records.sort((left, right) => Number(right.live) - Number(left.live) || left.port - right.port);
 };
 
 /** The ports named by the desktop window's pid-files (`<id>-app-<port>.pid`), ordered. */
@@ -82,6 +94,9 @@ export type Candidate = {
   readonly source: string;
   /** Lower is more explicit; see the constants above. */
   readonly priority: number;
+  /** The probe deadline for this candidate; absent means the caller's default. A record whose
+   * server is confirmed live carries the longer one. */
+  readonly timeoutMs?: number;
 };
 
 export type CandidateInput = {
@@ -107,8 +122,17 @@ export const serverCandidates = async (input: CandidateInput = {}): Promise<read
   if (input.url !== undefined && input.url !== "") raw.push({ url: input.url, source: "--server", priority: EXPLICIT });
   if (input.envUrl !== undefined && input.envUrl !== "")
     raw.push({ url: input.envUrl, source: "CORVI_URL", priority: FROM_ENV });
-  for (const record of await instanceRecords(input.dir))
-    raw.push({ url: record.url, source: `record for port ${record.port}`, priority: FROM_STATE });
+  for (const record of await instanceRecords(input.dir)) {
+    // A stale record only costs a probe timeout and can be sorted ahead of the live server; skip
+    // it. A live one gets the longer deadline, because a serving server can be momentarily busy.
+    if (!record.live) continue;
+    raw.push({
+      url: record.url,
+      source: `record for port ${record.port}`,
+      priority: FROM_STATE,
+      timeoutMs: PROBE_TIMEOUT_LIVE_MS,
+    });
+  }
   for (const port of await pidFilePorts(input.dir))
     raw.push({ url: `http://127.0.0.1:${port}`, source: `pid-file for port ${port}`, priority: FROM_STATE });
   raw.push({ url: `http://127.0.0.1:${devPort}`, source: "the dev default", priority: FALLBACK });
@@ -126,13 +150,13 @@ export const serverCandidates = async (input: CandidateInput = {}): Promise<read
 
 /** What a probe answers: the change ids a candidate server knows. Throws when it does not
  * answer as a Corvi server at all. */
-export type Probe = (url: string) => Promise<readonly string[]>;
+export type Probe = (candidate: Candidate) => Promise<readonly string[]>;
 
 /** The real probe: ask each candidate what it knows, with a deadline so an unresponsive one is
- * skipped rather than waited on. */
-export const clientProbe = (timeoutMs: number = PROBE_TIMEOUT_MS): Probe => async (url) => {
-  const identity = await makeCorviClient({ baseUrl: url }).server.identity({
-    signal: AbortSignal.timeout(timeoutMs),
+ * skipped rather than waited on. A candidate may name its own, longer deadline. */
+export const clientProbe = (timeoutMs: number = PROBE_TIMEOUT_MS): Probe => async (candidate) => {
+  const identity = await makeCorviClient({ baseUrl: candidate.url }).server.identity({
+    signal: AbortSignal.timeout(candidate.timeoutMs ?? timeoutMs),
   });
   return identity.changeIds;
 };
@@ -149,7 +173,7 @@ export type ResolveInput = {
 export const resolveServer = async (input: ResolveInput): Promise<Candidate> => {
   const answers: { readonly candidate: Candidate; readonly changeIds: readonly string[] }[] = [];
   for (const candidate of input.candidates) {
-    const changeIds = await input.probe(candidate.url).catch(() => undefined);
+    const changeIds = await input.probe(candidate).catch(() => undefined);
     if (changeIds === undefined) continue;
     // No change named: the first server that answers is the answer, so a slow or dead candidate
     // behind it is never probed.

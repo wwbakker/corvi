@@ -72,3 +72,76 @@ test("the turn is retried after a failed relay", async () => {
   await relayLoop("s1", harness);
   expect(turns).toHaveLength(2);
 });
+
+type NextStep =
+  | { readonly status: "message"; readonly message: { readonly number: number; readonly body: string } }
+  | { readonly status: "interrupted" | "none" }
+  | "fail";
+
+/** A harness that records its sleeps and logs and answers `next` from a script; the loop aborts on
+ * the first `turn`. The jitter is fixed so the delays are exact. */
+const recording = (
+  script: readonly NextStep[],
+  random = 0.5,
+): { readonly harness: RelayHarness; readonly sleeps: number[]; readonly logs: string[] } => {
+  const controller = new AbortController();
+  const sleeps: number[] = [];
+  const logs: string[] = [];
+  let index = 0;
+  return {
+    harness: {
+      exec: async (args) => {
+        if (args[0] === "subagent" && args[1] === "next") {
+          const step = script[Math.min(index, script.length - 1)];
+          index += 1;
+          if (step === "fail") return { code: 1, stdout: "", stderr: "no server" };
+          return { code: 0, stdout: JSON.stringify(step ?? { status: "none" }), stderr: "" };
+        }
+        controller.abort();
+        return { code: 0, stdout: "{}", stderr: "" };
+      },
+      submit: async () => {},
+      settled: async () => "done",
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+      random: () => random,
+      signal: controller.signal,
+      log: (message) => logs.push(message),
+    },
+    sleeps,
+    logs,
+  };
+};
+
+test("a failed next backs off exponentially with equal jitter and caps", async () => {
+  const { harness, sleeps, logs } = recording([
+    "fail",
+    "fail",
+    "fail",
+    "fail",
+    "fail",
+    "fail",
+    "fail",
+    { status: "none" },
+    { status: "message", message: { number: 1, body: "hi" } },
+  ]);
+  await relayLoop("s1", harness);
+  // Equal jitter at 0.5 is 75% of the cap: 750, 1500, 3000, 6000, 12000, then the 30s cap.
+  expect(sleeps).toEqual([750, 1500, 3000, 6000, 12000, 22500, 22500]);
+  // One failure streak logs once, not once per attempt.
+  expect(logs).toHaveLength(1);
+});
+
+test("a success resets the backoff, and an interrupted turn backs off too", async () => {
+  const { harness, sleeps } = recording([
+    "fail",
+    { status: "none" },
+    { status: "interrupted" },
+    "fail",
+    { status: "message", message: { number: 1, body: "hi" } },
+  ]);
+  await relayLoop("s1", harness);
+  // fail (attempt 0); the `none` resets; interrupted (attempt 0); fail (attempt 1).
+  expect(sleeps).toEqual([750, 750, 1500]);
+});
