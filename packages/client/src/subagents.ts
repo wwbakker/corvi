@@ -1,5 +1,5 @@
 /** The persistent subagents: the profile files that template them, and the instances of a
- * change — their messages, turns and waits. */
+ * change — their messages, turns and awaits. */
 import { Schema } from "effect"
 
 import {
@@ -9,7 +9,8 @@ import {
   SubagentMessageSchema,
   SubagentNextResponseSchema,
   SubagentProfilesResponseSchema,
-  SubagentWaitResponseSchema,
+  SubagentRepositoryFilesResponseSchema,
+  SubagentAwaitResponseSchema,
   type SubagentCreateRequestDto,
   type SubagentFileRefDto,
   type SubagentFileWriteDto,
@@ -17,10 +18,13 @@ import {
   type SubagentInstanceDto,
   type SubagentMessageDto,
   type SubagentNextResponseDto,
+  type SubagentAwaitResponseDto,
   type SubagentProfilesResponseDto,
+  type SubagentRepositoryFileRefDto,
+  type SubagentRepositoryFileWriteDto,
+  type SubagentRepositoryFilesResponseDto,
   type SubagentSendRequestDto,
   type SubagentTurnRequestDto,
-  type SubagentWaitResponseDto,
 } from "@corvi/contracts/subagents"
 import type { ChangeId } from "@corvi/contracts/changes"
 
@@ -35,6 +39,16 @@ export interface SubagentsApi {
   readonly files: () => Promise<SubagentFilesResponseDto>
   readonly writeFile: (file: SubagentFileWriteDto) => Promise<SubagentFilesResponseDto>
   readonly deleteFile: (ref: SubagentFileRefDto) => Promise<SubagentFilesResponseDto>
+  /** The repository-scope files of one change's checkouts — the Repositories view. */
+  readonly repositoryFiles: (changeId: ChangeId) => Promise<SubagentRepositoryFilesResponseDto>
+  readonly writeRepositoryFile: (
+    changeId: ChangeId,
+    file: SubagentRepositoryFileWriteDto,
+  ) => Promise<SubagentRepositoryFilesResponseDto>
+  readonly deleteRepositoryFile: (
+    changeId: ChangeId,
+    ref: SubagentRepositoryFileRefDto,
+  ) => Promise<SubagentRepositoryFilesResponseDto>
   /** The profiles this change can run — discovery's resolved keys, the ones `create` takes. */
   readonly profiles: (changeId: ChangeId, options?: RequestOptions) => Promise<SubagentProfilesResponseDto>
   /** The persistent subagent instances of a change. */
@@ -62,16 +76,17 @@ export interface SubagentsApi {
     id: string,
     options?: RequestOptions,
   ) => Promise<SubagentMessageDto | null>
-  readonly wait: (
+  /** Block until one of the subagents (all of them when `ids` is empty) can be processed — idle
+   * or waiting for input with nothing of the orchestrator's pending, or a reply already parked —
+   * or until the horizon answers `timeout`. */
+  readonly await: (
     changeId: ChangeId,
     query: {
-      readonly id?: string
-      readonly any?: boolean
+      readonly ids?: readonly string[]
       readonly all?: boolean
-      readonly since?: number
     },
     options?: RequestOptions,
-  ) => Promise<SubagentWaitResponseDto>
+  ) => Promise<SubagentAwaitResponseDto>
   readonly next: (
     changeId: ChangeId,
     id: string,
@@ -107,6 +122,24 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
           `/subagents/files?scope=${ref.scope}${
             ref.workspace ? `&workspace=${encodeURIComponent(ref.workspace)}` : ""
           }&id=${encodeURIComponent(ref.id)}`,
+        ),
+      ),
+    repositoryFiles: async (changeId) =>
+      decode(
+        SubagentRepositoryFilesResponseSchema,
+        await send("GET", `${change(changeId)}/subagent-files`),
+      ),
+    writeRepositoryFile: async (changeId, file) =>
+      decode(
+        SubagentRepositoryFilesResponseSchema,
+        await send("PUT", `${change(changeId)}/subagent-files`, { body: file }),
+      ),
+    deleteRepositoryFile: async (changeId, ref) =>
+      decode(
+        SubagentRepositoryFilesResponseSchema,
+        await send(
+          "DELETE",
+          `${change(changeId)}/subagent-files?repository=${encodeURIComponent(ref.repository)}&id=${encodeURIComponent(ref.id)}`,
         ),
       ),
     list: async (changeId, options) =>
@@ -146,16 +179,14 @@ export const makeSubagentsApi = (send: Send): SubagentsApi => {
         Schema.NullOr(SubagentMessageSchema),
         await send("GET", `${instance(changeId, id)}/result`, options),
       ),
-    wait: async (changeId, query, options) => {
+    await: async (changeId, query, options) => {
       const params = new URLSearchParams()
-      if (query.id) params.set("id", query.id)
-      if (query.any) params.set("any", "1")
-      if (query.all) params.set("all", "1")
-      if (query.since !== undefined) params.set("since", String(query.since))
+      for (const id of query.ids ?? []) params.append("id", id)
+      if (query.all === true) params.set("all", "1")
       const suffix = params.size > 0 ? `?${params.toString()}` : ""
       return decode(
-        SubagentWaitResponseSchema,
-        await send("GET", `${change(changeId)}/subagents/wait${suffix}`, options),
+        SubagentAwaitResponseSchema,
+        await send("GET", `${change(changeId)}/subagents/await${suffix}`, options),
       )
     },
     next: async (changeId, id, after, options) =>

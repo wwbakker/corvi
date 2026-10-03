@@ -27,8 +27,8 @@ their delivery.
 
 Terminal/session mechanics (`@corvi/terminals`), which windows are agent windows (the app's
 presenters say; candidates arrive tagged), the change lifecycle, HTTP, or the UI. Discovery
-reads what is on disk at request time and never writes action files: repository actions are
-written with the user's IDE or by an agent, never by Corvi.
+reads what is on disk at request time and never writes action files — writing them, repository
+ones included, is the server's (`apps/server/src/actions/server/files.ts`).
 
 ## Public entrypoints
 

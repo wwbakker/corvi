@@ -140,6 +140,13 @@ if (await scope.isVisible().catch(() => false)) {
 // preference for the instance being shot.
 await page.goto(`${url}/actions`, { waitUntil: "networkidle" });
 await shot("8-actions-list");
+// The create flow's template picker: Blank and the built-ins, with a preview of the text a
+// copy carries.
+await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+await page.waitForSelector("dialog.template-picker");
+await page.locator(".template-choice", { hasText: "Review the diff" }).click();
+await shot("8b-actions-picker");
+await page.locator("dialog.template-picker").getByRole("button", { name: "Cancel" }).click();
 const edit = page.locator(".widget p").getByRole("button", { name: "Edit" }).first();
 if (await edit.isVisible().catch(() => false)) {
   await edit.click();
@@ -156,5 +163,14 @@ if (await edit.isVisible().catch(() => false)) {
   await page.getByRole("button", { name: "Show docs" }).click();
   await page.waitForSelector(".action-docs");
 }
+// The Subagents page: the profile files by scope, and the same picker over them.
+await page.goto(`${url}/subagents`, { waitUntil: "networkidle" });
+await shot("12-subagents-list");
+await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+await page.waitForSelector("dialog.template-picker");
+await page.locator(".template-choice", { hasText: "Reviewer" }).click();
+await shot("13-subagents-picker");
+await page.locator("dialog.template-picker").getByRole("button", { name: "Cancel" }).click();
+
 if (errors.length) console.log("console errors:\n" + errors.join("\n"));
 await browser.close();

@@ -79,7 +79,12 @@ case "$mode" in
     # Running them in one parallel sweep makes the e2e files contend with the rest for the
     # machine: a terminal file that passes in seconds isolated cascades under the load.
     if [ "${#unit[@]}" -gt 0 ]; then
-      run_parallel "${unit[@]}"
+      if ! run_parallel "${unit[@]}"; then
+        # Fail-fast stays, but silently never running the browser files reads as a green suite
+        # that merely omitted them — say what happened and keep the unit shard's status.
+        echo "the browser shard is skipped: the unit shard failed" >&2
+        exit 1
+      fi
     fi
     if [ "${#e2e[@]}" -gt 0 ]; then
       run_serial "${e2e[@]}"

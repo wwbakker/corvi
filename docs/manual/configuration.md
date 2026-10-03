@@ -86,19 +86,22 @@ lists them by scope and edits the ones Corvi may write:
 
 | Scope | Where | On the Actions page |
 | --- | --- | --- |
-| Built-in | shipped with Corvi | read-only — saving copies it to Global |
+| Built-in | shipped with Corvi | templates in the create flow — a copy lands in the scope you pick |
 | Global | `~/.config/corvi/actions/` | created, edited, deleted |
 | Workspace | `~/.config/corvi/workspaces/<id>/actions/` | created, edited, deleted |
-| Repository | `<checkout>/.corvi/actions/` | not managed — create with your IDE or by the agent |
+| Repository | `<checkout>/.corvi/actions/` | in the Repositories block — created, edited, deleted |
+
+Creating is one template picker: **Blank**, or a copy of a built-in — its text previewed, the
+id defaulting to the template's own, so the copy shadows the shipped file while it exists.
 
 More specific wins on a collision (repository > workspace > global > built-in), and a `brief.md`
 anywhere replaces the built-in briefing whole. A file that does not parse is listed with its
 reasons rather than hidden: the page is where it gets fixed.
 
-What the page does for the writable scopes, the CLI does too: `corvi action profile write <id>
---scope global|workspace` and `… profile delete` write the same files (the scope is explicit), and
-`corvi action profile list` shows each one as written. A repository file is written directly,
-with your IDE or by an agent's own tools.
+What the page does, the CLI does too: `corvi action profile write <id>
+--scope global|workspace|repository` and `… profile delete` write the same files (the scope is
+explicit; a repository file names its checkout with `--repository <name>` and the change with
+`--change`), and `corvi action profile list` shows each one as written.
 
 Editing one opens the file in the Markdown editor the plan uses, with the fields' documentation
 beside it — each field, what it is for, and the values it takes. The panel opens and closes from
@@ -117,15 +120,16 @@ way:
 
 | Scope | Where | On the Subagents page |
 | --- | --- | --- |
-| Built-in | shipped with Corvi | read-only — saving copies it to Global |
+| Built-in | shipped with Corvi | templates in the create flow — a copy lands in the scope you pick |
 | Global | `~/.config/corvi/subagents/` | created, edited, deleted |
 | Workspace | `~/.config/corvi/workspaces/<id>/subagents/` | created, edited, deleted |
-| Repository | `<checkout>/.corvi/subagents/` | not managed — create with your IDE or by the agent |
+| Repository | `<checkout>/.corvi/subagents/` | in the Repositories block — created, edited, deleted |
 
-What the page does for the writable scopes, the CLI does too: `corvi subagent profile write <id>
---scope global|workspace` and `… profile delete` write the same files (the scope is explicit), and
-`corvi subagent profile list` answers with the keys `corvi subagent create` accepts. A repository
-file is written directly, with your IDE or by an agent's own tools.
+What the page does, the CLI does too: `corvi subagent profile write <id>
+--scope global|workspace|repository` and `… profile delete` write the same files (the scope is
+explicit; a repository file names its checkout with `--repository <name>` and the change with
+`--change`), and `corvi subagent profile list` answers with the keys `corvi subagent create`
+accepts.
 
 The frontmatter names `label` and `harness` (`pi` or `opencode`); `model` and `effort` are passed
 to the harness and are checked loosely, because a model catalog changes with the harness. `phases`

@@ -35,11 +35,16 @@ it — and when edits are in flight it asks before either version goes away. How
 you were is remembered as you move around, within the running app. The dashboard places notes
 documents in the left column and status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
-whole page. Returning to a view can show cached data while it refreshes.
+whole page. The **Subagents** tab shows the change's subagent sessions: each one's terminal, with
+its conversation beside it — send it a message, restart an interrupted turn, reopen a closed
+window. Returning to a view can show cached data while it refreshes.
 
 The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
 a prompt for the agent window you are looking at, a command for a plain shell — and then the
-terminal cheat sheet. Each action is a file on disk; the Actions page lists them and says where they live.
+terminal cheat sheet. Each action is a file on disk; the **Actions** and **Subagents** pages list
+these files and say where they live, with a **Repositories** block per active change: pick the
+change, see what its checkouts carry, and create, edit or delete those files like any other. New
+starts from a template — blank, or a copy of a built-in with its text previewed.
 
 The overview and navigation show facts such as active pipelines, active terminal processes, and
 review threads waiting on you. Colored indicators summarize status; the change's lifecycle state
