@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, waitForUrl  } from "./helpers.ts";
+import { checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "@corvi/web/chrome";
 
@@ -41,6 +41,8 @@ if (usable) requireFreshWebBundle();
 let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
+/** The fixture repository, so a change made inside a test can have a checkout to work in. */
+let repoDir: string;
 const id = "PROJ-PAGES";
 /** A second change, for the page states that only differ once you leave one: the switch from one
  * change to another is where a widget's state has to follow the change. */
@@ -50,6 +52,7 @@ beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("pages");
   const repo = join(tmp, "example-api");
+  repoDir = repo;
   await runSh(["git", "init", "-b", "main", repo]);
   await Bun.write(join(repo, "README.md"), "example-api\n");
   await runSh(["git", "add", "."], repo);
@@ -82,6 +85,9 @@ afterAll(async () => {
   await closePages(browser, "pages");
   await browser?.close();
   server?.kill();
+  await server?.exited;
+  // The terminal host outlives its server by design: a test that opened windows ends it here.
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -577,6 +583,130 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
 
   await page.close();
 }, 30_000);
+
+test.skipIf(!usable)("the window strip wraps to two rows and the chrome stays one sticky block", async () => {
+  // A change whose strip cannot fit one row at this width: four windows' tabs (the change id, a
+  // long name) plus Overview and "new". The windows are made through the registry's own route,
+  // the way the strip's "new" tab does, so no page has to be attached for them to exist.
+  const wrap = "PROJ-PAGES-WRAP";
+  // Idempotent setup: `--retry=2` re-runs this body without `beforeAll`, so a first attempt that
+  // failed midway must not make the retry fail on "already exists". Create only what is missing.
+  const created = await fetch(`${url}/api/changes`, {
+    method: "POST",
+    // A working change, not an idea: the overview's draft list is counted elsewhere in this file.
+    body: JSON.stringify({ id: wrap, checkouts: checkoutsOf([repoDir]) }),
+  });
+  if (!created.ok) {
+    const existing = await fetch(`${url}/api/changes/${wrap}`);
+    expect(existing.ok).toBe(true);
+  }
+  const listed = await fetch(`${url}/api/changes/${wrap}/terminal/windows`);
+  expect(listed.ok).toBe(true);
+  const already = ((await listed.json()) as unknown[]).length;
+  for (let i = already; i < 4; i++) {
+    const opened = await fetch(`${url}/api/changes/${wrap}/terminal/windows`, {
+      method: "POST",
+      body: JSON.stringify({ action: "new" }),
+    });
+    expect(opened.ok).toBe(true);
+  }
+
+  const page = await browser.newPage({ viewport: { width: 900, height: 420 } });
+  await page.goto(`${url}/changes/${wrap}/dashboard`, { waitUntil: "domcontentloaded" });
+  const strip = page.locator(".change-bar");
+  const tabs = page.locator(".window-tabs .window-tab");
+  // Overview, four windows and "new": six tabs, once the app's window list has loaded.
+  await page.waitForFunction(() => document.querySelectorAll(".window-tab").length >= 6);
+
+  // Wrapped: the tabs sit on exactly two rows, so the bar is taller than one title bar.
+  const tops = await tabs.evaluateAll((els) =>
+    els.map((el) => Math.round(el.getBoundingClientRect().top)),
+  );
+  expect(new Set(tops).size).toBe(2);
+  const bar = await strip.boundingBox();
+  if (!bar) throw new Error("the change bar did not lay out");
+  expect(bar.height).toBeGreaterThan(TITLE_BAR_HEIGHT);
+  // No horizontal scrollbar: the rows wrap instead of hiding tabs past the edge.
+  const horizontally = await page.locator(".window-tabs").evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    clientWidth: el.clientWidth,
+  }));
+  expect(horizontally.scrollWidth).toBeLessThanOrEqual(horizontally.clientWidth);
+
+  // Capped at two rows with a scroll fallback, so a third row would scroll rather than grow the bar.
+  const cap = await page.locator(".window-tabs").evaluate((el) => {
+    const style = getComputedStyle(el);
+    return { overflowY: style.overflowY, maxHeight: style.maxHeight, rowGap: style.rowGap };
+  });
+  expect(cap.overflowY).toBe("auto");
+  // Two rows plus the gap between them: the value the strip scrolls past, not the bar's height.
+  const rowHeight = (await tabs.first().boundingBox())!.height;
+  expect(cap.maxHeight).toBe(`${2 * rowHeight + Number.parseFloat(cap.rowGap)}px`);
+
+  // The cap, exercised: at a width where the six tabs need a third row, the strip stays the cap's
+  // height and scrolls, so the bar does not grow with the session.
+  await page.setViewportSize({ width: 360, height: 420 });
+  await page.waitForFunction(() => {
+    const strip = document.querySelector(".window-tabs");
+    return strip !== null && strip.scrollHeight > strip.clientHeight;
+  });
+  const capped = await page.locator(".window-tabs").evaluate((el) => ({
+    clientHeight: el.clientHeight,
+    scrollHeight: el.scrollHeight,
+  }));
+  expect(capped.clientHeight).toBe(Number.parseFloat(cap.maxHeight));
+  expect(capped.scrollHeight).toBeGreaterThan(capped.clientHeight);
+  await page.setViewportSize({ width: 900, height: 420 });
+
+  // The regression the shared sticky wrapper exists to prevent: with two rows, a hard-coded
+  // second offset would leave the change's row at one title bar instead of under the taller
+  // window's row.
+  await page.evaluate(() => window.scrollTo(0, 400));
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+  const stoppedBar = await strip.boundingBox();
+  const stoppedTabs = await page.locator(".change-tabs").boundingBox();
+  if (!stoppedBar || !stoppedTabs) throw new Error("the chrome did not lay out");
+  expect(stoppedBar.y).toBe(0);
+  expect(Math.abs(stoppedTabs.y - (stoppedBar.y + stoppedBar.height))).toBeLessThanOrEqual(1);
+
+  // The terminal's Actions button sits on the bar's centre line, like the Overview row's controls:
+  // the bar centres its non-tab children while the tabs still stretch to the row.
+  await page.goto(`${url}/changes/${wrap}/terminals`, { waitUntil: "domcontentloaded" });
+  const actions = page.locator(".change-bar .menu button.primary");
+  await actions.waitFor();
+  const [terminalBar, actionsBox] = await Promise.all([
+    page.locator(".change-bar").boundingBox(),
+    actions.boundingBox(),
+  ]);
+  if (!terminalBar || !actionsBox) throw new Error("the terminal bar did not lay out");
+  expect(
+    Math.abs(terminalBar.y + terminalBar.height / 2 - (actionsBox.y + actionsBox.height / 2)),
+  ).toBeLessThanOrEqual(1);
+
+  // The dropdown anchors at the bar's bottom edge, not the centred button's: with a wrapped strip
+  // a menu hung off the button would open over its second row.
+  const menuGapBelowBar = async (): Promise<number> => {
+    await actions.click();
+    const items = page.locator(".change-bar .menu-items");
+    await items.waitFor();
+    const [bar, menu] = await Promise.all([
+      page.locator(".change-bar").boundingBox(),
+      items.boundingBox(),
+    ]);
+    if (!bar || !menu) throw new Error("the actions menu did not lay out");
+    const gap = menu.y - (bar.y + bar.height);
+    await page.keyboard.press("Escape");
+    await items.waitFor({ state: "hidden" });
+    return gap;
+  };
+  expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
+
+  // The same anchor when the strip is a single row.
+  await page.setViewportSize({ width: 1400, height: 420 });
+  expect(Math.abs((await menuGapBelowBar()) - 4)).toBeLessThanOrEqual(1);
+
+  await page.close();
+}, 60_000);
 
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
   // The host bridge is what says the page is inside the app window (apps/web/src/domain/host.ts), and only

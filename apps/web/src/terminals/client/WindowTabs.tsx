@@ -60,10 +60,12 @@ export function WindowTabs({
       return null;
     };
     const startedAt = e.clientX;
+    const startedAtY = e.clientY;
     let dragging = false;
     const move = (ev: MouseEvent): void => {
-      // A few pixels of travel: a click that wobbles is still a click.
-      if (!dragging && Math.abs(ev.clientX - startedAt) < 4) return;
+      // A few pixels of travel in any direction: a click that wobbles is still a click, and a
+      // near-vertical drag down to a wrapped second row is a drag, not a wobble.
+      if (!dragging && Math.abs(ev.clientX - startedAt) < 4 && Math.abs(ev.clientY - startedAtY) < 4) return;
       dragging = true;
       setDragIndex(from);
       setDropIndex(under(ev.clientX, ev.clientY));

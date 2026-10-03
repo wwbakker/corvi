@@ -546,6 +546,10 @@ body.resizing {
 }
 
 .change-chrome > header.change-bar {
+  /* A single row of tabs is the title bar's height exactly; the row grows only when the tabs wrap
+     to a second line, which is why the height is auto rather than the base header's fixed one. */
+  height: auto;
+  min-height: var(--titlebar-height);
   margin: 0;
   padding-inline: 24px;
 }
@@ -1605,14 +1609,31 @@ button.create:hover:not(:disabled) {
   margin: 0;
   /* The name starts where the dashboard's does: the page's own padding, then the title's. */
   padding: 0 10px 0 24px;
-  /* No minimum and no bottom border: the bar is exactly as tall as its tabs, and they sit on
-     the terminal rather than above a line. The tabs stretch to that height; the cheat sheet,
-     sized to match them below, is then flush too. */
-  min-height: 0;
-  align-items: stretch;
+  /* No bottom border: the tabs sit on the terminal rather than above a line. The bar is as tall
+     as its tabs (the global min-height keeps a single row at the title bar's height), and its
+     non-tab controls — the Actions menu, a notice — sit on the row's centre line, the way the
+     Overview row's do. The tabs still fill the row: `.window-tabs` stretches below. */
+  align-items: center;
   gap: 8px;
   border-bottom: 0;
   background: var(--surface);
+}
+
+/* The tabs fill the bar's height even though the bar centres its other children: a wrapped strip
+   of two rows makes the bar taller, and the tabs take that whole height. The terminal bar has no
+   bottom border, so a row is the full title bar here rather than a pixel short of it. */
+.page.terminal-page .window-tabs {
+  align-self: stretch;
+  --window-tab-height: var(--titlebar-height);
+}
+
+/* The Actions menu stretches to the bar so its dropdown anchors at the bar's bottom edge, not at
+   the centred button's: a wrapped strip is taller, and a menu hung off the button would open over
+   its second row. The button itself stays its own height, centred in the stretched wrapper. */
+.page.terminal-page .change-bar .menu {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
 }
 
 /* The terminal page's chrome is one block, and it must not shrink out of the flex chain: the pane
@@ -1626,9 +1647,9 @@ button.create:hover:not(:disabled) {
 }
 
 /* The key reference is the terminal's own, not a control of the page's: the size of the tabs
-   beside it, so neither makes the strip taller than the other. */
+   beside it, so neither makes the strip taller than the other. The row centres it, like the
+   Overview row's controls. */
 .page.terminal-page .change-bar button:not(.window-tab) {
-  align-self: center;
   padding: 3px 8px;
   font-size: 12px;
 }
@@ -1637,25 +1658,39 @@ button.create:hover:not(:disabled) {
    move when you switch between a change's two views. */
 
 /* A session's windows as tabs: the current one in the same dress as the column's selected
-   terminal — accent fill, white text — and the rest quiet. Scrollable, so a session with more
-   windows than fit cannot push the terminal down, and truncating, so a long label cannot
-   either. */
+   terminal — accent fill, white text — and the rest quiet. They wrap row-major instead of
+   scrolling sideways, so a session with more windows than fit grows the bar rather than hiding
+   tabs past its edge. The strip is capped at two rows and scrolls vertically past that, so the
+   bar can never become the whole window. Each row is the title bar's height, which is what makes
+   the cap exact; the row gap is the only slack. */
 .window-tabs {
+  --window-tab-row-gap: 2px;
+  /* A row is the title bar's height less the chrome row's own bottom border, so a single row
+     makes the bar measure exactly the title bar (see `.change-chrome > header.change-bar`). */
+  --window-tab-height: calc(var(--titlebar-height) - 1px);
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
+  row-gap: var(--window-tab-row-gap);
   min-width: 0;
-  overflow-x: auto;
+  max-height: calc(2 * var(--window-tab-height) + var(--window-tab-row-gap));
+  /* The rows wrap rather than scrolling sideways; `hidden` makes that unconditional, since an
+     `auto` vertical axis would otherwise compute the horizontal one to `auto` too. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .window-tab {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: var(--window-tab-height);
   max-width: 220px;
   padding: 4px 10px;
   background: transparent;
   border: 0;
-  /* Rounded at the top only: the bottom edge is where the terminal begins. */
+  /* Rounded at the top only: the bottom edge is where the terminal begins. A floating first row
+     in a wrapped strip keeps the flat bottom, set apart from the row below by the row gap. */
   border-radius: 6px 6px 0 0;
   font-size: 12px;
   color: var(--muted);
