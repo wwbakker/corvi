@@ -8,12 +8,21 @@ import { Effect, Schema } from "effect";
 import {
   ActionFileRefSchema,
   ActionFileWriteSchema,
+  ActionRepositoryFileRefSchema,
+  ActionRepositoryFileWriteSchema,
   RunActionRequestSchema,
 } from "@corvi/contracts/actions";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { actionFiles, deleteActionFile, writeActionFile } from "./server/files.ts";
+import {
+  actionFiles,
+  deleteActionFile,
+  deleteRepositoryActionFile,
+  repositoryActionFiles,
+  writeActionFile,
+  writeRepositoryActionFile,
+} from "./server/files.ts";
 import { listActionsFor, runActionFor } from "./server/run.ts";
 
 export const actionsRoutes = guard({
@@ -24,6 +33,30 @@ export const actionsRoutes = guard({
         Effect.gen(function* () {
           const body = yield* bodyAs(req, RunActionRequestSchema);
           return json(yield* runActionFor(c, body.key, body.window));
+        }),
+      ),
+  },
+
+  // The Repositories view's files: one block per checkout, written and deleted like any other
+  // scope — the route names the change, the body (or query) names the repository.
+  "/api/changes/:id/action-files": {
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(repositoryActionFiles(change), json)),
+    PUT: (req) =>
+      withChange(req.params.id, (change) =>
+        Effect.gen(function* () {
+          const body = yield* bodyAs(req, ActionRepositoryFileWriteSchema);
+          return json(yield* writeRepositoryActionFile(change, body));
+        }),
+      ),
+    DELETE: (req) =>
+      withChange(req.params.id, (change) =>
+        Effect.gen(function* () {
+          const params = Object.fromEntries(new URL(req.url).searchParams);
+          const ref = yield* Schema.decodeUnknown(ActionRepositoryFileRefSchema)(params).pipe(
+            Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
+          );
+          return json(yield* deleteRepositoryActionFile(change, ref));
         }),
       ),
   },

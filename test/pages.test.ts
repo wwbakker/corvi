@@ -857,11 +857,10 @@ test.skipIf(!usable)("the change's tabs are the plan first, and the overview sta
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
-  // Plan first, then the dashboard and subagents, then the extensions' tabs in load order.
+  // Plan first, then the dashboard, then the extensions' tabs in load order.
   expect((await page.locator(".change-tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
     "Plan",
     "Dashboard",
-    "Subagents",
     "Review changes",
   ]);
   expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");

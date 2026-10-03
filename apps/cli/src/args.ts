@@ -16,27 +16,19 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "change",
   "server",
   "window",
-  "since",
   "prompt",
   "subagent",
   "after",
   "idempotency-key",
   "scope",
   "workspace",
+  "repository",
   "from",
 ]);
 
 /** The flags that are switches. Kept beside the value flags so an unknown flag can be refused
  * rather than silently accepted, and so the surface can grow without a typo becoming a switch. */
-export const BOOLEAN_FLAGS: ReadonlySet<string> = new Set([
-  "json",
-  "help",
-  "force",
-  "any",
-  "all",
-  "wait",
-  "steer",
-]);
+export const BOOLEAN_FLAGS: ReadonlySet<string> = new Set(["json", "help", "force", "any", "all"]);
 
 export const isKnownFlag = (name: string): boolean =>
   VALUE_FLAGS.has(name) || BOOLEAN_FLAGS.has(name);

@@ -156,7 +156,7 @@ function App(): JSX.Element {
   // Found among all of them, not the filtered list: a link to a change in another workspace
   // should open it rather than say it does not exist.
   const change = (everything ?? []).find((c) => c.id === selected);
-  const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
+  const onTerminal = view.name === "change" && view.page === "terminals";
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
   const onPlan = view.name === "change" && view.page === "plan";
@@ -425,12 +425,6 @@ function App(): JSX.Element {
               // On the dashboard the tab is the way in: selecting a window you cannot see would
               // be a click that does nothing visible.
               setView({ name: "change", id: view.id, page: "terminals" });
-            }}
-            onFocusWindow={(index) => {
-              // Focus the window without leaving the page: the Subagents page has the terminal
-              // beside the conversation, so selecting there must not navigate.
-              terminals.select(view.id, index);
-              setWantsTerminal(true);
             }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the

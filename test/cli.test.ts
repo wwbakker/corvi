@@ -8,7 +8,7 @@
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import { instanceRecordPath } from "@corvi/configuration/node";
 import { InstanceRecordSchema } from "@corvi/contracts/instance";
@@ -16,9 +16,10 @@ import { Schema } from "effect";
 
 import { run, COMMANDS, GROUP_HELP, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
+import { EXIT } from "../apps/cli/src/errors.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
 import { instanceRecords, pidFilePorts, resolveServer, serverCandidates } from "../apps/cli/src/discovery.ts";
-import { serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 const CHANGE_ID = "CLI-1";
 
@@ -163,6 +164,7 @@ test("the server is chosen by what it knows, and ambiguity is an error, not a gu
 // --- Against a real server -------------------------------------------------------------------
 
 let tmp: string;
+let repo: string;
 let server: ReturnType<typeof Bun.spawn>;
 let baseUrl: string;
 let savedStateHome: string | undefined;
@@ -173,9 +175,16 @@ beforeAll(async () => {
   process.env.XDG_STATE_HOME = join(tmp, "state");
 
   // A change record on disk where the server reads them, so the commands have something to act
-  // on without provisioning a worktree.
+  // on without provisioning a worktree — plus one real checkout for the repository profile
+  // commands: `checkoutFor` resolves the worktree on the change's branch, and a committed
+  // `git init -b <branch>` repo is its own worktree.
   const dir = join(tmp, "changes", CHANGE_ID);
   await mkdir(dir, { recursive: true });
+  repo = join(tmp, "repo");
+  await runSh(["git", "init", "-b", CHANGE_ID, repo]);
+  await writeFile(join(repo, "README.md"), "hi\n");
+  await runSh(["git", "add", "."], repo);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
   await writeFile(
     join(dir, "change.json"),
     JSON.stringify({
@@ -185,13 +194,16 @@ beforeAll(async () => {
       state: "Ideation",
       createdAt: "2026-01-01T00:00:00.000Z",
       formatVersion: 2,
+      checkouts: [{ path: repo, location: "original", branch: { kind: "change" } }],
     }),
     "utf8",
   );
 
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
     cwd: resolve("."),
-    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock") }),
+    // The short poll makes an await's horizon (`CORVI_SUBAGENT_POLL_MS`) reachable in a test;
+    // nothing here parks long enough to notice.
+    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock"), CORVI_SUBAGENT_POLL_MS: "300" }),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -342,10 +354,10 @@ test("subagent commands drive an instance over the HTTP API", async () => {
     await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "next", "--subagent", "seed-1", "--json"], second.io),
   ).toBe(5);
 
-  // An in-flight turn with no live window is interrupted to `wait` too (exit 5).
+  // An in-flight turn with no live window is interrupted to `await` too (exit 5).
   const waited = capture();
   expect(
-    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "wait", "seed-1", "--json"], waited.io),
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-1", "--json"], waited.io),
   ).toBe(5);
   expect((JSON.parse(waited.out.join("")) as { status: string }).status).toBe("interrupted");
 
@@ -373,6 +385,109 @@ test("subagent commands drive an instance over the HTTP API", async () => {
   expect((JSON.parse(result.out.join("")) as { body: string }).body).toBe("Looks good");
 });
 
+test("the exit codes are the documented contract, not an implementation detail", () => {
+  // docs/manual/install.md states these values; machine callers read the code before the text,
+  // so renumbering one silently would break every script that trusts the manual.
+  expect(EXIT).toEqual({ ok: 0, failure: 1, usage: 2, noServer: 3, refused: 4, lost: 5, timeout: 6 });
+});
+
+test("an await that finds nothing ready answers timeout with its own exit code (6)", async () => {
+  // A second seeded instance whose prompt is still undelivered: the hold-back keeps it from
+  // answering ready, so the await runs to the horizon (the run's short CORVI_SUBAGENT_POLL_MS)
+  // and the orchestrator's cue is timeout/6 — check in, then await again.
+  const dir = join(tmp, "changes", CHANGE_ID, "subagents", "seed-2");
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "session.json"),
+    JSON.stringify({
+      id: "seed-2",
+      changeId: CHANGE_ID,
+      profile: "builtin:reviewer",
+      label: "Reviewer",
+      harness: "pi",
+      createdBy: "orchestrator",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      // Its window is open (a created instance always carries one) while the relay has not
+      // picked the prompt up: nobody to deliver to yet, not a lost window.
+      window: "seed-2-window",
+      log: [{ kind: "created", at: "2026-01-01T00:00:00.000Z" }],
+    }),
+    "utf8",
+  );
+  await writeFile(
+    join(dir, "001-orchestrator.md"),
+    "---\nfrom: orchestrator\nat: 2026-01-01T00:00:00.000Z\n---\nNot picked up yet\n",
+    "utf8",
+  );
+
+  const waited = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "subagent", "await", "seed-2", "--json"], waited.io),
+  ).toBe(6);
+  expect((JSON.parse(waited.out.join("")) as { status: string }).status).toBe("timeout");
+});
+
+test("a repository profile is written and deleted through the checkout, and an unknown repository is refused", async () => {
+  const text = "---\nlabel: Repo action\nkind: prompt\ntarget: active\n---\nhello\n";
+  const from = join(tmp, "repo-action.md");
+  await writeFile(from, text, "utf8");
+
+  const wrote = capture();
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "repo-action",
+        "--scope", "repository", "--repository", basename(repo), "--from", from, "--json",
+      ],
+      wrote.io,
+    ),
+  ).toBe(0);
+  // The file landed in the checkout, exactly where discovery reads it.
+  expect(await readFile(join(repo, ".corvi", "actions", "repo-action.md"), "utf8")).toBe(text);
+
+  const refused = capture();
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "x",
+        "--scope", "repository", "--repository", "nope", "--from", from, "--json",
+      ],
+      refused.io,
+    ),
+  ).toBe(4);
+  expect(refused.err.join("")).toContain("no such repository");
+
+  const deleted = capture();
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "delete", "repo-action",
+        "--scope", "repository", "--repository", basename(repo), "--json",
+      ],
+      deleted.io,
+    ),
+  ).toBe(0);
+  expect(await Bun.file(join(repo, ".corvi", "actions", "repo-action.md")).exists()).toBe(false);
+});
+
+test("the repository scope's flag pairings are usage errors, named before any probe", async () => {
+  const from = join(tmp, "repo-action.md");
+  await writeFile(from, "---\nlabel: X\nkind: prompt\ntarget: active\n---\nx\n", "utf8");
+  const base = ["--server", baseUrl, "--change", CHANGE_ID, "action", "profile", "write", "x"];
+
+  const noRepository = capture();
+  expect(
+    await run([...base, "--scope", "repository", "--from", from], noRepository.io),
+  ).toBe(2);
+  expect(noRepository.err.join("")).toContain("--repository");
+
+  const mispaired = capture();
+  expect(
+    await run([...base, "--scope", "global", "--repository", "repo", "--from", from], mispaired.io),
+  ).toBe(2);
+  expect(mispaired.err.join("")).toContain("--repository only goes with --scope repository");
+});
+
 test("a bare group prints its own usage, and the subagent one carries the delegation recipe", async () => {
   const group = capture();
   expect(await run(["subagent"], group.io)).toBe(0);
@@ -382,7 +497,7 @@ test("a bare group prints its own usage, and the subagent one carries the delega
   // create with it, wait, read the answer.
   expect(help).toContain("corvi subagent profile list");
   expect(help).toContain("corvi subagent create");
-  expect(help).toContain("corvi subagent wait");
+  expect(help).toContain("corvi subagent await");
   expect(help).toContain("corvi subagent result");
 
   for (const name of ["change", "action"]) {
@@ -408,7 +523,7 @@ test("a command typo is a usage error before any server is asked", async () => {
   expect(unknownProfile.err.join("")).toContain("unknown profile command");
 });
 
-test("profile write states its scope, and repository files name the checkout path", async () => {
+test("profile write states its scope, and a repository file names its checkout", async () => {
   const file = join(tmp, "scope-profile.md");
   await writeFile(file, "---\nlabel: Scope test\nharness: pi\n---\nCheck it.\n", "utf8");
 
@@ -417,20 +532,14 @@ test("profile write states its scope, and repository files name the checkout pat
   expect(await run(["subagent", "profile", "write", "x", "--from", file], noScope.io, { env: {} })).toBe(2);
   expect(noScope.err.join("")).toContain("--scope");
 
-  // Repository scope is the checkout's own: the answer is the path, written directly.
-  const repository = capture();
+  // A repository file names its checkout — the scope is real now, and the repository with it.
+  const noRepository = capture();
   expect(
-    await run(["subagent", "profile", "write", "x", "--scope", "repository", "--from", file], repository.io, {
+    await run(["subagent", "profile", "write", "x", "--scope", "repository", "--from", file], noRepository.io, {
       env: {},
     }),
   ).toBe(2);
-  expect(repository.err.join("")).toContain(".corvi/subagents/x.md");
-
-  const action = capture();
-  expect(
-    await run(["action", "profile", "write", "x", "--scope", "repository", "--from", file], action.io, { env: {} }),
-  ).toBe(2);
-  expect(action.err.join("")).toContain(".corvi/actions/x.md");
+  expect(noRepository.err.join("")).toContain("--repository <name>");
 });
 
 test("subagent profile list names the keys create takes, shipped profiles included", async () => {

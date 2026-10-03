@@ -277,6 +277,14 @@ export type Claim =
  * this answers `interrupted` (or redelivers that message when `redeliverAfter` says the caller
  * has not seen it); otherwise it advances the delivery cursor and the in-flight marker together
  * under the lock, so two concurrent `next` calls cannot both claim the same message. */
+/** The next message the relay has not picked up yet: everything the delivery cursor still
+ * holds back. The one predicate `claimInbound` delivers by and the server's `await` holds
+ * ready back by — stated once, so the two cannot drift. */
+export const pendingInbound = (record: SubagentWithMessages): SubagentMessage | undefined =>
+  record.messages.find(
+    (message) => message.role !== "subagent" && message.number > (record.deliveredThrough ?? 0),
+  );
+
 export const claimInbound = (
   changeDir: string,
   id: string,
@@ -296,9 +304,7 @@ export const claimInbound = (
         }
         return { status: "interrupted" } as const;
       }
-      const pending = record.messages.find(
-        (message) => message.role !== "subagent" && message.number > (record.deliveredThrough ?? 0),
-      );
+      const pending = pendingInbound(record);
       if (pending === undefined) return { status: "none" } as const;
       yield* writeAtomic(
         join(instanceDir(changeDir, id), "session.json"),

@@ -1,15 +1,18 @@
 /** The Actions page's file operations: what each scope holds, and writing one file at a time.
  *
  * Files are the source of truth — saving an action writes its own file, and there is no
- * page-wide draft to lose. Built-ins are read-only here: saving one copies it to Global, where
- * the copy shadows the shipped file, and deleting the copy brings the default back. A file that
- * does not parse is listed with its reasons rather than hidden — the page is where it gets
- * fixed.
+ * page-wide draft to lose. Built-in files stay in the listing — they are the templates the
+ * create flow copies — but the page shows no Built-in section, and a copy shadows the shipped
+ * file while it exists. A file that does not parse is listed with its reasons rather than
+ * hidden — the page is where it gets fixed.
  *
  * The brief's built-in entry shows the text that actually runs: the legacy `ideationPrompt`
- * setting overrides its body while no `brief.md` shadows it, and saving that to Global
- * preserves what the user has been sending. Repository files are deliberately absent: they are
- * a checkout's own, written with the user's IDE or by an agent. */
+ * setting overrides its body while no `brief.md` shadows it, and a copy of it — the template
+ * the picker offers — preserves what the user has been sending.
+ *
+ * Repository actions are the change-scoped half (`repositoryActionFiles` and friends): one block
+ * per checkout, addressed by the repository name the discovery key carries, written and deleted
+ * here like any other file. */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Either, Effect } from "effect";
@@ -21,9 +24,14 @@ import type {
   ActionFileRefDto,
   ActionFileWriteDto,
   ActionFilesResponseDto,
+  ActionRepositoryFileRefDto,
+  ActionRepositoryFileWriteDto,
+  ActionRepositoryFilesResponseDto,
 } from "@corvi/contracts/actions";
 import { BadRequestError } from "@corvi/contracts/errors";
+import type { Change } from "../../domain/change.ts";
 import { configPath, runtimeConfig, settingsOf } from "../../workspace/server/index.ts";
+import { actionRootsFor } from "./run.ts";
 
 /** The id is the filename: one word-shaped name, no path tricks. */
 const FILE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -44,13 +52,20 @@ const dirFor = (
     return workspaceDir(found.id);
   });
 
+/** Where a file came from, as the page's rows show it: the workspace id and label, or the
+ * repository name. */
+type FileOrigin = {
+  readonly workspace?: string;
+  readonly workspaceLabel?: string;
+  readonly repository?: string;
+};
+
 /** Every `*.md` directly in one scope's directory, parsed for the page. A file that does not
  * parse is still listed, with its reasons. */
 const readScope = (
   dir: string,
   scope: ActionFileDto["scope"],
-  workspace?: string,
-  workspaceLabel?: string,
+  origin: FileOrigin = {},
 ): Effect.Effect<readonly ActionFileDto[]> =>
   Effect.gen(function* () {
     const names = yield* Effect.tryPromise({
@@ -67,8 +82,7 @@ const readScope = (
       const parsed = parseActionFile(text);
       files.push({
         scope,
-        workspace,
-        workspaceLabel,
+        ...origin,
         id: name.slice(0, -3),
         path: join(dir, name),
         text,
@@ -88,12 +102,17 @@ export const actionFiles = (): Effect.Effect<ActionFilesResponseDto> =>
     files.push(...(yield* readScope(builtinActionsDir(), "builtin")));
     files.push(...(yield* readScope(globalDir(), "global")));
     for (const workspace of config.workspaces) {
-      files.push(...(yield* readScope(workspaceDir(workspace.id), "workspace", workspace.id, workspace.name)));
+      files.push(
+        ...(yield* readScope(workspaceDir(workspace.id), "workspace", {
+          workspace: workspace.id,
+          workspaceLabel: workspace.name,
+        })),
+      );
     }
     // The built-in brief shows the text that runs today: the legacy `ideationPrompt` — resolved
-    // in the global scope — overrides its body while no user `brief.md` shadows it. Saving what
-    // you see to Global therefore saves what you have been sending — frontmatter and all. (A
-    // workspace's own `ideationPrompt` overrides that scope's briefing in turn.)
+    // in the global scope — overrides its body while no user `brief.md` shadows it. The picker
+    // previews and copies exactly this, so a copy carries what you have been sending — frontmatter
+    // and all. (A workspace's own `ideationPrompt` overrides that scope's briefing in turn.)
     const shadowed = files.some((f) => f.id === "brief" && f.scope !== "builtin");
     const override = settingsOf().ideationPrompt;
     const builtIn = files.find((f) => f.id === "brief" && f.scope === "builtin");
@@ -151,4 +170,88 @@ export const deleteActionFile = (
       catch: (e) => new Error(String(e)),
     }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
     return yield* actionFiles();
+  });
+
+// --- The repository scope, addressed by change and repository ---------------------------------
+
+/** One repository root as the change-scoped routes address it: the repository name of the
+ * discovery key, and its `.corvi/actions` directory inside the checkout. */
+const repositoryBlocks = (
+  change: Change,
+): Effect.Effect<readonly { readonly repository: string; readonly dir: string }[]> =>
+  Effect.map(actionRootsFor(change), (roots) =>
+    roots.repositories.map((one) => ({ repository: one.name, dir: one.dir })),
+  );
+
+/** The `.corvi/actions` directory of one named checkout. A repository the change does not carry
+ * — or one not checked out — is refused, never invented. */
+const repositoryDirFor = (
+  change: Change,
+  repository: string,
+): Effect.Effect<string, BadRequestError> =>
+  Effect.gen(function* () {
+    const found = (yield* repositoryBlocks(change)).find((one) => one.repository === repository);
+    if (found === undefined) {
+      return yield* new BadRequestError({ message: `no such repository in this change: ${repository}` });
+    }
+    return found.dir;
+  });
+
+/** The change's repository actions, one block per checkout — what the Repositories view lists,
+ * parsed exactly as the other scopes are. */
+export const repositoryActionFiles = (
+  change: Change,
+): Effect.Effect<ActionRepositoryFilesResponseDto> =>
+  Effect.gen(function* () {
+    const repositories: { repository: string; files: readonly ActionFileDto[] }[] = [];
+    for (const root of yield* repositoryBlocks(change)) {
+      repositories.push({
+        repository: root.repository,
+        files: [...(yield* readScope(root.dir, "repository", { repository: root.repository }))],
+      });
+    }
+    return { repositories };
+  });
+
+/** Write one repository action file, refusing anything that is not an action exactly as the
+ * other scopes do. */
+export const writeRepositoryActionFile = (
+  change: Change,
+  body: ActionRepositoryFileWriteDto,
+): Effect.Effect<ActionRepositoryFilesResponseDto, BadRequestError> =>
+  Effect.gen(function* () {
+    const dir = yield* repositoryDirFor(change, body.repository);
+    if (!FILE_ID.test(body.id)) {
+      return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
+    }
+    const parsed = parseActionFile(body.text);
+    if (Either.isLeft(parsed)) {
+      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    }
+    yield* Effect.tryPromise({
+      try: () =>
+        mkdir(dir, { recursive: true }).then(() =>
+          // Owner-only, like the config file: an action can run anything.
+          writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
+        ),
+      catch: (e) => new Error(String(e)),
+    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+    return yield* repositoryActionFiles(change);
+  });
+
+/** Delete one repository action file from its checkout. */
+export const deleteRepositoryActionFile = (
+  change: Change,
+  ref: ActionRepositoryFileRefDto,
+): Effect.Effect<ActionRepositoryFilesResponseDto, BadRequestError> =>
+  Effect.gen(function* () {
+    const dir = yield* repositoryDirFor(change, ref.repository);
+    if (!FILE_ID.test(ref.id)) {
+      return yield* new BadRequestError({ message: `"${ref.id}" is not a file name Corvi can use` });
+    }
+    yield* Effect.tryPromise({
+      try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
+      catch: (e) => new Error(String(e)),
+    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+    return yield* repositoryActionFiles(change);
   });

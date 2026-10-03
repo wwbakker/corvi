@@ -20,8 +20,9 @@ import { configPath, settingsOf, workspaceOf } from "../../workspace/server/inde
 import { ensureSession, listWindows, sessions } from "../../terminals/server/index.ts";
 
 /** Where one change's action files live: the global and workspace scopes beside the config file
- * (so `CORVI_CONFIG` moves both), the repository scope inside each of its checkouts. */
-const rootsFor = (change: Change): Effect.Effect<ActionRoots> =>
+ * (so `CORVI_CONFIG` moves both), the repository scope inside each of its checkouts. Shared with
+ * the page's file operations (`./files.ts`), so the menu and the page name the same roots. */
+export const actionRootsFor = (change: Change): Effect.Effect<ActionRoots> =>
   Effect.gen(function* () {
     const base = dirname(configPath());
     const workspace = workspaceOf(change);
@@ -70,7 +71,7 @@ const summaryOf = (found: DiscoveredAction): ActionSummaryDto => ({
  * window you are on. */
 export const listActionsFor = (change: Change): Effect.Effect<readonly ActionSummaryDto[]> =>
   Effect.gen(function* () {
-    const discovery = yield* rootsFor(change).pipe(Effect.flatMap(discoverActions));
+    const discovery = yield* actionRootsFor(change).pipe(Effect.flatMap(discoverActions));
     const state = change.state ?? "Implementation";
     return discovery.actions
       .filter((found) => found.action.phases === undefined || found.action.phases.some((phase) => phase === state))
@@ -96,7 +97,7 @@ export const runActionFor = (
     if (change.completedAt) {
       return yield* new BadRequestError({ message: "this change is completed: its terminal is gone" });
     }
-    const discovery = yield* rootsFor(change).pipe(Effect.flatMap(discoverActions));
+    const discovery = yield* actionRootsFor(change).pipe(Effect.flatMap(discoverActions));
     const found = discovery.actions.find((a) => a.key === key);
     if (!found) return yield* new BadRequestError({ message: `no such action: ${key}` });
     const state = change.state ?? "Implementation";

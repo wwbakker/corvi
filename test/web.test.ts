@@ -96,6 +96,9 @@ test("a change's page id resolves to the core, an offered tab, or the plan", () 
   expect(resolveChangePage("ci", tabs)).toEqual({ kind: "tab", tab });
   // "Review changes" is an extension tab now, so it resolves through the offered list.
   expect(resolveChangePage("review", tabs)).toEqual({ kind: "tab", tab: review });
+  // The Subagents tab is gone with its pane: its old URL falls back to the plan like any stale
+  // id, never a blank page.
+  expect(resolveChangePage("subagents", tabs)).toEqual({ kind: "plan" });
 
   // An id nobody offered — a stale URL, a tab the extension stopped declaring, `review` on a
   // workspace that dropped the extension — is the plan, where a change opens, so the page
@@ -106,11 +109,10 @@ test("a change's page id resolves to the core, an offered tab, or the plan", () 
   expect(resolveChangePage("review", [tab])).toEqual({ kind: "plan" });
 });
 
-test("the change nav is the plan, the dashboard, the subagents, and then the extensions' tabs in load order", () => {
+test("the change nav is the plan, the dashboard, and then the extensions' tabs in load order", () => {
   expect(changeNav([])).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
-    { id: "subagents", title: "Subagents" },
   ]);
   expect(
     changeNav([
@@ -121,7 +123,6 @@ test("the change nav is the plan, the dashboard, the subagents, and then the ext
   ).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
-    { id: "subagents", title: "Subagents" },
     { id: "review", title: "Review changes" },
     { id: "ci", title: "CI" },
     { id: "jira", title: "Issues" },
@@ -135,7 +136,6 @@ test("the change nav is the plan, the dashboard, the subagents, and then the ext
   ).toEqual([
     { id: "plan", title: "Plan" },
     { id: "dashboard", title: "Dashboard" },
-    { id: "subagents", title: "Subagents" },
   ]);
 });
 

@@ -28,7 +28,6 @@ import { changeActions } from "./changeActions.ts";
 import { ChangeControls } from "./ChangeControls.tsx";
 import { ChangeDashboard } from "./ChangeDashboard.tsx";
 import { PlanPage } from "./PlanPage.tsx";
-import { SubagentsPane } from "./SubagentsPane.tsx";
 import { RunMenu } from "../../actions/RunMenu.tsx";
 import { TabHost, type WidgetInfo } from "../../integrations/client.tsx";
 
@@ -51,7 +50,6 @@ export function ChangeView({
   terminal,
   windows,
   onSelectWindow,
-  onFocusWindow,
   onNewWindow,
   onMoveWindow,
   onOpenPage,
@@ -75,9 +73,6 @@ export function ChangeView({
   windows: TerminalWindow[];
   /** Switching the session to one of its windows. */
   onSelectWindow: (index: number) => void;
-  /** Switching the session to a window **without** leaving the page (the Subagents page's
-   * embedded terminal). */
-  onFocusWindow: (index: number) => void;
   /** Another window beside the current one. The terminal's own chord does this from inside it;
    * this is the tab that does. */
   onNewWindow: () => void;
@@ -110,7 +105,7 @@ export function ChangeView({
   const [after, setAfter] = useState<ProvisionResult[]>([]);
   // The terminal keeps its shells whichever page you are on, so it is mounted once it has been
   // opened and only hidden afterwards.
-  const [terminalOpened, setTerminalOpened] = useState(page === "terminals" || page === "subagents");
+  const [terminalOpened, setTerminalOpened] = useState(page === "terminals");
   const [cheatSheet, setCheatSheet] = useState(false);
   // Bumped when the cheat sheet closes: it is a modal dialog, so the browser moves the focus into it
   // and nothing puts it back (apps/web/src/terminals/client/TerminalPane.tsx).
@@ -127,7 +122,7 @@ export function ChangeView({
   const idea = change ? isIdeation(change) : false;
 
   useEffect(() => {
-    if (page === "terminals" || page === "subagents") setTerminalOpened(true);
+    if (page === "terminals") setTerminalOpened(true);
   }, [page]);
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
@@ -463,19 +458,9 @@ export function ChangeView({
         ) : (
           <p className="hint">loading…</p>
         ))}
-      {active.kind === "subagents" && (
-        <SubagentsPane
-          changeId={id}
-          platform={platform}
-          terminal={terminal}
-          windowsCount={windows.length}
-          onFocusWindow={onFocusWindow}
-        />
-      )}
-      {/* The terminal page's pane. The Subagents page has its own terminal inside its layout, so
-          this shared one is unmounted there rather than left hidden: only one pty is attached at
-          a time, at the cost of a re-attach when moving between the two pages. */}
-      {terminalOpened && active.kind !== "subagents" && (
+      {/* The terminal page's pane, kept mounted once opened so its shells survive moving among
+          the change's views. */}
+      {terminalOpened && (
         <div className="terminal-host" hidden={active.kind !== "terminals"}>
           <TerminalPane
             changeId={id}

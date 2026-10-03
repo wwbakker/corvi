@@ -3,8 +3,8 @@
  * documentation docks to its right. It replaces the Subagents page's list while it is open;
  * Cancel goes back to the list.
  *
- * The save is the page's: one write on Save, at once (a built-in file's save copies it to
- * Global). The documentation panel's open/closed state is furniture and lives in a cookie pref
+ * The save is the page's: one write on Save, at once. The documentation panel's open/closed
+ * state is furniture and lives in a cookie pref
  * (app-root/prefs.ts), like the sidebar's width. */
 import { type JSX, useState } from "react";
 
@@ -39,15 +39,15 @@ export function ProfileEditor({
   onSave: () => void;
   /** Back to the list, dropping the draft. */
   onCancel: () => void;
-  /** Delete the file (none for a built-in: it is not ours to remove). */
-  onDelete?: () => void;
+  /** Delete the file. */
+  onDelete: () => void;
 }): JSX.Element {
   const [caret, setCaret] = useState(1);
   const [docs, setDocs] = useState<boolean>(() => getPref(DOCS_KEY) !== "closed");
   return (
     <>
       <header>
-        <h2>{file.scope === "builtin" ? `${file.id} — saving copies it to Global` : file.id}</h2>
+        <h2>{file.id}</h2>
         <span className="spacer" />
         {notice && <span className="summary">{notice}</span>}
         <button
@@ -63,7 +63,7 @@ export function ProfileEditor({
         <button className="create" onClick={onSave}>
           Save
         </button>
-        {onDelete && <button onClick={onDelete}>Delete</button>}
+        <button onClick={onDelete}>Delete</button>
       </header>
       <p className="hint">
         <code>{file.path}</code>

@@ -831,6 +831,65 @@ button.primary:not(:disabled) {
   gap: 8px;
 }
 
+/* A repository block's name inside a widget: a sub-heading, quieter than the widget's title,
+   with its New button on the same line. */
+.widget h4 {
+  margin: 10px 0 4px;
+  font-size: 13px;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* The create flow's template picker: one row per choice with its one-line description, the
+   chosen text's preview below, and the id plus the actions on the last line. */
+.template-picker .template-choices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.template-picker .template-choice {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  text-align: left;
+}
+
+.template-picker .template-choice strong {
+  flex: none;
+  max-width: 14rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.template-picker .template-choice .summary {
+  color: var(--muted);
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.template-picker .template-choice.current {
+  border-color: var(--accent);
+}
+
+.template-picker .template-preview {
+  margin: 0 0 10px;
+  padding: 8px;
+  max-height: 160px;
+  overflow: auto;
+  background: var(--well);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 /* A summary line under a widget's heading: a block of its own, indented under the title. */
 .widget > .summary {
   color: var(--muted);
@@ -2768,76 +2827,4 @@ button.danger:disabled {
   color: var(--muted);
   font-size: 12px;
   margin-left: auto;
-}
-
-/* The subagents page: the selected subagent's terminal on the left, its conversation on the
-   right. The layout fills the page the way the terminal page does. */
-.subagents-layout {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  gap: 16px;
-  height: calc(100dvh - 64px);
-  overflow: hidden;
-}
-
-.subagents-layout .subagent-terminal {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-.subagents-conversation {
-  flex: none;
-  box-sizing: border-box;
-  width: 420px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.subagent-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.subagent-log {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.subagent-message {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.subagent-message.subagent {
-  border-left: 2px solid var(--accent);
-  padding-left: 8px;
-}
-
-.subagent-composer {
-  display: flex;
-  gap: 8px;
-  align-items: flex-end;
-}
-
-.subagent-composer textarea {
-  flex: 1;
-  min-height: 60px;
-  resize: vertical;
-}
-
-.subagent-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
 }

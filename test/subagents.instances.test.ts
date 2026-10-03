@@ -14,7 +14,7 @@ import {
   recordTurn,
   resultOfSubagent,
   sendToSubagent,
-  waitForTurn,
+  awaitReady,
   type SubagentLauncher,
 } from "../apps/server/src/subagents/server/instances.ts";
 import { readInstance } from "@corvi/agents/node";
@@ -123,44 +123,79 @@ test("a settled turn is appended, clears the open turn, and becomes the result",
   }
 });
 
-test("wait wakes on a delivered turn", async () => {
+test("await wakes on a relayed reply and reports it parked", async () => {
   const id = await fresh();
-  // No `next`, so no turn is in flight: the wait parks and the relayed reply wakes it.
-  const [waited] = await Effect.runPromise(
+  // The prompt is still undelivered, so nothing is ready; the relayed reply is what wakes the
+  // await, reported as parked for `result`.
+  const [awaited] = await Effect.runPromise(
     Effect.all(
-      [waitForTurn(change, { id, mode: "one" }), Effect.zipRight(Effect.sleep("30 millis"), recordTurn(change, id, "Here is my answer"))],
+      [awaitReady(change, { ids: [id], mode: "any" }), Effect.zipRight(Effect.sleep("30 millis"), recordTurn(change, id, "Here is my answer"))],
       { concurrency: "unbounded" },
     ),
   );
-  expect(waited.status).toBe("turn");
-  expect(waited.id).toBe(id);
-  expect(waited.message?.body).toBe("Here is my answer");
+  expect(awaited.status).toBe("ready");
+  expect(awaited.id).toBe(id);
+  expect(awaited.awaitingReply).toBe(true);
 });
 
-test("wait reports an in-flight turn with no live window as interrupted", async () => {
+test("await reports an in-flight turn with no live window as interrupted", async () => {
   const id = await fresh();
   await run(nextForSubagent(change, id)); // claims #1, leaves inFlight with no live window
-  const waited = await run(waitForTurn(change, { id, mode: "one" }));
-  expect(waited.status).toBe("interrupted");
+  const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  expect(awaited.status).toBe("interrupted");
 });
 
-test("wait on a closed subagent resolves lost rather than blocking", async () => {
+test("await on a closed subagent resolves lost rather than blocking", async () => {
   const id = await fresh();
-  const [waited] = await Effect.runPromise(
+  const [awaited] = await Effect.runPromise(
     Effect.all(
-      [waitForTurn(change, { id, mode: "one" }), Effect.zipRight(Effect.sleep("30 millis"), closeSubagent(change, id))],
+      [awaitReady(change, { ids: [id], mode: "any" }), Effect.zipRight(Effect.sleep("30 millis"), closeSubagent(change, id))],
       { concurrency: "unbounded" },
     ),
   );
-  expect(waited.status).toBe("lost");
+  expect(awaited.status).toBe("lost");
 });
 
-test("wait answers timeout when nothing arrives", async () => {
+test("await answers lost from the state when the window closed before the call", async () => {
   process.env.CORVI_SUBAGENT_POLL_MS = "60";
   try {
     const id = await fresh();
-    const waited = await run(waitForTurn(change, { id, mode: "one" }));
-    expect(waited.status).toBe("timeout");
+    // The close lands before the await subscribes, so no event can wake it: the state read — a
+    // cleared window with the prompt still undelivered — is what answers, never the horizon.
+    await run(closeSubagent(change, id));
+    const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+    expect(awaited.status).toBe("lost");
+  } finally {
+    delete process.env.CORVI_SUBAGENT_POLL_MS;
+  }
+});
+
+test("await --all reports a lost subagent even though another becomes ready", async () => {
+  const own = await isolatedChange();
+  const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
+  const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
+  await run(closeSubagent(own, a.id));
+  const [awaited] = await Effect.runPromise(
+    Effect.all(
+      [
+        awaitReady(own, { ids: [a.id, b.id], mode: "all" }),
+        Effect.zipRight(Effect.sleep("30 millis"), recordTurn(own, b.id, "b")),
+      ],
+      { concurrency: "unbounded" },
+    ),
+  );
+  expect(awaited.status).toBe("lost");
+  expect(awaited.id).toBe(a.id);
+});
+
+test("await holds back while a message is still undelivered, and answers timeout", async () => {
+  process.env.CORVI_SUBAGENT_POLL_MS = "60";
+  try {
+    const id = await fresh();
+    // The prompt was appended but the relay has not picked it up: not "idle with nothing
+    // pending", so the answer is the horizon — never a false ready on the pre-claim gap.
+    const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+    expect(awaited.status).toBe("timeout");
   } finally {
     delete process.env.CORVI_SUBAGENT_POLL_MS;
   }
@@ -214,47 +249,58 @@ const isolatedChange = async (): Promise<Change> => {
   return isolated;
 };
 
-test("wait --since returns a reply already in the log", async () => {
+test("await returns immediately when a reply is already parked", async () => {
   const id = await fresh();
   await run(recordTurn(change, id, "answer"));
-  const waited = await run(waitForTurn(change, { id, since: 0, mode: "one" }));
-  expect(waited.status).toBe("turn");
-  expect(waited.message?.body).toBe("answer");
+  const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  expect(awaited.status).toBe("ready");
+  expect(awaited.id).toBe(id);
+  expect(awaited.awaitingReply).toBe(true);
 });
 
-test("wait --any resolves on whichever subagent replies", async () => {
+test("await returns immediately when a subagent is already idle", async () => {
+  const own = await isolatedChange();
+  // No prompt and no turn: nothing of the orchestrator's is pending, so it can be processed at
+  // once — the state contract, not a turn that has not happened yet.
+  const id = (await run(createSubagent(own, { profile: "builtin:reviewer" }, fakeLauncher))).id;
+  const awaited = await run(awaitReady(own, { ids: [id], mode: "any" }));
+  expect(awaited.status).toBe("ready");
+  expect(awaited.awaitingReply).toBe(false);
+});
+
+test("await --any resolves on whichever subagent becomes ready first", async () => {
   const own = await isolatedChange();
   const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
   const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
-  const [waited] = await Effect.runPromise(
+  const [awaited] = await Effect.runPromise(
     Effect.all(
       [
-        waitForTurn(own, { mode: "any" }),
+        awaitReady(own, { ids: [a.id, b.id], mode: "any" }),
         Effect.zipRight(Effect.sleep("30 millis"), recordTurn(own, b.id, "from b")),
       ],
       { concurrency: "unbounded" },
     ),
   );
-  expect(waited.status).toBe("turn");
-  expect(waited.id).toBe(b.id);
+  expect(awaited.status).toBe("ready");
+  expect(awaited.id).toBe(b.id);
   expect(a.id).not.toBe(b.id);
 });
 
-test("wait --all waits for every subagent", async () => {
+test("await --all waits for every subagent to be ready", async () => {
   const own = await isolatedChange();
   const a = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "a" }, fakeLauncher));
   const b = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "b" }, fakeLauncher));
-  const [waited] = await Effect.runPromise(
+  const [awaited] = await Effect.runPromise(
     Effect.all(
       [
-        waitForTurn(own, { mode: "all" }),
+        awaitReady(own, { ids: [a.id, b.id], mode: "all" }),
         Effect.zipRight(Effect.sleep("20 millis"), recordTurn(own, a.id, "a")),
         Effect.zipRight(Effect.sleep("40 millis"), recordTurn(own, b.id, "b")),
       ],
       { concurrency: "unbounded" },
     ),
   );
-  expect(waited.status).toBe("turn");
+  expect(awaited.status).toBe("ready");
 });
 
 test.skipIf(!Bun.which("tmux"))("a live window carrying @subagent_id reads as attached", async () => {

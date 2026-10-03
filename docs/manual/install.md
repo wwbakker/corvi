@@ -86,16 +86,17 @@ corvi action run review --change PROJ-1
 Every command takes `--json` and then prints one JSON value on success or a JSON error envelope
 on failure. The exit code says what happened without reading the text: `0` success, `1` failure,
 `2` usage, `3` no server answered (or none owned the change), `4` the server refused the request,
-`5` a wait ended because a window was lost. `--change` defaults to `CORVI_CHANGE_ID` — which the
-app sets in every pane of a change's session — and then to the nearest `change.json` at or above
-the working directory.
+`5` an await ended because a window was lost or a turn was interrupted, `6` an await reached its
+five-minute horizon with nothing to report — check in on the subagents, then await again.
+`--change` defaults to `CORVI_CHANGE_ID` — which the app sets in every pane of a change's
+session — and then to the nearest `change.json` at or above the working directory.
 
 Each group prints its own usage — bare `corvi change`, `corvi action`, or `corvi subagent` — and
 the subagent one carries the delegation recipe an orchestrating agent follows. Profile keys are
 discoverable (`corvi subagent profile list` answers with what `create` accepts), and the profile
 and action files are writable from the command line: `corvi … profile write <id> --scope
-global|workspace` (the scope is explicit; a repository file is the checkout's own and is written
-directly). An agent running in a Corvi terminal is pointed at all of this by the pi and opencode
+global|workspace|repository` (the scope is explicit; a repository file names its checkout with
+`--repository <name>`). An agent running in a Corvi terminal is pointed at all of this by the pi and opencode
 extensions — a sentence in its prompt, nothing outside Corvi.
 
 The CLI talks to the running server, so with the app closed a control command fails loudly rather

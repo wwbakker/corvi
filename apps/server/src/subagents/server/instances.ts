@@ -1,5 +1,5 @@
 /**
- * Subagent instances: create, open, close, message, and wait.
+ * Subagent instances: create, open, close, message, and await.
  *
  * Composes three things: the instance store (`@corvi/agents/node`, one directory per subagent),
  * the terminal (`@corvi/terminals`, one tmux window per attached subagent), and the waiter
@@ -28,6 +28,7 @@ import {
   createInstance,
   findCreatedByKey,
   instanceDir,
+  pendingInbound,
   readInstance,
   listInstances,
   mutateRecord,
@@ -39,7 +40,7 @@ import type {
   SubagentCreateRequestDto,
   SubagentInstanceDto,
   SubagentNextResponseDto,
-  SubagentWaitResponseDto,
+  SubagentAwaitResponseDto,
 } from "@corvi/contracts/subagents";
 import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
 import { announce } from "../../capabilities/bus.ts";
@@ -55,13 +56,13 @@ import type { Change } from "../../domain/change.ts";
 import { resolveProfileFor } from "./run.ts";
 import { notify, subscribe } from "./waiters.ts";
 
-/** How long a `wait`/`next` parks before answering "nothing yet". The caller re-issues. Read per
- * call, so a test can shorten it. */
-const longPollMs = (): number => Number(process.env.CORVI_SUBAGENT_POLL_MS) || 30_000;
+/** How long an `await`/`next` parks before answering "nothing yet" — the check-in horizon for
+ * `await`. The caller re-issues. Read per call, so a test can shorten it. */
+const longPollMs = (): number => Number(process.env.CORVI_SUBAGENT_POLL_MS) || 300_000;
 
 const now = (): string => new Date().toISOString();
 
-type Live = { readonly window: string; readonly index: number; readonly agentStatus?: "working" | "waiting" };
+type Live = { readonly agentStatus?: "working" | "waiting" };
 
 /** The live windows carrying a `@subagent_id`, keyed by subagent id. A tmux that times out is
  * an empty map: presence is best-effort, never a request failure. */
@@ -77,8 +78,6 @@ const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
         if (!id) continue;
         const status = window.options["@agent_status"];
         map.set(id, {
-          window: window.id,
-          index: window.index,
           ...(status === "working" || status === "waiting" ? { agentStatus: status } : {}),
         });
       }
@@ -103,7 +102,6 @@ const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentIn
     createdBy: record.createdBy,
     createdAt: record.createdAt,
     ...view,
-    ...(live === undefined ? {} : { windowIndex: live.index }),
     log: record.log,
     messages: [...record.messages],
   };
@@ -325,7 +323,7 @@ export const sendToSubagent = (
   });
 
 /** A settled subagent turn, relayed by the harness extension. Clears `inFlight`, appends the
- * reply, and wakes `wait` and the UI. */
+ * reply, and wakes `await` and the UI. */
 export const recordTurn = (
   change: Change,
   id: string,
@@ -402,7 +400,7 @@ export const nextForSubagent = (
         if (event._tag === "None") {
           return { done: true as const, result: { status: "none" as const } };
         }
-        if (event.value.kind === "interrupted" || event.value.kind === "lost") {
+        if (event.value.kind === "lost") {
           return { done: true as const, result: { status: "interrupted" as const } };
         }
         return { done: false as const };
@@ -412,52 +410,48 @@ export const nextForSubagent = (
     }
   });
 
-/** The latest subagent message with a number above the token, if one is already there. */
-const deliveredSince = (record: SubagentWithMessages, token: number): SubagentMessage | undefined =>
-  [...record.messages]
-    .filter((message) => message.role === "subagent" && message.number > token)
-    .sort((left, right) => left.number - right.number)
-    .at(0);
 
-export type WaitInput = {
-  readonly id?: string;
-  readonly since?: number;
-  readonly mode: "one" | "any" | "all";
+export type AwaitInput = {
+  /** The subagents to await; empty means every subagent of the change. */
+  readonly ids: readonly string[];
+  /** `any` returns the first target that settles; `all` waits for every one of them. */
+  readonly mode: "any" | "all";
 };
 
-/** Block until a subagent delivers a turn (or its window is lost), with the plan's outcomes:
- * `turn`, `lost`, `interrupted`, `timeout`. `--all` waits for every target; a lost or
- * interrupted slot resolves the wait rather than blocking forever. */
-export const waitForTurn = (
+/** How often a parked `await` re-checks state without an event: the reporter can flip
+ * `@agent_status` to `waiting` with no message ever appended, and an idle read must not wait for
+ * a wake that never comes. */
+const recheckMs = 2_000;
+
+/** Block until a target can be processed — idle or waiting for input with nothing of the
+ * orchestrator's still to deliver, or a reply already parked — with the outcomes `ready`, `lost`,
+ * `interrupted`, and `timeout` at the horizon (the orchestrator's cue to check in on its
+ * subagents and await again). `any` answers for the first target that settles; `all` waits for
+ * every target to settle and reports a lost or interrupted one in preference to `ready`. */
+export const awaitReady = (
   change: Change,
-  input: WaitInput,
-): Effect.Effect<SubagentWaitResponseDto, NotFoundError> =>
+  input: AwaitInput,
+): Effect.Effect<SubagentAwaitResponseDto, NotFoundError> =>
   Effect.gen(function* () {
     const records = yield* listInstances(changeDir(change));
-    const targets = input.id === undefined ? records.map((record) => record.id) : [input.id];
-    if (input.id !== undefined && !records.some((record) => record.id === input.id)) {
-      return yield* Effect.fail(notFound(input.id));
+    const targets = input.ids.length === 0 ? records.map((record) => record.id) : [...input.ids];
+    for (const id of targets) {
+      if (!records.some((record) => record.id === id)) return yield* Effect.fail(notFound(id));
     }
     if (targets.length === 0) return { status: "timeout" };
 
-    // The baseline is captured once: waiting returns the next turn, so a reply that arrived
-    // before the wait does not resolve it. `--since` overrides the baseline.
-    const baseline = new Map<string, number>();
-    for (const record of records) {
-      baseline.set(
-        record.id,
-        input.since ?? record.messages.reduce((max, message) => Math.max(max, message.number), 0),
-      );
-    }
-
-    const waitOne = (id: string): Effect.Effect<SubagentWaitResponseDto> =>
+    /** One subagent's own wait: settled by the read whenever it is ready, woken by the next
+     * event, and re-checked on the tick for state the reporter changes without one. */
+    const settleOne = (id: string): Effect.Effect<SubagentAwaitResponseDto> =>
       Effect.gen(function* () {
         for (;;) {
-          const live = yield* liveBySubagent(change.id);
-          const attached = live.has(id);
-          // Subscribe before reading, and keep the subscription until the step settles.
+          // Subscribe before reading anything, and keep the subscription until the step settles:
+          // an event that fires after the registration resolves the deferred; one that fired
+          // before is seen by the read below (waiters.ts has the full argument).
           const subscription = yield* subscribe(change.id, id);
           const step = yield* Effect.gen(function* () {
+            const live = yield* liveBySubagent(change.id);
+            const attached = live.has(id);
             const record = yield* requireInstance(change, id).pipe(
               Effect.catchAll(() => Effect.succeed(null)),
             );
@@ -468,17 +462,29 @@ export const waitForTurn = (
             if (record.inFlight !== undefined && !attached) {
               return { done: true as const, result: { status: "interrupted" as const, id } };
             }
-            const delivered = deliveredSince(record, baseline.get(id) ?? 0);
-            if (delivered) {
-              return { done: true as const, result: { status: "turn" as const, id, message: delivered } };
+            const pending = pendingInbound(record) !== undefined;
+            // A window `close` cleared cannot deliver what is still pending: the lost answer,
+            // read from the state so a close before the subscription cannot be waited out to
+            // the horizon. A record whose window was never set is the same story.
+            if (record.window === undefined && pending) {
+              return { done: true as const, result: { status: "lost" as const, id } };
             }
-            const event = yield* subscription.await;
-            if (event.kind === "reply") {
-              return { done: true as const, result: { status: "turn" as const, id, message: event.message } };
+            const view = viewOf(record, { attached, agentStatus: live.get(id)?.agentStatus }, record.messages);
+            // Ready is what lets the orchestrator process: a reply is parked, or the subagent is
+            // idle with nothing of the orchestrator's still to be delivered. The pending-message
+            // hold-back is what keeps `send` (or a create's first prompt) followed by `await`
+            // from answering before the relay has picked the message up.
+            if (view.awaitingReply || (view.activity === "idle" && !pending)) {
+              return {
+                done: true as const,
+                result: { status: "ready" as const, id, awaitingReply: view.awaitingReply },
+              };
             }
-            if (event.kind === "lost") return { done: true as const, result: { status: "lost" as const, id } };
-            if (event.kind === "interrupted") {
-              return { done: true as const, result: { status: "interrupted" as const, id } };
+            // A lost window resolves the wait as itself (exit 5) — today's answer — while the
+            // other events just wake a re-read of the state.
+            const event = yield* subscription.await.pipe(Effect.timeoutOption(recheckMs));
+            if (event._tag === "Some" && event.value.kind === "lost") {
+              return { done: true as const, result: { status: "lost" as const, id } };
             }
             return { done: false as const };
           }).pipe(Effect.ensuring(subscription.close));
@@ -486,7 +492,7 @@ export const waitForTurn = (
         }
       });
 
-    const waits = targets.map(waitOne);
+    const waits = targets.map(settleOne);
     if (input.mode === "all") {
       const settled = yield* Effect.all(waits).pipe(Effect.timeoutOption(longPollMs()));
       if (settled._tag === "None") return { status: "timeout" };
@@ -494,12 +500,10 @@ export const waitForTurn = (
       if (lost) return lost;
       const interrupted = settled.value.find((result) => result.status === "interrupted");
       if (interrupted) return interrupted;
-      return settled.value[0] ?? { status: "timeout" };
+      return { status: "ready" };
     }
     const raced =
-      input.mode === "any" || waits.length > 1
-        ? Effect.raceAll(waits)
-        : (waits[0] as Effect.Effect<SubagentWaitResponseDto>);
+      waits.length > 1 ? Effect.raceAll(waits) : (waits[0] as Effect.Effect<SubagentAwaitResponseDto>);
     const result = yield* raced.pipe(Effect.timeoutOption(longPollMs()));
     return result._tag === "None" ? { status: "timeout" } : result.value;
   });

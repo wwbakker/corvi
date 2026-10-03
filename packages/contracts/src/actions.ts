@@ -54,9 +54,9 @@ export const RunActionResultSchema = Schema.Struct({
 });
 export type RunActionResultDto = typeof RunActionResultSchema.Type;
 
-/** Where a file the page may edit lives. Built-in files are read-only — saving one copies it to
- * Global — and repository files are the checkout's own, written with your IDE or by an agent,
- * never by this page. */
+/** Where a page write lands: the global and workspace scopes beside the config file. A
+ * repository file is written through the change-scoped routes (`…/action-files`) instead, and a
+ * built-in is never saved over — the create flow's copy lands in the scope it is picked for. */
 export const ActionFileScope = Schema.Literal("global", "workspace");
 export type ActionFileScope = typeof ActionFileScope.Type;
 
@@ -67,6 +67,8 @@ export const ActionFileSchema = Schema.Struct({
   /** The workspace a workspace file belongs to. */
   workspace: Schema.optional(Schema.String),
   workspaceLabel: Schema.optional(Schema.String),
+  /** The repository a repository file belongs to, as its key spells it ("orders-api"). */
+  repository: Schema.optional(Schema.String),
   /** The filename without `.md`: the action's id. */
   id: Schema.String,
   path: Schema.String,
@@ -97,3 +99,31 @@ export const ActionFileRefSchema = Schema.Struct({
   id: Schema.String,
 });
 export type ActionFileRefDto = typeof ActionFileRefSchema.Type;
+
+/** A repository file's address: the repository name as the discovery key spells it
+ * (`repository:orders-api:test`) inside the change the route names. The scope is the route —
+ * never a field to get wrong in the body. */
+export const ActionRepositoryFileWriteSchema = Schema.Struct({
+  repository: Schema.String,
+  id: Schema.String,
+  text: Schema.String,
+});
+export type ActionRepositoryFileWriteDto = typeof ActionRepositoryFileWriteSchema.Type;
+
+export const ActionRepositoryFileRefSchema = Schema.Struct({
+  repository: Schema.String,
+  id: Schema.String,
+});
+export type ActionRepositoryFileRefDto = typeof ActionRepositoryFileRefSchema.Type;
+
+/** What the Repositories view lists: one block per repository of the change's checkouts, its
+ * `.corvi/actions` files parsed exactly as the other scopes are. */
+export const ActionRepositoryFilesResponseSchema = Schema.Struct({
+  repositories: Schema.Array(
+    Schema.Struct({
+      repository: Schema.String,
+      files: Schema.Array(ActionFileSchema),
+    }),
+  ),
+});
+export type ActionRepositoryFilesResponseDto = typeof ActionRepositoryFilesResponseSchema.Type;
