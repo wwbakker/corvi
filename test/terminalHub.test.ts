@@ -196,27 +196,21 @@ test("a second openSession over one session supersedes the first page, not fans 
   expect(saw(one, "MORE_1_MARK")).toBe(false);
 }, 60_000);
 
-test("two concurrent attaches: the second is refused, and the screen keeps every byte", async () => {
+test("two concurrent attaches: the newcomer is queued, and the screen keeps every byte", async () => {
   const a = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
   const b = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
   // A stream whose tail races the attach's serialize window.
   a.write("seq 1 300 | sed 's/^/RACE-/'; echo RACE-DONE\n");
   const one = collector();
   const two = collector();
-  let refused = false;
-  two.onExit = () => {
-    refused = true;
-  };
-  // Both attaches in one tick: the hub's guard-and-claim must be synchronous, or the second
-  // would overwrite the first's held bytes and orphan them from the screen.
+  // Both attaches in one tick. The hub serves the first and queues the second (newest wins), which
+  // then supersedes it: a newcomer is never refused with a final `exit`, and the first's held bytes
+  // are still fed to the screen.
   a.attach(one.send, one.snapshot, one.onExit);
   b.attach(two.send, two.snapshot, two.onExit);
-  expect(refused).toBe(true);
-  await waitFor("the first snapshot", async () => one.snapshots.length > 0, 15_000);
-  expect(two.snapshots).toHaveLength(0);
-  expect(two.chunks).toHaveLength(0);
+  await waitFor("the second snapshot", async () => two.snapshots.length > 0, 25_000);
   expect(hubStats().subscribers).toBe(1);
-  await waitFor("the stream to drain", async () => saw(one, "RACE-DONE"), 25_000);
+  await waitFor("the stream to drain", async () => (screenOf(two) + live(two)).includes("RACE-DONE"), 25_000);
 
   // No byte was orphaned: the screen applied every byte the host had emitted. Let the shell's
   // prompt settle, then measure the host's last offset. The probe's snapshot reports the offset it

@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import {
   closeAttachments,
+  hubGrid,
+  hubStats,
   openSession,
   terminalSockets,
   type TerminalSession,
@@ -148,7 +150,10 @@ test("a dead kept-open reprintable hub persists on exit and seeds on restore", a
   const { id, incarnation } = await subagentWindow(change, [
     "/bin/sh",
     "-c",
-    "echo DEAD-REPRINT-MARK; sleep 1.5",
+    // The marker first, so the first view (which attaches before the sleep ends) captures it, then
+    // enough output to evict it from the host ring — the frozen screen must come from the store on
+    // restore, not from the ring replay.
+    "echo DEAD-REPRINT-MARK; sleep 1; head -c 320000 /dev/zero | tr '\\0' X; sleep 0.3",
   ]);
   // A record that asks to be kept open, the way a command window's can be.
   registry.save(
@@ -176,4 +181,72 @@ test("a dead kept-open reprintable hub persists on exit and seeds on restore", a
   terminalSockets.open(again);
   await waitFor("the restored snapshot", async () => control(again.frames).some((frame) => frame.type === "snapshot"), 15_000);
   expect(firstScreen(again.frames)).toContain("DEAD-REPRINT-MARK");
+}, 30_000);
+
+test("a second open during a mid-repaint first view is served, not closed", async () => {
+  process.env.REPRINT_DELAY_MS = "500";
+  try {
+    const change = "REPRINT-QUEUE";
+    const { id } = await subagentWindow(change);
+    const first = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const one = fakeSocket(first);
+    terminalSockets.open(one); // starts the first view, which repaints slowly
+    // The page's normal unnamed→named rename: the first socket closes and a named one opens while
+    // the first view is still repainting.
+    first.kill();
+    const second = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const two = fakeSocket(second);
+    terminalSockets.open(two);
+    await waitFor(
+      "the queued snapshot",
+      async () => control(two.frames).some((frame) => frame.type === "snapshot"),
+      20_000,
+    );
+    // Served, never told the session is gone.
+    expect(control(two.frames).some((frame) => frame.type === "exit")).toBe(false);
+    expect(hubStats().subscribers).toBe(1);
+  } finally {
+    delete process.env.REPRINT_DELAY_MS;
+  }
+}, 30_000);
+
+test("a page that leaves mid-repaint leaves no ghost subscriber, and the hub is released", async () => {
+  process.env.REPRINT_DELAY_MS = "500";
+  process.env.CORVI_SCREEN_IDLE_MS = "300";
+  try {
+    const change = "REPRINT-GHOST";
+    const { id, incarnation } = await subagentWindow(change);
+    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const ws = fakeSocket(session);
+    terminalSockets.open(ws);
+    session.kill(); // leave while the first view is still repainting
+    await waitFor("the hub to be released", async () => hubStats().hubs === 0, 15_000);
+    expect(hubStats().subscribers).toBe(0);
+    // A reprintable release writes nothing to the store.
+    expect(snapshotOf(id, incarnation)).toBeUndefined();
+  } finally {
+    delete process.env.REPRINT_DELAY_MS;
+    delete process.env.CORVI_SCREEN_IDLE_MS;
+  }
+}, 30_000);
+
+test("a resize during the first-view repaint is not clobbered", async () => {
+  // A wide settle window so the refit lands between the repaint's capture and its restore.
+  process.env.CORVI_REPAINT_QUIET_MS = "300";
+  try {
+    const change = "REPRINT-RESIZE";
+    const { id, incarnation } = await subagentWindow(change);
+    const session = await openSession(change, dir, { cols: 100, rows: 30 }, id);
+    const ws = fakeSocket(session);
+    terminalSockets.open(ws);
+    await Bun.sleep(200);
+    // The page refits while the repaint is in flight; the pty and screen must end at the new grid,
+    // not the size repaintHub captured.
+    session.resize(90, 30);
+    await waitFor("the snapshot", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 20_000);
+    await waitFor("the grid to settle", async () => hubGrid(id, incarnation)?.cols === 90, 10_000);
+    expect(hubGrid(id, incarnation)?.cols).toBe(90);
+  } finally {
+    delete process.env.CORVI_REPAINT_QUIET_MS;
+  }
 }, 30_000);

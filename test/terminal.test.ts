@@ -399,8 +399,10 @@ test.skipIf(!usable)("every window's pty is the size the page shows", async () =
   // before a page attached (a new tab, a subagent window) opens at a default size, and attaching
   // must resize the pty to the page's grid or wrapping and backspace break.
   await runCommand(page, `export GEO_MARK=old; echo "$GEO_MARK" > ${join(dir, "geo-set.txt")}`, join(dir, "geo-set.txt"), "old\n");
+  const tabsBefore = await tabs.count();
   await page.locator(".window-tab.new").click();
-  expect(await until(() => tabs.count(), 2)).toBe(2);
+  // The change's windows accumulate across the tests in this file, so assert the delta, not 2.
+  expect(await until(() => tabs.count(), tabsBefore + 1)).toBe(tabsBefore + 1);
 
   // Retry until the command reaches the NEW shell (the marker is absent) and it writes its tty
   // size; the old shell writes nothing, so a stray early keystroke cannot satisfy the check.

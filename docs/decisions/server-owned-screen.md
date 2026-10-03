@@ -58,12 +58,20 @@ total.
 
 ## Lifecycle
 
-- An **agent session** (`metadata.subagentId`) reprints its whole view when its pty size changes, so
-  it is not persisted on the cadence: the host attach is deferred to the first view, which jiggles
-  the pty (and keeps the headless screen in step) to force the reprint, waits for it to settle, then
-  serves it. A live one never reads the store; a dead **kept-open** one has nothing left to reprint,
-  so its frozen screen is written on exit and seeded on restore. This is what keeps several
-  unwatched agents from each reprinting an 8.7 MB view they were never looked at.
+- An **agent session** is classified by **provenance**: its host session's metadata carries
+  `subagentId` (which survives a server restart, because the host outlives the server). Such a
+  screen reprints its whole view when its pty size changes, so it is not persisted on the cadence:
+  the host attach is deferred to the first view, which jiggles the pty (and keeps the headless
+  screen in step) to force the reprint, waits for it to settle, then serves it. A live one never
+  reads the store; a dead **kept-open** one has nothing left to reprint, so its frozen screen is
+  written on exit and seeded on restore. This keeps several unwatched agents from each reprinting
+  an 8.7 MB view nobody looked at. A hand-run TUI (htop, or pi at a prompt) has no `subagentId`, so
+  it stays on the cadence path — correct, but it keeps paying the per-cadence serialization.
+- **What a restart restores is what the agent reprints.** pi re-emits its whole conversation
+  (measured: 8.7 MB, ~5060 lines), so its deep scrollback comes back; a viewport-only TUI restores
+  only the viewport, and terminal scrollback beyond that is not persisted for a live agent on a
+  clean restart. The alternative — flush live reprintables once at shutdown and seed-then-reprint —
+  would restore more but re-adds the very write this decision removes, so it is not done.
 - The hub keeps the host attachment while the screen exists with no page, but only for a short
   grace: a screen with no page for `CORVI_SCREEN_IDLE_MS` (10 s) is **released** — a
   non-reprintable one persisted first, its host attachment dropped, the hub forgotten, the shell
