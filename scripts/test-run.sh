@@ -53,7 +53,16 @@ timings=(--timings=scripts/timings.json)
 # Two ways to run: everything but the browser files across CPU-count workers, and the end-to-end
 # files one at a time — each of those starts servers and a browser, where a timing guess cannot
 # turn three of them into a race for one runner's cores.
-run_parallel() { bun test --timeout 30000 --parallel "${timings[@]}" "$@"; }
+# Files across worker processes by default. A worker whose teardown stalls can leave the whole
+# run hanging, so `CORVI_TEST_SERIAL=1` runs one process instead (CI does, where a hang is the
+# job's five-minute timeout).
+run_parallel() {
+  if [ "${CORVI_TEST_SERIAL:-}" = "1" ]; then
+    bun test --timeout 30000 "${timings[@]}" "$@"
+  else
+    bun test --timeout 30000 --parallel "${timings[@]}" "$@"
+  fi
+}
 run_serial() { bun test --timeout 30000 "${timings[@]}" "$@"; }
 
 case "$mode" in
