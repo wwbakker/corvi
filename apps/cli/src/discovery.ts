@@ -76,14 +76,18 @@ export const instanceRecords = async (dir: string = stateDir()): Promise<readonl
   return records.sort((left, right) => Number(right.live) - Number(left.live) || left.port - right.port);
 };
 
-/** The ports named by the desktop window's pid-files (`<id>-app-<port>.pid`), ordered. */
+/** The ports named by the desktop window's pid-files (`<id>-app-<port>.pid`), ordered, skipping
+ * the ones whose process is gone: a stale pid-file is a hint that only costs a probe timeout. */
 export const pidFilePorts = async (dir: string = stateDir()): Promise<readonly number[]> => {
   const names = await readdir(dir).catch(() => [] as string[]);
   const ports: number[] = [];
   for (const name of names) {
     if (!name.startsWith(FILE_PREFIX) || !name.endsWith(".pid")) continue;
     const port = Number(name.slice(FILE_PREFIX.length, -".pid".length));
-    if (Number.isInteger(port) && port > 0) ports.push(port);
+    if (!Number.isInteger(port) || port <= 0) continue;
+    const pid = Number((await readFile(join(dir, name), "utf8").catch(() => "")).trim());
+    if (!Number.isInteger(pid) || !pidAlive(pid)) continue;
+    ports.push(port);
   }
   return ports.sort((left, right) => left - right);
 };

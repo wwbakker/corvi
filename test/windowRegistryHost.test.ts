@@ -107,6 +107,8 @@ test("closing the last pane does not resurrect the window while its pty lingers"
   await waitFor("the shell to ignore SIGHUP", async () => await Bun.file(ready).exists(), 15_000);
   await closePaneAsync(changeId, id, id);
   expect(registry.records(changeId).some((entry) => entry.id === id)).toBe(false);
+  // The tombstone is persisted with the registry, so a restart does not re-adopt the lingering pty.
+  expect(registry.closedIds()).toContain(id);
   // The lingering session is alive; a rebuild must not re-adopt it and recreate the window.
   expect((await (await hostClient()).list()).some((entry) => entry.id === id && entry.alive)).toBe(true);
   const windows = await listWindowsAsync(changeId);

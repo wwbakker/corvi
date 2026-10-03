@@ -298,7 +298,11 @@ test("closing and reopening a subagent resumes the same pinned harness session",
 
   // Close it: the host session dies and discovery forgets it.
   await run(closeSubagent(own, created.id));
-  expect((await Effect.runPromise(liveSubagents(own.id))).has(created.id)).toBe(false);
+  await waitFor(
+    "the subagent's host session to die",
+    async () => !(await Effect.runPromise(liveSubagents(own.id))).has(created.id),
+    15_000,
+  );
 
   // Reopen: the same id, the same launch, and a live session in the subagent's directory.
   const reopened = await run(openSubagent(own, created.id, hostLauncher));

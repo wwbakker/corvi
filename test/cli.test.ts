@@ -90,7 +90,9 @@ test("discovery reads instance records and pid-file ports, and orders its candid
       "utf8",
     );
     await writeFile(join(dir, "corvi-app-4101.json"), "not json", "utf8");
-    await writeFile(join(dir, "corvi-app-4102.pid"), "123", "utf8");
+    await writeFile(join(dir, "corvi-app-4102.pid"), String(process.pid), "utf8");
+    // A pid-file whose process is gone is skipped rather than probed.
+    await writeFile(join(dir, "corvi-app-4103.pid"), "999999999", "utf8");
     await writeFile(join(dir, "unrelated.json"), "{}", "utf8");
 
     const records = await instanceRecords(dir);
@@ -99,7 +101,7 @@ test("discovery reads instance records and pid-file ports, and orders its candid
       [4100, true],
       [4099, false],
     ]);
-    expect(await pidFilePorts(dir)).toEqual([4102]);
+    expect(await pidFilePorts(dir)).toEqual([4102]); // 4103's process is gone
 
     const candidates = await serverCandidates({
       url: "http://127.0.0.1:9000/",

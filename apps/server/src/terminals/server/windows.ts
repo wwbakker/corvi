@@ -25,11 +25,13 @@ import { clearStatus, pruneStatuses, statusOf, type AgentStatus } from "./status
 import { pruneSnapshots, snapshotKey } from "./snapshots.ts";
 import { presentWindow, type PresentedWindow } from "./presenter.ts";
 import {
+  closedIds,
   prune as pruneRegistry,
   rebuild,
   records as registryRecords,
   remove as removeRecords,
   save,
+  saveClosed,
   withRegistryLock,
   type LiveWindow,
   type WindowRecord,
@@ -51,10 +53,21 @@ const freshId = (): string => `w-${randomBytes(5).toString("hex")}`;
  * rebuild would re-adopt it and recreate the window. Ids are random, so a tombstone never blocks a
  * new session, and `hostLive` drops each one once its pty is gone. */
 const closedSessions = new Set<string>();
+let closedLoaded = false;
 
-/** Tombstone a pane's session id as explicitly closed. */
+/** Load the persisted tombstones once. They are written with the registry, so a server restart
+ * does not re-adopt a closed pane whose pty still lingers. */
+const loadClosed = (): void => {
+  if (closedLoaded) return;
+  closedLoaded = true;
+  for (const id of closedIds()) closedSessions.add(id);
+};
+
+/** Tombstone a pane's session id as explicitly closed, and persist it for the next server. */
 const markClosed = (sessionId: string): void => {
+  loadClosed();
   closedSessions.add(sessionId);
+  saveClosed([...closedSessions]);
 };
 
 /** The URL path the page opens the terminal socket on. The route and the client share this one
@@ -101,13 +114,21 @@ const hostLive = async (
   keep: ReadonlySet<string>,
   known: ReadonlySet<string>,
 ): Promise<{ live: LiveWindow[]; sessions: Map<string, SessionInfo> }> => {
+  loadClosed();
   if (!hostRunning()) return { live: [], sessions: new Map() };
   const client = await hostClient();
   const sessions = await client.list();
   // Drop tombstones whose pty is gone: once the host no longer reports the session alive it cannot
-  // be re-adopted, so the set stays bounded by the lingering-kill window.
+  // be re-adopted, so the set stays bounded by the lingering-kill window. The pruned set is written
+  // back, so the file does not grow with every session ever closed.
   const aliveIds = new Set(sessions.filter((session) => session.alive).map((session) => session.id));
-  for (const id of closedSessions) if (!aliveIds.has(id)) closedSessions.delete(id);
+  let pruned = false;
+  for (const id of closedSessions) {
+    if (aliveIds.has(id)) continue;
+    closedSessions.delete(id);
+    pruned = true;
+  }
+  if (pruned) saveClosed([...closedSessions]);
   const grouped = new Map<string, string[]>();
   const byId = new Map<string, SessionInfo>();
   for (const session of sessions) {
@@ -439,6 +460,9 @@ export const liveSubagentsAsync = async (changeId: string): Promise<Map<string, 
   const indexOf = new Map(windows.map((window, index) => [window.id, index]));
   for (const session of sessions) {
     if (!session.alive || session.metadata?.change !== changeId) continue;
+    // A pane the user closed whose pty still lingers is not a live subagent: the window strip has
+    // already dropped it (hostLive tombstones it), and this must agree with the strip.
+    if (closedSessions.has(session.id)) continue;
     const subagentId = session.metadata?.subagentId?.trim();
     if (!subagentId) continue;
     const stored = statusOf(session.id, session.incarnation);

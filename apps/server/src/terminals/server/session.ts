@@ -201,11 +201,12 @@ const screenSnapshot = (hub: Hub): SnapshotInput | "empty" | undefined => {
   return { sessionId: hub.id, incarnation: hub.incarnation, data: snapshot.data, highWater: snapshot.offset };
 };
 
-/** Mark screens stored: `dirty` clears only after the write succeeded. */
-const markStored = (entries: readonly { readonly hub: Hub }[], at: number): void => {
+/** Mark screens stored: `dirty` clears only after the write succeeded; `lastPersist` always moves,
+ * so a failed write retries on the next cadence rather than on every tick. */
+const markStored = (entries: readonly { readonly hub: Hub }[], at: number, stored: boolean): void => {
   for (const { hub } of entries) {
-    hub.dirty = false;
     hub.lastPersist = at;
+    if (stored) hub.dirty = false;
   }
 };
 
@@ -214,12 +215,10 @@ const persistScreen = (hub: Hub): void => {
   const result = screenSnapshot(hub);
   if (result === undefined) return;
   if (result === "empty") {
-    forgetSnapshot(hub.id, hub.incarnation);
-    hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
     return;
   }
-  setSnapshots([result]);
-  markStored([{ hub }], Date.now());
+  markStored([{ hub }], Date.now(), setSnapshots([result]));
 };
 
 /** Write every dirty screen in one pass, for the controlled shutdown. Synchronous on purpose: a
@@ -233,12 +232,10 @@ export const flushScreens = (): void => {
     else if (result !== undefined) due.push({ hub, input: result });
   }
   if (due.length > 0) {
-    setSnapshots(due.map((entry) => entry.input));
-    markStored(due, Date.now());
+    markStored(due, Date.now(), setSnapshots(due.map((entry) => entry.input)));
   }
   for (const hub of empty) {
-    forgetSnapshot(hub.id, hub.incarnation);
-    hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
   }
 };
 
@@ -263,6 +260,7 @@ const sweep = (): void => {
   const due: { hub: Hub; input: SnapshotInput }[] = [];
   const empty: Hub[] = [];
   const releasing: Hub[] = [];
+  const failed = new Set<Hub>();
   for (const hub of [...hubs.values()]) {
     if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
     const dueForCadence = hub.dirty && now - hub.lastPersist >= cadence;
@@ -277,14 +275,20 @@ const sweep = (): void => {
     if (unattendedNow) releasing.push(hub);
   }
   if (due.length > 0) {
-    setSnapshots(due.map((entry) => entry.input));
-    markStored(due, now);
+    const stored = setSnapshots(due.map((entry) => entry.input));
+    markStored(due, now, stored);
+    if (!stored) for (const { hub } of due) failed.add(hub);
   }
   for (const hub of empty) {
-    forgetSnapshot(hub.id, hub.incarnation);
-    hub.dirty = false;
+    if (forgetSnapshot(hub.id, hub.incarnation)) hub.dirty = false;
+    else failed.add(hub);
   }
-  for (const hub of releasing) releaseScreen(hub);
+  // A screen is released only once its state is on disk: a failed write keeps it for the next
+  // attempt rather than dropping history. A screen the store cannot hold at all (over-cap, or a
+  // serializer that threw) is not a write failure — the previous entry stands, and it is released.
+  for (const hub of releasing) {
+    if (!failed.has(hub)) releaseScreen(hub);
+  }
 };
 
 // The sweep is the only timer the module owns; it must not keep a test process alive.
@@ -503,6 +507,11 @@ export type TerminalWebSocket = {
  * reconnects to a fresh snapshot — rather than buffered without bound, which is what keeps a slow
  * consumer from growing the server's memory and pinning it. */
 const WS_BACKPRESSURE_BYTES = 1 << 20;
+/** How long a fresh page may stay over the bound while its first snapshot drains. A large screen on
+ * a slow link leaves the socket queued above the bound at attach; closing then would cycle
+ * reconnect-snapshot-reconnect. Once the queue has been under the bound, or this grace passes, the
+ * steady-state bound applies. */
+const WS_BACKPRESSURE_GRACE_MS = 5000;
 
 /** Create the server screen for a host window (idempotent) and start feeding it. Called when the
  * window is *opened*, not only when a page attaches: a window with no page (a subagent, a command)
@@ -516,6 +525,9 @@ export const ensureScreen = async (
 ): Promise<void> => {
   const client = await hostClient();
   const hub = hubFor(changeId, sessionId, incarnation, size);
+  // Opening or attaching restarts the unattended clock: the sweep must not release a screen that
+  // is about to be looked at (between `openSession` and the socket's `subscribe`).
+  noteAttendance(hub);
   hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
   await ensureAttached(hub);
@@ -616,11 +628,17 @@ export const terminalSockets = {
    * The page sends nothing to start; the server owns the offset. */
   open(ws: TerminalWebSocket): void {
     const { session } = ws.data;
+    const openedAt = Date.now();
+    let drained = false;
     session.attach(
       (chunk) => {
+        const queued = ws.bufferedAmount ?? 0;
+        if (!drained && (queued <= WS_BACKPRESSURE_BYTES || Date.now() - openedAt >= WS_BACKPRESSURE_GRACE_MS)) {
+          drained = true;
+        }
         // A page that cannot keep up is re-synced from the screen rather than buffered without
         // bound: close it (no `exit`) and its reconnect gets a fresh snapshot.
-        if ((ws.bufferedAmount ?? 0) > WS_BACKPRESSURE_BYTES) {
+        if (drained && queued > WS_BACKPRESSURE_BYTES) {
           ws.close();
           return;
         }

@@ -522,3 +522,28 @@ test("setSnapshot persists to the state dir, and load prunes to the live keys", 
   const after = JSON.parse(readFileSync(file, "utf8")) as { snapshots: Record<string, unknown> };
   expect(Object.keys(after.snapshots)).toEqual(["BOOT#1"]);
 });
+
+test("a store write that fails is reported and returns false, never throws", () => {
+  // `stateDir()` is `<XDG_STATE_HOME>/corvi`; a regular file there makes the store's mkdir/write
+  // fail. The cadence calls `setSnapshots` from a timer, so the failure must not escape it.
+  const bad = join(dir, "not-a-directory");
+  writeFileSync(bad, "a file, not a directory", "utf8");
+  const saved = process.env.XDG_STATE_HOME;
+  const original = console.error;
+  const errors: string[] = [];
+  console.error = (...args: unknown[]) => {
+    errors.push(args.join(" "));
+  };
+  let stored: boolean | undefined;
+  try {
+    process.env.XDG_STATE_HOME = bad;
+    stored = setSnapshot("STORE-FAIL", 1, "screen", 5);
+  } finally {
+    console.error = original;
+    if (saved === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = saved;
+  }
+  expect(stored).toBe(false);
+  expect(errors.some((line) => line.includes("could not write the snapshot store"))).toBe(true);
+  clearSnapshots(); // the failed write's in-memory entry goes with the rest
+}, 30_000);

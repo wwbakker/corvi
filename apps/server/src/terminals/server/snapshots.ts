@@ -12,7 +12,7 @@
  * store used; the writer is now the hub (`./session.ts`), and the decision is
  * `docs/decisions/server-owned-screen.md`.
  */
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { stateDir } from "@corvi/configuration/node";
 
@@ -67,14 +67,35 @@ export const loadSnapshots = (): void => {
   }
 };
 
-/** Write the store atomically: a reader sees the old file or the new one, never a half-written. */
-const persist = (): void => {
-  const out: Record<string, Snapshot> = {};
-  for (const [key, value] of snapshots) out[key] = value;
-  mkdirSync(dirname(path()), { recursive: true });
-  const tmp = `${path()}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify({ version: 1, snapshots: out }));
-  renameSync(tmp, path());
+/** Append a store failure to the app log (or stderr), so a disk problem is visible rather than a
+ * crash inside the lifecycle sweep's timer. */
+const logFailure = (message: string, error: unknown): void => {
+  const text = `[snapshots] ${message}: ${error instanceof Error ? error.message : String(error)}`;
+  const log = process.env.CORVI_LOG;
+  try {
+    if (log !== undefined && log !== "") appendFileSync(log, `[${new Date().toISOString()}] ${text}\n`);
+    else console.error(text);
+  } catch {
+    // a failure to log a failure is still not a crash
+  }
+};
+
+/** Write the store atomically: a reader sees the old file or the new one, never a half-written.
+ * Best effort: a disk or permission error is logged and reported, not thrown — the cadence and
+ * shutdown flush call this, and a screen that could not be written stays dirty for the next try. */
+const persist = (): boolean => {
+  try {
+    const out: Record<string, Snapshot> = {};
+    for (const [key, value] of snapshots) out[key] = value;
+    mkdirSync(dirname(path()), { recursive: true });
+    const tmp = `${path()}.${process.pid}.tmp`;
+    writeFileSync(tmp, JSON.stringify({ version: 1, snapshots: out }));
+    renameSync(tmp, path());
+    return true;
+  } catch (error) {
+    logFailure("could not write the snapshot store", error);
+    return false;
+  }
 };
 
 /** Drop oldest snapshots until the store fits its budget. */
@@ -105,15 +126,15 @@ const acceptable = (data: string, highWater: number): boolean =>
   highWater >= 0 &&
   byteLength(data) <= SNAPSHOT_MAX_BYTES;
 
-/** Store one screen's serialization. */
-export const setSnapshot = (sessionId: string, incarnation: number, data: string, highWater: number): void => {
+/** Store one screen's serialization. Returns whether the store accepted it. */
+export const setSnapshot = (sessionId: string, incarnation: number, data: string, highWater: number): boolean =>
   setSnapshots([{ sessionId, incarnation, data, highWater }]);
-};
 
 /** Store a batch, replacing any earlier entry per session and persisting the file once: a cadence
  * tick with several dirty screens should not rewrite the whole store once per screen. An
- * unacceptable entry is skipped; the caller keeps its screen dirty so the next tick retries. */
-export const setSnapshots = (entries: readonly SnapshotInput[]): void => {
+ * unacceptable entry is skipped; the caller keeps its screen dirty so the next tick retries.
+ * Returns whether the write succeeded — a failed write leaves the caller free to retry. */
+export const setSnapshots = (entries: readonly SnapshotInput[]): boolean => {
   let changed = false;
   const savedAt = Date.now();
   for (const entry of entries) {
@@ -125,17 +146,17 @@ export const setSnapshots = (entries: readonly SnapshotInput[]): void => {
     });
     changed = true;
   }
-  if (!changed) return;
+  if (!changed) return true;
   evictToBudget();
-  persist();
+  return persist();
 };
 
 export const snapshotOf = (sessionId: string, incarnation: number): Snapshot | undefined =>
   snapshots.get(keyOf(sessionId, incarnation));
 
-export const forgetSnapshot = (sessionId: string, incarnation: number): void => {
-  if (!snapshots.delete(keyOf(sessionId, incarnation))) return;
-  persist();
+export const forgetSnapshot = (sessionId: string, incarnation: number): boolean => {
+  if (!snapshots.delete(keyOf(sessionId, incarnation))) return true;
+  return persist();
 };
 
 /** Keep only the snapshots whose `(id, incarnation)` is in `liveKeys`, which the windows layer

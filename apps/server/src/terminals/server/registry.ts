@@ -50,12 +50,18 @@ export type WindowRecord = {
   readonly createdAt: string;
 };
 
-type Persisted = { readonly version: 1; readonly changes: Record<string, WindowRecord[]> };
+type Persisted = {
+  readonly version: 1;
+  readonly changes: Record<string, WindowRecord[]>;
+  /** Session ids the user closed, kept so a restart does not re-adopt a lingering pty. See
+   * `windows.ts`; a tombstone is dropped once the host no longer reports the session alive. */
+  readonly closed: string[];
+};
 
 const FILE = "terminal-windows.json";
 const path = (): string => join(stateDir(), FILE);
 
-const empty = (): Persisted => ({ version: 1, changes: {} });
+const empty = (): Persisted => ({ version: 1, changes: {}, closed: [] });
 
 /** Read the registry, treating anything unreadable as empty, and migrate a record written before
  * panes existed: its id was its session id, so it loads as a one-pane window whose window id is
@@ -66,11 +72,15 @@ export const read = (): Persisted => {
     const parsed = JSON.parse(readFileSync(path(), "utf8")) as {
       version?: unknown;
       changes?: Record<string, unknown>;
+      closed?: unknown;
     };
     if (parsed.version !== 1 || typeof parsed.changes !== "object" || parsed.changes === null) return empty();
     const changes: Record<string, WindowRecord[]> = {};
     for (const [changeId, records] of Object.entries(parsed.changes)) changes[changeId] = migrateRecords(records);
-    return { version: 1, changes };
+    const closed = Array.isArray(parsed.closed)
+      ? parsed.closed.filter((id): id is string => typeof id === "string")
+      : [];
+    return { version: 1, changes, closed };
   } catch {
     return empty();
   }
@@ -123,6 +133,17 @@ const writeIfChanged = (registry: Persisted, changeId: string, next: readonly Wi
   if (same(registry.changes[changeId] ?? [], next)) return;
   registry.changes[changeId] = [...next];
   write(registry);
+};
+
+/** The session ids explicitly closed, so a restart does not re-adopt a lingering pty. */
+export const closedIds = (): readonly string[] => read().closed;
+
+/** Replace the closed ids, writing only when they changed. Caller holds the registry lock (every
+ * caller already does: closes, and the sweep that prunes a tombstone once its pty is gone). */
+export const saveClosed = (ids: readonly string[]): void => {
+  const registry = read();
+  if (registry.closed.length === ids.length && registry.closed.every((id, index) => id === ids[index])) return;
+  write({ ...registry, closed: [...ids] });
 };
 
 /** Serialize registry read-modify-writes in this process, so a poll's rebuild cannot clobber a
