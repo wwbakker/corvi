@@ -194,7 +194,16 @@ beforeAll(async () => {
   const repo4 = join(tmp, "repo4");
   await runSh(["git", "init", "-b", "main", repo4]);
   await fetch(`${url}/api/changes`, { method: "POST", body: JSON.stringify({ id: rapid, checkouts: checkoutsOf([repo4]) }) });
-  browser = await chromium.launch();
+  // The app's own window flags: a headless page is treated as occluded/backgrounded, and Chromium
+  // then throttles its timers, which starves the polls the pages rely on (the window list's 15s
+  // refresh stretches to minutes).
+  browser = await chromium.launch({
+    args: [
+      "--disable-background-timer-throttling",
+      "--disable-backgrounding-occluded-windows",
+      "--disable-renderer-backgrounding",
+    ],
+  });
 }, budget(120_000));
 
 afterEach(async () => {
@@ -471,9 +480,11 @@ test.skipIf(!usable)("a terminal whose session is gone says so", async () => {
   const { page, dir } = await openTerminal(id);
   await runCommand(page, "echo ready > ready.txt", join(dir, "ready.txt"), "ready\n");
   await killHostSession(id);
-  await until(() => page.locator(".terminal-gone").count(), 1, budget(30_000));
+  // The banner follows the window list emptying, which the page polls on a 15s cadence, so this
+  // waits out a poll (plus the pane's own grace) rather than the exit itself.
+  await until(() => page.locator(".terminal-gone").count(), 1, budget(60_000));
   await page.close();
-}, budget(60_000));
+}, budget(120_000));
 
 test.skipIf(!usable)("the server's screen survives a reload with its scrollback", async () => {
   const { page } = await openTerminal(id);
