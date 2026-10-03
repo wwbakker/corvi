@@ -505,13 +505,20 @@ body.resizing {
   display: flex;
   align-items: center;
   gap: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
   height: var(--titlebar-height);
   margin-bottom: 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+/* A header stays put only when it is the page's own first row (`.page > header`) or the wizard's
+   own (`.wizard header`). On a change's page the window's row and the change's own row are wrapped
+   in `.change-chrome`, and the wrapper is what sticks, so the change-bar itself is ordinary flow. */
+.page > header,
+.wizard header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 /* Edge to edge, because it is the window's chrome: the content's own padding comes back on the row,
@@ -523,16 +530,22 @@ body.resizing {
   padding-inline: 24px;
 }
 
-/* The change's pages put their own row directly under this one, so the two are flush: the sticky
-   offsets are then the row heights themselves, with no gap for content to scroll through. The
-   flush frame has no page padding to bleed out of either: the row takes the window's width with
-   the padding back on itself, and still no gap below — the two tab rows are one block of chrome.
-   (The terminal page dresses its own row further down.) */
-.content:not(.flush) .page > header.change-bar {
-  margin-bottom: 0;
+/* The change's two chrome rows are one sticky block, so there is no second offset to keep in sync
+   when the window's row grows. The wrapper bleeds to the window's edges and carries the space below
+   the block, and each row keeps its own padding. In the flush frame there is no page padding to give
+   back, so the wrapper is already at the window's edge. (The terminal page dresses its own row
+   further down.) */
+.change-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
-.content.flush .page:not(.terminal-page) > header.change-bar {
+.content:not(.flush) .page > .change-chrome {
+  margin: -16px -24px 16px;
+}
+
+.change-chrome > header.change-bar {
   margin: 0;
   padding-inline: 24px;
 }
@@ -542,6 +555,7 @@ body.resizing {
    tabs (whose own drag reorders them) and the workspace switcher. A browser has neither the drag
    nor lights to lay out around. */
 .hosted .page > header,
+.hosted .page > .change-chrome > header,
 .hosted .wizard > header,
 .hosted .sidebar > .band {
   -webkit-app-region: drag;
@@ -551,6 +565,10 @@ body.resizing {
 .hosted .page > header select,
 .hosted .page > header input,
 .hosted .page > header a,
+.hosted .page > .change-chrome > header button,
+.hosted .page > .change-chrome > header select,
+.hosted .page > .change-chrome > header input,
+.hosted .page > .change-chrome > header a,
 .hosted .wizard > header button,
 .hosted .wizard > header select,
 .hosted .wizard > header input,
@@ -1504,29 +1522,21 @@ button.create:hover:not(:disabled) {
   color: var(--muted);
 }
 
-/* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
-   sticky, right under the window's row — the two together are the page's chrome, and the content
-   scrolls under them rather than past them. The tabs inside keep their own dress, without the line
-   they carry in a page that has no row above them. In the flush frame there is no page padding to
-   bleed out of and no gap below to give away: the row is the window's full width and what fills the
-   tab starts on its edge. */
+/* The change's own row: its views as tabs, and its state and actions at their height, right under
+   the window's row — the two together are the page's chrome, and the content scrolls under them
+   rather than past them. They are ordinary flow inside `.change-chrome` (which bleeds and sticks),
+   so this row carries neither its own full-bleed margins nor an offset. The tabs inside keep their
+   own dress, without the line they carry in a page that has no row above them. */
 .change-tabs {
-  position: sticky;
-  top: var(--titlebar-height);
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 -24px 16px;
+  margin: 0;
   /* The first tab's text lands where the change's name does above it: the tab's own padding is the
      rest of the way to the page's 24px. */
   padding-inline: 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
-}
-
-.content.flush .change-tabs {
-  margin: 0;
 }
 
 .change-tabs .tabs {
@@ -1592,7 +1602,6 @@ button.create:hover:not(:disabled) {
 }
 
 .page.terminal-page .change-bar {
-  flex: none;
   margin: 0;
   /* The name starts where the dashboard's does: the page's own padding, then the title's. */
   padding: 0 10px 0 24px;
@@ -1604,9 +1613,15 @@ button.create:hover:not(:disabled) {
   gap: 8px;
   border-bottom: 0;
   background: var(--surface);
-  /* Above xterm's own layers: its stylesheet paints helpers (z-index 5) and overlays (10) into
-     the root stacking context (`.xterm` creates none of its own), so the bar's z-index 2 left
-     the actions menu's dropdown under them — visible but un-clickable over the terminal. */
+}
+
+/* The terminal page's chrome is one block, and it must not shrink out of the flex chain: the pane
+   takes what is left. Above xterm's own layers: its stylesheet paints helpers (z-index 5) and
+   overlays (10) into the root stacking context (`.xterm` creates none of its own), so the block's
+   z-index 2 left the actions menu's dropdown under them — visible but un-clickable over the
+   terminal. */
+.page.terminal-page .change-chrome {
+  flex: none;
   z-index: 12;
 }
 

@@ -548,6 +548,14 @@ test.skipIf(!usable)("the change's own row is the page's first, and it stays the
   await tabsRow.locator("select").waitFor();
   expect(await tabsRow.locator(".tab").count()).toBeGreaterThan(0);
 
+  // The two rows are one sticky block: the wrapper carries the stickiness, so the change's row has
+  // no offset of its own that would have to track the window's row's height (and would overlap it
+  // once that row wraps).
+  const chrome = page.locator(".change-chrome");
+  expect(await chrome.evaluate((el) => getComputedStyle(el).position)).toBe("sticky");
+  expect(await tabsRow.evaluate((el) => getComputedStyle(el).position)).toBe("static");
+  expect(await tabsRow.evaluate((el) => getComputedStyle(el).top)).toBe("auto");
+
   // Both stay put while the page scrolls: they are the window's chrome, not part of what you read.
   await page.evaluate(() => window.scrollTo(0, 400));
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
