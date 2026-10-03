@@ -1,8 +1,9 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
-import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
@@ -99,6 +100,55 @@ const terminalFontSize = (page: Page): Promise<number> =>
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     return element?.corviTerminal?.options.fontSize ?? 0;
   });
+/** The raw-mode probe a mouse test types into a shell. */
+const mouseProbe = fileURLToPath(new URL("./fixtures/mouse-probe.mjs", import.meta.url));
+/** `<tracking>:<encoding>` from the page's xterm. SGR (or SGR_PIXELS) reports travel through
+ * `onData`; DEFAULT is the legacy binary path the pane forwards from `onBinary`. `mouseTrackingMode`
+ * is public; `activeEncoding` is the private field the server's snapshot fix re-asserts. */
+const mouseState = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    type Internals = {
+      modes?: { mouseTrackingMode?: string };
+      _core?: { coreMouseService?: { activeEncoding?: string } };
+    };
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null;
+    const term = element?.corviTerminal;
+    return `${term?.modes?.mouseTrackingMode ?? "none"}:${term?._core?.coreMouseService?.activeEncoding ?? "DEFAULT"}`;
+  });
+/** The viewport point at the right edge of the rendered grid, once the fit has settled (the grid
+ * width matches the terminal's own column count). Wheeling there lands on the last column, whose
+ * X10 byte is `32 + col >= 0x80` on any grid wider than 96 columns; a stale or not-yet-fitted grid
+ * would put the wheel somewhere else. */
+const pointAtGridRight = (page: Page): Promise<{ x: number; y: number } | null> =>
+  page.evaluate(() => {
+    type Internals = {
+      cols?: number;
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const rect = term?._core?.screenElement?.getBoundingClientRect();
+    const cellWidth = term?._core?._renderService?.dimensions?.css?.cell?.width;
+    if (term?.cols === undefined || rect === undefined || cellWidth === undefined || rect.width === 0) return null;
+    if (Math.abs(rect.width - term.cols * cellWidth) > 1) return null; // the fit has not settled
+    return { x: rect.left + rect.width - 1, y: rect.top + rect.height / 2 };
+  });
+/** Wait until the shell's next prompt has enabled bracketed paste. A command that just finished has
+ * printed its output but not necessarily redrawn the prompt's DEC mode yet; pasting before that
+ * would send the text unbracketed and the shell would run it. */
+const awaitBracketedPaste = (page: Page): Promise<void> =>
+  waitFor(
+    "bracketed paste",
+    () =>
+      page.evaluate(() => {
+        type Internals = { modes?: { bracketedPasteMode?: boolean } };
+        const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+        return term?.modes?.bracketedPasteMode === true;
+      }),
+    budget(10_000),
+  );
 /** Select the first occurrence of `needle` in the buffer without disturbing the focus. */
 const selectInTerminal = async (page: Page, needle: string): Promise<void> => {
   await page.evaluate((text) => {
@@ -474,6 +524,97 @@ test.skipIf(!usable)("the server's screen survives a reload with its scrollback"
   await page.close();
 }, budget(90_000));
 
+test.skipIf(!usable)("a mouse wheel reaches a raw-mode program after a page reload (SGR)", async () => {
+  const { page, dir } = await openTerminal(id);
+  const log = join(dir, "mouse-sgr.log");
+  await page.keyboard.type(`node '${mouseProbe}' sgr '${log}' ${budget(90_000)}\n`);
+  await until(async () => (await fileText(log)).includes("READY"), true, budget(20_000));
+  await until(() => mouseState(page), "drag:SGR", budget(15_000));
+
+  const screen = page.locator(".terminal-screen");
+  const wheel = async (): Promise<void> => {
+    const box = await screen.boundingBox();
+    if (box === null) throw new Error("the terminal has no box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 120);
+  };
+  await wheel();
+  await until(async () => /1b5b3c/.test(await fileText(log)), true, budget(10_000));
+
+  // The server's snapshot re-emits the tracking mode but the addon omits the encoding, so the
+  // replay must put `?1006h` back or this wheel would not arrive SGR-encoded.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
+  await until(() => mouseState(page), "drag:SGR", budget(20_000));
+
+  const before = ((await fileText(log)).match(/1b5b3c/g) ?? []).length;
+  await wheel();
+  await until(async () => ((await fileText(log)).match(/1b5b3c/g) ?? []).length > before, true, budget(10_000));
+
+  // Force xterm's own selection even while a mouse-aware program has tracking on: the gesture a
+  // person uses to copy while pi runs (Shift+drag on Linux, Option+drag on macOS, where the pane
+  // sets `macOptionClickForcesSelection`). A drag across the screen includes the command line the
+  // snapshot restored, so the selection cannot come back empty by trimming blanks.
+  const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
+  const forceSelect = isMac ? "Alt" : "Shift";
+  await page.keyboard.down(forceSelect);
+  const selBox = await screen.boundingBox();
+  if (selBox === null) throw new Error("the terminal has no box");
+  await page.mouse.move(selBox.x + 2, selBox.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(selBox.x + selBox.width - 2, selBox.y + selBox.height - 2, { steps: 12 });
+  await page.mouse.up();
+  await page.keyboard.up(forceSelect);
+  await until(async () => (await terminalSelection(page)).trim().length > 0, true, budget(10_000));
+
+  await page.keyboard.press("q");
+  await until(async () => (await fileText(log)).includes("QUIT"), true, budget(10_000));
+  await runCommand(page, `echo MOUSE-SGR-DONE > ${join(dir, "mouse-sgr-done.txt")}`, join(dir, "mouse-sgr-done.txt"), "MOUSE-SGR-DONE\n");
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("a legacy DEFAULT-encoded mouse event reaches the pty through onBinary", async () => {
+  const { page, dir } = await openTerminal(id);
+  const log = join(dir, "mouse-default.log");
+  await page.keyboard.type(`node '${mouseProbe}' default '${log}' ${budget(90_000)}\n`);
+  await until(async () => (await fileText(log)).includes("READY"), true, budget(20_000));
+  await until(() => mouseState(page), "drag:DEFAULT", budget(15_000));
+
+  // A reload restores the tracking mode; with no `?1006h` set the snapshot must not invent one.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
+  await until(() => mouseState(page), "drag:DEFAULT", budget(20_000));
+
+  // Aim at the right edge of the grid: the X10 x byte is `32 + col`, so the last column makes it
+  // >= 0x80, the byte the old UTF-8 round-trip replaced with U+FFFD. The middle of the grid would
+  // pass even with that corruption. `pointAtGridRight` only answers once the fit has settled, so
+  // the wheel cannot land on a grid the page has not finished resizing to.
+  await waitFor("the terminal's settled grid", async () => (await pointAtGridRight(page)) !== null, budget(10_000));
+  const target = await pointAtGridRight(page);
+  if (target === null) throw new Error("the terminal grid never settled");
+  await page.mouse.move(target.x, target.y);
+  await page.mouse.wheel(0, 120);
+  // DEFAULT reports are `ESC [ M` plus the button, column and row bytes: what the pane has to
+  // forward from `onBinary`. The reload's click reports too (at the centre), so look for a report
+  // whose column byte is >= 0x80 — the wheel at the right edge — rather than the first one, and
+  // assert no byte was replaced.
+  const hasHighByteReport = (text: string): boolean =>
+    [...text.matchAll(/1b5b4d([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/g)].some(
+      (match) => parseInt(match[2]!, 16) >= 0x80,
+    );
+  await until(async () => hasHighByteReport(await fileText(log)), true, budget(10_000));
+  expect(await fileText(log)).not.toContain("efbfbd");
+
+  await page.keyboard.press("q");
+  await until(async () => (await fileText(log)).includes("QUIT"), true, budget(10_000));
+  await runCommand(page, `echo MOUSE-DEFAULT-DONE > ${join(dir, "mouse-default-done.txt")}`, join(dir, "mouse-default-done.txt"), "MOUSE-DEFAULT-DONE\n");
+  await page.close();
+}, budget(90_000));
+
 test.skipIf(!usable)("the page draws the terminal menu, and find selects a match", async () => {
   const { page } = await openTerminal(id);
   await typeUntilText(page, "echo https://example.com/marker", "example.com");
@@ -659,6 +800,7 @@ test.skipIf(!usable)("middle-click pastes the system clipboard", async () => {
 test.skipIf(!usable)("a multi-line paste is inserted, not executed", async () => {
   const { page, dir } = await openTerminal(id);
   await typeUntilText(page, "echo PASTE-READY", "PASTE-READY");
+  await awaitBracketedPaste(page);
   const one = join(dir, "paste-one.txt");
   const two = join(dir, "paste-two.txt");
   await pasteText(page, "touch paste-one.txt\ntouch paste-two.txt\n");
@@ -686,6 +828,7 @@ test.skipIf(!usable)("a multi-line paste is still inserted after a reload", asyn
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await typeUntilText(page, "echo PASTE-AFTER-RELOAD", "PASTE-AFTER-RELOAD");
+  await awaitBracketedPaste(page);
   const one = join(dir, "paste-reload-one.txt");
   const two = join(dir, "paste-reload-two.txt");
   await pasteText(page, "touch paste-reload-one.txt\ntouch paste-reload-two.txt\n");

@@ -263,6 +263,12 @@ export function TerminalPane({
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(chunk));
     });
+    // Mouse input in the legacy DEFAULT (X10) encoding arrives as `onBinary`, a string of one byte
+    // per char rather than UTF-8 text, and would otherwise be dropped: send the raw bytes.
+    const binary = term.onBinary((chunk) => {
+      const ws = socket.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(Uint8Array.from(chunk, (c) => c.charCodeAt(0)));
+    });
     // A selection dragged into empty rows ends at the last non-empty cell: xterm's range can run
     // into blanks, so clamp it on every change (both the highlight and `getSelection()` come from
     // the range). Mid-drag each move clamps its own trailing blanks and dragging back still works;
@@ -292,6 +298,7 @@ export function TerminalPane({
     setGeneration((n) => n + 1);
     return () => {
       input.dispose();
+      binary.dispose();
       selection.dispose();
       socket.current?.close();
       socket.current = null;

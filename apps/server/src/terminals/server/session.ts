@@ -678,7 +678,7 @@ export type TerminalSession = {
     snapshot: (frame: { readonly data: string; readonly offset: number }) => void,
     onExit: () => void,
   ) => void;
-  readonly write: (data: string) => void;
+  readonly write: (data: string | Uint8Array) => void;
   readonly resize: (cols: number, rows: number) => void;
   readonly kill: () => void;
 };
@@ -919,6 +919,8 @@ export const terminalSockets = {
       },
     );
   },
+  /** A binary frame is pty input bytes and must stay byte-exact; text frames are the page's control
+   * channel (only resize today). */
   message(ws: TerminalWebSocket, message: string | Uint8Array): void {
     if (typeof message === "string") {
       const control = pageControl(message);
@@ -926,7 +928,10 @@ export const terminalSockets = {
       ws.data.session.resize(control.cols, control.rows);
       return;
     }
-    ws.data.session.write(new TextDecoder().decode(message));
+    // Input is bytes, not text: a DEFAULT-encoded (X10) mouse report can carry bytes >= 0x80 that
+    // are not valid UTF-8, so the frame is handed through unchanged. Decoding it here would replace
+    // those bytes with U+FFFD before the host ever sees them.
+    ws.data.session.write(message);
   },
   close(ws: TerminalWebSocket): void {
     ws.data.session.kill();
