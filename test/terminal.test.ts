@@ -62,6 +62,7 @@ type BrowserTerminal = {
   cols: number;
   rows: number;
   getSelection(): string;
+  getSelectionPosition(): { start: { x: number; y: number }; end: { x: number; y: number } } | undefined;
   select(column: number, row: number, length: number): void;
   focus(): void;
   write(data: string): void;
@@ -571,6 +572,31 @@ test.skipIf(!usable)("the context-menu setting also silences the terminal's own 
     await write(true);
   }
 }, budget(60_000));
+
+test.skipIf(!usable)("a selection dragged past the output ends at its last non-empty cell", async () => {
+  const { page } = await openTerminal(id);
+  await typeUntilText(page, "echo SELECT-ME", "SELECT-ME");
+  const selection = await page.evaluate(() => {
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
+    const term = element?.corviTerminal;
+    if (!term) return null;
+    const buffer = term.buffer.active;
+    let row = -1;
+    for (let y = 0; y < buffer.length; y++) {
+      if ((buffer.getLine(y)?.translateToString(true) ?? "") === "SELECT-ME") row = y;
+    }
+    if (row === -1) return null;
+    // Drag the selection across the whole row, far past the end of the output: the highlight and the
+    // copied text must stop at "ME", not carry the blank cells to the right.
+    term.select(0, row, term.cols);
+    return { row, text: term.getSelection(), end: term.getSelectionPosition()?.end };
+  });
+  expect(selection?.row).toBeGreaterThanOrEqual(0);
+  // The highlight ends at the output's last cell, not in the blank cells after it; the text follows.
+  expect(selection?.end).toEqual({ x: "SELECT-ME".length, y: selection!.row });
+  expect(selection?.text).toBe("SELECT-ME");
+  await page.close();
+}, budget(90_000));
 
 test.skipIf(!usable)("the copy and paste chords go through the system clipboard", async () => {
   const { page } = await openTerminal(id);

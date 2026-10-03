@@ -39,6 +39,29 @@ const pasteClipboard = async (term: Terminal): Promise<void> => {
   if (text) term.paste(text);
 };
 
+/** The end (exclusive) of a selection clamped to its last non-empty cell, or undefined when the
+ * selection covers only blank cells. xterm's range can run into empty rows when the drag goes past
+ * the content; trimming there keeps both the highlight and the copied text honest. */
+const clampSelectionEnd = (
+  term: Terminal,
+  start: { readonly x: number; readonly y: number },
+  end: { readonly x: number; readonly y: number },
+): { readonly x: number; readonly y: number } | undefined => {
+  const buffer = term.buffer.active;
+  for (let y = end.y; y >= start.y; y--) {
+    const line = buffer.getLine(y);
+    if (line === undefined) continue;
+    // `end` is exclusive: on the end row the selection stops before `end.x`; on an inner row it runs
+    // to the line's end.
+    const lastX = y === end.y ? end.x - 1 : line.length - 1;
+    for (let x = lastX; x >= (y === start.y ? start.x : 0); x--) {
+      const cell = line.getCell(x);
+      if (cell !== undefined && cell.getChars().trim() !== "") return { x: x + 1, y };
+    }
+  }
+  return undefined;
+};
+
 /** A colour from the sheet's tokens (apps/web/src/app-root/styles.css): the terminal's surface
  * must read as the app's, and a second copy of the palette here is a copy that drifts. */
 const themeColor = (name: string): string =>
@@ -240,6 +263,26 @@ export function TerminalPane({
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(chunk));
     });
+    // A selection dragged into empty rows ends at the last non-empty cell: xterm's range can run
+    // into blanks, so clamp it on every change (both the highlight and `getSelection()` come from
+    // the range). Mid-drag each move clamps its own trailing blanks and dragging back still works;
+    // `clamping` stops the re-entrant change our own `select` fires.
+    let clamping = false;
+    const selection = term.onSelectionChange(() => {
+      if (clamping) return;
+      const position = term.getSelectionPosition();
+      if (position === undefined) return;
+      const end = clampSelectionEnd(term, position.start, position.end);
+      if (end === undefined || (end.x === position.end.x && end.y === position.end.y)) return;
+      const length = (end.y - position.start.y) * term.cols + (end.x - position.start.x);
+      if (length <= 0) return;
+      clamping = true;
+      try {
+        term.select(position.start.x, position.start.y, length);
+      } finally {
+        clamping = false;
+      }
+    });
     terminal.current = term;
     fitAddon.current = fit;
     searchAddon.current = search;
@@ -249,6 +292,7 @@ export function TerminalPane({
     setGeneration((n) => n + 1);
     return () => {
       input.dispose();
+      selection.dispose();
       socket.current?.close();
       socket.current = null;
       openedFor.current = null;
