@@ -18,6 +18,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { fullTextOf } from "./agent-state.ts";
+import { logLine } from "./node/log.ts";
 
 /** What one CLI call produced. */
 export type ExecResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
@@ -222,7 +223,7 @@ export default function (pi: ExtensionAPI): void {
           settle = resolve;
         }),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      log: (message) => console.error(`[corvi] ${message}`),
+      log: (message) => logLine(message),
     };
     void relayLoop(subagentId, harness);
   });

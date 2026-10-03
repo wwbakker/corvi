@@ -82,6 +82,9 @@ for (const name of ["pi", "opencode"] as const) {
       for (const file of ["agent-state.ts", "turns.ts"]) {
         expect(await readlink(join(installed, file))).toBe(join(sources[name], file));
       }
+      // The node adapter is a directory of modules, linked whole so its imports resolve beside
+      // the entry.
+      expect(await readlink(join(installed, "node"))).toBe(join(sources[name], "node"));
     }
   });
 

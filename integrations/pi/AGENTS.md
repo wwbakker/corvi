@@ -12,6 +12,10 @@ pi's extensions directory (`scripts/extension.ts` owns the mechanics).
   pane gate (`CORVI_CHANGE_ID`), so nothing appears outside Corvi. Its text is deliberately
   duplicated in `integrations/opencode/src/cli-guide.ts` (the two extensions share no code) and
   pinned equal by `test/cliGuide.test.ts`.
+- `./node/log`: the extension log sink — Corvi's own errors (a failed command, a failed publish)
+  are appended to the app log (`CORVI_LOG`) rather than written to the pane's screen, which Corvi
+  parses and persists. Duplicated in `integrations/opencode/src/node/log.ts` and pinned equal by
+  `test/integrationLog.test.ts`.
 
 ## Does not own
 
@@ -28,7 +32,8 @@ deliberately share no code: each is loaded by its agent outside Corvi's module g
 ## Dependencies
 
 Type-only on `@earendil-works/pi-coding-agent` (pi provides the module at runtime). No `@corvi/*`
-packages, no Node built-ins: publishing is `pi.exec("corvi", […])`, fire and forget.
+packages; the only Node built-in is `node:fs` (the log sink's synchronous append). Publishing is
+`pi.exec("corvi", […])`, fire and forget.
 
 ## Verification
 

@@ -442,6 +442,8 @@ test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", a
   expect(hasVar("CORVI_ROOT")).toBe(false);
   expect(hasVar("CORVI_CHANGE_ID")).toBe(true);
   expect(env).toContain(`CORVI_CHANGE_DIR=${dir}`);
+  // The app log an extension's own errors are filed into, beside the pane's identity.
+  expect(env).toContain(`CORVI_LOG=${join(tmp, "state", "corvi", "log")}`);
   await page.close();
 }, budget(90_000));
 

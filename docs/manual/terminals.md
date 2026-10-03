@@ -94,6 +94,12 @@ checkout repoints the links, so do not run it as an incidental test. A real file
 destination is left alone. pi picks a changed extension up with `/reload` or a new session;
 opencode takes a restart.
 
+An extension's own errors — a failed `corvi` command, a report that could not be published — are
+Corvi's problem, not the agent's conversation, so they go to the app's log
+(`~/.local/state/corvi/log`, the same file the app pipes the server's output into, seeded into
+every pane as `CORVI_LOG`) instead of onto the pane's screen. Outside a Corvi session the
+extensions fall back to stderr. The agent's own output is never touched.
+
 ## Keyboard and clipboard
 
 - Shift-Enter, Ctrl-Enter, and their combination are sent using extended key sequences for

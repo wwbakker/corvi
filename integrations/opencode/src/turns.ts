@@ -18,6 +18,7 @@
 import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
 
 import { trackAnswer } from "./agent-state.ts";
+import { logLine } from "./node/log.ts";
 
 type HookEvent = Parameters<NonNullable<Hooks["event"]>>[0]["event"];
 
@@ -205,7 +206,7 @@ const relay: PluginModule = {
         await input.client.session
           .promptAsync({ path: { id: subagentId }, body: { parts: [{ type: "text", text }] } })
           .catch((error: unknown) => {
-            console.error(`[corvi] injecting the message failed: ${error instanceof Error ? error.message : String(error)}`);
+            logLine(`injecting the message failed: ${error instanceof Error ? error.message : String(error)}`);
           });
       },
       settled: () =>
@@ -213,7 +214,7 @@ const relay: PluginModule = {
           settle = resolve;
         }),
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      log: (message) => console.error(`[corvi] ${message}`),
+      log: (message) => logLine(message),
     });
 
     return {

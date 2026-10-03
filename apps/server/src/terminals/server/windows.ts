@@ -16,7 +16,7 @@ import { Effect } from "effect";
 
 import type { CommandFailure, NewWindowOptions } from "@corvi/terminals/model";
 import type { RawWindow } from "../../integrations/types.ts";
-import { env } from "@corvi/configuration/node";
+import { env, stateDir } from "@corvi/configuration/node";
 import { childEnv } from "../../capabilities/env.ts";
 import { changeDir, listChanges, readChange } from "../../change/server/index.ts";
 import { hostClient, hostRunning, type SessionInfo } from "./host.ts";
@@ -72,7 +72,14 @@ const cliBinDir = (): string => join(fileURLToPath(new URL("../../../../../", im
  * `TMUX_PANE` are dropped: a host session is not a tmux pane, and a reporter that inherited them
  * would write to a tmux server Corvi does not own. */
 const changeEnv = (changeId: string, dir: string): Record<string, string> => {
-  const child = childEnv(process.env, { [env("CHANGE_ID")]: changeId, [env("CHANGE_DIR")]: dir });
+  const child = childEnv(process.env, {
+    [env("CHANGE_ID")]: changeId,
+    [env("CHANGE_DIR")]: dir,
+    // The app's log file, so an extension's own errors are filed instead of drawn into the pane:
+    // the pty parses and persists whatever a Corvi command writes to stderr. Same file the
+    // desktop pipes the server's output into.
+    [env("LOG")]: join(stateDir(), "log"),
+  });
   delete child.TMUX;
   delete child.TMUX_PANE;
   const cli = cliBinDir();

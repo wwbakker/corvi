@@ -18,6 +18,8 @@
 
 import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
 
+import { logLine } from "./node/log.ts";
+
 /** The events opencode sends its plugins, derived from the hook signature so this file needs no
  * second dependency on the SDK package. */
 type HookEvent = Parameters<NonNullable<Hooks["event"]>>[0]["event"];
@@ -84,7 +86,7 @@ const reporter: PluginModule = {
     /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
      * say so somewhere the agent's operator can see. */
     const logFailure = (error: unknown): void => {
-      console.error(`[corvi] status publish failed: ${error instanceof Error ? error.message : String(error)}`);
+      logLine(`status publish failed: ${error instanceof Error ? error.message : String(error)}`);
     };
 
     let state: "working" | "waiting" = "waiting";

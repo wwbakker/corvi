@@ -100,13 +100,15 @@
     "@corvi/pi": {
       "dependsOn": [],
       "external": [
-        "@earendil-works/pi-coding-agent"
+        "@earendil-works/pi-coding-agent",
+        "node:fs"
       ]
     },
     "@corvi/opencode": {
       "dependsOn": [],
       "external": [
-        "@opencode-ai/plugin"
+        "@opencode-ai/plugin",
+        "node:fs"
       ]
     },
     "@corvi/server": {

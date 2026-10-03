@@ -92,6 +92,17 @@ const isOurs = async (path: string): Promise<boolean> =>
 const sourceFiles = async (target: AgentTarget): Promise<string[]> =>
   (await readdir(target.source)).filter((name) => name.endsWith(".ts")).sort();
 
+/** The module directories that must sit beside the entry, because the loader resolves imports
+ * against the install directory: the node adapter, which holds the extension's one OS concern. */
+const sourceDirs = async (target: AgentTarget): Promise<string[]> => {
+  const dirs: string[] = [];
+  for (const name of (await readdir(target.source)).sort()) {
+    const stat = await lstat(join(target.source, name)).catch(() => undefined);
+    if (stat?.isDirectory() === true) dirs.push(name);
+  }
+  return dirs;
+};
+
 /** Every symlink in an install directory, by name. Real files in it are not ours to report. */
 const linksOf = async (path: string): Promise<Map<string, string>> => {
   const links = new Map<string, string>();
@@ -109,6 +120,9 @@ const linksOf = async (path: string): Promise<Map<string, string>> => {
 const linkAll = async (path: string, target: AgentTarget): Promise<void> => {
   for (const name of (await linksOf(path)).keys()) await unlink(join(path, name));
   for (const name of await sourceFiles(target)) {
+    await symlink(join(target.source, name), join(path, name));
+  }
+  for (const name of await sourceDirs(target)) {
     await symlink(join(target.source, name), join(path, name));
   }
 };
@@ -146,7 +160,10 @@ export async function install(
   }
   if (found === "dir") {
     const have = await linksOf(path);
-    const want = new Map((await sourceFiles(target)).map((file) => [file, join(target.source, file)]));
+    const want = new Map<string, string>([
+      ...(await sourceFiles(target)).map((file) => [file, join(target.source, file)] as const),
+      ...(await sourceDirs(target)).map((dir) => [dir, join(target.source, dir)] as const),
+    ]);
     const same =
       have.size === want.size && [...want].every(([file, source]) => have.get(file) === source);
     if (same) return { code: 0, stdout: `already installed: ${path}\n`, stderr: "" };

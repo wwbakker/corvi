@@ -16,6 +16,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+import { logLine } from "./node/log.ts";
+
 /** The first sentence of the last assistant message, as one line: the notification says the
  * session's name and then this, so it has to be short and finite. A message that never ends a
  * sentence is cut and marked. */
@@ -74,7 +76,7 @@ export default function (pi: ExtensionAPI): void {
   /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
    * say so somewhere the agent's operator can see. */
   const logFailure = (error: unknown): void => {
-    console.error(`[corvi] status publish failed: ${error instanceof Error ? error.message : String(error)}`);
+    logLine(`status publish failed: ${error instanceof Error ? error.message : String(error)}`);
   };
 
   let state: "working" | "waiting" = "waiting";
