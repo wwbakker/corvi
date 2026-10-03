@@ -513,7 +513,7 @@ test.skipIf(!usable)("the page draws the terminal menu, and find selects a match
   await find.waitFor({ timeout: 5_000 });
   await find.fill("example.com");
   await find.press("Enter");
-  await until(async () => (await terminalSelection(page)).includes("example.com"), true, budget(10_000));
+  await until(async () => (await terminalSelection(page)).trim() === "example.com", true, budget(10_000));
   await find.press("Escape");
   await until(() => page.locator(".terminal-find").count(), 0, budget(5_000));
   await page.close();
