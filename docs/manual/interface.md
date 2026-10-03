@@ -35,7 +35,9 @@ it — and when edits are in flight it asks before either version goes away. How
 you were is remembered as you move around, within the running app. The dashboard places notes
 documents in the left column and status cards in the right; narrow windows stack the
 documents first. Status cards load independently, so one slow integration does not block the
-whole page. Returning to a view can show cached data while it refreshes.
+whole page. The **Subagents** tab shows the change's subagent sessions: each one's terminal, with
+its conversation beside it — send it a message, restart an interrupted turn, reopen a closed
+window. Returning to a view can show cached data while it refreshes.
 
 The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
 a prompt for the agent window you are looking at, a command for a plain shell — and then the

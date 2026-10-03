@@ -24,7 +24,7 @@ import { closeHostClient, hostClient } from "../apps/server/src/terminals/server
 import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
-import { readInstance, instanceDir } from "@corvi/agents/node";
+import { readInstance, instanceDir, pendingInbound } from "@corvi/agents/node";
 import type { SubagentRecord } from "@corvi/agents/instance";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
@@ -210,6 +210,20 @@ test("await --all reports a lost subagent even though another becomes ready", as
   );
   expect(awaited.status).toBe("lost");
   expect(awaited.id).toBe(a.id);
+});
+
+test("a parked reply answers even while a newer message of yours is queued", async () => {
+  const id = await fresh();
+  // The prompt is still undelivered when the reply parks — pending and parked at once. The
+  // parked reply wins the ready answer (docs/manual/subagents.md states the precedence): it is
+  // the orchestrator's to process, and the queued message is delivered when the subagent is
+  // free again.
+  await run(recordTurn(change, id, "the answer"));
+  const record = (await run(readInstance(changeDir(change), id)))!;
+  expect(pendingInbound(record)).toBeDefined();
+  const awaited = await run(awaitReady(change, { ids: [id], mode: "any" }));
+  expect(awaited.status).toBe("ready");
+  expect(awaited.awaitingReply).toBe(true);
 });
 
 test("await holds back while a message is still undelivered, and answers timeout", async () => {
