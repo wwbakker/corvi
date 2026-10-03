@@ -90,6 +90,66 @@ const terminalSize = (page: Page): Promise<{ cols: number; rows: number }> =>
     const term = element?.corviTerminal;
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   });
+/** The grid's geometry and the vertical overlay scrollbar, for the full-width fit: how much of the
+ * host the grid uses, and whether the scrollbar sits over the grid rather than in a reserved strip. */
+type TerminalLayout = {
+  readonly cols: number;
+  readonly cellWidth: number;
+  readonly contentWidth: number;
+  readonly gridWidth: number;
+  readonly gridRight: number;
+  readonly hostRight: number;
+  readonly scrollbar: {
+    readonly classes: string;
+    readonly position: string;
+    readonly pointerEvents: string;
+    readonly left: number;
+    readonly right: number;
+  } | null;
+};
+const terminalLayout = (page: Page): Promise<TerminalLayout | null> =>
+  page.evaluate(() => {
+    type Internals = {
+      cols?: number;
+      element?: HTMLElement;
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const element = term?.element;
+    const host = element?.parentElement;
+    const grid = term?._core?.screenElement;
+    if (!term || !element || !host || !grid) return null;
+    const hostStyle = getComputedStyle(host);
+    const elementStyle = getComputedStyle(element);
+    const paddingWidth = (parseFloat(elementStyle.paddingLeft) || 0) + (parseFloat(elementStyle.paddingRight) || 0);
+    const cellWidth = term._core?._renderService?.dimensions?.css?.cell?.width ?? 0;
+    const hostRect = host.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
+    const bar = document.querySelector(".terminal-screen .xterm-scrollable-element > .scrollbar.vertical") as HTMLElement | null;
+    const barStyle = bar ? getComputedStyle(bar) : null;
+    const barRect = bar?.getBoundingClientRect();
+    return {
+      cols: term.cols ?? 0,
+      cellWidth,
+      contentWidth: (parseFloat(hostStyle.width) || 0) - paddingWidth,
+      gridWidth: gridRect.width,
+      gridRight: gridRect.right,
+      hostRight: hostRect.right,
+      scrollbar:
+        bar && barStyle && barRect
+          ? {
+              classes: bar.className,
+              position: barStyle.position,
+              pointerEvents: barStyle.pointerEvents,
+              left: barRect.left,
+              right: barRect.right,
+            }
+          : null,
+    };
+  });
 const terminalSelection = (page: Page): Promise<string> =>
   page.evaluate(() => {
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
@@ -454,6 +514,103 @@ test.skipIf(!usable)("every window's pty is the size the page shows", async () =
   expect(reported).toMatch(/^\d+ \d+$/);
   const [rows = 0, cols = 0] = reported.split(/\s+/).map(Number);
   expect(await terminalSize(page)).toEqual({ cols, rows });
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the grid fills the host and the scrollbar overlays it, hidden until scrolled", async () => {
+  const { page, dir } = await openTerminal(id);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+  // A fresh window: a new shell with no scrollback, so the overlay starts hidden.
+  const before = await tabs.count();
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
+  await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), String(before), budget(20_000));
+  await awaitAttached(page);
+  await waitFor(
+    "the terminal grid to settle",
+    async () => {
+      const layout = await terminalLayout(page);
+      return layout !== null && layout.cellWidth > 0 && Math.abs(layout.gridWidth - layout.cols * layout.cellWidth) <= 1;
+    },
+    budget(10_000),
+  );
+
+  const layout = await terminalLayout(page);
+  expect(layout).not.toBeNull();
+  // The grid fills the host's content width: the leftover is under one cell. Before this fit, the
+  // scrollbar strip (~14px) was reserved, so the leftover was the strip plus the remainder.
+  expect(layout!.cols * layout!.cellWidth).toBeLessThanOrEqual(layout!.contentWidth);
+  // Measure the leftover on the rendered rects, not by re-deriving the fit's own arithmetic.
+  expect(layout!.hostRight - layout!.gridRight).toBeLessThan(layout!.cellWidth + 1);
+  // The scrollbar is an absolute overlay, its left edge over the grid rather than in a strip
+  // beside it, and its box inside the host's right edge.
+  expect(layout!.scrollbar).not.toBeNull();
+  expect(layout!.scrollbar!.position).toBe("absolute");
+  expect(layout!.scrollbar!.right).toBeLessThanOrEqual(layout!.hostRight + 1);
+  expect(layout!.scrollbar!.left).toBeLessThan(layout!.gridRight);
+  // Nothing to scroll yet: the overlay is hidden and takes no pointer events.
+  expect(layout!.scrollbar!.classes).toContain("invisible");
+  expect(layout!.scrollbar!.pointerEvents).toBe("none");
+
+  // Add scrollback, then scroll: the overlay fades in over the grid.
+  await typeUntilText(page, "seq 1 300 | sed 's/^/SCROLL-/'", "SCROLL-300");
+  const box = await page.locator(".terminal-screen").boundingBox();
+  if (box === null) throw new Error("the terminal has no box");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -120);
+  // `"invisible".includes("visible")` is true, so match the class token, not a substring, and fail
+  // (not just wait out the budget) if the overlay never appears.
+  await waitFor(
+    "the scrollbar to fade in",
+    async () => (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("visible") === true,
+    budget(10_000),
+  );
+
+  // The pty was resized to the wider grid the fit produced.
+  const shown = await terminalSize(page);
+  const reported = (await runToFile(page, `stty size > ${join(dir, "wide-size.txt")}`, join(dir, "wide-size.txt"))).trim();
+  expect(reported).toBe(`${shown.rows} ${shown.cols}`);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the font-size chords resize the pty to the new grid", async () => {
+  const { page, dir } = await openTerminal(id);
+  await typeUntilText(page, "echo FONT-SIZE-READY", "FONT-SIZE-READY");
+  // Start from the default so the chord has somewhere to go.
+  await page.locator(".terminal-screen").click();
+  await page.keyboard.press("Control+Digit0");
+  await until(() => terminalFontSize(page), 13, budget(5_000));
+  const before = await terminalSize(page);
+
+  // A smaller font is a larger grid; if the grid does not change the check below proves nothing.
+  await page.keyboard.press("Control+Minus");
+  await until(() => terminalFontSize(page), 12, budget(5_000));
+  const changed = await until(async () => {
+    const size = await terminalSize(page);
+    return size.cols !== before.cols || size.rows !== before.rows;
+  }, true, budget(5_000));
+  expect(changed).toBe(true);
+  await waitFor(
+    "the resized grid to settle",
+    async () => {
+      const layout = await terminalLayout(page);
+      return layout !== null && layout.cellWidth > 0 && Math.abs(layout.gridWidth - layout.cols * layout.cellWidth) <= 1;
+    },
+    budget(10_000),
+  );
+  const shown = await terminalSize(page);
+
+  // The font change resizes the grid but not the host, so the ResizeObserver cannot tell the pty;
+  // the chord path must send the new size itself or the shell keeps wrapping at the old width.
+  const file = join(dir, "font-size-size.txt");
+  let reported = "";
+  for (let attempt = 0; attempt < 40 && reported !== `${shown.rows} ${shown.cols}`; attempt++) {
+    await page.keyboard.type(`stty size > ${file}\n`);
+    await Bun.sleep(200);
+    reported = (await fileText(file)).trim();
+  }
+  expect(reported).toBe(`${shown.rows} ${shown.cols}`);
   await page.close();
 }, budget(90_000));
 
