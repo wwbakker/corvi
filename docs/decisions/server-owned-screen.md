@@ -58,12 +58,19 @@ total.
 
 ## Lifecycle
 
+- An **agent session** (`metadata.subagentId`) reprints its whole view when its pty size changes, so
+  it is not persisted on the cadence: the host attach is deferred to the first view, which jiggles
+  the pty (and keeps the headless screen in step) to force the reprint, waits for it to settle, then
+  serves it. A live one never reads the store; a dead **kept-open** one has nothing left to reprint,
+  so its frozen screen is written on exit and seeded on restore. This is what keeps several
+  unwatched agents from each reprinting an 8.7 MB view they were never looked at.
 - The hub keeps the host attachment while the screen exists with no page, but only for a short
-  grace: a screen with no page for `CORVI_SCREEN_IDLE_MS` (10 s) is **released** — persisted, its
-  host attachment dropped, the hub forgotten, the shell untouched. A later attach reseeds it from
-  the store and reattaches the host from the stored offset. Output does **not** postpone the
-  release: the grace is the CPU bound, so a window is parsed while its startup is captured and
-  while a page is looking, not forever. This is what makes several unattended agents affordable.
+  grace: a screen with no page for `CORVI_SCREEN_IDLE_MS` (10 s) is **released** — a
+  non-reprintable one persisted first, its host attachment dropped, the hub forgotten, the shell
+  untouched. A later attach reseeds it from the store (or reprints it) and reattaches the host from
+  the stored offset. Output does **not** postpone the release: the grace is the CPU bound, so a
+  window is parsed while its startup is captured and while a page is looking, not forever. This is
+  what makes several unattended agents affordable.
 - The host's own idle timeout is disabled while the server holds its connection, so this
   server-side release is what frees the host's interest; the host idles once the server exits.
 - A session exit persists the screen and keeps it for a `keepOpen` window (the frozen-viewing
