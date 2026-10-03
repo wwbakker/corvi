@@ -79,6 +79,35 @@ const createLogGate = (
   };
 };
 
+/** Resolve with the value, or with `undefined` as soon as the signal aborts: a disposed relay must
+ * not park forever on a promise the old runtime will never settle. */
+const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | undefined> => {
+  if (signal === undefined) return promise;
+  if (signal.aborted) return Promise.resolve(undefined);
+  return Promise.race([
+    promise,
+    new Promise<undefined>((resolve) => signal.addEventListener("abort", () => resolve(undefined), { once: true })),
+  ]);
+};
+
+/** Sleep, resolving early when the runtime is torn down, so a disposed relay stops promptly. */
+const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+
 const parse = <T>(text: string): T | undefined => {
   try {
     return JSON.parse(text) as T;
@@ -161,7 +190,10 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     } catch (error) {
       harness.log?.(`submitting message ${message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const settled = await harness.settled();
+    const settled = await abortable(harness.settled(), harness.signal);
+    // The runtime was torn down while the run was in flight: nobody will read a reply, so stop
+    // rather than relay it into a disposed harness.
+    if (harness.signal?.aborted) return;
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
     await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
   }
@@ -200,6 +232,10 @@ const relay: PluginModule = {
     };
 
     // The window was launched with `--session <subagentId>`, so that is the visible session.
+    const controller = new AbortController();
+    const signal = controller.signal;
+    // The loop's rejection must never escape: an unhandled rejection here would take opencode down
+    // with it, closing every subagent.
     void relayLoop(subagentId, {
       exec,
       submit: async (text) => {
@@ -213,11 +249,19 @@ const relay: PluginModule = {
         new Promise<string | undefined>((resolve) => {
           settle = resolve;
         }),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      sleep: (ms) => abortableSleep(ms, signal),
+      signal,
       log: (message) => logLine(message),
+    }).catch((error: unknown) => {
+      logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
     });
 
     return {
+      // opencode's teardown hook: abort the relay so an unloaded/reloaded plugin stops polling a
+      // disposed runtime instead of running on.
+      dispose: async (): Promise<void> => {
+        controller.abort();
+      },
       event: async ({ event }: { event: HookEvent }): Promise<void> => {
         try {
           switch (event.type) {

@@ -85,6 +85,35 @@ const createLogGate = (
   };
 };
 
+/** Resolve with the value, or with `undefined` as soon as the signal aborts: a disposed relay must
+ * not park forever on a promise the old runtime will never settle. */
+const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | undefined> => {
+  if (signal === undefined) return promise;
+  if (signal.aborted) return Promise.resolve(undefined);
+  return Promise.race([
+    promise,
+    new Promise<undefined>((resolve) => signal.addEventListener("abort", () => resolve(undefined), { once: true })),
+  ]);
+};
+
+/** Sleep, resolving early when the runtime is torn down, so a disposed relay stops promptly. */
+const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve();
+      return;
+    }
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+
 const parse = <T>(text: string): T | undefined => {
   try {
     return JSON.parse(text) as T;
@@ -169,7 +198,10 @@ export const relayLoop = async (subagentId: string, harness: RelayHarness): Prom
     } catch (error) {
       harness.log?.(`submitting message ${message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const settled = await harness.settled();
+    const settled = await abortable(harness.settled(), harness.signal);
+    // The runtime was torn down while the run was in flight: nobody will read a reply, so stop
+    // rather than relay it into a disposed harness.
+    if (harness.signal?.aborted) return;
     // A settled run with no text (an abort) still closes the turn, so the subagent is not stranded
     // in flight forever; the note is honest about there being no reply.
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
@@ -185,13 +217,15 @@ export const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string 
 };
 
 /** pi emits `session_start` again on `/reload`; a second loop would share the single settle slot
- * and deadlock the first. One relay per process. */
-let relayStarted = false;
-
+ * and deadlock the first. One relay **per runtime**: the guard lives in this factory, so a reload
+ * (a fresh factory invocation) starts a fresh loop while `session_shutdown` stops the old one. */
 export default function (pi: ExtensionAPI): void {
   // One settle per submitted turn: the handler below resolves it with the run's text.
   let settle: ((text: string | undefined) => void) | undefined;
   let lastAssistant = "";
+  let controller: AbortController | undefined;
+  let started = false;
+
   pi.on("agent_end", async (event) => {
     for (const message of [...event.messages].reverse()) {
       const text = fullTextOf(message);
@@ -209,10 +243,12 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async () => {
-    if (relayStarted) return;
+    if (started) return;
     const subagentId = subagentOfSession();
     if (subagentId === undefined) return; // a plain session: the reporter still speaks, the relay stays quiet
-    relayStarted = true;
+    started = true;
+    controller = new AbortController();
+    const signal = controller.signal;
     const harness: RelayHarness = {
       exec: async (args) => pi.exec("corvi", [...args]),
       submit: async (text) => {
@@ -222,9 +258,23 @@ export default function (pi: ExtensionAPI): void {
         new Promise<string | undefined>((resolve) => {
           settle = resolve;
         }),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      sleep: (ms) => abortableSleep(ms, signal),
+      signal,
       log: (message) => logLine(message),
     };
-    void relayLoop(subagentId, harness);
+    // The loop's rejection must never escape: an unhandled rejection here would take the harness
+    // down with it, closing every subagent.
+    void relayLoop(subagentId, harness).catch((error: unknown) => {
+      logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+    });
+  });
+
+  // Idempotent: quit, reload, and session replacement can converge here. Aborting stops the old
+  // loop at its next boundary instead of polling a disposed harness.
+  pi.on("session_shutdown", async () => {
+    started = false;
+    controller?.abort();
+    controller = undefined;
+    settle = undefined;
   });
 }

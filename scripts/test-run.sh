@@ -14,6 +14,10 @@
 # leftovers whatever the tests did.
 set -euo pipefail
 
+# A Corvi pane exports its own identity and log path. Scrub them so the suite is hermetic whether
+# it is launched from a pane or a plain shell; each test sets the roots and identities it needs.
+unset CORVI_LOG CORVI_SESSION_ID CORVI_SESSION_INCARNATION CORVI_CHANGE_ID CORVI_CHANGE_DIR CORVI_SUBAGENT_ID
+
 mode="${1:-all}"
 if [ "$#" -gt 0 ]; then shift; fi
 

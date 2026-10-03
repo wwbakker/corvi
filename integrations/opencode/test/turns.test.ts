@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { relayLoop, subagentOfSession, type ExecResult, type RelayHarness } from "../src/turns.ts";
+import type { PluginInput } from "@opencode-ai/plugin";
+
+import relay, { relayLoop, subagentOfSession, type ExecResult, type RelayHarness } from "../src/turns.ts";
 
 test("subagentOfSession reads the host-seeded id, and is undefined outside a Corvi session", () => {
   expect(subagentOfSession({ CORVI_SUBAGENT_ID: "reviewer-1" })).toBe("reviewer-1");
@@ -145,3 +147,94 @@ test("a success resets the backoff, and an interrupted turn backs off too", asyn
   // fail (attempt 0); the `none` resets; interrupted (attempt 0); fail (attempt 1).
   expect(sleeps).toEqual([750, 750, 1500]);
 });
+
+/** Poll a condition, for the wiring test that awaits an async start. */
+const until = async (read: () => boolean, ms = 3000): Promise<void> => {
+  const deadline = Date.now() + ms;
+  while (!read() && Date.now() < deadline) await Bun.sleep(10);
+};
+
+test("the relay stops when its signal aborts", async () => {
+  const controller = new AbortController();
+  let nexts = 0;
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      if (args[1] === "next") nexts += 1;
+      return { code: 1, stdout: "", stderr: "down" };
+    },
+    submit: async () => {},
+    settled: async () => "never",
+    sleep: async () => {
+      controller.abort();
+    },
+    signal: controller.signal,
+    log: () => {},
+  };
+  await relayLoop("s1", harness);
+  // The abort in the sleep stops the loop before another poll.
+  expect(nexts).toBe(1);
+});
+
+test("aborting while a run is in flight leaves the loop rather than parking", async () => {
+  const controller = new AbortController();
+  const calls: string[] = [];
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      calls.push(args[1] ?? "");
+      if (args[1] === "next") {
+        return { code: 0, stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }), stderr: "" };
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    },
+    submit: async () => {},
+    settled: () => new Promise<undefined>(() => {}), // never settles
+    sleep: async () => {},
+    signal: controller.signal,
+    log: () => {},
+  };
+  setTimeout(() => controller.abort(), 20);
+  await relayLoop("s1", harness);
+  // The loop left `settled` on abort instead of parking, and did not relay a reply nobody wants.
+  expect(calls.filter((call) => call === "turn")).toHaveLength(0);
+}, 10_000);
+
+/** A fake `BunShell`: each call counts an exec and resolves to the fixed result. */
+const makeShell = (onExec: () => { exitCode: number; stdout: Buffer; stderr: Buffer }): unknown =>
+  (): Record<string, unknown> => {
+    const result = onExec();
+    const thenable: Record<string, unknown> = {
+      ...result,
+      quiet: () => thenable,
+      nothrow: () => thenable,
+      then: (resolve: (value: unknown) => void, reject?: (error: unknown) => void) =>
+        Promise.resolve(result).then(resolve, reject),
+    };
+    return thenable;
+  };
+
+test("the plugin's dispose aborts its relay", async () => {
+  const saved = process.env.CORVI_SUBAGENT_ID;
+  process.env.CORVI_SUBAGENT_ID = "sub-dispose";
+  try {
+    let execs = 0;
+    const input = {
+      $: makeShell(() => {
+        execs += 1;
+        return { exitCode: 1, stdout: Buffer.from(""), stderr: Buffer.from("down") };
+      }),
+      client: { session: { promptAsync: async () => ({}) } },
+    } as unknown as PluginInput;
+    const hooks = await relay.server(input);
+    await until(() => execs >= 1);
+    expect(typeof hooks.dispose).toBe("function");
+
+    // A failing poll backs off; dispose must cut that short so the old runtime stops polling.
+    const before = execs;
+    await hooks.dispose?.();
+    await Bun.sleep(1500); // longer than the first backoff
+    expect(execs).toBe(before);
+  } finally {
+    if (saved === undefined) delete process.env.CORVI_SUBAGENT_ID;
+    else process.env.CORVI_SUBAGENT_ID = saved;
+  }
+}, 10_000);

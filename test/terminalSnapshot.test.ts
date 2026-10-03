@@ -592,6 +592,7 @@ test("a store write that fails is reported and returns false, never throws", () 
   const bad = join(dir, "not-a-directory");
   writeFileSync(bad, "a file, not a directory", "utf8");
   const saved = process.env.XDG_STATE_HOME;
+  const savedLog = process.env.CORVI_LOG;
   const original = console.error;
   const errors: string[] = [];
   console.error = (...args: unknown[]) => {
@@ -599,12 +600,16 @@ test("a store write that fails is reported and returns false, never throws", () 
   };
   let stored: boolean | undefined;
   try {
+    // The store prefers the app log when `CORVI_LOG` is set (a Corvi pane exports it); force the
+    // stderr path this test asserts on.
+    delete process.env.CORVI_LOG;
     process.env.XDG_STATE_HOME = bad;
     stored = setSnapshot("STORE-FAIL", 1, "screen", 5);
   } finally {
     console.error = original;
     if (saved === undefined) delete process.env.XDG_STATE_HOME;
     else process.env.XDG_STATE_HOME = saved;
+    if (savedLog !== undefined) process.env.CORVI_LOG = savedLog;
   }
   expect(stored).toBe(false);
   expect(errors.some((line) => line.includes("could not write the snapshot store"))).toBe(true);

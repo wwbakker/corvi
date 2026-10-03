@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
-import { relayLoop, subagentOfSession, type ExecResult, type RelayHarness } from "../src/turns.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+
+import turns, { relayLoop, subagentOfSession, type ExecResult, type RelayHarness } from "../src/turns.ts";
 
 test("subagentOfSession reads the host-seeded id, and is undefined outside a Corvi session", () => {
   expect(subagentOfSession({ CORVI_SUBAGENT_ID: "reviewer-1" })).toBe("reviewer-1");
@@ -185,3 +187,147 @@ test("a success resets the backoff, and an interrupted turn backs off too", asyn
   // fail (attempt 0); the `none` resets; interrupted (attempt 0); fail (attempt 1).
   expect(sleeps).toEqual([750, 750, 1500]);
 });
+
+/** Poll a condition, for the wiring tests that await an async start. */
+const until = async (read: () => boolean, ms = 3000): Promise<void> => {
+  const deadline = Date.now() + ms;
+  while (!read() && Date.now() < deadline) await Bun.sleep(10);
+};
+
+test("the relay stops when its signal aborts", async () => {
+  const controller = new AbortController();
+  let nexts = 0;
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      if (args[1] === "next") nexts += 1;
+      return { code: 1, stdout: "", stderr: "down" };
+    },
+    submit: async () => {},
+    settled: async () => "never",
+    sleep: async () => {
+      controller.abort();
+    },
+    signal: controller.signal,
+    log: () => {},
+  };
+  await relayLoop("s1", harness);
+  // The abort in the sleep stops the loop before another poll.
+  expect(nexts).toBe(1);
+});
+
+test("aborting while a run is in flight leaves the loop rather than parking", async () => {
+  const controller = new AbortController();
+  const calls: string[] = [];
+  const harness: RelayHarness = {
+    exec: async (args) => {
+      calls.push(args[1] ?? "");
+      if (args[1] === "next") {
+        return { code: 0, stdout: JSON.stringify({ status: "message", message: { number: 1, body: "hi" } }), stderr: "" };
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    },
+    submit: async () => {},
+    settled: () => new Promise<undefined>(() => {}), // never settles
+    sleep: async () => {},
+    signal: controller.signal,
+    log: () => {},
+  };
+  setTimeout(() => controller.abort(), 20);
+  await relayLoop("s1", harness);
+  // The loop left `settled` on abort instead of parking, and did not relay a reply nobody wants.
+  expect(calls.filter((call) => call === "turn")).toHaveLength(0);
+}, 10_000);
+
+/** A fake pi runtime: its own handlers, its own parked `next`, its own poll count. Two of these
+ * stand in for a `/reload`, which invokes the extension factory again for a fresh runtime. */
+const runtime = (options: { readonly execRejects?: boolean } = {}): {
+  readonly pi: ExtensionAPI;
+  readonly start: () => Promise<void>;
+  readonly shutdown: () => Promise<void>;
+  readonly nexts: () => number;
+  readonly releaseNext: (result: ExecResult) => void;
+} => {
+  const handlers = new Map<string, (() => void | Promise<void>)[]>();
+  let nexts = 0;
+  let release: ((result: ExecResult) => void) | undefined;
+  const pi = {
+    on: (event: string, handler: () => void | Promise<void>) => {
+      handlers.set(event, [...(handlers.get(event) ?? []), handler]);
+      return () => undefined;
+    },
+    exec: async (_command: string, args: readonly string[]): Promise<ExecResult> => {
+      if (options.execRejects === true) throw new Error("exec exploded");
+      if (args[1] === "next") {
+        nexts += 1;
+        return new Promise<ExecResult>((resolve) => {
+          release = resolve;
+        });
+      }
+      return { code: 0, stdout: "{}", stderr: "" };
+    },
+    sendUserMessage: async () => undefined,
+  } as unknown as ExtensionAPI;
+  const emit = async (event: string): Promise<void> => {
+    for (const handler of handlers.get(event) ?? []) await handler();
+  };
+  return {
+    pi,
+    start: () => emit("session_start"),
+    shutdown: () => emit("session_shutdown"),
+    nexts: () => nexts,
+    releaseNext: (result) => {
+      const done = release;
+      release = undefined;
+      done?.(result);
+    },
+  };
+};
+
+test("a reload starts one fresh relay and stops the old one", async () => {
+  const saved = process.env.CORVI_SUBAGENT_ID;
+  process.env.CORVI_SUBAGENT_ID = "sub-reload";
+  try {
+    const first = runtime();
+    turns(first.pi);
+    await first.start();
+    await until(() => first.nexts() === 1);
+
+    // `/reload`: the old runtime shuts down, then a fresh runtime starts.
+    await first.shutdown();
+    const second = runtime();
+    turns(second.pi);
+    await second.start();
+    await until(() => second.nexts() === 1);
+
+    // Release the old loop's parked poll with a failure: aborted, it must not poll again, even
+    // after the first backoff would have elapsed.
+    first.releaseNext({ code: 1, stdout: "", stderr: "gone" });
+    await Bun.sleep(1200);
+    expect(first.nexts()).toBe(1);
+    expect(second.nexts()).toBe(1);
+  } finally {
+    if (saved === undefined) delete process.env.CORVI_SUBAGENT_ID;
+    else process.env.CORVI_SUBAGENT_ID = saved;
+  }
+});
+
+test("a harness whose exec rejects does not become an unhandled rejection", async () => {
+  const saved = process.env.CORVI_SUBAGENT_ID;
+  process.env.CORVI_SUBAGENT_ID = "sub-reject";
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown): void => {
+    unhandled.push(reason);
+  };
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const fake = runtime({ execRejects: true });
+    turns(fake.pi);
+    await fake.start();
+    await Bun.sleep(100); // give an unhandled rejection a chance to surface
+  } finally {
+    process.removeListener("unhandledRejection", onUnhandled);
+    if (saved === undefined) delete process.env.CORVI_SUBAGENT_ID;
+    else process.env.CORVI_SUBAGENT_ID = saved;
+  }
+  expect(unhandled).toEqual([]);
+}, 10_000);
