@@ -236,18 +236,23 @@ export const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string 
   return id === undefined || id === "" ? undefined : id;
 };
 
-/** pi emits `session_start` again on `/reload`; a second loop would share the single settle slot
- * and deadlock the first. One relay **per runtime**: the guard lives in this factory, so a reload
- * (a fresh factory invocation) starts a fresh loop while `session_shutdown` stops the old one. */
+/** pi emits `session_start` again on a session replacement (and `/reload`); a second loop would
+ * share the single settle slot. A start **supersedes** any live loop: the old one is aborted and a
+ * fresh one starts, so a session is never left without a relay. `session_shutdown` stops the loop
+ * and is idempotent (quit, reload and session replacement can converge there). */
 export default function (pi: ExtensionAPI): void {
   // One settle per submitted turn: the handler below resolves it with the run's text.
   let settle: ((text: string | undefined) => void) | undefined;
   let lastAssistant = "";
   let controller: AbortController | undefined;
-  let started = false;
-  /** Which loop the pending `settle` belongs to, so a superseded loop's `agent_settled` cannot
-   * resolve the new loop's wait. */
-  let generation = 0;
+
+  /** Stop the current loop, if any. Used by a superseding start and by shutdown; idempotent. */
+  const stop = (): void => {
+    controller?.abort();
+    controller = undefined;
+    settle = undefined;
+    lastAssistant = "";
+  };
 
   pi.on("agent_end", async (event) => {
     for (const message of [...event.messages].reverse()) {
@@ -266,11 +271,12 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async () => {
-    if (started) return;
+    // Supersede: a second start (a duplicated start, or a session replacement whose shutdown has
+    // not arrived yet) must not be dropped, or the session would run relay-less until the next
+    // reload.
+    stop();
     const subagentId = subagentOfSession();
     if (subagentId === undefined) return; // a plain session: the reporter still speaks, the relay stays quiet
-    started = true;
-    generation += 1;
     controller = new AbortController();
     const signal = controller.signal;
     const harness: RelayHarness = {
@@ -280,11 +286,7 @@ export default function (pi: ExtensionAPI): void {
       },
       settled: () =>
         new Promise<string | undefined>((resolve) => {
-          const mine = generation;
-          settle = (text) => {
-            // A superseded loop's settle must not resolve the new loop's wait.
-            if (mine === generation) resolve(text);
-          };
+          settle = resolve;
         }),
       sleep: (ms) => abortableSleep(ms, signal),
       signal,
@@ -293,16 +295,15 @@ export default function (pi: ExtensionAPI): void {
     // The loop's rejection must never escape: an unhandled rejection here would take the harness
     // down with it, closing every subagent.
     void relayLoop(subagentId, harness).catch((error: unknown) => {
-      logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+      try {
+        logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+      } catch {
+        // A sink that cannot write must not become the unhandled rejection this catch prevents.
+      }
     });
   });
 
-  // Idempotent: quit, reload, and session replacement can converge here. Aborting stops the old
-  // loop at its next boundary instead of polling a disposed harness.
   pi.on("session_shutdown", async () => {
-    started = false;
-    controller?.abort();
-    controller = undefined;
-    settle = undefined;
+    stop();
   });
 }

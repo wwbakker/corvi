@@ -269,7 +269,11 @@ const relay: PluginModule = {
       signal,
       log: (message) => logLine(message),
     }).catch((error: unknown) => {
-      logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+      try {
+        logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+      } catch {
+        // A sink that cannot write must not become the unhandled rejection this catch prevents.
+      }
     });
 
     return {

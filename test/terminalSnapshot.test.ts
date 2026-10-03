@@ -615,3 +615,25 @@ test("a store write that fails is reported and returns false, never throws", () 
   expect(errors.some((line) => line.includes("could not write the snapshot store"))).toBe(true);
   clearSnapshots(); // the failed write's in-memory entry goes with the rest
 }, 30_000);
+
+test("a store write that fails is appended to CORVI_LOG when one is set", () => {
+  const bad = join(dir, "not-a-directory-log");
+  const log = join(dir, "store-failure.log");
+  writeFileSync(bad, "a file, not a directory", "utf8");
+  const savedState = process.env.XDG_STATE_HOME;
+  const savedLog = process.env.CORVI_LOG;
+  let stored: boolean | undefined;
+  try {
+    process.env.CORVI_LOG = log;
+    process.env.XDG_STATE_HOME = bad;
+    stored = setSnapshot("STORE-LOG", 1, "screen", 5);
+  } finally {
+    if (savedState === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = savedState;
+    if (savedLog === undefined) delete process.env.CORVI_LOG;
+    else process.env.CORVI_LOG = savedLog;
+  }
+  expect(stored).toBe(false);
+  expect(readFileSync(log, "utf8")).toContain("could not write the snapshot store");
+  clearSnapshots();
+}, 30_000);

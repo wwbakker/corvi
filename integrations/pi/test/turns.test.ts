@@ -313,10 +313,11 @@ const runtime = (options: { readonly execRejects?: boolean } = {}): {
   readonly shutdown: () => Promise<void>;
   readonly nexts: () => number;
   readonly releaseNext: (result: ExecResult) => void;
+  readonly releaseParked: (index: number, result: ExecResult) => void;
 } => {
   const handlers = new Map<string, (() => void | Promise<void>)[]>();
   let nexts = 0;
-  let release: ((result: ExecResult) => void) | undefined;
+  const parked: ((result: ExecResult) => void)[] = [];
   const pi = {
     on: (event: string, handler: () => void | Promise<void>) => {
       handlers.set(event, [...(handlers.get(event) ?? []), handler]);
@@ -327,7 +328,7 @@ const runtime = (options: { readonly execRejects?: boolean } = {}): {
       if (args[1] === "next") {
         nexts += 1;
         return new Promise<ExecResult>((resolve) => {
-          release = resolve;
+          parked.push(resolve);
         });
       }
       return { code: 0, stdout: "{}", stderr: "" };
@@ -343,9 +344,10 @@ const runtime = (options: { readonly execRejects?: boolean } = {}): {
     shutdown: () => emit("session_shutdown"),
     nexts: () => nexts,
     releaseNext: (result) => {
-      const done = release;
-      release = undefined;
-      done?.(result);
+      parked[parked.length - 1]?.(result);
+    },
+    releaseParked: (index, result) => {
+      parked[index]?.(result);
     },
   };
 };
@@ -377,6 +379,33 @@ test("a reload starts one fresh relay and stops the old one", async () => {
     else process.env.CORVI_SUBAGENT_ID = saved;
   }
 });
+
+test("a start while a loop is live supersedes it, leaving one relay", async () => {
+  const saved = process.env.CORVI_SUBAGENT_ID;
+  process.env.CORVI_SUBAGENT_ID = "sub-supersede";
+  try {
+    const fake = runtime();
+    turns(fake.pi);
+    await fake.start();
+    await until(() => fake.nexts() === 1);
+
+    // A second start (a session replacement, whose shutdown may not have arrived yet) must
+    // supersede, not be dropped: the session would otherwise be relay-less until the next reload.
+    await fake.start();
+    await until(() => fake.nexts() === 2);
+    // The second start ran a fresh loop rather than being dropped.
+    expect(fake.nexts()).toBe(2);
+
+    // Release the superseded loop's poll with a failure: aborted, it must not poll again, even
+    // after the first backoff would have elapsed.
+    fake.releaseParked(0, { code: 1, stdout: "", stderr: "gone" });
+    await Bun.sleep(1200);
+    expect(fake.nexts()).toBe(2);
+  } finally {
+    if (saved === undefined) delete process.env.CORVI_SUBAGENT_ID;
+    else process.env.CORVI_SUBAGENT_ID = saved;
+  }
+}, 10_000);
 
 test("a harness whose exec rejects does not become an unhandled rejection", async () => {
   const saved = process.env.CORVI_SUBAGENT_ID;
