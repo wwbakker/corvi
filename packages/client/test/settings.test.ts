@@ -19,6 +19,7 @@ test("the settings view decodes, and writing it names the settings route", async
       workspaces: [],
       worktreeCopy: [],
       env: {},
+      devices: [],
     },
     overridden: {},
     overriddenExtensions: {},

@@ -7,6 +7,8 @@ import {
   Workspace as WorkspaceSchema,
   WorkspaceId,
 } from "@corvi/contracts/config";
+import { DeviceSchema } from "@corvi/contracts/devices";
+import type { DeviceDto } from "@corvi/contracts/devices";
 import type {
   ConfigFile as ConfigFileVocabulary,
   Workspace as WorkspaceShape,
@@ -71,6 +73,12 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
   Boolean((w as { id?: unknown }).id) &&
   Boolean((w as { name?: unknown }).name);
 
+/** The same per-item tolerance, for devices: the schema decodes the array loosely
+ * (`Schema.Any`), and a malformed entry is skipped rather than taking the whole file with it.
+ * A device is a record with a token hash; `DeviceSchema` is the one statement of its shape. */
+export const devicesFrom = (items: unknown): DeviceDto[] =>
+  Array.isArray(items) ? items.filter((item): item is DeviceDto => Schema.is(DeviceSchema)(item)) : [];
+
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings page's
  * write shape (apps/server/src/settings/model.ts' `Settings`), and the two must not drift: the
@@ -78,10 +86,11 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 export const ConfigFile = ConfigFileSchema;
 
 /** What the config file decodes to. Decode with `onExcessProperty: "preserve"` (readFile does)
- * so unknown keys survive into the settings merge. `workspaces` is typed as it is consumed
- * (after workspacesFrom) rather than as the schema sees it on the wire: the file may hold
- * entries load() will filter out, and that passthrough is deliberate. */
-export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces"> & {
+ * so unknown keys survive into the settings merge. `workspaces` and `devices` are typed as they
+ * are consumed (after the per-item tolerance) rather than as the schema sees them on the wire:
+ * the file may hold entries load() will filter out, and that passthrough is deliberate. */
+export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces" | "devices"> & {
+  devices?: DeviceDto[];
   workspaces?: WorkspaceShape[];
 };
 

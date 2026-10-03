@@ -3,13 +3,18 @@
  */
 import type { SettingsViewDto } from "./api.ts";
 import type { ConfigFileDto, ResolvedDto, WorkspaceDto } from "./config.ts";
+import type { DeviceDto } from "./devices.ts";
 import type { ExtensionSetting } from "./integration.ts";
 
 /** What may be written: the config file's own shape — the settings at the top level and each
  * workspace's `settings` overrides of them. Everything is optional — an absent value means "the
  * default", which is what an empty file means. The workspaces are typed as they are edited (the
  * wire carries them loosely; `workspacesFrom` applies the tolerance). */
-export type Settings = Omit<ConfigFileDto, "workspaces"> & { workspaces?: WorkspaceDto[] };
+export type Settings = Omit<ConfigFileDto, "workspaces" | "devices"> & {
+  /** Typed as consumed (after the per-item tolerance), while the schema sees the array loosely. */
+  devices?: DeviceDto[];
+  workspaces?: WorkspaceDto[];
+};
 
 export type SettingsView = {
   /** Which file this is, so the page can say where to look when something is edited by hand. */

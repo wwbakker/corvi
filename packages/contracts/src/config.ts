@@ -7,6 +7,9 @@
  */
 import { Schema } from "effect"
 
+import { DeviceSchema } from "./devices.ts"
+
+
 /** One extension's settings bag: `extensionSettings[name][key]`, where a value is one string or a
  * list of strings. Shared by both levels; the core carries it without looking inside. */
 const ExtensionBag = Schema.mutable(
@@ -95,6 +98,11 @@ export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-
  * per-item tolerance rather than losing the whole file to one hand-mangled workspace. */
 export const ConfigFile = Schema.Struct({
   ...settingsFields,
+  /** The devices paired to this server, with only hashes of their tokens. Top-level rather
+   * than a setting: a device is this machine's trust, not a workspace's. Decoded loosely and
+   * filtered per item (`devicesFrom`), like `workspaces`: one hand-mangled device must not
+   * empty the rest of the config. */
+  devices: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
 })
 export type ConfigFileDto = typeof ConfigFile.Type
@@ -118,6 +126,7 @@ export const Resolved = Schema.Struct({
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensionSettings: Schema.optional(ExtensionBag),
   env: EnvMap,
+  devices: Schema.mutable(Schema.Array(DeviceSchema)),
   workspaces: Schema.mutable(Schema.Array(Workspace)),
 })
 export type ResolvedDto = typeof Resolved.Type

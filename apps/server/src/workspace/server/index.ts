@@ -14,6 +14,8 @@ export {
   readFile,
   readFileSync,
   setMigrator,
+  mutateConfigFile,
+  updateConfigFile,
 } from "./config.ts";
 
 export { reloadConfig, reloadConfigSync, runtimeConfig } from "../../capabilities/runtime.ts";
@@ -24,6 +26,7 @@ export {
   WorkspaceId,
   DirectoryName,
   EnvVarName,
+  devicesFrom,
   workspacesFrom,
 } from "./schema.ts";
 

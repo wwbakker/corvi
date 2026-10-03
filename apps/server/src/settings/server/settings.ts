@@ -1,5 +1,4 @@
-import { mkdir, chmod, copyFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
 import type { Settings, SettingsView } from "../model.ts";
@@ -11,15 +10,18 @@ import {
   readFileSync,
   reloadConfig,
   expandTilde,
+  updateConfigFile,
+  devicesFrom,
   DirectoryName,
   EnvVarName,
   WorkspaceId,
 } from "../../workspace/server/index.ts";
+import type { ConfigFile } from "../../workspace/server/index.ts";
 import { loaded } from "../../integrations/index.ts";
 import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
+import { redactDeviceHashes } from "./deviceSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { fs } from "../../capabilities/effect/support.ts";
 import { invalidate } from "../../capabilities/cache.ts";
 import { TOOLING } from "../../capabilities/os.ts";
 
@@ -45,12 +47,17 @@ export const settingsViewSync = (): SettingsView => {
   // The file is handed over migrated, so the page edits — and writes back — the shape the
   // extensions read today, never the retired names the migration folds away.
   migrateFileSettings(file);
+  // The file view gets the same per-item device tolerance the resolved config does: a
+  // hand-mangled entry is dropped here rather than spread into a bogus device on the page. An
+  // absent list stays absent; a present one is filtered.
+  const viewFile: Settings =
+    file.devices === undefined ? file : { ...file, devices: devicesFrom(file.devices) };
   return {
     path: configPath(),
     // The page gets a copy with the extensions' secrets masked: it is given the file and what is
     // in effect, and neither may carry a token (apps/server/src/settings/server/secrets.ts).
-    file: redactSecrets(file, loaded),
-    effective: redactSecrets(runtimeConfig(), loaded),
+    file: redactDeviceHashes(redactSecrets(viewFile, loaded)),
+    effective: redactDeviceHashes(redactSecrets(runtimeConfig(), loaded)),
     overridden: overriddenSettings(ENV_OVERRIDES),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
@@ -136,20 +143,6 @@ function prune(value: unknown): unknown {
  * locking and the empty-field-means-unset pruning still apply, and a masked secret is the stored
  * value rather than the mask (apps/server/src/settings/server/secrets.ts).
  */
-/** Keep one generation of the config beside it: `config.json.bak` holds what the next save
- * replaces. A first save has nothing to keep; anything else that stops the copy stops the save,
- * because overwriting the only copy of a file that may hold a token is not a failure worth
- * having. */
-const backupConfig = (): Promise<void> => {
-  const backup = `${configPath()}.bak`;
-  return copyFile(configPath(), backup).then(
-    () => chmod(backup, 0o600),
-    (e: NodeJS.ErrnoException) => {
-      if (e.code !== "ENOENT") throw e;
-    },
-  );
-};
-
 export const writeSettings = (
   next: Settings,
 ): Effect.Effect<SettingsView, BadRequestError> =>
@@ -159,16 +152,19 @@ export const writeSettings = (
       return yield* new BadRequestError({ message: wrong.join("; ") });
     }
 
+    // The read, merge and write are one serialized mutation: a device revoked between a page's
+    // load and its save must not be written back from the stale list the page was handed.
     // Secrets first, before anything is merged: a field the page sent back as a mask keeps what
     // the file holds, and one it left alone stays cleared.
-    const stored = readFileSync();
-    const merged = prune({ ...stored, ...keepStoredSecrets(next, stored, loaded) }) as Settings;
-    yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
-    yield* fs(backupConfig);
-    // 0600 because the file may now hold a token: `writeFile`'s mode only applies when it creates
-    // the file, so an existing one is chmodded too rather than keeping whatever it had.
-    yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 }));
-    yield* fs(() => chmod(configPath(), 0o600));
+    yield* updateConfigFile((stored) =>
+      prune({
+        ...stored,
+        ...keepStoredSecrets(next, stored, loaded),
+        // Devices are managed by the device API, never by a settings-page save: a page that
+        // sends the masked device list back leaves what is stored untouched.
+        devices: stored.devices,
+      }) as ConfigFile,
+    );
 
     yield* reloadConfig;
     // The retired names fold into the extensions' own settings, in memory as on disk —

@@ -8,6 +8,8 @@
  * app's workspace server.
  */
 
+import type { Device } from "./devices.ts";
+
 /**
  * The settings, complete: every setting Corvi knows, in the one shape both levels hold. At the
  * global level these are the settings; inside a workspace they are the overrides of them, key by
@@ -134,6 +136,9 @@ export type Config = {
   /** The global entries of the environment added to every CLI run, `~` expanded at use. A
    * workspace's `env` overrides them key by key. */
   env: Record<string, string>;
+  /** The devices paired to this server. Stored with only a hash of each token; the resolved
+   * snapshot carries the same records so a request can verify a presented token. */
+  devices: Device[];
   /** The contexts you switch between. Never empty: when nothing is configured, the default
    * workspace stands in. Each one's `settings` holds its overrides. */
   workspaces: Workspace[];
@@ -146,6 +151,8 @@ export type Config = {
  * `apps/server/src/workspace/server/schema.ts`, which checks itself against this type.
  */
 export type ConfigFile = SettingsOverrides & {
+  /** The devices paired to this server, as the file holds them; only token hashes are stored. */
+  devices?: Device[];
   /** The contexts you switch between, as the file holds them. Decoded with the per-item
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];

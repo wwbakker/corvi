@@ -1,7 +1,10 @@
 import { homedir } from "node:os";
 import { readFileSync as readFileNodeSync } from "node:fs";
-import { join, isAbsolute } from "node:path";
+import { chmod, copyFile, mkdir } from "node:fs/promises";
+import { dirname, join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
+import { writeAtomic } from "../../capabilities/files.ts";
+import { fs } from "../../capabilities/effect/support.ts";
 import {
   DEFAULT_WORKSPACE,
   type Config,
@@ -9,7 +12,7 @@ import {
   type Workspace,
 } from "@corvi/configuration/config";
 import { builtinActionBody } from "@corvi/actions/node";
-import { ConfigFile, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
+import { ConfigFile, devicesFrom, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
@@ -74,6 +77,65 @@ export function readFileSync(): ConfigFile {
   // Sync on purpose: config is needed before the first request, and this is one small file.
   return Effect.runSync(readFile());
 }
+
+/** Keep one generation of the config beside it: `config.json.bak` holds what the next save
+ * replaces. A first save has nothing to keep; anything else that stops the copy stops the save,
+ * because overwriting the only copy of a file that may hold a token is not a failure worth
+ * having. */
+const backupConfig = (): Promise<void> => {
+  const backup = `${configPath()}.bak`;
+  return copyFile(configPath(), backup).then(
+    () => chmod(backup, 0o600),
+    (e: NodeJS.ErrnoException) => {
+      if (e.code !== "ENOENT") throw e;
+    },
+  );
+};
+
+/** Write the config file for its owner alone: a temp file renamed into place, so a reader sees
+ * the old content or the new one and never a half-written file, with the version it replaces
+ * kept as `config.json.bak`. The file may hold tokens, so it is created 0600 and chmodded after
+ * the rename as well. */
+const writeConfigFileNow = async (next: ConfigFile): Promise<void> => {
+  await mkdir(dirname(configPath()), { recursive: true });
+  await backupConfig();
+  await writeAtomic(configPath(), `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  await chmod(configPath(), 0o600);
+};
+
+/** Every config read-modify-write is serialized through this promise chain: the read, the update
+ * and the write happen inside one turn, so two device redemptions cannot lose one another and a
+ * settings save cannot write a device list read before a revocation back over it. The chain is
+ * kept alive after a failed write so the next mutation still runs. */
+let configMutations: Promise<unknown> = Promise.resolve();
+
+const serialized = <A>(work: () => Promise<A>): Promise<A> => {
+  const run = configMutations.then(work, work);
+  configMutations = run.catch(() => undefined);
+  return run;
+};
+
+/** One serialized config read-modify-write. `update` receives the file as it is on disk right
+ * now; `write` is what to persist (the same object it was given writes nothing), `result` is
+ * carried back to the caller. Callers reload the runtime snapshot after this; the file is the
+ * source of truth and the reload reads it fresh. */
+export const mutateConfigFile = <A>(
+  update: (current: ConfigFile) => { readonly write: ConfigFile; readonly result: A },
+): Effect.Effect<A> =>
+  fs(() =>
+    serialized(async () => {
+      const current = readFileSync();
+      const { write, result } = update(current);
+      if (write !== current) await writeConfigFileNow(write);
+      return result;
+    }),
+  );
+
+/** The common mutation: no value travels back, only the changed file. */
+export const updateConfigFile = (
+  update: (current: ConfigFile) => ConfigFile,
+): Effect.Effect<void> =>
+  mutateConfigFile((current) => ({ write: update(current), result: undefined }));
 
 const resolvePath = (value: string): string => {
   const path = expandTilde(value);
@@ -193,6 +255,10 @@ export function readConfig(): Config {
     // Always a key, absent or not — the refill is Object.assign over the one config object, and
     // a key left out here would survive a settings write that emptied the bag.
     extensionSettings: file.extensionSettings,
+    // The paired devices, always an array so a verification reads the same shape whether or not
+    // anything is paired yet. Filtered per item, like workspaces: one bad entry must not cost
+    // the rest of the file.
+    devices: devicesFrom(file.devices),
     // The global entries of the environment every CLI runs with, `~` expanded at use; a
     // workspace's own entries override them key by key (settingsFor).
     env: { ...(file.env ?? {}) },

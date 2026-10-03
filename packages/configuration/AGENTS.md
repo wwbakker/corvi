@@ -6,7 +6,10 @@ The configuration vocabulary and the settings precedence chain.
 
 - `./config`: what a workspace is, the settings shape both scopes hold (`SettingsOverrides`),
   what the resolved config holds (`Config`, `EffectiveSettings`), the config file's write
-  shape, and the default workspace (`DEFAULT_WORKSPACE`). Pure.
+  shape, the paired devices it holds, and the default workspace (`DEFAULT_WORKSPACE`). Pure.
+- `./devices`: the device vocabulary (`Device`), the pairing TTL, and the read projection
+  (`deviceViewOf`, `isDeviceActive`). Pure. `./node/devices` is the OS half: it generates
+  pairing codes, ids and 256-bit tokens, hashes tokens, and compares them in constant time.
 - `./settings`: `resolveSetting` (environment variable > workspace > global > fallback),
   `settingsFor` (what applies in one scope), the bag readers (`bagString`, `bagList`), and the
   override readers the settings page locks fields with. Environment variable *names* are the
@@ -27,6 +30,9 @@ runtime holds.
 
 - `@corvi/configuration/config`: `Workspace`, `SettingsOverrides`, `EffectiveSettings`, `Config`,
   `ConfigFile`, `DEFAULT_WORKSPACE`
+- `@corvi/configuration/devices`: `Device`, `PAIRING_CODE_TTL_MS`, `deviceViewOf`,
+  `isDeviceActive`; `@corvi/configuration/node/devices`: `generateDeviceToken`,
+  `hashDeviceToken`, `deviceTokenMatches`, `generatePairingCode`, `generateDeviceId`
 - `@corvi/configuration/settings`: `SettingBag`, `resolveSetting`, `settingsFor`, `bagString`,
   `bagList`, `envOverride`, `overriddenSettings`, `overriddenExtensionSettings`,
   `SettingDeclaration`, `SettingsHolder`

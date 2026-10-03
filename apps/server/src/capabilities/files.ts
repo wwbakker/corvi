@@ -42,11 +42,17 @@ let tempCounter = 0;
 
 /** Write a file atomically: a reader sees the old content or the new one, never a half-written
  * file. Each call gets its own temp name, so two writers in one process cannot clobber each
- * other's temp file between the write and the rename; a failed write cleans its temp up. */
-export const writeAtomic = async (path: string, data: string | Uint8Array): Promise<void> => {
+ * other's temp file between the write and the rename; a failed write cleans its temp up. The
+ * optional `mode` applies when the temp file is created, so a secret file is never briefly
+ * readable under the process umask before a later chmod. */
+export const writeAtomic = async (
+  path: string,
+  data: string | Uint8Array,
+  options?: { readonly mode?: number },
+): Promise<void> => {
   const temp = `${path}.${process.pid}.${tempCounter++}.tmp`;
   try {
-    await writeFile(temp, data);
+    await writeFile(temp, data, options?.mode === undefined ? undefined : { mode: options.mode });
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => {});

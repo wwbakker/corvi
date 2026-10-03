@@ -19,7 +19,10 @@ transport boundary.
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
 - `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
   (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view, workspaces)
-- `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names
+- `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, and the
+  pairing create/redeem request and response schemas
+- `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
+  the devices paired to this server
 - `@corvi/contracts/errors`: the tagged failures (`NotFoundError`, `BadRequestError`,
   `ConflictError`, `InternalError`, `CliError`, `DecodeError`), `IweError`, `isIweError`,
   `formatError`
