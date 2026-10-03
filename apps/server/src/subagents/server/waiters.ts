@@ -13,9 +13,11 @@
  * subscription is closed by its caller (an interrupted long poll, a losing `race`), so the
  * registry does not grow.
  *
- * Four event kinds, because `wait` and `next` await different halves of the conversation: `reply`
- * is a settled subagent turn (what `wait` returns), `inbound` is a message for the subagent (what
- * `next` returns), and `lost`/`interrupted` are the ways a turn can end without a reply.
+ * Three event kinds, because `await` and `next` await different halves of the conversation:
+ * `reply` is a settled subagent turn (what `await` wakes on), `inbound` is a message for the
+ * subagent (what `next` wakes on), and `lost` is a window gone — the one way a turn ends
+ * without a reply. An interrupted turn is not an event: the state read sees it (`inFlight`
+ * with no live window).
  */
 import { Deferred, Effect } from "effect";
 
@@ -24,8 +26,7 @@ import type { SubagentMessage } from "@corvi/agents/instance";
 export type SubagentEvent =
   | { readonly kind: "inbound"; readonly id: string; readonly message: SubagentMessage }
   | { readonly kind: "reply"; readonly id: string; readonly message: SubagentMessage }
-  | { readonly kind: "lost"; readonly id: string }
-  | { readonly kind: "interrupted"; readonly id: string };
+  | { readonly kind: "lost"; readonly id: string };
 
 type Waiter = Deferred.Deferred<SubagentEvent>;
 

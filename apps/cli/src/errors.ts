@@ -16,8 +16,11 @@ export const EXIT = {
   noServer: 3,
   /** The server refused the request: unknown change/action/subagent, or a refused transition. */
   refused: 4,
-  /** A wait ended because the window was lost or a turn was interrupted. */
+  /** An await ended because the window was lost or a turn was interrupted. */
   lost: 5,
+  /** An await reached its horizon with nothing to report: check in on the subagents, then await
+   * again. */
+  timeout: 6,
 } as const;
 
 /** A failure with a chosen exit code. Everything the CLI prints to stderr comes from one of

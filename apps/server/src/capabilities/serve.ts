@@ -220,6 +220,12 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
     });
   });
 
+  // The long polls (`subagent await`/`next`) park up to five minutes before answering, which is
+  // exactly node's default `requestTimeout`: without this, a full park races the socket being
+  // torn down under the response. The park is bounded by design; the request timeout is not a
+  // limit this server wants.
+  server.requestTimeout = 0;
+
   // The upgrade is routed before the handshake, exactly as Bun routed it: the terminal route
   // resolves the change and starts its pty (an await, so the socket stays open) and then
   // upgrades.

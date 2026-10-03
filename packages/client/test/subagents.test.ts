@@ -126,7 +126,7 @@ test("an idempotency key rides as a header on the writes that take one", async (
   expect(calls[0]?.body).toEqual({ text: "go" })
 })
 
-test("result is a message or null, and wait and next name their query", async () => {
+test("result is a message or null, and await and next name their query", async () => {
   const calls: string[] = []
   let result: unknown = message
   const client = makeCorviClient({
@@ -135,7 +135,8 @@ test("result is a message or null, and wait and next name their query", async ()
       const url = String(input)
       calls.push(url)
       if (url.endsWith("/result")) return Response.json(result)
-      if (url.includes("/subagents/wait")) return Response.json({ status: "turn", id: "s1" })
+      if (url.includes("/subagents/await"))
+        return Response.json({ status: "ready", id: "s1", awaitingReply: true })
       return Response.json({ status: "none" })
     },
   })
@@ -144,19 +145,20 @@ test("result is a message or null, and wait and next name their query", async ()
   result = null
   expect(await client.subagents.result(ChangeId.make("demo"), "s1")).toBeNull()
 
-  expect((await client.subagents.wait(ChangeId.make("demo"), {})).status).toBe("turn")
+  expect((await client.subagents.await(ChangeId.make("demo"), {})).status).toBe("ready")
+  expect((await client.subagents.await(ChangeId.make("demo"), { ids: ["s1", "s2"] })).id).toBe("s1")
   expect(
-    (await client.subagents.wait(ChangeId.make("demo"), { id: "s1", any: true, all: true, since: 5 }))
-      .id,
-  ).toBe("s1")
+    (await client.subagents.await(ChangeId.make("demo"), { ids: ["s1"], all: true })).awaitingReply,
+  ).toBe(true)
   expect((await client.subagents.next(ChangeId.make("demo"), "s1")).status).toBe("none")
   expect((await client.subagents.next(ChangeId.make("demo"), "s1", 7)).status).toBe("none")
 
   expect(calls).toEqual([
     "http://x/api/changes/demo/subagents/s1/result",
     "http://x/api/changes/demo/subagents/s1/result",
-    "http://x/api/changes/demo/subagents/wait",
-    "http://x/api/changes/demo/subagents/wait?id=s1&any=1&all=1&since=5",
+    "http://x/api/changes/demo/subagents/await",
+    "http://x/api/changes/demo/subagents/await?id=s1&id=s2",
+    "http://x/api/changes/demo/subagents/await?id=s1&all=1",
     "http://x/api/changes/demo/subagents/s1/next",
     "http://x/api/changes/demo/subagents/s1/next?after=7",
   ])

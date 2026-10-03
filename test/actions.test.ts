@@ -1,16 +1,19 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import {
   actionFiles,
   deleteActionFile,
+  deleteRepositoryActionFile,
+  repositoryActionFiles,
   writeActionFile,
+  writeRepositoryActionFile,
 } from "../apps/server/src/actions/server/files.ts";
 import { listActionsFor } from "../apps/server/src/actions/server/run.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { configPath, reloadConfig } from "../apps/server/src/workspace/server/index.ts";
-import { checkoutsOf, runEffect, testTempDir } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
 
 /** The change the listing is asked about: its phase is what the filter reads. */
 const changeWith = (over: Partial<Change> = {}): Change => ({
@@ -128,4 +131,42 @@ test("the built-in brief shows the text that runs, and a shadowing brief.md repl
 
   await writeFile(configPath(), "{}");
   await runEffect(reloadConfig);
+});
+
+/** A real checkout, as the repository scope needs one: `checkoutFor` resolves the worktree on
+ * the change's own branch, and a committed `git init -b <branch>` repo is its own worktree. */
+const repoFixture = async (name: string, branch: string): Promise<string> => {
+  const dir = join(own, name);
+  await runSh(["git", "init", "-b", branch, dir]);
+  await writeFile(join(dir, "README.md"), "hi\n");
+  await runSh(["git", "add", "."], dir);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], dir);
+  return dir;
+};
+
+test("a repository action is listed, written and deleted through its checkout", async () => {
+  const repo = await repoFixture("repo-actions", "PROJ-repo-actions");
+  const change = changeWith({ branch: "PROJ-repo-actions", checkouts: checkoutsOf([repo]) });
+  // The checkout's own files are listed under the repository's name — problems and all.
+  await mkdir(join(repo, ".corvi", "actions"), { recursive: true });
+  await writeFile(join(repo, ".corvi", "actions", "broken.md"), "---\nkind: command\n---\nrm -rf\n");
+  const before = await runEffect(repositoryActionFiles(change));
+  expect(before.repositories.map((one) => one.repository)).toEqual([basename(repo)]);
+  expect(before.repositories[0]?.files.find((f) => f.id === "broken")?.problems).toBeDefined();
+
+  const written = await runEffect(
+    writeRepositoryActionFile(change, { repository: basename(repo), id: "say-hello", text: sayHello }),
+  );
+  expect(written.repositories[0]?.files.find((f) => f.id === "say-hello")?.label).toBe("Say hello");
+
+  const gone = await runEffect(
+    deleteRepositoryActionFile(change, { repository: basename(repo), id: "say-hello" }),
+  );
+  expect(gone.repositories[0]?.files.find((f) => f.id === "say-hello")).toBeUndefined();
+});
+
+test("a repository the change does not carry is refused rather than invented", async () => {
+  await expect(
+    runEffect(writeRepositoryActionFile(changeWith(), { repository: "nope", id: "x", text: sayHello })),
+  ).rejects.toThrow(/no such repository/);
 });

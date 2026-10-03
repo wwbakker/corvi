@@ -2,15 +2,19 @@
  * use: the shipped profile, a written one, a refused one, and deletion. */
 import { expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import {
+  deleteRepositorySubagentFile,
   deleteSubagentFile,
+  repositorySubagentFiles,
   subagentFiles,
+  writeRepositorySubagentFile,
   writeSubagentFile,
 } from "../apps/server/src/subagents/server/files.ts";
+import type { Change } from "../apps/server/src/domain/change.ts";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
-import { runEffect, testTempDir } from "./helpers.ts";
+import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
 
 const own = await testTempDir("subagents");
 process.env.CORVI_CONFIG = join(own, "config.json");
@@ -69,4 +73,55 @@ test("an id that is a path is refused rather than written outside the scope", as
   await expect(
     runEffect(writeSubagentFile({ scope: "global", id: "../escape", text: mine })),
   ).rejects.toThrow(/file name/);
+});
+
+/** A real checkout, as the repository scope needs one: `checkoutFor` resolves the worktree on
+ * the change's own branch, and a committed `git init -b <branch>` repo is its own worktree. */
+const repoFixture = async (name: string, branch: string): Promise<string> => {
+  const dir = join(own, name);
+  await runSh(["git", "init", "-b", branch, dir]);
+  await writeFile(join(dir, "README.md"), "hi\n");
+  await runSh(["git", "add", "."], dir);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], dir);
+  return dir;
+};
+
+test("a repository profile is listed, written and deleted through its checkout", async () => {
+  const repo = await repoFixture("repo-sub", "PROJ-repo-sub");
+  const change = {
+    id: "PROJ-repo-sub",
+    branch: "PROJ-repo-sub",
+    checkouts: checkoutsOf([repo]),
+    state: "Implementation",
+    createdAt: new Date().toISOString(),
+  } as Change;
+  // The checkout's own files are listed under the repository's name — problems and all.
+  await mkdir(join(repo, ".corvi", "subagents"), { recursive: true });
+  await writeFile(join(repo, ".corvi", "subagents", "broken.md"), "---\nlabel: X\n---\nbody\n");
+  const before = await runEffect(repositorySubagentFiles(change));
+  expect(before.repositories.map((one) => one.repository)).toEqual([basename(repo)]);
+  expect(before.repositories[0]?.files.find((f) => f.id === "broken")?.problems).toBeDefined();
+
+  const written = await runEffect(
+    writeRepositorySubagentFile(change, { repository: basename(repo), id: "mine", text: mine }),
+  );
+  expect(written.repositories[0]?.files.find((f) => f.id === "mine")?.label).toBe("My reviewer");
+
+  const gone = await runEffect(
+    deleteRepositorySubagentFile(change, { repository: basename(repo), id: "mine" }),
+  );
+  expect(gone.repositories[0]?.files.find((f) => f.id === "mine")).toBeUndefined();
+});
+
+test("a repository the change does not carry is refused rather than invented", async () => {
+  const change = {
+    id: "PROJ-no-repo",
+    branch: "PROJ-no-repo",
+    checkouts: checkoutsOf([]),
+    state: "Implementation",
+    createdAt: new Date().toISOString(),
+  } as Change;
+  await expect(
+    runEffect(writeRepositorySubagentFile(change, { repository: "nope", id: "x", text: mine })),
+  ).rejects.toThrow(/no such repository/);
 });

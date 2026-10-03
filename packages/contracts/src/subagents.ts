@@ -11,7 +11,7 @@ export const SubagentHarness = Schema.Literal("pi", "opencode")
 export type SubagentHarness = typeof SubagentHarness.Type
 
 /** Where the profile's file was discovered. Built-in files are shipped with Corvi; repository
- * files are the checkout's own and are not managed by the page. */
+ * files live in one of the change's checkouts. */
 export const SubagentSource = Schema.Literal("builtin", "global", "workspace", "repository")
 export type SubagentSource = typeof SubagentSource.Type
 
@@ -22,6 +22,8 @@ export const SubagentProfileFileSchema = Schema.Struct({
   /** The workspace a workspace file belongs to. */
   workspace: Schema.optional(Schema.String),
   workspaceLabel: Schema.optional(Schema.String),
+  /** The repository a repository file belongs to, as its key spells it ("orders-api"). */
+  repository: Schema.optional(Schema.String),
   /** The filename without `.md`: the profile's id. */
   id: Schema.String,
   path: Schema.String,
@@ -38,8 +40,9 @@ export const SubagentFilesResponseSchema = Schema.Struct({
 })
 export type SubagentFilesResponseDto = typeof SubagentFilesResponseSchema.Type
 
-/** The scopes the page may write. Saving a built-in copies it to Global; repository files are
- * written with your IDE or by an agent, never here. */
+/** Where a write lands: the global and workspace scopes beside the config file. A repository
+ * file is written through the change-scoped routes (`…/subagent-files`) instead, and a built-in
+ * is never saved over — the create flow's copy lands in the scope it is picked for. */
 export const SubagentFileWriteSchema = Schema.Struct({
   scope: Schema.Literal("global", "workspace"),
   workspace: Schema.optional(Schema.String),
@@ -54,6 +57,34 @@ export const SubagentFileRefSchema = Schema.Struct({
   id: Schema.String,
 })
 export type SubagentFileRefDto = typeof SubagentFileRefSchema.Type
+
+/** A repository file's address: the repository name as the discovery key spells it
+ * (`repository:orders-api:reviewer`) inside the change the route names. The scope is the route —
+ * never a field to get wrong in the body. */
+export const SubagentRepositoryFileWriteSchema = Schema.Struct({
+  repository: Schema.String,
+  id: Schema.String,
+  text: Schema.String,
+})
+export type SubagentRepositoryFileWriteDto = typeof SubagentRepositoryFileWriteSchema.Type
+
+export const SubagentRepositoryFileRefSchema = Schema.Struct({
+  repository: Schema.String,
+  id: Schema.String,
+})
+export type SubagentRepositoryFileRefDto = typeof SubagentRepositoryFileRefSchema.Type
+
+/** What the Repositories view lists: one block per repository of the change's checkouts, its
+ * `.corvi/subagents` files parsed exactly as the other scopes are. */
+export const SubagentRepositoryFilesResponseSchema = Schema.Struct({
+  repositories: Schema.Array(
+    Schema.Struct({
+      repository: Schema.String,
+      files: Schema.Array(SubagentProfileFileSchema),
+    }),
+  ),
+})
+export type SubagentRepositoryFilesResponseDto = typeof SubagentRepositoryFilesResponseSchema.Type
 
 /** What a change can run, on the wire: discovery's answer (`@corvi/agents/discovery`) as the
  * CLI reads it. The `key` is what `subagent create` takes (`repository:orders-api:reviewer`).
@@ -190,14 +221,17 @@ export const SubagentTurnRequestSchema = Schema.Struct({
 })
 export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
 
-/** What a `wait` ended as: a delivered turn, a lost window, an interrupted turn, or the long
- * poll's own deadline. `id` names the subagent for `--any`/`--all` runs. */
-export const SubagentWaitResponseSchema = Schema.Struct({
-  status: Schema.Literal("turn", "lost", "interrupted", "timeout"),
+/** What an `await` ended as: a subagent that can be processed (`ready` — idle or waiting for
+ * input with nothing pending, or a reply already parked), a lost window, an interrupted turn, or
+ * the horizon's own deadline (`timeout` — check in on the subagents, then await again). `id`
+ * names the subagent that settled an `--any` run. */
+export const SubagentAwaitResponseSchema = Schema.Struct({
+  status: Schema.Literal("ready", "lost", "interrupted", "timeout"),
   id: Schema.optional(Schema.String),
-  message: Schema.optional(SubagentMessageSchema),
+  /** A reply is parked for `result` to pick up. */
+  awaitingReply: Schema.optional(Schema.Boolean),
 })
-export type SubagentWaitResponseDto = typeof SubagentWaitResponseSchema.Type
+export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type
 
 /** What the extension's `next` got: an inbound message to submit, an interrupted turn to leave
  * alone, or nothing yet (the poll's own deadline). */

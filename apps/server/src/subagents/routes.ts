@@ -1,22 +1,24 @@
 /** The subagent routes: the profile files the Subagents page edits, and the instance operations
- * the CLI, the terminal page and the harness extension drive.
+ * the CLI and the harness extension drive.
  *
  * Files are the source of truth for profiles, exactly like actions. Instances are the server's
  * own records and messages; the extension relays turns through `next`/`turn`, and the CLI drives
- * create/open/close/send/wait/result. */
+ * create/open/close/send/await/result. */
 import { Effect, Schema } from "effect";
 
 import {
   SubagentCreateRequestSchema,
   SubagentFileRefSchema,
   SubagentFileWriteSchema,
+  SubagentRepositoryFileRefSchema,
+  SubagentRepositoryFileWriteSchema,
   SubagentSendRequestSchema,
   SubagentTurnRequestSchema,
 } from "@corvi/contracts/subagents";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { bodyAs, guard, json, withChange } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
-import { deleteSubagentFile, subagentFiles, writeSubagentFile } from "./server/files.ts";
+import { deleteSubagentFile, deleteRepositorySubagentFile, repositorySubagentFiles, subagentFiles, writeSubagentFile, writeRepositorySubagentFile } from "./server/files.ts";
 import { profilesFor } from "./server/run.ts";
 import {
   closeSubagent,
@@ -28,23 +30,18 @@ import {
   resultOfSubagent,
   sendToSubagent,
   showSubagent,
-  waitForTurn,
-  type WaitInput,
+  awaitReady,
+  type AwaitInput,
 } from "./server/instances.ts";
 
-/** The long-poll query: which subagent (`id`), and whether to wait for any or all of them. */
-const waitInputOf = (url: string): Effect.Effect<WaitInput, BadRequestError> =>
-  Effect.gen(function* () {
-    const params = new URL(url).searchParams;
-    const id = params.get("id") ?? undefined;
-    const sinceRaw = params.get("since");
-    const since = sinceRaw === null ? undefined : Number(sinceRaw);
-    if (since !== undefined && !Number.isFinite(since)) {
-      return yield* new BadRequestError({ message: "since must be a number" });
-    }
-    const mode = params.get("all") === "1" ? "all" : params.get("any") === "1" ? "any" : "one";
-    return { ...(id === undefined ? {} : { id }), ...(since === undefined ? {} : { since }), mode };
-  });
+/** The long-poll query: which subagents (`id`, repeated — empty means every subagent of the
+ * change), and whether to await any or all of them. Pure: there is nothing left to refuse. */
+const awaitInputOf = (url: string): AwaitInput => {
+  const params = new URL(url).searchParams;
+  const ids = params.getAll("id").filter((one) => one !== "");
+  const mode = params.get("all") === "1" ? "all" : "any";
+  return { ids, mode };
+};
 
 export const subagentsRoutes = guard({
   "/api/subagents/files": {
@@ -72,6 +69,30 @@ export const subagentsRoutes = guard({
       withChange(req.params.id, (change) => Effect.map(profilesFor(change), json)),
   },
 
+  // The Repositories view's files: one block per checkout, written and deleted like any other
+  // scope — the route names the change, the body (or query) names the repository.
+  "/api/changes/:id/subagent-files": {
+    GET: (req) =>
+      withChange(req.params.id, (change) => Effect.map(repositorySubagentFiles(change), json)),
+    PUT: (req) =>
+      withChange(req.params.id, (change) =>
+        Effect.gen(function* () {
+          const body = yield* bodyAs(req, SubagentRepositoryFileWriteSchema);
+          return json(yield* writeRepositorySubagentFile(change, body));
+        }),
+      ),
+    DELETE: (req) =>
+      withChange(req.params.id, (change) =>
+        Effect.gen(function* () {
+          const params = Object.fromEntries(new URL(req.url).searchParams);
+          const ref = yield* Schema.decodeUnknown(SubagentRepositoryFileRefSchema)(params).pipe(
+            Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
+          );
+          return json(yield* deleteRepositorySubagentFile(change, ref));
+        }),
+      ),
+  },
+
   "/api/changes/:id/subagents": {
     GET: (req) =>
       withChange(req.params.id, (change) =>
@@ -87,16 +108,11 @@ export const subagentsRoutes = guard({
       ),
   },
 
-  // The wait lives before the `:subagent` routes by score (two literal segments more), so a
-  // literal `wait` is never read as a subagent id.
-  "/api/changes/:id/subagents/wait": {
+  // The await lives before the `:subagent` routes by score (two literal segments more), so a
+  // literal `await` is never read as a subagent id.
+  "/api/changes/:id/subagents/await": {
     GET: (req) =>
-      withChange(req.params.id, (change) =>
-        Effect.gen(function* () {
-          const input = yield* waitInputOf(req.url);
-          return json(yield* waitForTurn(change, input));
-        }),
-      ),
+      withChange(req.params.id, (change) => Effect.map(awaitReady(change, awaitInputOf(req.url)), json)),
   },
 
   "/api/changes/:id/subagents/:subagent": {

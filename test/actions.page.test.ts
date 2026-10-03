@@ -1,8 +1,8 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -325,6 +325,125 @@ test.skipIf(!usable)("Save writes the file at once and returns to the list", asy
       files: { id: string; scope: string; text: string }[];
     };
     expect(listing.files.find((f) => f.id === "look-over" && f.scope === "global")?.text).toBe(typed);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+test.skipIf(!usable)("New offers the built-ins as templates, and a copy lands in the scope", async () => {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".actions-page");
+    // The shipped actions are templates in the create flow, not rows of their own.
+    expect(await page.locator(".widget h3", { hasText: "Built-in" }).count()).toBe(0);
+
+    // Blank: the id typed, the smallest file that parses.
+    await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+    await page.waitForSelector("dialog.template-picker");
+    await page.getByLabel("new action id").fill("blank-action");
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.waitForSelector(".actions-page.editing");
+    await page.getByRole("button", { name: "Cancel" }).click();
+
+    // The built-in as a template: its label and one-line description in the row, its text in
+    // the preview, and the id defaulting to the template's own.
+    await page.locator(".widget", { hasText: "Global" }).getByRole("button", { name: "New" }).click();
+    await page.waitForSelector("dialog.template-picker");
+    const choice = page.locator(".template-choice", { hasText: "Review the diff" });
+    expect((await choice.textContent()) ?? "").toContain("Review the changes on");
+    await choice.click();
+    expect((await page.locator(".template-preview").textContent()) ?? "").toContain(
+      "Review the changes on",
+    );
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.waitForSelector(".actions-page.editing");
+
+    // The copy lands in Global with the template's id — shadowing the shipped one by
+    // precedence, which stays listed beside it.
+    const listing = (await (await fetch(`${url}/api/actions/files`)).json()) as {
+      files: { id: string; scope: string }[];
+    };
+    expect(listing.files.some((file) => file.id === "review" && file.scope === "global")).toBe(true);
+    expect(listing.files.some((file) => file.id === "review" && file.scope === "builtin")).toBe(true);
+    expect(listing.files.some((file) => file.id === "blank-action" && file.scope === "global")).toBe(true);
+  } finally {
+    await page.close();
+  }
+}, 60_000);
+
+test.skipIf(!usable)("the Repositories block lists a change's checkout files, and creates, edits and deletes one", async () => {
+  // A change with one real checkout on its branch, holding a good action and a broken one: the
+  // block shows what the change's checkouts carry — problems and all, never hidden.
+  const branch = "PROJ-repo-page";
+  const repo = join(tmp, "repo");
+  await runSh(["git", "init", "-b", branch, repo]);
+  await writeFile(join(repo, "README.md"), "hi\n");
+  await runSh(["git", "add", "."], repo);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
+  await mkdir(join(repo, ".corvi", "actions"), { recursive: true });
+  await writeFile(join(repo, ".corvi", "actions", "broken.md"), "---\nkind: command\n---\nrm -rf\n");
+  await writeFile(join(repo, ".corvi", "actions", "repo-look-over.md"), source);
+  const dir = join(tmp, "changes", branch);
+  await mkdir(dir, { recursive: true });
+  await writeFile(
+    join(dir, "change.json"),
+    JSON.stringify({
+      id: branch,
+      branch,
+      title: "Repo page",
+      state: "Implementation",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      formatVersion: 2,
+      checkouts: [{ path: repo, location: "original", branch: { kind: "change" } }],
+    }),
+    "utf8",
+  );
+
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto(`${url}/actions`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector(".actions-page");
+    await page.locator('select[aria-label="change"]').selectOption({ label: "Repo page" });
+    await page.waitForSelector(`h4:text-is("${basename(repo)}")`);
+
+    // The good row and the broken one with its reasons, both in the repository's block.
+    expect(await page.locator(".widget p", { hasText: "repo-look-over.md" }).count()).toBe(1);
+    expect((await page.locator(".widget p", { hasText: "broken.md" }).textContent()) ?? "").toContain(
+      "label",
+    );
+
+    // Editing the checkout's file is the same editor's frame; Save writes the checkout file.
+    await page
+      .locator(".widget p", { hasText: "repo-look-over.md" })
+      .getByRole("button", { name: "Edit" })
+      .click();
+    await page.waitForSelector(".actions-page.editing");
+    await fillEditor(page.locator(".md-editor"), typed);
+    await page.getByRole("button", { name: "Save" }).click();
+    await page.waitForSelector(".actions-page:not(.editing)");
+    expect(await readFile(join(repo, ".corvi", "actions", "repo-look-over.md"), "utf8")).toBe(typed);
+
+    // Delete asks, and takes the checkout's file away with it.
+    page.on("dialog", (dialog) => void dialog.accept());
+    await page
+      .locator(".widget p", { hasText: "repo-look-over.md" })
+      .getByRole("button", { name: "Delete" })
+      .click();
+    await page.waitForSelector(".widget p:has-text('repo-look-over.md')", { state: "detached" });
+    expect(await Bun.file(join(repo, ".corvi", "actions", "repo-look-over.md")).exists()).toBe(false);
+
+    // The block creates from the template picker too: the copy lands in the checkout.
+    await page
+      .locator(".widget h4", { hasText: basename(repo) })
+      .getByRole("button", { name: "New" })
+      .click();
+    await page.waitForSelector("dialog.template-picker");
+    await page.locator(".template-choice", { hasText: "New pi session" }).click();
+    await page.getByLabel("new action id").fill("repo-copy");
+    await page.getByRole("button", { name: "Create" }).click();
+    await page.waitForSelector(".actions-page.editing");
+    expect(await Bun.file(join(repo, ".corvi", "actions", "repo-copy.md")).exists()).toBe(true);
   } finally {
     await page.close();
   }

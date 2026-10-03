@@ -17,15 +17,16 @@ Profiles are files, with the same scopes and editing as actions (see
 [configuration](configuration.md#subagent-profiles)), and the built-in `reviewer` is a starting
 point. `corvi subagent profile list` shows what this change can run — the keys `create` accepts,
 `global:reviewer` and the rest, with the files that did not parse and why — and
-`corvi subagent profile write <id> --scope global|workspace` adds one (the scope is explicit; a
-repository profile is the file `<checkout>/.corvi/subagents/<id>.md`, written directly).
+`corvi subagent profile write <id> --scope global|workspace|repository` adds one (the scope is
+explicit; a repository profile is the file `<checkout>/.corvi/subagents/<id>.md`, named with
+`--repository <name>`).
 
 ## Creating and talking to a subagent
 
 ```sh
 corvi subagent create global:reviewer --prompt "Review the plan and the diff"
 corvi subagent list
-corvi subagent wait              # block until a turn (or a lost window)
+corvi subagent await <id>        # block until it can be processed (or its window is lost)
 corvi subagent result <id>       # the latest reply
 corvi subagent send <id> "Now look at the tests"
 corvi subagent open <id>         # recreate the window; never starts work
@@ -39,7 +40,15 @@ triggers a turn.
 
 The subagent behaves as if it were talking to an ordinary user. There is no `ask`/`done` protocol:
 a turn is just the subagent's reply, and deciding whether it is a question or a result is the
-orchestrator's job. `wait` wakes on every delivered turn; `result` is simply the latest reply.
+orchestrator's job. `await` answers when there is something to process — a subagent that is idle
+or waiting for input with nothing of yours still to deliver, or a reply already waiting — and
+immediately when one of the named subagents is already there. It takes several ids (any of them
+by default, `--all` for every one), and after five quiet minutes it answers `timeout` (exit 6),
+so the orchestrator can check in on its subagents and run `await` again. With no subagents at
+all it answers `timeout` at once. `result` is simply the
+latest reply. A reply that is already parked answers `await` even when a newer message of yours
+is still queued: the parked reply is yours to process, and the queued one is delivered when the
+subagent is free again.
 
 ## Files
 
@@ -62,7 +71,8 @@ A subagent lives until you close it, the machine reboots, or the change is compl
 After a reboot, the session is gone but everything else is on disk: the subagent reads as **detached**,
 and one with a turn in flight reads as **interrupted**. `open` recreates the window and resumes the
 harness session, and does no work; **Continue** (or `corvi subagent send`) restarts the interrupted
-turn explicitly. Nothing is restarted behind your back.
+turn explicitly.
+Nothing is restarted behind your back.
 
 ## The relay
 
