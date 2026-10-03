@@ -708,6 +708,107 @@ test.skipIf(!usable)("the window strip wraps to two rows and the chrome stays on
   await page.close();
 }, 60_000);
 
+test.skipIf(!usable)("a narrow window hides the navigation behind a drawer", async () => {
+  const page = await browser.newPage({ viewport: { width: 600, height: 800 } });
+  await page.goto(`${url}/changes/${id}/dashboard`, { waitUntil: "domcontentloaded" });
+  await page.waitForSelector(".widget");
+
+  // The column is out of the flow: the content owns the window, rather than sitting under it.
+  const [content, sidebar, viewport] = await Promise.all([
+    page.locator(".content").boundingBox(),
+    // Its own rect, not Playwright's boundingBox: a hidden element has no visible box, and the
+    // closed drawer is deliberately hidden.
+    page.locator(".sidebar").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { x: r.x, y: r.y, width: r.width, height: r.height };
+    }),
+    page.evaluate(() => document.documentElement.clientWidth),
+  ]);
+  if (!content || !sidebar) throw new Error("the narrow layout did not lay out");
+  expect(Math.abs(content.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs(content.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(content.width - viewport)).toBeLessThanOrEqual(1);
+  // Off-screen, and out of the tab order and the accessibility tree with it.
+  expect(sidebar.x + sidebar.width).toBeLessThanOrEqual(1);
+  expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
+    "hidden",
+  );
+
+  // The toggle opens the drawer, and the backdrop comes with it. The toggle stays clickable above
+  // both, and says which state it is in.
+  const toggle = page.locator(".drawer-toggle");
+  expect(await toggle.isVisible()).toBe(true);
+  expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor();
+  expect(await toggle.getAttribute("aria-expanded")).toBe("true");
+  const drawer = await page.locator(".sidebar").boundingBox();
+  if (!drawer) throw new Error("the drawer did not lay out");
+  expect(Math.abs(drawer.x)).toBeLessThanOrEqual(1);
+  expect(await page.locator(".sidebar").evaluate((el) => getComputedStyle(el).visibility)).toBe(
+    "visible",
+  );
+  // An open drawer owns the scroll.
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).toBe("hidden");
+
+  // The toggle closes it too: a second click puts it away.
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+  expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+
+  // Open it again for the Escape check.
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor();
+
+  // Escape closes it: the backdrop goes, the toggle says so, and the scroll comes back.
+  await page.keyboard.press("Escape");
+  await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+  expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+  expect(await page.evaluate(() => getComputedStyle(document.body).overflow)).not.toBe("hidden");
+
+  // A backdrop click closes it too.
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor();
+  await page.locator(".drawer-backdrop").click({ position: { x: 550, y: 700 } });
+  await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+
+  // Clicking a change in the drawer goes there and closes the drawer behind it.
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor();
+  await page.locator(".sidebar .entry.change", { hasText: other }).click();
+  await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+  expect(new URL(page.url()).pathname).toContain(other);
+
+  // A resize above the breakpoint closes an open drawer, puts the column back in the flow, and
+  // takes the toggle away.
+  await toggle.click();
+  await page.locator(".drawer-backdrop").waitFor();
+  await page.setViewportSize({ width: 1000, height: 800 });
+  await page.locator(".drawer-backdrop").waitFor({ state: "detached" });
+  await page.locator(".drawer-toggle").waitFor({ state: "hidden" });
+  expect(await toggle.isVisible()).toBe(false);
+  const [wideSidebar, wideContent] = await Promise.all([
+    page.locator(".sidebar").boundingBox(),
+    page.locator(".content").boundingBox(),
+  ]);
+  if (!wideSidebar || !wideContent) throw new Error("the wide layout did not lay out");
+  expect(wideContent.x).toBeGreaterThanOrEqual(wideSidebar.x + wideSidebar.width - 1);
+
+  // On the terminal page the toggle sits clear of the window's first tab.
+  await page.setViewportSize({ width: 600, height: 800 });
+  await page.goto(`${url}/changes/${id}/terminals`, { waitUntil: "domcontentloaded" });
+  const firstTab = page.locator(".change-bar .window-tab").first();
+  await firstTab.waitFor();
+  const [toggleBox, tabBox] = await Promise.all([
+    page.locator(".drawer-toggle").boundingBox(),
+    firstTab.boundingBox(),
+  ]);
+  if (!toggleBox || !tabBox) throw new Error("the terminal chrome did not lay out");
+  expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(tabBox.x + 1);
+
+  await page.close();
+}, 60_000);
+
 test.skipIf(!usable)("in the app window the row is also the window's chrome", async () => {
   // The host bridge is what says the page is inside the app window (apps/web/src/domain/host.ts), and only
   // then is the first row chrome as well: what you drag the window by, and clear of the traffic

@@ -88,6 +88,28 @@ export function GearIcon({ title }: { title: string }): JSX.Element {
   );
 }
 
+/** The navigation toggle a narrow window shows: a menu. Three strokes, the same weight as the
+ * other glyphs. */
+export function MenuIcon({ title }: { title: string }): JSX.Element {
+  return (
+    <svg
+      {...size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <path d="M2.5 4.5h11" />
+      <path d="M2.5 8h11" />
+      <path d="M2.5 11.5h11" />
+    </svg>
+  );
+}
+
 /** Updates: an arrow turning back on itself — the app fetching its own new version. */
 export function UpdateIcon({ title }: { title: string }): JSX.Element {
   return (

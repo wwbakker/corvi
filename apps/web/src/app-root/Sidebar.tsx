@@ -65,6 +65,7 @@ function Icons({ summary }: { summary?: ChangeSummary }): JSX.Element {
  * terminals inside it — so moving anywhere is one click from anywhere.
  */
 export function Sidebar({
+  open,
   changes,
   workspaces,
   chosen,
@@ -131,6 +132,9 @@ export function Sidebar({
   onUpdate: () => void;
   onOpenChange: (id: string) => void;
   onSelectWindow: (id: string, index: number) => void;
+  /** Whether the narrow window's drawer is open: on a wide window the column is always there and
+   * this changes nothing. */
+  open: boolean;
 }): JSX.Element {
   // What you can get on with first, then what is with somebody else, then what is stuck — and
   // the newest of each at the top. The overview list is sorted the same way.
@@ -243,7 +247,7 @@ export function Sidebar({
   };
 
   return (
-    <nav className="sidebar" style={{ width }}>
+    <nav className={open ? "sidebar open" : "sidebar"} style={{ width }}>
       {/* The window's own top row: on macOS the traffic lights sit here, and in the app window it
           is what you drag the window by (apps/web/src/domain/chrome.ts). The switcher moves up into it so
           the column's first row lines up with the page's strip beside it. A browser has no lights

@@ -445,31 +445,94 @@ body.resizing {
   background: var(--ok);
 }
 
-/* Too narrow for two columns: the navigation goes on top and wraps. */
+/* The navigation toggle and its backdrop exist only on a narrow window: there the column becomes
+   an overlay drawer. A wide window has neither. */
+.drawer-toggle,
+.drawer-backdrop {
+  display: none;
+}
+
+/* An open drawer owns the scroll: the content behind it must not move under the pointer. */
+body.drawer-open {
+  overflow: hidden;
+}
+
+/* Too narrow for two columns: the navigation becomes an overlay drawer over the content instead
+   of a row above it. The content keeps the whole window; the toggle opens the drawer, and a
+   navigation, Escape, a resize, or the backdrop closes it. The same rule applies in the app window
+   and a browser. */
 @media (max-width: 720px) {
   .app {
-    flex-direction: column;
+    /* Still a row: the column leaves the flow rather than stacking above the page. */
+    flex-direction: row;
+    /* Where the chrome's first control starts to clear the toggle (and, on macOS, the traffic
+       lights the toggle sits beside). */
+    --chrome-left: calc(var(--traffic-inset) + var(--titlebar-height) + 6px);
   }
 
   .sidebar {
-    flex: none;
-    width: 100%;
-    height: auto;
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    /* The remembered width, clamped so a wide column cannot take the whole window. */
+    max-width: 85vw;
+    height: 100dvh;
+    /* Off-screen, and out of the tab order and the accessibility tree with it: a drawer you
+       cannot see must not be a drawer a keyboard or a screen reader walks through. */
+    transform: translateX(-100%);
+    visibility: hidden;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+
+  .sidebar.open {
+    transform: none;
+    visibility: visible;
+  }
+
+  /* The border is the drawer's one edge line; the wide column's pseudo would double it below the
+     title bar. */
+  .sidebar::after {
+    display: none;
+  }
+
+  /* A temporary surface, not a column to drag. */
+  .sidebar .resize {
+    display: none;
+  }
+
+  .drawer-toggle {
+    display: flex;
     align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: var(--traffic-inset);
+    z-index: 40;
+    width: var(--titlebar-height);
+    height: var(--titlebar-height);
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
   }
 
-  .sidebar .brand,
-  .sidebar .heading {
-    padding-bottom: 6px;
+  .drawer-toggle:hover,
+  .drawer-toggle.open {
+    color: var(--text);
+    background: var(--hover);
   }
 
-  .sidebar .list {
-    display: contents;
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -3005,4 +3068,17 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* On a narrow window the chrome's first control must clear the fixed toggle (and, on macOS, the
+   traffic lights the toggle sits beside). The change's own row gets the same inset, so its first
+   tab stays under the window's row above. */
+@media (max-width: 720px) {
+  .content:not(.flush) .page > header,
+  .content:not(.flush) .wizard > header,
+  .change-chrome > header.change-bar,
+  .page.terminal-page .change-bar,
+  .change-tabs {
+    padding-left: var(--chrome-left);
+  }
 }
