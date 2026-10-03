@@ -20,35 +20,25 @@ export const RepositoryViewSchema = Schema.Struct({
 })
 export type RepositoryViewDto = typeof RepositoryViewSchema.Type
 
-export const ProvisionFailureSchema = Schema.Struct({
-  repositoryId: RepositoryId,
-  code: Schema.Literal("not-a-repository", "checkout-failed"),
-  message: Schema.String,
-})
-
 /** What one provisioning target reported, shown after a create or a start: the integration,
  * whether it worked, and the first error when it did not. */
 export const ProvisionResultSchema = Schema.Struct({
   integration: Schema.String,
   ok: Schema.Boolean,
   error: Schema.optional(Schema.String),
+  detail: Schema.optional(Schema.String),
 })
 export type ProvisionResultDto = typeof ProvisionResultSchema.Type
 
-export const StartOutcomeSchema = Schema.Union(
-  Schema.Struct({
-    _tag: Schema.Literal("Started"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-  }),
-  Schema.Struct({
-    _tag: Schema.Literal("PartiallyStarted"),
-    change: Change,
-    repositoryIds: Schema.Array(RepositoryId),
-    failures: Schema.Array(ProvisionFailureSchema),
-  }),
-)
-export type StartOutcomeDto = typeof StartOutcomeSchema.Type
+/** What one repository's freshness step reported after a create or a start: the checkout is
+ * advanced only by fast-forward, and everything else says why it stands where it does. */
+export const RefreshOutcomeSchema = Schema.Struct({
+  repositoryId: RepositoryId,
+  directoryName: DirectoryName,
+  state: Schema.Literal("advanced", "current", "left-alone", "fetch-failed", "none"),
+  detail: Schema.optional(Schema.String),
+})
+export type RefreshOutcomeDto = typeof RefreshOutcomeSchema.Type
 
 // --- The change record and the change page's reads -------------------------------------------
 
@@ -334,6 +324,10 @@ export const TerminalWindowSchema = Schema.Struct({
   note: Schema.optional(Schema.String),
   active: Schema.Boolean,
   activity: Schema.Boolean,
+  /** The window's pane session ids, in order; each is a host session the page can attach to. */
+  panes: Schema.Array(Schema.String),
+  /** The focused pane's session id. */
+  activePane: Schema.String,
 })
 export type TerminalWindowDto = typeof TerminalWindowSchema.Type
 
@@ -345,6 +339,21 @@ export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type
 
 export const UrlSchema = Schema.Struct({ url: Schema.String })
 export type UrlDto = typeof UrlSchema.Type
+
+/** An agent status for one host session, set by the CLI/HTTP reporter transport. The session and
+ * its incarnation come from the pty environment (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`). */
+export const TerminalStatusSchema = Schema.Struct({
+  sessionId: Schema.String,
+  incarnation: Schema.Number,
+  status: Schema.Literal("working", "waiting", "clear"),
+  name: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  sessionName: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
+  message: Schema.optional(Schema.String.pipe(Schema.maxLength(400))),
+})
+export type TerminalStatusDto = typeof TerminalStatusSchema.Type
+
+export const TerminalStatusResponseSchema = Schema.Struct({ ok: Schema.Boolean })
+export type TerminalStatusResponseDto = typeof TerminalStatusResponseSchema.Type
 
 export const WizardStepInfoSchema = Schema.Struct({
   id: Schema.String,
@@ -429,21 +438,29 @@ export type ReposBodyDto = typeof ReposBodySchema.Type
 export const ForceBodySchema = Schema.Struct({ force: Schema.optional(Schema.Boolean) })
 export type ForceBodyDto = typeof ForceBodySchema.Type
 
-/** The window actions the terminal bar offers. */
+/** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane` name the window
+ * and, where it matters, the pane session; `select`/`move` keep their index. */
 export const WindowActionBodySchema = Schema.Struct({
-  action: Schema.Literal("new", "select", "move"),
+  action: Schema.Literal("new", "select", "move", "split", "close-pane", "focus-pane"),
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
+  direction: Schema.optional(Schema.Literal("right", "down")),
+  window: Schema.optional(Schema.String),
+  pane: Schema.optional(Schema.String),
 })
 export type WindowActionBodyDto = typeof WindowActionBodySchema.Type
 
-/** A started change, with what each integration reported while provisioning it. */
-export const StartedResponseSchema = Schema.Struct({
+/** A change with what its checkout run reported: the create, start and repository-edit
+ * responses all answer in this one shape. */
+export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
+  refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
 })
-export type StartedResponseDto = typeof StartedResponseSchema.Type
+export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
+
+/** A completed change's answer: the record and the notes its steps left. */
 
 export const CompletedResponseSchema = Schema.Struct({
   change: ChangeWireSchema,

@@ -2,13 +2,13 @@
 
 A **subagent** is a visible, persistent agent session that belongs to a change — a conversation,
 not a job. An orchestrating agent (or you) delegates work to it, reads its replies, and continues
-the conversation. It is a normal tmux window running pi or opencode, so you can watch it and type
+the conversation. It is a normal terminal window running pi or opencode, so you can watch it and type
 into it; the difference is that Corvi knows it as a named participant in the change.
 
-Everything a subagent can do is in the command line and the terminal: `corvi subagent …`, with the
-subagent's own harness window to watch and type into. Bare `corvi subagent` prints its own usage
-with the delegation recipe, and an agent running in a Corvi terminal is pointed at it automatically
-by the pi and opencode extensions — invisible outside Corvi.
+Everything a subagent can do is in the command line and the page: `corvi subagent …` and the
+change's Subagents section. Bare `corvi subagent` prints its own usage with the delegation recipe,
+and an agent running in a Corvi terminal is pointed at it automatically by the pi and opencode
+extensions — invisible outside Corvi.
 
 ## Profiles
 
@@ -68,9 +68,10 @@ record and travels into the archive with it. The server is the only writer.
 ## Later, unchanged (interruption, reboot)
 
 A subagent lives until you close it, the machine reboots, or the change is completed or cancelled.
-After a reboot, tmux is gone but everything else is on disk: the subagent reads as **detached**,
+After a reboot, the session is gone but everything else is on disk: the subagent reads as **detached**,
 and one with a turn in flight reads as **interrupted**. `open` recreates the window and resumes the
-harness session, and does no work; `corvi subagent send` restarts the interrupted turn explicitly.
+harness session, and does no work; **Continue** (or `corvi subagent send`) restarts the interrupted
+turn explicitly.
 Nothing is restarted behind your back.
 
 ## The relay

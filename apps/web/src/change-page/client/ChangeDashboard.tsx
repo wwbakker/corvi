@@ -1,5 +1,5 @@
 import { type JSX } from "react";
-import { type CardInfo, type Change } from "../../app-root/api.ts";
+import { type CardInfo, type Change, type ProvisionResult } from "../../app-root/api.ts";
 import { CompletionCard } from "../../dashboard/client/CompletionCard.tsx";
 import { PerRepoCard } from "../../dashboard/client/PerRepoCard.tsx";
 import { WidgetCard } from "../../dashboard/client/WidgetCard.tsx";
@@ -36,7 +36,7 @@ export function ChangeDashboard({
   generation: number;
   completing: boolean;
   /** A card's editor saved: the change it wrote is the response, and the world is stale. */
-  onSaved: (updated: Change) => void;
+  onSaved: (updated: Change, provision?: readonly ProvisionResult[]) => void;
   /** The completion card finished the change: the record it wrote is the change now. */
   onFinished: (updated: Change) => void;
 }): JSX.Element {

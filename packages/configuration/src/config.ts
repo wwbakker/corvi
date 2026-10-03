@@ -28,7 +28,7 @@ export type SettingsOverrides = {
   notificationSound?: boolean;
   /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
    * app window because Electron has none of its own. A page that handles its own right-click (the
-   * terminal, whose menu is tmux's) is untouched either way. See docs/manual/interface.md. */
+   * terminal, whose menu is the page's own) is untouched either way. See docs/manual/interface.md. */
   contextMenu?: boolean;
   /** The text behind the built-in `brief` action, with the change's facts filled in. An empty
    * value means that action's shipped body (packages/actions/builtins/brief.md). */
@@ -111,7 +111,7 @@ export type Config = {
   notificationSound: boolean;
   /** Whether right-clicking shows the browser's own menu — Chromium's, which the host draws in the
    * app window because Electron has none of its own. A page that handles its own right-click (the
-   * terminal, whose menu is tmux's) is untouched either way. See docs/manual/interface.md. */
+   * terminal, whose menu is the page's own) is untouched either way. See docs/manual/interface.md. */
   contextMenu: boolean;
   /** The prompt pasted into a change's terminal to brief an agent about an idea, with the
    * change's facts filled in (`@corvi/actions/render`). Editable in the settings; an empty

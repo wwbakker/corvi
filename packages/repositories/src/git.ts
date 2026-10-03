@@ -14,11 +14,6 @@ export class Repository extends Schema.Class<Repository>("Git.Repository")({
   commonDirectory: AbsolutePath,
 }) {}
 
-export class Worktree extends Schema.Class<Worktree>("Git.Worktree")({
-  directory: AbsolutePath,
-  kind: Schema.Literal("main", "linked"),
-}) {}
-
 /** The branch's tracking state. `Unavailable` is a configured upstream whose comparison could
  * not be read; it must not be treated as zero ahead/behind. */
 export type UpstreamState =
@@ -32,15 +27,22 @@ export class OperationError extends Data.TaggedError("Git.OperationError")<{
     | "checkout"
     | "create"
     | "remove"
-    | "list"
     | "status"
     | "upstream"
     | "integration"
+    | "merge"
     | "pull"
   readonly message: string
   readonly directory?: string
   readonly cause?: unknown
 }> {}
+
+/** A selected branch's attachment and freshness names, resolved from local Git metadata. */
+export type ExistingBranch = {
+  readonly branch: string
+  readonly remoteRef?: string
+  readonly remote?: string
+}
 
 /** One commit an upstream has that the checkout does not, as a list reads it. */
 export type IncomingCommit = {
@@ -64,6 +66,20 @@ export interface Interface {
     readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly head: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
     readonly branchExists: (repository: Repository, branch: string) => Effect.Effect<boolean, OperationError>
+    /** Resolve a local or remote branch selection without creating or switching anything. */
+    readonly resolveExistingBranch: (
+      repository: Repository,
+      name: string,
+    ) => Effect.Effect<ExistingBranch, OperationError>
+    /** Whether a ref resolves to a commit — a remote counterpart like `origin/feature`, for
+     * instance. An unresolvable ref is false, not a failure. */
+    readonly refExists: (repository: Repository, ref: string) => Effect.Effect<boolean, OperationError>
+    /** Whether `ancestor` is an ancestor of `descendant` (`git merge-base --is-ancestor`). An
+     * unresolvable ref is false: an unknown revision proves nothing. */
+    readonly isAncestor: (
+      repository: Repository,
+      input: { readonly ancestor: string; readonly descendant: string },
+    ) => Effect.Effect<boolean, OperationError>
     readonly upstream: (repository: Repository) => Effect.Effect<UpstreamState, OperationError>
     /** The remote's symbolic HEAD, from local metadata only; never fetches. */
     readonly defaultRemoteBranch: (
@@ -93,10 +109,6 @@ export interface Interface {
     ) => Effect.Effect<boolean, OperationError>
   }
   readonly sync: {
-    readonly checkoutRemoteBranch: (
-      repository: Repository,
-      input: { readonly remote?: string; readonly branch: string; readonly reset?: boolean },
-    ) => Effect.Effect<void, OperationError>
     /** Deletes a local branch even when its commits look unmerged; the caller has proven the
      * content landed. */
     readonly deleteBranch: (repository: Repository, branch: string) => Effect.Effect<void, OperationError>
@@ -104,32 +116,39 @@ export interface Interface {
     /** `git pull --ff-only`: moves to the upstream's tip exactly when that is a fast-forward, and
      * fails rather than merging or rebasing anything else. */
     readonly pullFastForward: (repository: Repository) => Effect.Effect<void, OperationError>
+    /** `git merge --ff-only <to>`: moves HEAD to `to` exactly when that is a fast-forward. A
+     * refusal (own commits, diverged history, uncommitted work a merge would clobber, a `to`
+     * that is not something to merge) is the error's message — git's own answer is what the
+     * caller reports. */
+    readonly mergeFastForwardOnly: (
+      repository: Repository,
+      input: { readonly to: string },
+    ) => Effect.Effect<void, OperationError>
     /** `git switch <branch>`, or `git switch --create <branch> --no-track <base>` when creating;
-     * a creation without a base branches from HEAD. */
+     * a creation without a base branches from HEAD. `track` explicitly creates a local branch
+     * tracking that remote ref instead of using `base`. */
     readonly switchToBranch: (
       repository: Repository,
-      input: { readonly branch: string; readonly create?: boolean; readonly base?: string },
+      input: { readonly branch: string; readonly create?: boolean; readonly base?: string; readonly track?: string },
     ) => Effect.Effect<void, OperationError>
   }
   readonly worktree: {
-    readonly create: (input: {
-      readonly repository: Repository
-      readonly directory: AbsolutePath
-    }) => Effect.Effect<Repository, OperationError>
     readonly remove: (input: {
       readonly repository: Repository
       readonly directory: AbsolutePath
       readonly force: boolean
     }) => Effect.Effect<void, OperationError>
-    readonly list: (repository: Repository) => Effect.Effect<readonly Worktree[], OperationError>
-    /** Adds a linked worktree: for an existing branch, or creating the branch from `base`
-     * (branches from HEAD when no base is given, and never setting up an upstream). */
+    /** Adds a linked worktree: for an existing local branch, creating one from `base`
+     * (branches from HEAD when no base is given, without an upstream), or explicitly creating a
+     * tracking branch from `track`. Never pass a remote ref as the attachment branch. */
     readonly add: (input: {
       readonly repository: Repository
       readonly directory: AbsolutePath
       readonly branch: string
       readonly base?: string
       readonly create: boolean
+      /** Create a local tracking branch from this remote ref, not from `base`. */
+      readonly track?: string
     }) => Effect.Effect<Repository, OperationError>
   }
 }

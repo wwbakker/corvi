@@ -8,6 +8,7 @@ import type {
   CompletionStep,
   ProvisionResult,
 } from "../domain/change.ts";
+import type { RefreshOutcomeDto } from "@corvi/contracts/api";
 import type { Widget, WidgetItem } from "../domain/widget.ts";
 import type { Entry } from "../workspace/model.ts";
 
@@ -57,7 +58,12 @@ export type Selection = {
 
 export type Branches = { branches: string[]; default?: string };
 
-export type Created = { change: Change; provision: ProvisionResult[] };
+export type Created = {
+  change: Change;
+  provision: ProvisionResult[];
+  /** What each repository's freshness step did; the rows and the journal carry the words. */
+  refresh: RefreshOutcomeDto[];
+};
 
 /** A completed change and the notes from its own completion steps. */
 export type Completed = { change: Change; notes: string[] };

@@ -7,7 +7,7 @@
  * process with the wrapper's isolated roots, exactly as the app's server does.
  */
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
 import { instanceRecordPath } from "@corvi/configuration/node";
@@ -18,7 +18,15 @@ import { run, COMMANDS, GROUP_HELP, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
 import { EXIT } from "../apps/cli/src/errors.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
-import { instanceRecords, pidFilePorts, resolveServer, serverCandidates } from "../apps/cli/src/discovery.ts";
+import {
+  PROBE_TIMEOUT_LIVE_MS,
+  instanceRecords,
+  pidFilePorts,
+  resolveServer,
+  serverCandidates,
+  type Candidate,
+} from "../apps/cli/src/discovery.ts";
+import { pruneInstanceRecords } from "../apps/server/src/app-root/instance.ts";
 import { runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 
 const CHANGE_ID = "CLI-1";
@@ -76,13 +84,25 @@ test("discovery reads instance records and pid-file ports, and orders its candid
       JSON.stringify({ url: "http://127.0.0.1:4100/", port: 4100, pid: 1, startedAt: "t" }),
       "utf8",
     );
+    // A record whose server is gone: the pid is not a running process.
+    await writeFile(
+      join(dir, "corvi-app-4099.json"),
+      JSON.stringify({ url: "http://127.0.0.1:4099/", port: 4099, pid: 999_999_999, startedAt: "t" }),
+      "utf8",
+    );
     await writeFile(join(dir, "corvi-app-4101.json"), "not json", "utf8");
-    await writeFile(join(dir, "corvi-app-4102.pid"), "123", "utf8");
+    await writeFile(join(dir, "corvi-app-4102.pid"), String(process.pid), "utf8");
+    // A pid-file whose process is gone is skipped rather than probed.
+    await writeFile(join(dir, "corvi-app-4103.pid"), "999999999", "utf8");
     await writeFile(join(dir, "unrelated.json"), "{}", "utf8");
 
     const records = await instanceRecords(dir);
-    expect(records.map((record) => record.port)).toEqual([4100]);
-    expect(await pidFilePorts(dir)).toEqual([4102]);
+    // The live record first, then the dead one; the record that does not parse is dropped.
+    expect(records.map((record) => [record.port, record.live])).toEqual([
+      [4100, true],
+      [4099, false],
+    ]);
+    expect(await pidFilePorts(dir)).toEqual([4102]); // 4103's process is gone
 
     const candidates = await serverCandidates({
       url: "http://127.0.0.1:9000/",
@@ -90,13 +110,41 @@ test("discovery reads instance records and pid-file ports, and orders its candid
       dir,
       devPort: 4000,
     });
-    // The explicit URL and CORVI_URL are the same address, so it appears once, first.
+    // The explicit URL and CORVI_URL are the same address, so it appears once, first. The dead
+    // record is skipped rather than probed, and the live one carries the longer deadline.
     expect(candidates.map((candidate) => candidate.url)).toEqual([
       "http://127.0.0.1:9000",
       "http://127.0.0.1:4100",
       "http://127.0.0.1:4102",
       "http://127.0.0.1:4000",
     ]);
+    expect(candidates.find((candidate) => candidate.url === "http://127.0.0.1:4100")?.timeoutMs).toBe(
+      PROBE_TIMEOUT_LIVE_MS,
+    );
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("a starting server prunes the discovery records whose pid is dead", async () => {
+  const dir = await testTempDir("cli-prune");
+  try {
+    await writeFile(
+      join(dir, "corvi-app-4200.json"),
+      JSON.stringify({ url: "http://127.0.0.1:4200", port: 4200, pid: process.pid, startedAt: "t" }),
+      "utf8",
+    );
+    await writeFile(
+      join(dir, "corvi-app-4201.json"),
+      JSON.stringify({ url: "http://127.0.0.1:4201", port: 4201, pid: 999_999_999, startedAt: "t" }),
+      "utf8",
+    );
+    await writeFile(join(dir, "corvi-app-4202.json"), "not json", "utf8");
+    await pruneInstanceRecords(dir);
+    const remaining = await readdir(dir);
+    expect(remaining).toContain("corvi-app-4200.json"); // our own pid: live
+    expect(remaining).not.toContain("corvi-app-4201.json"); // dead: swept
+    expect(remaining).toContain("corvi-app-4202.json"); // unparseable: left for a human
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -107,8 +155,8 @@ test("the server is chosen by what it knows, and ambiguity is an error, not a gu
     { url: "http://a", source: "a", priority: 2 },
     { url: "http://b", source: "b", priority: 2 },
   ];
-  const probeWith = (answers: Record<string, readonly string[]>) => async (url: string) => {
-    const answer = answers[url];
+  const probeWith = (answers: Record<string, readonly string[]>) => async (candidate: Candidate) => {
+    const answer = answers[candidate.url];
     if (answer === undefined) throw new Error("no answer");
     return answer;
   };
@@ -203,7 +251,7 @@ beforeAll(async () => {
     cwd: resolve("."),
     // The short poll makes an await's horizon (`CORVI_SUBAGENT_POLL_MS`) reachable in a test;
     // nothing here parks long enough to notice.
-    env: serverEnv(tmp, { CORVI_TMUX_SOCKET: join(tmp, "tmux.sock"), CORVI_SUBAGENT_POLL_MS: "300" }),
+    env: serverEnv(tmp, { CORVI_SUBAGENT_POLL_MS: "300" }),
     stdout: "pipe",
     stderr: "pipe",
   });

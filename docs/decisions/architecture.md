@@ -16,7 +16,7 @@ declared graph.
 | Keep recoverable errors domain-specific | A small global HTTP-shaped error set erases useful information. Translate errors where the transport or UI needs them. |
 | Separate terminal sessions, agent sessions, and actions | Attaching a running terminal, recreating a process, and resuming a conversation are different operations. Typed actions may be invoked from buttons or status-transition workflows. |
 | Preserve behavior while replacing internals | Existing user workflows and safety matter more than internal API compatibility. Explicitly remove obsolete plugin behavior and its tests; name other behavior changes before implementation. |
-| Retain the current technology baseline | Keep Effect 3, React, Node/Electron, Git, tmux/node-pty/xterm.js, and file-backed storage during the structural refactor. Major upgrades and storage changes are separate decisions. |
+| Retain the current technology baseline | Keep Effect 3, React, Node/Electron, Git, node-pty/xterm.js, and file-backed storage during the structural refactor. Major upgrades and storage changes are separate decisions. The terminal substrate is Corvi's own host process, not tmux; see [the terminal host](terminal-host.md). |
 
 ## What is not being built
 

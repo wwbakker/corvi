@@ -6,10 +6,10 @@ import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 
 /**
- * Every change's tmux windows, and the two things you do to them.
+ * Every change's terminal windows, and the two things you do to them.
  *
  * One request for all of them, because the navigation column lists the terminals of every change
- * at once — and no poller at all: the server watches tmux and says when it changed. A poll would
+ * at once — and no poller at all: the server watches the windows and says when they change. A poll would
  * only add requests for a thing that changes when you press a key in a terminal.
  */
 export function useWindows(): {
@@ -26,7 +26,7 @@ export function useWindows(): {
       apiClient
         .terminals.list()
         .then(setWindows)
-        .catch(() => {}), // no tmux server yet: the next tick will find it
+        .catch(() => {}), // no host yet: the next tick will find it
     [],
   );
 

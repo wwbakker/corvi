@@ -3,7 +3,7 @@
 ## Owns
 
 opencode's agent-state reporter: `src/agent-state.ts`, the opencode plugin that publishes Corvi's
-agent protocol (the `@agent_*` tmux pane options of docs/manual/terminals.md) from opencode's
+agent protocol (the status facts of docs/manual/terminals.md, via `corvi status`) from opencode's
 event stream — working/waiting, the agent's name, the session's title, and the first sentence of
 the last answer. It runs inside opencode, not inside Corvi: `bun run extension:install:opencode`
 symlinks the entry file into opencode's plugin directory (`scripts/extension.ts` owns the
@@ -14,6 +14,10 @@ mechanics). The plugin is the current `{ id, server }` module form; opencode's c
   pane gate (`CORVI_CHANGE_ID`), so nothing appears outside Corvi. Its text is deliberately
   duplicated in `integrations/pi/src/cli-guide.ts` (the two extensions share no code) and pinned
   equal by `test/cliGuide.test.ts`.
+- `./node/log`: the extension log sink — Corvi's own errors (a failed command, a failed publish)
+  are appended to the app log (`CORVI_LOG`) rather than written to the pane's screen, which Corvi
+  parses and persists. Duplicated in `integrations/pi/src/node/log.ts` and pinned equal by
+  `test/integrationLog.test.ts`.
 
 ## Does not own
 
@@ -30,8 +34,8 @@ share no code: each is loaded by its agent outside Corvi's module graph.
 ## Dependencies
 
 Type-only on `@opencode-ai/plugin` (opencode provides the module at runtime). No `@corvi/*`
-packages, no Node built-ins: publishing is the `BunShell` opencode hands the plugin
-(`input.$\`tmux …\``), fire and forget.
+packages; the only Node built-in is `node:fs` (the log sink's synchronous append). Publishing is
+the `BunShell` opencode hands the plugin (`input.$\`corvi …\``), fire and forget.
 
 ## Verification
 

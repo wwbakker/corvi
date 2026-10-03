@@ -1,6 +1,7 @@
 /** The subagent instance composition: create, message flow, the delivery cursor, and the waiter
- * registry. The window launcher is a fake — the only part that touches tmux — so these run
- * without a harness, while the store and the pure model are exercised for real. */
+ * registry. The default launcher is a fake — the only part that touches the terminal substrate —
+ * so most of these run without a host or a harness; one test opens a real host session to pin
+ * discovery, presentation and close. */
 import { beforeAll, afterAll, expect, test } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -11,35 +12,56 @@ import {
   createSubagent,
   listSubagents,
   nextForSubagent,
+  openSubagent,
   recordTurn,
   resultOfSubagent,
   sendToSubagent,
   awaitReady,
+  subagentLaunch,
   type SubagentLauncher,
 } from "../apps/server/src/subagents/server/instances.ts";
-import { readInstance } from "@corvi/agents/node";
+import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
+import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
+import { setStatus } from "../apps/server/src/terminals/server/status.ts";
+import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
+import { readInstance, instanceDir } from "@corvi/agents/node";
+import type { SubagentRecord } from "@corvi/agents/instance";
+import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
 import { changeDir } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
-import { testTempDir, tmuxTempDir } from "./helpers.ts";
+import { testTempDir, waitFor } from "./helpers.ts";
 
-/** A launcher that returns a fake window id, so create/open work without tmux or a harness. The
+/** A launcher that returns a fake window id, so create/open work without a host or a harness. The
  * caller persists the id and the `opened` entry under the lock. */
 const fakeLauncher: SubagentLauncher = () => Effect.succeed("@fake");
 
+/** A launcher that opens a real host session running `sleep` in the subagent's directory, with
+ * the metadata and env the server's own subagent launcher sets. */
+const hostLauncher: SubagentLauncher = (change, record: SubagentRecord) =>
+  newSubagentWindow(change.id, {
+    changeDir: changeDir(change),
+    cwd: instanceDir(changeDir(change), record.id),
+    subagentId: record.id,
+    label: record.label,
+    command: ["sh", "-c", "sleep 30"],
+  }).pipe(Effect.mapError((failure) => new BadRequestError({ message: failure.message })));
+
+// The env this file mutates, saved so a co-located test file does not inherit it (bun runs the
+// files of a run in one process).
+const savedHostRuntime = process.env.CORVI_HOST_RUNTIME;
+const restoreEnv = (): void => {
+  if (savedHostRuntime === undefined) delete process.env.CORVI_HOST_RUNTIME;
+  else process.env.CORVI_HOST_RUNTIME = savedHostRuntime;
+};
+
 let tmp: string;
 let change: Change;
-let savedSocket: string | undefined;
 
 beforeAll(async () => {
+  // The host owns the pty outside Bun; the tests point the server's host client at Node.
+  process.env.CORVI_HOST_RUNTIME = "node";
   tmp = await testTempDir("subagents-instances");
-  // A private, non-existent tmux socket: the store's window reads answer empty instead of ever
-  // touching the user's server. In `tmuxTempDir`'s short directory on purpose: a unix socket
-  // path has ~100 characters, and `corvi-<token>-subagents-instances-XXXXXX/tmux.sock` under
-  // macOS's own long `$TMPDIR` overshoots it — "File name too long" instead of the empty reads
-  // most of these tests want (the helper's length check, test/helpers.ts).
-  savedSocket = process.env.CORVI_TMUX_SOCKET;
-  process.env.CORVI_TMUX_SOCKET = join(await tmuxTempDir(), "s.sock");
   change = {
     id: "PROJ-sub",
     branch: "PROJ-sub",
@@ -51,8 +73,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  if (savedSocket === undefined) delete process.env.CORVI_TMUX_SOCKET;
-  else process.env.CORVI_TMUX_SOCKET = savedSocket;
+  // The host is the test file's only one; shutting it down kills every subagent session it owns
+  // and leaves no process behind.
+  await closeHostClient();
+  restoreEnv();
   await rm(tmp, { recursive: true, force: true });
 });
 
@@ -303,21 +327,88 @@ test("await --all waits for every subagent to be ready", async () => {
   expect(awaited.status).toBe("ready");
 });
 
-test.skipIf(!Bun.which("tmux"))("a live window carrying @subagent_id reads as attached", async () => {
-  const socket = process.env.CORVI_TMUX_SOCKET as string;
+test("closing and reopening a subagent resumes the same pinned harness session", async () => {
   const own = await isolatedChange();
-  const id = (await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "x" }, fakeLauncher))).id;
-  const session = `corvi-${own.id}`;
-  const tmux = (args: string[]): void => {
-    const result = Bun.spawnSync(["tmux", "-S", socket, ...args]);
-    if (result.exitCode !== 0) throw new Error(result.stderr.toString());
-  };
-  tmux(["new-session", "-d", "-s", session, "-c", changeDir(own)]);
-  tmux(["set-option", "-p", "-t", session, "@subagent_id", id]);
-  try {
-    const listed = await run(listSubagents(own));
-    expect(listed.find((instance) => instance.id === id)?.presence).toBe("attached");
-  } finally {
-    tmux(["kill-session", "-t", session]);
-  }
-});
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+
+  // The launch contract: the harness pinned to the subagent id, in the subagent's own directory.
+  const record = (await run(readInstance(changeDir(own), created.id)))!;
+  const launch = subagentLaunch(changeDir(own), record);
+  expect(launch.cwd).toBe(instanceDir(changeDir(own), created.id));
+  expect(launch.command[0]).toBe("pi");
+  expect(launch.command[launch.command.indexOf("--session-id") + 1]).toBe(created.id);
+  // The other harness pins with `--session`, and the cwd is the same subagent directory.
+  const opencode = subagentLaunch(changeDir(own), { ...record, harness: "opencode" });
+  expect(opencode.cwd).toBe(launch.cwd);
+  expect(opencode.command[opencode.command.indexOf("--session") + 1]).toBe(created.id);
+
+  // Close it: the host session dies and discovery forgets it.
+  await run(closeSubagent(own, created.id));
+  await waitFor(
+    "the subagent's host session to die",
+    async () => !(await Effect.runPromise(liveSubagents(own.id))).has(created.id),
+    15_000,
+  );
+
+  // Reopen: the same id, the same launch, and a live session in the subagent's directory.
+  const reopened = await run(openSubagent(own, created.id, hostLauncher));
+  expect(reopened.id).toBe(created.id);
+  expect(reopened.presence).toBe("attached");
+  const reread = (await run(readInstance(changeDir(own), created.id)))!;
+  expect(subagentLaunch(changeDir(own), reread)).toEqual(launch);
+  const entry = (await Effect.runPromise(liveSubagents(own.id))).get(created.id);
+  const session = (await (await hostClient()).list()).find((candidate) => candidate.id === entry?.window);
+  expect(session?.cwd).toBe(instanceDir(changeDir(own), created.id));
+  expect(session?.metadata?.subagentId).toBe(created.id);
+}, 30_000);
+
+test("a subagent on a host session is discovered, presented, relays, and closes", async () => {
+  const own = await isolatedChange();
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  expect(created.presence).toBe("attached");
+
+  // Discovery is the host session's metadata, keyed by subagent id.
+  const live = await Effect.runPromise(liveSubagents(own.id));
+  const entry = live.get(created.id);
+  expect(entry).toBeDefined();
+  const session = (await (await hostClient()).list()).find((candidate) => candidate.id === entry?.window);
+  expect(session?.alive).toBe(true);
+  expect(session?.metadata?.subagentId).toBe(created.id);
+  expect(session?.metadata?.change).toBe(own.id);
+
+  // The reporter's status (the CLI/HTTP store) reaches the window presenter: agent icon, the
+  // session name as the label, the last message as the note.
+  setStatus(entry!.window, session!.incarnation, {
+    state: "waiting",
+    name: "pi",
+    sessionName: "Review session",
+    message: "Please review",
+    at: new Date().toISOString(),
+  });
+  const shown = (await listWindowsAsync(own.id)).find((window) => window.id === entry!.window);
+  expect(shown?.icon).toBe("agent");
+  expect(shown?.label).toBe("Review session");
+  expect(shown?.note).toBe("Please review");
+  expect(shown?.attention).toBe(true);
+
+  // The relay: the first message is handed over once, an inbound send wakes the next, and the
+  // settled reply is a turn.
+  expect((await run(nextForSubagent(own, created.id))).message?.body).toBe("Review it");
+  const sent = await run(sendToSubagent(own, created.id, "More detail", "orchestrator"));
+  expect(sent.number).toBe(2);
+  const next = await run(nextForSubagent(own, created.id));
+  expect(next.status).toBe("message");
+  expect(next.message?.body).toBe("More detail");
+  await run(recordTurn(own, created.id, "Done"));
+  const awaited = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
+  expect(awaited.status).toBe("ready");
+  expect(awaited.awaitingReply).toBe(true);
+
+  // Close kills the host session and drops it from discovery.
+  await run(closeSubagent(own, created.id));
+  await waitFor(
+    "the subagent's host session to die",
+    async () => !(await Effect.runPromise(liveSubagents(own.id))).has(created.id),
+    15_000,
+  );
+}, 30_000);

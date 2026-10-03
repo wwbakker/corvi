@@ -38,11 +38,11 @@ documents first. Status cards load independently, so one slow integration does n
 whole page. Returning to a view can show cached data while it refreshes.
 
 The terminal page's row offers an **Actions** menu: the actions that fit the window you are on —
-a prompt for the agent window you are looking at, a command for a plain shell — and then the tmux
-cheat sheet. Each action is a file on disk; the **Actions** and **Subagents** pages list these
-files and say where they live, with a **Repositories** block per active change: pick the change, see what
-its checkouts carry, and create, edit or delete those files like any other. New starts from a
-template — blank, or a copy of a built-in with its text previewed.
+a prompt for the agent window you are looking at, a command for a plain shell — and then the
+terminal cheat sheet. Each action is a file on disk; the **Actions** and **Subagents** pages list
+these files and say where they live, with a **Repositories** block per active change: pick the
+change, see what its checkouts carry, and create, edit or delete those files like any other. New
+starts from a template — blank, or a copy of a built-in with its text previewed.
 
 The overview and navigation show facts such as active pipelines, active terminal processes, and
 review threads waiting on you. Colored indicators summarize status; the change's lifecycle state
@@ -55,9 +55,8 @@ notifications, dialogs, and external-link handling. Its header includes a dragga
 interactive controls must remain clickable. On macOS the traffic lights occupy reserved space.
 Renaming a change belongs in that change's action row, not in the window's general title area.
 
-The context-menu setting controls the browser/desktop right-click menu outside the terminal.
-The terminal retains tmux's own mouse behavior. See [terminals](terminals.md) for keyboard and
-clipboard shortcuts.
+The context-menu setting controls the browser/desktop right-click menu, including the terminal's
+own menu. See [terminals](terminals.md) for keyboard and clipboard shortcuts.
 
 ## Checking the interface
 

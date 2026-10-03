@@ -4,7 +4,7 @@
 
 - Bun for dependency installation, builds, and development commands.
 - Node 24+ for the development server and test servers.
-- Git and tmux for repositories and terminals.
+- Git for repositories.
 - `gh` and `az` for the GitHub and Azure DevOps integrations you use.
 - Jira needs no CLI; configure its site, account, and token in Corvi.
 
@@ -32,7 +32,7 @@ bun run app:uninstall
 On macOS the installer creates `~/Applications/Corvi.app`. On Linux it installs a desktop entry,
 icons, and a `corvi` launcher. The application starts its own server on a fresh port, displays a
 startup screen until it is ready, and stops that server on quit. It does not stop a separately
-started development server. tmux sessions survive application/server shutdown.
+started development server. The terminal host sessions survive application/server shutdown.
 
 | | Development | Installed application |
 | --- | --- | --- |
@@ -134,7 +134,7 @@ with a step plan while it runs. Uncommitted changes or unpushed commits in the c
 the update with the reason in place of the button: Corvi never merges or rebases its own
 checkout. A run that stops half way says where it stopped, and **Try again** picks up what is
 left. When the steps are done, **Restart now** restarts the app to use the new version — the
-terminals (tmux) survive the restart. The pi and opencode extensions are symlinks into the
+terminals (host sessions) survive the restart. The pi and opencode extensions are symlinks into the
 checkout and follow the update; see [the manual](terminals.md) for their protocols.
 
 ## Browser use

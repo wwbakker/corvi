@@ -12,7 +12,7 @@ import {
   RepositoryId,
   type RepositoryRef,
 } from "@corvi/contracts/changes"
-import { Repositories, type RemovalAssessment } from "@corvi/repositories"
+import { Repositories, type CheckoutInspection, type RemovalAssessment } from "@corvi/repositories"
 import {
   ChangeLifecycle,
   Issues,
@@ -32,6 +32,9 @@ interface Script {
   steps: OperationStep[]
   readiness: PullRequestState[]
   removal: RemovalAssessment | (() => RemovalAssessment)
+  checkout?: CheckoutInspection
+  assessedBranches: Array<string | undefined>
+  deletedBranches: string[]
   branchCleanup?: "deleted" | "kept" | "absent"
   loose: readonly { readonly repository: RepositoryRef; readonly number: number }[]
   issueSteps?: readonly OperationStep[]
@@ -83,6 +86,8 @@ const script = (overrides: Partial<Script> = {}): Script => ({
     { repository: ref("borrowed"), number: 8, ready: true, merged: true },
   ],
   removal: { _tag: "Safe" },
+  assessedBranches: [],
+  deletedBranches: [],
   loose: [],
   looseIssues: [],
   looseFailure: false,
@@ -120,22 +125,30 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           removeRepository: () => Effect.void,
         }),
         Layer.succeed(Repositories, {
-          inspectCheckout: () => Effect.succeed({ _tag: "Missing" as const }),
-          assessRemoval: () =>
-            Effect.succeed(typeof state.removal === "function" ? state.removal() : state.removal),
-          removeBranchIfIntegrated: () => Effect.succeed(state.branchCleanup ?? "deleted"),
+          inspectCheckout: () => Effect.succeed(state.checkout ?? { _tag: "Missing" as const }),
+          assessRemoval: (input) => {
+            state.assessedBranches.push(input.branch)
+            return Effect.succeed(typeof state.removal === "function" ? state.removal() : state.removal)
+          },
+          removeBranchIfIntegrated: (input) => {
+            state.deletedBranches.push(input.branch)
+            return Effect.succeed(state.branchCleanup ?? "deleted")
+          },
           // The update-only facts are not this workflow's subject: called by mistake, they fail
           // visibly rather than answering an empty success.
-          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
           inspectUpstream: () => Effect.dieMessage("inspectUpstream is not scripted"),
           incomingCommits: () => Effect.dieMessage("incomingCommits is not scripted"),
           defaultRemoteBranch: () => Effect.dieMessage("defaultRemoteBranch is not scripted"),
           workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
           pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
+          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
+          hasRemote: () => Effect.succeed(false),
+          refExists: () => Effect.succeed(false),
+          resolveExistingBranch: () => Effect.dieMessage("resolveExistingBranch is not scripted"),
+          defaultBranch: () => Effect.succeed(undefined),
+          fastForwardBranch: () => Effect.dieMessage("fastForwardBranch is not scripted"),
           provisionLinkedWorktree: () => Effect.void,
           provisionInPlace: () => Effect.succeed("created" as const),
-          switchBranch: () => Effect.void,
-          addWorktree: () => Effect.void,
           removeWorktree: (input) => {
             state.calls.push(`remove ${input.worktree}`)
             return Effect.void
@@ -259,6 +272,26 @@ test("a dirty checkout blocks completion", async () => {
   expect(Either.isRight(result)).toBe(true)
   if (Either.isRight(result)) expect(result.right._tag).toBe("Blocked")
 })
+
+for (const operation of ["complete", "cancel"] as const) {
+  test(`${operation} assesses the attached local branch and retains a remote-qualified borrowed branch`, async () => {
+    const state = script({
+      links: [link("existing", "new", { kind: "existing", name: "origin/feature" })],
+      checkout: { _tag: "Present", branch: "feature", head: "local-work" },
+      readiness: [{ repository: ref("existing"), number: 7, ready: true, merged: true }],
+    })
+    const result = await run(state, Effect.gen(function* () {
+      const service = yield* lifecycle
+      const input = { changeId: ChangeId.make("demo") }
+      return yield* (operation === "complete" ? service.completeChange(input) : service.cancelChange(input))
+    }))
+    expect(Either.isRight(result)).toBe(true)
+    if (Either.isRight(result)) expect(result.right._tag).toBe("Done")
+    expect(state.assessedBranches.length).toBeGreaterThan(0)
+    expect(state.assessedBranches.every((branch) => branch === "feature")).toBe(true)
+    expect(state.deletedBranches).toEqual([])
+  })
+}
 
 test("unpushed commits need an acknowledgement", async () => {
   const result = await assessment(

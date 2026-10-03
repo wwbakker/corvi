@@ -1,23 +1,28 @@
 /**
  * The conversational relay: the half of the extension that talks *to* Corvi, not just about the
- * pane.
+ * session.
  *
- * When this pi runs inside a Corvi subagent window (the pane carries `@subagent_id`), the relay
- * parks on `corvi subagent next` for the next inbound message, submits it into this session with
- * `pi.sendUserMessage` (a genuine user turn, submitted through the harness's own API — no
- * keystroke synthesis racing a human), waits for the run to settle, and relays the answer back
- * with `corvi subagent turn`.
+ * When this harness runs inside a Corvi subagent session (the host seeded `CORVI_SUBAGENT_ID`),
+ * the relay parks on `corvi subagent next` for the next inbound message, submits it into this
+ * session with `pi.sendUserMessage` (a genuine user turn, submitted through the harness's own API
+ * — no keystroke synthesis racing a human), waits for the run to settle, and relays the answer
+ * back with `corvi subagent turn`.
  *
  * It is deliberately thin: all protocol logic lives in the CLI/server, and this file only turns
  * events into exec calls. The loop is exported and takes its side effects as a value, so a test
  * drives it with a scripted harness instead of a live one.
  *
- * Identity is `@subagent_id` on this pane (`tmux display -p -t "$TMUX_PANE"`): per-pane by
- * construction, and dropped with the pane, so nothing stale survives.
+ * Identity is the environment's `CORVI_SUBAGENT_ID`, seeded per host session by the server, so a
+ * reopened subagent carries the same id and resumes the same relay.
+ *
+ * A runtime torn down mid-poll (a `/reload`) aborts the relay. A message the server already claimed
+ * for that poll is left as the existing `interrupted` turn — its deliberate recovery path — and is
+ * never requeued here.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { fullTextOf } from "./agent-state.ts";
+import { logLine } from "./node/log.ts";
 
 /** What one CLI call produced. */
 export type ExecResult = { readonly code: number; readonly stdout: string; readonly stderr: string };
@@ -37,15 +42,91 @@ export type RelayHarness = {
   /** Stop the loop (a test aborts it). */
   readonly signal?: AbortSignal;
   readonly log?: (message: string) => void;
+  /** The jitter source; a test injects a fixed value to pin the backoff. */
+  readonly random?: () => number;
 };
 
 type NextResult =
   | { readonly status: "message"; readonly message: { readonly number: number; readonly body: string } }
   | { readonly status: "interrupted" | "none" };
 
-/** How long to wait before re-issuing after a failed or interrupted call. The CLI's own long
- * poll is ~30s; this is the retry gap after an error. */
-const RETRY_MS = 1000;
+/** The relay's retry backoff: exponential from this base, capped, with equal jitter. */
+const RETRY_BASE_MS = 1000;
+const RETRY_MAX_MS = 30_000;
+/** How often one failure streak may log. A failing `next` must not fill the pane's log with one
+ * line per process, which is exactly the feedback loop this backoff exists to break. */
+const LOG_EVERY_MS = 30_000;
+
+/** The delay for a failed attempt: exponential from the base, capped, with equal jitter (half
+ * fixed, half random) so a fleet of relays does not retry in lockstep. */
+const backoffMs = (attempt: number, random: () => number): number => {
+  const capped = Math.min(RETRY_BASE_MS * 2 ** attempt, RETRY_MAX_MS);
+  return Math.round(capped / 2 + random() * (capped / 2));
+};
+
+/** A rate limiter for one failure streak. */
+type LogGate = { fail(message: string): void; ok(): void };
+
+/** Rate-limit one failure streak: the first failure logs at once, then at most one line every
+ * `everyMs` while it keeps failing. A success reopens it, so the next streak speaks. */
+const createLogGate = (
+  log: ((message: string) => void) | undefined,
+  everyMs = LOG_EVERY_MS,
+): LogGate => {
+  let lastAt = 0;
+  let due = true;
+  return {
+    fail: (message: string): void => {
+      const now = Date.now();
+      if (!due && now - lastAt < everyMs) return;
+      due = false;
+      lastAt = now;
+      log?.(message);
+    },
+    ok: (): void => {
+      due = true;
+    },
+  };
+};
+
+/** Whether the runtime is gone. A helper, not `signal.aborted === true` inline: `aborted` is a
+ * readonly property, so TypeScript narrows an inline check to `false` for every later await. */
+const isAborted = (signal: AbortSignal | undefined): boolean => signal?.aborted === true;
+
+/** One abort promise per signal: racing this everywhere means one `abort` listener for the relay's
+ * whole life, not one per turn and per backoff (an `AbortSignal` accumulates listeners silently). */
+const abortPromises = new WeakMap<AbortSignal, Promise<undefined>>();
+const aborted = (signal: AbortSignal): Promise<undefined> => {
+  if (signal.aborted) return Promise.resolve(undefined);
+  const existing = abortPromises.get(signal);
+  if (existing !== undefined) return existing;
+  const promise = new Promise<undefined>((resolve) =>
+    signal.addEventListener("abort", () => resolve(undefined), { once: true }),
+  );
+  abortPromises.set(signal, promise);
+  return promise;
+};
+
+/** Resolve with the value, or with `undefined` as soon as the signal aborts: a disposed relay must
+ * not park forever on work the old runtime will never finish. */
+export const abortable = <T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T | undefined> => {
+  if (signal === undefined) return promise;
+  return Promise.race([promise, aborted(signal)]);
+};
+
+/** Sleep, resolving early when the runtime is torn down, so a disposed relay stops promptly. The
+ * abort promise is shared, so a backoff adds no listener of its own. */
+export const abortableSleep = (ms: number, signal?: AbortSignal): Promise<void> => {
+  if (signal === undefined) return new Promise((resolve) => setTimeout(resolve, ms));
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    void aborted(signal).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+};
 
 const parse = <T>(text: string): T | undefined => {
   try {
@@ -55,22 +136,28 @@ const parse = <T>(text: string): T | undefined => {
   }
 };
 
-const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<T | undefined> => {
+/** A CLI call's answer, or the reason it did not answer usefully. */
+type CallResult<T> = { readonly value: T } | { readonly failed: string };
+
+const call = async <T>(harness: RelayHarness, args: readonly string[]): Promise<CallResult<T>> => {
   const result = await harness.exec(args);
   if (result.code !== 0) {
-    harness.log?.(`corvi ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}`);
-    return undefined;
+    return { failed: `corvi ${args.join(" ")} exited ${result.code}: ${result.stderr.trim()}` };
   }
-  return parse<T>(result.stdout);
+  const value = parse<T>(result.stdout);
+  return value === undefined
+    ? { failed: `corvi ${args.join(" ")} answered malformed JSON` }
+    : { value };
 };
 
 /** Relay one settled reply, retrying with backoff: this is the one call whose payload would be
  * lost if it never lands, so a server restart must not drop it. */
 const relayTurn = async (harness: RelayHarness, subagentId: string, text: string, key: string): Promise<void> => {
+  const gate = createLogGate(harness.log);
   for (let attempt = 0; ; attempt += 1) {
     if (harness.signal?.aborted) return;
     // `--` before the text: a reply that begins with a dash is data, not a flag.
-    const result = await harness.exec([
+    const result = await abortable(harness.exec([
       "subagent",
       "turn",
       "--subagent",
@@ -80,73 +167,93 @@ const relayTurn = async (harness: RelayHarness, subagentId: string, text: string
       "--json",
       "--",
       text,
-    ]);
+    ]), harness.signal);
+    if (result === undefined || isAborted(harness.signal)) return;
     if (result.code === 0) return;
-    harness.log?.(`relaying the turn failed (attempt ${attempt + 1}): ${result.stderr.trim()}`);
-    await harness.sleep(Math.min(RETRY_MS * 2 ** attempt, 30_000));
+    gate.fail(`relaying the turn failed (attempt ${attempt + 1}): ${result.stderr.trim()}`);
+    await harness.sleep(backoffMs(attempt, harness.random ?? Math.random));
   }
 };
 
 /** The loop: next → submit → settle → turn, forever. Exported for a scripted test. */
 export const relayLoop = async (subagentId: string, harness: RelayHarness): Promise<void> => {
+  const random = harness.random ?? Math.random;
+  const gate = createLogGate(harness.log);
   let after: number | undefined;
+  let attempt = 0;
   while (!harness.signal?.aborted) {
-    const next = await call<NextResult>(harness, [
+    const next = await abortable(call<NextResult>(harness, [
       "subagent",
       "next",
       "--subagent",
       subagentId,
       "--json",
       ...(after === undefined ? [] : ["--after", String(after)]),
-    ]);
-    if (next === undefined) {
-      await harness.sleep(RETRY_MS);
+    ]), harness.signal);
+    // A poll that lost the race, or resolved just as the runtime was torn down, must not be
+    // processed: the server has claimed its message, and a mid-poll abort leaves the turn as the
+    // existing `interrupted` (its deliberate recovery path, never requeued).
+    if (next === undefined || isAborted(harness.signal)) return;
+    if ("failed" in next) {
+      gate.fail(next.failed);
+      await harness.sleep(backoffMs(attempt, random));
+      attempt += 1;
       continue;
     }
-    if (next.status === "interrupted") {
-      harness.log?.("the previous turn did not settle; waiting for a new message");
-      await harness.sleep(RETRY_MS);
+    if (next.value.status === "interrupted") {
+      gate.fail("the previous turn did not settle; waiting for a new message");
+      await harness.sleep(backoffMs(attempt, random));
+      attempt += 1;
       continue;
     }
-    if (next.status !== "message") continue; // the long poll's own deadline: re-issue at once
-    after = next.message.number;
+    // A success — a message or the long poll's own deadline — resets the streak.
+    gate.ok();
+    attempt = 0;
+    if (next.value.status !== "message") continue; // the long poll's deadline: re-issue at once
+    const message = next.value.message;
+    after = message.number;
     try {
-      await harness.submit(next.message.body);
+      await abortable(Promise.resolve(harness.submit(message.body)), harness.signal);
     } catch (error) {
-      harness.log?.(`submitting message ${next.message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
+      harness.log?.(`submitting message ${message.number} failed: ${error instanceof Error ? error.message : String(error)}`);
     }
-    const settled = await harness.settled();
+    if (isAborted(harness.signal)) return;
+    const settled = await abortable(harness.settled(), harness.signal);
+    // The runtime was torn down while the run was in flight: nobody will read a reply, so stop
+    // rather than relay it into a disposed harness.
+    if (isAborted(harness.signal)) return;
     // A settled run with no text (an abort) still closes the turn, so the subagent is not stranded
     // in flight forever; the note is honest about there being no reply.
     const reply = settled !== undefined && settled.trim() !== "" ? settled : "(the run ended without a reply)";
-    await relayTurn(harness, subagentId, reply, `turn-${next.message.number}`);
+    await relayTurn(harness, subagentId, reply, `turn-${message.number}`);
   }
 };
 
-/** Read the subagent id this pane carries, or undefined when it is not a subagent window. The
- * server writes `@subagent_id` just after the window starts, so a few retries close that startup
- * race rather than leaving a fresh window permanently mute. */
-export const subagentOfPane = async (pi: ExtensionAPI, pane: string): Promise<string | undefined> => {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const result = await pi.exec("tmux", ["display", "-p", "-t", pane, "#{@subagent_id}"]).catch(() => undefined);
-    const id = result && result.code === 0 ? result.stdout.trim() : "";
-    if (id !== "") return id;
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  return undefined;
+/** The subagent id this session carries, from the environment the host seeded. Undefined when
+ * this is not a subagent session: the reporter still speaks, the relay stays quiet. */
+export const subagentOfSession = (env: NodeJS.ProcessEnv = process.env): string | undefined => {
+  const id = env.CORVI_SUBAGENT_ID?.trim();
+  return id === undefined || id === "" ? undefined : id;
 };
 
-/** pi emits `session_start` again on `/reload`; a second loop would share the single settle slot
- * and deadlock the first. One relay per process. */
-let relayStarted = false;
-
+/** pi emits `session_start` again on a session replacement (and `/reload`); a second loop would
+ * share the single settle slot. A start **supersedes** any live loop: the old one is aborted and a
+ * fresh one starts, so a session is never left without a relay. `session_shutdown` stops the loop
+ * and is idempotent (quit, reload and session replacement can converge there). */
 export default function (pi: ExtensionAPI): void {
-  const pane = process.env.TMUX_PANE;
-  if (!pane) return; // no tmux: nothing to identify, nothing to relay
-
   // One settle per submitted turn: the handler below resolves it with the run's text.
   let settle: ((text: string | undefined) => void) | undefined;
   let lastAssistant = "";
+  let controller: AbortController | undefined;
+
+  /** Stop the current loop, if any. Used by a superseding start and by shutdown; idempotent. */
+  const stop = (): void => {
+    controller?.abort();
+    controller = undefined;
+    settle = undefined;
+    lastAssistant = "";
+  };
+
   pi.on("agent_end", async (event) => {
     for (const message of [...event.messages].reverse()) {
       const text = fullTextOf(message);
@@ -164,10 +271,14 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_start", async () => {
-    if (relayStarted) return;
-    const subagentId = await subagentOfPane(pi, pane);
-    if (subagentId === undefined) return; // a plain pi window: the reporter still speaks, the relay stays quiet
-    relayStarted = true;
+    // Supersede: a second start (a duplicated start, or a session replacement whose shutdown has
+    // not arrived yet) must not be dropped, or the session would run relay-less until the next
+    // reload.
+    stop();
+    const subagentId = subagentOfSession();
+    if (subagentId === undefined) return; // a plain session: the reporter still speaks, the relay stays quiet
+    controller = new AbortController();
+    const signal = controller.signal;
     const harness: RelayHarness = {
       exec: async (args) => pi.exec("corvi", [...args]),
       submit: async (text) => {
@@ -177,9 +288,22 @@ export default function (pi: ExtensionAPI): void {
         new Promise<string | undefined>((resolve) => {
           settle = resolve;
         }),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      log: (message) => console.error(`[corvi] ${message}`),
+      sleep: (ms) => abortableSleep(ms, signal),
+      signal,
+      log: (message) => logLine(message),
     };
-    void relayLoop(subagentId, harness);
+    // The loop's rejection must never escape: an unhandled rejection here would take the harness
+    // down with it, closing every subagent.
+    void relayLoop(subagentId, harness).catch((error: unknown) => {
+      try {
+        logLine(`the relay stopped with an error: ${error instanceof Error ? error.message : String(error)}`);
+      } catch {
+        // A sink that cannot write must not become the unhandled rejection this catch prevents.
+      }
+    });
+  });
+
+  pi.on("session_shutdown", async () => {
+    stop();
   });
 }

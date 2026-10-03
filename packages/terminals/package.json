@@ -5,12 +5,9 @@
   "type": "module",
   "exports": {
     "./model": "./src/model.ts",
-    "./tmux": "./src/tmux.ts",
-    "./session": "./src/session.ts",
     "./presenter": "./src/presenter.ts"
   },
   "dependencies": {
-    "@corvi/contracts": "workspace:*",
-    "effect": "catalog:"
+    "@corvi/contracts": "workspace:*"
   }
 }

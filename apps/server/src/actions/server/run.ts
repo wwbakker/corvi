@@ -17,7 +17,8 @@ import type { Change } from "../../domain/change.ts";
 import { changeDir, PLAN_FILE } from "../../change/server/index.ts";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";
-import { ensureSession, listWindows, sessions } from "../../terminals/server/index.ts";
+import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
+import { actionSessions } from "../../terminals/server/action-sessions.ts";
 
 /** Where one change's action files live: the global and workspace scopes beside the config file
  * (so `CORVI_CONFIG` moves both), the repository scope inside each of its checkouts. Shared with
@@ -78,8 +79,8 @@ export const listActionsFor = (change: Change): Effect.Effect<readonly ActionSum
       .map(summaryOf);
   });
 
-/** A delivery with nowhere to go, or a tmux that would not: both are refusals at the route
- * boundary, not server faults. */
+/** A delivery with nowhere to go, or a write that would not land: both are refusals at the
+ * route boundary, not server faults. */
 const asBadRequest = (failure: BadRequestError | DeliveryFailure): BadRequestError => {
   if (failure instanceof BadRequestError) return failure;
   if ("_tag" in failure) return new BadRequestError({ message: "no window to run this in" });
@@ -120,15 +121,24 @@ export const runActionFor = (
     const text = renderActionBody(template, factsFor(change), found.action.kind === "command" ? "shell" : "text");
 
     const dir = changeDir(change);
-    yield* ensureSession(change.id, dir);
-    const windows = yield* listWindows(change.id);
+    // A change whose only windows are subagent windows must not get a throwaway shell just to
+    // have somewhere to paste: list what exists, and start a host window only when there is
+    // nothing to target at all.
+    let windows = yield* listWindows(change.id);
+    if (windows.length === 0) {
+      yield* Effect.tryPromise({
+        try: () => ensureActiveHostWindow(change.id, dir, { cols: 100, rows: 30 }),
+        catch: (error) => new BadRequestError({ message: error instanceof Error ? error.message : String(error) }),
+      });
+      windows = yield* listWindows(change.id);
+    }
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({
       window: window.id,
       label: window.label,
       kind: window.icon === "agent" ? "agent" : "plain",
       active: window.active,
     }));
-    const delivery = yield* deliverAction(sessions, {
+    const delivery = yield* deliverAction(actionSessions, {
       changeId: change.id,
       changeDir: dir,
       action: found.action,

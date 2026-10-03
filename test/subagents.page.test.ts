@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
-import { closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, runSh, serverEnv, stopRunHost, testRun, testTempDir, waitForUrl } from "./helpers.ts";
 import { editorText, fillEditor } from "./editor.ts";
 
 /**
@@ -65,6 +65,7 @@ afterAll(async () => {
   await closePages(browser, "subagents");
   await browser?.close();
   server?.kill();
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

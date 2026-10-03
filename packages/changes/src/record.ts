@@ -159,8 +159,9 @@ export const checkoutSpecProblem = (
  * (or none) is a change created ready to work, which needs at least one repository.
  */
 /** What provisioning one repository target reported, shown after a create or a start. A failure
- * carries the first error and stops that integration's later work; the change itself survives. */
-export type ProvisionResult = { integration: string; ok: boolean; error?: string };
+ * names its repository and stops nothing: the other repositories run on, and the change itself
+ * survives. */
+export type ProvisionResult = { integration: string; ok: boolean; error?: string; detail?: string };
 
 export type ChangeDraft = {
   /** Directory name under the changes root; also the default branch name. */

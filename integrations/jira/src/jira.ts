@@ -270,13 +270,49 @@ const boardId = (site: Site): Effect.Effect<string, BadRequestError, Cache> =>
     );
   });
 
-export const listSprints = (site: Site = {}): Effect.Effect<Sprint[], BadRequestError, Cache> =>
+export const listSprints = (
+  site: Site = {},
+  states: string = sprintStates(),
+): Effect.Effect<Sprint[], BadRequestError, Cache> =>
   Effect.gen(function* () {
-    const json = yield* jiraFetch<{ values?: { id: number; name: string; state: string }[] }>(
-      `/rest/agile/1.0/board/${yield* boardId(site)}/sprint`,
-      { site, query: { state: sprintStates() } },
+    const json = yield* jiraFetch<{
+      values?: { id: number; name: string; state: string; startDate?: string | null }[];
+    }>(`/rest/agile/1.0/board/${yield* boardId(site)}/sprint`, { site, query: { state: states } });
+    return (json.values ?? []).map((s) => ({
+      id: String(s.id),
+      name: s.name,
+      state: s.state,
+      ...(s.startDate ? { startDate: s.startDate } : {}),
+    }));
+  });
+
+/**
+ * Starting work takes a backlog ticket onto the board. Only an issue in no sprint moves — one
+ * already planned into a sprint stays where it was put — and with several active sprints it
+ * joins the one with the latest start date. What happened is the detail the start report shows:
+ * the sprint it joined, or why it stayed put.
+ */
+export const moveIssueToActiveSprint = (
+  key: string,
+  site: Site = {},
+): Effect.Effect<{ readonly detail: string }, BadRequestError, Cache> =>
+  Effect.gen(function* () {
+    const inNoSprint = yield* search(`issuekey = ${key} AND sprint is EMPTY`, site, 1);
+    if (inNoSprint.length === 0) return { detail: "left in its sprint" };
+    // Active sprints only, read fresh: this is a click, and the choice must be today's sprints.
+    const active = yield* listSprints(site, "active");
+    const [picked] = [...active].sort(
+      (a, b) =>
+        (b.startDate ?? "").localeCompare(a.startDate ?? "") || Number(b.id) - Number(a.id),
     );
-    return (json.values ?? []).map((s) => ({ id: String(s.id), name: s.name, state: s.state }));
+    if (!picked) return { detail: "left in the backlog: no active sprint" };
+    yield* jiraFetch(`/rest/agile/1.0/sprint/${picked.id}/issue`, {
+      site,
+      method: "POST",
+      body: { issues: [key] },
+    });
+    yield* invalidate(boardViewKey(site));
+    return { detail: `moved to ${picked.name}` };
   });
 
 

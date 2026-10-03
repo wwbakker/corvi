@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { chromium, webkit, type Browser } from "playwright";
-import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, serverEnv, testRun, testTempDir, waitForUrl, stopRunHost } from "./helpers.ts";
 import type { Listing } from "../apps/web/src/app-root/api.ts";
 
 /**
@@ -74,6 +74,7 @@ afterAll(async () => {
   await closePages(browser, "directory-picker");
   await browser?.close();
   server?.kill();
+  await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
 

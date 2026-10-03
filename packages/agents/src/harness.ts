@@ -6,7 +6,6 @@
  * `effort` is ignored there. The window's working directory is the subagent's directory, which is
  * what keys a harness's own session storage. */
 import type { SubagentHarness } from "@corvi/contracts/subagents";
-import type { Profile } from "./profile.ts";
 
 export type HarnessLaunch = {
   readonly command: string;
@@ -46,19 +45,3 @@ export const launchOf = (input: HarnessInput): HarnessLaunch => {
     ],
   };
 };
-
-/** The launch for a profile. `sessionId` is the subagent id: pinned, so reopening resumes the
- * same harness session. */
-export const launchFor = (
-  profile: Pick<Profile, "harness" | "model" | "effort">,
-  sessionId: string,
-  label: string,
-): HarnessLaunch => launchOf({ harness: profile.harness, sessionId, label, model: profile.model, effort: profile.effort });
-
-/** POSIX single-quote wrapping: whatever a model id or label contains, it is data to the shell
- * tmux runs the command with. */
-export const shellQuote = (value: string): string => `'${value.replaceAll("'", "'\\''")}'`;
-
-/** The launch as one shell command line, for `tmux new-window`. */
-export const launchCommand = (launch: HarnessLaunch): string =>
-  [launch.command, ...launch.args].map(shellQuote).join(" ");

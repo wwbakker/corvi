@@ -5,17 +5,15 @@ import {
   coversUnnamed,
   isRunToken,
   isTestCommand,
-  isTestSocket,
   tokenFromPath,
   tokenOf,
 } from "../scripts/clean-test.ts";
 
 /**
- * `bun run test:clean` decides by command line and socket path alone, because that is all a
- * process shows — and because getting it wrong once killed the app's server and a tmux session
- * with four windows. These are the shapes it must never confuse.
+ * `bun run test:clean` decides by command line and path alone, because that is all a process
+ * shows — and because getting it wrong once killed the app's server and a user's session with
+ * four windows. These are the shapes it must never confuse.
  */
-const roots = ["/var/folders/tp/xyz/T", "/private/var/folders/tp/xyz/T"];
 
 test("a test server names itself; the app's and a dev server do not", () => {
   expect(isTestCommand("node apps/server/src/server.ts --corvi-test-run")).toBe(true);
@@ -26,24 +24,9 @@ test("a test server names itself; the app's and a dev server do not", () => {
   expect(isTestCommand("/opt/corvi/dist/electron apps/server/src/server.ts")).toBe(false);
 });
 
-test("tmux servers are told apart by their socket", () => {
-  expect(isTestSocket("/private/var/folders/tp/xyz/T/corvi-term-abc123/tmux-501/default", roots)).toBe(
-    true,
-  );
-  // Yours: the default socket, however deep /private/tmp may look like a temp dir.
-  expect(isTestSocket("/private/tmp/tmux-501/default", roots)).toBe(false);
-});
-
 test("a run is named by the token its resources carry", () => {
   expect(tokenOf("node apps/server/src/server.ts --corvi-test-run=1a2b.3c4d")).toBe("1a2b.3c4d");
-  expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-term-abc/tmux-501/default")).toBe(
-    "1a2b.3c4d",
-  );
-  // The tmux socket's own directory, short and unlabelled: a unix socket path is capped at 103
-  // characters and macOS's `$TMPDIR` is long (test/helpers.ts, `tmuxTempDir`).
-  expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-tmux/tmux-501/default")).toBe(
-    "1a2b.3c4d",
-  );
+  expect(tokenFromPath("/private/var/folders/tp/xyz/T/corvi-1a2b.3c4d-term-abc")).toBe("1a2b.3c4d");
   // A resource with no token is one this tool cannot attribute to a run: an old run, or the
   // app's own. It is listed, and only --all ends it.
   expect(tokenOf("node apps/server/src/server.ts --corvi-test-run")).toBeUndefined();
@@ -54,7 +37,6 @@ test("a run is named by the token its resources carry", () => {
 test("a label that looks like a token is not one: the dot is the tell", () => {
   expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-term-abc/changes/PROJ")).toBeUndefined();
   expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-abc.def-term-x/changes/PROJ")).toBe("abc.def");
-  expect(tokenFromPath("/private/tmp/tmux-501/default")).toBeUndefined();
 });
 
 test("a run token is two base36 words in full; a longer word is not a token", () => {

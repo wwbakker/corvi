@@ -18,6 +18,9 @@ interface GitScript {
   readonly branch?: Git.Interface["history"]["branch"]
   readonly head?: Git.Interface["history"]["head"]
   readonly branchExists?: Git.Interface["history"]["branchExists"]
+  readonly refExists?: Git.Interface["history"]["refExists"]
+  readonly resolveExistingBranch?: Git.Interface["history"]["resolveExistingBranch"]
+  readonly isAncestor?: Git.Interface["history"]["isAncestor"]
   readonly upstream?: Git.Interface["history"]["upstream"]
   readonly defaultRemoteBranch?: Git.Interface["history"]["defaultRemoteBranch"]
   readonly defaultBranch?: Git.Interface["history"]["defaultBranch"]
@@ -25,15 +28,13 @@ interface GitScript {
   readonly upstreamCommits?: Git.Interface["history"]["upstreamCommits"]
   readonly status?: Git.Interface["status"]["dirty"]
   readonly integration?: Git.Interface["integration"]["proven"]
-  readonly checkoutRemoteBranch?: Git.Interface["sync"]["checkoutRemoteBranch"]
   readonly deleteBranch?: Git.Interface["sync"]["deleteBranch"]
   readonly fetchRemote?: Git.Interface["sync"]["fetchRemote"]
   readonly pullFastForward?: Git.Interface["sync"]["pullFastForward"]
+  readonly mergeFastForwardOnly?: Git.Interface["sync"]["mergeFastForwardOnly"]
   readonly switchToBranch?: Git.Interface["sync"]["switchToBranch"]
-  readonly create?: Git.Interface["worktree"]["create"]
   readonly addWorktree?: Git.Interface["worktree"]["add"]
   readonly remove?: Git.Interface["worktree"]["remove"]
-  readonly list?: Git.Interface["worktree"]["list"]
 }
 
 const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
@@ -49,6 +50,9 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
           branch: script.branch ?? (() => Effect.succeed(undefined)),
           head: script.head ?? (() => Effect.succeed(undefined)),
           branchExists: script.branchExists ?? (() => Effect.succeed(false)),
+          refExists: script.refExists ?? (() => Effect.succeed(false)),
+          resolveExistingBranch: script.resolveExistingBranch ?? (() => Effect.dieMessage("resolveExistingBranch is not scripted")),
+          isAncestor: script.isAncestor ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
           defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
           defaultBranch: script.defaultBranch ?? (() => Effect.succeed(undefined)),
@@ -58,17 +62,15 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },
         integration: { proven: script.integration ?? (() => Effect.succeed(false)) },
         sync: {
-          checkoutRemoteBranch: script.checkoutRemoteBranch ?? (() => Effect.void),
           deleteBranch: script.deleteBranch ?? (() => Effect.void),
           fetchRemote: script.fetchRemote ?? (() => Effect.void),
           pullFastForward: script.pullFastForward ?? (() => Effect.void),
+          mergeFastForwardOnly: script.mergeFastForwardOnly ?? (() => Effect.void),
           switchToBranch: script.switchToBranch ?? (() => Effect.void),
         },
         worktree: {
-          create: script.create ?? (() => Effect.succeed(repository)),
           add: script.addWorktree ?? (() => Effect.succeed(repository)),
           remove: script.remove ?? (() => Effect.void),
-          list: script.list ?? (() => Effect.succeed([])),
         },
       }),
     ),
@@ -126,81 +128,108 @@ test("inspectCheckout treats a Git failure as an error, not absence", async () =
   }
 })
 
-test("switchBranch refuses a location that is not a repository", async () => {
-  const result = await runEither(
+test("fastForwardBranch advances exactly when git can, and never rewrites", async () => {
+  const forwarded: string[] = []
+  const advanced = await runEither(
     Effect.gen(function* () {
       const repositories = yield* Repositories
-      return yield* repositories.switchBranch({ worktree: AbsolutePath.make("/nope"), branch: "feature" })
-    }),
-    {},
-  )
-  expect(result._tag).toBe("Left")
-  if (result._tag === "Left") expect(result.left._tag).toBe("NotARepository")
-})
-
-test("switchBranch checks out the requested branch", async () => {
-  const calls: string[] = []
-  await runEither(
-    Effect.gen(function* () {
-      const repositories = yield* Repositories
-      return yield* repositories.switchBranch({ worktree: AbsolutePath.make("/repo"), branch: "feature" })
+      return yield* repositories.fastForwardBranch({ directory: AbsolutePath.make("/repo"), to: "origin/main" })
     }),
     {
       discover: () => Effect.succeed(repository),
-      checkoutRemoteBranch: (_repository, input) => {
-        calls.push(input.branch)
+      head: (() => {
+        let reads = 0
+        return () => Effect.succeed(reads++ === 0 ? "before" : "after")
+      })(),
+      mergeFastForwardOnly: (_repository, input) => {
+        forwarded.push(input.to)
         return Effect.void
       },
     },
   )
-  expect(calls).toEqual(["feature"])
-})
+  expect(Either.isRight(advanced)).toBe(true)
+  if (Either.isRight(advanced)) expect(advanced.right).toEqual({ _tag: "Advanced", to: "origin/main" })
+  expect(forwarded).toEqual(["origin/main"])
 
-test("addWorktree creates the worktree, then checks out the branch", async () => {
-  const calls: string[] = []
-  await runEither(
+  const current = await runEither(
     Effect.gen(function* () {
       const repositories = yield* Repositories
-      return yield* repositories.addWorktree({
-        source: AbsolutePath.make("/repo"),
-        directory: AbsolutePath.make("/change/repo"),
-        branch: "feature",
-      })
+      return yield* repositories.fastForwardBranch({ directory: AbsolutePath.make("/repo"), to: "origin/main" })
     }),
-    {
-      discover: () => Effect.succeed(repository),
-      create: (input) => {
-        calls.push(`create ${input.directory}`)
-        return Effect.succeed(repository)
-      },
-      checkoutRemoteBranch: (_repository, input) => {
-        calls.push(`checkout ${input.branch}`)
-        return Effect.void
-      },
-    },
+    { discover: () => Effect.succeed(repository), head: () => Effect.succeed("same") },
   )
-  expect(calls).toEqual(["create /change/repo", "checkout feature"])
+  expect(Either.isRight(current)).toBe(true)
+  if (Either.isRight(current)) expect(current.right).toEqual({ _tag: "Current" })
 })
 
-test("addWorktree maps a create failure to CheckoutError", async () => {
+test("fastForwardBranch leaves a checkout alone with git's own reason", async () => {
   const result = await runEither(
     Effect.gen(function* () {
       const repositories = yield* Repositories
-      return yield* repositories.addWorktree({
-        source: AbsolutePath.make("/repo"),
-        directory: AbsolutePath.make("/change/repo"),
-        branch: "feature",
-      })
+      return yield* repositories.fastForwardBranch({ directory: AbsolutePath.make("/repo"), to: "origin/main" })
     }),
     {
       discover: () => Effect.succeed(repository),
-      create: () => Effect.fail(new Git.OperationError({ operation: "create", message: "exists" })),
+      head: () => Effect.succeed("own"),
+      mergeFastForwardOnly: () =>
+        Effect.fail(new Git.OperationError({ operation: "merge", message: "fatal: Not possible to fast-forward" })),
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result))
+    expect(result.right).toEqual({ _tag: "LeftAlone", reason: "fatal: Not possible to fast-forward" })
+})
+
+test("a dirty tree git refuses to clobber is left alone, not an error", async () => {
+  // The middle case the promise names: a fast-forward is possible, but git declines to
+  // overwrite uncommitted work. That is a decision, not broken infrastructure.
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.fastForwardBranch({ directory: AbsolutePath.make("/repo"), to: "origin/main" })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      head: () => Effect.succeed("mine"),
+      status: () => Effect.succeed(true),
+      mergeFastForwardOnly: () =>
+        Effect.fail(
+          new Git.OperationError({
+            operation: "merge",
+            message: "error: Your local changes to 'f.txt' would be overwritten by merge",
+          }),
+        ),
+      isAncestor: () => Effect.succeed(true),
+    },
+  )
+  expect(Either.isRight(result)).toBe(true)
+  if (Either.isRight(result))
+    expect(result.right).toEqual({
+      _tag: "LeftAlone",
+      reason: "error: Your local changes to 'f.txt' would be overwritten by merge",
+    })
+})
+
+test("a fast-forward that was possible and still failed is an error, not a refusal", async () => {
+  // An index lock, an I/O problem: ancestry says HEAD could have moved and did not. Reporting
+  // that as "left alone" would dress a failure up as a decision.
+  const result = await runEither(
+    Effect.gen(function* () {
+      const repositories = yield* Repositories
+      return yield* repositories.fastForwardBranch({ directory: AbsolutePath.make("/repo"), to: "origin/main" })
+    }),
+    {
+      discover: () => Effect.succeed(repository),
+      head: () => Effect.succeed("own"),
+      mergeFastForwardOnly: () =>
+        Effect.fail(new Git.OperationError({ operation: "merge", message: "Unable to create index.lock" })),
+      isAncestor: () => Effect.succeed(true),
     },
   )
   expect(result._tag).toBe("Left")
   if (result._tag === "Left") {
     expect(result.left._tag).toBe("CheckoutError")
-    if (result.left._tag === "CheckoutError") expect(result.left.operation).toBe("add-worktree")
+    if (result.left._tag === "CheckoutError") expect(result.left.message).toContain("index.lock")
   }
 })
 
@@ -410,7 +439,7 @@ test("provisionLinkedWorktree attaches an existing branch", async () => {
   expect(added).toEqual([{ branch: "feature", create: false }])
 })
 
-test("attach-only never asks to create: a name that is nowhere is git's refusal", async () => {
+test("attach-only refuses a missing selection before any mutation", async () => {
   const added: Array<{ branch: string; create: boolean }> = []
   let asked = 0
   const result = await runEither(
@@ -425,6 +454,7 @@ test("attach-only never asks to create: a name that is nowhere is git's refusal"
     }),
     {
       discover: (dir) => Effect.succeed(String(dir) === "/source/repo" ? repository : undefined),
+      resolveExistingBranch: () => Effect.fail(new Git.OperationError({ operation: "checkout", message: "branch not found: nowhere" })),
       branchExists: () => {
         asked += 1
         return Effect.succeed(false)
@@ -438,11 +468,13 @@ test("attach-only never asks to create: a name that is nowhere is git's refusal"
     },
   )
   expect(Either.isLeft(result)).toBe(true)
-  expect(added).toEqual([{ branch: "nowhere", create: false }])
+  expect(added).toEqual([])
   expect(asked).toBe(0)
 })
 
-test("provisionLinkedWorktree creates the branch from the remote default after a fetch", async () => {
+test("provisionLinkedWorktree creates the branch from the base the caller made current", async () => {
+  // Fetching is the provisioning policy's job (pinned in `@corvi/workflows`' tests); the
+  // capability works from the refs it is given.
   const added: Array<{ branch: string; create: boolean; base?: string }> = []
   let fetched = 0
   await runEither(
@@ -470,7 +502,7 @@ test("provisionLinkedWorktree creates the branch from the remote default after a
       },
     },
   )
-  expect(fetched).toBe(1)
+  expect(fetched).toBe(0)
   expect(added).toEqual([{ branch: "feature", create: true, base: "origin/main" }])
 })
 

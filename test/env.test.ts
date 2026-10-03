@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { childEnv } from "../apps/server/src/capabilities/env.ts";
+import { childEnv, cliAwarePath } from "../apps/server/src/capabilities/env.ts";
 
 /**
  * The environment children get: the server's own, scrubbed of the launcher's variables, with the
@@ -19,7 +19,7 @@ test("the launcher's variables do not reach a child", () => {
   });
   expect(env.PATH).toBe("/bin");
   expect(env.HOME).toBe("/home/you");
-  // Kept: how a tool inside a pane addresses its own tmux server.
+  // Passed through here; the terminal's own builder drops them for a host session.
   expect(env.TMUX).toBe("/tmp/tmux-501/default,1,0");
   expect(env.TMUX_PANE).toBe("%0");
   // Scrubbed: the launcher's, and everything of Corvi's own by prefix.
@@ -42,4 +42,12 @@ test("the caller's additions are applied after the scrub, so a workspace can set
 
 test("undefined values are dropped rather than passed as the string 'undefined'", () => {
   expect(childEnv({ PATH: undefined, HOME: "/h" })).toEqual({ HOME: "/h" });
+});
+
+test("the CLI shim is put in front of PATH only when no corvi already resolves", () => {
+  // A launcher-installed corvi keeps winning: the shim never shadows it.
+  expect(cliAwarePath({ root: "/repo", path: "/usr/bin", corviAvailable: true })).toBeUndefined();
+  expect(cliAwarePath({ root: "/repo", path: "/usr/bin", corviAvailable: false })).toBe("/repo/apps/cli/bin:/usr/bin");
+  // No PATH at all is the shim alone, with no trailing separator.
+  expect(cliAwarePath({ root: "/repo", path: undefined, corviAvailable: false })).toBe("/repo/apps/cli/bin");
 });

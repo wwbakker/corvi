@@ -1,8 +1,8 @@
-/** What a window that ran one Corvi command says about itself, from the pane options the
+/** What a window that ran one Corvi command says about itself, from the window facts the
  * command wrapper writes (`@corvi/terminals/model`).
  *
- * Pure — raw tmux facts in, presentation out — like the agents package's presenter. A run with
- * nothing announced is not this presenter's window; it falls through to the core's defaults. */
+ * Pure — raw window facts in, presentation out — like the agents package's presenter. A run
+ * with nothing announced is not this presenter's window; it falls through to the core's defaults. */
 import type { TerminalPresenter } from "@corvi/contracts/terminal";
 import {
   COMMAND_ACTION_OPTION,
@@ -11,7 +11,6 @@ import {
 } from "./model.ts";
 
 export const commandWindowPresenter: TerminalPresenter = {
-  paneOptions: [COMMAND_ACTION_OPTION, COMMAND_EXIT_OPTION, COMMAND_NOTIFY_OPTION],
   present: (window) => {
     const label = window.options[COMMAND_ACTION_OPTION]?.trim();
     if (!label) return undefined;

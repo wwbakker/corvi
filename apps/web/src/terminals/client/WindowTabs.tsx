@@ -22,7 +22,7 @@ export function WindowTabs({
    * for all of the former, so it stays current while any of them is showing rather than only for the
    * dashboard. */
   page: Page;
-  /** This change's tmux windows: what the terminal page's tabs are. */
+  /** This change's terminal windows: what the terminal page's tabs are. */
   windows: TerminalWindow[];
   /** The server's platform: what the new-terminal tab's shortcut assumes. */
   platform: Platform;

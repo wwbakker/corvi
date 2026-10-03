@@ -19,8 +19,9 @@ finished ones.
 
 ## Install
 
-Corvi runs on macOS and Linux. It needs `git`, `gh`, `az` and `tmux` for the integrations and the
-terminals, and [Bun](https://bun.sh) plus Node 24+ to build the page.
+Corvi runs on macOS and Linux. It needs `git`, `gh` and `az` for the integrations, and
+[Bun](https://bun.sh) plus Node 24+ to build the page. The terminal host Corvi starts needs Node,
+which the application already bundles.
 
 ```bash
 git clone https://github.com/wwbakker/corvi.git

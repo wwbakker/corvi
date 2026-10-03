@@ -28,7 +28,7 @@ import {
   type MenuItemConstructorOptions,
 } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, readFileSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { createServer } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -53,6 +53,17 @@ const isLinux = process.platform === "linux";
 const logPath = (): string =>
   isMac ? join(homedir(), "Library", "Logs", `${ID}.log`) : join(stateDir(), "log");
 const pidFile = (port: number): string => join(stateDir(), `${ID}-app-${port}.pid`);
+
+/** A timestamped line in the server's log file. The child's own stdout/stderr already go there;
+ * this is the window's half — a start line and the child's end — so a silent exit has a visible
+ * cause instead of a log that simply stops. The fd is the child's, already open for append. */
+const logLine = (fd: number, message: string): void => {
+  try {
+    writeSync(fd, `[${new Date().toISOString()}] ${message}\n`);
+  } catch {
+    // a log that cannot be written is never a reason to fail the launch
+  }
+};
 
 /**
  * What this copy is called, as Electron found it before the rename below: a packaged bundle's
@@ -243,6 +254,10 @@ const startServer = (port: number, checkout: string): void => {
   server = child;
   serverPid = child.pid ?? null;
   if (isLinux && serverPid !== null) writeFileSync(pidFile(port), String(serverPid));
+  logLine(log, `starting the server on port ${port} (pid ${serverPid ?? "unknown"})`);
+  // `close` fires once the stdio pipes are done too, so it is the last word on the child's death;
+  // `exit` would only add a second line for the same event.
+  child.on("close", (code, signal) => logLine(log, `the server process closed (code ${code ?? "none"}, signal ${signal ?? "none"})`));
 };
 
 /** Send a signal to the process group the server leads: the login shell execs the server, so
@@ -363,7 +378,7 @@ let contextMenu = true;
 /** The menu for where the click landed: the editing roles over a field or a selection, the link out
  * of the app, and the inspector while this runs from a checkout. Nothing to offer means no menu —
  * which is also what a page that handled the click itself gets, since a right-click the page has
- * cancelled never reaches here (the terminal's menu is tmux's, drawn in the grid). */
+ * cancelled never reaches here (the terminal's menu is the page's own). */
 const menuFor = (
   win: BrowserWindow,
   params: Electron.ContextMenuParams,
@@ -535,7 +550,7 @@ const run = async (): Promise<void> => {
     // "Restart now" after an update: the relaunch inherits this process's environment (the
     // launcher's CORVI_APP_ROOT among it), so the new window serves the same checkout — now on
     // its new code. Quitting stops the server this window owns, exactly as closing it does;
-    // terminals are tmux's and survive.
+    // terminals are the host's and survive.
     app.relaunch();
     app.quit();
   });
@@ -566,7 +581,7 @@ const run = async (): Promise<void> => {
 app.on("window-all-closed", () => app.quit());
 app.on("before-quit", (event) => {
   if (serverPid === null || stopping) return;
-  // Quitting stops the server this window started; terminals are tmux's and survive it, which is
+  // Quitting stops the server this window started; terminals are the host's and survive it, which is
   // the same promise a restart of the server has always made.
   event.preventDefault();
   stopping = true;

@@ -1,16 +1,14 @@
 /**
  * Agent state: publishes whether opencode is working or waiting for you, why it is waiting, and
  * what the session is called, so anything outside the terminal can tell the difference — Corvi's
- * window strip and its notifications, a tmux status line, another program.
+ * window strip and its notifications, another program.
  *
- * The state is a tmux pane option, `@agent_status`; the agent's name is `@agent_name`; the
- * session's name is `@agent_session_name`; the first sentence of the last answer is
- * `@agent_last_message`. The vocabulary and the writer/reader rules are the reporter protocol in
- * docs/manual/terminals.md — this file is the opencode reporter, `integrations/pi` is pi's.
- *
- * A pane option rather than the terminal title: the title is shared and rewritten constantly, so
- * a title-based marker would vanish seconds after it appeared. Nobody else writes these options,
- * and tmux drops them when the pane dies, so a crashed agent leaves nothing stale behind.
+ * The one channel is the Corvi CLI (`corvi status`), which posts to the server; identity comes
+ * from the pty environment the host seeds (`CORVI_SESSION_ID`/`CORVI_SESSION_INCARNATION`), so any
+ * Corvi session — an interactive shell, an action run, a subagent — is reported. Outside a Corvi
+ * session there is nothing to publish to. A program that cannot run the CLI may instead write the
+ * same status as an OSC 1337 `corvi=` sequence, which the host parses and the server treats as a
+ * fallback (docs/manual/terminals.md).
  *
  * It is an opencode plugin in the current module form (`{ id, server }`), installed by
  * `bun run extension:install:opencode`, which symlinks this file into opencode's plugin directory
@@ -19,6 +17,15 @@
  */
 
 import type { Hooks, PluginInput, PluginModule } from "@opencode-ai/plugin";
+
+import { logLine } from "./node/log.ts";
+
+/** The heartbeat interval while working; the default keeps a window that lost its reporter from
+ * saying "working" for long, and `0` disables it. `CORVI_STATUS_HEARTBEAT_MS` overrides it. */
+const heartbeatMs = (): number => {
+  const value = Number(process.env.CORVI_STATUS_HEARTBEAT_MS);
+  return Number.isFinite(value) && value >= 0 ? value : 20_000;
+};
 
 /** The events opencode sends its plugins, derived from the hook signature so this file needs no
  * second dependency on the SDK package. */
@@ -78,32 +85,63 @@ export const trackAnswer = (): AnswerTracker => {
 const reporter: PluginModule = {
   id: "corvi-agent-state",
   server: async (input: PluginInput): Promise<Hooks> => {
-    // The pane this instance was started in, fixed for the life of the process: opencode runs one
-    // server process per instance, and each sees its own `TMUX_PANE`. Unset outside tmux, where
-    // there is nothing to publish to.
-    const pane = process.env.TMUX_PANE;
+    // Where this reporter can publish: a Corvi host session (the CLI/HTTP channel, identity from
+    // the pty environment). Outside one there is nothing to publish to.
+    const sessionId = process.env.CORVI_SESSION_ID;
+    const inCorvi = sessionId !== undefined && sessionId !== "";
 
-    const publish = (option: string, value: string | undefined): void => {
-      if (!pane) return;
-      // Fire and forget: a failing tmux (no server, pane gone) must not disturb the session. The
-      // shell escapes interpolations, so a session name with spaces is one argument.
-      void (value
-        ? input.$`tmux set -p -t ${pane} ${option} ${value}`
-        : input.$`tmux set -p -t ${pane} -u ${option}`
-      ).catch(() => {});
+    /** A failed publish is logged, not swallowed: a reporter that cannot reach the server should
+     * say so somewhere the agent's operator can see. */
+    const logFailure = (error: unknown): void => {
+      logLine(`status publish failed: ${error instanceof Error ? error.message : String(error)}`);
     };
 
-    const publishState = (state: "working" | "waiting"): void => publish("@agent_status", state);
-
-    /** The session's display name, once opencode has one: it is what the window should be called
-     * outside, instead of the repository and the fact that opencode is in it. */
-    const publishName = (title: string | undefined): void =>
-      publish("@agent_session_name", title?.trim() || undefined);
-
+    let state: "working" | "waiting" = "waiting";
+    let title: string | undefined;
     /** The last answer's first sentence: what a notification says after the session's name — the
      * difference between "PROJ-1681 is waiting" and knowing why. */
     const answer = trackAnswer();
-    const publishSay = (): void => publish("@agent_last_message", firstSentence(answer.answer()) || undefined);
+    const note = (): string | undefined => firstSentence(answer.answer()) || undefined;
+
+    /** Publish the whole status. Fire-and-forget: a server or host that is gone must not disturb
+     * the agent loop. */
+    const publish = (): void => {
+      if (!inCorvi) return;
+      const message = note();
+      const args = [
+        "status",
+        state,
+        "--name",
+        "opencode",
+        ...(title ? ["--session-name", title] : []),
+        ...(message ? ["--message", message] : []),
+      ];
+      void input.$`corvi ${args}`.catch(logFailure);
+    };
+
+    // While working, re-publish on an interval: a reporter that dies mid-turn would otherwise leave
+    // the window saying "working" forever. The server also treats an old `working` as stale.
+    // `CORVI_STATUS_HEARTBEAT_MS=0` disables it.
+    let heartbeat: ReturnType<typeof setInterval> | undefined;
+    const stopHeartbeat = (): void => {
+      if (heartbeat === undefined) return;
+      clearInterval(heartbeat);
+      heartbeat = undefined;
+    };
+    const startHeartbeat = (): void => {
+      stopHeartbeat();
+      const ms = heartbeatMs();
+      if (!inCorvi || ms === 0) return;
+      heartbeat = setInterval(publish, ms);
+      heartbeat.unref?.();
+    };
+    /** Move to `next`, keeping the heartbeat on only while working, and publish. */
+    const setState = (next: "working" | "waiting"): void => {
+      state = next;
+      if (next === "working") startHeartbeat();
+      else stopHeartbeat();
+      publish();
+    };
 
     // Subagent runs are real child sessions of their own and report their own busy/idle cycles
     // inside the parent's run; they are not this window waiting for you. Their session ids arrive
@@ -113,9 +151,7 @@ const reporter: PluginModule = {
 
     // A session that has just started is waiting for its first prompt, and has said nothing yet —
     // the same opening state pi reports on `session_start`.
-    publish("@agent_name", "opencode");
-    publishState("waiting");
-    publishSay();
+    publish();
 
     return {
       event: async ({ event }: { event: HookEvent }): Promise<void> => {
@@ -128,8 +164,7 @@ const reporter: PluginModule = {
                 // A new prompt: a run is on, and the previous answer is no longer the news.
                 if (info.summary) return; // a generated summary, not a prompt
                 answer.clear();
-                publishSay();
-                publishState("working");
+                setState("working");
               } else if (!info.summary) {
                 answer.begin(info.id);
               }
@@ -145,23 +180,20 @@ const reporter: PluginModule = {
               if (isChild(event.properties.sessionID)) return;
               // busy, or retrying: a run is in flight or on its way back. A retry is not "waiting
               // for you" — pi's settled-vs-ended distinction says the same.
-              publishState(status.type === "idle" ? "waiting" : "working");
-              if (status.type === "idle") publishSay();
+              setState(status.type === "idle" ? "waiting" : "working");
               return;
             }
             case "session.idle": {
               // The deprecated twin of `session.status` idle; both may arrive, and settling twice
               // changes nothing.
               if (isChild(event.properties.sessionID)) return;
-              publishState("waiting");
-              publishSay();
+              setState("waiting");
               return;
             }
             case "session.error": {
               // An error wants you — the attention is the same waiting state, and the last answer
               // is still what it said before failing.
-              publishState("waiting");
-              publishSay();
+              setState("waiting");
               return;
             }
             case "session.created":
@@ -172,7 +204,8 @@ const reporter: PluginModule = {
                 children.delete(info.id);
                 // Naming happens as the conversation goes — opencode titles a session after the
                 // first exchange — so the name is published whenever it changes.
-                publishName(info.title);
+                title = info.title?.trim() || undefined;
+                publish();
               }
               return;
             }
@@ -187,10 +220,10 @@ const reporter: PluginModule = {
         }
       },
       dispose: async (): Promise<void> => {
-        // Leaving the pane to a plain shell: it is not waiting for you, it is not there at all.
-        for (const option of ["@agent_status", "@agent_name", "@agent_session_name", "@agent_last_message"]) {
-          publish(option, undefined);
-        }
+        stopHeartbeat();
+        // Leaving the session: it is not waiting for you, it is not there at all.
+        if (!inCorvi) return;
+        void input.$`corvi status clear`.catch(logFailure);
       },
     };
   },

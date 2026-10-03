@@ -1,6 +1,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { apiClient, type Change, type RepoState, type Selection } from "../../app-root/api.ts";
+import {
+  apiClient,
+  type Change,
+  type ProvisionResult,
+  type RepoState,
+  type Selection,
+} from "../../app-root/api.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 
 /**
@@ -28,7 +34,7 @@ export function EditReposDialog({
   workspace?: string;
   open: boolean;
   onClose: () => void;
-  onSaved: (change: Change) => void;
+  onSaved: (change: Change, provision?: readonly ProvisionResult[]) => void;
 }): JSX.Element {
   const ref = useRef<HTMLDialogElement>(null);
   const [current, setCurrent] = useState<RepoState[]>([]);
@@ -66,7 +72,9 @@ export function EditReposDialog({
     setError(null);
     apiClient
       .changes.setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
-      .then(onSaved)
+      // The edit applies and the dialog closes; what the checkouts then reported goes to the
+      // dashboard's banner, and a failed row offers its own action as the retry.
+      .then((saved) => onSaved(saved.change, saved.provision))
       .catch((e: unknown) => {
         const needsForce = (e as { body?: { needsForce?: string[] } }).body?.needsForce;
         // Work worth a look before it goes: ask once, then repeat the same edit with force.

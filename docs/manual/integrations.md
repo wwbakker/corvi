@@ -15,9 +15,13 @@ The change wizard lists sprint issues and backlog issues, with assignee/status/s
 You can select an existing issue, create one, or skip the step. Jira and GitHub issues can both
 be associated with a change.
 
-Starting work moves the issue to the configured start transition. Completing moves it to the done
-transition. Corvi asks Jira which transitions are available; an unavailable transition reports
-the available choices instead of silently succeeding. Cancelling does not move or close the issue.
+A linked issue is assigned to you from the moment it is linked — at creation and when the link is
+re-pointed — rather than at the start. Starting work moves the issue to the configured start
+transition and, when it waits in the backlog, onto the board's active sprint (with several active
+sprints, the one with the latest start date; an issue already in a sprint stays where it is).
+Completing moves it to the done transition. Corvi asks Jira which transitions are available; an
+unavailable transition reports the available choices instead of silently succeeding. Cancelling
+does not move or close the issue.
 
 Useful environment settings include:
 

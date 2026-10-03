@@ -27,11 +27,14 @@ import {
   issuesByKeys,
   listSprints,
   moveIssue,
+  moveIssueToActiveSprint,
   siteFor,
   siteOf,
   siteOfWorkspace,
   ticketOf,
 } from "@corvi/jira/jira";
+import { assignIssue, moveIssueOnStart } from "@corvi/jira";
+import { assignTicketOnCreate, startTicket } from "../apps/server/src/change/tickets.ts";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
 import { checkoutsOf, legacyConfig, runEffect, testTempDir  } from "./helpers.ts";
@@ -1252,4 +1255,168 @@ test("the link route 404s an unknown change and refuses a body with no key", asy
     ),
   );
   expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
+});
+
+// --- assign when linked, sprint when started ----------------------------------------------------
+
+const ticketed = (): Change => change({ extensions: { jira: { key: "PROJ-1" } } });
+
+/** The endpoints starting work walks, scripted: the account, the assign, the status read and
+ * transition, the backlog question, the active sprints, and the move into one. */
+const startStub = (options: {
+  readonly backlog?: boolean;
+  readonly sprints?: { id: number; name: string; state: string; startDate?: string | null }[];
+  readonly sprintMoveStatus?: number;
+}): void =>
+  stubFetch((url, init) => {
+    const method = init?.method ?? "GET";
+    if (url.pathname === "/rest/api/3/myself") return json({ accountId: "acc-me" });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/assignee" && method === "PUT") return noContent();
+    if (url.pathname === "/rest/api/3/issue/PROJ-1" && method === "GET")
+      return json({ key: "PROJ-1", fields: { status: { name: "To Do" }, summary: "Fix it" } });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "GET")
+      return json({ transitions: [{ id: "31", name: "Start work", to: { name: "In Progress" } }] });
+    if (url.pathname === "/rest/api/3/issue/PROJ-1/transitions" && method === "POST") return noContent();
+    if (url.pathname === "/rest/api/3/search/jql")
+      return json({ issues: options.backlog === false ? [] : [{ key: "PROJ-1" }] });
+    if (url.pathname === "/rest/agile/1.0/board/169/sprint")
+      return json({ values: options.sprints ?? [] });
+    // Jira's move endpoint is singular /issue; the plural /issues route does not exist.
+    if (/^\/rest\/agile\/1\.0\/sprint\/\d+\/issue$/.test(url.pathname) && method === "POST")
+      return options.sprintMoveStatus && options.sprintMoveStatus >= 400
+        ? text("sprint refused", options.sprintMoveStatus)
+        : noContent();
+    return text(`unexpected ${method} ${url.pathname}`, 404);
+  });
+
+test("a linked ticket is assigned to me from the moment it is linked", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("assign-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({});
+
+  const result = await runEffect(assignIssue(ticketed()));
+  expect(result.detail).toBe("assigned to me");
+  const assign = fetchCalls.find((c) => c.url.pathname.endsWith("/assignee"))!;
+  expect(assign.init?.method).toBe("PUT");
+  // "Me" is the token's own account when nothing is configured.
+  expect(JSON.parse(assign.init?.body as string)).toEqual({ accountId: "acc-me" });
+
+  // A change with no linked ticket is nothing to assign, and asks Jira nothing.
+  fetchCalls.length = 0;
+  const none = await runEffect(assignIssue(change()));
+  expect(none.detail).toBe("no issue linked");
+  expect(fetchCalls.length).toBe(0);
+
+  // And the glue reports no jira step at all for a ticketless change — creation and start say
+  // the same thing: nothing to do is no step, not a step that did nothing.
+  fetchCalls.length = 0;
+  expect(await runEffect(assignTicketOnCreate(change()))).toEqual([]);
+  expect(await runEffect(startTicket(change()))).toEqual([]);
+  expect(fetchCalls.length).toBe(0);
+});
+
+test("creation reports a failed assignment instead of failing", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("assign-fail-ws")];
+  legacyConfig().jiraAssignee = "";
+  stubFetch((url, init) =>
+    url.pathname === "/rest/api/3/myself" && (init?.method ?? "GET") === "GET"
+      ? json({ accountId: "acc-me" })
+      : text("assignee refused", 500),
+  );
+
+  // The change is written either way: the ticket step reports under its name and never throws
+  // the creation away.
+  const reports = await runEffect(assignTicketOnCreate(ticketed()));
+  expect(reports).toHaveLength(1);
+  expect(reports[0]!.integration).toBe("jira");
+  expect(reports[0]!.ok).toBe(false);
+  expect(reports[0]!.error).toContain("assignee refused");
+});
+
+test("starting work takes a backlog ticket into the active sprint with the latest start date", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("start-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({
+    sprints: [
+      { id: 1, name: "Sprint 1", state: "active", startDate: "2026-01-01T00:00:00.000Z" },
+      { id: 2, name: "Sprint 2", state: "active", startDate: "2026-02-04T00:00:00.000Z" },
+      { id: 3, name: "Sprint 3", state: "active", startDate: "2026-02-01T00:00:00.000Z" },
+    ],
+  });
+
+  const result = await runEffect(moveIssueOnStart(ticketed()));
+  expect(result.detail).toBe("In Progress · moved to Sprint 2");
+
+  const moved = fetchCalls.find((c) => c.url.pathname === "/rest/agile/1.0/sprint/2/issue")!;
+  expect(moved).toBeDefined();
+  expect(moved.init?.method).toBe("POST");
+  expect(JSON.parse(moved.init?.body as string)).toEqual({ issues: ["PROJ-1"] });
+  expect(fetchCalls.some((c) => c.url.pathname.endsWith("/issues"))).toBe(false);
+  // Only active sprints were candidates.
+  const listed = fetchCalls.find((c) => c.url.pathname === "/rest/agile/1.0/board/169/sprint")!;
+  expect(listed.url.searchParams.get("state")).toBe("active");
+  // The transition went too.
+  const transition = fetchCalls.find(
+    (c) => c.url.pathname.endsWith("/transitions") && c.init?.method === "POST",
+  )!;
+  expect(JSON.parse(transition.init?.body as string)).toEqual({ transition: { id: "31" } });
+});
+
+test("only a backlog ticket moves: one already in a sprint stays put", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("start-sprinted-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({ backlog: false, sprints: [{ id: 5, name: "Sprint 5", state: "active" }] });
+
+  const result = await runEffect(moveIssueOnStart(ticketed()));
+  expect(result.detail).toBe("In Progress · left in its sprint");
+  expect(fetchCalls.some((c) => c.url.pathname.includes("/sprint/5/issue"))).toBe(false);
+});
+
+test("with no active sprint the ticket stays in the backlog, and that is not a failure", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("no-sprint-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({ sprints: [] });
+
+  const result = await runEffect(moveIssueOnStart(ticketed()));
+  expect(result.detail).toBe("In Progress · left in the backlog: no active sprint");
+  expect(fetchCalls.some((c) => c.init?.method === "POST" && c.url.pathname.includes("/sprint/"))).toBe(
+    false,
+  );
+});
+
+test("a failed sprint move says what happened after the status moved", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("sprint-fail-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }], sprintMoveStatus: 500 });
+
+  await expect(runEffect(moveIssueOnStart(ticketed()))).rejects.toThrow(
+    /is In Progress, but the sprint move failed/,
+  );
+  // The transition is the move that matters, and it happened.
+  expect(
+    fetchCalls.some((c) => c.url.pathname.endsWith("/transitions") && c.init?.method === "POST"),
+  ).toBe(true);
+});
+
+test("equal start dates fall to the later sprint id", async () => {
+  setEnv("JIRA_API_TOKEN", "secret");
+  runtimeConfig().workspaces = [jiraWorkspace("tie-ws")];
+  legacyConfig().jiraAssignee = "";
+  startStub({
+    sprints: [
+      { id: 7, name: "Older id", state: "active", startDate: "2026-02-01T00:00:00.000Z" },
+      { id: 9, name: "Newer id", state: "active", startDate: "2026-02-01T00:00:00.000Z" },
+    ],
+  });
+
+  const moved = await runEffect(
+    moveIssueToActiveSprint("PROJ-1", siteOfWorkspace(runtimeConfig(), jiraWorkspace("tie-ws"))),
+  );
+  expect(moved.detail).toBe("moved to Newer id");
 });

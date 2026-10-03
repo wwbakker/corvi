@@ -55,7 +55,7 @@ beforeAll(async () => {
   await runSh(["git", "add", "."], repo);
   await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], repo);
 
-  // serverEnv gives the file its own changes, config, page build, cache and tmux socket, and
+  // serverEnv gives the file its own changes, config, page build and cache, and
   // port 0: the OS picks a free one, so parallel workers never collide. Readiness is the
   // server's own `corvi on <url>` line.
   server = Bun.spawn(["node", "apps/server/src/server.ts", `--corvi-test-run=${testRun()}`], {
@@ -857,10 +857,11 @@ test.skipIf(!usable)("the change's tabs are the plan first, and the overview sta
   await page.goto(`${url}/changes/${id}`, { waitUntil: "domcontentloaded" });
   expect(await page.locator(".change-bar .window-tab.overview.current").count()).toBe(1);
 
-  // Plan first, then the dashboard, then the extensions' tabs in load order.
+  // Plan first, then the dashboard and subagents, then the extensions' tabs in load order.
   expect((await page.locator(".change-tabs .tab").allInnerTexts()).map((s) => s.trim())).toEqual([
     "Plan",
     "Dashboard",
+    "Subagents",
     "Review changes",
   ]);
   expect((await page.locator(".change-tabs .tab.current").innerText()).trim()).toBe("Plan");
