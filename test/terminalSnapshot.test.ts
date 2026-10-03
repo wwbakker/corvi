@@ -272,7 +272,7 @@ test("flushScreens writes a dirty screen synchronously", async () => {
   expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
 }, 30_000);
 
-test("a quiet unattended screen is released and kept in the store", async () => {
+test("an unattended screen is released and kept in the store", async () => {
   process.env.CORVI_SCREEN_IDLE_MS = "1500";
   try {
     const session = await openSession("SNAP-IDLE", dir, { cols: 80, rows: 24 });
@@ -282,6 +282,26 @@ test("a quiet unattended screen is released and kept in the store", async () => 
     // The store keeps it, so a later attach reseeds rather than rebuilds; the shell itself is
     // untouched and still alive.
     expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("IDLE_MARK");
+    expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
+  } finally {
+    delete process.env.CORVI_SCREEN_IDLE_MS;
+  }
+}, 30_000);
+
+test("an unattended screen that never stops painting is still released", async () => {
+  process.env.CORVI_SCREEN_IDLE_MS = "1500";
+  try {
+    const session = await openSession("SNAP-BUSY", dir, { cols: 80, rows: 24 });
+    session.write("while :; do printf '\\033[2J\\033[H'; yes row | head -24; sleep 0.05; done\n");
+    // Prove it is painting, then let the grace pass: output must not postpone the release, or an
+    // agent that never stops repainting would be parsed forever with nobody watching.
+    await waitFor(
+      "the screen to be painting",
+      async () => ((await (await hostClient()).list()).find((entry) => entry.id === session.sessionId)?.lastSeq ?? 0) > 1000,
+      15_000,
+    );
+    await waitFor("the unattended screen to be released", async () => hubStats().hubs === 0, 15_000);
+    // The shell is untouched — only the server's screen and feed stopped.
     expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
   } finally {
     delete process.env.CORVI_SCREEN_IDLE_MS;

@@ -19,6 +19,7 @@ import { testTempDir, waitFor } from "./helpers.ts";
 // files of a run in one process).
 const savedEnv = {
   CORVI_HOST_RUNTIME: process.env.CORVI_HOST_RUNTIME,
+  CORVI_SCREEN_IDLE_MS: process.env.CORVI_SCREEN_IDLE_MS,
 };
 const restoreEnv = (): void => {
   for (const [key, value] of Object.entries(savedEnv)) {
@@ -27,6 +28,10 @@ const restoreEnv = (): void => {
   }
 };
 process.env.CORVI_HOST_RUNTIME = "node";
+// These tests reuse one `TerminalSession` across a detach and re-attach, which production does not
+// (a returning page opens a new socket, and `openSession` recreates a released screen). Hold the
+// screen long enough that the reuse stays valid and the test measures the hub, not the grace.
+process.env.CORVI_SCREEN_IDLE_MS = "120000";
 const dir = await testTempDir("hub");
 
 type SnapshotFrame = { readonly data: string; readonly offset: number };
@@ -118,7 +123,11 @@ test("the screen is fed with no page attached", async () => {
   };
   session.attach(first.send, first.snapshot, first.onExit);
   await waitFor("the snapshot", async () => first.snapshots.length > 0, 25_000);
-  expect(screenOf(first)).toContain("PRE_1_MARK");
+  // The screen was fed with no page, so the output is in the snapshot; if the host's last bytes
+  // were still in flight to the server when the attach serialized, they arrive as the immediate
+  // live bytes, which is the same screen. Either way the page sees it without a replay.
+  await waitFor("the mark on the screen", async () => (screenOf(first) + live(first)).includes("PRE_1_MARK"), 15_000);
+  expect(screenOf(first) + live(first)).toContain("PRE_1_MARK");
   expect(hubStats().attached).toBe(1);
   expect(hubStats().subscribers).toBe(1);
 
@@ -209,16 +218,17 @@ test("two concurrent attaches: the second is refused, and the screen keeps every
   expect(hubStats().subscribers).toBe(1);
   await waitFor("the stream to drain", async () => saw(one, "RACE-DONE"), 25_000);
 
-  // No byte was orphaned: the screen applied every byte the host emitted. A later attach's
-  // snapshot reports the offset it serialized, which must be the host's last emitted offset.
-  const total = (await (await hostClient()).list()).find((entry) => entry.id === a.sessionId)?.lastSeq ?? 0;
+  // No byte was orphaned: the screen applied every byte the host had emitted. Let the shell's
+  // prompt settle, then measure the host's last offset. The probe's snapshot reports the offset it
+  // serialized, which must be at least that — a byte left behind the attach would be lost.
   await Bun.sleep(300);
+  const total = (await (await hostClient()).list()).find((entry) => entry.id === a.sessionId)?.lastSeq ?? 0;
   a.kill();
   const c = await openSession("HUB-5", dir, { cols: 80, rows: 24 });
   const probe = collector();
   c.attach(probe.send, probe.snapshot, probe.onExit);
   await waitFor("the probe snapshot", async () => probe.snapshots.length > 0, 15_000);
-  expect(probe.snapshots[0]?.offset).toBe(total);
+  expect(probe.snapshots[0]?.offset).toBeGreaterThanOrEqual(total);
   expect(screenOf(probe)).toContain("RACE-DONE");
 }, 60_000);
 

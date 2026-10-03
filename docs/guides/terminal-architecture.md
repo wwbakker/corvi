@@ -48,10 +48,12 @@ opaque to it and is how the server re-associates windows after a restart.
 - `session.ts` — the WebSocket bridge and hub. One host attach per session for the life of its
   screen, not only while a page is attached; it feeds the screen, serves a page the serialized
   screen and then the live bytes, writes dirty screens to the store on a cadence and on shutdown,
-  and releases a screen no page has touched for a timeout. Server→page control is `snapshot`
-  (the replay), `reset` (an empty screen) and `exit`; the page sends binary keystrokes and
-  `resize`. It resizes the pty and the screen to the page's grid on attach, and detaching never
-  kills the shell.
+  and releases a screen no page has looked at for a short grace (10 s) — output does not postpone
+  it, which is the CPU bound for unattended windows. It coalesces host output per event-loop turn
+  into one screen write and one socket send, and re-syncs a page that falls too far behind rather
+  than buffering it without bound. Server→page control is `snapshot` (the replay), `reset` (an
+  empty screen) and `exit`; the page sends binary keystrokes and `resize`. It resizes the pty and
+  the screen to the page's grid on attach, and detaching never kills the shell.
 - `screen.ts` — the headless screen: a `@xterm/headless` terminal per `(sessionId, incarnation)`
   at the page's grid with 5,000 rows of scrollback, the serialize addon, a monotonic applied host
   offset, `seed(data, offset)` for a stored screen, and a 1 MiB serialization trim.

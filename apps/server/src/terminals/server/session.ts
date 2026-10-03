@@ -16,14 +16,15 @@
  * the host listener stays because the screen exists. The exit of the session ends the hub.
  *
  * Persistence: a screen is written to `./snapshots.ts` while it is dirty on a cadence, and
- * synchronously on a controlled shutdown. A screen with no page and no output for a timeout is
- * released — the store keeps it, so a later attach still resumes, and the server drops its host
- * attachment. (The host's own idle timeout is disabled while the server holds its connection, so
- * this release is what frees the host's interest; the host idles once the server exits.) On
- * creation a screen is seeded from the store and the host attaches from the stored offset; see
- * `hubFor` for the gap policy and its visible cost. "Exact" here is screen-content exact: the
- * serializer restores the text and the modes it knows, not every parser state, and the stored
- * offset can fall mid-escape.
+ * synchronously on a controlled shutdown. A screen with no page for a short grace is released —
+ * the store keeps it, so a later attach still resumes, and the server drops its host attachment.
+ * That grace is the CPU bound: a window is parsed while its startup is captured and while a page is
+ * looking, not for as long as its shell paints. (The host's own idle timeout is disabled while the
+ * server holds its connection, so this release is what frees the host's interest; the host idles
+ * once the server exits.) On creation a screen is seeded from the store and the host attaches from
+ * the stored offset; see `hubFor` for the gap policy and its visible cost. "Exact" here is
+ * screen-content exact: the serializer restores the text and the modes it knows, not every parser
+ * state, and the stored offset can fall mid-escape.
  *
  * The socket protocol, chosen so neither direction can be mistaken for the other:
  *
@@ -43,15 +44,21 @@ import { ensureActiveHostWindow, isKeptOpen } from "./windows.ts";
  * and a quiet one costs nothing. The shutdown flush makes the last moments exact regardless. A
  * test can shorten it with `CORVI_SCREEN_CADENCE_MS`. */
 const SNAPSHOT_CADENCE_MS = 5000;
-/** A screen with no page and no output for this long is released: the store keeps it for a later
- * attach, and the host is left holding nothing. A test can shorten it with `CORVI_SCREEN_IDLE_MS`. */
-const SCREEN_IDLE_MS = 5 * 60_000;
+/** A screen with no page is released this long after the last page left (or after it opened, when
+ * no page ever attached): the store keeps it for a later attach, and the host is left holding
+ * nothing. This is the CPU bound for unattended screens — a window is parsed while its startup is
+ * captured and while you are looking, not forever. A test can shorten it with
+ * `CORVI_SCREEN_IDLE_MS`. */
+const SCREEN_UNATTENDED_MS = 10_000;
+/** The largest batch of host bytes fed to the screen in one turn. A turn that reaches it flushes
+ * at once, so a flood cannot grow a batch without bound. */
+const MAX_BATCH_BYTES = 256 * 1024;
 /** The lifecycle sweep's tick: it decides whether each screen is due to persist or to be released.
  * Cheap (it iterates hubs), so the cadence and timeout can be read per tick. */
 const SWEEP_TICK_MS = 250;
 
 const cadenceMs = (): number => Number(process.env.CORVI_SCREEN_CADENCE_MS) || SNAPSHOT_CADENCE_MS;
-const idleMs = (): number => Number(process.env.CORVI_SCREEN_IDLE_MS) || SCREEN_IDLE_MS;
+const unattendedMs = (): number => Number(process.env.CORVI_SCREEN_IDLE_MS) || SCREEN_UNATTENDED_MS;
 
 const onBun = (process.versions as Record<string, string | undefined>).bun !== undefined;
 
@@ -104,8 +111,15 @@ type Hub = {
   attachingPage?: boolean;
   /** The screen changed since it was last written to the store. */
   dirty: boolean;
-  /** When the screen last saw a byte or a page, for the idle release. */
-  lastActivity: number;
+  /** Host bytes received but not yet fed to the screen, coalesced into one write/send per turn. */
+  pending: Held[];
+  /** The bytes in `pending`, for the batch bound. */
+  pendingBytes: number;
+  /** A flush is queued for this turn. */
+  flushScheduled: boolean;
+  /** When the last page left — or when the screen opened, if no page ever attached — for the
+   * unattended release. Undefined while a page is attached. */
+  unattendedSince?: number;
   /** When the screen was last written to the store, for the cadence. */
   lastPersist: number;
   /** The screen has been disposed; a stale `TerminalSession` must not attach to it. */
@@ -138,7 +152,10 @@ const hubFor = (
     received: 0,
     exited: false,
     dirty: false,
-    lastActivity: Date.now(),
+    pending: [],
+    pendingBytes: 0,
+    flushScheduled: false,
+    unattendedSince: Date.now(),
     lastPersist: 0,
   };
   // Seed the screen from the store when one exists for this exact incarnation. The host then
@@ -242,19 +259,22 @@ const releaseScreen = (hub: Hub): void => {
 const sweep = (): void => {
   const now = Date.now();
   const cadence = cadenceMs();
-  const idle = idleMs();
+  const unattended = unattendedMs();
   const due: { hub: Hub; input: SnapshotInput }[] = [];
   const empty: Hub[] = [];
   const releasing: Hub[] = [];
   for (const hub of [...hubs.values()]) {
     if (hub.attachingPage) continue; // an in-flight attach owns the screen right now
     const dueForCadence = hub.dirty && now - hub.lastPersist >= cadence;
-    const idleNow = hub.subscribers.size === 0 && now - hub.lastActivity >= idle;
-    if (!dueForCadence && !idleNow) continue;
+    // Unattended: no page has looked for the grace. Output does not postpone this — stopping the
+    // parse is the point — only a page does.
+    const unattendedNow =
+      hub.subscribers.size === 0 && hub.unattendedSince !== undefined && now - hub.unattendedSince >= unattended;
+    if (!dueForCadence && !unattendedNow) continue;
     const result = screenSnapshot(hub); // persist before releasing, so nothing is lost
     if (result === "empty") empty.push(hub);
     else if (result !== undefined) due.push({ hub, input: result });
-    if (idleNow) releasing.push(hub);
+    if (unattendedNow) releasing.push(hub);
   }
   if (due.length > 0) {
     setSnapshots(due.map((entry) => entry.input));
@@ -270,11 +290,18 @@ const sweep = (): void => {
 // The sweep is the only timer the module owns; it must not keep a test process alive.
 setInterval(sweep, SWEEP_TICK_MS).unref();
 
+/** Record attendance: a screen with a page is attended (its clock cleared); with none, the
+ * unattended clock runs from now, so the sweep releases it after the grace. */
+const noteAttendance = (hub: Hub): void => {
+  hub.unattendedSince = hub.subscribers.size > 0 ? undefined : Date.now();
+};
+
 /** Tell the hub's live client the session is gone and forget the hub — unless the window asked to
  * be kept open, whose frozen screen stays for a later look. */
 const finish = (hub: Hub): void => {
   const subscribers = [...hub.subscribers];
   hub.subscribers.clear();
+  noteAttendance(hub);
   release(hub);
   if (!isKeptOpen(hub.changeId, hub.id)) {
     hub.disposed = true;
@@ -332,6 +359,25 @@ const release = (hub: Hub): void => {
   hub.dataListener = undefined;
 };
 
+/** Feed one turn's host bytes to the screen and the page in a single write and a single send:
+ * fewer parser passes and frames than one per host chunk. Bounded: the listener flushes at once
+ * when the batch reaches `MAX_BATCH_BYTES`, so a flood cannot grow it without limit. */
+const flushHub = (hub: Hub): void => {
+  hub.flushScheduled = false;
+  if (hub.pending.length === 0 || hub.disposed === true) return;
+  const chunks = hub.pending;
+  hub.pending = [];
+  hub.pendingBytes = 0;
+  const first = chunks[0]!;
+  const bytes = chunks.length === 1 ? first.data : Buffer.concat(chunks.map((chunk) => chunk.data));
+  if (hub.hold !== undefined) {
+    hub.hold.push({ seq: first.seq, data: bytes });
+    return;
+  }
+  hub.screen.write(bytes, first.seq);
+  for (const subscriber of hub.subscribers) subscriber.send(bytes);
+};
+
 /** Attach to the host once, from the offset already received, and feed every byte to the screen.
  * The screen starts empty and the host replays its ring, so this is the session's whole history
  * the ring still holds; the first chunk's `seq` anchors the screen's offset. A failed attach
@@ -344,14 +390,15 @@ const ensureAttached = async (hub: Hub): Promise<void> => {
     if (!hub.exited) watchExit(hub, client);
     const listener: DataListener = (data, _incarnation, seq) => {
       hub.received = Math.max(hub.received, seq + data.length);
-      hub.lastActivity = Date.now();
       hub.dirty = true;
-      if (hub.hold !== undefined) {
-        hub.hold.push({ seq, data });
-        return;
+      hub.pending.push({ seq, data });
+      hub.pendingBytes += data.length;
+      if (!hub.flushScheduled) {
+        hub.flushScheduled = true;
+        setImmediate(() => flushHub(hub));
       }
-      hub.screen.write(data, seq);
-      for (const subscriber of hub.subscribers) subscriber.send(data);
+      // A turn already large enough is fed now rather than waiting: the batch stays bounded.
+      if (hub.pendingBytes >= MAX_BATCH_BYTES) flushHub(hub);
     };
     hub.dataListener = listener;
     client.onData(hub.id, listener);
@@ -395,7 +442,10 @@ const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
   hub.subscribers.clear();
   for (const old of superseded) old.onExit();
   hub.attachingPage = true;
-  hub.lastActivity = Date.now();
+  // Feed the current batch before holding anything: the cutoff below includes it, and a byte left
+  // pending would go into `hold` (which is only applied after the snapshot) and deadlock
+  // `whenApplied`. After this, only bytes that arrive later are held.
+  flushHub(hub);
   const cutoff = hub.received;
   hub.hold = [];
   try {
@@ -403,6 +453,7 @@ const subscribe = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     const { data, offset } = hub.screen.serialize();
     subscriber.snapshot({ data, offset });
     hub.subscribers.add(subscriber);
+    hub.unattendedSince = undefined;
     const held = hub.hold;
     hub.hold = undefined;
     for (const chunk of held) {
@@ -443,12 +494,20 @@ export type TerminalWebSocket = {
   readonly data: TerminalSocket;
   readonly send: (chunk: string | Uint8Array) => void;
   readonly close: () => void;
+  /** Bytes queued on the socket but not yet flushed; the page is behind when this grows. Absent on
+   * a test's fake socket. */
+  readonly bufferedAmount?: number;
 };
+
+/** When this much output is queued undelivered, the page is behind. It is re-synced — closed so it
+ * reconnects to a fresh snapshot — rather than buffered without bound, which is what keeps a slow
+ * consumer from growing the server's memory and pinning it. */
+const WS_BACKPRESSURE_BYTES = 1 << 20;
 
 /** Create the server screen for a host window (idempotent) and start feeding it. Called when the
  * window is *opened*, not only when a page attaches: a window with no page (a subagent, a command)
  * must capture its startup before the host's ring can evict it, or a page attaching later would
- * miss the base. The idle release is what drops a screen no page ever attaches to. */
+ * miss the base. The unattended release is what drops a screen no page ever attaches to. */
 export const ensureScreen = async (
   changeId: string,
   sessionId: string,
@@ -457,7 +516,6 @@ export const ensureScreen = async (
 ): Promise<void> => {
   const client = await hostClient();
   const hub = hubFor(changeId, sessionId, incarnation, size);
-  hub.lastActivity = Date.now();
   hub.screen.resize(size.cols, size.rows);
   watchExit(hub, client);
   await ensureAttached(hub);
@@ -506,9 +564,10 @@ export const openSession = async (
       if (subscriber === undefined) return;
       hub.subscribers.delete(subscriber);
       subscriber = undefined;
-      hub.lastActivity = Date.now();
       // The last page leaving leaves the screen and the host listener: the screen belongs to the
-      // session, not to the page. The idle sweep releases it only after a quiet timeout.
+      // session, not to the page. The sweep releases it after the unattended grace, which is what
+      // stops an unwatched screen from being parsed forever.
+      noteAttendance(hub);
     },
   };
 };
@@ -558,7 +617,15 @@ export const terminalSockets = {
   open(ws: TerminalWebSocket): void {
     const { session } = ws.data;
     session.attach(
-      (chunk) => ws.send(chunk),
+      (chunk) => {
+        // A page that cannot keep up is re-synced from the screen rather than buffered without
+        // bound: close it (no `exit`) and its reconnect gets a fresh snapshot.
+        if ((ws.bufferedAmount ?? 0) > WS_BACKPRESSURE_BYTES) {
+          ws.close();
+          return;
+        }
+        ws.send(chunk);
+      },
       ({ data }) => {
         if (data === "") {
           ws.send(JSON.stringify({ type: "reset", incarnation: session.incarnation, sessionId: session.sessionId }));
