@@ -13,6 +13,8 @@ import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { devicesRoutes } from "./devices/routes.ts";
+import { gatewayRoutes } from "./gateway/routes.ts";
+import { gatewaySockets, isGatewaySocket, type GatewaySocket } from "./gateway/server/index.ts";
 import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
 import { tailscaleRoutes } from "./tailscale/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
@@ -103,6 +105,7 @@ const routes: Record<string, unknown> = {
   ...repositoriesRoutes,
   ...dashboardRoutes,
   ...devicesRoutes,
+  ...gatewayRoutes,
   ...eventsRoutes,
   ...integrationRoutes,
   ...settingsRoutes,
@@ -111,14 +114,29 @@ const routes: Record<string, unknown> = {
   ...terminalsRoutes,
   ...workspaceRoutes,
 };
+// A socket is either a terminal session or a gateway bridge; the handlers dispatch on the
+// connection's own data, so both kinds share the one server and the one `ws` dependency.
+type ServerSocketData = TerminalSocket | GatewaySocket;
+
 const websocket = {
-  open: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.open(ws),
-  message: (ws: ServerWebSocket<TerminalSocket>, message: string | Uint8Array) =>
-    terminalSockets.message(ws, message),
-  close: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.close(ws),
+  open: (ws: ServerWebSocket<ServerSocketData>) => {
+    if (isGatewaySocket(ws.data)) gatewaySockets.open(ws as ServerWebSocket<GatewaySocket>);
+    else terminalSockets.open(ws as ServerWebSocket<TerminalSocket>);
+  },
+  message: (ws: ServerWebSocket<ServerSocketData>, message: string | Uint8Array) => {
+    if (isGatewaySocket(ws.data)) {
+      gatewaySockets.message(ws as ServerWebSocket<GatewaySocket>, message);
+    } else {
+      terminalSockets.message(ws as ServerWebSocket<TerminalSocket>, message);
+    }
+  },
+  close: (ws: ServerWebSocket<ServerSocketData>) => {
+    if (isGatewaySocket(ws.data)) gatewaySockets.close(ws as ServerWebSocket<GatewaySocket>);
+    else terminalSockets.close(ws as ServerWebSocket<TerminalSocket>);
+  },
 };
 
-const server = await serve<TerminalSocket>({
+const server = await serve<ServerSocketData>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env[env("PORT")] ?? 4000),

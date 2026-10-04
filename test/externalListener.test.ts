@@ -137,6 +137,8 @@ test("the local listener needs no token", async () => {
 test("the external listener refuses an api request with no token", async () => {
   const response = await fetch(url(external, "api/devices"));
   expect(response.status).toBe(401);
+  // The gateway to a remote workspace injects a token, so it is protected the same way.
+  expect((await fetch(url(external, "remote/some/api/x"))).status).toBe(401);
 });
 
 test("an unknown or revoked token is refused", async () => {

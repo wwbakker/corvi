@@ -78,10 +78,12 @@ export const authenticatedDevice = (request: Request): DeviceDto | undefined => 
 };
 
 /** Whether this request must present a token. The page and its assets are open — they carry no
- * data — and the redeem bootstrap is open because it is how a device gets a token. */
+ * data — while the API and the gateway to a remote workspace are not: the gateway injects the
+ * remote's device token, so it must not be an open proxy. The redeem bootstrap is open because
+ * it is how a device gets a token. */
 const requiresToken = (request: Request): boolean => {
   const { pathname } = new URL(request.url);
-  if (!pathname.startsWith("/api/")) return false;
+  if (!pathname.startsWith("/api/") && !pathname.startsWith("/remote/")) return false;
   // The router treats a trailing slash as the same path; this allowlist must too.
   const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
   return !(request.method === "POST" && PAIRING_PATHS.has(path));

@@ -110,13 +110,15 @@ const headersOf = (req: IncomingMessage): Headers => {
   return headers;
 };
 
-const toRequest = (req: IncomingMessage, url: string): Request => {
+const toRequest = (req: IncomingMessage, url: string, signal?: AbortSignal): Request => {
   const method = req.method ?? "GET";
   const withBody = method !== "GET" && method !== "HEAD";
   return new Request(url, {
     method,
     headers: headersOf(req),
     body: withBody ? (Readable.toWeb(req) as unknown as BodyInit) : undefined,
+    // The signal a proxy forwards upstream: aborted when the client goes away.
+    ...(signal === undefined ? {} : { signal }),
     // Required by Node for a streaming request body; absent from the DOM type.
     duplex: "half",
   } as RequestInit & { duplex: "half" });
@@ -191,8 +193,8 @@ export type Serving = {
 const requestUrl = (req: IncomingMessage): string =>
   `http://${req.headers.host ?? "127.0.0.1"}${req.url ?? "/"}`;
 
-/** A frame as the proxy expects it: text as it is, binary as bytes over a plain ArrayBuffer. */
-const frameOf = (data: RawData, isBinary: boolean): string | Uint8Array => {
+/** A frame as a bridge expects it: text as it is, binary as bytes over a plain ArrayBuffer. */
+export const frameOf = (data: RawData, isBinary: boolean): string | Uint8Array => {
   if (!isBinary) return data.toString();
   if (Buffer.isBuffer(data)) return new Uint8Array(data);
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -208,8 +210,12 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   const noUpgrade: Server = { upgrade: () => false };
 
   const server = createServer((req, res) => {
+    // The request's own lifetime drives the upstream fetch: when the client hangs up, the
+    // signal aborts and a proxy stops pulling from the remote.
+    const controller = new AbortController();
+    res.once("close", () => controller.abort());
     void (async () => {
-      const request = toRequest(req, requestUrl(req));
+      const request = toRequest(req, requestUrl(req), controller.signal);
       const refused = await options.authorize?.(request);
       if (refused) {
         await writeResponse(res, refused);
@@ -231,6 +237,9 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
       }
       await writeResponse(res, response);
     })().catch((error: unknown) => {
+      // A client that hung up aborts its request; that is the normal end of it, not a failure
+      // worth logging (or a 500 to write to a socket that is gone).
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       console.error("request failed:", error);
       if (!res.headersSent) res.writeHead(500);
       res.end();
