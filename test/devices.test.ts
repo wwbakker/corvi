@@ -113,6 +113,15 @@ test("a device can be revoked, and revoking an unknown one is not found", async 
   expect(missing._tag).toBe("Left");
 });
 
+test("revoking a device invalidates outstanding pairing codes", async () => {
+  const { device } = await pair("To revoke");
+  const pending = await runEffect(createPairingCode());
+  await runEffect(revokeDevice(device.id));
+  // The code minted before the revocation must not mint a fresh device after it.
+  const outcome = await runEffect(Effect.either(redeemPairingCode({ code: pending.code })));
+  expect(outcome._tag).toBe("Left");
+});
+
 test("the raw token is stored as a hash and never returned by a read", async () => {
   const { device, token } = await pair();
   const text = await readFile(configPath(), "utf8");

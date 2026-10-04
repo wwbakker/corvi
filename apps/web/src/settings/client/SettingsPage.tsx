@@ -2,6 +2,7 @@ import { type JSX, useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
 import type { LeaveGuard } from "../../app-root/navigation.ts";
 import {
+  DEFAULT_REMOTE_ACCESS_PORT,
   DEFAULT_WORKSPACE,
   type ResolvedDto as Config,
   type WorkspaceDto,
@@ -20,6 +21,7 @@ import {
   MarkdownField,
   type KnownExtension,
 } from "./SettingsFields.tsx";
+import { RemoteAccessSection } from "./RemoteAccessSection.tsx";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -227,6 +229,8 @@ export function SettingsPage({
     { id: "window", label: "Window" },
     { id: "ideation", label: "Ideation" },
     { id: "environment", label: "Environment" },
+    // Remote access is a machine-level listener, not a workspace's setting: global scope only.
+    ...(scope === "global" ? [{ id: "remoteAccess", label: "Remote access" }] : []),
     { id: "extensions", label: "Extensions" },
   ];
   // An extension can be unloaded between saves; fall back to the first tab rather than to an
@@ -537,6 +541,22 @@ export function SettingsPage({
             onChange={(env) => setSetting("env", Object.keys(env).length ? env : undefined)}
           />
         </div>
+      )}
+
+      {active === "remoteAccess" && scope === "global" && (
+        <RemoteAccessSection
+          enabled={draft.remoteAccess?.enabled ?? false}
+          port={draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT}
+          bindStatus={view.remoteAccessStatus}
+          onEnabledChange={(enabled) =>
+            set({
+              remoteAccess: { enabled, port: draft.remoteAccess?.port ?? DEFAULT_REMOTE_ACCESS_PORT },
+            })
+          }
+          onPortChange={(port) =>
+            set({ remoteAccess: { enabled: draft.remoteAccess?.enabled ?? false, port } })
+          }
+        />
       )}
 
       {active === "extensions" && (

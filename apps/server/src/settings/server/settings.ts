@@ -25,7 +25,7 @@ import { redactDeviceHashes } from "./deviceSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { RemoteAccess } from "@corvi/contracts/config";
 import { invalidate } from "../../capabilities/cache.ts";
-import { runtimeRemoteAccessStatus } from "../../capabilities/runtime.ts";
+import { runtimeReconcileRemoteAccess, runtimeRemoteAccessStatus } from "../../capabilities/runtime.ts";
 import { TOOLING } from "../../capabilities/os.ts";
 
 /**
@@ -181,6 +181,9 @@ export const writeSettings = (
     );
 
     yield* reloadConfig;
+    // Remote access is a listener, not just a value: a save that toggles it or moves its port
+    // brings the external listener in line now, without a restart.
+    yield* runtimeReconcileRemoteAccess();
     // The retired names fold into the extensions' own settings, in memory as on disk —
     // a page save is also a migration.
     migrateExtensionSettings(runtimeConfig().workspaces);

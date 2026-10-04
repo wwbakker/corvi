@@ -144,6 +144,9 @@ export const revokeDevice = (id: string): Effect.Effect<DeviceViewDto, NotFoundE
     if (revoked === undefined) {
       return yield* new NotFoundError({ message: `no such device: ${id}` });
     }
+    // Revocation ends the trust already handed out: an outstanding pairing code must not create a
+    // fresh device after it.
+    pairingCodes.clear();
     yield* reloadConfig;
     return revoked;
   });

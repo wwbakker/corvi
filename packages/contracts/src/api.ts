@@ -494,6 +494,8 @@ export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type
 export const RemoteAccessStatusSchema = Schema.Struct({
   enabled: Schema.Boolean,
   listening: Schema.Boolean,
+  /** The loopback port the listener is actually bound to (the ephemeral one for port 0). */
+  port: Schema.optional(Schema.Number),
   url: Schema.optional(Schema.String),
   error: Schema.optional(Schema.String),
 })

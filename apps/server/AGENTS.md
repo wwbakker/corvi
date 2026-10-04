@@ -8,11 +8,16 @@ HTTP, SSE and WebSocket hosting, and the backend composition: the capability lay
 integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
 them).
 
-`src/devices` owns device identity, pairing and token authentication. `src/server.ts` starts the
-optional external listener (a second loopback port, off by default) with the same route table
-and an `authorize` hook that requires a device token on every `/api/*` request, and on WebSocket
-upgrades, except the redeem bootstrap; the local listener stays tokenless. A bind failure
-degrades to local-only and is reported through the settings view's `remoteAccessStatus`.
+`src/devices` owns device identity, pairing and token authentication. `src/remote-access` owns
+the external listener's lifecycle: `src/server.ts` installs it and the settings write reconciles
+it, so toggling remote access starts, stops or restarts the second loopback listener without a
+process restart. It serves the same route table with an `authorize` hook that requires a device
+token on every `/api/*` request, and on WebSocket upgrades, except the redeem bootstrap; the
+local listener stays tokenless. A bind failure degrades to local-only and is reported through
+the settings view's `remoteAccessStatus`. `src/tailscale` publishes that loopback port with
+`tailscale serve` and reports the tailnet URL; it never runs `off` on a 443 tree that also holds
+someone else's handler, refuses to displace a mapping that is not ours, and tracks the port it
+published so unpublish still finds it after the configured port moves.
 
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 

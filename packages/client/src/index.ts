@@ -12,6 +12,7 @@ import { makeRepositoriesApi, type RepositoriesApi } from "./repositories.ts"
 import { makeServerApi, type ServerApi } from "./server.ts"
 import { makeSettingsApi, type SettingsApi } from "./settings.ts"
 import { makeSubagentsApi, type SubagentsApi } from "./subagents.ts"
+import { makeTailscaleApi, type TailscaleApi } from "./tailscale.ts"
 import { makeTerminalsApi, type TerminalsApi } from "./terminals.ts"
 import { makeUpdateApi, type UpdateApi } from "./update.ts"
 import { makeWizardApi, type WizardApi } from "./wizard.ts"
@@ -28,6 +29,7 @@ export interface CorviClient {
   readonly settings: SettingsApi
   readonly actions: ActionsApi
   readonly subagents: SubagentsApi
+  readonly tailscale: TailscaleApi
   readonly update: UpdateApi
   readonly server: ServerApi
 }
@@ -44,6 +46,7 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
     settings: makeSettingsApi(send),
     actions: makeActionsApi(send),
     subagents: makeSubagentsApi(send),
+    tailscale: makeTailscaleApi(send),
     update: makeUpdateApi(send),
     server: makeServerApi(send),
   }

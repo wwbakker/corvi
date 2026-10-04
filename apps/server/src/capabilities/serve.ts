@@ -178,7 +178,14 @@ export type ServeOptions<Data> = {
   authorize?: (request: Request) => Response | undefined | Promise<Response | undefined>;
 };
 
-export type Serving = { url: URL; port: number; stop: () => void };
+export type Serving = {
+  url: URL;
+  port: number;
+  /** Whether the listener is still accepting connections (false once `stop` ran, or after an
+   * unexpected close). */
+  isListening: () => boolean;
+  stop: () => void;
+};
 
 /** The URL a request arrived on: what the Response's `url` is built from. */
 const requestUrl = (req: IncomingMessage): string =>
@@ -293,6 +300,7 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   return {
     url: new URL(`http://${hostname}:${port}/`),
     port,
+    isListening: () => server.listening,
     stop: () => {
       wss.close();
       server.close();

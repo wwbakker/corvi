@@ -22,6 +22,13 @@ export type Runtime = {
   /** Whether the external listener is actually running; the settings page reads it. Set by the
    * entrypoint after it binds (or fails to). */
   readonly remoteAccessStatus: RemoteAccessStatusDto;
+  /** The loopback port Corvi actually published through `tailscale serve`, when it did. Runtime
+   * state, not config: it lets unpublish remove the mapping it made even after the configured
+   * port changed. */
+  readonly tailscalePublishedPort: number | undefined;
+  /** Bring the external listener in line with the current config. The entrypoint installs the
+   * real one; the default does nothing, so a test or script that never starts a server is safe. */
+  readonly reconcileRemoteAccess: () => Effect.Effect<void>;
 };
 
 let current: Runtime | undefined;
@@ -34,6 +41,8 @@ const runtime = (): Runtime =>
     config: readConfig(),
     redeemLimiter: createRedeemLimiter(),
     remoteAccessStatus: { enabled: false, listening: false },
+    tailscalePublishedPort: undefined,
+    reconcileRemoteAccess: () => Effect.void,
   });
 
 
@@ -66,6 +75,20 @@ export const runtimeRemoteAccessStatus = (): RemoteAccessStatusDto => runtime().
 export const setRemoteAccessStatus = (status: RemoteAccessStatusDto): void => {
   current = { ...runtime(), remoteAccessStatus: status };
 };
+
+/** The port Corvi last published through `tailscale serve`, or undefined. */
+export const runtimeTailscalePublishedPort = (): number | undefined =>
+  runtime().tailscalePublishedPort;
+
+/** Record (or clear, with `undefined`) the port Corvi published. */
+export const setTailscalePublishedPort = (port: number | undefined): void => {
+  current = { ...runtime(), tailscalePublishedPort: port };
+};
+
+/** Bring the external listener in line with the config. The settings write calls this after a
+ * save, so toggling remote access takes effect without a restart. */
+export const runtimeReconcileRemoteAccess = (): Effect.Effect<void> =>
+  runtime().reconcileRemoteAccess();
 
 /** Refill the snapshot from the file. Sync, because the settings write path is synchronous and
  * the object identity must not change. */
