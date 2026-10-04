@@ -275,7 +275,15 @@ export const bridgeUpgrade = async (
     bridge.local?.close();
   });
 
-  if (srv.upgrade(req, { data: { gateway: bridge } })) return undefined;
+  if (
+    srv.upgrade(req, {
+      data: { gateway: bridge },
+      // The local handshake never completed: the upstream we opened must not be left behind.
+      onAbort: () => upstream.close(),
+    })
+  ) {
+    return undefined;
+  }
   upstream.close();
   return new Response("the websocket upgrade failed", { status: 400 });
 };

@@ -24,6 +24,8 @@ transport boundary.
   pairing create/redeem request and response schemas, and the cookie-only pair and session shapes
 - `@corvi/contracts/tailscale`: the external listener's Tailscale publication status
   (`available`, `running`, `dnsName`, `publishedUrl`, `error`)
+- `@corvi/contracts/events`: the event names and the `source` envelope a remote workspace's
+  events are multiplexed under on `/api/events`
 - `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
   remote workspaces (`RemoteWorkspace`: url, remote workspace id, device token), the devices
   paired to this server, and the remote-access setting

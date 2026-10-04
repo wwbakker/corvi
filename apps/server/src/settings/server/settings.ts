@@ -26,7 +26,11 @@ import { keepStoredRemoteTokens, redactRemoteTokens } from "./remoteSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { RemoteAccess } from "@corvi/contracts/config";
 import { invalidate } from "../../capabilities/cache.ts";
-import { runtimeReconcileRemoteAccess, runtimeRemoteAccessStatus } from "../../capabilities/runtime.ts";
+import {
+  runtimeReconcileRemoteAccess,
+  runtimeReconcileRemoteEvents,
+  runtimeRemoteAccessStatus,
+} from "../../capabilities/runtime.ts";
 import { TOOLING } from "../../capabilities/os.ts";
 
 /**
@@ -219,6 +223,9 @@ export const writeSettings = (
     // Remote access is a listener, not just a value: a save that toggles it or moves its port
     // brings the external listener in line now, without a restart.
     yield* runtimeReconcileRemoteAccess();
+    // Remote workspaces' event subscriptions follow the same rule: a save that adds, removes or
+    // retargets one starts or stops its stream now.
+    yield* runtimeReconcileRemoteEvents();
     // The retired names fold into the extensions' own settings, in memory as on disk —
     // a page save is also a migration.
     migrateExtensionSettings(runtimeConfig().workspaces);

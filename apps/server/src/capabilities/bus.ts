@@ -1,4 +1,5 @@
 import { Effect, Fiber } from "effect";
+import type { SourceEventDto } from "@corvi/contracts/events";
 import { runRoute } from "./effect/run.ts";
 import { guard, json } from "./web.ts";
 import { forgetWatchedNews, watch, type EventName } from "./watch.ts";
@@ -51,7 +52,11 @@ function stopWatcher(): void {
   Effect.runFork(Fiber.interrupt(fiber));
 }
 
-function broadcast(event: EventName, data = ""): void {
+/** Everything the local stream carries: the watched events, and the `source` envelope a remote
+ * workspace's events arrive under. */
+export type BusEvent = EventName | "source";
+
+function broadcast(event: BusEvent, data = ""): void {
   for (const client of clients) {
     try {
       client.send(event, data);
@@ -78,6 +83,16 @@ function forget(client: Client): void {
 export function announce(event: EventName): void {
   forgetWatchedNews(event);
   broadcast(event);
+}
+
+/** Re-emit a remote workspace's event on the local bus, under the one `source` name.
+ *
+ * The fan-in (`remote-events/`) is the only caller. Unlike `announce`, this does not touch the
+ * local watcher's dedup state: the event describes another server's state, and saying it again on
+ * the local watch would be a false local `changes`. */
+export function announceFromSource(source: string, event: EventName, data = ""): void {
+  const envelope: SourceEventDto = { source, event, data };
+  broadcast("source", JSON.stringify(envelope));
 }
 
 /**

@@ -66,7 +66,10 @@ export const terminalsRoutes = guard({
       return json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
     const data: TerminalSocket = { session };
-    if (srv.upgrade(req, { data: data as never })) return undefined;
+    // The pty is started before the handshake, so a malformed one leaves `handleUpgrade` without
+    // a callback: `onAbort` (fired when the raw socket closes first) is what kills it.
+    const options = { data: data as never, onAbort: () => session.kill() } as never;
+    if (srv.upgrade(req, options)) return undefined;
     session.kill(); // the upgrade never happened: nothing else will close the pty
     return new Response("upgrade failed", { status: 400 });
   },

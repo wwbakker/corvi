@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { createServer, type IncomingHttpHeaders } from "node:http";
-import type { AddressInfo } from "node:net";
+import { connect, type AddressInfo } from "node:net";
 import { WebSocket, WebSocketServer } from "ws";
 
 import { gatewayRoutes } from "../apps/server/src/gateway/routes.ts";
@@ -27,6 +27,7 @@ let redirectHits: number;
 let local: Serving;
 let seen: Seen[];
 let socketHeaders: IncomingHttpHeaders[];
+let upstreamSockets: number;
 
 const writeConfig = (value: unknown): void => {
   writeFileSync(configPath(), JSON.stringify(value));
@@ -50,6 +51,7 @@ const dispatch = {
 beforeAll(async () => {
   seen = [];
   socketHeaders = [];
+  upstreamSockets = 0;
   redirectHits = 0;
 
   // A server that records being fetched: a redirect the gateway refused must never reach it.
@@ -105,6 +107,10 @@ beforeAll(async () => {
   });
   const wss = new WebSocketServer({ server: upstream });
   wss.on("connection", (socket, req) => {
+    upstreamSockets += 1;
+    socket.on("close", () => {
+      upstreamSockets -= 1;
+    });
     socketHeaders.push(req.headers);
     socket.on("message", (data) => socket.send(`echo:${data.toString()}`));
   });
@@ -260,6 +266,36 @@ test("a redirect from the remote is refused, not followed", async () => {
   expect(response.status).toBe(502);
   // The off-origin target was never fetched with the token attached.
   expect(redirectHits).toBe(before);
+});
+
+test("a bad local handshake tears down the upstream socket it opened", async () => {
+  // `Upgrade: websocket` without a `Sec-WebSocket-Key`: the layer opens the upstream before the
+  // local handshake, and `handleUpgrade` never calls back — the raw close must clean it up.
+  const before = upstreamSockets;
+  const socket = connect(local.port, "127.0.0.1", () => {
+    socket.write(
+      [
+        "GET /remote/remote-client/api/chat HTTP/1.1",
+        "Host: 127.0.0.1",
+        "Connection: Upgrade",
+        "Upgrade: websocket",
+        "Sec-WebSocket-Version: 13",
+        "",
+        "",
+      ].join("\r\n"),
+    );
+  });
+  await new Promise<void>((resolve) => {
+    // The refusal comes back as a 400 (data) or a destroyed socket; either ends the wait.
+    socket.on("data", () => resolve());
+    socket.on("close", () => resolve());
+    socket.on("error", () => resolve());
+    setTimeout(resolve, 2000);
+  });
+  socket.destroy();
+  // The upstream that was opened for the aborted handshake is not left behind.
+  await Bun.sleep(200);
+  expect(upstreamSockets).toBe(before);
 });
 
 test("an unknown, local, or non-http(s) source does not proxy", async () => {

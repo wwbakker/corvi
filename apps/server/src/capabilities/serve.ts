@@ -18,9 +18,14 @@ import { WebSocketServer, type RawData, type WebSocket as WsSocket } from "ws";
  * shape `Bun.serve`'s `ServerWebSocket<T>` had, so the terminal socket's `ws.data` answers. */
 export type ServerWebSocket<Data> = WsSocket & { data: Data };
 
-/** What a handler's second argument offers: the one upgrade call the terminal proxy makes. */
+/** What a handler's second argument offers: the one upgrade call the terminal and gateway make.
+ * `onAbort` is called when the raw socket closes before the handshake completes (a client that
+ * sent `Upgrade` without valid WebSocket headers), so a bridge can tear down what it opened. */
 export type Server = {
-  upgrade: (request: Request, options?: { data?: unknown }) => boolean;
+  upgrade: (
+    request: Request,
+    options?: { data?: unknown; onAbort?: () => void },
+  ) => boolean;
 };
 
 type Handler = (
@@ -276,7 +281,16 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
         upgrade: (_request, upgradeOptions) => {
           if (upgraded) return false;
           upgraded = true;
+          // `handleUpgrade` calls back only on a valid handshake; a bad one closes or destroys the
+          // raw socket without it. The raw close is the only signal a bridge gets to clean up.
+          let completed = false;
+          const onClose = (): void => {
+            if (!completed) upgradeOptions?.onAbort?.();
+          };
+          raw.once("close", onClose);
           wss.handleUpgrade(req, raw, head, (ws) => {
+            completed = true;
+            raw.removeListener("close", onClose);
             const connection = ws as ServerWebSocket<Data>;
             connection.data = upgradeOptions?.data as Data;
             ws.on("message", (data: RawData, isBinary: boolean) =>

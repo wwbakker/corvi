@@ -16,6 +16,7 @@ import { devicesRoutes } from "./devices/routes.ts";
 import { gatewayRoutes } from "./gateway/routes.ts";
 import { gatewaySockets, isGatewaySocket, type GatewaySocket } from "./gateway/server/index.ts";
 import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
+import { makeRemoteEvents, type RemoteEvents } from "./remote-events/server.ts";
 import { tailscaleRoutes } from "./tailscale/routes.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
@@ -80,6 +81,8 @@ let instancePort: number | undefined;
 // The optional external (remote-access) listener, stopped with the local one. Constructed after
 // the route table exists, below.
 let remoteAccess: RemoteAccess | undefined;
+// The remote-event subscriptions, stopped with everything else.
+let remoteEvents: RemoteEvents | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     // Flush the screens to the store before the server takes its pty attachments with it; the host
@@ -87,6 +90,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     flushScreens();
     closeAttachments();
     remoteAccess?.stop();
+    remoteEvents?.stop();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())
       .catch(() => {})
@@ -155,6 +159,12 @@ const server = await serve<ServerSocketData>({
 remoteAccess = makeRemoteAccess({ routes, websocket });
 setRuntime({ reconcileRemoteAccess: remoteAccess.reconcile });
 await Effect.runPromise(remoteAccess.reconcile());
+
+// The remote-event fan-in: one SSE subscription per configured remote workspace, re-emitted on
+// the local bus. The settings write reconciles it too, so adding a workspace needs no restart.
+remoteEvents = makeRemoteEvents();
+setRuntime({ reconcileRemoteEvents: remoteEvents.reconcile });
+await Effect.runPromise(remoteEvents.reconcile());
 const remoteStatus = runtimeRemoteAccessStatus();
 
 instancePort = server.port;

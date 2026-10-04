@@ -16,6 +16,10 @@ drops the browser's Origin/Referer/Sec-Fetch-* on the way out (the remote's own 
 reject the local page's origin), refuses a redirect the remote tries to send it, and bounds the
 WebSocket bridge's buffering.
 
+`src/remote-events` is the event fan-in: it holds one SSE subscription per configured remote
+workspace (with its device token), re-emits what it hears on the local bus under the `source`
+envelope, reconnects with a bounded backoff, and reconciles from the settings write.
+
 `src/devices` owns device identity, pairing and token authentication. Pairing has two faces: the
 `pairing-codes/redeem` route returns the raw token for the gateway/CLI, and `pair` puts it in the
 HttpOnly cookie for the remote browser (which then bootstraps through `devices/session`). `src/remote-access` owns

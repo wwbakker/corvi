@@ -29,6 +29,9 @@ export type Runtime = {
   /** Bring the external listener in line with the current config. The entrypoint installs the
    * real one; the default does nothing, so a test or script that never starts a server is safe. */
   readonly reconcileRemoteAccess: () => Effect.Effect<void>;
+  /** Bring the remote-event subscriptions in line with the current config. The entrypoint
+   * installs the real one; the default does nothing. */
+  readonly reconcileRemoteEvents: () => Effect.Effect<void>;
 };
 
 let current: Runtime | undefined;
@@ -43,6 +46,7 @@ const runtime = (): Runtime =>
     remoteAccessStatus: { enabled: false, listening: false },
     tailscalePublishedPort: undefined,
     reconcileRemoteAccess: () => Effect.void,
+    reconcileRemoteEvents: () => Effect.void,
   });
 
 
@@ -89,6 +93,11 @@ export const setTailscalePublishedPort = (port: number | undefined): void => {
  * save, so toggling remote access takes effect without a restart. */
 export const runtimeReconcileRemoteAccess = (): Effect.Effect<void> =>
   runtime().reconcileRemoteAccess();
+
+/** Bring the remote-event subscriptions in line with the config. The settings write calls this
+ * after a save, so adding or removing a remote workspace takes effect at once. */
+export const runtimeReconcileRemoteEvents = (): Effect.Effect<void> =>
+  runtime().reconcileRemoteEvents();
 
 /** Refill the snapshot from the file. Sync, because the settings write path is synchronous and
  * the object identity must not change. */

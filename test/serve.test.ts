@@ -1,4 +1,5 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
+import { connect } from "node:net";
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 
 /**
@@ -68,4 +69,48 @@ test("a wildcard matches the rest of the path, and a trailing slash is the same 
 test("request bodies stream through", async () => {
   const response = await fetch(`${url}echo`, { method: "POST", body: "hello body" });
   expect(await response.text()).toBe("hello body");
+});
+
+test("an upgrade whose handshake never completes calls onAbort", async () => {
+  // A client that sends `Upgrade` without valid WebSocket headers: `handleUpgrade` never calls
+  // back, so the raw socket's close is the only signal a route gets to clean up what it opened.
+  let aborted = false;
+  const server = await serve({
+    port: 0,
+    routes: {
+      "/upgrade": (
+        req: Request,
+        srv: { upgrade: (req: Request, options?: { onAbort?: () => void }) => boolean },
+      ) =>
+        srv.upgrade(req, { onAbort: () => { aborted = true; } })
+          ? undefined
+          : new Response("no", { status: 400 }),
+    },
+  });
+  try {
+    const socket = connect(server.port, "127.0.0.1", () => {
+      socket.write(
+        [
+          "GET /upgrade HTTP/1.1",
+          "Host: 127.0.0.1",
+          "Connection: Upgrade",
+          "Upgrade: websocket",
+          "Sec-WebSocket-Version: 13",
+          "",
+          "",
+        ].join("\r\n"),
+      );
+    });
+    await new Promise<void>((resolve) => {
+      socket.on("data", () => resolve());
+      socket.on("close", () => resolve());
+      socket.on("error", () => resolve());
+      setTimeout(resolve, 2000);
+    });
+    socket.destroy();
+    await Bun.sleep(100);
+    expect(aborted).toBe(true);
+  } finally {
+    server.stop();
+  }
 });
