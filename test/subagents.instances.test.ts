@@ -428,3 +428,41 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
     15_000,
   );
 }, 30_000);
+
+test("await times out, never ready, while a claimed turn's reporter is still waiting", async () => {
+  const own = await isolatedChange();
+  const created = await run(createSubagent(own, { profile: "builtin:reviewer", prompt: "Review it" }, hostLauncher));
+  const savedPollMs = process.env.CORVI_SUBAGENT_POLL_MS;
+  try {
+    expect(created.presence).toBe("attached");
+    process.env.CORVI_SUBAGENT_POLL_MS = "60";
+    // The relay claims the message, leaving `inFlight`, before the reporter has caught up.
+    await run(nextForSubagent(own, created.id));
+    const entry = (await Effect.runPromise(liveSubagents(own.id))).get(created.id);
+    expect(entry).toBeDefined();
+    const session = (await (await hostClient()).list()).find((candidate) => candidate.id === entry?.window);
+    expect(session).toBeDefined();
+    // The reporter's status is pinned to `waiting` while the claimed turn is still running.
+    setStatus(entry!.window, session!.incarnation, {
+      state: "waiting",
+      name: "pi",
+      at: new Date().toISOString(),
+    });
+    // The claimed turn holds the await to the horizon: a stale `waiting` must never read ready
+    // while the turn is still running.
+    const awaited = await run(awaitReady(own, { ids: [created.id], mode: "any" }));
+    expect(awaited.status).toBe("timeout");
+    // The parked request was cleaned up when it timed out.
+    expect(waiterCount()).toBe(0);
+  } finally {
+    if (savedPollMs === undefined) delete process.env.CORVI_SUBAGENT_POLL_MS;
+    else process.env.CORVI_SUBAGENT_POLL_MS = savedPollMs;
+    // A regression (a false ready) must not leave the `sleep 30` host session behind.
+    await run(closeSubagent(own, created.id));
+    await waitFor(
+      "the subagent's host session to die",
+      async () => !(await Effect.runPromise(liveSubagents(own.id))).has(created.id),
+      15_000,
+    );
+  }
+}, 30_000);

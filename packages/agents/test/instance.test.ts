@@ -67,6 +67,15 @@ test("the view derives presence, activity and interruption", () => {
     interrupted: false,
     awaitingReply: false,
   });
+  // A claimed turn is working even while the reporter's last status is a stale waiting.
+  expect(
+    viewOf({ ...base, inFlight: 1 }, { attached: true, agentStatus: "waiting" }, []),
+  ).toMatchObject({
+    presence: "attached",
+    activity: "working",
+    interrupted: false,
+    awaitingReply: false,
+  });
   // In flight with no live window: interrupted.
   expect(viewOf({ ...base, inFlight: 1 }, { attached: false }, [])).toMatchObject({
     presence: "detached",

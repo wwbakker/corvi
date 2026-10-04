@@ -11,8 +11,10 @@
  *
  * Presence is a live host session whose metadata carries `subagentId`, opened here and read back
  * with the host list. Activity is the reporter's status (the CLI/HTTP store, or the host's OSC
- * parse). The one stored fact is `inFlight`: whether a turn was in flight cannot be derived after
- * a reboot, so it is written when `next` hands a message over and cleared when the reply settles.
+ * parse), except that a claimed turn reads as working even while the reporter's last status is a
+ * stale `waiting`. The one stored fact is `inFlight`: whether a turn was in flight cannot be
+ * derived after a reboot, so it is written when `next` hands a message over and cleared when the
+ * reply settles.
  */
 import { Effect } from "effect";
 

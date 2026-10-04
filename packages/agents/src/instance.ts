@@ -7,8 +7,9 @@
  *
  * State is derived, never stored, with one exception: whether a turn was in flight cannot be
  * derived after a reboot (the session and the reporter are gone), so `inFlight` is written before a
- * message is delivered and cleared when the reply settles. `interrupted` is exactly "in flight
- * and no live window". */
+ * message is delivered and cleared when the reply settles. A claimed turn counts as working even
+ * when the reporter's last published status is a stale `waiting`, so `inFlight` wins over the
+ * reporter. `interrupted` is exactly "in flight and no live window". */
 import { Either, Schema } from "effect";
 
 import {
@@ -42,18 +43,17 @@ export type SubagentView = {
 };
 
 /** Derive the view from a record, whether a live window carries it, and the reporter's status
- * for that window (absent when the reporter has not spoken). */
+ * for that window (absent when the reporter has not spoken). An in-flight turn is work even when
+ * the reporter's status is a stale `waiting`: the stored claim wins over the reporter. */
 export const viewOf = (
   record: SubagentRecord,
   live: { readonly attached: boolean; readonly agentStatus?: "working" | "waiting" },
   messages: readonly SubagentMessage[],
 ): SubagentView => {
   const message = latestMessage(messages);
-  // The reporter is the authority when it has spoken; before it does, an open turn is still work.
-  const working =
-    live.attached &&
-    (live.agentStatus === "working" ||
-      (live.agentStatus === undefined && record.inFlight !== undefined));
+  // A claimed turn is working even when the reporter's last status is stale: `inFlight` is the
+  // stored fact that the relay is about to run the turn.
+  const working = live.attached && (live.agentStatus === "working" || record.inFlight !== undefined);
   return {
     presence: live.attached ? "attached" : "detached",
     activity: working ? "working" : "idle",
