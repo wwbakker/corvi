@@ -85,12 +85,17 @@ type Live = LiveSubagent;
 const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
   liveSubagents(changeId).pipe(Effect.catchAll(() => Effect.succeed(new Map<string, Live>())));
 
+/** The `viewOf` input for a live entry (or its absence): one projection, so `toDto` and
+ * `awaitReady` cannot disagree about presence or the reporter's status. */
+const viewInputOf = (
+  live: Live | undefined,
+): { readonly attached: boolean; readonly agentStatus?: "working" | "waiting" } => ({
+  attached: live !== undefined,
+  agentStatus: live?.agentStatus,
+});
+
 const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentInstanceDto => {
-  const view = viewOf(
-    record,
-    { attached: live !== undefined, agentStatus: live?.agentStatus },
-    record.messages,
-  );
+  const view = viewOf(record, viewInputOf(live), record.messages);
   return {
     id: record.id,
     changeId: record.changeId,
@@ -469,7 +474,8 @@ export const awaitReady = (
           const subscription = yield* subscribe(change.id, id);
           const step = yield* Effect.gen(function* () {
             const live = yield* liveBySubagent(change.id);
-            const attached = live.has(id);
+            const entry = live.get(id);
+            const attached = entry !== undefined;
             const record = yield* requireInstance(change, id).pipe(
               Effect.catchAll(() => Effect.succeed(null)),
             );
@@ -487,7 +493,7 @@ export const awaitReady = (
             if (record.window === undefined && pending) {
               return { done: true as const, result: { status: "lost" as const, id } };
             }
-            const view = viewOf(record, { attached, agentStatus: live.get(id)?.agentStatus }, record.messages);
+            const view = viewOf(record, viewInputOf(entry), record.messages);
             // Ready is what lets the orchestrator process: a reply is parked, or the subagent is
             // idle with nothing of the orchestrator's still to be delivered. The pending-message
             // hold-back is what keeps `send` (or a create's first prompt) followed by `await`
