@@ -24,10 +24,11 @@ import { closeHostClient, hostClient } from "../apps/server/src/terminals/server
 import { liveSubagents, newSubagentWindow } from "../apps/server/src/terminals/server/index.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";
 import { listWindowsAsync } from "../apps/server/src/terminals/server/windows.ts";
-import { readInstance, instanceDir, pendingInbound } from "@corvi/agents/node";
+import { createInstance, readInstance, instanceDir, pendingInbound } from "@corvi/agents/node";
 import type { SubagentRecord } from "@corvi/agents/instance";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
+import { AWAIT_INSTRUCTIONS } from "../apps/server/src/subagents/server/prompt.ts";
 import { changeDir } from "../apps/server/src/change/server/index.ts";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import { testTempDir, waitFor } from "./helpers.ts";
@@ -95,9 +96,11 @@ test("create writes the record and the initial message, closed by a fake launche
   expect(created.profile).toBe("builtin:reviewer");
   expect(created.label).toBe("Reviewer");
   expect(created.presence).toBe("detached"); // no live window with the private socket
-  expect(created.messages.map((message) => [message.role, message.body])).toEqual([
-    ["orchestrator", "Review it"],
-  ]);
+  expect(created.messages.map((message) => message.role)).toEqual(["orchestrator"]);
+  // The first message is the built-in reviewer body with the task filled into `{prompt}`.
+  expect(created.messages[0]?.body).toContain("Review the change `PROJ-sub` — PROJ-sub.");
+  expect(created.messages[0]?.body).toContain("Look for correctness bugs, missing tests");
+  expect(created.messages[0]?.body).toContain("Review it");
   expect(created.log.map((event) => event.kind)).toEqual(["created", "opened"]);
 });
 
@@ -107,12 +110,21 @@ test("create refuses an unknown profile", async () => {
   );
 });
 
+test("create with no task still sends exactly one first message with the await instruction", async () => {
+  const created = await run(createSubagent(change, { profile: "builtin:reviewer" }, fakeLauncher));
+  expect(created.messages).toHaveLength(1);
+  expect(created.messages[0]?.role).toBe("orchestrator");
+  expect(created.messages[0]?.body).toContain(AWAIT_INSTRUCTIONS);
+  expect(created.messages[0]?.body).not.toContain("{prompt}");
+});
+
 test("next hands over the inbound message once, then reports the open turn as interrupted", async () => {
   const id = await fresh();
   const first = await run(nextForSubagent(change, id));
   expect(first.status).toBe("message");
   expect(first.message?.number).toBe(1);
-  expect(first.message?.body).toBe("Review it");
+  expect(first.message?.body).toContain("Review the change `PROJ-sub`");
+  expect(first.message?.body).toContain("Review it");
   // The cursor and the in-flight marker advanced together: a restarted extension is not handed
   // the same message again.
   const second = await run(nextForSubagent(change, id));
@@ -298,9 +310,21 @@ test("await returns immediately when a reply is already parked", async () => {
 
 test("await returns immediately when a subagent is already idle", async () => {
   const own = await isolatedChange();
-  // No prompt and no turn: nothing of the orchestrator's is pending, so it can be processed at
-  // once — the state contract, not a turn that has not happened yet.
-  const id = (await run(createSubagent(own, { profile: "builtin:reviewer" }, fakeLauncher))).id;
+  // A message-less instance: nothing of the orchestrator's is pending, so it can be processed at
+  // once — the state contract, not a turn that has not happened yet. Create always sends a first
+  // message, so the record is written directly.
+  const id = `idle-${Math.random().toString(36).slice(2, 8)}`;
+  const record: SubagentRecord = {
+    id,
+    changeId: own.id,
+    profile: "builtin:reviewer",
+    label: "Reviewer",
+    harness: "pi",
+    createdBy: "orchestrator",
+    createdAt: new Date().toISOString(),
+    log: [],
+  };
+  await run(createInstance(changeDir(own), record));
   const awaited = await run(awaitReady(own, { ids: [id], mode: "any" }));
   expect(awaited.status).toBe("ready");
   expect(awaited.awaitingReply).toBe(false);
@@ -409,7 +433,9 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
 
   // The relay: the first message is handed over once, an inbound send wakes the next, and the
   // settled reply is a turn.
-  expect((await run(nextForSubagent(own, created.id))).message?.body).toBe("Review it");
+  const relayed = await run(nextForSubagent(own, created.id));
+  expect(relayed.message?.body).toContain("Review the change");
+  expect(relayed.message?.body).toContain("Review it");
   const sent = await run(sendToSubagent(own, created.id, "More detail", "orchestrator"));
   expect(sent.number).toBe(2);
   const next = await run(nextForSubagent(own, created.id));

@@ -90,7 +90,10 @@ export type SubagentRepositoryFilesResponseDto = typeof SubagentRepositoryFilesR
  * CLI reads it. The `key` is what `subagent create` takes (`repository:orders-api:reviewer`).
  * `body` is the profile file's own initial prompt (`Profile.body`); the create request's
  * `prompt` is a different thing — the orchestrator's task text that fills the `{prompt}` mark
- * in this body, or is appended to it. */
+ * in this body, or is appended to it. With no task, the mark takes the await instruction
+ * (`AWAIT_INSTRUCTIONS`). A body that does not name the mark is rendered, with the task appended
+ * under `## Task` when one is given; a body-less profile — or one that renders to nothing —
+ * sends the task (or the instruction, with no task) alone. */
 export const SubagentProfileSummarySchema = Schema.Struct({
   key: Schema.String,
   id: Schema.String,

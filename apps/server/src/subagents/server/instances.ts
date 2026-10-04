@@ -47,7 +47,7 @@ import type {
 } from "@corvi/contracts/subagents";
 import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
 import { announce } from "../../capabilities/bus.ts";
-import { changeDir } from "../../change/server/index.ts";
+import { changeDir, factsFor } from "../../change/server/index.ts";
 import {
   killHostWindow,
   liveSubagents,
@@ -56,6 +56,7 @@ import {
 } from "../../terminals/server/index.ts";
 import type { Change } from "../../domain/change.ts";
 import { resolveProfileFor } from "./run.ts";
+import { renderSubagentBody } from "./prompt.ts";
 import { notify, subscribe } from "./waiters.ts";
 
 /** How long an `await`/`next` parks before answering "nothing yet" — the check-in horizon for
@@ -201,10 +202,11 @@ const opened = (change: Change, id: string, window: string): Effect.Effect<void,
     result: undefined,
   })).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
 
-/** Create a subagent from a profile, open its window, and (when a task was given) append the
- * initial inbound message. Create, open and the first message are bound on purpose. A failed
- * launcher rolls the whole instance back, and a retried create with the same idempotency key
- * returns the instance it already made. */
+/** Create a subagent from a profile, open its window, and append the rendered profile body as
+ * the first inbound message. Create, open and the first message are bound on purpose. The render
+ * always yields a message (a task, the await instruction, or the body plus one), so create always
+ * sends a first message. A failed launcher rolls the whole instance back, and a retried create
+ * with the same idempotency key returns the instance it already made. */
 export const createSubagent = (
   change: Change,
   input: SubagentCreateRequestDto,
@@ -247,14 +249,16 @@ export const createSubagent = (
         yield* createInstance(dir, record).pipe(
           Effect.mapError(() => new ConflictError({ message: `subagent "${id}" already exists` })),
         );
-        if (input.prompt !== undefined && input.prompt !== "") {
-          yield* appendMessageAndPatch(
-            dir,
-            id,
-            { role: from, body: input.prompt, at: now() },
-            (current) => current,
-          ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
-        }
+        yield* appendMessageAndPatch(
+          dir,
+          id,
+          {
+            role: from,
+            body: renderSubagentBody(profile.profile.body, factsFor(change), input.prompt),
+            at: now(),
+          },
+          (current) => current,
+        ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
         // The launcher can still fail after the files exist: roll back so a failed create leaves
         // nothing behind, and a retry starts clean.
         const window = yield* launcher(change, record).pipe(
