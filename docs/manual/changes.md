@@ -34,6 +34,11 @@ creation, so an agent works in them while the change is still an idea — and a 
 is assigned to you. No ticket moves yet. The **Plan** tab edits the same file an agent can read.
 **Brief the agent** pastes the configured briefing into the change's terminal.
 
+The chosen workspace also decides *where* the idea is made. With a remote workspace selected, the
+wizard asks that server for its plan template, issue boards and repositories, and **Create idea**
+creates the change there — its terminals, its checkouts, its integrations — opening on its plan
+just like a local one. See [workspaces](configuration.md#workspaces).
+
 **Start work** is the transition out of `Ideation`: it moves the state to `Implementation`,
 brings every checkout up to date, and moves associated tickets (a backlog ticket comes onto the
 active sprint). It never blocks on the checkouts: a partial failure or a refresh that could not

@@ -5,6 +5,12 @@ Available features depend on the scope's `extensions` list. Current configuratio
 [configuration](configuration.md). Included features
 do not require installing external Corvi plugins.
 
+Features are answered where the work lives. A change's tab or card is read from the server that
+owns the change; a workspace-scoped page (Azure DevOps, Leftovers) from the server that hosts the
+selected workspace — for a remote workspace, that remote server, reached through the local
+client's gateway. So an integration behaves with the remote machine's configuration and
+credentials, not the local ones.
+
 ## Jira over its own API
 
 Configure the Jira server URL, email, project, and token in Corvi. No Jira CLI is needed. The

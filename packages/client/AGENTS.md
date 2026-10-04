@@ -4,7 +4,10 @@
 
 Named network operations for browser consumers, by domain (`client.settings`, `client.devices`,
 `client.tailscale`, `client.changes`, …): requests, canonical schema decoding, and classified
-transport failures.
+transport failures. The settings editor's pairing helper (`client.workspaces.pairRemote`) asks the
+local server to redeem a code on a remote one; the server implements that route itself, and its
+outbound exchange calls `devices.redeem` and `workspaces.list` through this same client rather
+than hand-rolling a fetch.
 
 ## Does not own
 

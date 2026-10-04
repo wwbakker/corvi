@@ -18,6 +18,11 @@ it.
 This persistence is not a promise to restore processes after a machine reboot or to resume an
 agent conversation. Those are separate planned capabilities.
 
+A change in a remote workspace has terminals too, with one difference: its host session — the
+shell, the CLIs, and any agent — runs on the **remote** machine. The page attaches to it through
+the local client's gateway, and the scrollback the server keeps is the remote server's. The
+window strip, the status channel, and attaching all work the same way wherever the session runs.
+
 ## Windows and navigation
 
 Windows appear under their change in the navigation column and in the strip above the terminal. A
@@ -123,6 +128,10 @@ await`, the Subagents page), not for you, so it raises no attention edge — the
 Subagents page still show its state. Notification sound is configurable. With no connected page,
 there is no server-side OS notifier.
 Several waiting windows can notify separately; each uses a stable window identity.
+
+A change in a remote workspace notifies too. Its notice carries the source it came from, so the
+toast names that server (`source · change`) and the banner and the click both keep it apart from a
+local change that happens to share an id; clicking opens that remote change's window.
 
 ## Troubleshooting and safety
 

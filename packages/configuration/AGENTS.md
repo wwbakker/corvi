@@ -28,8 +28,8 @@ from the product's identity, and refills the one snapshot the runtime holds.
 
 ## Public entrypoints
 
-- `@corvi/configuration/config`: `Workspace`, `SettingsOverrides`, `EffectiveSettings`, `Config`,
-  `ConfigFile`, `DEFAULT_WORKSPACE`
+- `@corvi/configuration/config`: `Workspace`, `RemoteWorkspace`, `SettingsOverrides`,
+  `EffectiveSettings`, `Config`, `ConfigFile`, `DEFAULT_WORKSPACE`
 - `@corvi/configuration/devices`: `Device`, `PAIRING_CODE_TTL_MS`, `deviceViewOf`,
   `isDeviceActive`; `@corvi/configuration/node/devices`: `generateDeviceToken`,
   `hashDeviceToken`, `deviceTokenMatches`, `generatePairingCode`, `generateDeviceId`

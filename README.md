@@ -44,6 +44,12 @@ There is no account and no cloud: Corvi is your machine, your CLIs and your cred
 first run has the settings page at `/settings` for the paths and integrations, and
 [the manual](docs/manual/install.md) has the details.
 
+Corvi can also run across more than one machine. An off-by-default external listener, published
+on your tailnet with `tailscale serve` and authenticated with paired-device tokens, lets another
+client reach this server; and a workspace can be *remote*, so one Corvi shows its own work and
+another machine's side by side. See [remote access](docs/manual/install.md#remote-access) and
+[workspaces](docs/manual/configuration.md#workspaces).
+
 ### Agent extensions for pi and opencode
 
 The terminals show what an agent is doing — working or waiting, its session name, its last

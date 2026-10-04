@@ -19,11 +19,13 @@ transport boundary.
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
 - `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
   (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view — including
-  the external listener's `RemoteAccessStatus` — workspaces)
+  the external listener's `RemoteAccessStatus` — workspaces, and the remote-workspace pairing
+  helper: `PairRemoteWorkspaceRequest`/`Response` and `RemoteWorkspaceRef`)
 - `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, the
   pairing create/redeem request and response schemas, and the cookie-only pair and session shapes
 - `@corvi/contracts/tailscale`: the external listener's Tailscale publication status
-  (`available`, `running`, `dnsName`, `publishedUrl`, `error`)
+  (`available`, `running`, `dnsName`, `publishedUrl`, `error`, and `blocked` — `mixed` or
+  `conflict` — when 443 cannot be published)
 - `@corvi/contracts/events`: the event names and the `source` envelope a remote workspace's
   events are multiplexed under on `/api/events`
 - `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
