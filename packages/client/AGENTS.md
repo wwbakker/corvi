@@ -2,8 +2,9 @@
 
 ## Owns
 
-Named network operations for browser consumers, by domain (`client.settings`, `client.tailscale`,
-`client.changes`, …): requests, canonical schema decoding, and classified transport failures.
+Named network operations for browser consumers, by domain (`client.settings`, `client.devices`,
+`client.tailscale`, `client.changes`, …): requests, canonical schema decoding, and classified
+transport failures.
 
 ## Does not own
 

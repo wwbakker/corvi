@@ -33,8 +33,9 @@ type MarkedRequest = Request & { [EXTERNAL_LISTENER]?: true };
 export const isExternalListener = (request: Request): boolean =>
   (request as MarkedRequest)[EXTERNAL_LISTENER] === true;
 
-/** The one path reachable without a token: pairing happens before a token exists. */
-const REDEEM_PATH = "/api/devices/pairing-codes/redeem";
+/** The paths reachable without a token: pairing happens before a token exists. Redeem returns
+ * the raw token for the gateway/CLI; pair puts it in the HttpOnly cookie and returns no token. */
+const PAIRING_PATHS = new Set(["/api/devices/pairing-codes/redeem", "/api/devices/pair"]);
 
 const bearerToken = (request: Request): string | undefined => {
   const header = request.headers.get("authorization");
@@ -83,7 +84,7 @@ const requiresToken = (request: Request): boolean => {
   if (!pathname.startsWith("/api/")) return false;
   // The router treats a trailing slash as the same path; this allowlist must too.
   const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-  return !(request.method === "POST" && path === REDEEM_PATH);
+  return !(request.method === "POST" && PAIRING_PATHS.has(path));
 };
 
 /** The external listener's authorizer: refuse an unauthenticated `/api/*` request, let

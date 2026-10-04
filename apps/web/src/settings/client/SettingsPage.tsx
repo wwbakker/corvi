@@ -22,6 +22,7 @@ import {
   type KnownExtension,
 } from "./SettingsFields.tsx";
 import { RemoteAccessSection } from "./RemoteAccessSection.tsx";
+import { DevicesSection } from "./DevicesSection.tsx";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -229,8 +230,13 @@ export function SettingsPage({
     { id: "window", label: "Window" },
     { id: "ideation", label: "Ideation" },
     { id: "environment", label: "Environment" },
-    // Remote access is a machine-level listener, not a workspace's setting: global scope only.
-    ...(scope === "global" ? [{ id: "remoteAccess", label: "Remote access" }] : []),
+    // Devices and remote access are machine-level, not a workspace's: global scope only.
+    ...(scope === "global"
+      ? [
+          { id: "devices", label: "Devices" },
+          { id: "remoteAccess", label: "Remote access" },
+        ]
+      : []),
     { id: "extensions", label: "Extensions" },
   ];
   // An extension can be unloaded between saves; fall back to the first tab rather than to an
@@ -542,6 +548,8 @@ export function SettingsPage({
           />
         </div>
       )}
+
+      {active === "devices" && scope === "global" && <DevicesSection />}
 
       {active === "remoteAccess" && scope === "global" && (
         <RemoteAccessSection

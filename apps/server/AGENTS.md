@@ -8,7 +8,9 @@ HTTP, SSE and WebSocket hosting, and the backend composition: the capability lay
 integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
 them).
 
-`src/devices` owns device identity, pairing and token authentication. `src/remote-access` owns
+`src/devices` owns device identity, pairing and token authentication. Pairing has two faces: the
+`pairing-codes/redeem` route returns the raw token for the gateway/CLI, and `pair` puts it in the
+HttpOnly cookie for the remote browser (which then bootstraps through `devices/session`). `src/remote-access` owns
 the external listener's lifecycle: `src/server.ts` installs it and the settings write reconciles
 it, so toggling remote access starts, stops or restarts the second loopback listener without a
 process restart. It serves the same route table with an `authorize` hook that requires a device

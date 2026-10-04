@@ -8,9 +8,12 @@
 import { Effect } from "effect";
 
 import { RedeemPairingCodeRequestSchema } from "@corvi/contracts/devices";
+import { BadRequestError } from "@corvi/contracts/errors";
+import { deviceViewOf } from "@corvi/configuration/devices";
 import { bodyAs, guard, json } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
 import {
+  authenticatedDevice,
   checkRedeemLimit,
   createPairingCode,
   deviceCookie,
@@ -19,6 +22,14 @@ import {
   redeemPairingCode,
   revokeDevice,
 } from "./server/index.ts";
+
+/** A credential-bearing pairing response is never cached: `pair` and `redeem` carry a cookie (or
+ * the token in the body), and a cached `Set-Cookie` would replay a credential. The cookie itself
+ * is set only on the external listener, where the browser is the client. */
+const pairingHeaders = (req: Request, token: string): Record<string, string> => ({
+  "cache-control": "no-store",
+  ...(isExternalListener(req) ? { "set-cookie": deviceCookie(token) } : {}),
+});
 
 export const devicesRoutes = guard({
   "/api/devices": {
@@ -42,8 +53,48 @@ export const devicesRoutes = guard({
           yield* checkRedeemLimit();
           const body = yield* bodyAs(req, RedeemPairingCodeRequestSchema);
           const redeemed = yield* redeemPairingCode(body);
-          const headers = isExternalListener(req) ? { "set-cookie": deviceCookie(redeemed.token) } : undefined;
-          return json(redeemed, 201, headers);
+          return json(redeemed, 201, pairingHeaders(req, redeemed.token));
+        }),
+      ),
+  },
+
+  // The browser's pairing endpoint: the same redemption path as `redeem`, but the raw token goes
+  // into the HttpOnly cookie (on the external listener) and the body carries only the device. The
+  // remote page never sees the token.
+  "/api/devices/pair": {
+    POST: (req) =>
+      runRoute(
+        Effect.gen(function* () {
+          // Browser pairing is only meaningful where the cookie is the credential. On the local
+          // listener there is nothing to pair, and consuming a code there would mint a device
+          // whose token is thrown away: refuse it before the code is touched.
+          if (!isExternalListener(req)) {
+            return yield* new BadRequestError({
+              message: "browser pairing is only available on the remote listener",
+            });
+          }
+          yield* checkRedeemLimit();
+          const body = yield* bodyAs(req, RedeemPairingCodeRequestSchema);
+          const redeemed = yield* redeemPairingCode(body);
+          return json({ device: redeemed.device }, 201, pairingHeaders(req, redeemed.token));
+        }),
+      ),
+  },
+
+  // The page's bootstrap check. An unauthenticated request on the external listener is refused
+  // by the authorizer before it reaches here, so a 200 means a device is signed in — or that this
+  // is the local, tokenless listener.
+  "/api/devices/session": {
+    GET: (req) =>
+      runRoute(
+        Effect.sync(() => {
+          if (!isExternalListener(req)) return json({ authenticated: true, local: true });
+          const device = authenticatedDevice(req);
+          return json({
+            authenticated: true,
+            local: false,
+            ...(device === undefined ? {} : { device: deviceViewOf(device) }),
+          });
         }),
       ),
   },

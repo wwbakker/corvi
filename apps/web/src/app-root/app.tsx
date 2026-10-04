@@ -30,6 +30,7 @@ import { UpdateDialog } from "../app-update/UpdateDialog.tsx";
 import { useAppUpdate } from "../app-update/state.ts";
 import { hostOf } from "./host.ts";
 import { useContextMenu } from "./contextMenu.ts";
+import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
@@ -472,6 +473,8 @@ function App(): JSX.Element {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <SessionGate>
+      <App />
+    </SessionGate>
   </StrictMode>,
 );

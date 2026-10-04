@@ -183,6 +183,15 @@ test("the gate and the router agree on path shapes", async () => {
   // The allowlist is POST-only.
   expect((await fetch(url(external, "api/devices/pairing-codes/redeem"))).status).toBe(401);
 
+  // The browser pairing endpoint tolerates the trailing slash too, and is POST-only.
+  const pairTrailing = await fetch(url(external, "api/devices/pair/"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: "0000000000000000" }),
+  });
+  expect(pairTrailing.status).toBe(400);
+  expect((await fetch(url(external, "api/devices/pair"))).status).toBe(401);
+
   // A trailing slash on a token-required path still requires a token.
   expect((await fetch(url(external, "api/devices/"))).status).toBe(401);
 });
@@ -198,6 +207,8 @@ test("the redeem bootstrap works without a token and sets the cookie", async () 
   const body = (await response.json()) as { device: { id: string }; token: string };
 
   const setCookie = response.headers.get("set-cookie") ?? "";
+  // A credential-bearing response is never cached.
+  expect(response.headers.get("cache-control")).toBe("no-store");
   expect(setCookie).toContain(`${DEVICE_COOKIE}=${body.token}`);
   expect(setCookie).toContain("HttpOnly");
   expect(setCookie).toContain("Secure");
@@ -208,6 +219,97 @@ test("the redeem bootstrap works without a token and sets the cookie", async () 
   const cookie = setCookie.split(";")[0] ?? "";
   const listed = await fetch(url(external, "api/devices"), { headers: { cookie } });
   expect(listed.status).toBe(200);
+});
+
+test("the browser pairing endpoint sets the cookie and returns no token", async () => {
+  const code = await runEffect(createPairingCode());
+  const response = await fetch(url(external, "api/devices/pair"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: code.code, name: "Remote browser" }),
+  });
+  expect(response.status).toBe(201);
+  const body = (await response.json()) as { device: { id: string; name: string }; token?: string };
+  expect(body.device.name).toBe("Remote browser");
+  // The raw token is never in the body: it is in the HttpOnly cookie and nowhere page JS reads.
+  expect(body).not.toHaveProperty("token");
+
+  const setCookie = response.headers.get("set-cookie") ?? "";
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(setCookie).toContain(`${DEVICE_COOKIE}=`);
+  expect(setCookie).toContain("HttpOnly");
+  expect(setCookie).toContain("Secure");
+  expect(setCookie).toContain("SameSite=Strict");
+  expect(setCookie).toContain("Path=/");
+
+  // The cookie the browser carries identifies the new device at the session check.
+  const cookie = setCookie.split(";")[0] ?? "";
+  const session = await fetch(url(external, "api/devices/session"), { headers: { cookie } });
+  expect(session.status).toBe(200);
+  const sessionBody = (await session.json()) as {
+    authenticated: boolean;
+    local: boolean;
+    device?: { id: string; name: string };
+  };
+  expect(sessionBody.authenticated).toBe(true);
+  expect(sessionBody.local).toBe(false);
+  expect(sessionBody.device?.id).toBe(body.device.id);
+  expect(sessionBody.device?.name).toBe("Remote browser");
+});
+
+test("the session check reports the local listener and refuses an unauthenticated external one", async () => {
+  const localSession = await fetch(url(local, "api/devices/session"));
+  expect(localSession.status).toBe(200);
+  expect(await localSession.json()).toEqual({ authenticated: true, local: true });
+
+  expect((await fetch(url(external, "api/devices/session"))).status).toBe(401);
+});
+
+test("the browser pairing endpoint is rate-limited like redeem", async () => {
+  await withLimiter(createRedeemLimiter({ globalLimit: 2, globalWindowMs: 60_000 }), async () => {
+    const attempt = (): Promise<Response> =>
+      fetch(url(external, "api/devices/pair"), {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: "0000000000000000" }),
+      });
+    expect((await attempt()).status).toBe(400);
+    expect((await attempt()).status).toBe(400);
+    expect((await attempt()).status).toBe(429);
+  });
+});
+
+test("the browser pairing endpoint is refused on the local listener, leaving the code usable", async () => {
+  const code = await runEffect(createPairingCode());
+  const refused = await fetch(url(local, "api/devices/pair"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: code.code, name: "Local browser" }),
+  });
+  expect(refused.status).toBe(400);
+
+  // The code was not consumed, so no dead device record was created: it still redeems.
+  const redeemed = await fetch(url(local, "api/devices/pairing-codes/redeem"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: code.code }),
+  });
+  expect(redeemed.status).toBe(201);
+});
+
+test("a revoked device's cookie is refused at the session check", async () => {
+  const code = await runEffect(createPairingCode());
+  const paired = await fetch(url(external, "api/devices/pair"), {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code: code.code, name: "Revoked cookie" }),
+  });
+  const cookie = (paired.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+  const body = (await paired.json()) as { device: { id: string } };
+  await runEffect(revokeDevice(body.device.id));
+  expect((await fetch(url(external, "api/devices/session"), { headers: { cookie } })).status).toBe(
+    401,
+  );
 });
 
 test("a local-listener redemption sets no cookie", async () => {

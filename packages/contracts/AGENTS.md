@@ -20,8 +20,8 @@ transport boundary.
 - `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
   (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view — including
   the external listener's `RemoteAccessStatus` — workspaces)
-- `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, and the
-  pairing create/redeem request and response schemas
+- `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, the
+  pairing create/redeem request and response schemas, and the cookie-only pair and session shapes
 - `@corvi/contracts/tailscale`: the external listener's Tailscale publication status
   (`available`, `running`, `dnsName`, `publishedUrl`, `error`)
 - `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,

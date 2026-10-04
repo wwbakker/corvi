@@ -61,6 +61,27 @@ export const RedeemPairingCodeResponseSchema = Schema.Struct({
 })
 export type RedeemPairingCodeResponseDto = typeof RedeemPairingCodeResponseSchema.Type
 
+/** The browser pairing endpoint takes the same code the redeem route does. */
+export const PairDeviceRequestSchema = RedeemPairingCodeRequestSchema
+export type PairDeviceRequestDto = RedeemPairingCodeRequestDto
+
+/** What the browser pairing endpoint answers: the new device, never the raw token. The token
+ * goes into the HttpOnly cookie the browser carries, so page JavaScript never sees it. */
+export const PairDeviceResponseSchema = Schema.Struct({
+  device: DeviceViewSchema,
+})
+export type PairDeviceResponseDto = typeof PairDeviceResponseSchema.Type
+
+/** The page's bootstrap check: which listener answered (the local one is tokenless), and which
+ * device is signed in when it is the external one. An unauthenticated external request is a
+ * 401 before it reaches here. */
+export const DeviceSessionResponseSchema = Schema.Struct({
+  authenticated: Schema.Boolean,
+  local: Schema.Boolean,
+  device: Schema.optional(DeviceViewSchema),
+})
+export type DeviceSessionResponseDto = typeof DeviceSessionResponseSchema.Type
+
 /** The devices paired to this server, as the management API lists them. */
 export const DevicesResponseSchema = Schema.Struct({
   devices: Schema.mutable(Schema.Array(DeviceViewSchema)),
