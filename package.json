@@ -33,6 +33,8 @@
     "test": "bash scripts/test-run.sh all",
     "test:unit": "bash scripts/test-run.sh unit",
     "test:e2e": "bash scripts/test-run.sh e2e",
+    "test:e2e:terminal": "bash scripts/test-run.sh e2e-terminal",
+    "test:e2e:rest": "bash scripts/test-run.sh e2e-rest",
     "test:coverage": "trap 'status=$?; bun scripts/clean-test.ts --kill; exit $status' EXIT; CORVI_ROOT=\"${TMPDIR:-/tmp}/corvi-test-root\" CORVI_ARCHIVE_ROOT=\"${TMPDIR:-/tmp}/corvi-test-archive\" CORVI_CONFIG=\"${TMPDIR:-/tmp}/corvi-test-config.json\" XDG_STATE_HOME=\"${TMPDIR:-/tmp}/corvi-test-state\" bun run build:web && bun test --coverage --timeout 30000",
     "test:clean": "bun scripts/clean-test.ts",
     "typecheck": "tsc --noEmit",
