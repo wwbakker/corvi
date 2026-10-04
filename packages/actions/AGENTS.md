@@ -13,7 +13,7 @@ their delivery.
   `Action` fields and its possible values come from the contracts schemas, so none of it can
   drift).
 - `./render`: the one placeholder engine (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`,
-  `{dir}`, `{repos}`), plain for prompts and shell-escaped for commands. This absorbed
+  `{dir}`, `{repos}`, `{prompt}`), plain for prompts and shell-escaped for commands. This absorbed
   `@corvi/agents/prompt`'s `fillBriefing`.
 - `./discovery`: scope precedence (repository > workspace > global > built-in), keys
   (`repository:orders-api:test`), and the brief's compatibility chain (a shadowing `brief.md`,

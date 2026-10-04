@@ -11,7 +11,7 @@ import {
   writeRepositoryActionFile,
 } from "../apps/server/src/actions/server/files.ts";
 import { listActionsFor } from "../apps/server/src/actions/server/run.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { configPath, reloadConfig } from "../apps/server/src/workspace/server/index.ts";
 import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
 

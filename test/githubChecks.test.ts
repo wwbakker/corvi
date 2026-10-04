@@ -1,7 +1,7 @@
 import { beforeEach, expect, test } from "bun:test";
 import { checkItems, groupChecks, type Check } from "@corvi/github/checks";
-import type { Change } from "../apps/server/src/domain/change.ts";
-import type { WidgetItem } from "../apps/server/src/domain/widget.ts";
+import type { Change } from "@corvi/changes/record";
+import type { WidgetItemDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
 
@@ -26,7 +26,7 @@ test("groupChecks groups by the name before the bracket, and a lone check is its
   ]);
   expect(items.map((i) => i.label)).toEqual(["build", "sonarqube"]);
 
-  const [build, sonar] = items as [WidgetItem, WidgetItem];
+  const [build, sonar] = items as [WidgetItemDto, WidgetItemDto];
   // A failure anywhere in the group colours the group, and the counts say what is going on.
   expect(build.state).toBe("error");
   expect(build.detail).toBe("3 checks · 1 failing · 1 running");
@@ -48,7 +48,7 @@ test("groupChecks groups by the name before the bracket, and a lone check is its
 });
 
 test("groupChecks takes the worst state in the group, and a group with no verdict reads as none", () => {
-  const only = (bucket: string): WidgetItem => groupChecks([check("x (a)", bucket)])[0]!;
+  const only = (bucket: string): WidgetItemDto => groupChecks([check("x (a)", bucket)])[0]!;
   expect(only("fail").state).toBe("error");
   expect(only("pending").state).toBe("pending");
   expect(only("pass").state).toBe("ok");

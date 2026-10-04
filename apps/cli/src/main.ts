@@ -15,7 +15,8 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { ClientError, makeCorviClient, type CorviClient } from "@corvi/client";
-import { ChangeId, type ChangePhase } from "@corvi/contracts/changes";
+import type { CheckoutSpecDto, CreateChangeBodyDto, RepoStateDto } from "@corvi/contracts/api";
+import { ChangeId, type BranchPlan, type ChangePhase } from "@corvi/contracts/changes";
 
 import { boolFlag, isKnownFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
 import { resolveChangeId } from "./change-context.ts";
@@ -36,11 +37,19 @@ const USAGE = `corvi — control a change from the command line
 usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
 
   change list                          every change
+  change create <id> --title <title> [--branch <name>] [--workspace <id>]
+                                       make a new idea, then print the next steps
   change show                          this change's record
   change start                         start its work (worktrees, tickets)
   change complete [--force]            merge and close it
   change cancel [--force]              abandon it, keeping what others can see
   change phase <Ideation|Implementation|Verification|Blocked>
+  change repository list               the change's repositories, with the names remove takes
+  change repository add <path> [--location new|original] [--branch change|current|existing]
+                       [--branch-name <name>] [--base <ref>] [--target <ref>] [--force]
+                                       add one, or set a changed one up again
+  change repository remove <name> [--force]
+                                       drop one by the name repository list prints
   action list                          the actions this change may run
   action run <key> [--window <id>]     run one
   action profile list|write|delete     the action files behind them
@@ -80,11 +89,19 @@ export const GROUP_HELP: Readonly<Record<string, string>> = {
 usage: corvi change <command> [args]
 
   list                          every change
+  create <id> --title <title> [--branch <name>] [--workspace <id>]
+                                make a new idea, then print the next steps
   show                          this change's record
   start                         start its work (worktrees, tickets)
   complete [--force]            merge and close it
   cancel [--force]              abandon it, keeping what others can see
   phase <Ideation|Implementation|Verification|Blocked>
+  repository list               the repositories, with the names remove takes
+  repository add <path> [--location new|original] [--branch change|current|existing]
+                 [--branch-name <name>] [--base <ref>] [--target <ref>] [--force]
+                                add one, or set a changed one up again
+  repository remove <name> [--force]
+                                drop one by the name repository list prints
 `,
   action: `corvi action — the actions this change may run, and the files behind them
 
@@ -164,7 +181,7 @@ const requireChange = (changeId: string | undefined): ChangeId => {
 /** The command shapes, checked before discovery: a typo is a usage error (2) and must not pay a
  * round of probes first (or be reported as "no server"). */
 export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
-  change: ["list", "show", "start", "complete", "cancel", "phase"],
+  change: ["list", "create", "show", "start", "complete", "cancel", "phase", "repository"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "await", "result", "next", "turn", "profile"],
   status: ["working", "waiting", "clear"],
@@ -173,6 +190,9 @@ export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
 /** The `profile` subfamilies, checked beside the groups — a typo is a usage error (2) and must
  * not pay a round of probes first (or be reported as "no server"). */
 const PROFILE_COMMANDS: readonly string[] = ["list", "write", "delete"];
+
+/** The `change repository` subcommands, checked for the same reason as the profile family. */
+const REPOSITORY_COMMANDS: readonly string[] = ["list", "add", "remove"];
 
 const validateCommand = (positionals: readonly string[]): void => {
   const [group, command, sub] = positionals;
@@ -186,6 +206,9 @@ const validateCommand = (positionals: readonly string[]): void => {
   }
   if (command === "profile" && sub !== undefined && !PROFILE_COMMANDS.includes(sub)) {
     throw new CliFailure(`unknown profile command: ${sub}`, EXIT.usage);
+  }
+  if (command === "repository" && sub !== undefined && !REPOSITORY_COMMANDS.includes(sub)) {
+    throw new CliFailure(`unknown repository command: ${sub}`, EXIT.usage);
   }
 };
 
@@ -204,6 +227,30 @@ const changeCommand = async (
         value: changes,
         human: (value) =>
           value.map((change) => `${change.id}\t${change.state ?? "-"}\t${change.title ?? ""}`).join("\n"),
+      });
+      return;
+    }
+    case "create": {
+      // The whole argv was validated before discovery; this is the one body it produced. No
+      // `requireChange`: the command makes a change, so it reads no ambient one.
+      const body = createTarget(args);
+      const created = await client.changes.create(body);
+      // The recipe names where the record now lives, so the caller can write its PLAN.md. The
+      // route answers with the directory; the fallback keeps the line readable if it ever does
+      // not. The id is the server's own spelling of the created change.
+      const dir = created.changeDir ?? "the change's directory";
+      const id = created.change.id;
+      const next = [
+        `write ${dir}/PLAN.md — the change's plan document`,
+        `corvi change repository add <path> --change ${id}`,
+        `corvi change start --change ${id}`,
+      ];
+      emit(io, json, {
+        value: { ...created, next },
+        human: (value) =>
+          [`created ${value.change.id} (Ideation)`, "next:", ...value.next.map((line) => `  ${line}`)].join(
+            "\n",
+          ),
       });
       return;
     }
@@ -257,9 +304,71 @@ const changeCommand = async (
       });
       return;
     }
+    case "repository": {
+      const id = requireChange(changeId);
+      const target = repositoryTarget(args);
+      if (target.sub === "list") {
+        const states = await client.changes.repoStates(id);
+        emit(io, json, { value: states, human: (value) => value.map(repositoryLine).join("\n") });
+        return;
+      }
+      // The whole set is posted: read what stands, change the one entry, write it back. The
+      // server stays the single writer and re-validates every invariant.
+      const states = await client.changes.repoStates(id);
+      const specs: CheckoutSpecDto[] = states.map((state) => ({
+        path: state.path,
+        location: state.location,
+        branch: state.branch,
+        ...(state.base === undefined ? {} : { base: state.base }),
+        ...(state.target === undefined ? {} : { target: state.target }),
+      }));
+      if (target.sub === "remove") {
+        const index = states.findIndex((state) => state.name === target.name);
+        if (index === -1) {
+          throw new CliFailure(
+            `no repository named ${target.name} — repository list shows the names`,
+            EXIT.refused,
+          );
+        }
+        specs.splice(index, 1);
+      } else {
+        // The server stores absolute paths; a relative one is the caller's cwd, resolved here.
+        const path = resolve(target.path);
+        const spec: CheckoutSpecDto = {
+          path,
+          location: target.location,
+          branch: target.branch,
+          ...(target.base === undefined ? {} : { base: target.base }),
+          ...(target.target === undefined ? {} : { target: target.target }),
+        };
+        const index = specs.findIndex((existing) => existing.path === path);
+        if (index === -1) specs.push(spec);
+        else specs[index] = spec;
+      }
+      const result = await client.changes
+        .setRepositories(id, { checkouts: specs, force: boolFlag(args, "force") })
+        .catch((error: unknown) => {
+          // A 409 with `needsForce` is the server asking about work an edit would discard; its
+          // body names the repositories. Without one — a version/format conflict — the server's
+          // own message is the right answer, so rethrow it untouched.
+          throw repositoryForceRefusal(error) ?? error;
+        });
+      emit(io, json, {
+        value: result,
+        human: (value) => {
+          // A checkout that failed is printed, but the record was written: exit stays ok.
+          const failures = value.provision.filter((entry) => !entry.ok);
+          if (failures.length === 0) return `repositories updated for ${id}`;
+          return failures
+            .map((entry) => `${entry.integration}: ${entry.error ?? entry.detail ?? "failed"}`)
+            .join("\n");
+        },
+      });
+      return;
+    }
     default:
       throw new CliFailure(
-        command === undefined ? "change needs a command: list, show, start, complete, cancel, phase" : `unknown change command: ${command}`,
+        command === undefined ? "change needs a command: list, create, show, start, complete, cancel, phase, repository" : `unknown change command: ${command}`,
         EXIT.usage,
       );
   }
@@ -525,6 +634,126 @@ const profileTarget = (args: ParsedArgs): ProfileTarget => {
   return { sub, scope, ...(workspace === undefined ? {} : { workspace }), id };
 };
 
+/** `change create`'s whole argv, checked before discovery (`run` calls this beside
+ * `profileTarget`, and the command case reuses it as the body): a malformed invocation is a
+ * usage error (2) and must not pay a round of probes first, or be reported as "no server".
+ * The change is always created as an idea; its repositories are added afterwards. */
+const createTarget = (args: ParsedArgs): CreateChangeBodyDto => {
+  const id = args.positionals[2];
+  if (id === undefined || id === "") {
+    throw new CliFailure("change create needs an id", EXIT.usage);
+  }
+  const title = stringFlag(args, "title");
+  if (title === undefined || title === "") {
+    throw new CliFailure("change create needs --title <title>", EXIT.usage);
+  }
+  const branch = stringFlag(args, "branch");
+  const workspace = stringFlag(args, "workspace");
+  // Empty flags are absent, not empty strings: the server should default them, not record blank.
+  return {
+    id,
+    title,
+    state: "Ideation",
+    ...(branch === undefined || branch === "" ? {} : { branch }),
+    ...(workspace === undefined || workspace === "" ? {} : { workspace }),
+  };
+};
+
+/** The `change repository` subfamily, checked before discovery (`run` calls this beside
+ * `createTarget`): a typo or a bad flag pairing is a usage error (2) and must not pay a round of
+ * probes first, or be reported as "no server". The combination rules mirror
+ * `checkoutSpecProblem`: a new worktree cannot take the branch a source checkout has checked
+ * out, an `existing` branch must be named, and a name only goes with `existing`. */
+type RepositoryCommand =
+  | { readonly sub: "list" }
+  | {
+      readonly sub: "add";
+      readonly path: string;
+      readonly location: CheckoutSpecDto["location"];
+      readonly branch: BranchPlan;
+      readonly base?: string;
+      readonly target?: string;
+    }
+  | { readonly sub: "remove"; readonly name: string };
+
+const repositoryTarget = (args: ParsedArgs): RepositoryCommand => {
+  const sub = args.positionals[2];
+  if (sub !== "list" && sub !== "add" && sub !== "remove") {
+    throw new CliFailure(
+      sub === undefined
+        ? "change repository needs a command: list, add, remove"
+        : `unknown repository command: ${sub}`,
+      EXIT.usage,
+    );
+  }
+  if (sub === "list") return { sub };
+  if (sub === "remove") {
+    const name = args.positionals[3];
+    if (name === undefined || name === "") {
+      throw new CliFailure("change repository remove needs a name (repository list shows them)", EXIT.usage);
+    }
+    return { sub, name };
+  }
+  const path = args.positionals[3];
+  if (path === undefined || path === "") {
+    throw new CliFailure("change repository add needs a path", EXIT.usage);
+  }
+  const location = stringFlag(args, "location") ?? "new";
+  if (location !== "new" && location !== "original") {
+    throw new CliFailure(`--location takes new or original, not ${location}`, EXIT.usage);
+  }
+  const branch = stringFlag(args, "branch") ?? "change";
+  if (branch !== "change" && branch !== "current" && branch !== "existing") {
+    throw new CliFailure(`--branch takes change, current or existing, not ${branch}`, EXIT.usage);
+  }
+  const branchName = stringFlag(args, "branch-name");
+  if (branch === "existing") {
+    if (branchName === undefined || branchName.trim() === "") {
+      throw new CliFailure("--branch existing needs --branch-name <name>", EXIT.usage);
+    }
+  } else if (branchName !== undefined) {
+    throw new CliFailure("--branch-name only goes with --branch existing", EXIT.usage);
+  }
+  if (location === "new" && branch === "current") {
+    throw new CliFailure(
+      "a new worktree cannot use the branch a source checkout has checked out",
+      EXIT.usage,
+    );
+  }
+  const base = stringFlag(args, "base");
+  const target = stringFlag(args, "target");
+  return {
+    sub,
+    path,
+    location,
+    branch: branch === "existing" ? { kind: "existing", name: branchName!.trim() } : { kind: branch },
+    ...(base === undefined || base === "" ? {} : { base }),
+    ...(target === undefined || target === "" ? {} : { target }),
+  };
+};
+
+/** How one repository renders in `repository list`: its name (what `remove` takes), where its
+ * checkout lives, its branch plan, and the two branch refs. */
+const repositoryLine = (state: RepoStateDto): string => {
+  const branch = state.branch.kind === "existing" ? `existing:${state.branch.name}` : state.branch.kind;
+  return [state.name, state.location, branch, state.base ?? "-", state.target ?? "-"].join("\t");
+};
+
+/** The repository edit's 409, translated when it is the server's force question. A body with a
+ * non-empty `needsForce` names the checkouts an edit would tear down (an add that changes a spec
+ * asks too, not only a remove), so the answer is a refusal saying `--force`. Any other 409 — a
+ * record from a newer Corvi, a conflicting edit — carries no `needsForce`; `undefined` hands the
+ * original error back so `report` keeps the server's own message and status. */
+export const repositoryForceRefusal = (error: unknown): CliFailure | undefined => {
+  if (!(error instanceof ClientError) || error.status !== 409) return undefined;
+  const needsForce = (error.body as { needsForce?: unknown } | undefined)?.needsForce;
+  if (!Array.isArray(needsForce) || needsForce.length === 0) return undefined;
+  return new CliFailure(
+    `${needsForce.join(", ")} would discard work nobody else has — rerun with --force`,
+    EXIT.refused,
+  );
+};
+
 /** The file's text: `--from <path>`, or stdin when it is piped in. */
 const profileText = async (args: ParsedArgs): Promise<string> => {
   const from = stringFlag(args, "from");
@@ -721,11 +950,11 @@ const report = (error: unknown, io: Io, json: boolean): number => {
 };
 
 /** Whether a command operates on a change, and therefore whether discovery should prefer the
- * server that owns one. `change list` is about the server, not a change: an ambient
- * `CORVI_CHANGE_ID` must not constrain which server answers it. */
-const needsChange = (positionals: readonly string[]): boolean => {
+ * server that owns one. `change list` and `change create` are about the server, not a change: an
+ * ambient `CORVI_CHANGE_ID` must not constrain which server answers them. */
+export const needsChange = (positionals: readonly string[]): boolean => {
   const [group, command] = positionals;
-  if (group === "change") return command !== "list";
+  if (group === "change") return command !== "list" && command !== "create";
   if (group === "action") return true;
   if (group === "subagent") return true;
   return false;
@@ -778,6 +1007,16 @@ export const run = async (
       (checkedSub === "write" || checkedSub === "delete")
     ) {
       profileTarget(args);
+    }
+    // `change create`'s body, checked here for the same reason: a missing id or title is usage
+    // (2) before any probe, never "no server".
+    if (checkedGroup === "change" && checkedCommand === "create") {
+      createTarget(args);
+    }
+    // The repository family's own argv, checked here too: a bad location/branch pairing is usage
+    // (2) before any probe.
+    if (checkedGroup === "change" && checkedCommand === "repository") {
+      repositoryTarget(args);
     }
     const changeId = await resolveChangeId({
       flag: stringFlag(args, "change"),

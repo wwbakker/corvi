@@ -11,9 +11,23 @@ bun run boundaries
 bun run test
 ```
 
-The suite runs in two passes: the non-browser files across workers (a few seconds), then the
-browser end-to-end files one at a time, server-and-browser each (about two minutes). Allow five
-minutes for `bun run test`.
+`bun run test` is the complete suite and runs in two passes: the non-browser files across workers
+(a few seconds), then the browser end-to-end files one at a time, server-and-browser each (about
+two minutes). Allow five minutes for `bun run test`.
+
+For a focused run, the wrapper's modes are available as scripts:
+
+```sh
+bun run test:unit         # the non-browser files, across workers
+bun run test:e2e          # every browser end-to-end file, one at a time
+bun run test:e2e:terminal # the browser end-to-end files named test/terminal*.test.ts
+bun run test:e2e:rest     # every other browser end-to-end file
+```
+
+`test:e2e:terminal` and `test:e2e:rest` partition `test:e2e`, so together they cover exactly the
+same files. The terminal group is a naming convention, not a semantic one: browser files that
+merely drive terminal UI (pages, the subagent change page) stay in the rest group. A named group
+whose files are all missing fails with exit 3 rather than falling through to the whole suite.
 
 `bun run boundaries` checks the workspace dependency graph declared in `architecture.json`:
 decoded imports, declared dependencies, deep imports, relative escapes, and cycles for extracted
@@ -121,8 +135,9 @@ Current fixtures live in `test/helpers.ts`:
 - Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
   the ownership marker when the entrypoint moves. Normal app/dev servers have no test marker.
 
-Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: the cleaner treats
-unowned entries there as leftovers.
+Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: only
+`bun run test:clean --prune --all` treats unowned entries there as leftovers; the default leaks
+them rather than guess whose they are.
 
 Inspect first, then clean only the known run:
 
@@ -133,8 +148,9 @@ bun run test:clean --prune --run="$CORVI_TEST_RUN"
 ```
 
 Use a nonempty token actually recorded by the run; do not manufacture one to claim ownership.
-`--prune` also removes that run's leftover paths. Broad cleanup options are not a substitute for
-knowing which resources belong to a run.
+A bare `--prune` removes nothing — only an explicit `--run="…"` removes that run's leftover paths,
+and `--all` is the broad escape hatch. Broad cleanup options are not a substitute for knowing
+which resources belong to a run.
 
 ## Documentation checks
 

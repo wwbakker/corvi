@@ -77,6 +77,8 @@ command over the running server:
 
 ```sh
 corvi change list
+corvi change create PROJ-2 --title "A new idea"
+corvi change repository list --change PROJ-1
 corvi change show --change PROJ-1
 corvi change phase Implementation --change PROJ-1
 corvi action list --change PROJ-1
@@ -90,6 +92,19 @@ on failure. The exit code says what happened without reading the text: `0` succe
 five-minute horizon with nothing to report — check in on the subagents, then await again.
 `--change` defaults to `CORVI_CHANGE_ID` — which the app sets in every pane of a change's
 session — and then to the nearest `change.json` at or above the working directory.
+
+`corvi change create <id> --title <title> [--branch <name>] [--workspace <id>]` makes an
+`Ideation` change, with the title required; `--workspace` picks the workspace whose changes root
+the recipe's `PLAN.md` path names. Its response prints the next steps: write the change's
+`PLAN.md`, add repositories, then `change start`. Every `corvi` command in that recipe carries
+`--change <id>`, because the creating session usually belongs to a different change. `corvi change
+repository` gives a change its checkouts: `repository list` shows them and the names `remove`
+takes; `add <path>` takes `--location new|original`, `--branch change|current|existing` (an
+`existing` branch needs `--branch-name <name>`, and a name goes only with `existing`), `--base`,
+`--target` and `--force`, and re-sets a path already listed; `remove <name> [--force]` drops one.
+Both `create` and `repository` check their arguments before discovery, so a bad flag or missing
+argument is `2` whether or not a server is running — as is `--location new` with `--branch
+current`, since a new worktree cannot take the branch a source checkout has checked out.
 
 Each group prints its own usage — bare `corvi change`, `corvi action`, or `corvi subagent` — and
 the subagent one carries the delegation recipe an orchestrating agent follows. Profile keys are

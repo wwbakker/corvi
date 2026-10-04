@@ -1,13 +1,17 @@
 import { basename, join } from "node:path";
 import { symlink, lstat, unlink } from "node:fs/promises";
 import { Effect } from "effect";
-import type { Change, CheckoutSpec } from "../domain/change.ts";
+import type { Change, CheckoutSpec } from "@corvi/changes/record";
 import {
   effectiveBranchOf,
   specFor,
   targetOf,
-} from "../domain/change.ts";
-import type { Widget, WidgetItem, WidgetState } from "../domain/widget.ts";
+} from "@corvi/changes/record";
+import type {
+  WidgetDto as Widget,
+  WidgetItemDto as WidgetItem,
+  WidgetStateDto as WidgetState,
+} from "@corvi/contracts/api";
 import { shOrThrow } from "../capabilities/shell.ts";
 import { existingBranch } from "../capabilities/repositories.ts";
 import { changeDir } from "../change/server/store.ts";

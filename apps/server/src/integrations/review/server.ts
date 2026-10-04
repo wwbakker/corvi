@@ -6,7 +6,7 @@ import {
 } from "@corvi/contracts/errors";
 import { Changes, Shell, Workspace } from "../api/capabilities.ts";
 import type { Result } from "../../capabilities/shell.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type {
   CommitRequest,
   CommitResult,

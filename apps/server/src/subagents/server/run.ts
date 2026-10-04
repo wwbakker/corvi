@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { discoverProfiles, type ProfileRoots } from "@corvi/agents/node";
 import type { DiscoveredProfile, ProfileDiscovery } from "@corvi/agents/discovery";
 import type { SubagentProfilesResponseDto } from "@corvi/contracts/subagents";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, workspaceOf } from "../../workspace/server/index.ts";
 

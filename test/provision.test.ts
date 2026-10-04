@@ -18,7 +18,7 @@ import { deploySettingsOf } from "@corvi/azure-devops/deploySettings";
 import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
 
 /**
@@ -228,6 +228,13 @@ test("a terminal window is labelled by where it is, or what you named it", () =>
   expect(waiting.busy).toBe(false);
   // Waiting is what notifications are for, and the agent's own words ride along beside it.
   expect(waiting.attention).toBe(true);
+  // A subagent waits for its orchestrator, not the user, so its waiting state is silent even
+  // though the status itself is unchanged. The pair pins both directions: the same window
+  // without the subagent fact still wants the user.
+  const subagentWaiting = w({ command: "node", options: { "@agent_status": "waiting" }, subagent: true });
+  expect(subagentWaiting.attention).toBe(false);
+  const ordinaryWaiting = w({ command: "node", options: { "@agent_status": "waiting" }, subagent: false });
+  expect(ordinaryWaiting.attention).toBe(true);
   const said = w({
     command: "node",
     options: { "@agent_status": "waiting", "@agent_last_message": "I fixed the layout." },

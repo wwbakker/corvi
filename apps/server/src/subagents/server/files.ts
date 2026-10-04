@@ -29,7 +29,7 @@ import type {
   SubagentRepositoryFilesResponseDto,
 } from "@corvi/contracts/subagents";
 import { BadRequestError } from "@corvi/contracts/errors";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { configPath, runtimeConfig } from "../../workspace/server/index.ts";
 import { profileRootsFor } from "./run.ts";
 

@@ -23,7 +23,7 @@ import {
   type IweError,
 } from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 import { workspaceOf } from "../../workspace/server/index.ts";
 import { unlinkRepo } from "../../vendors/git.ts";

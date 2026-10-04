@@ -40,3 +40,28 @@ test("shell quoting survives whatever a Jira title contains", () => {
   expect(shellQuote("plain")).toBe("'plain'");
   expect(shellQuote("it's $(rm -rf /)")).toBe("'it'\\''s $(rm -rf /)'");
 });
+
+test("{prompt} substitutes the caller's task", () => {
+  expect(renderActionBody("Do this: {prompt}", { ...facts, prompt: "review the diff" }, "text")).toBe(
+    "Do this: review the diff",
+  );
+});
+
+test("a task containing {id} is not re-expanded: {prompt} is applied last", () => {
+  expect(renderActionBody("{prompt}", { ...facts, prompt: "look at {id}" }, "text")).toBe("look at {id}");
+});
+
+test("a facts object without prompt leaves a literal {prompt}", () => {
+  expect(renderActionBody("Do this: {prompt}", facts, "text")).toBe("Do this: {prompt}");
+});
+
+test("a task's dollar sequences stay literal, not replacement patterns", () => {
+  const task = "$& $$ $' $`";
+  expect(renderActionBody("{prompt}", { ...facts, prompt: task }, "text")).toBe(task);
+});
+
+test("a prompt in shell mode is shell-quoted", () => {
+  expect(renderActionBody("echo {prompt}", { ...facts, prompt: "it's here" }, "shell")).toBe(
+    "echo 'it'\\''s here'",
+  );
+});

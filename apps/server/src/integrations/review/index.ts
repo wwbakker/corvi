@@ -6,7 +6,7 @@ import {
 } from "@corvi/contracts/errors";
 import { Changes } from "../api/capabilities.ts";
 import type { IncludedIntegration } from "../types.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { bodyAs } from "../../capabilities/effect/body.ts";
 import { commitChange, fileDiff, localChanges, pushChange } from "./server.ts";
 import type { CommitRequest } from "@corvi/contracts/integrations/review";

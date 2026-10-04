@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { Changes, ExtensionStore } from "../api/capabilities.ts";
 import type { RouteError } from "../types.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 
 /**
  * The notes extension's server half: free text about a change, kept in the extension's own

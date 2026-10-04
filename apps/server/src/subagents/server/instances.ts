@@ -11,8 +11,10 @@
  *
  * Presence is a live host session whose metadata carries `subagentId`, opened here and read back
  * with the host list. Activity is the reporter's status (the CLI/HTTP store, or the host's OSC
- * parse). The one stored fact is `inFlight`: whether a turn was in flight cannot be derived after
- * a reboot, so it is written when `next` hands a message over and cleared when the reply settles.
+ * parse), except that a claimed turn reads as working even while the reporter's last status is a
+ * stale `waiting`. The one stored fact is `inFlight`: whether a turn was in flight cannot be
+ * derived after a reboot, so it is written when `next` hands a message over and cleared when the
+ * reply settles.
  */
 import { Effect } from "effect";
 
@@ -45,15 +47,16 @@ import type {
 } from "@corvi/contracts/subagents";
 import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
 import { announce } from "../../capabilities/bus.ts";
-import { changeDir } from "../../change/server/index.ts";
+import { changeDir, factsFor } from "../../change/server/index.ts";
 import {
   killHostWindow,
   liveSubagents,
   newSubagentWindow,
   type LiveSubagent,
 } from "../../terminals/server/index.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { resolveProfileFor } from "./run.ts";
+import { renderSubagentBody } from "./prompt.ts";
 import { notify, subscribe } from "./waiters.ts";
 
 /** How long an `await`/`next` parks before answering "nothing yet" — the check-in horizon for
@@ -82,12 +85,17 @@ type Live = LiveSubagent;
 const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
   liveSubagents(changeId).pipe(Effect.catchAll(() => Effect.succeed(new Map<string, Live>())));
 
+/** The `viewOf` input for a live entry (or its absence): one projection, so `toDto` and
+ * `awaitReady` cannot disagree about presence or the reporter's status. */
+const viewInputOf = (
+  live: Live | undefined,
+): { readonly attached: boolean; readonly agentStatus?: "working" | "waiting" } => ({
+  attached: live !== undefined,
+  agentStatus: live?.agentStatus,
+});
+
 const toDto = (record: SubagentWithMessages, live: Live | undefined): SubagentInstanceDto => {
-  const view = viewOf(
-    record,
-    { attached: live !== undefined, agentStatus: live?.agentStatus },
-    record.messages,
-  );
+  const view = viewOf(record, viewInputOf(live), record.messages);
   return {
     id: record.id,
     changeId: record.changeId,
@@ -199,10 +207,11 @@ const opened = (change: Change, id: string, window: string): Effect.Effect<void,
     result: undefined,
   })).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
 
-/** Create a subagent from a profile, open its window, and (when a task was given) append the
- * initial inbound message. Create, open and the first message are bound on purpose. A failed
- * launcher rolls the whole instance back, and a retried create with the same idempotency key
- * returns the instance it already made. */
+/** Create a subagent from a profile, open its window, and append the rendered profile body as
+ * the first inbound message. Create, open and the first message are bound on purpose. The render
+ * always yields a message (a task, the await instruction, or the body plus one), so create always
+ * sends a first message. A failed launcher rolls the whole instance back, and a retried create
+ * with the same idempotency key returns the instance it already made. */
 export const createSubagent = (
   change: Change,
   input: SubagentCreateRequestDto,
@@ -245,14 +254,16 @@ export const createSubagent = (
         yield* createInstance(dir, record).pipe(
           Effect.mapError(() => new ConflictError({ message: `subagent "${id}" already exists` })),
         );
-        if (input.prompt !== undefined && input.prompt !== "") {
-          yield* appendMessageAndPatch(
-            dir,
-            id,
-            { role: from, body: input.prompt, at: now() },
-            (current) => current,
-          ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
-        }
+        yield* appendMessageAndPatch(
+          dir,
+          id,
+          {
+            role: from,
+            body: renderSubagentBody(profile.profile.body, factsFor(change), input.prompt),
+            at: now(),
+          },
+          (current) => current,
+        ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
         // The launcher can still fail after the files exist: roll back so a failed create leaves
         // nothing behind, and a retry starts clean.
         const window = yield* launcher(change, record).pipe(
@@ -463,7 +474,8 @@ export const awaitReady = (
           const subscription = yield* subscribe(change.id, id);
           const step = yield* Effect.gen(function* () {
             const live = yield* liveBySubagent(change.id);
-            const attached = live.has(id);
+            const entry = live.get(id);
+            const attached = entry !== undefined;
             const record = yield* requireInstance(change, id).pipe(
               Effect.catchAll(() => Effect.succeed(null)),
             );
@@ -481,7 +493,7 @@ export const awaitReady = (
             if (record.window === undefined && pending) {
               return { done: true as const, result: { status: "lost" as const, id } };
             }
-            const view = viewOf(record, { attached, agentStatus: live.get(id)?.agentStatus }, record.messages);
+            const view = viewOf(record, viewInputOf(entry), record.messages);
             // Ready is what lets the orchestrator process: a reply is parked, or the subagent is
             // idle with nothing of the orchestrator's still to be delivered. The pending-message
             // hold-back is what keeps `send` (or a create's first prompt) followed by `await`

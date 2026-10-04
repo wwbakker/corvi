@@ -4,8 +4,8 @@ import { join } from "node:path";
 import { Effect, Either, Layer } from "effect";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
-import type { Widget, WidgetItem } from "../apps/server/src/domain/widget.ts";
+import type { Change } from "@corvi/changes/record";
+import type { WidgetDto, WidgetItemDto } from "@corvi/contracts/api";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import type { Card } from "../apps/server/src/integrations/types.ts";
 import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
@@ -626,7 +626,7 @@ test("the deploy route passes a complete body to the promotion-guarded deploy", 
 /** A card whose effects are pure, so the orchestration in effects.ts is what is under test. */
 const card = (over: Partial<Card> = {}): Card => ({ title: "Card", ...over });
 
-const widget = (over: Partial<Widget> = {}): Widget => ({
+const widget = (over: Partial<WidgetDto> = {}): WidgetDto => ({
   integration: "test",
   title: "Card",
   state: "ok",
@@ -685,7 +685,7 @@ test("a finished change's widget keeps its rows but loses every action", async (
 
 test("repoStatusOf returns a card's rows for the repository, or a red row naming it", async () => {
   const repo = "/repos/example-api";
-  const rows: WidgetItem[] = [{ label: "worktree", actions: [{ id: "a", label: "A" }] }];
+  const rows: WidgetItemDto[] = [{ label: "worktree", actions: [{ id: "a", label: "A" }] }];
   const fromCard = await runEffect(
     repoStatusOf("test", card({ repoStatus: () => Effect.succeed(rows) }), change(), repo),
   );

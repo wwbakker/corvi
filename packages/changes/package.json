@@ -10,7 +10,6 @@
     "./errors": "./src/errors.ts",
     "./store": "./src/store.ts",
     "./progress": "./src/progress.ts",
-    "./legacy": "./src/legacy.ts",
     "./node": "./src/node/index.ts",
     "./record": "./src/record.ts"
   },

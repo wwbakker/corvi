@@ -3,9 +3,9 @@
  * What a reader (or an agent) needs to work against a module, without paying for its
  * implementation.
  *
- *   bun run outline apps/server/src/domain/change.ts  # one file
+ *   bun run outline packages/changes/src/record.ts  # one file
  *   bun run outline apps/server/src/integrations        # a directory: its index.ts, or its .ts files
- *   bun run outline apps/server/src/domain/change.ts apps/server/src/capabilities/shell.ts  # several
+ *   bun run outline packages/changes/src/record.ts apps/server/src/capabilities/shell.ts  # several
  *
  * The types come from the compiler, not from a mirror kept in step by hand: an Effect signature
  * carries the errors and requirements (`Effect<A, E, R>`), so an outline is enough to plan

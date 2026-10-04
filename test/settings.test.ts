@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MASK, problems, settingsViewSync, writeSettings, type Settings } from "../apps/server/src/settings/server/index.ts";
 import { runtimeConfig, reloadConfigSync, type Config } from "../apps/server/src/workspace/server/index.ts";
-import { legacyConfig, legacyWorkspace, runEffect } from "./helpers.ts";
+import { runEffect } from "./helpers.ts";
 
 /**
  * The settings page writes the file the whole program reads, so the two things worth testing are
@@ -160,15 +160,11 @@ test("the file keeps what it had, including fields the core no longer names", as
   const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
   // A key we do not know about was put there by hand, for a version of Corvi that does.
   expect(written.somethingNewer).toBe(1);
-  // The write changed only what it meant to; the legacy jira fields survive intact.
+  // The write changed only what it meant to; the unknown jira fields survive intact.
   expect(written.jiraAssignee).toBe("me@example.com");
   expect(written.jiraStartTransition).toBe("Start");
   expect(written.jiraDoneTransition).toBe("Ready for release");
   expect(written.notificationSound).toBe(false);
-
-  // The resolved config carries the preserved keys too, which is where the jira extension's
-  // legacy fallback reads them from.
-  expect(legacyConfig().jiraAssignee).toBe("me@example.com");
 });
 
 test("a key the file no longer has does not survive a reload", async () => {
@@ -177,16 +173,18 @@ test("a key the file no longer has does not survive a reload", async () => {
   // reload must drop what the file dropped, or the settings page cannot undo a hand edit.
   await Bun.write(file, JSON.stringify({ jiraDoneTransition: "Ready for release" }));
   reloadConfigSync();
-  expect(legacyConfig().jiraDoneTransition).toBe("Ready for release");
+  expect((runtimeConfig() as { jiraDoneTransition?: string }).jiraDoneTransition).toBe(
+    "Ready for release",
+  );
 
   await Bun.write(file, JSON.stringify({}));
   reloadConfigSync();
   expect("jiraDoneTransition" in runtimeConfig()).toBe(false);
 });
 
-test("a workspace-level legacy jira object survives a settings save", async () => {
-  // A workspace written before the settings bag carried its own `jira` site object. The loader
-  // passes the entry through untouched, and the page writes the workspace back as it read it.
+test("a workspace key the core no longer names survives a settings save", async () => {
+  // The loader passes an unknown workspace key through untouched, and the page writes the
+  // workspace back as it read it.
   await Bun.write(
     file,
     JSON.stringify({
@@ -194,22 +192,17 @@ test("a workspace-level legacy jira object survives a settings save", async () =
     }),
   );
   reloadConfigSync();
-  expect(legacyWorkspace(runtimeConfig().workspaces[0]!).jira).toEqual({
-    project: "LEGACY",
-    board: "B",
-  });
+  const readBack = (): unknown => (runtimeConfig().workspaces[0] as { jira?: unknown }).jira;
+  expect(readBack()).toEqual({ project: "LEGACY", board: "B" });
 
   await runEffect(writeSettings({ workspaces: [runtimeConfig().workspaces[0]!] }));
 
   const written = JSON.parse(await readFile(file, "utf8")) as {
     workspaces: Record<string, unknown>[];
   };
-  // The unknown key rode through the save, which is what the jira extension reads back.
+  // The unknown key rode through the save.
   expect(written.workspaces[0]!.jira).toEqual({ project: "LEGACY", board: "B" });
-  expect(legacyWorkspace(runtimeConfig().workspaces[0]!).jira).toEqual({
-    project: "LEGACY",
-    board: "B",
-  });
+  expect(readBack()).toEqual({ project: "LEGACY", board: "B" });
 });
 
 test("a setting the environment overrides is reported as locked", async () => {
@@ -299,36 +292,6 @@ test("the extensions' own settings round-trip, strings and string lists", async 
   expect(again.extensionSettings).toEqual({
     "azure-devops": { environments: ["dev", "accept"] },
   });
-});
-
-test("the settings read migrates the retired names before the page edits them", async () => {
-  // A hand-edited file still naming `ci` and `deployments`: the read folds them into the
-  // extensions' own settings, so the page edits — and writes back — today's shape, never
-  // the retired names.
-  await Bun.write(
-    file,
-    JSON.stringify({
-      extensionSettings: { deployments: { organization: "bag-org" } },
-      workspaces: [
-        { id: "old", name: "Old", extensions: ["ci", "git"] },
-        { id: "no-pipes", name: "No pipelines", azure: false },
-      ],
-    }),
-  );
-  reloadConfigSync();
-
-  const view = settingsViewSync();
-  const written = view.file.workspaces ?? [];
-  expect(written.find((w) => w.id === "old")?.settings?.extensions).toEqual([
-    "github",
-    "azure-devops",
-    "git",
-  ]);
-  expect(written.find((w) => w.id === "no-pipes")?.settings?.extensions).not.toContain("azure-devops");
-  expect(view.file.extensionSettings?.["azure-devops"]).toMatchObject({
-    organization: "bag-org",
-  });
-  expect(view.file.extensionSettings).not.toHaveProperty("deployments");
 });
 
 test("a declared secret never reaches the page, and not retyping it keeps it", async () => {

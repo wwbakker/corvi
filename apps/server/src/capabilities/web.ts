@@ -8,7 +8,7 @@ import { runRoute } from "./effect/run.ts";
 import { Workspace } from "../integrations/api/capabilities.ts";
 import { ChangesLive, cacheLive, GitFactsLive } from "../integrations/services.ts";
 import { Changes, type Cache, type GitFacts } from "../integrations/api/capabilities.ts";
-import type { Change } from "../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { workspaceById, workspaceOf } from "../workspace/server/index.ts";
 import { runtimeCache } from "./runtime.ts";
 

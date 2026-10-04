@@ -21,7 +21,7 @@ import type {
   DuplicateDirectoryName,
   RepositoryStoreError,
 } from "../src/errors.ts"
-import { layer as servicesLayer, migrateStoredRecords, storeLayer } from "../src/node/index.ts"
+import { layer as servicesLayer, storeLayer } from "../src/node/index.ts"
 
 let root: string
 
@@ -280,59 +280,32 @@ test("a terminal transition archives the record and it still reads", async () =>
   expect(await Bun.file(join(`${root}-archive`, "archived", "change.json")).exists()).toBe(true)
 })
 
-test("a format-1 record is migrated on read and persisted as format 2", async () => {
-  const legacyRoot = join(root, "legacy-read")
-  const path = join(legacyRoot, "migrated", "change.json")
-  await Bun.write(
-    path,
-    JSON.stringify(
-      {
-        id: "migrated",
-        title: "Migrated",
-        branch: "migrated",
-        state: "In Progress",
-        createdAt: "2026-01-01T00:00:00.000Z",
-        repos: ["/sources/one", "/sources/two"],
-        direct: ["/sources/two"],
-        base: { "/sources/two": "feature" },
-        repositories: [{ stale: true }],
-      },
-      null,
-      2,
-    ) + "\n",
-  )
-  const links = await Effect.runPromise(
-    Effect.gen(function* () {
-      const repositories = yield* ChangeRepositories
-      return yield* repositories.listRepositories(ChangeId.make("migrated"))
-    }).pipe(Effect.provide(services(legacyRoot))),
-  )
-  expect(links.map((link) => link.originalLocation)).toEqual(["/sources/one", "/sources/two"])
-  expect(links[0]?.location).toBe("new")
-  expect(links[1]?.location).toBe("original")
-  expect(links[1]?.base).toBe("feature")
-  expect(links[1]?.target).toBe("feature")
-  const record = (await Bun.file(path).json()) as Record<string, unknown>
-  expect(record.formatVersion).toBe(2)
-  expect(record.state).toBe("Implementation")
-  expect("repos" in record).toBe(false)
-  expect("repositories" in record).toBe(false)
-})
+test("an unstamped record reads as the current shape and is not rewritten", async () => {
+  const unstampedRoot = join(root, "unstamped")
+  const path = join(unstampedRoot, "plain", "change.json")
+  const stored =
+    JSON.stringify({
+      id: "plain",
+      title: "Plain",
+      branch: "plain",
+      state: "Ideation",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      checkouts: [{ path: "/sources/one", location: "new", branch: { kind: "change" } }],
+    }) + "\n"
+  await Bun.write(path, stored)
 
-test("the startup sweep migrates once and is idempotent", async () => {
-  const sweepRoot = join(root, "sweep")
-  const path = join(sweepRoot, "swept", "change.json")
-  await Bun.write(
-    path,
-    JSON.stringify({ id: "swept", state: "Awaiting Review", createdAt: "2026-01-01", repos: ["/sources/one"] }) +
-      "\n",
+  const read = await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.getChange(ChangeId.make("plain"))
+    }).pipe(Effect.provide(services(unstampedRoot))),
   )
-  await Effect.runPromise(migrateStoredRecords({ roots: [{ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }] }))
-  const once = await Bun.file(path).text()
-  expect(JSON.parse(once).formatVersion).toBe(2)
-  expect(JSON.parse(once).state).toBe("Verification")
-  await Effect.runPromise(migrateStoredRecords({ roots: [{ root: sweepRoot, archiveRoot: `${sweepRoot}-archive` }] }))
-  expect(await Bun.file(path).text()).toBe(once)
+  // Read as the current shape, not migrated and not rejected: the missing stamp is not a fault.
+  expect(read.title).toBe("Plain")
+  expect(read.phase).toBe("Ideation")
+  expect((read as { formatVersion?: number }).formatVersion).toBeUndefined()
+  // Nothing was written back, so the record on disk is exactly as it was left.
+  expect(await Bun.file(path).text()).toBe(stored)
 })
 
 test("a record from a newer Corvi reads best-effort and refuses every write", async () => {

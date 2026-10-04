@@ -30,8 +30,6 @@ import {
 } from "./app-update/update.ts";
 import { terminalSockets, closeAttachments, flushScreens, type TerminalSocket } from "./terminals/server/session.ts";
 import { loadSnapshots } from "./terminals/server/snapshots.ts";
-import { migrateStoredRecords } from "@corvi/changes/node";
-import { changePairs } from "./change/server/store.ts";
 import { putCliOnPath } from "./capabilities/env.ts";
 import { commandAvailable } from "./capabilities/os.ts";
 import { ID, env } from "@corvi/configuration/node";
@@ -52,13 +50,6 @@ setRuntime({ cache });
 // The server-owned screens persisted by the last run, loaded before the watcher or any page can
 // prune them: this is what keeps deep scrollback across a Corvi restart.
 loadSnapshots();
-
-// One sweep of the record formats at startup: a change.json still in format 1 is projected to
-// the current one before the first request. Reported and never fatal — every read migrates
-// lazily anyway — and the sweep is what makes one shape on disk the normal state.
-void Effect.runPromise(
-  migrateStoredRecords({ roots: changePairs() }),
-).catch((error) => console.error("could not migrate change records:", error));
 
 // The app update: only the installed app updates itself (its window marks this run), and only
 // from its own checkout. The interrupted-run sweep closes a journal the last server left open,

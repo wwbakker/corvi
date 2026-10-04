@@ -1,4 +1,4 @@
-import type { Change } from "../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { Workspace } from "@corvi/configuration/config";
 import { extensionNamesFor, workspaceOf } from "../workspace/server/index.ts";
 import { loaded, type LoadedIntegration } from "./loaded.ts";

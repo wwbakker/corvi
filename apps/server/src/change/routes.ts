@@ -2,6 +2,7 @@ import { Effect, Schema } from "effect";
 import {
   applyPatch,
   cancelChange,
+  changeDir,
   completeChange,
   completionOf,
   createChange,
@@ -28,7 +29,7 @@ import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { textRevision } from "../capabilities/files.ts";
-import type { Change } from "../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
 import { repoStates } from "../vendors/git.ts";
@@ -84,8 +85,17 @@ export const changeRoutes = guard({
           const jira = yield* assignTicketOnCreate(change);
           // Your own action lands on the stream at once, not within a tick.
           yield* Effect.sync(() => announce("changes"));
+          // `changeDir` is the creation location: where a brand-new record is written. A change
+          // that already exists stays where it was made when a root is overridden, so if
+          // `start`/`repos` ever populate this they must use the stored directory (`existingDir`),
+          // not `changeDir`.
           return json(
-            { change, provision: [...run.provision, ...jira], refresh: run.refresh },
+            {
+              change,
+              provision: [...run.provision, ...jira],
+              refresh: run.refresh,
+              changeDir: changeDir(change),
+            },
             201,
           );
         }),

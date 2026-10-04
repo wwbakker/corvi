@@ -5,7 +5,7 @@
  *   bun run test:clean --kill           # end the leavings of runs that are gone
  *   bun run test:clean --kill --run=T   # end exactly run T (what a run's EXIT trap does)
  *   bun run test:clean --kill --all     # end every test-owned process (the escape hatch)
- *   bun run test:clean --prune          # ...and remove the temp dirs and pid-files it ended
+ *   bun run test:clean --prune          # ...and remove paths (only with --run=T or --all)
  *   bun run test:clean --verbose        # also say so when there is nothing
  *
  * Tests start real things — servers and terminal hosts on Node — and an aborted run leaves them
@@ -16,8 +16,10 @@
  * apps/server/src/server.ts ignores. The app's server (`electron apps/server/src/server.ts`) and
  * a dev server (`node apps/server/src/server.ts`) carry no marker.
  *
- * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` that no live run names is
- * a stray, and `--prune` removes it. Do not name your own scratch files `corvi-…` there — a
+ * The prefix is the whole rule: an entry under `$TMPDIR` named `corvi-*` belongs to whoever it
+ * names. Only explicit intent removes paths: `--run=<token>` removes exactly that run's entries,
+ * `--all` removes every entry including unnamed ones, and the default leaks rather than guess
+ * whose anything is. Do not name your own scratch files `corvi-…` there — a
  * `/tmp/corvi-notes.log` reads as a run named `notes.log`.
  *
  * Which run, and whether that run is still alive, is the second question — the one that lets two
@@ -28,12 +30,17 @@
  *   - and the run itself in `<tmpdir>/corvi-<token>.pid`, written by `testRun()` (test/helpers.ts)
  *     and holding its pid for as long as it lives.
  *
- * So the default `--kill` ends only runs whose pid-file is gone or whose pid is dead: a crash's
- * leavings, never a suite in progress. A run's own EXIT trap passes `--run=<token>` to end
- * exactly its own — and exactly means exactly: with suites able to run side by side, that trap
- * takes nothing that does not carry its token (coversRun below). `--all` is there for the day a
- * pid-file lies (a reused pid can only make the tool *skip* a dead run, not kill a live one, so
- * the failure is a leak, not a casualty).
+ * So the default `--kill` trusts one pid-file per run and ends the processes of runs it reads as
+ * gone — including a run whose file names a worker that finished before `--parallel` did. That
+ * stale-file case can end a live run's servers, so the process verdict is a guess too, not a
+ * safety proof. A run's own EXIT trap passes `--run=<token>` to end exactly its own — and exactly
+ * means exactly: with suites able to run side by side, that trap takes nothing that does not
+ * carry its token (coversRun below). `--all` ends every test-owned process.
+ *
+ * Process liveness keeps that pid-file guess; path removal does not. The same guess once pruned a
+ * live run's fixtures, so only explicit `--run=<token>` and `--all` remove paths, and the default
+ * leaks them. Getting a misread run's processes ended stays a residual risk; deleting a live
+ * run's directories does not.
  */
 import { readFileSync } from "node:fs";
 import { readdir, realpath, rm } from "node:fs/promises";
@@ -83,8 +90,10 @@ export const tokenOf = (command: string): string | undefined =>
 export const tokenFromPath = (path: string): string | undefined =>
   new RegExp(`(?:^|[\\\\/])corvi-(${TOKEN})(?=[-/]|$)`).exec(normalize(path))?.[1];
 
-/** The token a pid-file name carries (`corvi-<token>.pid`), for pruning. */
-const tokenFromPidFile = (name: string): string | undefined =>
+/** The token a pid-file name carries (`corvi-<token>.pid`), for pruning. Pure and exported, so
+ * test/clean.test.ts can pin that only this parser reads a pid-file's token (tokenFromPath
+ * requires the token be followed by `-` or `/`, which a `.pid` name is not). */
+export const tokenFromPidFile = (name: string): string | undefined =>
   new RegExp(`^corvi-(${TOKEN})\\.pid$`).exec(name)?.[1];
 
 /** Where a run writes its liveness: `<tmpdir>/corvi-<token>.pid`. The token names all of a run's
@@ -134,24 +143,28 @@ const alive = (pid: number): boolean => {
   }
 };
 
-/** What a purge covers, by run. Three modes, and the difference matters when two suites run at
- * once: `--all` is every run's; `--run=<token>` is exactly that run's — whatever its state, and
- * nothing else's, because the trap that names its own run cleans up *after itself*, it does not
- * audit the machine (sweeping whatever briefly looks stray beside one's own leftovers is how a
- * live suite loses its fixtures mid-test); and the default is the runs that are gone. */
+/** What a purge covers, by run. Only explicit intent removes paths: `--all` is every run's, and
+ * `--run=<token>` is exactly that run's — the wrapper's exit trap names its own run to clean up
+ * after itself. The default covers nothing: a run's liveness is read from a single pid-file, and
+ * that guess has pruned a live neighbour's fixtures mid-test, so the default leaks instead. */
 export const coversRun = (
   mode: { readonly all: boolean; readonly run: string | undefined },
   token: string,
-  live: boolean,
-): boolean => mode.all || mode.run === token || (mode.run === undefined && !live);
+): boolean => mode.all || mode.run === token;
 
-/** What a purge covers for a path no run names. `--all` takes everything; the default only when
- * nothing test-owned is running at all (on a quiet machine an unnamed entry is an old stray);
- * `--run` nothing — unnamed entries beside a live suite may be that suite's. */
-export const coversUnnamed = (
-  mode: { readonly all: boolean; readonly run: string | undefined },
-  quiescent: boolean,
-): boolean => mode.all || (mode.run === undefined && quiescent);
+/** What a purge covers for a path no run names. `--all` takes everything; the default and
+ * `--run` take nothing — an unnamed entry may belong to a live suite, and only the explicit
+ * `--all` may speak for it. */
+export const coversUnnamed = (mode: { readonly all: boolean; readonly run: string | undefined }): boolean =>
+  mode.all;
+
+/** Whether a purge may remove paths at all. This is the single gate: `coversRun`/`coversUnnamed`
+ * only choose among the explicit modes once it has opened. Only explicit intent does: `--all` is
+ * the escape hatch and `--run=<token>` is exact. The default removes nothing — it still ends
+ * orphaned processes, but a pid-file is a guess and that guess deleted a live neighbour's
+ * fixtures, so it leaks instead (in tmpfs a leftover costs nothing, and a reboot clears it). */
+export const mayRemovePaths = (mode: { readonly all: boolean; readonly run: string | undefined }): boolean =>
+  mode.all || mode.run !== undefined;
 
 /** Remove the temp dirs and pid-files of the runs a purge covers. */
 const pruneLeftovers = async (
@@ -209,18 +222,24 @@ const main = async (): Promise<void> => {
 
   const chosenProcs = procs.filter((p) => verdict(tokenOf(p.command)) === "chosen");
 
+  /** Remove the paths a purge covers, or say why it left them. Only an explicit mode removes
+   * anything: the default ends processes but leaks their paths rather than guess (mayRemovePaths). */
+  const prunePaths = async (): Promise<void> => {
+    if (!mayRemovePaths({ all, run })) {
+      console.log("the default purge removes no paths; pass --run=<token> or --all to remove them");
+      return;
+    }
+    const removed = await pruneLeftovers(
+      roots,
+      (t) => coversRun({ all, run }, t),
+      coversUnnamed({ all, run }),
+    );
+    if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
+  };
+
   if (!procs.length) {
     if (verbose) console.log("no test processes are running");
-    if (prune) {
-      // Quiescent: nothing test-owned is running, so a `corvi-*` entry no run names is a stray
-      // (an old run's, or a fixed-path log), and the old prune's behaviour is right.
-      const removed = await pruneLeftovers(
-        roots,
-        (t) => coversRun({ all, run }, t, liveToken(t, roots)),
-        coversUnnamed({ all, run }, true),
-      );
-      if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
-    }
+    if (prune) await prunePaths();
     return;
   }
 
@@ -257,18 +276,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  if (prune) {
-    // Untokened leftovers are only safe to remove when nothing test-owned survived: a run too old
-    // to name itself cannot be asked whether it is still using its directories. A purge that
-    // names its own run does not sweep at all beyond it — see coversUnnamed.
-    const stillRunning = (await processes()).filter((p) => isKillable(p.command) && isTestCommand(p.command));
-    const removed = await pruneLeftovers(
-      roots,
-      (t) => coversRun({ all, run }, t, liveToken(t, roots)),
-      coversUnnamed({ all, run }, stillRunning.length === 0),
-    );
-    if (removed.length) console.log(`removed ${removed.length} leftover test path(s):\n  ${removed.join("\n  ")}`);
-  }
+  if (prune) await prunePaths();
 };
 
 if (import.meta.main) await main();

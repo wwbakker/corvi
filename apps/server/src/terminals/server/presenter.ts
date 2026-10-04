@@ -1,4 +1,4 @@
-import type { TerminalWindow } from "../../domain/terminal.ts";
+import type { TerminalWindow } from "@corvi/contracts/terminal";
 import type { RawWindow, WindowPresentation } from "../../integrations/types.ts";
 import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";
@@ -69,7 +69,7 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     state: said.state ?? "idle",
     active: raw.active,
     activity: raw.activity,
-    attention: said.attention ?? false,
+    attention: raw.subagent === true ? false : (said.attention ?? false),
     note: said.note,
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
     panes: raw.panes,

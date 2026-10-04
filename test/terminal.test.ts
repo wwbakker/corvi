@@ -1,8 +1,9 @@
 import { test, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, type Browser, type Page } from "playwright";
-import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
+import { budget, checkoutsOf, closePages, requireFreshWebBundle, runSh, serverEnv, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
 import { csiuFor } from "@corvi/terminals/model";
 import { ensureHost } from "../apps/server/src/terminals/host/client.ts";
 
@@ -89,6 +90,66 @@ const terminalSize = (page: Page): Promise<{ cols: number; rows: number }> =>
     const term = element?.corviTerminal;
     return { cols: term?.cols ?? 0, rows: term?.rows ?? 0 };
   });
+/** The grid's geometry and the vertical overlay scrollbar, for the full-width fit: how much of the
+ * host the grid uses, and whether the scrollbar sits over the grid rather than in a reserved strip. */
+type TerminalLayout = {
+  readonly cols: number;
+  readonly cellWidth: number;
+  readonly contentWidth: number;
+  readonly gridWidth: number;
+  readonly gridRight: number;
+  readonly hostRight: number;
+  readonly scrollbar: {
+    readonly classes: string;
+    readonly position: string;
+    readonly pointerEvents: string;
+    readonly left: number;
+    readonly right: number;
+  } | null;
+};
+const terminalLayout = (page: Page): Promise<TerminalLayout | null> =>
+  page.evaluate(() => {
+    type Internals = {
+      cols?: number;
+      element?: HTMLElement;
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const element = term?.element;
+    const host = element?.parentElement;
+    const grid = term?._core?.screenElement;
+    if (!term || !element || !host || !grid) return null;
+    const hostStyle = getComputedStyle(host);
+    const elementStyle = getComputedStyle(element);
+    const paddingWidth = (parseFloat(elementStyle.paddingLeft) || 0) + (parseFloat(elementStyle.paddingRight) || 0);
+    const cellWidth = term._core?._renderService?.dimensions?.css?.cell?.width ?? 0;
+    const hostRect = host.getBoundingClientRect();
+    const gridRect = grid.getBoundingClientRect();
+    const bar = document.querySelector(".terminal-screen .xterm-scrollable-element > .scrollbar.vertical") as HTMLElement | null;
+    const barStyle = bar ? getComputedStyle(bar) : null;
+    const barRect = bar?.getBoundingClientRect();
+    return {
+      cols: term.cols ?? 0,
+      cellWidth,
+      contentWidth: (parseFloat(hostStyle.width) || 0) - paddingWidth,
+      gridWidth: gridRect.width,
+      gridRight: gridRect.right,
+      hostRight: hostRect.right,
+      scrollbar:
+        bar && barStyle && barRect
+          ? {
+              classes: bar.className,
+              position: barStyle.position,
+              pointerEvents: barStyle.pointerEvents,
+              left: barRect.left,
+              right: barRect.right,
+            }
+          : null,
+    };
+  });
 const terminalSelection = (page: Page): Promise<string> =>
   page.evaluate(() => {
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
@@ -99,6 +160,91 @@ const terminalFontSize = (page: Page): Promise<number> =>
     const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: BrowserTerminal }) | null;
     return element?.corviTerminal?.options.fontSize ?? 0;
   });
+/** The raw-mode probe a mouse test types into a shell. */
+const mouseProbe = fileURLToPath(new URL("./fixtures/mouse-probe.mjs", import.meta.url));
+/** `<tracking>:<encoding>` from the page's xterm. SGR (or SGR_PIXELS) reports travel through
+ * `onData`; DEFAULT is the legacy binary path the pane forwards from `onBinary`. `mouseTrackingMode`
+ * is public; `activeEncoding` is the private field the server's snapshot fix re-asserts. */
+const mouseState = (page: Page): Promise<string> =>
+  page.evaluate(() => {
+    type Internals = {
+      modes?: { mouseTrackingMode?: string };
+      _core?: { coreMouseService?: { activeEncoding?: string } };
+    };
+    const element = document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null;
+    const term = element?.corviTerminal;
+    return `${term?.modes?.mouseTrackingMode ?? "none"}:${term?._core?.coreMouseService?.activeEncoding ?? "DEFAULT"}`;
+  });
+/** The viewport point at the right edge of the rendered grid, once the fit has settled (the grid
+ * width matches the terminal's own column count). Wheeling there lands on the last column, whose
+ * X10 byte is `32 + col >= 0x80` on any grid wider than 96 columns; a stale or not-yet-fitted grid
+ * would put the wheel somewhere else. */
+const pointAtGridRight = (page: Page): Promise<{ x: number; y: number } | null> =>
+  page.evaluate(() => {
+    type Internals = {
+      cols?: number;
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const rect = term?._core?.screenElement?.getBoundingClientRect();
+    const cellWidth = term?._core?._renderService?.dimensions?.css?.cell?.width;
+    if (term?.cols === undefined || rect === undefined || cellWidth === undefined || rect.width === 0) return null;
+    if (Math.abs(rect.width - term.cols * cellWidth) > 1) return null; // the fit has not settled
+    return { x: rect.left + rect.width - 1, y: rect.top + rect.height / 2 };
+  });
+/** The viewport point of the first cell of `needle` in the buffer, or null when it is not on screen.
+ * The linkifier maps a mousemove to a buffer cell, so hovering that point is what shows a link.
+ * The string index is treated as a column (`indexOf`), so this assumes no wide characters before
+ * the match — true for the ASCII URLs the tests use. */
+const hoverPointFor = (page: Page, needle: string): Promise<{ x: number; y: number } | null> =>
+  page.evaluate((text: string) => {
+    type Internals = {
+      rows?: number;
+      buffer?: {
+        active: {
+          length: number;
+          baseY: number;
+          getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined;
+        };
+      };
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const grid = term?._core?.screenElement;
+    const cell = term?._core?._renderService?.dimensions?.css?.cell;
+    if (!term?.buffer || !grid || !cell || cell.width === undefined || cell.height === undefined) return null;
+    const buffer = term.buffer.active;
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y)?.translateToString(true) ?? "";
+      const at = line.indexOf(text);
+      if (at === -1) continue;
+      const row = y - buffer.baseY;
+      if (row < 0 || (term.rows !== undefined && row >= term.rows)) continue; // off the viewport
+      const rect = grid.getBoundingClientRect();
+      return { x: rect.left + (at + 0.5) * cell.width, y: rect.top + (row + 0.5) * cell.height };
+    }
+    return null;
+  }, needle);
+/** Wait until the shell's next prompt has enabled bracketed paste. A command that just finished has
+ * printed its output but not necessarily redrawn the prompt's DEC mode yet; pasting before that
+ * would send the text unbracketed and the shell would run it. */
+const awaitBracketedPaste = (page: Page): Promise<void> =>
+  waitFor(
+    "bracketed paste",
+    () =>
+      page.evaluate(() => {
+        type Internals = { modes?: { bracketedPasteMode?: boolean } };
+        const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+        return term?.modes?.bracketedPasteMode === true;
+      }),
+    budget(10_000),
+  );
 /** Select the first occurrence of `needle` in the buffer without disturbing the focus. */
 const selectInTerminal = async (page: Page, needle: string): Promise<void> => {
   await page.evaluate((text) => {
@@ -407,6 +553,103 @@ test.skipIf(!usable)("every window's pty is the size the page shows", async () =
   await page.close();
 }, budget(90_000));
 
+test.skipIf(!usable)("the grid fills the host and the scrollbar overlays it, hidden until scrolled", async () => {
+  const { page, dir } = await openTerminal(id);
+  const tabs = page.locator(".window-tab:not(.new):not(.overview)");
+  await tabs.first().waitFor({ timeout: 15_000 });
+  // A fresh window: a new shell with no scrollback, so the overlay starts hidden.
+  const before = await tabs.count();
+  await page.locator(".window-tab.new").click();
+  expect(await until(() => tabs.count(), before + 1)).toBe(before + 1);
+  await until(() => page.locator(".window-tab.current").getAttribute("data-window-index"), String(before), budget(20_000));
+  await awaitAttached(page);
+  await waitFor(
+    "the terminal grid to settle",
+    async () => {
+      const layout = await terminalLayout(page);
+      return layout !== null && layout.cellWidth > 0 && Math.abs(layout.gridWidth - layout.cols * layout.cellWidth) <= 1;
+    },
+    budget(10_000),
+  );
+
+  const layout = await terminalLayout(page);
+  expect(layout).not.toBeNull();
+  // The grid fills the host's content width: the leftover is under one cell. Before this fit, the
+  // scrollbar strip (~14px) was reserved, so the leftover was the strip plus the remainder.
+  expect(layout!.cols * layout!.cellWidth).toBeLessThanOrEqual(layout!.contentWidth);
+  // Measure the leftover on the rendered rects, not by re-deriving the fit's own arithmetic.
+  expect(layout!.hostRight - layout!.gridRight).toBeLessThan(layout!.cellWidth + 1);
+  // The scrollbar is an absolute overlay, its left edge over the grid rather than in a strip
+  // beside it, and its box inside the host's right edge.
+  expect(layout!.scrollbar).not.toBeNull();
+  expect(layout!.scrollbar!.position).toBe("absolute");
+  expect(layout!.scrollbar!.right).toBeLessThanOrEqual(layout!.hostRight + 1);
+  expect(layout!.scrollbar!.left).toBeLessThan(layout!.gridRight);
+  // Nothing to scroll yet: the overlay is hidden and takes no pointer events.
+  expect(layout!.scrollbar!.classes).toContain("invisible");
+  expect(layout!.scrollbar!.pointerEvents).toBe("none");
+
+  // Add scrollback, then scroll: the overlay fades in over the grid.
+  await typeUntilText(page, "seq 1 300 | sed 's/^/SCROLL-/'", "SCROLL-300");
+  const box = await page.locator(".terminal-screen").boundingBox();
+  if (box === null) throw new Error("the terminal has no box");
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.wheel(0, -120);
+  // `"invisible".includes("visible")` is true, so match the class token, not a substring, and fail
+  // (not just wait out the budget) if the overlay never appears.
+  await waitFor(
+    "the scrollbar to fade in",
+    async () => (await terminalLayout(page))?.scrollbar?.classes.split(/\s+/).includes("visible") === true,
+    budget(10_000),
+  );
+
+  // The pty was resized to the wider grid the fit produced.
+  const shown = await terminalSize(page);
+  const reported = (await runToFile(page, `stty size > ${join(dir, "wide-size.txt")}`, join(dir, "wide-size.txt"))).trim();
+  expect(reported).toBe(`${shown.rows} ${shown.cols}`);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("the font-size chords resize the pty to the new grid", async () => {
+  const { page, dir } = await openTerminal(id);
+  await typeUntilText(page, "echo FONT-SIZE-READY", "FONT-SIZE-READY");
+  // Start from the default so the chord has somewhere to go.
+  await page.locator(".terminal-screen").click();
+  await page.keyboard.press("Control+Digit0");
+  await until(() => terminalFontSize(page), 13, budget(5_000));
+  const before = await terminalSize(page);
+
+  // A smaller font is a larger grid; if the grid does not change the check below proves nothing.
+  await page.keyboard.press("Control+Minus");
+  await until(() => terminalFontSize(page), 12, budget(5_000));
+  const changed = await until(async () => {
+    const size = await terminalSize(page);
+    return size.cols !== before.cols || size.rows !== before.rows;
+  }, true, budget(5_000));
+  expect(changed).toBe(true);
+  await waitFor(
+    "the resized grid to settle",
+    async () => {
+      const layout = await terminalLayout(page);
+      return layout !== null && layout.cellWidth > 0 && Math.abs(layout.gridWidth - layout.cols * layout.cellWidth) <= 1;
+    },
+    budget(10_000),
+  );
+  const shown = await terminalSize(page);
+
+  // The font change resizes the grid but not the host, so the ResizeObserver cannot tell the pty;
+  // the chord path must send the new size itself or the shell keeps wrapping at the old width.
+  const file = join(dir, "font-size-size.txt");
+  let reported = "";
+  for (let attempt = 0; attempt < 40 && reported !== `${shown.rows} ${shown.cols}`; attempt++) {
+    await page.keyboard.type(`stty size > ${file}\n`);
+    await Bun.sleep(200);
+    reported = (await fileText(file)).trim();
+  }
+  expect(reported).toBe(`${shown.rows} ${shown.cols}`);
+  await page.close();
+}, budget(90_000));
+
 test.skipIf(!usable)("another change's terminal is another pty", async () => {
   const first = await openTerminal(id);
   await runCommand(first.page, "pwd > first.txt", join(first.dir, "first.txt"), `${first.dir}\n`);
@@ -474,6 +717,97 @@ test.skipIf(!usable)("the server's screen survives a reload with its scrollback"
   await page.close();
 }, budget(90_000));
 
+test.skipIf(!usable)("a mouse wheel reaches a raw-mode program after a page reload (SGR)", async () => {
+  const { page, dir } = await openTerminal(id);
+  const log = join(dir, "mouse-sgr.log");
+  await page.keyboard.type(`node '${mouseProbe}' sgr '${log}' ${budget(90_000)}\n`);
+  await until(async () => (await fileText(log)).includes("READY"), true, budget(20_000));
+  await until(() => mouseState(page), "drag:SGR", budget(15_000));
+
+  const screen = page.locator(".terminal-screen");
+  const wheel = async (): Promise<void> => {
+    const box = await screen.boundingBox();
+    if (box === null) throw new Error("the terminal has no box");
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.wheel(0, 120);
+  };
+  await wheel();
+  await until(async () => /1b5b3c/.test(await fileText(log)), true, budget(10_000));
+
+  // The server's snapshot re-emits the tracking mode but the addon omits the encoding, so the
+  // replay must put `?1006h` back or this wheel would not arrive SGR-encoded.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
+  await until(() => mouseState(page), "drag:SGR", budget(20_000));
+
+  const before = ((await fileText(log)).match(/1b5b3c/g) ?? []).length;
+  await wheel();
+  await until(async () => ((await fileText(log)).match(/1b5b3c/g) ?? []).length > before, true, budget(10_000));
+
+  // Force xterm's own selection even while a mouse-aware program has tracking on: the gesture a
+  // person uses to copy while pi runs (Shift+drag on Linux, Option+drag on macOS, where the pane
+  // sets `macOptionClickForcesSelection`). A drag across the screen includes the command line the
+  // snapshot restored, so the selection cannot come back empty by trimming blanks.
+  const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
+  const forceSelect = isMac ? "Alt" : "Shift";
+  await page.keyboard.down(forceSelect);
+  const selBox = await screen.boundingBox();
+  if (selBox === null) throw new Error("the terminal has no box");
+  await page.mouse.move(selBox.x + 2, selBox.y + 2);
+  await page.mouse.down();
+  await page.mouse.move(selBox.x + selBox.width - 2, selBox.y + selBox.height - 2, { steps: 12 });
+  await page.mouse.up();
+  await page.keyboard.up(forceSelect);
+  await until(async () => (await terminalSelection(page)).trim().length > 0, true, budget(10_000));
+
+  await page.keyboard.press("q");
+  await until(async () => (await fileText(log)).includes("QUIT"), true, budget(10_000));
+  await runCommand(page, `echo MOUSE-SGR-DONE > ${join(dir, "mouse-sgr-done.txt")}`, join(dir, "mouse-sgr-done.txt"), "MOUSE-SGR-DONE\n");
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("a legacy DEFAULT-encoded mouse event reaches the pty through onBinary", async () => {
+  const { page, dir } = await openTerminal(id);
+  const log = join(dir, "mouse-default.log");
+  await page.keyboard.type(`node '${mouseProbe}' default '${log}' ${budget(90_000)}\n`);
+  await until(async () => (await fileText(log)).includes("READY"), true, budget(20_000));
+  await until(() => mouseState(page), "drag:DEFAULT", budget(15_000));
+
+  // A reload restores the tracking mode; with no `?1006h` set the snapshot must not invent one.
+  await page.reload();
+  await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
+  await page.locator(".terminal-screen").click();
+  await awaitAttached(page);
+  await until(() => mouseState(page), "drag:DEFAULT", budget(20_000));
+
+  // Aim at the right edge of the grid: the X10 x byte is `32 + col`, so the last column makes it
+  // >= 0x80, the byte the old UTF-8 round-trip replaced with U+FFFD. The middle of the grid would
+  // pass even with that corruption. `pointAtGridRight` only answers once the fit has settled, so
+  // the wheel cannot land on a grid the page has not finished resizing to.
+  await waitFor("the terminal's settled grid", async () => (await pointAtGridRight(page)) !== null, budget(10_000));
+  const target = await pointAtGridRight(page);
+  if (target === null) throw new Error("the terminal grid never settled");
+  await page.mouse.move(target.x, target.y);
+  await page.mouse.wheel(0, 120);
+  // DEFAULT reports are `ESC [ M` plus the button, column and row bytes: what the pane has to
+  // forward from `onBinary`. The reload's click reports too (at the centre), so look for a report
+  // whose column byte is >= 0x80 — the wheel at the right edge — rather than the first one, and
+  // assert no byte was replaced.
+  const hasHighByteReport = (text: string): boolean =>
+    [...text.matchAll(/1b5b4d([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})/g)].some(
+      (match) => parseInt(match[2]!, 16) >= 0x80,
+    );
+  await until(async () => hasHighByteReport(await fileText(log)), true, budget(10_000));
+  expect(await fileText(log)).not.toContain("efbfbd");
+
+  await page.keyboard.press("q");
+  await until(async () => (await fileText(log)).includes("QUIT"), true, budget(10_000));
+  await runCommand(page, `echo MOUSE-DEFAULT-DONE > ${join(dir, "mouse-default-done.txt")}`, join(dir, "mouse-default-done.txt"), "MOUSE-DEFAULT-DONE\n");
+  await page.close();
+}, budget(90_000));
+
 test.skipIf(!usable)("the page draws the terminal menu, and find selects a match", async () => {
   const { page } = await openTerminal(id);
   await typeUntilText(page, "echo https://example.com/marker", "example.com");
@@ -532,6 +866,75 @@ test.skipIf(!usable)("the menu's Open link opens the selected URL", async () => 
   await until(async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0], "https://example.com/open-me", budget(10_000));
   await page.close();
 }, budget(60_000));
+
+test.skipIf(!usable)("a hovered link shows its URL and the platform's open hint", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/hover-me";
+  await typeUntilText(page, `echo ${url}`, "hover-me");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y);
+
+  const tooltip = page.locator(".terminal-link-tooltip");
+  await tooltip.waitFor({ timeout: 10_000 });
+  const text = await tooltip.innerText();
+  expect(text).toContain(url);
+  const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
+  expect(text).toContain(isMac ? "Cmd-click to open" : "Ctrl-click to open");
+
+  // Leaving the link hides it.
+  await page.mouse.move(5, 5);
+  await waitFor("the tooltip to hide", async () => (await page.locator(".terminal-link-tooltip").count()) === 0, budget(10_000));
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("a ctrl/cmd-click on a link opens it", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/ctrl-open";
+  await typeUntilText(page, `echo ${url}`, "ctrl-open");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.evaluate(() => {
+    (window as unknown as { __opened: string[] }).__opened = [];
+    (window as unknown as { open: (u: string) => null }).open = (u: string) => {
+      (window as unknown as { __opened: string[] }).__opened.push(u);
+      return null;
+    };
+  });
+  // Cmd on macOS (Ctrl+click is a secondary click there), Ctrl elsewhere. This guards the
+  // constructor that now also carries the tooltip callbacks.
+  const chord = (await page.evaluate(() => /mac/i.test(navigator.platform))) ? "Meta" : "Control";
+  await page.keyboard.down(chord);
+  await page.mouse.click(point!.x, point!.y);
+  await page.keyboard.up(chord);
+  expect(
+    await until(
+      async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0],
+      url,
+      budget(10_000),
+    ),
+  ).toBe(url);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("opening the context menu clears the link tooltip", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/tooltip-menu";
+  await typeUntilText(page, `echo ${url}`, "tooltip-menu");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y);
+  await page.locator(".terminal-link-tooltip").waitFor({ timeout: 10_000 });
+
+  // A right click that does not move the pointer: the tooltip is cleared by the menu opening, not
+  // by the pointer leaving the link.
+  await page.evaluate(() => {
+    document.querySelector(".terminal-screen")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+  });
+  await page.locator(".terminal-menu").waitFor({ timeout: 10_000 });
+  await waitFor("the tooltip to clear", async () => (await page.locator(".terminal-link-tooltip").count()) === 0, budget(5_000));
+  await page.close();
+}, budget(90_000));
 
 test.skipIf(!usable)("the context-menu setting also silences the terminal's own menu", async () => {
   const current = (await fetch(`${url}/api/settings`).then((response) => response.json())) as { file: Record<string, unknown> };
@@ -659,6 +1062,7 @@ test.skipIf(!usable)("middle-click pastes the system clipboard", async () => {
 test.skipIf(!usable)("a multi-line paste is inserted, not executed", async () => {
   const { page, dir } = await openTerminal(id);
   await typeUntilText(page, "echo PASTE-READY", "PASTE-READY");
+  await awaitBracketedPaste(page);
   const one = join(dir, "paste-one.txt");
   const two = join(dir, "paste-two.txt");
   await pasteText(page, "touch paste-one.txt\ntouch paste-two.txt\n");
@@ -686,6 +1090,7 @@ test.skipIf(!usable)("a multi-line paste is still inserted after a reload", asyn
   await page.waitForSelector(".terminal-screen .xterm-screen", { timeout: 15_000 });
   await page.locator(".terminal-screen").click();
   await typeUntilText(page, "echo PASTE-AFTER-RELOAD", "PASTE-AFTER-RELOAD");
+  await awaitBracketedPaste(page);
   const one = join(dir, "paste-reload-one.txt");
   const two = join(dir, "paste-reload-two.txt");
   await pasteText(page, "touch paste-reload-one.txt\ntouch paste-reload-two.txt\n");

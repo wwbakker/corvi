@@ -24,8 +24,7 @@ The configuration vocabulary and the settings precedence chain.
 
 Reading and writing the config file, path defaults, migrations, the runtime snapshot, or
 integration execution. The app's workspace server does the file I/O, builds `ENV_OVERRIDES`
-from the product's identity, injects the workspace migrator, and refills the one snapshot the
-runtime holds.
+from the product's identity, and refills the one snapshot the runtime holds.
 
 ## Public entrypoints
 

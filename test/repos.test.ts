@@ -13,7 +13,7 @@ import {
 import { setRepos, provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { checkoutsOf, runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { FileChange } from "@corvi/contracts/integrations/review";
 
 /**

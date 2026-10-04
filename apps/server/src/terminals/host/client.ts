@@ -241,11 +241,13 @@ export class HostClient {
 
   /** Write to the shell. Resolves to whether the host applied it (a dead or unknown id is
    * `false`) and never rejects: a closed host should not surface an unhandled rejection from a
-   * best-effort keystroke. */
-  async write(id: string, data: string): Promise<boolean> {
+   * best-effort keystroke. A string caller is text and is encoded as UTF-8; a byte caller is passed
+   * through unchanged, because input (a DEFAULT-encoded mouse report) need not be valid UTF-8. */
+  async write(id: string, data: string | Uint8Array): Promise<boolean> {
     try {
+      const bytes = typeof data === "string" ? Buffer.from(data, "utf8") : Buffer.from(data);
       const reply = expectOk(
-        await this.call({ type: "session.write", id, data: Buffer.from(data, "utf8").toString("base64") }),
+        await this.call({ type: "session.write", id, data: bytes.toString("base64") }),
         `write ${id}`,
       );
       return Boolean(reply.applied);

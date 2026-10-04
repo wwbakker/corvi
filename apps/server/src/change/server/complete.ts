@@ -5,8 +5,8 @@ import type {
   CompletionProgress,
   CompletionReason,
   CompletionRefusal,
-} from "../../domain/change.ts";
-import { isIdeation } from "../../domain/change.ts";
+} from "@corvi/changes/record";
+import { isIdeation } from "@corvi/changes/record";
 import type { MergeReadiness } from "@corvi/github/client";
 import { mergeReadiness, refreshReadiness, forgetPrs } from "@corvi/github/client";
 import type { Cache, GitFacts } from "@corvi/contracts/capabilities";

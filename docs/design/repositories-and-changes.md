@@ -322,10 +322,9 @@ export const layer = Layer.effect(
 The store keeps one record per change, `change.json`, in the versioned format the record schema
 (`@corvi/contracts/api`'s `ChangeWireDto`) describes: the change's fields and one `checkouts`
 entry per source repository — the same spec the wire carries — stamped with `formatVersion`. A
-record without the stamp is format 1 and is migrated in place on its next read (atomically, and
-once at startup); a record carrying more than this version writes is read best-effort and never
-written — the downgrade fence refuses every write with `ChangeFormatTooNew`. A terminal
-transition archives the change directory.
+record without the stamp is read as the current shape; a record carrying more than this version
+writes is read best-effort and never written — the downgrade fence refuses every write with
+`ChangeFormatTooNew`. A terminal transition archives the change directory.
 
 # Repositories (Git)
 
@@ -890,9 +889,10 @@ The dashboard reads one change's repositories. The route decodes the path, calls
 encodes the view; the client exposes a named method that returns the same decoded shape. Both
 import the schema from `@corvi/contracts/api` (shown below); there is no caller-selected response
 generic. This read is wired first: the app serves it (`src/change/repositories-route.ts`) from the
-change store, which reads the legacy record in place and materializes the link list on write;
-`test/repositoriesEndpoint.test.ts` drives the route and the client against each other, and the
-change page's `CheckoutsCard` consumes the typed client in the browser (`test/pages.test.ts`).
+change store, which materializes its repository links — the association surface, not the
+record-format migration — on write; `test/repositoriesEndpoint.test.ts` drives the route and the
+client against each other, and the change page's `CheckoutsCard` consumes the typed client in
+the browser (`test/pages.test.ts`).
 
 ## Contract
 ```ts
@@ -965,6 +965,8 @@ export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
   refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
+  // The change's directory; the create route sets it, the others may leave it absent.
+  changeDir: Schema.optional(Schema.String),
 })
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
 
@@ -1029,7 +1031,7 @@ run Effects directly and use Deferred/events instead of sleeps.
 | `changes`, `ideation`, `repos`, `provision`, `tooling` | idea vs started change, branch/base selection, in-place protection, archive readability |
 | `complete`, `cancel`, `extensionStore`, `lifecycleFailures` | fresh checks, ordered steps, acknowledgement, dirty-work refusal, partial-failure reporting, extension-owned files |
 | `review`, `cards`, `github`, `githubChecks`, `jira*`, `azure*` | status/diff/commit facts, provider reads and existing rendering |
-| `settings`, `env`, `notes`, `wizardDraft`, `migrate` | workspace/credential separation, secret masking, unknown-field preservation, document/draft data |
+| `settings`, `env`, `notes`, `wizardDraft` | workspace/credential separation, secret masking, unknown-field preservation, document/draft data |
 | `terminal`, `events`, `origin`, `clean`, `node-runtime`, `serve`, `pages` | session survival, attachment cleanup, origin protection, owned processes, browser/native behavior |
 
 `extensions`, `extension`, `extensionParity`, `outOfTreeExtensions` mostly test loader mechanics

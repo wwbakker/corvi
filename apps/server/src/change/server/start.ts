@@ -9,7 +9,7 @@ import {
   type IweError,
 } from "@corvi/contracts/errors";
 import { messageOf } from "../../capabilities/effect/support.ts";
-import { type Change, type ProvisionResult } from "../../domain/change.ts";
+import { type Change, type ProvisionResult } from "@corvi/changes/record";
 import {
   finishCheckouts,
   prepareCheckouts,

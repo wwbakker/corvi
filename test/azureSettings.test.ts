@@ -1,7 +1,4 @@
 import { test, expect, afterEach, beforeEach } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { azureOf } from "@corvi/azure-devops/azure";
 import { deploySettings, deploySettingsOf } from "@corvi/azure-devops/deploySettings";
@@ -12,14 +9,10 @@ import {
   type Workspace,
 } from "../apps/server/src/workspace/server/index.ts";
 import { runEffect, withRuntimeConfig } from "./helpers.ts";
-// The app sets the config's workspace migrator when its integration list is composed; importing
-// the composition root makes the legacy per-workspace `azure` objects fold as they do in production.
-import "../apps/server/src/integrations/index.ts";
 
 /**
- * The azure-devops extension's settings chain and the migration that folds the retired shapes
- * into it, both read live from the one config object. The tests mutate that object and put it
- * back, because it is shared by every module.
+ * The azure-devops extension's settings chain, read live from the one config object. The tests
+ * mutate that object and put it back, because it is shared by every module.
  */
 const ws = (patch: Partial<Workspace> = {}): Workspace => ({ id: "t", name: "T", ...patch });
 
@@ -156,68 +149,3 @@ test("deploySettings reads the extension's own bag through the Settings capabili
   );
 });
 
-test("a config file with only the legacy fields still works", async () => {
-  const originalConfig = process.env.CORVI_CONFIG;
-  const originalOrg = process.env.CORVI_AZURE_ORG;
-  const originalProject = process.env.CORVI_AZURE_PROJECT;
-  const originalEnv = process.env.CORVI_AZURE_ENVIRONMENTS;
-  const dir = await mkdtemp(join(tmpdir(), "corvi-azure-legacy-"));
-  process.env.CORVI_CONFIG = join(dir, "runtimeConfig().json");
-  delete process.env.CORVI_AZURE_ORG;
-  delete process.env.CORVI_AZURE_PROJECT;
-  delete process.env.CORVI_AZURE_ENVIRONMENTS;
-  try {
-    await Bun.write(
-      process.env.CORVI_CONFIG,
-      JSON.stringify({
-        azureOrganization: "https://dev.azure.com/legacy",
-        azureProject: "LegacyProj",
-        azureDeploy: {
-          pipeline: ["build-", "deploy-"],
-          environments: ["accept", "production"],
-        },
-        workspaces: [{ id: "client", name: "Client", azure: { project: "PerWorkspace" } }],
-      }),
-    );
-    reloadConfigSync();
-
-    // The flat fields and the deployment conventions resolve from a legacy-only file: the loader
-    // folds them into the extension's global bag and the resolved config no longer carries them.
-    expect(azureOf(ws(), runtimeConfig()).organization).toBe("https://dev.azure.com/legacy");
-    expect("azureOrganization" in runtimeConfig()).toBe(false);
-    expect("azureProject" in runtimeConfig()).toBe(false);
-    expect("azureDeploy" in runtimeConfig()).toBe(false);
-    expect((await runEffect(deploySettings())).environments).toEqual(["accept", "production"]);
-
-    // The legacy per-workspace object still wins for project; the flat field answers organisation.
-    const client = runtimeConfig().workspaces[0]!;
-    expect(azureOf(client, runtimeConfig())).toEqual({
-      organization: "https://dev.azure.com/legacy",
-      project: "PerWorkspace",
-    });
-
-    // The environment variable answers when the bag is empty, and beats it once the page has
-    // written a value too: the machine talks at every scope (the page shows the field locked).
-    runtimeConfig().extensionSettings = {};
-    process.env.CORVI_AZURE_ORG = "https://dev.azure.com/from-env";
-    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe(
-      "https://dev.azure.com/from-env",
-    );
-    runtimeConfig().extensionSettings = { "azure-devops": { organization: "global-org" } };
-    expect(azureOf(runtimeConfig().workspaces[0]!, runtimeConfig()).organization).toBe(
-      "https://dev.azure.com/from-env",
-    );
-  } finally {
-    if (originalConfig === undefined) delete process.env.CORVI_CONFIG;
-    else process.env.CORVI_CONFIG = originalConfig;
-    if (originalOrg === undefined) delete process.env.CORVI_AZURE_ORG;
-    else process.env.CORVI_AZURE_ORG = originalOrg;
-    if (originalProject === undefined) delete process.env.CORVI_AZURE_PROJECT;
-    else process.env.CORVI_AZURE_PROJECT = originalProject;
-    if (originalEnv === undefined) delete process.env.CORVI_AZURE_ENVIRONMENTS;
-    else process.env.CORVI_AZURE_ENVIRONMENTS = originalEnv;
-    await rm(dir, { recursive: true, force: true });
-    reloadConfigSync();
-    clearCache();
-  }
-});

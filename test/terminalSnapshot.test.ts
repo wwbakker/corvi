@@ -85,6 +85,44 @@ test("the screen serializes DEC modes and always shows the cursor", async () => 
   screen.dispose();
 });
 
+test("the screen re-asserts the mouse encoding the serialize addon omits", async () => {
+  // The addon emits the tracking mode but not the encoding; the screen adds it back so a page that
+  // replays the snapshot does not silently fall back to the legacy DEFAULT (X10) encoding.
+  const sgr = makeScreen({ cols: 80, rows: 24 });
+  sgr.write(bytes("\u001b[?1002h\u001b[?1006h"), 0);
+  await sgr.whenApplied(byteLength("\u001b[?1002h\u001b[?1006h"));
+  const sgrData = sgr.serialize().data;
+  expect(sgrData).toContain("\u001b[?1002h");
+  expect(sgrData).toContain("\u001b[?1006h");
+  sgr.dispose();
+
+  // SGR-pixels is the other non-default encoding.
+  const pixels = makeScreen({ cols: 80, rows: 24 });
+  pixels.write(bytes("\u001b[?1002h\u001b[?1016h"), 0);
+  await pixels.whenApplied(byteLength("\u001b[?1002h\u001b[?1016h"));
+  expect(pixels.serialize().data).toContain("\u001b[?1016h");
+  pixels.dispose();
+
+  // Tracking with the DEFAULT encoding: no encoding sequence is invented.
+  const legacy = makeScreen({ cols: 80, rows: 24 });
+  legacy.write(bytes("\u001b[?1002h"), 0);
+  await legacy.whenApplied(byteLength("\u001b[?1002h"));
+  const legacyData = legacy.serialize().data;
+  expect(legacyData).toContain("\u001b[?1002h");
+  expect(legacyData).not.toContain("\u001b[?1006h");
+  expect(legacyData).not.toContain("\u001b[?1016h");
+  legacy.dispose();
+
+  // No mouse mode at all: no encoding either.
+  const none = makeScreen({ cols: 80, rows: 24 });
+  none.write(bytes("PLAIN"), 0);
+  await none.whenApplied(byteLength("PLAIN"));
+  const noneData = none.serialize().data;
+  expect(noneData).not.toContain("\u001b[?1006h");
+  expect(noneData).not.toContain("\u001b[?1016h");
+  none.dispose();
+});
+
 test("an empty screen serializes to nothing, and resize follows the page", () => {
   const screen = makeScreen({ cols: 80, rows: 24 });
   expect(screen.serialize()).toEqual({ data: "", offset: 0, truncated: false });

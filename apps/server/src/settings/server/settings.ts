@@ -1,7 +1,7 @@
 import { isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
-import type { Settings, SettingsView } from "../model.ts";
+import type { Settings, SettingsView } from "@corvi/contracts/settings-view";
 import { overriddenExtensionSettings, overriddenSettings } from "@corvi/configuration/settings";
 import { ENV_OVERRIDES } from "./legacySettings.ts";
 import {
@@ -19,7 +19,6 @@ import {
 } from "../../workspace/server/index.ts";
 import type { ConfigFile } from "../../workspace/server/index.ts";
 import { loaded } from "../../integrations/index.ts";
-import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { redactDeviceHashes } from "./deviceSecrets.ts";
 import { keepStoredRemoteTokens, redactRemoteTokens } from "./remoteSecrets.ts";
@@ -52,9 +51,6 @@ export const settingsView = Effect.sync(() => settingsViewSync());
  * contract; the Effect form is settingsView above, which the server uses. */
 export const settingsViewSync = (): SettingsView => {
   const file = readFileSync();
-  // The file is handed over migrated, so the page edits — and writes back — the shape the
-  // extensions read today, never the retired names the migration folds away.
-  migrateFileSettings(file);
   // The file view gets the same tolerance the resolved config does: a hand-mangled device entry
   // is dropped rather than spread into a bogus device on the page, and a malformed remote-access
   // value is replaced by the default. A value the file does not have stays absent.
@@ -226,9 +222,6 @@ export const writeSettings = (
     // Remote workspaces' event subscriptions follow the same rule: a save that adds, removes or
     // retargets one starts or stops its stream now.
     yield* runtimeReconcileRemoteEvents();
-    // The retired names fold into the extensions' own settings, in memory as on disk —
-    // a page save is also a migration.
-    migrateExtensionSettings(runtimeConfig().workspaces);
     // Everything the CLIs answered was answered for the settings just replaced: another
     // organisation, another Jira site, another set of environments. Cheaper to ask again than to
     // reason about which.

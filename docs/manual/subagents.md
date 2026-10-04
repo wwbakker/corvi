@@ -34,6 +34,9 @@ corvi subagent close <id>        # presence only; the conversation stays
 ```
 
 `create` binds three things on purpose: it writes the record, opens the window, and sends the
+first message. That message is the profile body rendered with the change facts and the task: the
+task fills `{prompt}`, or is appended under `## Task`; with no task, `{prompt}` becomes "Please
+await your initial instructions." (a body-less profile, that text alone) — create always sends a
 first message. After that, **opening the session and starting work are separate acts**: `open`
 recreates the window and resumes the harness session for you to read and type into, and never
 triggers a turn.
@@ -78,6 +81,8 @@ Nothing is restarted behind your back.
 
 Corvi's extension inside the harness is what carries the conversation. It parks on
 `corvi subagent next`, submits an inbound message as a genuine user turn through the harness's own
-API, and relays the settled reply back with `corvi subagent turn`. The extension is a thin shim:
-all protocol logic lives in the CLI and server, and everything is driven through the CLI, so a
-harness without the extension still works as a plain terminal — it just cannot reply.
+API, and relays the settled reply back with `corvi subagent turn`. A settled subagent turn does
+not raise a user notification; it waits for the orchestrator, which sees it through `corvi
+subagent await` and the Subagents page. The extension is a thin shim: all protocol logic lives in
+the CLI and server, and everything is driven through the CLI, so a harness without the extension
+still works as a plain terminal — it just cannot reply.

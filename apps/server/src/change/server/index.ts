@@ -28,6 +28,8 @@ export {
   listChanges,
 } from "./store.ts";
 
+export { factsFor, type ChangeFacts } from "./facts.ts";
+
 export { createChange, type CreateChangeInput } from "./create.ts";
 
 export { startChangeWithWorkflow, type Started } from "./start.ts";
@@ -48,4 +50,4 @@ export { refreshTitles } from "./titles.ts";
 
 export { describeChange, prDescription } from "./description.ts";
 
-export { branchFor, PLAN_FILE, slugFor } from "../../domain/change.ts";
+export { branchFor, PLAN_FILE, slugFor } from "@corvi/changes/record";

@@ -13,7 +13,6 @@ import {
   ClipboardAddon,
   type ClipboardSelectionType,
 } from "@xterm/addon-clipboard";
-import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -70,6 +69,46 @@ const themeColor = (name: string): string =>
 /** Show the cursor after an empty reset: `term.reset()` does not clear DECTCEM, so a cursor a
  * full-screen program hid would otherwise stick. The server's snapshots carry it themselves. */
 const SHOW_CURSOR = "\x1b[?25h";
+
+/** The renderer's cell size and its `clear`, from the same private core the bundled FitAddon
+ * reads. There is no public API; the narrow cast follows `screen.ts`'s `activeEncoding` precedent. */
+type CellSize = { readonly width: number; readonly height: number };
+type RenderService = {
+  readonly dimensions: { readonly css: { readonly cell: CellSize } };
+  readonly clear: () => void;
+};
+const renderService = (term: Terminal): RenderService | undefined =>
+  (term as unknown as { readonly _core?: { readonly _renderService?: RenderService } })._core?._renderService;
+
+/** Fit the grid to the host's full width. The bundled `FitAddon` subtracts a scrollbar strip
+ * (`scrollback === 0 ? 0 : overviewRuler?.width || 14`) from the parent width, but xterm v6's
+ * scrollbar is an absolute overlay that takes no layout space, so the strip is a dead gutter (a
+ * whole one in a program like pi, which keeps no scrollback). This mirrors the addon's fit — parent
+ * width and height minus the terminal's padding, floored by the renderer's cell size — without the
+ * subtraction, so the scrollbar overlays the last columns. */
+const fitTerminal = (term: Terminal): void => {
+  const element = term.element;
+  const parent = element?.parentElement;
+  if (!element || !parent) return;
+  const renderer = renderService(term);
+  const cell = renderer?.dimensions.css.cell;
+  if (renderer === undefined || cell === undefined || cell.width === 0 || cell.height === 0) return;
+  const parentStyle = window.getComputedStyle(parent);
+  const parentWidth = Math.max(0, parseInt(parentStyle.getPropertyValue("width"), 10));
+  const parentHeight = parseInt(parentStyle.getPropertyValue("height"), 10);
+  const style = window.getComputedStyle(element);
+  const paddingWidth =
+    parseInt(style.getPropertyValue("padding-left"), 10) + parseInt(style.getPropertyValue("padding-right"), 10);
+  const paddingHeight =
+    parseInt(style.getPropertyValue("padding-top"), 10) + parseInt(style.getPropertyValue("padding-bottom"), 10);
+  const cols = Math.max(2, Math.floor((parentWidth - paddingWidth) / cell.width));
+  const rows = Math.max(1, Math.floor((parentHeight - paddingHeight) / cell.height));
+  if (!Number.isFinite(cols) || !Number.isFinite(rows)) return;
+  if (term.cols === cols && term.rows === rows) return;
+  // The addon clears the renderer before resizing to force a full render; keep that parity.
+  renderer.clear();
+  term.resize(cols, rows);
+};
 
 /** The provider the clipboard addon writes through. A program can send its copy as an OSC 52
  * sequence with the selection field empty (`ESC ] 52 ; ; <base64>`), which the protocol reads as
@@ -148,7 +187,6 @@ export function TerminalPane({
 }): JSX.Element {
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
-  const fitAddon = useRef<FitAddon | null>(null);
   const searchAddon = useRef<SearchAddon | null>(null);
   const socket = useRef<WebSocket | null>(null);
   /** The change and window the open socket belongs to: a different change or tab needs a
@@ -183,6 +221,9 @@ export function TerminalPane({
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  /** The link under the pointer: the URL and the point its tooltip is anchored at. */
+  const [linkTooltip, setLinkTooltip] = useState<{ url: string; x: number; y: number } | null>(null);
+  const linkTooltipRef = useRef<HTMLDivElement>(null);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
   // a killed server does. The window list going empty and staying empty is what that looks like
@@ -235,18 +276,23 @@ export function TerminalPane({
       // reporting on itself.
       macOptionClickForcesSelection: platform === "mac",
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
     // A program (or a login script) can send its copy as OSC 52; xterm ignores it without this
     // addon, which writes the system clipboard.
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     const search = new SearchAddon();
     term.loadAddon(search);
-    // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection.
+    // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection. A hover shows a
+    // tooltip — the URL and the chord — so the link's click affordance is discoverable.
     term.loadAddon(
-      new WebLinksAddon((event, uri) => {
-        if (event.ctrlKey || event.metaKey) window.open(uri, "_blank", "noopener");
-      }),
+      new WebLinksAddon(
+        (event, uri) => {
+          if (event.ctrlKey || event.metaKey) window.open(uri, "_blank", "noopener");
+        },
+        {
+          hover: (event, text) => setLinkTooltip({ url: text, x: event.clientX, y: event.clientY }),
+          leave: () => setLinkTooltip(null),
+        },
+      ),
     );
     term.open(element);
     try {
@@ -262,6 +308,12 @@ export function TerminalPane({
     const input = term.onData((chunk) => {
       const ws = socket.current;
       if (ws?.readyState === WebSocket.OPEN) ws.send(new TextEncoder().encode(chunk));
+    });
+    // Mouse input in the legacy DEFAULT (X10) encoding arrives as `onBinary`, a string of one byte
+    // per char rather than UTF-8 text, and would otherwise be dropped: send the raw bytes.
+    const binary = term.onBinary((chunk) => {
+      const ws = socket.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(Uint8Array.from(chunk, (c) => c.charCodeAt(0)));
     });
     // A selection dragged into empty rows ends at the last non-empty cell: xterm's range can run
     // into blanks, so clamp it on every change (both the highlight and `getSelection()` come from
@@ -283,8 +335,10 @@ export function TerminalPane({
         clamping = false;
       }
     });
+    // A scroll moves the link out from under the pointer: the tooltip must not stay at a stale
+    // point over a line that has scrolled away.
+    const scroll = term.onScroll(() => setLinkTooltip(null));
     terminal.current = term;
-    fitAddon.current = fit;
     searchAddon.current = search;
     // The page tests read the buffer through the host element: xterm's WebGL canvas has no DOM
     // text to read, and the buffer is what the page's tests read.
@@ -292,7 +346,10 @@ export function TerminalPane({
     setGeneration((n) => n + 1);
     return () => {
       input.dispose();
+      binary.dispose();
       selection.dispose();
+      scroll.dispose();
+      setLinkTooltip(null);
       socket.current?.close();
       socket.current = null;
       openedFor.current = null;
@@ -302,24 +359,37 @@ export function TerminalPane({
       openedUnnamed.current = false;
       term.dispose();
       terminal.current = null;
-      fitAddon.current = null;
       searchAddon.current = null;
     };
   }, [platform]);
+
+  /** Tell the pty its grid changed after a fit. A connecting socket remembers the size and sends
+   * it on open, before the shell can be typed into. */
+  const sendSize = useCallback((term: Terminal): void => {
+    const ws = socket.current;
+    if (!ws) return;
+    const size = { cols: term.cols, rows: term.rows };
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", ...size }));
+    else if (ws.readyState === WebSocket.CONNECTING) pendingResize.current = size;
+  }, []);
 
   // The font size can change without rebuilding the terminal, which would lose the screen.
   useEffect(() => {
     const term = terminal.current;
     if (term) {
+      const before = { cols: term.cols, rows: term.rows };
       term.options.fontSize = fontSize;
-      fitAddon.current?.fit();
+      fitTerminal(term);
+      // The font change resizes the grid but not the host, so the ResizeObserver never fires: tell
+      // the pty directly or the shell keeps wrapping at the old width.
+      if (term.cols !== before.cols || term.rows !== before.rows) sendSize(term);
     }
     try {
       localStorage.setItem(FONT_SIZE_KEY, String(fontSize));
     } catch {
       // private mode: the size is just not remembered
     }
-  }, [fontSize]);
+  }, [fontSize, sendSize]);
 
   // One socket, when the terminal is first shown and the URL is known. The fit happens before
   // the connect: the first size the shell sees is the right one, so switching to the terminal
@@ -348,10 +418,9 @@ export function TerminalPane({
     }
     if (!url || !visible) return;
     const term = terminal.current;
-    const fit = fitAddon.current;
-    if (!term || !fit || !host.current) return;
+    if (!term || !host.current) return;
     if (socket.current) return;
-    fit.fit();
+    fitTerminal(term);
     const scheme = location.protocol === "https:" ? "wss:" : "ws:";
     const windowQuery = sessionId === undefined || sessionId === null ? "" : `&session=${encodeURIComponent(sessionId)}`;
     const ws = new WebSocket(`${scheme}//${location.host}${url}?cols=${term.cols}&rows=${term.rows}${windowQuery}`);
@@ -429,22 +498,16 @@ export function TerminalPane({
     if (!element) return;
     const observer = new ResizeObserver(() => {
       const term = terminal.current;
-      const fit = fitAddon.current;
-      if (!term || !fit) return;
+      if (!term) return;
       if (element.clientWidth === 0 || element.clientHeight === 0) return; // hidden: nothing to fit
       const before = { cols: term.cols, rows: term.rows };
-      fit.fit();
+      fitTerminal(term);
       if (term.cols === before.cols && term.rows === before.rows) return;
-      const ws = socket.current;
-      if (!ws) return;
-      const size = { cols: term.cols, rows: term.rows };
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", ...size }));
-      // Still connecting: remember it, and onopen sends it before the shell can be typed into.
-      else if (ws.readyState === WebSocket.CONNECTING) pendingResize.current = size;
+      sendSize(term);
     });
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [sendSize]);
 
   // Middle-click pastes the system clipboard, the way a Linux terminal does.
   useEffect(() => {
@@ -532,10 +595,41 @@ export function TerminalPane({
     if (visible && !findOpen) terminal.current?.focus();
   }, [visible, url, focusRequest, findOpen]);
 
+  // A tooltip belongs to the link under the pointer in one pane: a window switch, a reconnect or
+  // a hidden-then-shown pane must not leave it over the new screen.
+  useEffect(() => {
+    setLinkTooltip(null);
+  }, [url, sessionId, visible]);
+
+  // Keep the tooltip inside the viewport. It anchors where the link was entered — xterm fires
+  // `hover` once per link, not per mousemove — so the point is fixed while the link is hovered.
+  // Before paint, so it never flashes off-screen.
+  useLayoutEffect(() => {
+    const element = linkTooltipRef.current;
+    if (!element || !linkTooltip) return;
+    // Measure the box at its real (post-move) size, not at wherever React last painted it: a
+    // shrink-to-fit box measured at the old point can flip the wrong way near an edge.
+    element.style.left = "0";
+    element.style.top = "0";
+    const margin = 8;
+    const gap = 14;
+    const rect = element.getBoundingClientRect();
+    let left = linkTooltip.x + gap;
+    let top = linkTooltip.y + gap;
+    if (left + rect.width > window.innerWidth - margin) left = linkTooltip.x - gap - rect.width;
+    if (left < margin) left = margin;
+    if (top + rect.height > window.innerHeight - margin) top = linkTooltip.y - gap - rect.height;
+    if (top < margin) top = margin;
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+  }, [linkTooltip]);
+
   // The page's own menu: a right click belongs to the page, not the browser (a terminal has
   // nothing to Inspect), and it holds what a terminal's menu holds.
   const onContextMenu = useCallback((e: ReactMouseEvent): void => {
     e.preventDefault();
+    // The menu is the surface now: a tooltip under it would read as menu chrome.
+    setLinkTooltip(null);
     setMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
@@ -619,6 +713,19 @@ export function TerminalPane({
         data-attached={attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId) ? "1" : undefined}
         onContextMenu={onContextMenu}
       />
+      {linkTooltip && (
+        <div
+          ref={linkTooltipRef}
+          className="terminal-link-tooltip"
+          role="tooltip"
+          style={{ left: linkTooltip.x, top: linkTooltip.y }}
+        >
+          <span className="terminal-link-tooltip-url">{linkTooltip.url}</span>
+          <span className="terminal-link-tooltip-hint">
+            {platform === "mac" ? "Cmd-click to open" : "Ctrl-click to open"}
+          </span>
+        </div>
+      )}
       {menu && (
         <div
           className="terminal-menu"

@@ -15,13 +15,13 @@ import {
   moveIssue,
   moveIssueToActiveSprint,
   ticketOf,
+  JIRA_ENV,
   type GlobalSettings,
   type IssueJson,
   type Site,
 } from "./jira.ts";
 import type { ResolvedDto } from "@corvi/contracts/config";
 import { accountId } from "./account.ts";
-import { JIRA_ENV } from "./legacy.ts";
 import { Cache, Settings, Workspace, swr } from "@corvi/contracts/capabilities";
 import { Bus, Changes, ExtensionStore } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "@corvi/contracts/capabilities";
@@ -35,8 +35,7 @@ import type { DescriptionSection, TitleSource } from "@corvi/contracts/integrati
  * step (declared here, rendered by its client component), provisioning a new change's ticket,
  * a title source, a pull-request description section, the completion step that closes the
  * ticket, and the two routes its step fetches from. The change's ticket key is read through
- * `ticketOf` — the `extensions` bag its step writes, or the legacy `jira` field an early
- * change record still carries, read in `legacy.ts`.
+ * `ticketOf` — the `extensions` bag its step writes.
  *
  * Its effects require nothing beyond the capabilities: `Workspace` for whose Jira a change's
  * ticket belongs to, `Settings` for the assignee and the transitions.
@@ -386,8 +385,7 @@ export default {
           if (!key) {
             return yield* new BadRequestError({ message: "key required" });
           }
-          // The bag entry shadows the legacy `jira` field for good (see `ticketOf`). Clearing
-          // the link — deliberately not this route — must remove both, or the old key answers.
+          // The bag entry is where the link lives (see `ticketOf`).
           const store = yield* ExtensionStore;
           const updated = yield* store.update(change, { key });
           // A re-pointed ticket is mine too, like one linked at creation. A failure here is
