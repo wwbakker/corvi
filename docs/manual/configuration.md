@@ -133,10 +133,12 @@ accepts.
 
 The frontmatter names `label` and `harness` (`pi` or `opencode`); `model` and `effort` are passed
 to the harness and are checked loosely, because a model catalog changes with the harness. `phases`
-limits when the profile is offered. The body is the initial prompt; it is rendered with the same
-facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`, `{repos}`) plus
-`{prompt}`, which the delegating task text fills in — or, without it, the task is appended as a
-final `## Task` section. A file that does not parse is listed with its reasons.
+limits when the profile is offered. The body is the initial prompt; `create` sends it rendered,
+with the same facts as an action (`{id}`, `{title}`, `{branch}`, `{plan}`, `{state}`, `{dir}`,
+`{repos}`) plus `{prompt}`, which the delegating task text fills in — or, without it, the task is
+appended as a final `## Task` section. An absent or empty task fills `{prompt}` with "Please await
+your initial instructions." (a body-less profile sends that text alone). A file that does not parse
+is listed with its reasons.
 
 ## Locations and worktrees
 

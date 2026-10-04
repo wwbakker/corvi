@@ -34,6 +34,9 @@ corvi subagent close <id>        # presence only; the conversation stays
 ```
 
 `create` binds three things on purpose: it writes the record, opens the window, and sends the
+first message. That message is the profile body rendered with the change facts and the task: the
+task fills `{prompt}`, or is appended under `## Task`; with no task, `{prompt}` becomes "Please
+await your initial instructions." (a body-less profile, that text alone) — create always sends a
 first message. After that, **opening the session and starting work are separate acts**: `open`
 recreates the window and resumes the harness session for you to read and type into, and never
 triggers a turn.

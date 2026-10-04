@@ -28,6 +28,8 @@ export {
   listChanges,
 } from "./store.ts";
 
+export { factsFor, type ChangeFacts } from "./facts.ts";
+
 export { createChange, type CreateChangeInput } from "./create.ts";
 
 export { startChangeWithWorkflow, type Started } from "./start.ts";

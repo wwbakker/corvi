@@ -75,7 +75,7 @@ const documented = {
   body: {
     required: false,
     about:
-      "The initial prompt: everything below the frontmatter. When it contains {prompt} the orchestrator's task text is substituted there; otherwise the task is appended as a final `## Task` section.",
+      "The initial prompt: everything below the frontmatter. When it contains {prompt} the orchestrator's task text is substituted there; otherwise the task is appended as a final `## Task` section. With no task, {prompt} becomes \"Please await your initial instructions.\" (a body-less profile sends that text alone).",
     values: {
       kind: "text",
       note: "free text — {id}, {title}, {branch}, {plan}, {state}, {dir}, {repos} and {prompt}",
