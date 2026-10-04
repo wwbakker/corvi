@@ -10,11 +10,11 @@ import { Effect } from "effect";
 import { builtinActionBody, discoverActions, type ActionRoots } from "@corvi/actions/node";
 import { resolveBriefTemplate, type DiscoveredAction } from "@corvi/actions/discovery";
 import { deliverAction, type CandidateWindow, type DeliveryFailure } from "@corvi/actions/deliver";
-import { renderActionBody, type ActionFacts } from "@corvi/actions/render";
+import { renderActionBody } from "@corvi/actions/render";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
 import { BadRequestError } from "@corvi/contracts/errors";
 import type { Change } from "../../domain/change.ts";
-import { changeDir, PLAN_FILE } from "../../change/server/index.ts";
+import { changeDir, factsFor } from "../../change/server/index.ts";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";
 import { ensureActiveHostWindow, listWindows } from "../../terminals/server/index.ts";
@@ -46,17 +46,6 @@ export const actionRootsFor = (change: Change): Effect.Effect<ActionRoots> =>
       repositories,
     };
   });
-
-/** The change's own values, as an action's body needs them (`@corvi/actions/render` fills). */
-const factsFor = (change: Change): ActionFacts => ({
-  id: change.id,
-  title: change.title,
-  branch: change.branch,
-  plan: join(changeDir(change), PLAN_FILE),
-  state: change.state,
-  dir: changeDir(change),
-  repos: (change.checkouts ?? []).map((spec) => basename(spec.path)),
-});
 
 const summaryOf = (found: DiscoveredAction): ActionSummaryDto => ({
   key: found.key,
