@@ -457,6 +457,9 @@ export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
   refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
+  // Where the change lives on disk: its workspace's changes root joined with its id. Optional
+  // because `start` and the repository edit share this shape and do not derive it.
+  changeDir: Schema.optional(Schema.String),
 })
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
 
