@@ -56,6 +56,10 @@ export function Wizard({
   // decision to the wizard, which keeps its own — defaulting to the first context, which is
   // what the server would assume anyway.
   const chosen = workspace ?? draft.picked ?? workspaces[0]?.id;
+  // A workspace on another server is a filter over that server's changes; the wizard creates on
+  // the machine it runs on, so creating here would land locally under the remote's name. Gated
+  // rather than routed: remote creation is a Phase 2 follow-up.
+  const remoteWorkspace = workspaces.find((w) => w.id === chosen)?.remote !== undefined;
 
   // Which steps this context has, and the plan template in effect there. Asked of the server,
   // because that is where the extensions, their enablement and the settings are known; asked
@@ -66,6 +70,10 @@ export function Wizard({
   useEffect(() => {
     let alive = true;
     setSteps(undefined);
+    if (remoteWorkspace) {
+      setSteps([]);
+      return;
+    }
     apiClient
       .wizard.spec(chosen)
       .then((found) => {
@@ -77,7 +85,7 @@ export function Wizard({
     return () => {
       alive = false;
     };
-  }, [chosen]);
+  }, [chosen, remoteWorkspace]);
 
   // The template fills a fresh draft's plan once — while it is still empty — and never rewrites
   // the text you have. Its heading is the one a picked issue may replace (draft.ts).
@@ -132,12 +140,19 @@ export function Wizard({
         {/* Creating is possible once the required field is set — only the change id is
             required: repositories can be added now or after the work starts, and the plan can
             be empty. */}
-        <button className="primary" disabled={!id.trim() || busy} onClick={create}>
+        <button className="primary" disabled={!id.trim() || busy || remoteWorkspace} onClick={create}>
           {busy ? "Creating…" : "Create idea"}
         </button>
         <button onClick={onDiscard}>Discard</button>
       </header>
 
+      {remoteWorkspace && (
+        <div className="error-banner">
+          Changes are created on the machine that owns the workspace. This workspace is on another
+          server, so remote creation is not supported yet — switch to a local workspace to create
+          one here.
+        </div>
+      )}
       {error && <div className="error-banner">{error}</div>}
 
       <div className="wizard-body">

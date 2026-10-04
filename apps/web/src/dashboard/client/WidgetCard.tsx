@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { aborted, apiClient, type CardInfo, type Change, type Widget } from "../../app-root/api.ts";
+import { aborted, type CardInfo, type Change, type Widget } from "../../app-root/api.ts";
+import { changeKey, useChangeClient, useSource } from "../../app-root/sources.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { usePolled } from "../../app-root/poll.ts";
 import { useCardEditor } from "./CardEditor.tsx";
@@ -23,13 +24,15 @@ export function WidgetCard({
   /** The editor wrote the change: this is where it goes. */
   onSaved: (change: Change) => void;
 }): JSX.Element {
-  const [widget, setWidget] = useCached<Widget>(`${changeId}:${info.name}`);
+  const client = useChangeClient();
+  const source = useSource();
+  const [widget, setWidget] = useCached<Widget>(`${changeKey(source, changeId)}:${info.name}`);
   const [busy, setBusy] = useState(false);
   const editor = useCardEditor({ info, change, workspace, onSaved });
 
   const load = useCallback(
     (signal?: AbortSignal): Promise<void> =>
-      apiClient
+      client
         .dashboard.card(ChangeId.make(changeId), info.name, { signal })
         .then(setWidget)
         .catch((e: Error) => {
@@ -50,7 +53,7 @@ export function WidgetCard({
 
   const act = (actionId: string, arg?: string): Promise<void> => {
     setBusy(true);
-    return apiClient
+    return client
       .dashboard.cardAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then(setWidget)
       .catch((e: Error) => setWidget({ ...widget!, state: "error", summary: e.message }))

@@ -1,7 +1,6 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
-  apiClient,
   isIdeation,
   type ChangeState,
   type Change,
@@ -13,6 +12,7 @@ import {
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import { useCached } from "../../app-root/cache.ts";
 import { FORMAT_VERSION, isFinished } from "../../domain/change.ts";
+import { changeKey, clientFor } from "../../app-root/sources.ts";
 import { LifecycleFailures } from "../../app-root/LifecycleFailures.tsx";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 import { CheatSheet } from "../../terminals/client/CheatSheet.tsx";
@@ -45,6 +45,7 @@ const failureMessage = (e: unknown): string => (e instanceof Error ? e.message :
  */
 export function ChangeView({
   id,
+  source,
   page,
   platform,
   provision,
@@ -58,6 +59,9 @@ export function ChangeView({
   onChanged,
 }: {
   id: string;
+  /** Which server owns this change: `""` for the local one, the local workspace id for a remote
+   * one. Every change-scoped call goes to `clientFor(source)`. */
+  source: string;
   /** Which page of the change to show: the core's dashboard or terminals, or a tab an
    * extension contributes. */
   page: Page;
@@ -91,15 +95,17 @@ export function ChangeView({
   /** The server's platform: what the terminal's key hints and shortcut assume. */
   platform: Platform;
 }): JSX.Element {
-  const [change, setChange] = useCached<Change>(`${id}:change`);
+  const client = clientFor(source);
+  const key = changeKey(source, id);
+  const [change, setChange] = useCached<Change>(`${key}:change`);
   // Per change, not global: which components there are depends on the workspace it is in.
-  const [infos, setInfos] = useCached<CardInfo[]>(`${id}:integrations`);
+  const [infos, setInfos] = useCached<CardInfo[]>(`${key}:integrations`);
   // The tabs the change's page shows, per change for the same reason: they depend on the
   // workspace, and the server resolves that.
-  const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${id}:tabs`);
+  const [tabs, setTabs] = useCached<ChangeTabInfo[]>(`${key}:tabs`);
   // The client-drawn widgets the dashboard shows, per change for the same reason.
-  const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${id}:widgets`);
-  const [completion, setCompletion] = useCached<Completion>(`${id}:completion`);
+  const [widgets, setWidgets] = useCached<WidgetInfo[]>(`${key}:widgets`);
+  const [completion, setCompletion] = useCached<Completion>(`${key}:completion`);
   const [completing, setCompleting] = useState(false);
   const [starting, setStarting] = useState(false);
   const [cancelling, setCancelling] = useState(false);
@@ -132,30 +138,30 @@ export function ChangeView({
 
   // The change itself and the list of components are cheap: no CLI calls behind either.
   useEffect(() => {
-    apiClient
+    client
       .changes.read(ChangeId.make(id))
       .then(setChange)
       .catch((e: Error) => setError(e.message));
-    apiClient
+    client
       .dashboard.cards(ChangeId.make(id))
       .then(setInfos)
       .catch((e: Error) => setError(e.message));
-    apiClient
+    client
       .dashboard.tabs(ChangeId.make(id))
       .then(setTabs)
       .catch((e: Error) => setError(e.message));
-    apiClient
+    client
       .dashboard.widgets(ChangeId.make(id))
       .then(setWidgets)
       .catch((e: Error) => setError(e.message));
-  }, [id]);
+  }, [id, source, client]);
 
   // Whether completing is allowed, refreshed alongside the widgets.
   useEffect(() => {
     if (change?.completedAt) return;
     const ac = new AbortController();
     const load = (): Promise<void> =>
-      apiClient
+      client
         .changes.completion(ChangeId.make(id), { signal: ac.signal })
         .then(setCompletion)
         .catch(() => {}); // keep the last verdict rather than blanking the button
@@ -165,7 +171,7 @@ export function ChangeView({
       ac.abort();
       clearInterval(timer);
     };
-  }, [id, change?.completedAt, generation]);
+  }, [id, source, client, change?.completedAt, generation]);
 
   // Which page of the change to show, and the view to come back to: opening a change's
   // overview lands where you left it — its Plan until there is a memory. Remembered for the
@@ -173,7 +179,7 @@ export function ChangeView({
   // the change, not one of its views, and never claims the memory.
   useEffect(() => {
     const shown = resolveChangePage(page, tabs ?? []);
-    if (shown.kind !== "terminals") seeView(id, shown.kind === "tab" ? shown.tab.id : shown.kind);
+    if (shown.kind !== "terminals") seeView(key, shown.kind === "tab" ? shown.tab.id : shown.kind);
   }, [id, page, tabs]);
 
   // A card's editor saved: the change it wrote is the response, the lists elsewhere are stale,
@@ -188,7 +194,7 @@ export function ChangeView({
   };
 
   const copyDescription = (): Promise<void> =>
-    apiClient
+    client
       .changes.description(ChangeId.make(id))
       .then(({ text }) => navigator.clipboard.writeText(text ?? ""))
       .then(() => {
@@ -202,13 +208,13 @@ export function ChangeView({
   const complete = (force = false): void => {
     setCompleting(true);
     setError(null);
-    apiClient
+    client
       .changes.complete(ChangeId.make(id), force ? { force: true } : {})
       .then(({ change: updated }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         setRefusal(null);
-        forgetChange(id); // the change is over: the page's memory of it stops here
+        forgetChange(key); // the change is over: the page's memory of it stops here
       })
       .catch((e: unknown) => {
         const refusal = completionRefusal(e);
@@ -231,7 +237,7 @@ export function ChangeView({
   const startWork = (): void => {
     setStarting(true);
     setError(null);
-    apiClient
+    client
       .changes.start(ChangeId.make(id))
       .then(({ change: updated, provision }) => {
         setChange(updated);
@@ -263,14 +269,14 @@ export function ChangeView({
     }
     setCancelling(true);
     setError(null);
-    apiClient
+    client
       .changes.cancel(ChangeId.make(id), { force })
       .then(({ change: updated, loose }) => {
         setChange(updated);
         setGeneration((g) => g + 1);
         onChanged();
         setCancelWarning(null);
-        forgetChange(id); // the change is over: the page's memory of it stops here
+        forgetChange(key); // the change is over: the page's memory of it stops here
         if (loose.length) setNotice(`Cancelled. Still open: ${loose.join("; ")}`);
       })
       .catch((e: unknown) => {
@@ -293,7 +299,7 @@ export function ChangeView({
   const commitRename = (next: string): void => {
     setDraft(null);
     if (next === (change?.title ?? "")) return;
-    apiClient
+    client
       .changes.rename(ChangeId.make(id), { title: next })
       .then((updated) => {
         setChange(updated);
@@ -304,7 +310,7 @@ export function ChangeView({
 
   /** The state select: your own view of where the change stands. */
   const moveTo = (state: ChangeState): void => {
-    apiClient
+    client
       .changes.rename(ChangeId.make(id), { state })
       .then((updated) => {
         setChange(updated);
@@ -354,7 +360,7 @@ export function ChangeView({
         onSelectWindow={onSelectWindow}
         onNewWindow={onNewWindow}
         onMoveWindow={onMoveWindow}
-        onOpenOverview={() => onOpenPage(lastViewOf(id))}
+        onOpenOverview={() => onOpenPage(lastViewOf(key))}
       />
       <span className="spacer" />
       {/* The key reference is the terminal's: on the other views the row below carries the
@@ -454,7 +460,7 @@ export function ChangeView({
           a card beside its status — between the dashboard and the tabs extensions contribute. */}
       {active.kind === "plan" &&
         (change ? (
-          <PlanPage changeId={id} readOnly={isFinished(change)} />
+          <PlanPage changeId={id} source={source} readOnly={isFinished(change)} />
         ) : (
           <p className="hint">loading…</p>
         ))}

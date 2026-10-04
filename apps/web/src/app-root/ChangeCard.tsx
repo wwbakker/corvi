@@ -1,6 +1,7 @@
 import { type JSX, useCallback, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { apiClient, type Change } from "./api.ts";
+import { type Change } from "./api.ts";
+import { clientFor } from "./sources.ts";
 import type { ChangeSummary } from "../domain/change.ts";
 import { stateClass } from "./stateClass.ts";
 import { moment } from "./moment.ts";
@@ -37,11 +38,11 @@ export function ChangeCard({ change, onOpen }: { change: Change; onOpen: () => v
 
   const load = useCallback(
     (signal: AbortSignal): Promise<void> =>
-      apiClient
+      clientFor(change.source ?? "")
         .changes.summary(ChangeId.make(change.id), { signal })
         .then(setSummary)
         .catch(() => {}),
-    [change.id],
+    [change.id, change.source],
   );
   // Builds finish and comments arrive while the overview is open; a minute is soon enough for a
   // page you are not looking at closely, and the calls behind it are not free. Only the moment is

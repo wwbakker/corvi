@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react";
 import { apiClient } from "../../app-root/api.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 import type { Platform } from "@corvi/terminals/model";
-import { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
+import { DEFAULT_WORKSPACE, type WorkspaceDto } from "@corvi/contracts/config";
 
 export type Workspace = {
   id: string;
   name: string;
+  /** A remote workspace's target, when this context lives on another server. */
+  remote?: WorkspaceDto["remote"];
   repositoriesDirectory?: string;
   env?: Record<string, string>;
 };
@@ -94,9 +96,18 @@ export type PageInfo = { id: string; title: string; extension: string };
  * (a settings save toggles enablement without changing the context, which is why the settings
  * page calls it). A fetch that fails keeps the last good pages rather than clearing them — no
  * answer yet is the previous answer still; the next fetch or event tick recovers. */
-export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () => void } {
+export function usePages(
+  workspaceId?: string,
+  enabled = true,
+): { pages: PageInfo[]; reload: () => void } {
   const [pages, setPages] = useState<PageInfo[]>([]);
   useEffect(() => {
+    // A workspace on another server has no pages here: the gateway does not serve extension pages
+    // for remote workspaces yet, so ask nothing rather than the local server's answer.
+    if (!enabled) {
+      setPages([]);
+      return;
+    }
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
     apiClient
@@ -108,13 +119,14 @@ export function usePages(workspaceId?: string): { pages: PageInfo[]; reload: () 
     return () => {
       alive = false;
     };
-  }, [workspaceId]);
+  }, [workspaceId, enabled]);
   const reload = useCallback(() => {
+    if (!enabled) return;
     apiClient
       .workspaces.pages(workspaceId)
       .then(setPages)
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
-  }, [workspaceId]);
+  }, [workspaceId, enabled]);
   return { pages, reload };
 }
 

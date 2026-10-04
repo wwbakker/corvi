@@ -1,6 +1,6 @@
 import { type JSX } from "react";
-import { makeWireClient } from "@corvi/client";
 import { TextSchema } from "@corvi/contracts/api";
+import { changeKey, useChangeWireClient, useSource } from "../../app-root/sources.ts";
 import { MarkdownEditor } from "../../editor/client/MarkdownEditor.tsx";
 import { useSavedText } from "../../editor/client/useSavedText.ts";
 import type { WidgetComponent } from "../client.tsx";
@@ -20,10 +20,6 @@ import type { WidgetComponent } from "../client.tsx";
 const url = (path: string, workspace?: string): string =>
   workspace ? `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}` : path;
 
-/** The transport: the same classified `ClientError` as the core client, with the DTO this
- * extension owns. */
-const wire = makeWireClient({ baseUrl: "" });
-
 /**
  * Free-text notes for a change. Saved a moment after you stop typing and again when the widget
  * goes away, so navigating off does not lose the last sentence.
@@ -38,8 +34,14 @@ export function NotesCard({
   // The same notes are read and written through the extension's namespace, as the change's
   // workspace, so the server resolves the change from the right root.
   const endpoint = url(`/ext/notes/changes/${changeId}/notes`, workspace);
+  // The change's source, so a remote change's notes are read and written on the server that
+  // owns them.
+  const wire = useChangeWireClient();
+  // The cached draft is keyed by source too: two servers can mint the same change id, and their
+  // notes are not the same notes.
+  const source = useSource();
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
-    key: `${changeId}:notes`,
+    key: changeKey(source, changeId) + ":notes",
     load: () =>
       wire
         .request("GET", endpoint, TextSchema)

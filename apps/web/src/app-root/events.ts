@@ -11,11 +11,13 @@ import { useEffect } from "react";
  * through the usual routes, which are cached on the server. So a missed event costs one
  * refresh rather than a screen that disagrees with the disk. `notify` is the exception: it is
  * about a moment, not a state, and the moment would be gone by the time a fetch came back — so it
- * carries its own JSON. `update` is back to no data: the status route says what is new.
+ * carries its own JSON. `update` is back to no data: the status route says what is new. `source`
+ * carries a remote workspace's event as JSON (`{ source, event, data }`): a subscriber refetches
+ * that source (or every source), the same way a local `changes` does.
  */
 
 /** The events a page can hear. */
-export type ServerEvent = "changes" | "windows" | "notify" | "update";
+export type ServerEvent = "changes" | "windows" | "notify" | "update" | "source";
 
 type Listener = (data: string) => void;
 
@@ -29,7 +31,7 @@ function emit(event: ServerEvent, data: string): void {
 function connect(): EventSource {
   if (source) return source;
   const opened = new EventSource("/api/events");
-  for (const event of ["changes", "windows", "notify", "update"] as const) {
+  for (const event of ["changes", "windows", "notify", "update", "source"] as const) {
     opened.addEventListener(event, (e) => emit(event, (e as MessageEvent).data ?? ""));
   }
   // EventSource reconnects by itself, and what it missed while it was away is exactly what its

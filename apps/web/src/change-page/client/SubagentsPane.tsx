@@ -13,7 +13,7 @@ import { type JSX, useCallback, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { SubagentInstanceDto, SubagentMessageDto, SubagentSystemEventDto } from "@corvi/contracts/subagents";
 import type { Platform } from "@corvi/terminals/model";
-import { apiClient } from "../../app-root/api.ts";
+import { useChangeClient } from "../../app-root/sources.ts";
 import { useServerEvent } from "../../app-root/events.ts";
 import { TerminalPane } from "../../terminals/client/TerminalPane.tsx";
 
@@ -70,6 +70,7 @@ export function SubagentsPane({
   /** Switch the shared session to a window **without** leaving this page. */
   onFocusWindow: (index: number) => void;
 }): JSX.Element {
+  const client = useChangeClient();
   const [instances, setInstances] = useState<SubagentInstanceDto[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -77,7 +78,7 @@ export function SubagentsPane({
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback((): void => {
-    apiClient
+    client
       .subagents.list(ChangeId.make(changeId))
       .then(setInstances)
       .catch((e: Error) => setNotice(e.message));
@@ -122,7 +123,7 @@ export function SubagentsPane({
     setSending(true);
     setNotice(null);
     try {
-      await apiClient.subagents.send(ChangeId.make(changeId), current.id, { text }, crypto.randomUUID());
+      await client.subagents.send(ChangeId.make(changeId), current.id, { text }, crypto.randomUUID());
       setDraft("");
       setNotice(`sent to ${current.id}`);
       load();
@@ -220,11 +221,11 @@ export function SubagentsPane({
                 </button>
               )}
               {current.presence === "attached" ? (
-                <button onClick={() => void act(() => apiClient.subagents.close(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
+                <button onClick={() => void act(() => client.subagents.close(ChangeId.make(changeId), current.id), `closed ${current.id}`)}>
                   Close
                 </button>
               ) : (
-                <button onClick={() => void act(() => apiClient.subagents.open(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
+                <button onClick={() => void act(() => client.subagents.open(ChangeId.make(changeId), current.id), `opened ${current.id}`)}>
                   Open
                 </button>
               )}

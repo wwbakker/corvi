@@ -1,7 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { RepositoryViewDto } from "@corvi/contracts/api";
-import { apiClient } from "../../app-root/api.ts";
+import { useChangeClient } from "../../app-root/sources.ts";
 import { checkoutRows } from "./repositoryView.ts";
 
 /**
@@ -10,6 +10,7 @@ import { checkoutRows } from "./repositoryView.ts";
  * host's widget plumbing.
  */
 export function CheckoutsCard({ changeId }: { changeId: string }): JSX.Element {
+  const client = useChangeClient();
   const [views, setViews] = useState<readonly RepositoryViewDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -17,7 +18,7 @@ export function CheckoutsCard({ changeId }: { changeId: string }): JSX.Element {
     let live = true;
     setViews(null);
     setError(null);
-    apiClient.changes.checkouts(ChangeId.make(changeId)).then(
+    client.changes.checkouts(ChangeId.make(changeId)).then(
       (result) => {
         if (live) setViews(result);
       },

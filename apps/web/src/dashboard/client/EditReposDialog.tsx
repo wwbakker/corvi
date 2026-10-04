@@ -1,12 +1,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
-  apiClient,
   type Change,
   type ProvisionResult,
   type RepoState,
   type Selection,
 } from "../../app-root/api.ts";
+import { useChangeClient } from "../../app-root/sources.ts";
 import { RepoBrowser } from "../../workspace/client/RepoBrowser.tsx";
 
 /**
@@ -36,6 +36,7 @@ export function EditReposDialog({
   onClose: () => void;
   onSaved: (change: Change, provision?: readonly ProvisionResult[]) => void;
 }): JSX.Element {
+  const client = useChangeClient();
   const ref = useRef<HTMLDialogElement>(null);
   const [current, setCurrent] = useState<RepoState[]>([]);
   const [draft, setDraft] = useState<Selection[]>([]);
@@ -50,7 +51,7 @@ export function EditReposDialog({
     if (!open) return;
     // Start from what the change has now, every time the dialog is opened.
     setError(null);
-    apiClient
+    client
       .changes.repoStates(ChangeId.make(changeId))
       .then((repos) => {
         setCurrent(repos);
@@ -70,7 +71,7 @@ export function EditReposDialog({
   const save = (force = false): void => {
     setBusy(true);
     setError(null);
-    apiClient
+    client
       .changes.setRepositories(ChangeId.make(changeId), { checkouts: draft, force })
       // The edit applies and the dialog closes; what the checkouts then reported goes to the
       // dashboard's banner, and a failed row offers its own action as the retry.
