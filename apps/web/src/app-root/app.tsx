@@ -29,6 +29,7 @@ import { UpdateNotice } from "../app-update/UpdateNotice.tsx";
 import { UpdateDialog } from "../app-update/UpdateDialog.tsx";
 import { useAppUpdate } from "../app-update/state.ts";
 import { hostOf } from "./host.ts";
+import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
@@ -151,6 +152,49 @@ function App(): JSX.Element {
     (patch: DraftPatch): void => setDraft((d) => (d ? applyPatch(d, patch) : d)),
     [],
   );
+
+  // The navigation drawer a narrow window uses: there the column is an overlay, opened by the
+  // toggle and closed by a navigation, Escape, a resize back above the breakpoint, or a click on
+  // its backdrop. On a wide window the column is always in the flow and this does nothing.
+  const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Leaving a page closes the drawer, whether it was a change, a window, a page, a workspace, or
+  // the wizard: the click that navigates leaves the destination visible, not the menu.
+  useEffect(() => {
+    setDrawerOpen(false);
+  }, [view, chosen]);
+
+  // Widening past the breakpoint puts the column back in the flow, so the drawer has nothing to
+  // cover.
+  useEffect(() => {
+    const wide = window.matchMedia("(min-width: 721px)");
+    const onChange = (): void => {
+      if (wide.matches) setDrawerOpen(false);
+    };
+    wide.addEventListener("change", onChange);
+    return () => wide.removeEventListener("change", onChange);
+  }, []);
+
+  // Escape is the keyboard's close while the drawer is open. Capture phase, and the key is taken
+  // rather than passed on: a terminal underneath encodes keys as input and would swallow it before
+  // it bubbled (apps/web/src/app-root/ActionsMenu.tsx).
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDrawerOpen(false);
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [drawerOpen]);
+
+  // An open drawer owns the scroll: the content behind it must not move under the pointer.
+  useEffect(() => {
+    document.body.classList.toggle("drawer-open", drawerOpen);
+    return () => document.body.classList.remove("drawer-open");
+  }, [drawerOpen]);
 
   const selected = view.name === "change" ? view.id : null;
   // Found among all of them, not the filtered list: a link to a change in another workspace
@@ -313,6 +357,18 @@ function App(): JSX.Element {
 
   return (
     <div className={bridge ? "app hosted" : "app"} style={chrome}>
+      {/* The narrow window's navigation: a backdrop, and the toggle that stays above it (and the
+          drawer) so it can close what it opened. Both exist only below the breakpoint. */}
+      {drawerOpen && <div className="drawer-backdrop" onClick={() => setDrawerOpen(false)} />}
+      <button
+        className={drawerOpen ? "drawer-toggle open" : "drawer-toggle"}
+        title={drawerOpen ? "close navigation" : "open navigation"}
+        aria-label="Navigation"
+        aria-expanded={drawerOpen}
+        onClick={() => setDrawerOpen((open) => !open)}
+      >
+        <MenuIcon title="Navigation" />
+      </button>
       <Notifier
         change={selected}
         page={view.name === "change" ? view.page : "dashboard"}
@@ -326,6 +382,7 @@ function App(): JSX.Element {
         onDismiss={appUpdate.dismissNotice}
       />
       <Sidebar
+        open={drawerOpen}
         changes={changes}
         workspaces={workspaces}
         chosen={chosen}

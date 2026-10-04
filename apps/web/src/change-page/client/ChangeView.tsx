@@ -373,9 +373,30 @@ export function ChangeView({
 
   return (
     <div className={active.kind === "terminals" ? "page terminal-page" : "page"}>
-      {/* The window's title bar: a tab per terminal, and — on the terminal page — the key
-          reference. The same row on both of a change's pages. */}
-      {changeHeader}
+      {/* The window's title bar and the change's own row are one sticky block: nothing sits
+          between them, so a taller window's row cannot push the change's row out of place. */}
+      <div className="change-chrome">
+        {/* The window's title bar: a tab per terminal, and — on the terminal page — the key
+            reference. The same row on both of a change's pages. */}
+        {changeHeader}
+        {/* The change's own views, and the change's state and actions at the tabs' height: they
+            belong to the change rather than to any one of its views, and the row that says which
+            view you are in is where they fit — under the window's row rather than in it. */}
+        {active.kind !== "terminals" && (
+          <ChangeControls
+            nav={nav}
+            activeId={activeId}
+            change={change}
+            idea={idea}
+            actions={actions}
+            draft={draft}
+            onDraft={setDraft}
+            onOpenPage={onOpenPage}
+            onRename={commitRename}
+            onState={moveTo}
+          />
+        )}
+      </div>
       <CheatSheet
         open={cheatSheet}
         onClose={() => {
@@ -420,23 +441,6 @@ export function ChangeView({
       {/* A completed or cancelled change's observer failures: the operation itself succeeded, so
           these are reported on its response rather than rendered as a failure of the change. */}
       <LifecycleFailures results={after} />
-      {/* The change's own views, and the change's state and actions at the tabs' height: they
-          belong to the change rather than to any one of its views, and the row that says which
-          view you are in is where they fit — under the window's row rather than in it. */}
-      {active.kind !== "terminals" && (
-        <ChangeControls
-          nav={nav}
-          activeId={activeId}
-          change={change}
-          idea={idea}
-          actions={actions}
-          draft={draft}
-          onDraft={setDraft}
-          onOpenPage={onOpenPage}
-          onRename={commitRename}
-          onState={moveTo}
-        />
-      )}
       {active.kind === "dashboard" && (
         <ChangeDashboard
           id={id}

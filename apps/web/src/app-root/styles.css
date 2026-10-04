@@ -445,31 +445,94 @@ body.resizing {
   background: var(--ok);
 }
 
-/* Too narrow for two columns: the navigation goes on top and wraps. */
+/* The navigation toggle and its backdrop exist only on a narrow window: there the column becomes
+   an overlay drawer. A wide window has neither. */
+.drawer-toggle,
+.drawer-backdrop {
+  display: none;
+}
+
+/* An open drawer owns the scroll: the content behind it must not move under the pointer. */
+body.drawer-open {
+  overflow: hidden;
+}
+
+/* Too narrow for two columns: the navigation becomes an overlay drawer over the content instead
+   of a row above it. The content keeps the whole window; the toggle opens the drawer, and a
+   navigation, Escape, a resize, or the backdrop closes it. The same rule applies in the app window
+   and a browser. */
 @media (max-width: 720px) {
   .app {
-    flex-direction: column;
+    /* Still a row: the column leaves the flow rather than stacking above the page. */
+    flex-direction: row;
+    /* Where the chrome's first control starts to clear the toggle (and, on macOS, the traffic
+       lights the toggle sits beside). */
+    --chrome-left: calc(var(--traffic-inset) + var(--titlebar-height) + 6px);
   }
 
   .sidebar {
-    flex: none;
-    width: 100%;
-    height: auto;
-    position: static;
-    flex-direction: row;
-    flex-wrap: wrap;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 30;
+    /* The remembered width, clamped so a wide column cannot take the whole window. */
+    max-width: 85vw;
+    height: 100dvh;
+    /* Off-screen, and out of the tab order and the accessibility tree with it: a drawer you
+       cannot see must not be a drawer a keyboard or a screen reader walks through. */
+    transform: translateX(-100%);
+    visibility: hidden;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+  }
+
+  .sidebar.open {
+    transform: none;
+    visibility: visible;
+  }
+
+  /* The border is the drawer's one edge line; the wide column's pseudo would double it below the
+     title bar. */
+  .sidebar::after {
+    display: none;
+  }
+
+  /* A temporary surface, not a column to drag. */
+  .sidebar .resize {
+    display: none;
+  }
+
+  .drawer-toggle {
+    display: flex;
     align-items: center;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    justify-content: center;
+    position: fixed;
+    top: 0;
+    left: var(--traffic-inset);
+    z-index: 40;
+    width: var(--titlebar-height);
+    height: var(--titlebar-height);
+    padding: 0;
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    color: var(--muted);
+    cursor: pointer;
+    -webkit-app-region: no-drag;
   }
 
-  .sidebar .brand,
-  .sidebar .heading {
-    padding-bottom: 6px;
+  .drawer-toggle:hover,
+  .drawer-toggle.open {
+    color: var(--text);
+    background: var(--hover);
   }
 
-  .sidebar .list {
-    display: contents;
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    background: rgba(0, 0, 0, 0.4);
   }
 }
 
@@ -505,13 +568,20 @@ body.resizing {
   display: flex;
   align-items: center;
   gap: 12px;
-  position: sticky;
-  top: 0;
-  z-index: 2;
   height: var(--titlebar-height);
   margin-bottom: 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
+}
+
+/* A header stays put only when it is the page's own first row (`.page > header`) or the wizard's
+   own (`.wizard header`). On a change's page the window's row and the change's own row are wrapped
+   in `.change-chrome`, and the wrapper is what sticks, so the change-bar itself is ordinary flow. */
+.page > header,
+.wizard header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 /* Edge to edge, because it is the window's chrome: the content's own padding comes back on the row,
@@ -523,16 +593,26 @@ body.resizing {
   padding-inline: 24px;
 }
 
-/* The change's pages put their own row directly under this one, so the two are flush: the sticky
-   offsets are then the row heights themselves, with no gap for content to scroll through. The
-   flush frame has no page padding to bleed out of either: the row takes the window's width with
-   the padding back on itself, and still no gap below — the two tab rows are one block of chrome.
-   (The terminal page dresses its own row further down.) */
-.content:not(.flush) .page > header.change-bar {
-  margin-bottom: 0;
+/* The change's two chrome rows are one sticky block, so there is no second offset to keep in sync
+   when the window's row grows. The wrapper bleeds to the window's edges and carries the space below
+   the block, and each row keeps its own padding. In the flush frame there is no page padding to give
+   back, so the wrapper is already at the window's edge. (The terminal page dresses its own row
+   further down.) */
+.change-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
-.content.flush .page:not(.terminal-page) > header.change-bar {
+.content:not(.flush) .page > .change-chrome {
+  margin: -16px -24px 16px;
+}
+
+.change-chrome > header.change-bar {
+  /* A single row of tabs is the title bar's height exactly; the row grows only when the tabs wrap
+     to a second line, which is why the height is auto rather than the base header's fixed one. */
+  height: auto;
+  min-height: var(--titlebar-height);
   margin: 0;
   padding-inline: 24px;
 }
@@ -542,6 +622,7 @@ body.resizing {
    tabs (whose own drag reorders them) and the workspace switcher. A browser has neither the drag
    nor lights to lay out around. */
 .hosted .page > header,
+.hosted .page > .change-chrome > header,
 .hosted .wizard > header,
 .hosted .sidebar > .band {
   -webkit-app-region: drag;
@@ -551,6 +632,10 @@ body.resizing {
 .hosted .page > header select,
 .hosted .page > header input,
 .hosted .page > header a,
+.hosted .page > .change-chrome > header button,
+.hosted .page > .change-chrome > header select,
+.hosted .page > .change-chrome > header input,
+.hosted .page > .change-chrome > header a,
 .hosted .wizard > header button,
 .hosted .wizard > header select,
 .hosted .wizard > header input,
@@ -1504,29 +1589,21 @@ button.create:hover:not(:disabled) {
   color: var(--muted);
 }
 
-/* The change's own row: its views as tabs, and its state and actions at their height. Full-bleed and
-   sticky, right under the window's row — the two together are the page's chrome, and the content
-   scrolls under them rather than past them. The tabs inside keep their own dress, without the line
-   they carry in a page that has no row above them. In the flush frame there is no page padding to
-   bleed out of and no gap below to give away: the row is the window's full width and what fills the
-   tab starts on its edge. */
+/* The change's own row: its views as tabs, and its state and actions at their height, right under
+   the window's row — the two together are the page's chrome, and the content scrolls under them
+   rather than past them. They are ordinary flow inside `.change-chrome` (which bleeds and sticks),
+   so this row carries neither its own full-bleed margins nor an offset. The tabs inside keep their
+   own dress, without the line they carry in a page that has no row above them. */
 .change-tabs {
-  position: sticky;
-  top: var(--titlebar-height);
-  z-index: 2;
   display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 -24px 16px;
+  margin: 0;
   /* The first tab's text lands where the change's name does above it: the tab's own padding is the
      rest of the way to the page's 24px. */
   padding-inline: 18px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
-}
-
-.content.flush .change-tabs {
-  margin: 0;
 }
 
 .change-tabs .tabs {
@@ -1592,28 +1669,50 @@ button.create:hover:not(:disabled) {
 }
 
 .page.terminal-page .change-bar {
-  flex: none;
   margin: 0;
   /* The name starts where the dashboard's does: the page's own padding, then the title's. */
   padding: 0 10px 0 24px;
-  /* No minimum and no bottom border: the bar is exactly as tall as its tabs, and they sit on
-     the terminal rather than above a line. The tabs stretch to that height; the cheat sheet,
-     sized to match them below, is then flush too. */
-  min-height: 0;
-  align-items: stretch;
+  /* No bottom border: the tabs sit on the terminal rather than above a line. The bar is as tall
+     as its tabs (the global min-height keeps a single row at the title bar's height), and its
+     non-tab controls — the Actions menu, a notice — sit on the row's centre line, the way the
+     Overview row's do. The tabs still fill the row: `.window-tabs` stretches below. */
+  align-items: center;
   gap: 8px;
   border-bottom: 0;
   background: var(--surface);
-  /* Above xterm's own layers: its stylesheet paints helpers (z-index 5) and overlays (10) into
-     the root stacking context (`.xterm` creates none of its own), so the bar's z-index 2 left
-     the actions menu's dropdown under them — visible but un-clickable over the terminal. */
+}
+
+/* The tabs fill the bar's height even though the bar centres its other children: a wrapped strip
+   of two rows makes the bar taller, and the tabs take that whole height. The terminal bar has no
+   bottom border, so a row is the full title bar here rather than a pixel short of it. */
+.page.terminal-page .window-tabs {
+  align-self: stretch;
+  --window-tab-height: var(--titlebar-height);
+}
+
+/* The Actions menu stretches to the bar so its dropdown anchors at the bar's bottom edge, not at
+   the centred button's: a wrapped strip is taller, and a menu hung off the button would open over
+   its second row. The button itself stays its own height, centred in the stretched wrapper. */
+.page.terminal-page .change-bar .menu {
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+}
+
+/* The terminal page's chrome is one block, and it must not shrink out of the flex chain: the pane
+   takes what is left. Above xterm's own layers: its stylesheet paints helpers (z-index 5) and
+   overlays (10) into the root stacking context (`.xterm` creates none of its own), so the block's
+   z-index 2 left the actions menu's dropdown under them — visible but un-clickable over the
+   terminal. */
+.page.terminal-page .change-chrome {
+  flex: none;
   z-index: 12;
 }
 
 /* The key reference is the terminal's own, not a control of the page's: the size of the tabs
-   beside it, so neither makes the strip taller than the other. */
+   beside it, so neither makes the strip taller than the other. The row centres it, like the
+   Overview row's controls. */
 .page.terminal-page .change-bar button:not(.window-tab) {
-  align-self: center;
   padding: 3px 8px;
   font-size: 12px;
 }
@@ -1622,25 +1721,39 @@ button.create:hover:not(:disabled) {
    move when you switch between a change's two views. */
 
 /* A session's windows as tabs: the current one in the same dress as the column's selected
-   terminal — accent fill, white text — and the rest quiet. Scrollable, so a session with more
-   windows than fit cannot push the terminal down, and truncating, so a long label cannot
-   either. */
+   terminal — accent fill, white text — and the rest quiet. They wrap row-major instead of
+   scrolling sideways, so a session with more windows than fit grows the bar rather than hiding
+   tabs past its edge. The strip is capped at two rows and scrolls vertically past that, so the
+   bar can never become the whole window. Each row is the title bar's height, which is what makes
+   the cap exact; the row gap is the only slack. */
 .window-tabs {
+  --window-tab-row-gap: 2px;
+  /* A row is the title bar's height less the chrome row's own bottom border, so a single row
+     makes the bar measure exactly the title bar (see `.change-chrome > header.change-bar`). */
+  --window-tab-height: calc(var(--titlebar-height) - 1px);
   display: flex;
   align-items: stretch;
+  flex-wrap: wrap;
+  row-gap: var(--window-tab-row-gap);
   min-width: 0;
-  overflow-x: auto;
+  max-height: calc(2 * var(--window-tab-height) + var(--window-tab-row-gap));
+  /* The rows wrap rather than scrolling sideways; `hidden` makes that unconditional, since an
+     `auto` vertical axis would otherwise compute the horizontal one to `auto` too. */
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .window-tab {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-height: var(--window-tab-height);
   max-width: 220px;
   padding: 4px 10px;
   background: transparent;
   border: 0;
-  /* Rounded at the top only: the bottom edge is where the terminal begins. */
+  /* Rounded at the top only: the bottom edge is where the terminal begins. A floating first row
+     in a wrapped strip keeps the flat bottom, set apart from the row below by the row gap. */
   border-radius: 6px 6px 0 0;
   font-size: 12px;
   color: var(--muted);
@@ -2988,4 +3101,17 @@ button.danger:disabled {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+/* On a narrow window the chrome's first control must clear the fixed toggle (and, on macOS, the
+   traffic lights the toggle sits beside). The change's own row gets the same inset, so its first
+   tab stays under the window's row above. */
+@media (max-width: 720px) {
+  .content:not(.flush) .page > header,
+  .content:not(.flush) .wizard > header,
+  .change-chrome > header.change-bar,
+  .page.terminal-page .change-bar,
+  .change-tabs {
+    padding-left: var(--chrome-left);
+  }
 }
