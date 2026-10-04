@@ -15,6 +15,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { ClientError, makeCorviClient, type CorviClient } from "@corvi/client";
+import type { CreateChangeBodyDto } from "@corvi/contracts/api";
 import { ChangeId, type ChangePhase } from "@corvi/contracts/changes";
 
 import { boolFlag, isKnownFlag, parseArgs, stringFlag, type ParsedArgs } from "./args.ts";
@@ -36,6 +37,8 @@ const USAGE = `corvi — control a change from the command line
 usage: corvi [--json] [--change <id>] [--server <url>] <group> <command> [args]
 
   change list                          every change
+  change create <id> --title <title> [--branch <name>] [--workspace <id>]
+                                       make a new idea, then print the next steps
   change show                          this change's record
   change start                         start its work (worktrees, tickets)
   change complete [--force]            merge and close it
@@ -80,6 +83,8 @@ export const GROUP_HELP: Readonly<Record<string, string>> = {
 usage: corvi change <command> [args]
 
   list                          every change
+  create <id> --title <title> [--branch <name>] [--workspace <id>]
+                                make a new idea, then print the next steps
   show                          this change's record
   start                         start its work (worktrees, tickets)
   complete [--force]            merge and close it
@@ -164,7 +169,7 @@ const requireChange = (changeId: string | undefined): ChangeId => {
 /** The command shapes, checked before discovery: a typo is a usage error (2) and must not pay a
  * round of probes first (or be reported as "no server"). */
 export const COMMANDS: Readonly<Record<string, readonly string[]>> = {
-  change: ["list", "show", "start", "complete", "cancel", "phase"],
+  change: ["list", "create", "show", "start", "complete", "cancel", "phase"],
   action: ["list", "run", "profile"],
   subagent: ["list", "show", "create", "open", "close", "send", "await", "result", "next", "turn", "profile"],
   status: ["working", "waiting", "clear"],
@@ -204,6 +209,30 @@ const changeCommand = async (
         value: changes,
         human: (value) =>
           value.map((change) => `${change.id}\t${change.state ?? "-"}\t${change.title ?? ""}`).join("\n"),
+      });
+      return;
+    }
+    case "create": {
+      // The whole argv was validated before discovery; this is the one body it produced. No
+      // `requireChange`: the command makes a change, so it reads no ambient one.
+      const body = createTarget(args);
+      const created = await client.changes.create(body);
+      // The recipe names where the record now lives, so the caller can write its PLAN.md. The
+      // route answers with the directory; the fallback keeps the line readable if it ever does
+      // not. The id is the server's own spelling of the created change.
+      const dir = created.changeDir ?? "the change's directory";
+      const id = created.change.id;
+      const next = [
+        `write ${dir}/PLAN.md — the change's plan document`,
+        `corvi change repository add <path> --change ${id}`,
+        `corvi change start --change ${id}`,
+      ];
+      emit(io, json, {
+        value: { ...created, next },
+        human: (value) =>
+          [`created ${value.change.id} (Ideation)`, "next:", ...value.next.map((line) => `  ${line}`)].join(
+            "\n",
+          ),
       });
       return;
     }
@@ -259,7 +288,7 @@ const changeCommand = async (
     }
     default:
       throw new CliFailure(
-        command === undefined ? "change needs a command: list, show, start, complete, cancel, phase" : `unknown change command: ${command}`,
+        command === undefined ? "change needs a command: list, create, show, start, complete, cancel, phase" : `unknown change command: ${command}`,
         EXIT.usage,
       );
   }
@@ -525,6 +554,31 @@ const profileTarget = (args: ParsedArgs): ProfileTarget => {
   return { sub, scope, ...(workspace === undefined ? {} : { workspace }), id };
 };
 
+/** `change create`'s whole argv, checked before discovery (`run` calls this beside
+ * `profileTarget`, and the command case reuses it as the body): a malformed invocation is a
+ * usage error (2) and must not pay a round of probes first, or be reported as "no server".
+ * The change is always created as an idea; its repositories are added afterwards. */
+const createTarget = (args: ParsedArgs): CreateChangeBodyDto => {
+  const id = args.positionals[2];
+  if (id === undefined || id === "") {
+    throw new CliFailure("change create needs an id", EXIT.usage);
+  }
+  const title = stringFlag(args, "title");
+  if (title === undefined || title === "") {
+    throw new CliFailure("change create needs --title <title>", EXIT.usage);
+  }
+  const branch = stringFlag(args, "branch");
+  const workspace = stringFlag(args, "workspace");
+  // Empty flags are absent, not empty strings: the server should default them, not record blank.
+  return {
+    id,
+    title,
+    state: "Ideation",
+    ...(branch === undefined || branch === "" ? {} : { branch }),
+    ...(workspace === undefined || workspace === "" ? {} : { workspace }),
+  };
+};
+
 /** The file's text: `--from <path>`, or stdin when it is piped in. */
 const profileText = async (args: ParsedArgs): Promise<string> => {
   const from = stringFlag(args, "from");
@@ -721,11 +775,11 @@ const report = (error: unknown, io: Io, json: boolean): number => {
 };
 
 /** Whether a command operates on a change, and therefore whether discovery should prefer the
- * server that owns one. `change list` is about the server, not a change: an ambient
- * `CORVI_CHANGE_ID` must not constrain which server answers it. */
-const needsChange = (positionals: readonly string[]): boolean => {
+ * server that owns one. `change list` and `change create` are about the server, not a change: an
+ * ambient `CORVI_CHANGE_ID` must not constrain which server answers them. */
+export const needsChange = (positionals: readonly string[]): boolean => {
   const [group, command] = positionals;
-  if (group === "change") return command !== "list";
+  if (group === "change") return command !== "list" && command !== "create";
   if (group === "action") return true;
   if (group === "subagent") return true;
   return false;
@@ -778,6 +832,11 @@ export const run = async (
       (checkedSub === "write" || checkedSub === "delete")
     ) {
       profileTarget(args);
+    }
+    // `change create`'s body, checked here for the same reason: a missing id or title is usage
+    // (2) before any probe, never "no server".
+    if (checkedGroup === "change" && checkedCommand === "create") {
+      createTarget(args);
     }
     const changeId = await resolveChangeId({
       flag: stringFlag(args, "change"),

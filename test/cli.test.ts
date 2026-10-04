@@ -14,7 +14,7 @@ import { instanceRecordPath } from "@corvi/configuration/node";
 import { InstanceRecordSchema } from "@corvi/contracts/instance";
 import { Schema } from "effect";
 
-import { run, COMMANDS, GROUP_HELP, type Io } from "../apps/cli/src/main.ts";
+import { run, COMMANDS, GROUP_HELP, needsChange, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
 import { EXIT } from "../apps/cli/src/errors.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
@@ -311,6 +311,145 @@ test("change phase sets the state, and the transition rules still refuse the ill
     await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "phase", "Sideways", "--json"], bad.io),
   ).toBe(2);
   expect(bad.err.join("")).toContain("Ideation");
+});
+
+test("change create maps argv to the body, always as an idea, with the recipe", async () => {
+  const created = capture();
+  const code = await run(
+    [
+      "--server", baseUrl, "change", "create", "CLI-NEW",
+      "--title", "A new idea", "--branch", "CLI-NEW-work", "--workspace", "default", "--json",
+    ],
+    created.io,
+  );
+  expect(code).toBe(0);
+  const body = JSON.parse(created.out.join("")) as {
+    change: { id: string; title?: string; branch: string; workspace?: string; state?: string };
+    provision: unknown[];
+    refresh: unknown[];
+    changeDir?: string;
+    next: string[];
+  };
+  // The route body, decoded as the CLI prints it: the id is positional, the flags carried.
+  expect(body.change.id).toBe("CLI-NEW");
+  expect(body.change.title).toBe("A new idea");
+  expect(body.change.branch).toBe("CLI-NEW-work");
+  expect(body.change.workspace).toBe("default");
+  expect(body.change.state).toBe("Ideation");
+  expect(body.provision).toBeArray();
+  expect(body.refresh).toBeArray();
+  // `next` is the CLI's own addition, naming the directory the route reported.
+  const dir = join(tmp, "changes", "CLI-NEW");
+  expect(body.changeDir).toBe(dir);
+  expect(body.next).toEqual([
+    `write ${dir}/PLAN.md — the change's plan document`,
+    "corvi change repository add <path> --change CLI-NEW",
+    "corvi change start --change CLI-NEW",
+  ]);
+});
+
+test("change create prints the recipe in its human output", async () => {
+  const created = capture();
+  expect(
+    await run(["--server", baseUrl, "change", "create", "CLI-HUMAN", "--title", "Human output"], created.io),
+  ).toBe(0);
+  const lines = created.out.join("\n");
+  expect(lines).toContain("created CLI-HUMAN (Ideation)");
+  expect(lines).toContain("next:");
+  expect(lines).toContain(`write ${join(tmp, "changes", "CLI-HUMAN")}/PLAN.md`);
+});
+
+test("change create needs an id and a title (usage 2)", async () => {
+  const noId = capture();
+  expect(await run(["--server", baseUrl, "change", "create", "--title", "x"], noId.io, { env: {} })).toBe(2);
+  expect(noId.err.join("")).toContain("needs an id");
+
+  const noTitle = capture();
+  expect(
+    await run(["--server", baseUrl, "change", "create", "CLI-NOTITLE"], noTitle.io, { env: {} }),
+  ).toBe(2);
+  expect(noTitle.err.join("")).toContain("--title");
+});
+
+test("change create ignores an ambient change when choosing the server", async () => {
+  // Discovery has one answering server, and uses it even for a change it does not own, so this
+  // only proves create is not blocked by an ambient id; the real gate is `needsChange`, asserted
+  // below. Both the env and the flag form funnel through it.
+  const ambient = capture();
+  const code = await run(
+    ["change", "create", "CLI-EXEMPT", "--title", "No ambient", "--json"],
+    ambient.io,
+    { env: { CORVI_CHANGE_ID: "NOT-MINE" } },
+  );
+  expect(code).toBe(0);
+  expect((JSON.parse(ambient.out.join("")) as { change: { id: string } }).change.id).toBe("CLI-EXEMPT");
+
+  const flagged = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", "NOT-MINE", "change", "create", "CLI-EXEMPT-FLAG", "--title", "No ambient", "--json"],
+      flagged.io,
+      { env: {} },
+    ),
+  ).toBe(0);
+  expect((JSON.parse(flagged.out.join("")) as { change: { id: string } }).change.id).toBe("CLI-EXEMPT-FLAG");
+});
+
+test("needsChange is false for the change-less commands", () => {
+  // The unit that decides whether an ambient change constrains discovery; the integration test
+  // above cannot see it through a lone answering server.
+  expect(needsChange(["change", "list"])).toBe(false);
+  expect(needsChange(["change", "create"])).toBe(false);
+  expect(needsChange(["change", "show"])).toBe(true);
+});
+
+test("change create validates before discovery: usage 2 beats an unreachable server, 3 is no server", async () => {
+  // Isolate discovery: an empty state dir (no records, no pid-files) and an unreachable dev
+  // default, so the only candidate is the address named and nothing can answer it.
+  const state = await testTempDir("cli-no-server");
+  const saved = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = state;
+  try {
+    const noTitle = capture();
+    expect(
+      await run(["--server", "http://127.0.0.1:1", "change", "create", "CLI-UNREACHABLE"], noTitle.io, {
+        env: { CORVI_PORT: "1" },
+      }),
+    ).toBe(2);
+    expect(noTitle.err.join("")).toContain("--title");
+
+    const unreachable = capture();
+    expect(
+      await run(
+        ["--server", "http://127.0.0.1:1", "change", "create", "CLI-UNREACHABLE", "--title", "x"],
+        unreachable.io,
+        { env: { CORVI_PORT: "1" } },
+      ),
+    ).toBe(3);
+    expect(unreachable.err.join("")).toContain("no Corvi server answered");
+  } finally {
+    if (saved === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = saved;
+    await rm(state, { recursive: true, force: true });
+  }
+});
+
+test("change create refuses an id that is taken (4)", async () => {
+  const taken = capture();
+  expect(
+    await run(["--server", baseUrl, "change", "create", CHANGE_ID, "--title", "Duplicate", "--json"], taken.io),
+  ).toBe(4);
+  expect(taken.err.join("")).toContain(CHANGE_ID);
+});
+
+test("a created change is listable afterwards", async () => {
+  const created = capture();
+  expect(
+    await run(["--server", baseUrl, "change", "create", "CLI-LISTED", "--title", "Listable"], created.io),
+  ).toBe(0);
+  const list = capture();
+  expect(await run(["--server", baseUrl, "change", "list", "--json"], list.io)).toBe(0);
+  expect((JSON.parse(list.out.join("")) as { id: string }[]).map((change) => change.id)).toContain("CLI-LISTED");
 });
 
 test("action list answers with the discoverable actions", async () => {

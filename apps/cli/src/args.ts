@@ -27,6 +27,8 @@ export const VALUE_FLAGS: ReadonlySet<string> = new Set([
   "name",
   "session-name",
   "message",
+  "title",
+  "branch",
 ]);
 
 /** The flags that are switches. Kept beside the value flags so an unknown flag can be refused
