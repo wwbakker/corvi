@@ -22,6 +22,7 @@ import { loaded } from "../../integrations/index.ts";
 import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { redactDeviceHashes } from "./deviceSecrets.ts";
+import { keepStoredRemoteTokens, redactRemoteTokens } from "./remoteSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { RemoteAccess } from "@corvi/contracts/config";
 import { invalidate } from "../../capabilities/cache.ts";
@@ -60,10 +61,10 @@ export const settingsViewSync = (): SettingsView => {
   };
   return {
     path: configPath(),
-    // The page gets a copy with the extensions' secrets masked: it is given the file and what is
-    // in effect, and neither may carry a token (apps/server/src/settings/server/secrets.ts).
-    file: redactDeviceHashes(redactSecrets(viewFile, loaded)),
-    effective: redactDeviceHashes(redactSecrets(runtimeConfig(), loaded)),
+    // The page gets a copy with the extensions' secrets and the remote device tokens masked: it
+    // is given the file and what is in effect, and neither may carry a credential.
+    file: redactRemoteTokens(redactDeviceHashes(redactSecrets(viewFile, loaded))),
+    effective: redactRemoteTokens(redactDeviceHashes(redactSecrets(runtimeConfig(), loaded))),
     // Runtime, not file: whether the external listener the file asks for actually bound.
     remoteAccessStatus: runtimeRemoteAccessStatus(),
     overridden: overriddenSettings(ENV_OVERRIDES),
@@ -130,11 +131,43 @@ export function problems(next: Settings): string[] {
       found.push(`two workspaces share the id "${workspace.id}"`);
     } else seen.add(workspace.id);
     if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
+
+    // A hand-edited file (or a buggy page) can put anything under `remote`: report it as a
+    // validation message rather than reading `.url` off a null and throwing out of the route.
+    const remote: unknown = workspace.remote;
+    if (remote !== undefined) {
+      if (typeof remote !== "object" || remote === null) {
+        found.push(`${where}: remote must be an object with a url and a workspace`);
+      } else {
+        const target = remote as { readonly url?: unknown; readonly workspace?: unknown };
+        // A remote workspace's settings live on the server that hosts it: carrying both would be
+        // two answers to the same question. Refused, not silently ignored.
+        if (workspace.settings !== undefined) {
+          found.push(`${where} is remote: it cannot also carry settings`);
+        }
+        if (typeof target.url !== "string" || !isHttpUrl(target.url)) {
+          found.push(`${where}: the remote url must be http or https`);
+        }
+        if (!Schema.is(WorkspaceId)(target.workspace)) {
+          found.push(`${where}: the remote workspace id must be a word`);
+        }
+      }
+    }
     scopeProblems(workspace.settings ?? {}, where);
   }
 
   return found;
 }
+
+/** A remote URL is a real http(s) URL: what the gateway will eventually proxy to. */
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 /** Values nobody set are left out, so the file stays a page of decisions rather than a dump of
  * every default. An empty string is "not set": that is what clearing a field on the page means. */
@@ -169,16 +202,18 @@ export const writeSettings = (
     // The read, merge and write are one serialized mutation: a device revoked between a page's
     // load and its save must not be written back from the stale list the page was handed.
     // Secrets first, before anything is merged: a field the page sent back as a mask keeps what
-    // the file holds, and one it left alone stays cleared.
-    yield* updateConfigFile((stored) =>
-      prune({
+    // the file holds, and one it left alone stays cleared. The same rule restores a remote
+    // workspace's device token.
+    yield* updateConfigFile((stored) => {
+      const kept = keepStoredRemoteTokens(keepStoredSecrets(next, stored, loaded), stored);
+      return prune({
         ...stored,
-        ...keepStoredSecrets(next, stored, loaded),
+        ...kept,
         // Devices are managed by the device API, never by a settings-page save: a page that
         // sends the masked device list back leaves what is stored untouched.
         devices: stored.devices,
-      }) as ConfigFile,
-    );
+      }) as ConfigFile;
+    });
 
     yield* reloadConfig;
     // Remote access is a listener, not just a value: a save that toggles it or moves its port

@@ -5,11 +5,12 @@ import {
   DirectoryName,
   EnvVarName,
   RemoteAccess as RemoteAccessSchema,
+  RemoteWorkspace as RemoteWorkspaceSchema,
   Resolved as ResolvedSchema,
   Workspace as WorkspaceSchema,
   WorkspaceId,
 } from "@corvi/contracts/config";
-import type { RemoteAccessDto } from "@corvi/contracts/config";
+import type { RemoteAccessDto, RemoteWorkspaceDto } from "@corvi/contracts/config";
 import { DeviceSchema } from "@corvi/contracts/devices";
 import type { DeviceDto } from "@corvi/contracts/devices";
 import type {
@@ -57,15 +58,28 @@ export function foldWorkspaceSettings(workspace: unknown): void {
   item.settings = { ...moved, ...(item.settings ?? {}) };
 }
 
+/** The remote half of a workspace, validated per item: a malformed `remote` is dropped rather
+ * than taking the workspace (or the file) with it. The workspace itself is kept — an entry with
+ * an id and a name is a context the user made, whatever its remote target looks like.
+ *
+ * The `url` is only structurally a string here; the write path (`problems()`) requires http(s),
+ * and the 2.2 gateway must re-validate the scheme before it fetches a hand-edited value. */
+export const remoteFrom = (value: unknown): RemoteWorkspaceDto | undefined =>
+  Schema.is(RemoteWorkspaceSchema)(value) ? value : undefined;
+
 /** `workspacesFrom` skips a workspace without a truthy id and name rather than rejecting the
  * file — one hand-mangled entry must not cost the rest of the configuration. That tolerance is
  * applied here, not by the schema: rejecting the whole file over one entry would turn a
  * half-mangled config into "nothing configured". The kept entries come back in the one shape
- * (`foldWorkspaceSettings`), old keys folded into `settings`. */
+ * (`foldWorkspaceSettings`), old keys folded into `settings`, and a malformed `remote` dropped. */
 export const workspacesFrom = (items: unknown): WorkspaceShape[] =>
   Array.isArray(items)
     ? items.filter(hasIdAndName).map((workspace) => {
         foldWorkspaceSettings(workspace);
+        const remote = remoteFrom((workspace as { remote?: unknown }).remote);
+        const normalized = workspace as { remote?: RemoteWorkspaceDto };
+        if (remote === undefined) delete normalized.remote;
+        else normalized.remote = remote;
         return workspace;
       })
     : [];

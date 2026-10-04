@@ -33,6 +33,7 @@ export {
 
 export {
   workspaces,
+  workspaceViews,
   workspaceById,
   workspaceOf,
   settingsOf,

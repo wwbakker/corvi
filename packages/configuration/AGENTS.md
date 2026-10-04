@@ -4,10 +4,10 @@
 
 The configuration vocabulary and the settings precedence chain.
 
-- `./config`: what a workspace is, the settings shape both scopes hold (`SettingsOverrides`),
-  what the resolved config holds (`Config`, `EffectiveSettings`), the config file's write
-  shape, the paired devices and the top-level remote-access setting it holds, and the default
-  workspace (`DEFAULT_WORKSPACE`). Pure.
+- `./config`: what a workspace is (a local settings scope or a `RemoteWorkspace`), the settings
+  shape both scopes hold (`SettingsOverrides`), what the resolved config holds (`Config`,
+  `EffectiveSettings`), the config file's write shape, the paired devices and the top-level
+  remote-access setting it holds, and the default workspace (`DEFAULT_WORKSPACE`). Pure.
 - `./devices`: the device vocabulary (`Device`), the pairing TTL, and the read projection
   (`deviceViewOf`, `isDeviceActive`). Pure. `./node/devices` is the OS half: it generates
   pairing codes, ids and 256-bit tokens, hashes tokens, and compares them in constant time.
@@ -16,9 +16,9 @@ The configuration vocabulary and the settings precedence chain.
   override readers the settings page locks fields with. Environment variable *names* are the
   app's (`ENV_OVERRIDES`); this reads the names it is handed. The one exception to the chain is
   a `secret` setting: its variable is a fallback, not an override.
-- `./workspaces`: which workspace a change belongs to, and the one enablement rule
-  (`extensionsFor`, `extensionEnabled`: the workspace's `extensions` list over the global one,
-  no list meaning all of them).
+- `./workspaces`: which workspace a change belongs to, the one enablement rule (`extensionsFor`,
+  `extensionEnabled`: the workspace's `extensions` list over the global one, no list meaning all
+  of them), and the remote helpers (`isRemoteWorkspace`, `remoteOf`).
 
 ## Does not own
 
@@ -38,7 +38,7 @@ runtime holds.
   `bagList`, `envOverride`, `overriddenSettings`, `overriddenExtensionSettings`,
   `SettingDeclaration`, `SettingsHolder`
 - `@corvi/configuration/workspaces`: `workspaceById`, `workspaceOf`, `extensionsFor`,
-  `extensionEnabled`
+  `extensionEnabled`, `isRemoteWorkspace`, `remoteOf`
 
 ## Dependencies
 

@@ -25,7 +25,8 @@ transport boundary.
 - `@corvi/contracts/tailscale`: the external listener's Tailscale publication status
   (`available`, `running`, `dnsName`, `publishedUrl`, `error`)
 - `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
-  the devices paired to this server, and the remote-access setting
+  remote workspaces (`RemoteWorkspace`: url, remote workspace id, device token), the devices
+  paired to this server, and the remote-access setting
 - `@corvi/contracts/errors`: the tagged failures (`NotFoundError`, `BadRequestError`,
   `ConflictError`, `InternalError`, `CliError`, `DecodeError`, `TooManyRequestsError`),
   `IweError`, `isIweError`, `formatError`

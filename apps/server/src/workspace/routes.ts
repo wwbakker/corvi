@@ -2,13 +2,14 @@ import { Effect } from "effect";
 import { runRoute } from "../capabilities/effect/run.ts";
 import { guard } from "../capabilities/web.ts";
 import { platformName } from "../capabilities/os.ts";
+import { loaded } from "../integrations/index.ts";
 import {
   browse,
   remoteBranches,
   repositoriesDirectoryOf,
   resolveDirectory,
-  runtimeConfig,
   workspaceById,
+  workspaceViews,
 } from "./server/index.ts";
 import { attempt, json, withWorkspaceParam, workspaceParam } from "../capabilities/web.ts";
 
@@ -18,7 +19,9 @@ export const workspaceRoutes = guard({
   // learns which key hints to draw. It is the server's platform — the shell the terminal
   // serves lives on this machine, so its conventions are the ones the page should hint at.
   "/api/workspaces": {
-    GET: () => json({ workspaces: runtimeConfig().workspaces, platform: platformName }),
+    // Masked: a remote workspace's device token and every declared extension secret are
+    // redacted before the page sees them.
+    GET: () => json({ workspaces: workspaceViews(loaded), platform: platformName }),
   },
 
   // Directory browser, unbounded: any absolute directory can be listed. No path parameter at

@@ -65,13 +65,34 @@ const settingsFields = {
 export const SettingsOverrides = Schema.Struct(settingsFields)
 export type SettingsOverridesDto = typeof SettingsOverrides.Type
 
-/** A context you work in: a client, or your own projects — an identity (`id`, `name`) and a
- * scope over the settings. Mirrors `@corvi/configuration/config`'s `Workspace`. */
+/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
+ * it has to be a word. */
+export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
+
+/** Where a remote workspace lives: the server that hosts it, the workspace's id there, and the
+ * device token this client presents to it. The token is a secret and is masked in every page
+ * read. Its settings live on the host, so `remote` and `settings` are mutually exclusive. */
+export const RemoteWorkspace = Schema.Struct({
+  /** The remote server's base URL; `problems()` requires http or https. */
+  url: Schema.String,
+  /** The workspace's id on the remote server (not this client's local id). */
+  workspace: WorkspaceId,
+  /** The device token this client presents to that server. */
+  token: Schema.optional(Schema.String),
+})
+export type RemoteWorkspaceDto = typeof RemoteWorkspace.Type
+
+/** A context you work in: a client, or your own projects — an identity (`id`, `name`) and either
+ * a scope over the settings or a remote workspace. Mirrors `@corvi/configuration/config`'s
+ * `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   /** This workspace's settings: the same shape as the global level, overriding it key by key. */
   settings: Schema.optional(SettingsOverrides),
+  /** Where this workspace is hosted, when it is not local. Mutually exclusive with `settings`:
+   * a remote workspace's settings live on the server that hosts it. */
+  remote: Schema.optional(RemoteWorkspace),
 })
 export type WorkspaceDto = typeof Workspace.Type
 
@@ -79,10 +100,6 @@ export type WorkspaceDto = typeof Workspace.Type
  * not configured any is the only one. There is no such thing as no workspaces: a machine that
  * has not configured any gets this one. */
 export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" }
-
-/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
- * it has to be a word. */
-export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
 
 /** A directory copied into a worktree is a name next to the code, not a path. */
 export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/))

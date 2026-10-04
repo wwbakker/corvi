@@ -21,6 +21,13 @@ the settings view's `remoteAccessStatus`. `src/tailscale` publishes that loopbac
 someone else's handler, refuses to displace a mapping that is not ours, and tracks the port it
 published so unpublish still finds it after the configured port moves.
 
+A workspace may be remote (`remote: { url, workspace, token }`) instead of a local settings
+scope. `src/workspace` keeps the entry with the same per-item tolerance as any workspace and
+masks both its device token and every declared extension secret at both read surfaces
+(`GET /api/workspaces`, which shares the settings view's `redactSecrets`, and the settings view).
+A save that hands the mask back keeps the stored token; an omitted token keeps it too, while
+`token: ""` clears it (`settings/server/remoteSecrets.ts`).
+
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 
 The server serves the built browser application from `apps/web/dist` (or `CORVI_WEB_DIST`) and

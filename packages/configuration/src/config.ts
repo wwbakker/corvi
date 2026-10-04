@@ -9,7 +9,10 @@
  */
 
 import type { Device } from "./devices.ts";
-import type { RemoteAccessDto } from "@corvi/contracts/config";
+import type { RemoteAccessDto, RemoteWorkspaceDto } from "@corvi/contracts/config";
+
+/** Where a remote workspace lives, as a domain value: the contract's record, named once here. */
+export type RemoteWorkspace = RemoteWorkspaceDto;
 
 /**
  * The settings, complete: every setting Corvi knows, in the one shape both levels hold. At the
@@ -70,6 +73,9 @@ export type Workspace = {
   name: string;
   /** This workspace's settings: the same shape as the global level, overriding it key by key. */
   settings?: SettingsOverrides;
+  /** Where this workspace is hosted, when it is not local. Mutually exclusive with `settings`:
+   * its settings live on the server that hosts it. */
+  remote?: RemoteWorkspace;
 };
 
 export { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
