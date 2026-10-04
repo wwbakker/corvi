@@ -17,7 +17,7 @@ declared graph.
 | Separate terminal sessions, agent sessions, and actions | Attaching a running terminal, recreating a process, and resuming a conversation are different operations. Typed actions may be invoked from buttons or status-transition workflows. |
 | Reach another machine with Tailscale and device tokens | The server never binds a network interface: an off-by-default external loopback listener is published with `tailscale serve`, and a paired device token authenticates it. A device token grants full access as the owning user — the same trust the loopback listener already has; read-only and per-workspace scopes are deferred, not designed away. The local server stays the page's single origin and acts as the gateway to remote workspaces (`/remote/<source>/…`), so the token and the page's origin stay server-side. Trust keys on the listener, not the peer address. |
 | Preserve behavior while replacing internals | Existing user workflows and safety matter more than internal API compatibility. Explicitly remove obsolete plugin behavior and its tests; name other behavior changes before implementation. |
-| Retain the current technology baseline | Keep Effect 3, React, Node/Electron, Git, node-pty/xterm.js, and file-backed storage during the structural refactor. Major upgrades and storage changes are separate decisions. The terminal substrate is Corvi's own host process, not tmux; see [the terminal host](terminal-host.md). |
+| Retain the current technology baseline | Keep React, Node/Electron, Git, node-pty/xterm.js, and file-backed storage during the structural refactor. The Effect 4 upgrade is a completed separate decision; further major upgrades and storage changes remain separate decisions. The terminal substrate is Corvi's own host process, not tmux; see [the terminal host](terminal-host.md). |
 
 ## What is not being built
 
@@ -25,7 +25,7 @@ declared graph.
 - A distributed workflow engine, event-sourced application, or exactly-once execution system.
 - A custom dependency-injection framework above Effect Layers.
 - A generic provider interface that pretends every vendor supports identical operations.
-- An OpenCode fork, or a switch to Effect 4 beta to resemble its implementation.
+- An OpenCode fork, or copying its architecture to resemble its implementation.
 
 OpenCode informs the separation of schemas, services, transports, integrations, and lifetimes,
 and the use of executable boundary tests. Its package count, migration compatibility layers,

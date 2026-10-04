@@ -68,7 +68,7 @@ with the owner. In particular, provider SDK classes and credentials must not bec
 
 Define small tagged error unions with meaningful fields in the owning domain. For example,
 `WorktreeContainsUncommittedChanges` can carry a worktree reference, rather than a message a caller
-must parse. Pure fallible calculations can return `Either`; effectful operations use the E channel.
+must parse. Pure fallible calculations can return `Result`; effectful operations use the E channel.
 
 Do not force every failure into NotFound/BadRequest/Conflict. Translate infrastructure failures to
 capability errors, and domain failures to public transport errors at the appropriate boundary.

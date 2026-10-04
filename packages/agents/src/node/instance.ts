@@ -369,9 +369,9 @@ export const removeInstance = (changeDir: string, id: string): Effect.Effect<voi
   withLock(
     changeDir,
     id,
-    Effect.promise(() => rm(instanceDir(changeDir, id), { recursive: true, force: true })).pipe(
-      Effect.catch(() => Effect.void),
-    ),
+    // `Effect.promise` puts a rejected `rm` in the defect channel, not the typed one, so a typed
+    // `catch` here would be dead code. A real removal failure remains a defect that escapes.
+    Effect.promise(() => rm(instanceDir(changeDir, id), { recursive: true, force: true })),
   );
 
 /** The record of an instance created with an idempotency key, if one exists: the create route

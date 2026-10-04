@@ -1,8 +1,8 @@
 /** The Git adapter surface the repositories capability needs.
  *
- * Ported from `opencode/packages/core/src/git.ts` (Effect 4 beta) to Effect 3, and narrowed to
- * the operations this slice calls. `discover` keeps an error channel so a failed read is not
- * mistaken for absence. This entrypoint exposes only the port; the real adapter is `./node`.
+ * Adapted from `opencode/packages/core/src/git.ts` (Effect 4), and narrowed to the operations
+ * this slice calls. `discover` keeps an error channel so a failed read is not mistaken for
+ * absence. This entrypoint exposes only the port; the real adapter is `./node`.
  */
 import { Context, Schema, type Effect } from "effect"
 

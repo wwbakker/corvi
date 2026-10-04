@@ -23,14 +23,14 @@ terminals and agents are later slices.
 export const ChangeId = Schema.String.pipe(Schema.brand("corvi/ChangeId"))
 export type ChangeId = typeof ChangeId.Type
 
-export const ChangePhase = Schema.Literal(
+export const ChangePhase = Schema.Literals([
   "Ideation",
   "Implementation",
   "Verification",
   "Blocked",
   "Completed",
   "Cancelled",
-)
+])
 export type ChangePhase = typeof ChangePhase.Type
 
 export class Change extends Schema.Class<Change>("Change")({
@@ -58,33 +58,37 @@ export type CreateChangeInput = {
 
 ## Errors
 ```ts
-export class ChangeNotFound extends Data.TaggedError("ChangeNotFound")<{
-  readonly changeId: ChangeId
-}> {}
+export class ChangeNotFound extends Schema.TaggedError<ChangeNotFound>()("ChangeNotFound", {
+  changeId: ChangeId,
+  message: Schema.String,
+}) {}
 
-export class ChangeIdTaken extends Data.TaggedError("ChangeIdTaken")<{
-  readonly changeId: ChangeId
-}> {}
+export class ChangeIdTaken extends Schema.TaggedError<ChangeIdTaken>()("ChangeIdTaken", {
+  changeId: ChangeId,
+  message: Schema.String,
+}) {}
 
-export class InvalidTransition extends Data.TaggedError("InvalidTransition")<{
-  readonly changeId: ChangeId
-  readonly from: ChangePhase
-  readonly to: ChangePhase
-}> {}
+export class InvalidTransition extends Schema.TaggedError<InvalidTransition>()("InvalidTransition", {
+  changeId: ChangeId,
+  from: ChangePhase,
+  to: ChangePhase,
+  message: Schema.String,
+}) {}
 
-export class ChangeConflict extends Data.TaggedError("ChangeConflict")<{
-  readonly changeId: ChangeId
-  readonly expected: number
-  readonly actual: number
-}> {}
+export class ChangeConflict extends Schema.TaggedError<ChangeConflict>()("ChangeConflict", {
+  changeId: ChangeId,
+  expected: Schema.Number,
+  actual: Schema.Number,
+  message: Schema.String,
+}) {}
 
-export class ChangeStoreError extends Data.TaggedError("ChangeStoreError")<{
+export class ChangeStoreError extends Schema.TaggedError<ChangeStoreError>()("ChangeStoreError", {
   /** Absent for store-wide operations such as listing the changes root. */
-  readonly changeId?: ChangeId
-  readonly operation: "read" | "write"
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+  changeId: Schema.optional(ChangeId),
+  operation: Schema.Literals(["read", "write"]),
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 ```
 
 ## Interface
@@ -115,7 +119,7 @@ repository, terminal or provider behaviour.
 
 ## Service and implementation
 ```ts
-export class ChangeService extends Context.Tag("corvi/ChangeService")<ChangeService, Interface>() {}
+export class ChangeService extends Context.Service<ChangeService, Interface>()("corvi/ChangeService") {}
 
 export const layer = Layer.effect(
   ChangeService,
@@ -186,14 +190,14 @@ export type RepositoryId = typeof RepositoryId.Type
 export const DirectoryName = Schema.String.pipe(Schema.brand("corvi/DirectoryName"))
 export type DirectoryName = typeof DirectoryName.Type
 
-export const CheckoutLocation = Schema.Literal("new", "original")
+export const CheckoutLocation = Schema.Literals(["new", "original"])
 export type CheckoutLocation = typeof CheckoutLocation.Type
 
-export const BranchPlan = Schema.Union(
+export const BranchPlan = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("change") }),
   Schema.Struct({ kind: Schema.Literal("current") }),
   Schema.Struct({ kind: Schema.Literal("existing"), name: Schema.String }),
-)
+])
 export type BranchPlan = typeof BranchPlan.Type
 
 export class Repository extends Schema.Class<Repository>("Repository")({
@@ -255,22 +259,33 @@ inspection plus the operation journal.
 
 ## Errors
 ```ts
-export class RepositoryNotFound extends Data.TaggedError("RepositoryNotFound")<{
-  readonly changeId: ChangeId
-  readonly repositoryId: RepositoryId
-}> {}
+export class RepositoryNotFound extends Schema.TaggedError<RepositoryNotFound>()(
+  "RepositoryNotFound",
+  {
+    changeId: ChangeId,
+    repositoryId: RepositoryId,
+    message: Schema.String,
+  },
+) {}
 
-export class DuplicateDirectoryName extends Data.TaggedError("DuplicateDirectoryName")<{
-  readonly changeId: ChangeId
-  readonly directoryName: DirectoryName
-}> {}
+export class DuplicateDirectoryName extends Schema.TaggedError<DuplicateDirectoryName>()(
+  "DuplicateDirectoryName",
+  {
+    changeId: ChangeId,
+    directoryName: DirectoryName,
+    message: Schema.String,
+  },
+) {}
 
-export class RepositoryStoreError extends Data.TaggedError("RepositoryStoreError")<{
-  readonly changeId: ChangeId
-  readonly operation: "read" | "write"
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class RepositoryStoreError extends Schema.TaggedError<RepositoryStoreError>()(
+  "RepositoryStoreError",
+  {
+    changeId: ChangeId,
+    operation: Schema.Literals(["read", "write"]),
+    message: Schema.String,
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 ```
 
 ## Interface
@@ -287,7 +302,7 @@ export interface Interface {
 
 ## Service and implementation
 ```ts
-export class ChangeRepositories extends Context.Tag("corvi/ChangeRepositories")<ChangeRepositories, Interface>() {}
+export class ChangeRepositories extends Context.Service<ChangeRepositories, Interface>()("corvi/ChangeRepositories") {}
 
 export const layer = Layer.effect(
   ChangeRepositories,
@@ -341,16 +356,24 @@ export type CheckoutInspection =
 
 ## Errors
 ```ts
-export class NotARepository extends Data.TaggedError("NotARepository")<{
-  readonly directory: string
-}> {}
+export class NotARepository extends Schema.TaggedError<NotARepository>()("NotARepository", {
+  directory: Schema.String,
+}) {}
 
-export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly operation: "inspect" | "switch" | "add-worktree" | "remove-worktree" | "fetch" | "merge" | "pull"
-  readonly directory: string
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class CheckoutError extends Schema.TaggedError<CheckoutError>()("CheckoutError", {
+  operation: Schema.Literals([
+    "inspect",
+    "switch",
+    "add-worktree",
+    "remove-worktree",
+    "fetch",
+    "merge",
+    "pull",
+  ]),
+  directory: Schema.String,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 ```
 
 ## Interface
@@ -412,7 +435,7 @@ touched.
 
 ## Service and implementation
 ```ts
-export class Repositories extends Context.Tag("corvi/Repositories")<Repositories, Interface>() {}
+export class Repositories extends Context.Service<Repositories, Interface>()("corvi/Repositories") {}
 
 export const layer = Layer.effect(
   Repositories,
@@ -492,20 +515,30 @@ export class Repository extends Schema.Class<Repository>("Git.Repository")({
   commonDirectory: AbsolutePath,
 }) {}
 
-export class GitError extends Data.TaggedError("GitError")<{
-  readonly operation: "discover" | "checkout" | "create" | "remove" | "merge" | "pull"
-  readonly message: string
-  readonly directory?: string
-  readonly cause?: unknown
-}> {}
+export class OperationError extends Schema.TaggedError<OperationError>()("Git.OperationError", {
+  operation: Schema.Literals([
+    "discover",
+    "checkout",
+    "create",
+    "remove",
+    "status",
+    "upstream",
+    "integration",
+    "merge",
+    "pull",
+  ]),
+  message: Schema.String,
+  directory: Schema.optional(Schema.String),
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export interface Interface {
   readonly repo: {
-    readonly discover: (directory: AbsolutePath) => Effect.Effect<Repository | undefined, GitError>
+    readonly discover: (directory: AbsolutePath) => Effect.Effect<Repository | undefined, OperationError>
   }
   readonly history: {
-    readonly branch: (repository: Repository) => Effect.Effect<string | undefined, GitError>
-    readonly head: (repository: Repository) => Effect.Effect<string | undefined, GitError>
+    readonly branch: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
+    readonly head: (repository: Repository) => Effect.Effect<string | undefined, OperationError>
   }
   readonly sync: {
     /** `git merge --ff-only <to>`: moves HEAD exactly when that is a fast-forward; a refusal
@@ -513,21 +546,21 @@ export interface Interface {
     readonly mergeFastForwardOnly: (
       repository: Repository,
       input: { to: string },
-    ) => Effect.Effect<void, GitError>
+    ) => Effect.Effect<void, OperationError>
   }
   readonly worktree: {
-    readonly remove: (input: { repository: Repository; directory: AbsolutePath; force: boolean }) => Effect.Effect<void, GitError>
+    readonly remove: (input: { repository: Repository; directory: AbsolutePath; force: boolean }) => Effect.Effect<void, OperationError>
   }
 }
 
-export class GitService extends Context.Tag("corvi/GitService")<GitService, Interface>() {}
+export class Service extends Context.Service<Service, Interface>()("corvi/GitService") {}
 ```
 
 The identity `{ worktree, gitDirectory, commonDirectory }` is what makes linked worktrees
 comparable; `commonDirectory` is the repository identity. `discover` keeps an error channel so a
 failed read is not mistaken for absence (the opencode version currently swallows it). The opencode
-implementation targets Effect 4 beta (`effect/unstable/process`, `Schema.TaggedErrorClass`), so
-the operations are ported to Effect 3 rather than imported.
+implementation targets Effect 4 (`effect/unstable/process`, `Schema.TaggedError`), and the
+operations are adapted to Corvi's own interfaces rather than imported wholesale.
 
 # Workflows
 
@@ -582,7 +615,7 @@ export interface ProgressInterface {
   }) => Effect.Effect<void, ChangeStoreError>
 }
 
-export class OperationProgress extends Context.Tag("corvi/OperationProgress")<OperationProgress, ProgressInterface>() {}
+export class OperationProgress extends Context.Service<OperationProgress, ProgressInterface>()("corvi/OperationProgress") {}
 ```
 
 The port is exposed by `@corvi/changes/progress`; the node adapter appends steps to
@@ -610,7 +643,7 @@ export interface Interface {
 
 ## Service and implementation
 ```ts
-export class ChangeWork extends Context.Tag("corvi/ChangeWork")<ChangeWork, Interface>() {}
+export class ChangeWork extends Context.Service<ChangeWork, Interface>()("corvi/ChangeWork") {}
 
 export const layer = Layer.effect(
   ChangeWork,
@@ -842,7 +875,7 @@ export interface Interface {
   >
 }
 
-export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycle")<ChangeLifecycle, Interface>() {}
+export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>()("corvi/workflows/ChangeLifecycle") {}
 ```
 
 ## Ordering and failure contract
@@ -899,16 +932,15 @@ the browser (`test/pages.test.ts`).
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
-  state: Schema.Literal("Concept", "Active", "Archived"),
+  state: Schema.Literals(["Concept", "Active", "Archived"]),
   checkoutLocation: Schema.String,
-  checkout: Schema.Union(
-    Schema.Struct({ _tag: Schema.Literal("Missing") }),
-    Schema.Struct({
-      _tag: Schema.Literal("Present"),
+  checkout: Schema.Union([
+    Schema.TaggedStruct("Missing", {}),
+    Schema.TaggedStruct("Present", {
       branch: Schema.optional(Schema.String),
       head: Schema.optional(Schema.String),
     }),
-  ),
+  ]),
 })
 export type RepositoryViewDto = typeof RepositoryViewSchema.Type
 

@@ -1,11 +1,11 @@
 # Effect conventions
 
-Status: accepted target. Use Effect **3** APIs from the installed version; OpenCode's Effect 4
-beta examples are architectural references, not compatible API recipes.
+Status: accepted target. Use the installed Effect **4** APIs. OpenCode is an architectural
+reference only; do not copy its implementation or package layout.
 
 ## Purity and execution
 
-- Keep pure calculations synchronous. Use immutable data and explicit inputs; use `Either` or
+- Keep pure calculations synchronous. Use immutable data and explicit inputs; use `Result` or
   another explicit result for expected validation failures.
 - Effectful operations return descriptions of work. Constructing an Effect must not already
   start I/O; suspend eager Promise/native calls inside the appropriate Effect constructor.
@@ -18,8 +18,12 @@ beta examples are architectural references, not compatible API recipes.
 
 ## Services and Layers
 
-Define an explicit service interface and an Effect 3 `Context.Tag`. Export model/service entrypoints
-separately from concrete adapter Layers. Give Layers explicit output, error, and requirement types.
+Define an explicit service interface and a `Context.Service` class. Export model/service
+entrypoints separately from concrete adapter Layers. Give Layers explicit output, error, and
+requirement types.
+
+Use `Schema.Codec` for boundary values with distinct encoded and decoded representations, and
+`Schema.TaggedError` for domain errors; derive the TypeScript types from the schemas.
 
 Acquire stable dependencies while constructing a service and capture them in its implementation.
 Operations then require only genuine per-call context; construction requirements remain visible in
@@ -49,8 +53,9 @@ at a defined boundary, not through scattered `process.env` reads in domain opera
 ## Resource lifetimes
 
 Declare an owner for every process, listener, subscription, timer, attachment, and background fiber.
-Acquire resources with `Effect.acquireRelease`/scoped Layers and register finalizers immediately.
-Use scoped fibers for background work; the owning scope controls their cancellation.
+Acquire resources with `Effect.acquireRelease` and `Layer.effect` (scoped acquisition lives there)
+and register finalizers immediately. Use scoped fibers for background work; the owning scope
+controls their cancellation.
 
 An application owns its listeners, caches, and integration instances. Requests and PTY attachments
 have narrower scopes. A terminal host session intended to outlive Corvi is not an attachment-owned resource:
@@ -61,7 +66,8 @@ listeners on cleanup. Do not restore ambient request context with undocumented g
 
 ## Failure and interruption
 
-- Expected failures use domain-specific tagged errors. Prefer `catchTag` and explicit error mapping.
+- Expected failures use domain-specific `Schema.TaggedError` values. Prefer `catchTag` and
+explicit error mapping.
 - `never` in the E channel does not mean a computation cannot defect or be interrupted.
 - Do not use `orDie` to hide ordinary I/O failures a caller needs to handle. Unexpected invariant
   failures may remain defects; diagnose them at the application boundary.
@@ -78,7 +84,8 @@ processes or a persistent terminal session just because a client detached.
 
 Use `Effect.gen` for sequential orchestration and pipelines for small transformations. Name
 important effectful operations for tracing using the installed version's APIs. Bind services to
-named values before invoking them; avoid nested service yields.
+named values before invoking them; avoid nested service yields. Tests drive time and console
+through `effect/testing`'s `TestClock`/`TestConsole`, not through the `effect` barrel.
 
 Choose concurrency explicitly. Bound process/network fan-out, serialize conflicting mutations,
 and use Effect synchronization primitives instead of ad hoc Promise queues. Restrict
