@@ -23,6 +23,7 @@ import {
 } from "./SettingsFields.tsx";
 import { RemoteAccessSection } from "./RemoteAccessSection.tsx";
 import { DevicesSection } from "./DevicesSection.tsx";
+import { RemoteWorkspaceSection } from "./RemoteWorkspaceSection.tsx";
 
 /**
  * Everything that lives in the config file, edited here rather than in an editor.
@@ -145,6 +146,9 @@ export function SettingsPage({
   const list: WorkspaceDto[] = draft.workspaces ?? [];
   const workspace = scope === "global" ? undefined : (list[scope] ?? DEFAULT_WORKSPACE);
   const own: Overrides = workspace?.settings ?? {};
+  // A remote workspace's settings live on the server that hosts it: it has no settings fields
+  // here, only its Context (where the target and token are edited).
+  const remoteWorkspace = workspace?.remote !== undefined;
 
   const setWorkspaces = (index: number, next: WorkspaceDto): void => {
     const workspaces = [...list];
@@ -221,8 +225,9 @@ export function SettingsPage({
   // The settings, one section each: the fixed ones, the extensions' own in the order they
   // loaded. The tab carries the heading, so the content below omits it. Stable ids, so a save
   // that reloads the view leaves you where you were. A workspace scope adds Context first.
-  const tabs = [
-    ...(scope === "global" ? [] : [{ id: "context", label: "Context" }]),
+  // The settings sections a local scope holds. A remote workspace has none of them — its
+  // settings are the remote server's — so only its Context, with the remote target, is shown.
+  const settingsTabs = [
     { id: "locations", label: "Locations" },
     { id: "worktrees", label: "Worktrees" },
     ...shown.map((extension) => ({ id: `extension:${extension.name}`, label: extension.title })),
@@ -238,6 +243,10 @@ export function SettingsPage({
         ]
       : []),
     { id: "extensions", label: "Extensions" },
+  ];
+  const tabs = [
+    ...(scope === "global" ? [] : [{ id: "context", label: "Context" }]),
+    ...(remoteWorkspace ? [] : settingsTabs),
   ];
   // An extension can be unloaded between saves; fall back to the first tab rather than to an
   // empty page.
@@ -355,6 +364,31 @@ export function SettingsPage({
             value={workspace.id}
             onChange={(id) => setWorkspaces(scope as number, { ...workspace, id })}
           />
+          <CheckField
+            label="Hosted on another server"
+            hint="A workspace another Corvi server hosts. Its settings live there; this machine is a client for it."
+            checked={remoteWorkspace}
+            onChange={(on) => {
+              if (on) {
+                // Its settings live on the host, so the local ones go. The target starts on this
+                // workspace's own id — the usual answer, and easy to change.
+                const { settings: _settings, ...rest } = workspace;
+                setWorkspaces(scope as number, {
+                  ...rest,
+                  remote: { url: "", workspace: workspace.id || DEFAULT_WORKSPACE.id },
+                });
+              } else {
+                const { remote: _remote, ...rest } = workspace;
+                setWorkspaces(scope as number, { ...rest });
+              }
+            }}
+          />
+          {workspace.remote && (
+            <RemoteWorkspaceSection
+              remote={workspace.remote}
+              onChange={(remote) => setWorkspaces(scope as number, { ...workspace, remote })}
+            />
+          )}
           {workspaces.find((one) => one.index === scope)?.removable && (
             <button
               className="remove"

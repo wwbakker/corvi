@@ -48,6 +48,8 @@ export {
   remoteBranches,
 } from "./repos.ts";
 
+export { pairRemoteWorkspace, type PairedRemote } from "./pairRemote.ts";
+
 export type { Entry } from "../model.ts";
 
 export { DEFAULT_WORKSPACE, type Config, type Workspace } from "@corvi/configuration/config";

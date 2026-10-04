@@ -105,6 +105,44 @@ test("a remote sent without a token keeps the stored token", async () => {
   expect(runtimeConfig().workspaces[0]?.remote?.token).toBe(remote.token);
 });
 
+test("a changed url drops the stored token rather than carrying it to a new host", async () => {
+  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  // The editor's address field edits only the url; the token field still holds the mask. The old
+  // host's credential must not be restored for the new host.
+  await runEffect(
+    writeSettings({
+      workspaces: [
+        {
+          id: "remote-client",
+          name: "Client",
+          remote: { url: "https://other.tailnet.ts.net", workspace: remote.workspace, token: MASK },
+        },
+      ],
+    }),
+  );
+  expect(runtimeConfig().workspaces[0]?.remote?.token).toBeUndefined();
+  const written = JSON.parse(await readFile(configPath(), "utf8")) as {
+    workspaces: { remote?: { token?: string } }[];
+  };
+  expect(written.workspaces[0]?.remote?.token).toBeUndefined();
+});
+
+test("a changed remote workspace id drops the stored token", async () => {
+  await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
+  await runEffect(
+    writeSettings({
+      workspaces: [
+        {
+          id: "remote-client",
+          name: "Client",
+          remote: { url: remote.url, workspace: "another", token: MASK },
+        },
+      ],
+    }),
+  );
+  expect(runtimeConfig().workspaces[0]?.remote?.token).toBeUndefined();
+});
+
 test("an empty token clears the stored one", async () => {
   await writeConfig({ workspaces: [{ id: "remote-client", name: "Client", remote }] });
   await runEffect(

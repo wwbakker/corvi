@@ -3,15 +3,17 @@ import { runRoute } from "../capabilities/effect/run.ts";
 import { guard } from "../capabilities/web.ts";
 import { platformName } from "../capabilities/os.ts";
 import { loaded } from "../integrations/index.ts";
+import { PairRemoteWorkspaceRequestSchema } from "@corvi/contracts/api";
 import {
   browse,
+  pairRemoteWorkspace,
   remoteBranches,
   repositoriesDirectoryOf,
   resolveDirectory,
   workspaceById,
   workspaceViews,
 } from "./server/index.ts";
-import { attempt, json, withWorkspaceParam, workspaceParam } from "../capabilities/web.ts";
+import { attempt, bodyAs, json, withWorkspaceParam, workspaceParam } from "../capabilities/web.ts";
 
 export const workspaceRoutes = guard({
   // The contexts you switch between: a client, your own projects. Configured, not discovered.
@@ -22,6 +24,24 @@ export const workspaceRoutes = guard({
     // Masked: a remote workspace's device token and every declared extension secret are
     // redacted before the page sees them.
     GET: () => json({ workspaces: workspaceViews(loaded), platform: platformName }),
+  },
+
+  // Pair with a workspace hosted by another server: redeem the code there and answer with the
+  // device and its raw token, which the settings editor stores in its draft. Run here because
+  // the local server is the one whose config will hold the token, and because the page cannot
+  // reach the remote itself (its origin would fail the remote's guard).
+  "/api/workspaces/pair-remote": {
+    POST: (req) =>
+      runRoute(
+        Effect.gen(function* () {
+          const body = yield* bodyAs(req, PairRemoteWorkspaceRequestSchema);
+          // The request's signal travels with the outbound call, so a client that hangs up
+          // cancels the remote one. The answer carries a raw device token, so it is never cached.
+          return json(yield* pairRemoteWorkspace({ ...body, signal: req.signal }), 201, {
+            "cache-control": "no-store",
+          });
+        }),
+      ),
   },
 
   // Directory browser, unbounded: any absolute directory can be listed. No path parameter at

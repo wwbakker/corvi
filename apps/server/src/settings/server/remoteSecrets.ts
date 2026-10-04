@@ -13,7 +13,11 @@ import { MASK } from "./secrets.ts";
 type RemoteWorkspaceEntry = {
   readonly id: string;
   readonly settings?: object;
-  readonly remote?: { readonly token?: string };
+  readonly remote?: {
+    readonly url?: string;
+    readonly workspace?: string;
+    readonly token?: string;
+  };
 };
 
 /** The part of a config that carries workspaces. `Config` (what is in effect) and `ConfigFile`
@@ -46,13 +50,18 @@ export const redactRemoteTokens = <T extends WithRemoteWorkspaces>(value: T): T 
 
 /** The config as it must be written, from the form's point of view:
  *
- * - a `remote` sent **without** a token keeps the token stored for that workspace id — the editor
- *   cannot display it, so omission is "leave it alone", not "delete it";
+ * - a `remote` sent **without** a token keeps the token stored for that workspace **when the
+ *   target is the same** — the editor cannot display it, so omission is "leave it alone", not
+ *   "delete it";
+ * - a token is restored only if the incoming `remote.url` and `remote.workspace` match the stored
+ *   entry. A changed target drops it: the old host's credential must never travel to a new host
+ *   (the editor's address field leaves the token as the mask, so this is exactly the case where
+ *   only the url changed);
  * - `token: ""` clears it (the field is removed, since the writer's `prune` does not descend into
  *   the `workspaces` array);
  * - the mask keeps what is stored, and a mask for a token nothing holds is dropped rather than
  *   becoming the token;
- * - a real token replaces it.
+ * - a real token replaces it (the page pairing or typing a new one is its own decision).
  *
  * `remote` omitted entirely converts the workspace to local: a remote target is a decision the
  * page makes, and not sending one is the page saying it is not remote.
@@ -69,11 +78,23 @@ export const keepStoredRemoteTokens = <T extends WithRemoteWorkspaces>(
           const remote = workspace?.remote;
           if (remote === undefined) return workspace;
           const before = stored.workspaces?.find((candidate) => candidate?.id === workspace.id)
-            ?.remote?.token;
-          // What the page's answer means: an omitted token keeps what is stored (the form cannot
-          // show it), the mask keeps it too, and anything else is the page's own value. An empty
-          // value, or a mask with nothing behind it, removes the field.
-          const value = remote.token === undefined || remote.token === MASK ? before : remote.token;
+            ?.remote;
+          // The token is only an answer about a target. Restoring it across a different url or a
+          // different remote workspace would be handing the old host's credential to the new one;
+          // a changed target must be paired again.
+          const sameTarget =
+            before !== undefined &&
+            before.url === remote.url &&
+            before.workspace === remote.workspace;
+          // What the page's answer means: an omitted or masked token keeps what is stored when the
+          // target is unchanged, and anything else is the page's own value. An empty value, or a
+          // mask with nothing behind it, removes the field.
+          const value =
+            remote.token === undefined || remote.token === MASK
+              ? sameTarget
+                ? before.token
+                : undefined
+              : remote.token;
           if (value === undefined || value === "") {
             const { token: _dropped, ...withoutToken } = remote;
             return { ...workspace, remote: withoutToken };
