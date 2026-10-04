@@ -136,7 +136,7 @@ export const cancelChange = (
       message: `${namesOf(links, outcome.reasons).join(", ")}: uncommitted changes, commit or revert them before cancelling`,
     });
   }).pipe(
-    Effect.catchAll((error) => Effect.fail(asIwe(error))),
+    Effect.catch((error) => Effect.fail(asIwe(error))),
     Effect.provide(services(workspace, roots)),
   );
 };

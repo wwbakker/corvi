@@ -125,7 +125,7 @@ test("the screen is fed with no page attached", async () => {
   await waitFor("the snapshot", async () => first.snapshots.length > 0, 25_000);
   // The screen was fed with no page, so the output is in the snapshot; if the host's last bytes
   // were still in flight to the server when the attach serialized, they arrive as the immediate
-  // live bytes, which is the same screen. Either way the page sees it without a replay.
+  // live bytes, which is the same screen. Result way the page sees it without a replay.
   await waitFor("the mark on the screen", async () => (screenOf(first) + live(first)).includes("PRE_1_MARK"), 15_000);
   expect(screenOf(first) + live(first)).toContain("PRE_1_MARK");
   expect(hubStats().attached).toBe(1);

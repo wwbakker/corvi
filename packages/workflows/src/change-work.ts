@@ -3,7 +3,7 @@
  * Workflows are ordinary Effect programs: the route and a future status action call the same
  * function. They compose capabilities; they do not import Git, HTTP, or persistence.
  */
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Semaphore } from "effect"
 
 import { ChangeRepositories } from "@corvi/changes/repositories"
 import { ChangeService } from "@corvi/changes/changes"
@@ -122,7 +122,7 @@ export interface Interface {
   >
 }
 
-export class ChangeWork extends Context.Tag("corvi/ChangeWork")<ChangeWork, Interface>() {}
+export class ChangeWork extends Context.Service<ChangeWork, Interface>()("corvi/ChangeWork") {}
 
 export const describeProvisionError = (error: NotARepository | CheckoutError): string =>
   error._tag === "NotARepository" ? `${error.directory} is not a repository` : error.message
@@ -159,12 +159,12 @@ export const describeCheckout = (outcome: CheckoutOutcome): string => {
  * Exported so the server's checkout operations can hold it across their whole critical section —
  * the presence work and a repository teardown included — and the policy runs inside without
  * taking it again. */
-const checkoutLocks = new Map<ChangeId, Effect.Semaphore>()
-const checkoutLockFor = (changeId: ChangeId): Effect.Semaphore => {
+const checkoutLocks = new Map<ChangeId, Semaphore.Semaphore>()
+const checkoutLockFor = (changeId: ChangeId): Semaphore.Semaphore => {
   // The synchronous section cannot interleave, so a change gets exactly one semaphore.
   const found = checkoutLocks.get(changeId)
   if (found) return found
-  const created = Effect.unsafeMakeSemaphore(1)
+  const created = Semaphore.makeUnsafe(1)
   checkoutLocks.set(changeId, created)
   return created
 }
@@ -264,31 +264,31 @@ export const layer = Layer.effect(
             : outcome({ _tag: "None", reason: "adopted as checked out" })
 
         const selection = repository.branch.kind === "existing"
-          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.either)
+          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.result)
           : undefined
-        if (selection?._tag === "Left")
-          return outcome({ _tag: "None", reason: "could not resolve the branch" }, selection.left)
-        const selected = selection?._tag === "Right" ? selection.right : undefined
+        if (selection?._tag === "Failure")
+          return outcome({ _tag: "None", reason: "could not resolve the branch" }, selection.failure)
+        const selected = selection?._tag === "Success" ? selection.success : undefined
         const remoteName = selected?.remote ?? "origin"
-        const remote = yield* repositories.hasRemote(source, remoteName).pipe(Effect.either)
-        if (remote._tag === "Left")
-          return outcome({ _tag: "None", reason: "could not read the repository" }, remote.left)
+        const remote = yield* repositories.hasRemote(source, remoteName).pipe(Effect.result)
+        if (remote._tag === "Failure")
+          return outcome({ _tag: "None", reason: "could not read the repository" }, remote.failure)
         // New branches still fetch origin; an existing selection fetches the remote its
         // freshness ref belongs to, before attaching or advancing anything.
-        if (remote.right) {
-          const fetched = yield* repositories.fetchRemote(source, remoteName).pipe(Effect.either)
-          if (fetched._tag === "Left")
-            return outcome({ _tag: "FetchFailed", reason: fetched.left.message }, fetched.left)
+        if (remote.success) {
+          const fetched = yield* repositories.fetchRemote(source, remoteName).pipe(Effect.result)
+          if (fetched._tag === "Failure")
+            return outcome({ _tag: "FetchFailed", reason: fetched.failure.message }, fetched.failure)
         }
 
         // Resolve again after fetching: deleted or changed refs must not be attached from stale
         // metadata. Keep the recorded selection for provisioning and the local name for checks.
         const refreshedSelection = repository.branch.kind === "existing"
-          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.either)
+          ? yield* repositories.resolveExistingBranch(source, repository.branch.name).pipe(Effect.result)
           : undefined
-        if (refreshedSelection?._tag === "Left")
-          return outcome({ _tag: "None", reason: "could not resolve the branch" }, refreshedSelection.left)
-        const branch = refreshedSelection?._tag === "Right" ? refreshedSelection.right.branch : change.branch
+        if (refreshedSelection?._tag === "Failure")
+          return outcome({ _tag: "None", reason: "could not resolve the branch" }, refreshedSelection.failure)
+        const branch = refreshedSelection?._tag === "Success" ? refreshedSelection.success.branch : change.branch
         const requestedBranch = repository.branch.kind === "existing" ? repository.branch.name : branch
         // An existing branch is attached — a remote-only one gets a local tracking branch.
         const createMissing = repository.branch.kind === "change"
@@ -296,12 +296,12 @@ export const layer = Layer.effect(
         if (repository.location === "original") {
           const attempt = yield* repositories
             .provisionInPlace({ source, branch: requestedBranch, createMissing, ...(base ? { base } : {}) })
-            .pipe(Effect.either)
-          if (attempt._tag === "Left")
-            return outcome({ _tag: "None", reason: "the checkout was not provisioned" }, attempt.left)
+            .pipe(Effect.result)
+          if (attempt._tag === "Failure")
+            return outcome({ _tag: "None", reason: "the checkout was not provisioned" }, attempt.failure)
           // An in-place checkout with uncommitted work is left exactly as it is — it is on no
           // expected branch, so there is nothing to refresh.
-          if (attempt.right === "skipped-dirty")
+          if (attempt.success === "skipped-dirty")
             return outcome({ _tag: "LeftAlone", reason: "uncommitted changes in the checkout" })
         } else {
           const attempt = yield* repositories
@@ -312,9 +312,9 @@ export const layer = Layer.effect(
               createMissing,
               ...(base ? { base } : {}),
             })
-            .pipe(Effect.either)
-          if (attempt._tag === "Left")
-            return outcome({ _tag: "None", reason: "the checkout was not provisioned" }, attempt.left)
+            .pipe(Effect.result)
+          if (attempt._tag === "Failure")
+            return outcome({ _tag: "None", reason: "the checkout was not provisioned" }, attempt.failure)
         }
 
         // The plan's promise: a checkout not on the expected branch is never refreshed. An
@@ -325,10 +325,10 @@ export const layer = Layer.effect(
         // above: left alone by policy, not missing its branch.)
         const observed = yield* repositories
           .inspectCheckout(AbsolutePath.make(checkoutLocation))
-          .pipe(Effect.either)
-        if (observed._tag === "Left")
-          return outcome({ _tag: "None", reason: "could not read the checkout" }, observed.left)
-        const on = observed.right._tag === "Present" ? observed.right.branch : undefined
+          .pipe(Effect.result)
+        if (observed._tag === "Failure")
+          return outcome({ _tag: "None", reason: "could not read the checkout" }, observed.failure)
+        const on = observed.success._tag === "Present" ? observed.success.branch : undefined
         if (on !== branch) {
           const reason = on
             ? `the checkout is on ${on}, not ${branch}`
@@ -343,19 +343,19 @@ export const layer = Layer.effect(
           )
         }
 
-        const target = yield* refreshTargetOf(repository, source).pipe(Effect.either)
-        if (target._tag === "Left")
-          return outcome({ _tag: "None", reason: "could not read the base" }, target.left)
-        if (!target.right) return outcome({ _tag: "None", reason: "nothing to fast-forward to" })
+        const target = yield* refreshTargetOf(repository, source).pipe(Effect.result)
+        if (target._tag === "Failure")
+          return outcome({ _tag: "None", reason: "could not read the base" }, target.failure)
+        if (!target.success) return outcome({ _tag: "None", reason: "nothing to fast-forward to" })
         const forward = yield* repositories
           .fastForwardBranch({
             directory: AbsolutePath.make(checkoutLocation),
-            to: target.right,
+            to: target.success,
           })
-          .pipe(Effect.either)
-        if (forward._tag === "Left")
-          return outcome({ _tag: "None", reason: "not refreshed" }, forward.left)
-        return outcome(forward.right)
+          .pipe(Effect.result)
+        if (forward._tag === "Failure")
+          return outcome({ _tag: "None", reason: "not refreshed" }, forward.failure)
+        return outcome(forward.success)
       })
 
     const provisionRepository = Effect.fn("ChangeWork.provisionRepository")(function* (

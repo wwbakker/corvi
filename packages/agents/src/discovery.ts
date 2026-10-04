@@ -5,7 +5,7 @@
  * file of the same id in a more specific scope shadows the rest outright; the same id in two
  * repositories is not a collision at all — both are listed, each qualified by its repository's
  * name, because a checkout's profiles travel with the checkout. */
-import { Either } from "effect";
+import { Result } from "effect";
 
 import type { SubagentSource } from "@corvi/contracts/subagents";
 import { parseProfileFile, type Profile, type InvalidProfileFile } from "./profile.ts";
@@ -69,11 +69,11 @@ export const mergeProfileFiles = (files: readonly ProfileFileInput[]): ProfileDi
       continue;
     }
     const result = parseProfileFile(file.text);
-    if (Either.isLeft(result)) {
-      skipped.push({ key, reasons: result.left.reasons });
+    if (Result.isFailure(result)) {
+      skipped.push({ key, reasons: result.failure.reasons });
       continue;
     }
-    parsed.push({ file, key, profile: result.right });
+    parsed.push({ file, key, profile: result.success });
   }
 
   const byId = new Map<string, typeof parsed>();

@@ -11,7 +11,7 @@ import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
 import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The review extension on the change-tab contract (E3): its tab exists exactly when the
@@ -21,7 +21,7 @@ import type { Result } from "../apps/server/src/capabilities/shell.ts";
  */
 let tmp: string;
 
-const commit = (repo: string, message: string): Promise<Result> =>
+const commit = (repo: string, message: string): Promise<ShellResult> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 /** A bare "remote" with one commit on main, and a clone of it: the shape every change assumes. */

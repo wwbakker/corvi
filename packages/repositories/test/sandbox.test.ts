@@ -19,3 +19,19 @@ test("the sandbox is released when its effect is interrupted by the deadline", a
   expect(acquired).not.toBe("")
   expect(existsSync(acquired)).toBe(false)
 })
+
+test("the sandbox is released when its effect completes", async () => {
+  let acquired = ""
+  const completed = await runScoped(
+    Effect.gen(function* () {
+      const fixture = yield* Fixture
+      acquired = fixture.tmp
+      return "done"
+    }),
+    sandboxLayer,
+    1000,
+  )
+  expect(completed).toBe("done")
+  expect(acquired).not.toBe("")
+  expect(existsSync(acquired)).toBe(false)
+})

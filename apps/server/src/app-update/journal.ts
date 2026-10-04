@@ -34,7 +34,7 @@ export const readJournal = (): Effect.Effect<OperationProgressDto | null, Update
       try: () => readFile(path(), "utf8"),
       catch: (cause: unknown) => cause,
     }).pipe(
-      Effect.catchAll((cause: unknown) =>
+      Effect.catch((cause: unknown) =>
         isNotFound(cause)
           ? Effect.succeed(null)
           : Effect.fail(
@@ -43,7 +43,7 @@ export const readJournal = (): Effect.Effect<OperationProgressDto | null, Update
       ),
     );
     if (text === null) return null;
-    return yield* Schema.decodeUnknown(Schema.parseJson(OperationProgressSchema))(text).pipe(
+    return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(OperationProgressSchema))(text).pipe(
       Effect.orElseSucceed(() => null),
     );
   });

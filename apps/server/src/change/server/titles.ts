@@ -47,7 +47,7 @@ export const refreshTitles = (): Effect.Effect<Record<string, string>, unknown> 
             // blank the names.
             const found = yield* source.lookup(claimed).pipe(
               Effect.provide(capabilitiesLayer(workspace, name)),
-              Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+              Effect.catch(() => Effect.succeed(new Map<string, string>())),
             );
             for (const [id, summary] of found) titles.set(id, summary);
           }

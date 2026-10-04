@@ -165,7 +165,7 @@ test("await wakes on a relayed reply and reports it parked", async () => {
   // await, reported as parked for `result`.
   const [awaited] = await Effect.runPromise(
     Effect.all(
-      [awaitReady(change, { ids: [id], mode: "any" }), Effect.zipRight(Effect.sleep("30 millis"), recordTurn(change, id, "Here is my answer"))],
+      [awaitReady(change, { ids: [id], mode: "any" }), Effect.andThen(Effect.sleep("30 millis"), recordTurn(change, id, "Here is my answer"))],
       { concurrency: "unbounded" },
     ),
   );
@@ -185,7 +185,7 @@ test("await on a closed subagent resolves lost rather than blocking", async () =
   const id = await fresh();
   const [awaited] = await Effect.runPromise(
     Effect.all(
-      [awaitReady(change, { ids: [id], mode: "any" }), Effect.zipRight(Effect.sleep("30 millis"), closeSubagent(change, id))],
+      [awaitReady(change, { ids: [id], mode: "any" }), Effect.andThen(Effect.sleep("30 millis"), closeSubagent(change, id))],
       { concurrency: "unbounded" },
     ),
   );
@@ -215,7 +215,7 @@ test("await --all reports a lost subagent even though another becomes ready", as
     Effect.all(
       [
         awaitReady(own, { ids: [a.id, b.id], mode: "all" }),
-        Effect.zipRight(Effect.sleep("30 millis"), recordTurn(own, b.id, "b")),
+        Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, b.id, "b")),
       ],
       { concurrency: "unbounded" },
     ),
@@ -338,7 +338,7 @@ test("await --any resolves on whichever subagent becomes ready first", async () 
     Effect.all(
       [
         awaitReady(own, { ids: [a.id, b.id], mode: "any" }),
-        Effect.zipRight(Effect.sleep("30 millis"), recordTurn(own, b.id, "from b")),
+        Effect.andThen(Effect.sleep("30 millis"), recordTurn(own, b.id, "from b")),
       ],
       { concurrency: "unbounded" },
     ),
@@ -356,8 +356,8 @@ test("await --all waits for every subagent to be ready", async () => {
     Effect.all(
       [
         awaitReady(own, { ids: [a.id, b.id], mode: "all" }),
-        Effect.zipRight(Effect.sleep("20 millis"), recordTurn(own, a.id, "a")),
-        Effect.zipRight(Effect.sleep("40 millis"), recordTurn(own, b.id, "b")),
+        Effect.andThen(Effect.sleep("20 millis"), recordTurn(own, a.id, "a")),
+        Effect.andThen(Effect.sleep("40 millis"), recordTurn(own, b.id, "b")),
       ],
       { concurrency: "unbounded" },
     ),

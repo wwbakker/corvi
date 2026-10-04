@@ -37,7 +37,7 @@ const HEARTBEAT = "5 seconds";
 
 /** The watch's fiber, while anyone is listening. Ref-counted by the client set: started when
  * the first client registers, interrupted when the last one is forgotten. */
-let watcher: Fiber.RuntimeFiber<void, never> | undefined;
+let watcher: Fiber.Fiber<void, never> | undefined;
 
 function startWatcher(): void {
   if (watcher) return;
@@ -113,7 +113,7 @@ export const events = (req: Request): Effect.Effect<Response> =>
         push = (chunk) => controller.enqueue(chunk);
       },
       cancel() {
-        fiber.unsafeInterruptAsFork(fiber.id());
+        fiber.interruptUnsafe(fiber.id);
       },
     });
     const client: Client = {
@@ -125,7 +125,7 @@ export const events = (req: Request): Effect.Effect<Response> =>
     // so interruption from any path (abort signal, stream cancel) always cleans up. The
     // heartbeat is this fiber's own loop: a colon-comment every five seconds, which is what
     // keeps Bun's idle timeout from closing a stream that is quiet by nature.
-    const fiber = yield* Effect.forkDaemon(
+    const fiber = yield* Effect.forkDetach(
       Effect.scoped(
       Effect.gen(function* () {
         yield* Effect.addFinalizer(() => Effect.sync(() => forget(client)));
@@ -141,7 +141,7 @@ export const events = (req: Request): Effect.Effect<Response> =>
             // Writing to a stream nobody is reading throws: the connection is gone, whatever we
             // were told, so forget the client and end this fiber's loop.
             yield* Effect.sync(() => client.ping()).pipe(
-              Effect.catchAllDefect(() => {
+              Effect.catchDefect(() => {
                 forget(client);
                 return Effect.interrupt;
               }),
@@ -153,7 +153,7 @@ export const events = (req: Request): Effect.Effect<Response> =>
     );
     req.signal.addEventListener("abort", () => {
       forget(client);
-      fiber.unsafeInterruptAsFork(fiber.id());
+      fiber.interruptUnsafe(fiber.id);
     });
 
     return new Response(stream, {

@@ -9,7 +9,7 @@
  * locally and the failure is visible through the runtime status. The listener serves the route
  * table the caller built and authenticates with the device-token hook (`devices/server/auth.ts`).
  */
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 
 import { runtimeConfig, setRemoteAccessStatus } from "../capabilities/runtime.ts";
 import { inExternalGate } from "../capabilities/gate.ts";
@@ -74,9 +74,9 @@ export const makeRemoteAccess = (options: {
       serving?.stop();
       serving = undefined;
       port = undefined;
-      const started = yield* Effect.either(Effect.tryPromise(() => start(remoteAccess.port)));
-      if (Either.isLeft(started)) {
-        const message = started.left instanceof Error ? started.left.message : String(started.left);
+      const started = yield* Effect.result(Effect.tryPromise(() => start(remoteAccess.port)));
+      if (Result.isFailure(started)) {
+        const message = started.failure instanceof Error ? started.failure.message : String(started.failure);
         setRemoteAccessStatus({ enabled: true, listening: false, error: message });
         console.error(
           `could not start the external listener on 127.0.0.1:${remoteAccess.port}: ${message}`,
@@ -86,7 +86,7 @@ export const makeRemoteAccess = (options: {
         yield* reconcileTailscale({ listening: false });
         return;
       }
-      serving = started.right;
+      serving = started.success;
       port = remoteAccess.port;
       setRemoteAccessStatus({
         enabled: true,

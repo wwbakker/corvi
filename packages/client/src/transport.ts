@@ -39,11 +39,19 @@ export type Send = (
 ) => Promise<unknown>
 
 /** Decodes a payload with the operation's own schema: what arrives is never trusted as is. */
-export const decode = <A, I>(schema: Schema.Schema<A, I>, payload: unknown): A =>
-  Schema.decodeUnknownSync(schema)(payload)
+export const decode = <S extends Schema.ConstraintDecoder<unknown>>(
+  schema: S,
+  payload: unknown,
+): S["Type"] => Schema.decodeUnknownSync(schema)(payload)
 
-export const mutableArray = <A, I>(schema: Schema.Schema<A, I>): Schema.Schema<A[], I[]> =>
-  Schema.mutable(Schema.Array(schema))
+export const mutableArray = <S extends Schema.Constraint>(
+  schema: S,
+): Schema.ConstraintCodec<
+  S["Type"][],
+  S["Encoded"][],
+  S["DecodingServices"],
+  S["EncodingServices"]
+> => Schema.mutable(Schema.Array(schema))
 
 /** A change's own path: the prefix every change-scoped operation extends. */
 export const changePath = (changeId: ChangeId): string =>
@@ -64,12 +72,12 @@ export const directoryListingQuery = (spec: DirectoryListingSpec): string => {
  * are not part of the core contract (an included integration's browser half owns its own
  * schemas), with the same transport classification as the core client. */
 export interface WireClient {
-  readonly request: <A, I>(
+  readonly request: <S extends Schema.ConstraintDecoder<unknown>>(
     method: string,
     path: string,
-    schema: Schema.Schema<A, I>,
+    schema: S,
     options?: RequestOptions & { readonly body?: unknown },
-  ) => Promise<A>
+  ) => Promise<S["Type"]>
 }
 
 /** The one transport: a transport failure or a non-ok answer is a `ClientError`; the payload is
@@ -128,6 +136,6 @@ export const makeWireClient = (options: ClientOptions): WireClient => {
   const { send } = transport(options)
   return {
     request: async (method, path, schema, requestOptions = {}) =>
-      Schema.decodeUnknownSync(schema)(await send(method, path, requestOptions)),
+      decode(schema, await send(method, path, requestOptions)),
   }
 }

@@ -18,9 +18,10 @@
  */
 import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { Effect, Layer, ParseResult, Schema } from "effect"
+import { Effect, Layer, Schema, Semaphore } from "effect"
 
 import { CheckoutSpecSchema } from "@corvi/contracts/api"
+import { decodePreserving, formatIssues } from "@corvi/contracts/body"
 import {
   Change,
   ChangeId,
@@ -69,13 +70,11 @@ const storeError = (
 ): ChangeStoreError => new ChangeStoreError({ operation, message, cause, changeId })
 
 const decodeRecord = (text: string, path: string): Effect.Effect<StoredRecord, ChangeStoreError> =>
-  Schema.decodeUnknown(Schema.parseJson(StoredRecord), { onExcessProperty: "preserve" })(text).pipe(
-    Effect.mapError((error) => {
-      const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
-        .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-        .join("; ")
-      return storeError("read", `malformed change record at ${path}: ${detail}`, error)
-    }),
+  Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Effect.flatMap((raw) => decodePreserving(StoredRecord, raw)),
+    Effect.mapError((error) =>
+      storeError("read", `malformed change record at ${path}: ${formatIssues(error)}`, error),
+    ),
   )
 
 interface Located {
@@ -87,7 +86,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
   Layer.effect(
     ChangeStore,
     Effect.gen(function* () {
-      const lock = yield* Effect.makeSemaphore(1)
+      const lock = yield* Semaphore.make(1)
 
       const writeAt = (dir: string, record: StoredRecord): Effect.Effect<void, ChangeStoreError> => {
         const path = join(dir, "change.json")
@@ -130,7 +129,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             try: () => readFile(path, "utf8"),
             catch: (cause: unknown) => cause,
           }).pipe(
-            Effect.catchAll((cause: unknown) =>
+            Effect.catch((cause: unknown) =>
               isNotFound(cause) ? Effect.succeed(undefined) : Effect.fail(storeError("read", `could not read ${path}`, cause)),
             ),
           )
@@ -211,7 +210,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
                 try: () => readdir(base, { withFileTypes: true }),
                 catch: (cause: unknown) => cause,
               }).pipe(
-                Effect.catchAll((cause: unknown) =>
+                Effect.catch((cause: unknown) =>
                   isNotFound(cause) ? Effect.succeed([]) : Effect.fail(storeError("read", `could not list ${base}`, cause)),
                 ),
               )

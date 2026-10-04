@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Deferred, Effect, Either, Fiber, Layer } from "effect"
+import { Deferred, Effect, Result, Fiber, Layer } from "effect"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -136,17 +136,17 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           },
           // The update-only facts are not this workflow's subject: called by mistake, they fail
           // visibly rather than answering an empty success.
-          inspectUpstream: () => Effect.dieMessage("inspectUpstream is not scripted"),
-          incomingCommits: () => Effect.dieMessage("incomingCommits is not scripted"),
-          defaultRemoteBranch: () => Effect.dieMessage("defaultRemoteBranch is not scripted"),
-          workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
-          pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
-          fetchRemote: () => Effect.dieMessage("fetchRemote is not scripted"),
+          inspectUpstream: () => Effect.die(new Error("inspectUpstream is not scripted")),
+          incomingCommits: () => Effect.die(new Error("incomingCommits is not scripted")),
+          defaultRemoteBranch: () => Effect.die(new Error("defaultRemoteBranch is not scripted")),
+          workingTreeDirty: () => Effect.die(new Error("workingTreeDirty is not scripted")),
+          pullFastForward: () => Effect.die(new Error("pullFastForward is not scripted")),
+          fetchRemote: () => Effect.die(new Error("fetchRemote is not scripted")),
           hasRemote: () => Effect.succeed(false),
           refExists: () => Effect.succeed(false),
-          resolveExistingBranch: () => Effect.dieMessage("resolveExistingBranch is not scripted"),
+          resolveExistingBranch: () => Effect.die(new Error("resolveExistingBranch is not scripted")),
           defaultBranch: () => Effect.succeed(undefined),
-          fastForwardBranch: () => Effect.dieMessage("fastForwardBranch is not scripted"),
+          fastForwardBranch: () => Effect.die(new Error("fastForwardBranch is not scripted")),
           provisionLinkedWorktree: () => Effect.void,
           provisionInPlace: () => Effect.succeed("created" as const),
           removeWorktree: (input) => {
@@ -212,8 +212,8 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
 const run = <A, E>(
   state: Script,
   program: Effect.Effect<A, E, ChangeLifecycle>,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(layerFor(state))))
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
 
 const lifecycle = Effect.gen(function* () {
   return yield* ChangeLifecycle
@@ -222,7 +222,7 @@ const lifecycle = Effect.gen(function* () {
 const assessment = (
   state: Script,
   operation: "completion" | "cancellation",
-): Promise<Either.Either<Readiness, unknown>> =>
+): Promise<Result.Result<Readiness, unknown>> =>
   run(
     state,
     Effect.gen(function* () {
@@ -235,10 +235,10 @@ const assessment = (
 
 test("an idea cannot be completed", async () => {
   const result = await assessment(script({ change: change("Ideation") }), "completion")
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("Blocked")
-    if (result.right._tag === "Blocked") expect(result.right.reasons[0]?.code).toBe("idea")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("Blocked")
+    if (result.success._tag === "Blocked") expect(result.success.reasons[0]?.code).toBe("idea")
   }
 })
 
@@ -251,11 +251,11 @@ test("an unready pull request needs an acknowledgement", async () => {
     }),
     "completion",
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("AcknowledgementRequired")
-    if (result.right._tag === "AcknowledgementRequired")
-      expect(result.right.reasons[0]?.code).toBe("review-pending")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("AcknowledgementRequired")
+    if (result.success._tag === "AcknowledgementRequired")
+      expect(result.success.reasons[0]?.code).toBe("review-pending")
   }
 })
 
@@ -269,8 +269,8 @@ test("a dirty checkout blocks completion", async () => {
     }),
     "completion",
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Blocked")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Blocked")
 })
 
 for (const operation of ["complete", "cancel"] as const) {
@@ -285,8 +285,8 @@ for (const operation of ["complete", "cancel"] as const) {
       const input = { changeId: ChangeId.make("demo") }
       return yield* (operation === "complete" ? service.completeChange(input) : service.cancelChange(input))
     }))
-    expect(Either.isRight(result)).toBe(true)
-    if (Either.isRight(result)) expect(result.right._tag).toBe("Done")
+    expect(Result.isSuccess(result)).toBe(true)
+    if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
     expect(state.assessedBranches.length).toBeGreaterThan(0)
     expect(state.assessedBranches.every((branch) => branch === "feature")).toBe(true)
     expect(state.deletedBranches).toEqual([])
@@ -303,8 +303,8 @@ test("unpushed commits need an acknowledgement", async () => {
     }),
     "completion",
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("AcknowledgementRequired")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("AcknowledgementRequired")
 })
 
 test("completion is ready when the pull request is merged and the checkout is safe", async () => {
@@ -317,8 +317,8 @@ test("completion is ready when the pull request is merged and the checkout is sa
     }),
     "completion",
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Ready")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Ready")
 })
 
 test("completion refuses before any step runs when nothing is acknowledged", async () => {
@@ -335,8 +335,8 @@ test("completion refuses before any step runs when nothing is acknowledged", asy
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("NeedsAcknowledgement")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
   expect(state.calls).toEqual([])
   expect(state.steps).toEqual([])
 })
@@ -350,10 +350,10 @@ test("completion merges, removes only the created checkout, stops the terminal a
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("Done")
-    if (result.right._tag === "Done") expect(result.right.change.phase).toBe("Completed")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("Done")
+    if (result.success._tag === "Done") expect(result.success.change.phase).toBe("Completed")
   }
   expect(state.calls).toEqual([
     "merge #7",
@@ -382,9 +382,9 @@ test("planned integration steps are journaled and run in order", async () => {
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result) && result.right._tag === "Done")
-    expect(result.right.notes).toEqual(["merged #7", "moved PROJ-1"])
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag === "Done")
+    expect(result.success.notes).toEqual(["merged #7", "moved PROJ-1"])
   expect(state.calls).toEqual([
     "merge #7",
     "issue jira",
@@ -413,11 +413,11 @@ test("a refusal carries what completion would merge", async () => {
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("NeedsAcknowledgement")
-    if (result.right._tag === "NeedsAcknowledgement")
-      expect(result.right.toMerge).toEqual([{ repository: ref("created"), number: 7 }])
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("NeedsAcknowledgement")
+    if (result.success._tag === "NeedsAcknowledgement")
+      expect(result.success.toMerge).toEqual([{ repository: ref("created"), number: 7 }])
   }
 })
 
@@ -438,8 +438,8 @@ test("a stale acknowledgement does not authorize the removal", async () => {
       return yield* service.completeChange({ changeId: ChangeId.make("demo"), acknowledgements: stale })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("NeedsAcknowledgement")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
   expect(state.calls).toEqual([])
 })
 
@@ -460,8 +460,8 @@ test("a matching acknowledgement lets completion proceed", async () => {
       return yield* service.completeChange({ changeId: ChangeId.make("demo"), acknowledgements: acknowledged })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Done")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
 })
 
 test("the checkout is rechecked before removal and a changed fact blocks", async () => {
@@ -484,8 +484,8 @@ test("the checkout is rechecked before removal and a changed fact blocks", async
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("NeedsAcknowledgement")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("NeedsAcknowledgement")
   expect(state.calls).not.toContain("remove /workspace/demo/created")
 })
 
@@ -499,8 +499,8 @@ test("cancelling a dirty checkout is refused", async () => {
     }),
     "cancellation",
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Blocked")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Blocked")
 })
 
 test("cancelling with an acknowledgement removes the checkout and lists the loose ends", async () => {
@@ -523,12 +523,12 @@ test("cancelling with an acknowledgement removes the checkout and lists the loos
       return yield* service.cancelChange({ changeId: ChangeId.make("demo"), acknowledgements: acknowledged })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("Done")
-    if (result.right._tag === "Done") {
-      expect(result.right.change.phase).toBe("Cancelled")
-      expect(result.right.loose).toEqual([
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("Done")
+    if (result.success._tag === "Done") {
+      expect(result.success.change.phase).toBe("Cancelled")
+      expect(result.success.loose).toEqual([
         "pull request #3 is still open in created",
         "PROJ-1 is still open",
         "the branch demo is kept in created",
@@ -547,9 +547,9 @@ test("a failed loose-end lookup is a note, not a failure", async () => {
       return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result) && result.right._tag === "Done")
-    expect(result.right.loose).toContain("could not read the open pull requests")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag === "Done")
+    expect(result.success.loose).toContain("could not read the open pull requests")
 })
 
 test("an idea can be cancelled", async () => {
@@ -561,8 +561,8 @@ test("an idea can be cancelled", async () => {
       return yield* service.cancelChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Done")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Done")
   expect(state.calls).toEqual(["stop terminal", "transition Cancelled"])
 })
 
@@ -573,17 +573,17 @@ test("one lifecycle operation per change at a time", async () => {
   const result = await Effect.runPromise(
     Effect.gen(function* () {
       const service = yield* lifecycle
-      const first = yield* Effect.fork(service.completeChange({ changeId: ChangeId.make("demo") }))
+      const first = yield* Effect.forkChild(service.completeChange({ changeId: ChangeId.make("demo") }))
       yield* Deferred.await(started)
-      const second = yield* service.completeChange({ changeId: ChangeId.make("demo") }).pipe(Effect.either)
+      const second = yield* service.completeChange({ changeId: ChangeId.make("demo") }).pipe(Effect.result)
       yield* Deferred.succeed(gate, undefined)
       yield* Fiber.join(first)
       return second
     }).pipe(Effect.provide(layerFor(state))),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) {
-    const failure = result.left
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) {
+    const failure = result.failure
     expect((failure as { _tag?: string })._tag).toBe("ChangeOperationInProgress")
   }
 })
@@ -597,7 +597,7 @@ test("a failed merge is journaled before the completion stops", async () => {
       return yield* service.completeChange({ changeId: ChangeId.make("demo") })
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
+  expect(Result.isFailure(result)).toBe(true)
   const merge = state.steps.filter((step) => step.id === "merge:/sources/created").at(-1)
   expect(merge?.state).toBe("failed")
   expect(merge?.detail).toContain("not mergeable")

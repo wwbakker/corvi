@@ -20,4 +20,4 @@ const repositoryReads: Layer.Layer<Repositories> = repositoriesLayer.pipe(
 export const existingBranch = (repo: string, name: string): Effect.Effect<ExistingBranch | undefined> =>
   Effect.flatMap(Repositories, (repositories) =>
     repositories.resolveExistingBranch(AbsolutePath.make(repo), name),
-  ).pipe(Effect.provide(repositoryReads), Effect.catchAll(() => Effect.succeed(undefined)))
+  ).pipe(Effect.provide(repositoryReads), Effect.catch(() => Effect.succeed(undefined)))

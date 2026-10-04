@@ -35,7 +35,7 @@ test("describeChange: heading parts join with a dash and each link is its own li
     "PROJ-1 - Anonymize customers\nhttps://x/1\nrepo-without-pr\n",
   );
 
-  // Either half of the heading alone still opens the description.
+  // Result half of the heading alone still opens the description.
   expect(describeChange("PROJ-1", undefined, ["a"])).toBe("PROJ-1\na\n");
   expect(describeChange(undefined, "A summary", ["a"])).toBe("A summary\na\n");
 

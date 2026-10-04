@@ -543,7 +543,7 @@ export const browseRepo = (change: Change, repo: string): Effect.Effect<void> =>
     const path = worktreePath(change, repo);
     if (yield* fs(() => lstat(path).then(() => true, () => false))) return;
     yield* fs(() => symlink(repo, path)).pipe(
-      Effect.catchAllDefect((e) =>
+      Effect.catchDefect((e) =>
         Effect.sync(() =>
           console.error(`could not link ${repo} into ${changeDir(change)}:`, messageOf(e)),
         ),

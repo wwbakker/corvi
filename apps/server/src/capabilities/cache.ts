@@ -109,7 +109,7 @@ export const createCache = (): CacheStore => {
         // a daemon, so it outlives this request. `Effect.exit` makes the fiber infallible: the
         // refresh's failure is news about the CLI, not about the page, and never reaches the
         // value served here.
-        yield* Effect.forkDaemon(Effect.exit(refresh(key, work)));
+        yield* Effect.forkDetach(Effect.exit(refresh(key, work)));
       }
       return found.value as T;
     });
@@ -156,7 +156,7 @@ export const createCache = (): CacheStore => {
       const stored = yield* pipe(
         fs<Stored>(() => file(cacheFile()).json()),
         // A missing or unreadable cache file is a cold cache, not an error.
-        Effect.catchAllDefect(() => Effect.succeed(null as Stored | null)),
+        Effect.catchDefect(() => Effect.succeed(null as Stored | null)),
       );
       if (!stored) return 0;
       let restored = 0;

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { Effect } from "effect";
 import { changePairs } from "../../change/server/index.ts";
 import { Shell, Workspace } from "../api/capabilities.ts";
-import type { Result } from "../../capabilities/shell.ts";
+import type { ShellResult } from "../../capabilities/shell.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file } from "../../capabilities/files.ts";
@@ -24,14 +24,14 @@ const badRequest = (message: string): BadRequestError => {
   return error;
 };
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
-const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result, never, Shell | Workspace> =>
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd, { cwd }).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 

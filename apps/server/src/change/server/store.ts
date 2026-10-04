@@ -1,13 +1,14 @@
 import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
-import { Effect, ParseResult, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
+import { decodePreserving, formatIssues } from "@corvi/contracts/body";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
 import { runtimeConfig, workspaceById, settingsOf } from "../../workspace/server/index.ts";
@@ -102,10 +103,10 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
     const dir = yield* existingDir(id);
     const text = dir
       ? yield* fs(() => file(join(dir, "change.json")).text()).pipe(
-          Effect.catchAllDefect(() => Effect.succeed("")),
+          Effect.catchDefect(() => Effect.succeed("")),
         )
       : "";
-    const raw = yield* Schema.decodeUnknown(Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })))(
+    const raw = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)))(
       text,
     ).pipe(Effect.orElseSucceed(() => ({}) as Record<string, unknown>));
     const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
@@ -122,21 +123,22 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
 // put there, and rewriting it must not drop fields another version added. Failures become
-// DecodeError with the ParseResult issues rendered one line per problem, path included.
+// DecodeError with the schema issues rendered one line per problem, path included.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
   Effect.gen(function* () {
-    const raw = yield* Schema.decodeUnknown(
-      Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+    const raw = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
     )(text).pipe(
       Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
     );
-    return yield* Schema.decodeUnknown(ChangeSchema, { onExcessProperty: "preserve" })(raw).pipe(
-      Effect.mapError((error) => {
-        const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
-          .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
-          .join("; ");
-        return new DecodeError({ source: "file", message: `malformed change.json in ${dir}: ${detail}` });
-      }),
+    return yield* decodePreserving(ChangeSchema, raw).pipe(
+      Effect.mapError(
+        (error) =>
+          new DecodeError({
+            source: "file",
+            message: `malformed change.json in ${dir}: ${formatIssues(error)}`,
+          }),
+      ),
     );
   });
 
@@ -174,7 +176,7 @@ export const writeChange = (change: Change): Effect.Effect<void, ChangeFormatToo
     // is authoritative; a fresh record starts at 1.
     const prior = yield* readChange(change.id).pipe(
       Effect.map((current) => Number((current as { revision?: unknown } | null)?.revision ?? 0)),
-      Effect.catchAll(() =>
+      Effect.catch(() =>
         Effect.succeed(Number((change as { revision?: unknown }).revision ?? 0)),
       ),
     );
@@ -190,7 +192,7 @@ export const readSidecar = (id: string, name: string): Effect.Effect<string> =>
     const dir = yield* existingDir(id);
     if (!dir) return "";
     return yield* fs(() => file(join(dir, name)).text()).pipe(
-      Effect.catchAllDefect(() => Effect.succeed("")),
+      Effect.catchDefect(() => Effect.succeed("")),
     );
   });
 
@@ -227,7 +229,7 @@ export const listExtensionFiles = (change: Change, name: string): Effect.Effect<
     const walk = (dir: string, prefix: string): Effect.Effect<string[], BadRequestError> =>
       Effect.gen(function* () {
         const entries: Dirent[] = yield* fs(() => readdir(dir, { withFileTypes: true })).pipe(
-          Effect.catchAllDefect(() => Effect.succeed([] as Dirent[])),
+          Effect.catchDefect(() => Effect.succeed([] as Dirent[])),
         );
         const found: string[] = [];
         for (const entry of entries) {
@@ -304,7 +306,7 @@ export const archiveChange = (id: string): Effect.Effect<void, ChangeFormatTooNe
     // The active copies win the lookup; reaching here under an archive root means it moved.
     if (!pairs.some(({ root }) => dir === join(root, id))) return;
     yield* guardFormat(id);
-    const change = yield* readChange(id).pipe(Effect.catchAll(() => Effect.succeed(null)));
+    const change = yield* readChange(id).pipe(Effect.catch(() => Effect.succeed(null)));
     const target = change ? archiveDir(change) : join(archiveRoot(), id);
     yield* fs(() => mkdir(dirname(target), { recursive: true }));
     yield* fs(() => rename(dir, target));
@@ -313,7 +315,7 @@ export const archiveChange = (id: string): Effect.Effect<void, ChangeFormatTooNe
 const directoriesIn = (dir: string): Effect.Effect<string[]> =>
   Effect.tryPromise(() => readdir(dir, { withFileTypes: true })).pipe(
     Effect.map((entries) => entries.filter((e) => e.isDirectory()).map((e) => e.name)),
-    Effect.catchAll(() => Effect.succeed([])), // directory does not exist yet
+    Effect.catch(() => Effect.succeed([])), // directory does not exist yet
   );
 
 /** Active changes first, then archived ones, across every scope's roots; both are listed, the
@@ -338,7 +340,7 @@ export const listChanges = (): Effect.Effect<Change[]> =>
       (name) =>
         readChange(name).pipe(
           Effect.map((c) => (c ? [c] : [])),
-          Effect.catchAll(() => Effect.succeed([] as Change[])),
+          Effect.catch(() => Effect.succeed([] as Change[])),
         ),
       { concurrency: "unbounded" },
     );

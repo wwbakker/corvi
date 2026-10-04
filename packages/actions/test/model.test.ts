@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Either } from "effect";
+import { Result } from "effect";
 
 import { parseActionFile, splitFrontmatter } from "../src/model.ts";
 
@@ -8,15 +8,15 @@ const promptFile = (frontmatter: string, body = "Do the thing."): string =>
 
 const reasonsOf = (text: string): readonly string[] => {
   const parsed = parseActionFile(text);
-  if (Either.isRight(parsed)) throw new Error("expected the file to be refused");
-  return parsed.left.reasons;
+  if (Result.isSuccess(parsed)) throw new Error("expected the file to be refused");
+  return parsed.failure.reasons;
 };
 
 test("a prompt file parses, with the documented defaults", () => {
   const parsed = parseActionFile(promptFile("label: Review\nclass: ignored\nkind: prompt"));
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isLeft(parsed)) return;
-  expect(parsed.right).toEqual({
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isFailure(parsed)) return;
+  expect(parsed.success).toEqual({
     label: "Review",
     kind: "prompt",
     target: "active",
@@ -33,10 +33,10 @@ test("a prompt for an agent defaults its start to pi, and phases are kept", () =
   const parsed = parseActionFile(
     promptFile("label: Brief\nkind: prompt\ntarget: agent\nphases: [Ideation]"),
   );
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isLeft(parsed)) return;
-  expect(parsed.right.start).toBe("pi");
-  expect(parsed.right.phases).toEqual(["Ideation"]);
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isFailure(parsed)) return;
+  expect(parsed.success.start).toBe("pi");
+  expect(parsed.success.phases).toEqual(["Ideation"]);
 });
 
 test("frontmatter and body split, and a file without the pair is not an action", () => {
@@ -80,9 +80,9 @@ test("a command that keeps its window parses, and unknown keys ride along", () =
   const parsed = parseActionFile(
     promptFile("label: Run the tests\nkind: command\ntarget: new\nnotify: true\ndescription: pi's own", "bun test"),
   );
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isLeft(parsed)) return;
-  expect(parsed.right.notify).toBe(true);
-  expect(parsed.right.keepOpen).toBe(false);
-  expect(parsed.right.body).toBe("bun test");
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isFailure(parsed)) return;
+  expect(parsed.success.notify).toBe(true);
+  expect(parsed.success.keepOpen).toBe(false);
+  expect(parsed.success.body).toBe("bun test");
 });

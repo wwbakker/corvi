@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Effect, Either, Layer } from "effect"
+import { Effect, Result, Layer } from "effect"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -142,11 +142,11 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
           removeBranchIfIntegrated: () => Effect.succeed("deleted" as const),
           // The update-only facts are not this workflow's subject: called by mistake, they fail
           // visibly rather than answering an empty success.
-          inspectUpstream: () => Effect.dieMessage("inspectUpstream is not scripted"),
-          incomingCommits: () => Effect.dieMessage("incomingCommits is not scripted"),
-          defaultRemoteBranch: () => Effect.dieMessage("defaultRemoteBranch is not scripted"),
-          workingTreeDirty: () => Effect.dieMessage("workingTreeDirty is not scripted"),
-          pullFastForward: () => Effect.dieMessage("pullFastForward is not scripted"),
+          inspectUpstream: () => Effect.die(new Error("inspectUpstream is not scripted")),
+          incomingCommits: () => Effect.die(new Error("incomingCommits is not scripted")),
+          defaultRemoteBranch: () => Effect.die(new Error("defaultRemoteBranch is not scripted")),
+          workingTreeDirty: () => Effect.die(new Error("workingTreeDirty is not scripted")),
+          pullFastForward: () => Effect.die(new Error("pullFastForward is not scripted")),
           provisionLinkedWorktree: (input) => {
             state.branches.set(String(input.directory), state.selected?.branch ?? (input.branch.startsWith("origin/") ? input.branch.slice("origin/".length) : input.branch))
             state.calls.push(
@@ -211,8 +211,8 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
     ),
   )
 
-const run = <A, E>(state: Script, program: Effect.Effect<A, E, ChangeWork>): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(layerFor(state))))
+const run = <A, E>(state: Script, program: Effect.Effect<A, E, ChangeWork>): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
 
 const work = Effect.gen(function* () {
   return yield* ChangeWork
@@ -232,9 +232,9 @@ test("inspectChangeRepositories joins the change, its links, and the checkout fa
       return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right[0]).toEqual({
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success[0]).toEqual({
       repository: expected,
       state: "Active",
       checkoutLocation: "/workspace/example/repo",
@@ -260,8 +260,8 @@ test("inspection failures propagate", async () => {
       return yield* changeWork.inspectChangeRepositories(ChangeId.make("example"))
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("CheckoutError")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("CheckoutError")
 })
 
 test("startChange refuses a change that is not an idea", async () => {
@@ -273,8 +273,8 @@ test("startChange refuses a change that is not an idea", async () => {
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("InvalidTransition")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("InvalidTransition")
   expect(state.calls).toEqual([])
 })
 
@@ -346,10 +346,10 @@ test("a stored spec no validation would allow fails its own repository", async (
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result) && result.right._tag === "PartiallyStarted") {
-    expect(result.right.failures).toHaveLength(1)
-    expect(describeProvisionError(result.right.failures[0]!.error)).toBe(
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag === "PartiallyStarted") {
+    expect(result.success.failures).toHaveLength(1)
+    expect(describeProvisionError(result.success.failures[0]!.error)).toBe(
       "a new worktree cannot use the branch a source checkout has checked out",
     )
   }
@@ -367,14 +367,14 @@ test("a failed provision is PartiallyStarted with a journal entry per repository
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("PartiallyStarted")
-    if (result.right._tag === "PartiallyStarted") {
-      expect(result.right.repositories.map((repository) => repository.directoryName)).toEqual([
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("PartiallyStarted")
+    if (result.success._tag === "PartiallyStarted") {
+      expect(result.success.repositories.map((repository) => repository.directoryName)).toEqual([
         DirectoryName.make("good"),
       ])
-      expect(result.right.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("bad")])
+      expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("bad")])
     }
   }
   expect(state.steps.map((step) => step.state)).toEqual(["running", "done", "running", "failed"])
@@ -389,8 +389,8 @@ test("a clean start is Started", async () => {
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Started")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started")
   expect(state.steps.map((step) => step.state)).toEqual(["running", "done"])
   expect(state.change.phase).toBe("Implementation")
 })
@@ -412,15 +412,15 @@ test("a checkout someone switched away is never refreshed — and says it is not
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
     // The transition still goes through — reported per repository, never blocked.
-    expect(result.right._tag).toBe("PartiallyStarted")
-    if (result.right._tag === "PartiallyStarted")
-      expect(describeProvisionError(result.right.failures[0]!.error)).toBe(
+    expect(result.success._tag).toBe("PartiallyStarted")
+    if (result.success._tag === "PartiallyStarted")
+      expect(describeProvisionError(result.success.failures[0]!.error)).toBe(
         "the checkout is on other, not example",
       )
-    expect(result.right.reports[0]?.refresh).toEqual({
+    expect(result.success.reports[0]?.refresh).toEqual({
       _tag: "LeftAlone",
       reason: "the checkout is on other, not example",
     })
@@ -453,8 +453,8 @@ for (const remote of ["origin", "upstream"]) {
         const changeWork = yield* work
         return yield* changeWork.startChange(ChangeId.make("example"))
       }))
-      expect(Either.isRight(result)).toBe(true)
-      if (Either.isRight(result)) expect(result.right._tag).toBe("Started")
+      expect(Result.isSuccess(result)).toBe(true)
+      if (Result.isSuccess(result)) expect(result.success._tag).toBe("Started")
       expect(state.remotesAsked).toEqual([remote])
       const fetched = state.calls.findIndex((call) => call.startsWith("fetch"))
       const provisioned = state.calls.findIndex((call) => call.startsWith(location === "new" ? "worktree" : "in-place"))
@@ -475,8 +475,8 @@ test("a detached destination is reported, never refreshed or silently repaired",
     const changeWork = yield* work
     return yield* changeWork.provisionChange(ChangeId.make("example"))
   }))
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right[0]?.error?.message).toBe("the checkout is not on feature")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success[0]?.error?.message).toBe("the checkout is not on feature")
   expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
 })
 
@@ -494,9 +494,9 @@ test("a local-only existing branch has nothing to fast-forward to", async () => 
       return yield* changeWork.provisionChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result))
-    expect(result.right[0]?.refresh).toEqual({ _tag: "None", reason: "nothing to fast-forward to" })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result))
+    expect(result.success[0]?.refresh).toEqual({ _tag: "None", reason: "nothing to fast-forward to" })
   expect(state.calls.some((call) => call.startsWith("forward"))).toBe(false)
 })
 
@@ -512,11 +512,11 @@ test("a fetch that will not answer stops that repository before anything is crea
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result) && result.right._tag === "PartiallyStarted") {
-    expect(result.right.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("offline")])
-    expect(describeProvisionError(result.right.failures[0]!.error)).toBe("could not resolve host")
-    const stopped = result.right.reports.find((report) => report.repository.directoryName === "offline")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result) && result.success._tag === "PartiallyStarted") {
+    expect(result.success.failures.map((failure) => failure.repositoryId)).toEqual([RepositoryId.make("offline")])
+    expect(describeProvisionError(result.success.failures[0]!.error)).toBe("could not resolve host")
+    const stopped = result.success.reports.find((report) => report.repository.directoryName === "offline")
     expect(stopped?.refresh).toEqual({ _tag: "FetchFailed", reason: "could not resolve host" })
     expect(describeCheckout(stopped!)).toBe("fetch failed: could not resolve host")
   } else {
@@ -541,10 +541,10 @@ test("a refresh that cannot fast-forward reports and does not block the start", 
       return yield* changeWork.startChange(ChangeId.make("example"))
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("Started")
-    expect(result.right.reports[0]?.refresh).toEqual({
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("Started")
+    expect(result.success.reports[0]?.refresh).toEqual({
       _tag: "LeftAlone",
       reason: "fatal: Not possible to fast-forward",
     })

@@ -1,10 +1,10 @@
 import { baseName } from "@corvi/contracts/paths";
 import { effectiveBranchOf } from "@corvi/contracts/changes";
-import { Effect, Either, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { stackOnBase, describeStack, mergeStacked, type Stack } from "./stacks.ts";
-import { shOrThrow, type Result } from "./shell.ts";
+import { shOrThrow, type ShellResult } from "./shell.ts";
 import { Cache, Changes, GitFacts, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError, type CliError } from "@corvi/contracts/errors";
 import { cliJson } from "@corvi/shell/cli";
@@ -334,7 +334,7 @@ const readDetails = (
   Effect.gen(function* () {
     const repo = repoFromUrl(url);
     if (!repo) return {};
-    const ask = (withStack: boolean): Effect.Effect<Result, never, Changes | GitFacts> =>
+    const ask = (withStack: boolean): Effect.Effect<ShellResult, never, Changes | GitFacts> =>
       shSoft(
         [
           "gh",
@@ -406,11 +406,11 @@ export const prItem = (
   Effect.gen(function* () {
     // The repository is the parent row in the tree, so these labels do not repeat it.
     const label = "pull request";
-    const found = yield* Effect.either(shownPr(change, repo));
-    if (Either.isLeft(found)) {
-      return { item: { label, detail: found.left.message, state: "error" } };
+    const found = yield* Effect.result(shownPr(change, repo));
+    if (Result.isFailure(found)) {
+      return { item: { label, detail: found.failure.message, state: "error" } };
     }
-    const hit = found.right;
+    const hit = found.success;
     if (!hit) return { item: { label, detail: "no worktree", state: "none" } };
     const pr = hit.prs[0];
     if (!pr) {

@@ -172,7 +172,7 @@ const assess = (
     if (!tooling) return yield* Effect.succeed(ineligible("git and bun must be on PATH"));
     const repositories = yield* Repositories;
     const root = AbsolutePath.make(options.root);
-    const facts = yield* Effect.either(
+    const facts = yield* Effect.result(
       Effect.gen(function* () {
         const checkout = yield* repositories.inspectCheckout(root);
         if (checkout._tag === "Missing")
@@ -187,8 +187,8 @@ const assess = (
         // A fetch that fails is not a dead check: the remote-tracking refs still say what was
         // new last time, and the update itself refuses with the reason below.
         const fetched = fresh
-          ? yield* Effect.either(repositories.fetchRemote(root))
-          : ({ _tag: "Right" } as const);
+          ? yield* Effect.result(repositories.fetchRemote(root))
+          : ({ _tag: "Success" } as const);
         const upstream = yield* repositories.inspectUpstream(root);
         const dirty = yield* repositories.workingTreeDirty(root);
         const incoming: readonly IncomingCommit[] =
@@ -205,7 +205,7 @@ const assess = (
         const refusal =
           upstream.behind === 0
             ? undefined
-            : fetched._tag === "Left"
+            : fetched._tag === "Failure"
               ? "could not reach the remote"
               : dirty
                 ? "uncommitted changes in the checkout"
@@ -224,9 +224,9 @@ const assess = (
         } satisfies Snapshot;
       }),
     );
-    return facts._tag === "Left"
-      ? ineligible(`could not read the checkout: ${errorDetail(facts.left)}`)
-      : facts.right;
+    return facts._tag === "Failure"
+      ? ineligible(`could not read the checkout: ${errorDetail(facts.failure)}`)
+      : facts.success;
   });
 
 /** Whether an update finished in this running app: the journal keeps its record across restarts,
@@ -347,9 +347,9 @@ export const startUpdate = (
       return opening;
     }
     // The run owns the guard from here to its own end, and says so in the journal as it goes.
-    yield* Effect.forkDaemon(
+    yield* Effect.forkDetach(
       runSteps(options).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => console.error("the update stopped:", errorDetail(error))),
         ),
         Effect.ensuring(releaseGuard()),
@@ -418,16 +418,16 @@ const runSteps = (
       if (progress.steps.find((existing) => existing.id === step.id)?.state === "done") continue;
       progress = withStep(progress, { ...step, state: "running" });
       yield* writeJournal(progress);
-      const outcome = yield* Effect.either(runStep(root, step.id));
-      if (outcome._tag === "Left") {
-        const message = errorDetail(outcome.left);
+      const outcome = yield* Effect.result(runStep(root, step.id));
+      if (outcome._tag === "Failure") {
+        const message = errorDetail(outcome.failure);
         progress = {
           ...withStep(progress, { ...step, state: "failed", detail: message }),
           finishedAt: new Date().toISOString(),
           error: message,
         };
         yield* writeJournal(progress);
-        return yield* Effect.fail(outcome.left);
+        return yield* Effect.fail(outcome.failure);
       }
       progress = withStep(progress, { ...step, state: "done" });
       yield* writeJournal(progress);

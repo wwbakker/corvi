@@ -29,5 +29,8 @@
 
     // Effect-aware diagnostics in the editor and via `bun run effect:lint`.
     "plugins": [{ "name": "@effect/language-service" }]
-  }
+  },
+  // The web build writes a single large bundle here; checking generated JavaScript is not the
+  // typecheck's job (and Effect 4's types overflow the compiler when it does).
+  "exclude": ["node_modules", "apps/web/dist"]
 }

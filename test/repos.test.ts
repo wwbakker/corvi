@@ -12,7 +12,7 @@ import {
 } from "../apps/server/src/vendors/git.ts";
 import { setRepos, provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { checkoutsOf, runEffect, runFileDiff, runLocalChanges, runSetRepos, runSh  } from "./helpers.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
 import type { FileChange } from "@corvi/contracts/integrations/review";
 
@@ -23,7 +23,7 @@ import type { FileChange } from "@corvi/contracts/integrations/review";
  */
 let tmp: string;
 
-const commit = (repo: string, message: string): Promise<Result> =>
+const commit = (repo: string, message: string): Promise<ShellResult> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 /** A bare "remote" with one commit on main, and a clone of it: the shape every change assumes. */

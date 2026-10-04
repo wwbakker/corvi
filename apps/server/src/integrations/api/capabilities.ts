@@ -13,7 +13,7 @@ export {
   Workspace,
   type Capabilities,
   type ExtensionStoreShape,
-  type Result,
+  type ShellResult,
   type ShellShape,
   type Startup,
 } from "@corvi/contracts/capabilities";

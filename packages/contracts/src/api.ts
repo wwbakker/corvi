@@ -8,16 +8,16 @@ import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts"
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
-  state: Schema.Literal("Concept", "Active", "Archived"),
+  state: Schema.Literals(["Concept", "Active", "Archived"]),
   checkoutLocation: Schema.String,
-  checkout: Schema.Union(
+  checkout: Schema.Union([
     Schema.Struct({ _tag: Schema.Literal("Missing") }),
     Schema.Struct({
       _tag: Schema.Literal("Present"),
       branch: Schema.optional(Schema.String),
       head: Schema.optional(Schema.String),
     }),
-  ),
+  ]),
 })
 export type RepositoryViewDto = typeof RepositoryViewSchema.Type
 
@@ -36,14 +36,14 @@ export type ProvisionResultDto = typeof ProvisionResultSchema.Type
 export const RefreshOutcomeSchema = Schema.Struct({
   repositoryId: RepositoryId,
   directoryName: DirectoryName,
-  state: Schema.Literal("advanced", "current", "left-alone", "fetch-failed", "none"),
+  state: Schema.Literals(["advanced", "current", "left-alone", "fetch-failed", "none"]),
   detail: Schema.optional(Schema.String),
 })
 export type RefreshOutcomeDto = typeof RefreshOutcomeSchema.Type
 
 // --- The change record and the change page's reads -------------------------------------------
 
-export const WidgetStateSchema = Schema.Literal("ok", "pending", "warn", "none", "error")
+export const WidgetStateSchema = Schema.Literals(["ok", "pending", "warn", "none", "error"])
 export type WidgetStateDto = typeof WidgetStateSchema.Type
 
 /** Where a change stands. One vocabulary everywhere — record, code, and page (the phase names
@@ -66,8 +66,8 @@ export const CheckoutSpecSchema = Schema.Struct({
 export type CheckoutSpecDto = typeof CheckoutSpecSchema.Type
 
 /** The change record: what change.json holds (record format `FORMAT_VERSION`), what the store
- * decodes, and what the routes serve. Decode keeps unknown keys (`onExcessProperty: "preserve"`
- * at the decode sites): a record carries whatever wrote it, so rewriting one must not drop
+ * decodes, and what the routes serve. Decode keeps unknown keys (the shared decode-then-merge at
+ * the decode sites): a record carries whatever wrote it, so rewriting one must not drop
  * fields. */
 export const ChangeWireSchema = Schema.Struct({
   id: Schema.String,
@@ -75,7 +75,7 @@ export const ChangeWireSchema = Schema.Struct({
   /** This change's checkouts, one spec per source repository. */
   checkouts: Schema.optional(Schema.mutable(Schema.Array(CheckoutSpecSchema))),
   workspace: Schema.optional(Schema.String),
-  extensions: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
+  extensions: Schema.optional(Schema.Record(Schema.String, Schema.mutableKey(Schema.Unknown))),
   title: Schema.optional(Schema.String),
   titleEdited: Schema.optional(Schema.Boolean),
   state: Schema.optional(ChangeStateSchema),
@@ -111,7 +111,7 @@ export const CardInfoSchema = Schema.Struct({
   name: Schema.String,
   title: Schema.String,
   perRepo: Schema.Boolean,
-  column: Schema.Literal("left", "right"),
+  column: Schema.Literals(["left", "right"]),
   /** The card declares an editor (`Card.editable`); the editor itself is client code. */
   editable: Schema.optional(Schema.Boolean),
 })
@@ -133,7 +133,7 @@ export const WidgetInfoSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   extension: Schema.String,
-  column: Schema.optional(Schema.Literal("left", "right")),
+  column: Schema.optional(Schema.Literals(["left", "right"])),
 })
 export type WidgetInfoDto = typeof WidgetInfoSchema.Type
 
@@ -197,8 +197,8 @@ export interface WidgetItemDto {
   children?: WidgetItemDto[]
 }
 
-export const WidgetItemSchema: Schema.Schema<WidgetItemDto> = Schema.suspend(
-  (): Schema.Schema<WidgetItemDto> =>
+export const WidgetItemSchema: Schema.Codec<WidgetItemDto> = Schema.suspend(
+  (): Schema.Codec<WidgetItemDto> =>
     Schema.Struct({
       label: Schema.String,
       detail: Schema.optional(Schema.String),
@@ -234,7 +234,7 @@ export type RepoItemsDto = typeof RepoItemsSchema.Type
 export const OperationStepSchema = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
-  state: Schema.Literal("waiting", "running", "done", "failed"),
+  state: Schema.Literals(["waiting", "running", "done", "failed"]),
   detail: Schema.optional(Schema.String),
 })
 export type OperationStepDto = typeof OperationStepSchema.Type
@@ -251,13 +251,10 @@ export type OperationProgressDto = typeof OperationProgressSchema.Type
 
 /** A completion's journal: the shared operation shape, plus the mode it ran in and what it
  * overrode. */
-export const CompletionProgressSchema = Schema.extend(
-  OperationProgressSchema,
-  Schema.Struct({
-    forced: Schema.optional(Schema.Boolean),
-    overridden: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  }),
-)
+export const CompletionProgressSchema = Schema.fieldsAssign({
+  forced: Schema.optional(Schema.Boolean),
+  overridden: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+})(OperationProgressSchema)
 export type CompletionProgressDto = typeof CompletionProgressSchema.Type
 
 // --- Updating the app itself -----------------------------------------------------------------------
@@ -297,7 +294,7 @@ export type AppUpdateStatusDto = typeof AppUpdateStatusSchema.Type
 
 export const CompletionReasonSchema = Schema.Struct({
   text: Schema.String,
-  kind: Schema.Literal("forceable", "hard"),
+  kind: Schema.Literals(["forceable", "hard"]),
 })
 export type CompletionReasonDto = typeof CompletionReasonSchema.Type
 
@@ -320,7 +317,7 @@ export const TerminalWindowSchema = Schema.Struct({
   label: Schema.String,
   detail: Schema.String,
   icon: Schema.optional(Schema.String),
-  state: Schema.optional(Schema.Literal("ok", "idle")),
+  state: Schema.optional(Schema.Literals(["ok", "idle"])),
   attention: Schema.Boolean,
   note: Schema.optional(Schema.String),
   active: Schema.Boolean,
@@ -333,9 +330,7 @@ export const TerminalWindowSchema = Schema.Struct({
 export type TerminalWindowDto = typeof TerminalWindowSchema.Type
 
 /** Every change's windows, keyed by change id: one read for the navigation's terminals. */
-export const TerminalsResponseSchema = Schema.mutable(
-  Schema.Record({ key: Schema.String, value: Schema.mutable(Schema.Array(TerminalWindowSchema)) }),
-)
+export const TerminalsResponseSchema = Schema.Record(Schema.String, Schema.mutableKey(Schema.mutable(Schema.Array(TerminalWindowSchema))))
 export type TerminalsResponseDto = typeof TerminalsResponseSchema.Type
 
 export const UrlSchema = Schema.Struct({ url: Schema.String })
@@ -346,10 +341,10 @@ export type UrlDto = typeof UrlSchema.Type
 export const TerminalStatusSchema = Schema.Struct({
   sessionId: Schema.String,
   incarnation: Schema.Number,
-  status: Schema.Literal("working", "waiting", "clear"),
-  name: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
-  sessionName: Schema.optional(Schema.String.pipe(Schema.maxLength(120))),
-  message: Schema.optional(Schema.String.pipe(Schema.maxLength(400))),
+  status: Schema.Literals(["working", "waiting", "clear"]),
+  name: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(120)))),
+  sessionName: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(120)))),
+  message: Schema.optional(Schema.String.pipe(Schema.check(Schema.isMaxLength(400)))),
 })
 export type TerminalStatusDto = typeof TerminalStatusSchema.Type
 
@@ -360,7 +355,7 @@ export const WizardStepInfoSchema = Schema.Struct({
   id: Schema.String,
   extension: Schema.String,
   title: Schema.String,
-  phase: Schema.Literal("issue", "repos"),
+  phase: Schema.Literals(["issue", "repos"]),
 })
 export type WizardStepInfoDto = typeof WizardStepInfoSchema.Type
 
@@ -423,7 +418,7 @@ export const CreateChangeBodySchema = Schema.Struct({
   checkouts: Schema.optional(Schema.mutable(Schema.Array(CheckoutSpecSchema))),
   workspace: Schema.optional(Schema.String),
   state: Schema.optional(ChangeStateSchema),
-  extensions: Schema.optional(Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.Unknown }))),
+  extensions: Schema.optional(Schema.Record(Schema.String, Schema.mutableKey(Schema.Unknown))),
   plan: Schema.optional(Schema.String),
 })
 export type CreateChangeBodyDto = typeof CreateChangeBodySchema.Type
@@ -442,11 +437,11 @@ export type ForceBodyDto = typeof ForceBodySchema.Type
 /** The window actions the terminal bar offers. `split`/`close-pane`/`focus-pane` name the window
  * and, where it matters, the pane session; `select`/`move` keep their index. */
 export const WindowActionBodySchema = Schema.Struct({
-  action: Schema.Literal("new", "select", "move", "split", "close-pane", "focus-pane"),
+  action: Schema.Literals(["new", "select", "move", "split", "close-pane", "focus-pane"]),
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
-  direction: Schema.optional(Schema.Literal("right", "down")),
+  direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
 })
@@ -512,13 +507,8 @@ export const SettingsViewSchema = Schema.Struct({
   effective: Resolved,
   /** Whether the external listener the config asks for is actually running. */
   remoteAccessStatus: RemoteAccessStatusSchema,
-  overridden: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
-  overriddenExtensions: Schema.mutable(
-    Schema.Record({
-      key: Schema.String,
-      value: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
-    }),
-  ),
+  overridden: Schema.Record(Schema.String, Schema.mutableKey(Schema.String)),
+  overriddenExtensions: Schema.Record(Schema.String, Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.String)))),
   toolingDefault: Schema.mutable(Schema.Array(Schema.String)),
   extensions: Schema.mutable(
     Schema.Array(
@@ -535,7 +525,7 @@ export type SettingsViewDto = typeof SettingsViewSchema.Type
 /** The contexts to switch between, and which desktop the server runs on. */
 export const WorkspacesResponseSchema = Schema.Struct({
   workspaces: Schema.mutable(Schema.Array(Workspace)),
-  platform: Schema.Literal("mac", "linux", "other"),
+  platform: Schema.Literals(["mac", "linux", "other"]),
 })
 export type WorkspacesResponseDto = typeof WorkspacesResponseSchema.Type
 

@@ -241,7 +241,7 @@ export const changeRoutes = guard({
     // same live check; that one forgets the cached reads and fetches first, this one does not.
     GET: (req) =>
       withChange(req.params.id, (c) =>
-        Effect.catchAll(
+        Effect.catch(
           Effect.map(completionOf(c), json),
           (e) =>
             Effect.succeed(

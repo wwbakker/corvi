@@ -53,7 +53,7 @@ export const actionsRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknown(ActionRepositoryFileRefSchema)(params).pipe(
+          const ref = yield* Schema.decodeUnknownEffect(ActionRepositoryFileRefSchema)(params).pipe(
             Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
           );
           return json(yield* deleteRepositoryActionFile(change, ref));
@@ -76,7 +76,7 @@ export const actionsRoutes = guard({
       runRoute(
         Effect.gen(function* () {
           const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknown(ActionFileRefSchema)(params).pipe(
+          const ref = yield* Schema.decodeUnknownEffect(ActionFileRefSchema)(params).pipe(
             Effect.mapError(() => new BadRequestError({ message: "scope and id are required" })),
           );
           return json(yield* deleteActionFile(ref));

@@ -1,4 +1,4 @@
-import { Effect, Either, Layer, Ref } from "effect";
+import { Effect, Result, Layer, Ref } from "effect";
 import type {
   Change,
   Completion,
@@ -344,7 +344,7 @@ const runCompletion = (
       acknowledgements: readonly Acknowledgement[],
     ): Effect.Effect<LifecycleOutcome, IweError | ChangeStoreError> =>
       lifecycle.completeChange({ changeId, acknowledgements, assessment }).pipe(
-        Effect.catchAll((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
+        Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
           Effect.gen(function* () {
             yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(Effect.mapError(asIwe))
             return yield* Effect.fail(asIwe(error))
@@ -390,5 +390,5 @@ const runCompletion = (
       message: `cannot complete: ${outcome.reasons.map((reason) => reason.text).join("; ")}`,
     })
   }).pipe(
-    Effect.catchAll((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(error))),
+    Effect.catch((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(error))),
   )

@@ -6,7 +6,7 @@
  * The vocabulary and the derivations are pure (`../instance`). */
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 
 import {
   messageFileOf,
@@ -29,11 +29,11 @@ export const instanceDir = (changeDir: string, id: string): string => join(subag
 
 /** One lock per subagent directory, created the first time it is needed. Synchronous
  * get-or-create: no fiber can interleave between the read and the set. */
-const locks = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
-const lockFor = (key: string): ReturnType<typeof Effect.unsafeMakeSemaphore> => {
+const locks = new Map<string, ReturnType<typeof Semaphore.makeUnsafe>>();
+const lockFor = (key: string): ReturnType<typeof Semaphore.makeUnsafe> => {
   let lock = locks.get(key);
   if (lock === undefined) {
-    lock = Effect.unsafeMakeSemaphore(1);
+    lock = Semaphore.makeUnsafe(1);
     locks.set(key, lock);
   }
   return lock;
@@ -58,7 +58,7 @@ const writeAtomic = (path: string, data: string): Effect.Effect<void, Error> =>
 
 const readText = (path: string): Effect.Effect<string | undefined> =>
   Effect.tryPromise({ try: () => readFile(path, "utf8"), catch: () => new Error(path) }).pipe(
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   );
 
 /** The message files of one instance, numbered from their filenames and sorted. A file that
@@ -71,7 +71,7 @@ export const readMessages = (
   Effect.gen(function* () {
     const dir = instanceDir(changeDir, id);
     const names = yield* Effect.tryPromise({ try: () => readdir(dir), catch: () => new Error(dir) }).pipe(
-      Effect.catchAll(() => Effect.succeed([] as string[])),
+      Effect.catch(() => Effect.succeed([] as string[])),
     );
     const messages: SubagentMessage[] = [];
     for (const name of names.sort()) {
@@ -80,8 +80,8 @@ export const readMessages = (
       const text = yield* readText(join(dir, name));
       if (text === undefined) continue;
       const parsed = parseMessage(text);
-      if (parsed._tag === "Left") continue;
-      messages.push({ ...parsed.right, number: file.number, role: file.role });
+      if (parsed._tag === "Failure") continue;
+      messages.push({ ...parsed.success, number: file.number, role: file.role });
     }
     return messages.sort((left, right) => left.number - right.number);
   });
@@ -95,9 +95,9 @@ export const readInstance = (
     const text = yield* readText(join(instanceDir(changeDir, id), "session.json"));
     if (text === undefined) return null;
     const parsed = parseRecord(text);
-    if (parsed._tag === "Left") return null;
+    if (parsed._tag === "Failure") return null;
     const messages = yield* readMessages(changeDir, id);
-    return { ...parsed.right, messages };
+    return { ...parsed.success, messages };
   });
 
 /** Every instance of a change, in id order (which is creation order, the ids carrying a
@@ -108,7 +108,7 @@ export const listInstances = (
   Effect.gen(function* () {
     const dir = subagentsDir(changeDir);
     const names = yield* Effect.tryPromise({ try: () => readdir(dir), catch: () => new Error(dir) }).pipe(
-      Effect.catchAll(() => Effect.succeed([] as string[])),
+      Effect.catch(() => Effect.succeed([] as string[])),
     );
     const instances: SubagentWithMessages[] = [];
     for (const name of names.sort()) {
@@ -184,11 +184,11 @@ export const appendMessage = (
 
 /** A change-level lock, for the operations that span instances: create's idempotency scan, and
  * removal. Per-subagent locks do not help when the thing being decided is which subagent. */
-const changeLocks = new Map<string, ReturnType<typeof Effect.unsafeMakeSemaphore>>();
-const changeLockFor = (changeDir: string): ReturnType<typeof Effect.unsafeMakeSemaphore> => {
+const changeLocks = new Map<string, ReturnType<typeof Semaphore.makeUnsafe>>();
+const changeLockFor = (changeDir: string): ReturnType<typeof Semaphore.makeUnsafe> => {
   let lock = changeLocks.get(changeDir);
   if (lock === undefined) {
-    lock = Effect.unsafeMakeSemaphore(1);
+    lock = Semaphore.makeUnsafe(1);
     changeLocks.set(changeDir, lock);
   }
   return lock;
@@ -326,7 +326,7 @@ export const removeInstance = (changeDir: string, id: string): Effect.Effect<voi
     changeDir,
     id,
     Effect.promise(() => rm(instanceDir(changeDir, id), { recursive: true, force: true })).pipe(
-      Effect.catchAll(() => Effect.void),
+      Effect.catch(() => Effect.void),
     ),
   );
 

@@ -9,7 +9,7 @@
 import { Schema } from "effect"
 
 /** One event name a Corvi server broadcasts. */
-export const EventNameSchema = Schema.Literal("changes", "windows", "notify", "update")
+export const EventNameSchema = Schema.Literals(["changes", "windows", "notify", "update"])
 export type EventNameDto = typeof EventNameSchema.Type
 
 /** A remote workspace's event as the local page receives it. */

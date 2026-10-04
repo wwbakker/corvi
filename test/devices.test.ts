@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile, stat } from "node:fs/promises";
-import { Effect, TestClock } from "effect";
+import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 
 import type { DeviceDto, PairingCodeResponseDto, RedeemPairingCodeResponseDto } from "@corvi/contracts/devices";
 import { deviceTokenMatches, hashDeviceToken } from "@corvi/configuration/node/devices";
@@ -95,11 +96,11 @@ test("a pairing code expires after its TTL", async () => {
     Effect.gen(function* () {
       const created = yield* createPairingCode();
       yield* TestClock.adjust("6 minutes");
-      return yield* Effect.either(redeemPairingCode({ code: created.code }));
+      return yield* Effect.result(redeemPairingCode({ code: created.code }));
     }),
   );
-  expect(outcome._tag).toBe("Left");
-  if (outcome._tag === "Left") expect(outcome.left.message).toContain("expired");
+  expect(outcome._tag).toBe("Failure");
+  if (outcome._tag === "Failure") expect(outcome.failure.message).toContain("expired");
 });
 
 test("a device can be revoked, and revoking an unknown one is not found", async () => {
@@ -109,8 +110,8 @@ test("a device can be revoked, and revoking an unknown one is not found", async 
   const body = (await revoked.json()) as { device: { revokedAt?: string } };
   expect(body.device.revokedAt).toBeDefined();
 
-  const missing = await runEffect(Effect.either(revokeDevice("no-such-device")));
-  expect(missing._tag).toBe("Left");
+  const missing = await runEffect(Effect.result(revokeDevice("no-such-device")));
+  expect(missing._tag).toBe("Failure");
 });
 
 test("revoking a device invalidates outstanding pairing codes", async () => {
@@ -118,8 +119,8 @@ test("revoking a device invalidates outstanding pairing codes", async () => {
   const pending = await runEffect(createPairingCode());
   await runEffect(revokeDevice(device.id));
   // The code minted before the revocation must not mint a fresh device after it.
-  const outcome = await runEffect(Effect.either(redeemPairingCode({ code: pending.code })));
-  expect(outcome._tag).toBe("Left");
+  const outcome = await runEffect(Effect.result(redeemPairingCode({ code: pending.code })));
+  expect(outcome._tag).toBe("Failure");
 });
 
 test("the raw token is stored as a hash and never returned by a read", async () => {

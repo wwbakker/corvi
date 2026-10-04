@@ -153,4 +153,4 @@ export interface Interface {
   }
 }
 
-export class Service extends Context.Tag("corvi/GitService")<Service, Interface>() {}
+export class Service extends Context.Service<Service, Interface>()("corvi/GitService") {}

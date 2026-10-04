@@ -144,12 +144,12 @@ test(
         git(dir, "add", ".")
         git(dir, "commit", "-m", "own work")
         const before = git(dir, "rev-parse", "HEAD")
-        const refused = yield* service.sync.mergeFastForwardOnly(repository, { to: "main" }).pipe(Effect.either)
-        expect(refused._tag).toBe("Left")
-        if (refused._tag === "Left")
+        const refused = yield* service.sync.mergeFastForwardOnly(repository, { to: "main" }).pipe(Effect.result)
+        expect(refused._tag).toBe("Failure")
+        if (refused._tag === "Failure")
           // git's verdict, not its advice column: the message is the sentence a report shows.
-          expect(refused.left.message).toContain("Not possible to fast-forward")
-        if (refused._tag === "Left") expect(refused.left.message).not.toContain("hint:")
+          expect(refused.failure.message).toContain("Not possible to fast-forward")
+        if (refused._tag === "Failure") expect(refused.failure.message).not.toContain("hint:")
         expect(git(dir, "rev-parse", "HEAD")).toBe(before)
       }),
     ),
@@ -176,9 +176,9 @@ test(
 
         const refused = yield* service.worktree
           .remove({ repository, directory: AbsolutePath.make(dirtyDir), force: false })
-          .pipe(Effect.either)
-        expect(refused._tag).toBe("Left")
-        if (refused._tag === "Left") expect(refused.left._tag).toBe("Git.OperationError")
+          .pipe(Effect.result)
+        expect(refused._tag).toBe("Failure")
+        if (refused._tag === "Failure") expect(refused.failure._tag).toBe("Git.OperationError")
 
         yield* service.worktree.remove({ repository, directory: AbsolutePath.make(dirtyDir), force: true })
         const gone = yield* service.repo.discover(AbsolutePath.make(dirtyDir))
@@ -470,23 +470,23 @@ test(
         const resolve = (name: string): Effect.Effect<Git.ExistingBranch, NotARepository | CheckoutError> =>
           repositories.resolveExistingBranch(AbsolutePath.make(repo), name)
 
-        const absent = yield* resolve("absent").pipe(Effect.either)
-        expect(absent._tag).toBe("Left")
-        if (absent._tag === "Left") expect(absent.left.message).toContain("branch not found")
+        const absent = yield* resolve("absent").pipe(Effect.result)
+        expect(absent._tag).toBe("Failure")
+        if (absent._tag === "Failure") expect(absent.failure.message).toContain("branch not found")
 
-        const ambiguous = yield* resolve("feature").pipe(Effect.either)
-        expect(ambiguous._tag).toBe("Left")
-        if (ambiguous._tag === "Left") expect(ambiguous.left.message).toContain("ambiguous remote branch")
+        const ambiguous = yield* resolve("feature").pipe(Effect.result)
+        expect(ambiguous._tag).toBe("Failure")
+        if (ambiguous._tag === "Failure") expect(ambiguous.failure.message).toContain("ambiguous remote branch")
 
-        const symbolic = yield* resolve("origin/HEAD").pipe(Effect.either)
-        expect(symbolic._tag).toBe("Left")
-        if (symbolic._tag === "Left") expect(symbolic.left.message).toContain("branch not found")
+        const symbolic = yield* resolve("origin/HEAD").pipe(Effect.result)
+        expect(symbolic._tag).toBe("Failure")
+        if (symbolic._tag === "Failure") expect(symbolic.failure.message).toContain("branch not found")
 
         git(repo, "branch", "--track", "feature", "upstream/feature")
-        const conflicting = yield* resolve("origin/feature").pipe(Effect.either)
-        expect(conflicting._tag).toBe("Left")
-        if (conflicting._tag === "Left")
-          expect(conflicting.left.message).toContain("tracks refs/remotes/upstream/feature")
+        const conflicting = yield* resolve("origin/feature").pipe(Effect.result)
+        expect(conflicting._tag).toBe("Failure")
+        if (conflicting._tag === "Failure")
+          expect(conflicting.failure.message).toContain("tracks refs/remotes/upstream/feature")
 
         const resolved = yield* resolve("feature")
         expect(resolved).toEqual({ branch: "feature", remote: "upstream", remoteRef: "upstream/feature" })
@@ -536,8 +536,8 @@ test(
             branch: "origin/feature",
             createMissing: false,
           })
-          .pipe(Effect.either)
-        expect(rejected._tag).toBe("Left")
+          .pipe(Effect.result)
+        expect(rejected._tag).toBe("Failure")
         expect(existsSync(join(tmp, "second"))).toBe(false)
       }),
     ),

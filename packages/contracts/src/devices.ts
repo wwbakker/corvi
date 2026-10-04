@@ -35,7 +35,9 @@ export const DeviceViewSchema = Schema.Struct({
 export type DeviceViewDto = typeof DeviceViewSchema.Type
 
 /** A pairing code: short-lived, single-use, and exchanged for a device token. */
-export const PairingCodeSchema = Schema.String.pipe(Schema.minLength(4), Schema.maxLength(64))
+export const PairingCodeSchema = Schema.String.pipe(
+  Schema.check(Schema.isMinLength(4), Schema.isMaxLength(64)),
+)
 export type PairingCodeDto = typeof PairingCodeSchema.Type
 
 /** What creating a pairing code answers: the code and when it stops working. */

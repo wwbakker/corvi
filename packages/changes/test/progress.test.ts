@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test"
 import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect, Either } from "effect"
+import { Effect, Result } from "effect"
 
 import { ChangeId } from "@corvi/contracts/changes"
 import { OperationProgress } from "../src/progress.ts"
@@ -18,8 +18,8 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-const run = <A, E>(program: Effect.Effect<A, E, OperationProgress>): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(progressLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))))
+const run = <A, E>(program: Effect.Effect<A, E, OperationProgress>): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(progressLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))))
 
 test("the operation journal appends steps and survives a reload", async () => {
   const result = await run(
@@ -36,9 +36,9 @@ test("the operation journal appends steps and survives a reload", async () => {
       return yield* Effect.tryPromise(() => Bun.file(join(root, "demo", "operations.json")).json())
     }),
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right).toEqual([
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success).toEqual([
       { id: "one", label: "checkout one", state: "running" },
       { id: "one", label: "checkout one", state: "done" },
     ])
@@ -56,6 +56,6 @@ test("a malformed journal is a typed error", async () => {
       })
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeStoreError")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeStoreError")
 })

@@ -25,7 +25,7 @@ const WindowBody = Schema.Struct({
   index: Schema.optional(Schema.Number),
   from: Schema.optional(Schema.Number),
   to: Schema.optional(Schema.Number),
-  direction: Schema.optional(Schema.Literal("right", "down")),
+  direction: Schema.optional(Schema.Literals(["right", "down"])),
   window: Schema.optional(Schema.String),
   pane: Schema.optional(Schema.String),
 });
@@ -80,7 +80,7 @@ export const terminalsRoutes = guard({
     GET: () =>
       runRoute(
         Effect.map(
-          Effect.catchAll(allWindows(), () => Effect.succeed({})),
+          Effect.catch(allWindows(), () => Effect.succeed({})),
           json,
         ),
       ),
@@ -130,7 +130,7 @@ export const terminalsRoutes = guard({
     GET: (req) =>
       withChange(req.params.id, (c) =>
         Effect.map(
-          Effect.catchAll(listWindows(c.id), () => Effect.succeed([])),
+          Effect.catch(listWindows(c.id), () => Effect.succeed([])),
           json,
         ),
       ),

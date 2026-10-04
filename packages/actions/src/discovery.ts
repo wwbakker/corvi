@@ -5,7 +5,7 @@
  * same id in a more specific scope shadows the rest outright; the same id in two repositories is
  * not a collision at all — both are listed, each qualified by its repository's name, because a
  * checkout's actions travel with the checkout. */
-import { Either } from "effect";
+import { Result } from "effect";
 
 import type { ActionSource } from "@corvi/contracts/actions";
 import { parseActionFile, type Action, type InvalidActionFile } from "./model.ts";
@@ -64,8 +64,8 @@ export const mergeActionFiles = (files: readonly ActionFileInput[]): Discovery =
   for (const file of files) {
     const key = keyOf(file.source, file.origin, file.id);
     const parsed = parseActionFile(file.text);
-    if (Either.isLeft(parsed)) {
-      skipped.push({ key, reasons: parsed.left.reasons });
+    if (Result.isFailure(parsed)) {
+      skipped.push({ key, reasons: parsed.failure.reasons });
       continue;
     }
     actions.push({
@@ -73,7 +73,7 @@ export const mergeActionFiles = (files: readonly ActionFileInput[]): Discovery =
       id: file.id,
       source: file.source,
       sourceLabel: file.originLabel ?? file.origin,
-      action: parsed.right,
+      action: parsed.success,
     });
   }
 

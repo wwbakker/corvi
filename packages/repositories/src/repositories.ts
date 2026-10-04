@@ -171,7 +171,7 @@ export interface Interface {
   }) => Effect.Effect<InPlaceOutcome, NotARepository | CheckoutError>
 }
 
-export class Repositories extends Context.Tag("corvi/Repositories")<Repositories, Interface>() {}
+export class Repositories extends Context.Service<Repositories, Interface>()("corvi/Repositories") {}
 
 export const layer = Layer.effect(
   Repositories,
@@ -341,9 +341,9 @@ export const layer = Layer.effect(
               cause,
             }),
         ),
-        Effect.either,
+        Effect.result,
       )
-      if (merged._tag === "Left") {
+      if (merged._tag === "Failure") {
         // A refusal is an outcome; a fast-forward that was possible and still failed is not.
         // Ancestry decides — with the one exception the promise names: git declines to
         // fast-forward over uncommitted work it would clobber, and that refusal is possible *and*
@@ -351,18 +351,18 @@ export const layer = Layer.effect(
         // could have moved and did not is broken infrastructure.
         const possible = yield* git.history
           .isAncestor(repository, { ancestor: before ?? "", descendant: input.to })
-          .pipe(Effect.catchAll(() => Effect.succeed(false)))
+          .pipe(Effect.catch(() => Effect.succeed(false)))
         const dirty = possible
-          ? yield* git.status.dirty(repository).pipe(Effect.catchAll(() => Effect.succeed(false)))
+          ? yield* git.status.dirty(repository).pipe(Effect.catch(() => Effect.succeed(false)))
           : false
         if (possible && !dirty)
           return yield* new CheckoutError({
             operation: "merge",
             directory: input.directory,
-            message: merged.left.message,
-            cause: merged.left,
+            message: merged.failure.message,
+            cause: merged.failure,
           })
-        return { _tag: "LeftAlone", reason: merged.left.message } satisfies ForwardOutcome
+        return { _tag: "LeftAlone", reason: merged.failure.message } satisfies ForwardOutcome
       }
       const after = yield* inspect(git.history.head(repository), input.directory)
       return (before === after
@@ -489,8 +489,8 @@ export const layer = Layer.effect(
         ? yield* inspect(git.integration.proven(repository, { branch: input.branch, base }), input.repository)
         : false
       if (integrated) {
-        const deleted = yield* git.sync.deleteBranch(repository, input.branch).pipe(Effect.either)
-        if (deleted._tag === "Right") return "deleted" as const
+        const deleted = yield* git.sync.deleteBranch(repository, input.branch).pipe(Effect.result)
+        if (deleted._tag === "Success") return "deleted" as const
         return (yield* exists()) ? ("kept" as const) : ("absent" as const)
       }
       return (yield* exists()) ? ("kept" as const) : ("absent" as const)

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Either, Layer } from "effect";
+import { Effect, Result, Layer } from "effect";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import type { Change } from "@corvi/changes/record";
@@ -17,7 +17,7 @@ import azureDevopsExtension, { azureDevopsSummaryContributor } from "@corvi/azur
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { checkoutsOf, fakeShell, runEffect, runWithShell, TestError, testTempDir, withRuntimeConfig, type FakeShell  } from "./helpers.ts";
 
 /**
@@ -46,7 +46,7 @@ const change = (over: Partial<Change> = {}): Change => ({
  * answering the same command differently are told apart.
  */
 const shellFor = (
-  answer: (line: string, cwd: string | undefined) => string | Partial<Result> | undefined,
+  answer: (line: string, cwd: string | undefined) => string | Partial<ShellResult> | undefined,
 ): FakeShell => {
   const ref: { shell?: FakeShell } = {};
   const shell = fakeShell((cmd) => answer(cmd.join(" "), ref.shell?.calls.at(-1)?.cwd));
@@ -443,12 +443,12 @@ const runRoute = <A, E>(
   shell: FakeShell,
   effect: Effect.Effect<A, E, Capabilities>,
   workspaceId?: string,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell, workspaceId))));
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(Effect.result(Effect.provide(effect, extLayer(shell, workspaceId))));
 
-const jsonOf = async <A>(result: Either.Either<Response, A>): Promise<unknown> => {
-  if (Either.isLeft(result)) throw result.left;
-  return result.right.json();
+const jsonOf = async <A>(result: Result.Result<Response, A>): Promise<unknown> => {
+  if (Result.isFailure(result)) throw result.failure;
+  return result.success.json();
 };
 
 test("the services route answers for a workspace that enabled azure-devops", async () => {
@@ -558,15 +558,15 @@ test("the deploy route refuses a body that is not JSON", async () => {
       { service: "example-api" },
     ),
   );
-  expect(Either.isLeft(result)).toBe(true);
-  if (Either.isLeft(result)) {
-    expect(result.left._tag).toBe("BadRequestError");
-    expect(result.left.message.length).toBeGreaterThan(0);
+  expect(Result.isFailure(result)).toBe(true);
+  if (Result.isFailure(result)) {
+    expect(result.failure._tag).toBe("BadRequestError");
+    expect(result.failure.message.length).toBeGreaterThan(0);
   }
 });
 
 test("the deploy route refuses a body missing the version or the environment, or not an object at all", async () => {
-  const call = (body: unknown): Promise<Either.Either<Response, unknown>> =>
+  const call = (body: unknown): Promise<Result.Result<Response, unknown>> =>
     runRoute(
       fakeShell(),
       deployRoute.handler(
@@ -583,10 +583,10 @@ test("the deploy route refuses a body missing the version or the environment, or
   // caller's mistake: the version and the environment have to be there.
   for (const body of [{}, { version: "v1" }, { environment: "accept" }, null]) {
     const result = await call(body);
-    expect(Either.isLeft(result)).toBe(true);
-    if (Either.isLeft(result)) {
-      expect(result.left).toBeInstanceOf(Error);
-      expect((result.left as Error).message).toBe("version and environment required");
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(Error);
+      expect((result.failure as Error).message).toBe("version and environment required");
     }
   }
 });
@@ -598,7 +598,7 @@ test("the deploy route passes a complete body to the promotion-guarded deploy", 
     if (line.startsWith("az pipelines list ")) return "[]";
     return undefined;
   });
-  const call = (body: unknown): Promise<Either.Either<Response, unknown>> =>
+  const call = (body: unknown): Promise<Result.Result<Response, unknown>> =>
     runRoute(
       shell,
       deployRoute.handler(
@@ -613,12 +613,12 @@ test("the deploy route passes a complete body to the promotion-guarded deploy", 
 
   // The known environment gets as far as the pipeline lookup; the unknown one is refused first.
   const known = await call({ version: "v1", environment: "accept" });
-  expect(Either.isLeft(known)).toBe(true);
-  if (Either.isLeft(known)) expect((known.left as Error).message).toBe("no deploy pipeline for example-api");
+  expect(Result.isFailure(known)).toBe(true);
+  if (Result.isFailure(known)) expect((known.failure as Error).message).toBe("no deploy pipeline for example-api");
 
   const unknown = await call({ version: "v1", environment: "staging" });
-  expect(Either.isLeft(unknown)).toBe(true);
-  if (Either.isLeft(unknown)) expect((unknown.left as Error).message).toBe("unknown environment: staging");
+  expect(Result.isFailure(unknown)).toBe(true);
+  if (Result.isFailure(unknown)) expect((unknown.failure as Error).message).toBe("unknown environment: staging");
 });
 
 // --- effects: provisioning, status/repoStatus, actions and the read-only finished change ----

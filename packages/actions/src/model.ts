@@ -7,7 +7,7 @@
  *
  * The shape matches pi's own prompt templates (Markdown + YAML frontmatter) on purpose: the same
  * file reads as an action here and, later, could be sent as a `/name` template there. */
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { parse as parseYaml } from "yaml";
 
 import { ChangePhase } from "@corvi/contracts/changes";
@@ -41,8 +41,8 @@ export type InvalidActionFile = {
   readonly reasons: readonly string[];
 };
 
-const invalid = (...reasons: string[]): Either.Either<Action, InvalidActionFile> =>
-  Either.left({ reasons });
+const invalid = (...reasons: string[]): Result.Result<Action, InvalidActionFile> =>
+  Result.fail({ reasons });
 
 const isKind = Schema.is(ActionKind);
 const isTarget = Schema.is(ActionTarget);
@@ -68,7 +68,7 @@ export const splitFrontmatter = (
 /** Parse one action file. Unknown frontmatter keys are tolerated — a file may carry a
  * `description` for pi and still be an action here — but every key this vocabulary knows is
  * checked, and contradictions (a command that submits) are refused rather than ignored. */
-export const parseActionFile = (text: string): Either.Either<Action, InvalidActionFile> => {
+export const parseActionFile = (text: string): Result.Result<Action, InvalidActionFile> => {
   const split = splitFrontmatter(text);
   if (!split || typeof split.fields !== "object" || split.fields === null) {
     return invalid("missing or unparseable YAML frontmatter");
@@ -136,7 +136,7 @@ export const parseActionFile = (text: string): Either.Either<Action, InvalidActi
   }
   if (reasons.length > 0) return invalid(...reasons);
 
-  return Either.right({
+  return Result.succeed({
     label,
     kind,
     target,

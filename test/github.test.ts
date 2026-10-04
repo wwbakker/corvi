@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Either, Layer } from "effect";
+import { Effect, Result, Layer } from "effect";
 import {
   createPr,
   headRef,
@@ -35,7 +35,7 @@ import type { Capabilities } from "../apps/server/src/integrations/api/capabilit
 import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, capabilitiesLayer, extensionStoreLayer } from "../apps/server/src/integrations/services.ts";
 import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, fakeShell, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
 
@@ -104,7 +104,7 @@ type GhShellOptions = {
   /** Answer the stacks-preview GraphQL query with a failure, so the retry path is exercised. */
   stackQueryFails?: boolean;
   /** Answers for commands the helper does not know; the shared commands stay scripted. */
-  gh?: (line: string) => string | Partial<Result> | undefined;
+  gh?: (line: string) => string | Partial<ShellResult> | undefined;
 };
 
 /** A fake Shell that answers the git reads a worktree lookup makes plus `gh pr list`, and
@@ -163,9 +163,9 @@ const ghShell = (opts: GhShellOptions): FakeShell => {
 const runEither = <A, E, R>(
   shell: FakeShell,
   effect: Effect.Effect<A, E, R>,
-): Promise<Either.Either<A, E>> =>
+): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.either(
+    Effect.result(
       Effect.provide(
         effect as Effect.Effect<A, E, never>,
         Layer.mergeAll(
@@ -199,8 +199,8 @@ const runExtension = <A, E>(
 const runExtensionEither = <A, E>(
   shell: FakeShell,
   effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(Effect.either(Effect.provide(effect, extLayer(shell))));
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(Effect.result(Effect.provide(effect, extLayer(shell))));
 
 test("an existing remote-qualified selection looks up the PR for its attached local branch", async () => {
   const repo = await testTempDir("gh-existing-branch");
@@ -578,15 +578,15 @@ test("mergePr: a stack that cannot start the merge fails with what GitHub said",
     },
   });
   const either = await runEither(shell, mergePr(change(), repo, 7));
-  expect(Either.isLeft(either)).toBe(true);
-  if (Either.isLeft(either)) expect(either.left.message).toContain("could not start the merge of #7");
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) expect(either.failure.message).toContain("could not start the merge of #7");
 });
 
 test("mergePr: no worktree is a bad request before any merge is attempted", async () => {
   const repo = "/repos/merge-nowt";
   const either = await runEither(ghShell({ repo, noWorktree: true }), mergePr(change(), repo, 7));
-  expect(Either.isLeft(either)).toBe(true);
-  if (Either.isLeft(either)) expect(either.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) expect(either.failure._tag).toBe("BadRequestError");
 });
 
 // --- Creating a pull request ------------------------------------------------------------------
@@ -634,7 +634,7 @@ test("createPr targets the base branch and ties the new pull request into its st
 test("createPr: no worktree and a failed push both stop before a pull request exists", async () => {
   const noWt = "/repos/create-nowt";
   const either = await runEither(ghShell({ repo: noWt, noWorktree: true }), createPr(change(), noWt));
-  expect(Either.isLeft(either)).toBe(true);
+  expect(Result.isFailure(either)).toBe(true);
 
   const repo = "/repos/create-nopush";
   const shell = ghShell({
@@ -642,8 +642,8 @@ test("createPr: no worktree and a failed push both stop before a pull request ex
     gh: (line) => (line === "git push -u origin feature" ? { code: 1, stderr: "rejected" } : undefined),
   });
   const failed = await runEither(shell, createPr(change(), repo));
-  expect(Either.isLeft(failed)).toBe(true);
-  if (Either.isLeft(failed)) expect(failed.left._tag).toBe("CliError");
+  expect(Result.isFailure(failed)).toBe(true);
+  if (Result.isFailure(failed)) expect(failed.failure._tag).toBe("CliError");
 });
 
 // --- github-issues: pure parsing --------------------------------------------------------------
@@ -809,23 +809,23 @@ test("createIssue omits a blank body and falls back when the new issue cannot be
 test("createIssue: no GitHub remote, a failing gh and an unreadable URL are bad requests", async () => {
   const noRemote = fakeShell({ "git remote get-url origin": { code: 1, stderr: "none" } });
   const missing = await runExtensionEither(noRemote, createIssue("/r/create-nogh", "T", undefined));
-  expect(Either.isLeft(missing) && missing.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(missing) && missing.failure._tag).toBe("BadRequestError");
 
   const failed = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
     "gh issue create -R owner/name -t T": { code: 1, stderr: "no permission" },
   });
   const refused = await runExtensionEither(failed, createIssue("/r/create-fail", "T", undefined));
-  expect(Either.isLeft(refused) && refused.left._tag).toBe("BadRequestError");
-  if (Either.isLeft(refused)) expect(refused.left.message).toContain("no permission");
+  expect(Result.isFailure(refused) && refused.failure._tag).toBe("BadRequestError");
+  if (Result.isFailure(refused)) expect(refused.failure.message).toContain("no permission");
 
   const unreadable = fakeShell({
     "git remote get-url origin": "https://github.com/owner/name.git\n",
     "gh issue create -R owner/name -t T": "created but no url",
   });
   const noNumber = await runExtensionEither(unreadable, createIssue("/r/create-nonum", "T", undefined));
-  expect(Either.isLeft(noNumber)).toBe(true);
-  if (Either.isLeft(noNumber)) expect(noNumber.left.message).toContain("could not read the new issue's number");
+  expect(Result.isFailure(noNumber)).toBe(true);
+  if (Result.isFailure(noNumber)) expect(noNumber.failure.message).toContain("could not read the new issue's number");
 });
 
 test("completing a change closes its issue with a word about where the work landed", async () => {
@@ -855,7 +855,7 @@ test("completing a change without a GitHub remote says so, and a failing close i
   });
   const c2 = change({ id: "D", extensions: { "github-issues": { repo: "/r/close-fail", number: 7 } } });
   const either = await runExtensionEither(failed, closeIssueOnComplete(c2));
-  expect(Either.isLeft(either) && either.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(either) && either.failure._tag).toBe("BadRequestError");
 });
 
 test("completing a change with no linked issue does nothing at all", async () => {
@@ -1041,7 +1041,7 @@ test("the POST route refuses a missing repository, a blank title and an unreadab
       new Request("http://x/issues", { method: "POST", body: JSON.stringify({ repo: "", title: "x" }) }),
     ),
   );
-  expect(Either.isLeft(missing) && missing.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(missing) && missing.failure._tag).toBe("BadRequestError");
 
   const blank = await runExtensionEither(
     fakeShell(),
@@ -1049,14 +1049,14 @@ test("the POST route refuses a missing repository, a blank title and an unreadab
       new Request("http://x/issues", { method: "POST", body: JSON.stringify({ repo: "/r/x", title: "   " }) }),
     ),
   );
-  expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
 
   // A body that is not JSON at all falls back to "no fields", which is the same bad request.
   const junk = await runExtensionEither(
     fakeShell(),
     postIssues.handler(new Request("http://x/issues", { method: "POST", body: "not json" })),
   );
-  expect(Either.isLeft(junk) && junk.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(junk) && junk.failure._tag).toBe("BadRequestError");
 });
 
 // --- github-issues: the link route ------------------------------------------------------------
@@ -1073,9 +1073,9 @@ const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
 /** The same, capturing a refusal instead of rejecting with it. */
 const runLinkEither = <A, E>(
   effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Either.Either<A, E>> =>
+): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.either(
+    Effect.result(
       Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "github-issues")),
     ),
   );
@@ -1127,8 +1127,8 @@ test("the link route refuses a finished change: its completion already closed it
       { id: "PROJ-GH-LINK-DONE" },
     ),
   );
-  if (Either.isLeft(either)) {
-    expect(either.left._tag).toBe("BadRequestError");
+  if (Result.isFailure(either)) {
+    expect(either.failure._tag).toBe("BadRequestError");
   } else {
     throw new Error("expected the finished change to refuse the write");
   }
@@ -1149,7 +1149,7 @@ test("the link route 404s an unknown change and refuses a body without a ref", a
       { id: "PROJ-GH-LINK-GONE" },
     ),
   );
-  expect(Either.isLeft(missing) && missing.left._tag).toBe("NotFoundError");
+  expect(Result.isFailure(missing) && missing.failure._tag).toBe("NotFoundError");
 
   await runLink(createChange({ id: "PROJ-GH-LINK-KEY", checkouts: checkoutsOf(["/r/x"]) }));
   for (const body of [{ number: 8 }, { repo: "  " }, { repo: "/r/x" }, { repo: "/r/x", number: "8" }]) {
@@ -1159,7 +1159,7 @@ test("the link route 404s an unknown change and refuses a body without a ref", a
         { id: "PROJ-GH-LINK-KEY" },
       ),
     );
-    expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
+    expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
   }
 });
 

@@ -22,7 +22,7 @@ import { ShellLive } from "../../integrations/services.ts";
 export const runRoute = (effect: Effect.Effect<Response, unknown>): Promise<Response> =>
   Effect.runPromise(
     effect.pipe(
-      Effect.catchAll((error) => Effect.succeed(toResponse(error))),
-      Effect.catchAllDefect((defect) => Effect.succeed(toResponse(defect))),
+      Effect.catch((error) => Effect.succeed(toResponse(error))),
+      Effect.catchDefect((defect) => Effect.succeed(toResponse(defect))),
     ).pipe(Effect.provide(ShellLive)),
   );

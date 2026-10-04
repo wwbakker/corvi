@@ -25,13 +25,13 @@ import { DEPLOY_ENVIRONMENTS_ENV } from "./deploySettings.ts";
  */
 
 /** The deploy the page asks for: a version and an environment, both required by the handler. */
-const DeployBody = Schema.Union(
+const DeployBody = Schema.Union([
   Schema.Null,
   Schema.Struct({
     version: Schema.optional(Schema.String),
     environment: Schema.optional(Schema.String),
   }),
-);
+]);
 
 /** repository > pipelines > runs, as one collapsible tree per repository. Pipelines run on the
  * PR merge ref once a PR exists, so the pull request number is looked up first through the

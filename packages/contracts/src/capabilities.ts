@@ -17,7 +17,7 @@ export { Workspace } from "./workspace.ts";
 
 /** One CLI call's outcome: exit codes are data — callers branch on `code`; the typed failure
  * is reserved for a timeout, which kills the child. */
-export type Result = {
+export type ShellResult = {
   readonly code: number;
   readonly stdout: string;
   readonly stderr: string;
@@ -30,18 +30,18 @@ export interface ShellShape {
   run(
     cmd: readonly string[],
     opts?: { readonly cwd?: string },
-  ): Effect.Effect<Result, CliError, Workspace>;
+  ): Effect.Effect<ShellResult, CliError, Workspace>;
 }
 
-export class Shell extends Context.Tag("corvi/Shell")<Shell, ShellShape>() {}
+export class Shell extends Context.Service<Shell, ShellShape>()("corvi/Shell") {}
 
 /** The answer cache: read-through with a TTL, one shared refresh per key, and prefix
  * invalidation for when an action has just made an answer wrong. The work's requirements
  * pass through untouched — the cache stores outcomes, not contexts. */
-export class Cache extends Context.Tag("corvi/Cache")<Cache, {
+export class Cache extends Context.Service<Cache, {
   swr<A, E, R>(key: string, ttlMs: number, work: Effect.Effect<A, E, R>): Effect.Effect<A, E, R>;
   invalidate(prefix: string): Effect.Effect<void>;
-}>() {}
+}>()("corvi/Cache") {}
 
 /** Use the answer cache without resolving it first: `swr` reads through the capability and
  * `invalidate` drops what an action has just made wrong. Both require `Cache` — there is no
@@ -57,12 +57,12 @@ export const invalidate = (prefix: string): Effect.Effect<void, never, Cache> =>
 
 /** The settings in effect — the same refilled object every module holds, so a settings-page
  * save is visible without restart. Read-only by convention. */
-export class Settings extends Context.Tag("corvi/Settings")<Settings, ResolvedDto>() {}
+export class Settings extends Context.Service<Settings, ResolvedDto>()("corvi/Settings") {}
 
 /** Say something changed, so open pages refetch through the event stream. */
-export class Bus extends Context.Tag("corvi/Bus")<Bus, {
+export class Bus extends Context.Service<Bus, {
   announce(event: "changes" | "windows"): Effect.Effect<void>;
-}>() {}
+}>()("corvi/Bus") {}
 
 /** The shape of the single-writer store an integration gets for its own data about a change.
  * Exposed as its own type so the host's layer can be typed against the same contract. */
@@ -83,10 +83,10 @@ export type ExtensionStoreShape = {
  * provides the layer per contribution with the integration's name bound, so an effect names a
  * file (`notes.md`) rather than itself. `change.json` and the core's own sidecars are not
  * reachable through it; paths that escape the integration's directory are rejected. */
-export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
+export class ExtensionStore extends Context.Service<
   ExtensionStore,
   ExtensionStoreShape
->() {}
+>()("corvi/ExtensionStore") {}
 
 /** Read access to the change store: the change module's own read, the git checkout lookup, and
  * the one read a migration needs. An integration can find a change and where its worktree is
@@ -96,15 +96,15 @@ export class ExtensionStore extends Context.Tag("corvi/ExtensionStore")<
 /** The repository facts an integration may ask the host for: what a pull request merges into,
  * the repository's default branch, and whether a branch's content already landed in a base. The
  * host implements it from its own git layer, so integrations never reach into the application. */
-export class GitFacts extends Context.Tag("corvi/GitFacts")<GitFacts, {
+export class GitFacts extends Context.Service<GitFacts, {
   targetFor(change: ChangeWireDto, repo: string): Effect.Effect<string | undefined>;
   /** Local branch a named existing selection attaches to; unknown when refs cannot be resolved. */
   existingBranch(repo: string, name: string): Effect.Effect<string | undefined>;
   remoteDefaultBranch(repo: string): Effect.Effect<string | undefined>;
   contentInMain(repo: string, branch: string, base: string | undefined): Effect.Effect<boolean>;
-}>() {}
+}>()("corvi/GitFacts") {}
 
-export class Changes extends Context.Tag("corvi/Changes")<Changes, {
+export class Changes extends Context.Service<Changes, {
   /** The change with this id, or null when no change.json exists for it. */
   read(id: string): Effect.Effect<ChangeWireDto | null, DecodeError>;
   /** Where a change's checkout of `repo` is — its worktree, or the in-place repository — or
@@ -121,7 +121,7 @@ export class Changes extends Context.Tag("corvi/Changes")<Changes, {
    * absent or unreadable reads as "". This is migration access, not a general escape hatch: an
    * integration's new data goes to `ExtensionStore`. */
   readSidecar(change: ChangeWireDto, name: string): Effect.Effect<string>;
-}>() {}
+}>()("corvi/Changes") {}
 
 /** The union the host provides. An effect may require any subset — requiring less is
  * assignable to requiring the union, so handlers declare only what they use. */

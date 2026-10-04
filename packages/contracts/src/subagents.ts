@@ -7,12 +7,12 @@
 import { Schema } from "effect"
 
 /** The harness a profile starts. */
-export const SubagentHarness = Schema.Literal("pi", "opencode")
+export const SubagentHarness = Schema.Literals(["pi", "opencode"])
 export type SubagentHarness = typeof SubagentHarness.Type
 
 /** Where the profile's file was discovered. Built-in files are shipped with Corvi; repository
  * files live in one of the change's checkouts. */
-export const SubagentSource = Schema.Literal("builtin", "global", "workspace", "repository")
+export const SubagentSource = Schema.Literals(["builtin", "global", "workspace", "repository"])
 export type SubagentSource = typeof SubagentSource.Type
 
 /** One profile file as the page lists it: the file as written, and what it parses to — or why it
@@ -44,7 +44,7 @@ export type SubagentFilesResponseDto = typeof SubagentFilesResponseSchema.Type
  * file is written through the change-scoped routes (`…/subagent-files`) instead, and a built-in
  * is never saved over — the create flow's copy lands in the scope it is picked for. */
 export const SubagentFileWriteSchema = Schema.Struct({
-  scope: Schema.Literal("global", "workspace"),
+  scope: Schema.Literals(["global", "workspace"]),
   workspace: Schema.optional(Schema.String),
   id: Schema.String,
   text: Schema.String,
@@ -52,7 +52,7 @@ export const SubagentFileWriteSchema = Schema.Struct({
 export type SubagentFileWriteDto = typeof SubagentFileWriteSchema.Type
 
 export const SubagentFileRefSchema = Schema.Struct({
-  scope: Schema.Literal("global", "workspace"),
+  scope: Schema.Literals(["global", "workspace"]),
   workspace: Schema.optional(Schema.String),
   id: Schema.String,
 })
@@ -118,12 +118,12 @@ export type SubagentProfilesResponseDto = typeof SubagentProfilesResponseSchema.
 // --- Instances -------------------------------------------------------------------------------
 
 /** Who a message is from. A turn's reply is always `subagent`; the other two are inbound. */
-export const SubagentRole = Schema.Literal("orchestrator", "user", "subagent")
+export const SubagentRole = Schema.Literals(["orchestrator", "user", "subagent"])
 export type SubagentRole = typeof SubagentRole.Type
 
 /** One entry in an instance's system log. */
 export const SubagentSystemEventSchema = Schema.Struct({
-  kind: Schema.Literal(
+  kind: Schema.Literals([
     "created",
     "opened",
     "closed",
@@ -131,7 +131,7 @@ export const SubagentSystemEventSchema = Schema.Struct({
     "turn_settled",
     "interrupted",
     "continued",
-  ),
+  ]),
   at: Schema.String,
   note: Schema.optional(Schema.String),
 })
@@ -148,7 +148,7 @@ export const SubagentRecordSchema = Schema.Struct({
   harness: SubagentHarness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
-  createdBy: Schema.Literal("orchestrator", "user"),
+  createdBy: Schema.Literals(["orchestrator", "user"]),
   createdAt: Schema.String,
   window: Schema.optional(Schema.String),
   deliveredThrough: Schema.optional(Schema.Number),
@@ -183,10 +183,10 @@ export const SubagentInstanceSchema = Schema.Struct({
   harness: SubagentHarness,
   model: Schema.optional(Schema.String),
   effort: Schema.optional(Schema.String),
-  createdBy: Schema.Literal("orchestrator", "user"),
+  createdBy: Schema.Literals(["orchestrator", "user"]),
   createdAt: Schema.String,
-  presence: Schema.Literal("attached", "detached"),
-  activity: Schema.Literal("idle", "working"),
+  presence: Schema.Literals(["attached", "detached"]),
+  activity: Schema.Literals(["idle", "working"]),
   interrupted: Schema.Boolean,
   awaitingReply: Schema.Boolean,
   /** The window index of the live window, for the page to focus it. */
@@ -206,13 +206,13 @@ export type SubagentListResponseDto = typeof SubagentListResponseSchema.Type
 export const SubagentCreateRequestSchema = Schema.Struct({
   profile: Schema.String,
   prompt: Schema.optional(Schema.String),
-  from: Schema.optional(Schema.Literal("orchestrator", "user")),
+  from: Schema.optional(Schema.Literals(["orchestrator", "user"])),
 })
 export type SubagentCreateRequestDto = typeof SubagentCreateRequestSchema.Type
 
 export const SubagentSendRequestSchema = Schema.Struct({
   text: Schema.String,
-  from: Schema.optional(Schema.Literal("orchestrator", "user")),
+  from: Schema.optional(Schema.Literals(["orchestrator", "user"])),
 })
 export type SubagentSendRequestDto = typeof SubagentSendRequestSchema.Type
 
@@ -229,7 +229,7 @@ export type SubagentTurnRequestDto = typeof SubagentTurnRequestSchema.Type
  * the horizon's own deadline (`timeout` — check in on the subagents, then await again). `id`
  * names the subagent that settled an `--any` run. */
 export const SubagentAwaitResponseSchema = Schema.Struct({
-  status: Schema.Literal("ready", "lost", "interrupted", "timeout"),
+  status: Schema.Literals(["ready", "lost", "interrupted", "timeout"]),
   id: Schema.optional(Schema.String),
   /** A reply is parked for `result` to pick up. */
   awaitingReply: Schema.optional(Schema.Boolean),
@@ -239,7 +239,7 @@ export type SubagentAwaitResponseDto = typeof SubagentAwaitResponseSchema.Type
 /** What the extension's `next` got: an inbound message to submit, an interrupted turn to leave
  * alone, or nothing yet (the poll's own deadline). */
 export const SubagentNextResponseSchema = Schema.Struct({
-  status: Schema.Literal("message", "interrupted", "none"),
+  status: Schema.Literals(["message", "interrupted", "none"]),
   message: Schema.optional(SubagentMessageSchema),
 })
 export type SubagentNextResponseDto = typeof SubagentNextResponseSchema.Type

@@ -2,7 +2,8 @@ import { test, expect, beforeEach, afterAll } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { Effect, TestClock } from "effect";
+import { Effect } from "effect";
+import { TestClock } from "effect/testing";
 import {
   clearCache,
   createCache,
@@ -86,7 +87,7 @@ test("a stale answer is handed over at once, and replaced when the refresh lands
       expect(stale).toBe("answer 1");
       // The refresh was forked behind us; a yield lets that daemon start, which is what bumps
       // `calls` before it blocks on the gate.
-      yield* Effect.yieldNow();
+      yield* Effect.yieldNow;
       expect(calls).toBe(2);
 
       // The refresh runs behind on its own daemon. Its work is a real promise, so the TestClock

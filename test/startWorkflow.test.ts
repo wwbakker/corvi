@@ -8,7 +8,7 @@ import {
   startChangeWithWorkflow,
 } from "../apps/server/src/change/server/index.ts";
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 
 /**
@@ -17,7 +17,7 @@ import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
  */
 let tmp: string;
 
-const commit = (repo: string, message: string): Promise<Result> =>
+const commit = (repo: string, message: string): Promise<ShellResult> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 async function clonedRepo(name: string): Promise<string> {

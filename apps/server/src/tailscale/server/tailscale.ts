@@ -15,7 +15,7 @@
  * Every command is an argument array (`@corvi/shell`), never a shell string, and the port is
  * validated by the config schema (1..65535) before it is named as an argument.
  */
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 
 import { BadRequestError } from "@corvi/contracts/errors";
 import type { TailscaleStatusDto } from "@corvi/contracts/tailscale";
@@ -25,7 +25,7 @@ import {
   runtimeTailscalePublishedPort,
   setTailscalePublishedPort,
 } from "../../capabilities/runtime.ts";
-import { sh, type Result } from "../../capabilities/shell.ts";
+import { sh, type ShellResult } from "../../capabilities/shell.ts";
 import {
   decideServe,
   firstLine,
@@ -38,10 +38,10 @@ import {
 import { persistPublishedPort } from "./publication.ts";
 
 /** One `tailscale` call whose failures are data: a missing binary is code 127 and a timeout is
- * the shell's own code, either way a `Result` the caller branches on. */
-const runTailscale = (args: readonly string[]): Effect.Effect<Result> =>
+ * the shell's own code, either way a `ShellResult` the caller branches on. */
+const runTailscale = (args: readonly string[]): Effect.Effect<ShellResult> =>
   sh(["tailscale", ...args]).pipe(
-    Effect.catchAll((error) =>
+    Effect.catch((error) =>
       Effect.succeed({ code: error.exitCode, stdout: "", stderr: error.stderr }),
     ),
   );
@@ -209,8 +209,8 @@ export const reconcileTailscale = (bind: {
     if (published === undefined) return;
     if (bind.listening && bind.port === published) return;
 
-    const stopped = yield* Effect.either(unpublishTailscale());
-    if (Either.isLeft(stopped)) return;
+    const stopped = yield* Effect.result(unpublishTailscale());
+    if (Result.isFailure(stopped)) return;
     if (!bind.listening) return;
-    yield* Effect.either(publishTailscale());
+    yield* Effect.result(publishTailscale());
   });

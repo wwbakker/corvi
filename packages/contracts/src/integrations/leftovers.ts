@@ -23,7 +23,7 @@ export const LeftoverSchema = Schema.Struct({
       Schema.Struct({
         name: Schema.String,
         directory: Schema.Boolean,
-        git: Schema.optional(Schema.Literal("worktree", "repository")),
+        git: Schema.optional(Schema.Literals(["worktree", "repository"])),
       }),
     ),
   ),

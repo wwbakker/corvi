@@ -148,7 +148,7 @@ export const finishCheckouts = (
       // Idempotent: existing destination settings are left alone, so a run that only refreshed
       // an existing worktree copies nothing over it.
       yield* copyTooling(source, worktreePath(change, source), runtimeConfig().worktreeCopy).pipe(
-        Effect.catchAll((error) =>
+        Effect.catch((error) =>
           Effect.sync(() => console.error(`could not copy tooling into ${report.checkoutLocation}:`, error)),
         ),
       );

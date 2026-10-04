@@ -3,7 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 
 import { builtinProfilesDir, readProfileScope } from "../src/node/index.ts";
 import { parseProfileFile } from "../src/profile.ts";
@@ -16,7 +16,7 @@ test("every shipped profile is a valid profile file", () => {
   expect(names).toEqual(["reviewer.md"]);
   for (const name of names) {
     const parsed = parseProfileFile(readFileSync(join(builtinProfilesDir(), name), "utf8"));
-    expect(Either.isRight(parsed)).toBe(true);
+    expect(Result.isSuccess(parsed)).toBe(true);
   }
 });
 
@@ -34,9 +34,9 @@ test("a profile is parsed, and unknown frontmatter keys are tolerated", () => {
       "Review {prompt}",
     ].join("\n"),
   );
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isRight(parsed)) {
-    expect(parsed.right).toEqual({
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isSuccess(parsed)) {
+    expect(parsed.success).toEqual({
       label: "Reviewer",
       harness: "pi",
       model: "zai/glm-5.3-flash",
@@ -49,23 +49,23 @@ test("a profile is parsed, and unknown frontmatter keys are tolerated", () => {
 
 test("a file that is not a profile is refused with the reasons", () => {
   const missing = parseProfileFile("---\nlabel: X\n---\nbody");
-  expect(Either.isLeft(missing)).toBe(true);
-  if (Either.isLeft(missing)) expect(missing.left.reasons.join("; ")).toContain("harness");
+  expect(Result.isFailure(missing)).toBe(true);
+  if (Result.isFailure(missing)) expect(missing.failure.reasons.join("; ")).toContain("harness");
 
   const badHarness = parseProfileFile("---\nlabel: X\nharness: cursor\n---\nbody");
-  expect(Either.isLeft(badHarness)).toBe(true);
+  expect(Result.isFailure(badHarness)).toBe(true);
 
   const badModel = parseProfileFile("---\nlabel: X\nharness: pi\nmodel: 7\n---\nbody");
-  expect(Either.isLeft(badModel)).toBe(true);
+  expect(Result.isFailure(badModel)).toBe(true);
 
   const noFrontmatter = parseProfileFile("just a body");
-  expect(Either.isLeft(noFrontmatter)).toBe(true);
+  expect(Result.isFailure(noFrontmatter)).toBe(true);
 });
 
 test("an empty phases list means every phase, not none", () => {
   const parsed = parseProfileFile("---\nlabel: X\nharness: pi\nphases: []\n---\nbody");
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isRight(parsed)) expect(parsed.right.phases).toBeUndefined();
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isSuccess(parsed)) expect(parsed.success.phases).toBeUndefined();
 });
 
 test("a file that cannot be read, or does not parse, is skipped with its reasons", () => {

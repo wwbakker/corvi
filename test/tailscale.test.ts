@@ -247,9 +247,9 @@ describe("the tailscale operations", () => {
         "tailscale status --json": STATUS,
         "tailscale serve status --json": served(8080),
       });
-      const outcome = await runWithShell(shell, Effect.either(publishTailscale()));
-      expect(outcome._tag).toBe("Left");
-      if (outcome._tag === "Left") expect(outcome.left.message).toContain("443 already serves 8080");
+      const outcome = await runWithShell(shell, Effect.result(publishTailscale()));
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure.message).toContain("443 already serves 8080");
       expect(shell.calls.some((call) => call.cmd.includes("--bg"))).toBe(false);
     });
   });
@@ -272,8 +272,8 @@ describe("the tailscale operations", () => {
     try {
       await withRuntimeConfig({ remoteAccess: { enabled: true, port: 4110 } }, async () => {
         const shell = fakeShell({ "tailscale status --json": STATUS });
-        const outcome = await runWithShell(shell, Effect.either(publishTailscale()));
-        expect(outcome._tag).toBe("Left");
+        const outcome = await runWithShell(shell, Effect.result(publishTailscale()));
+        expect(outcome._tag).toBe("Failure");
         expect(shell.calls.some((call) => call.cmd.includes("--bg"))).toBe(false);
       });
     } finally {
@@ -321,9 +321,9 @@ describe("the tailscale operations", () => {
         "tailscale status --json": STATUS,
         "tailscale serve status --json": mixed,
       });
-      const outcome = await runWithShell(shell, Effect.either(unpublishTailscale()));
-      expect(outcome._tag).toBe("Left");
-      if (outcome._tag === "Left") expect(outcome.left.message).toContain("also serves");
+      const outcome = await runWithShell(shell, Effect.result(unpublishTailscale()));
+      expect(outcome._tag).toBe("Failure");
+      if (outcome._tag === "Failure") expect(outcome.failure.message).toContain("also serves");
       expect(shell.calls.some((call) => call.cmd.includes("off"))).toBe(false);
     });
   });
@@ -485,7 +485,7 @@ describe("the tailscale operations", () => {
     try {
       await Effect.runPromise(
         Effect.gen(function* () {
-          yield* Effect.fork(inExternalGate(save));
+          yield* Effect.forkChild(inExternalGate(save));
           // Let the save take the gate and reach its sleep, where an unguarded click would slip in.
           yield* Effect.sleep("5 millis");
           yield* inExternalGate(click);

@@ -4,7 +4,7 @@ import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from 
 import { Cache, Changes, Settings, Shell, Workspace, swr } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
 import { env } from "@corvi/configuration/node";
-import type { Result } from "@corvi/contracts/capabilities";
+import type { ShellResult } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 
 export type Run = {
@@ -33,7 +33,7 @@ const RunsSchema = Schema.Array(
     status: Schema.String,
     result: Schema.optional(Schema.NullOr(Schema.String)),
     // Always present from az, but absence is tolerated with an empty default.
-    sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
+    sourceBranch: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
     definition: Schema.optional(
@@ -54,14 +54,14 @@ const runsPerPipeline = (): number => Number(process.env[env("AZURE_RUNS")] ?? 3
 export const AZURE_HISTORY_ENV = env("AZURE_HISTORY");
 export const AZURE_RUNS_ENV = env("AZURE_RUNS");
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace> =>
+const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 

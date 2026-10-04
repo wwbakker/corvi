@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import type { ChangeWireDto as Change, OperationStepDto as CompletionStep } from "@corvi/contracts/api";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { jiraFetch, siteBaseUrl } from "./jiraHttp.ts";
@@ -59,7 +59,7 @@ const stateOf = (status: string): WidgetState => {
 /** The widget: a failure is a red card rather than a failed request. */
 const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, never, Cache> =>
   Effect.gen(function* () {
-    const found = yield* Effect.either(
+    const found = yield* Effect.result(
       swr(
         `jira:${siteKey(site)}:issue:${key}`,
         ISSUE_TTL,
@@ -72,8 +72,8 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, 
         ),
       ),
     );
-    if (Either.isLeft(found)) {
-      const e = found.left;
+    if (Result.isFailure(found)) {
+      const e = found.failure;
       return {
         integration: "jira",
         title: "Jira",
@@ -82,7 +82,7 @@ const status = (change: Change, site: Site, key: string): Effect.Effect<Widget, 
         items: [],
       };
     }
-    const issue = found.right;
+    const issue = found.success;
     const base = siteBaseUrl(site);
     const item: WidgetItem = {
       label: `${issue.key} ${issue.summary}`,
@@ -391,7 +391,7 @@ export default {
           // A re-pointed ticket is mine too, like one linked at creation. A failure here is
           // logged, not fatal: the link is saved either way, and the card shows the assignee.
           yield* assignIssue(updated).pipe(
-            Effect.catchAll((error) =>
+            Effect.catch((error) =>
               Effect.sync(() => console.error(`could not assign ${key}:`, error.message)),
             ),
           );

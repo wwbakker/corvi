@@ -267,7 +267,7 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
             // Pull-request lines first, as the github extension loaded before jira.
             const pullRequests = yield* prLooseEnds(legacy).pipe(
               Effect.provide(capabilitiesLayer(workspace, "github")),
-              Effect.catchAll(() => Effect.succeed([] as string[])),
+              Effect.catch(() => Effect.succeed([] as string[])),
             )
             return [...pullRequests, ...jiraLooseEnds(legacy)]
           }),

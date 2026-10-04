@@ -101,7 +101,7 @@ const changeEnv = (changeId: string, dir: string): Record<string, string> => {
 };
 
 const dirOf = async (changeId: string): Promise<string> => {
-  const change = await Effect.runPromise(Effect.catchAll(readChange(changeId), () => Effect.succeed(null)));
+  const change = await Effect.runPromise(Effect.catch(readChange(changeId), () => Effect.succeed(null)));
   return change === null ? process.cwd() : changeDir(change);
 };
 
@@ -220,7 +220,7 @@ export const listWindowsAsync = (changeId: string): Promise<PresentedWindow[]> =
 /** Every change's windows, in the one call the navigation column asks for. Registry entries for
  * changes that no longer exist are pruned, so the file does not grow forever. */
 export const allWindowsAsync = async (): Promise<Record<string, PresentedWindow[]>> => {
-  const changeList = await Effect.runPromise(Effect.catchAll(listChanges(), () => Effect.succeed([])));
+  const changeList = await Effect.runPromise(Effect.catch(listChanges(), () => Effect.succeed([])));
   const existing = new Set(changeList.map((change) => change.id));
   pruneRegistry(existing);
   const sessions = hostRunning() ? await (await hostClient()).list() : [];

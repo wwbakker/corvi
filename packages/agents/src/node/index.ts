@@ -35,19 +35,19 @@ export const readProfileScope = (dir: string): Effect.Effect<readonly ProfileSco
     const names = yield* Effect.tryPromise({
       try: () => readdir(dir),
       catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+    }).pipe(Effect.catch(() => Effect.succeed([] as string[])));
     const files: ProfileScopeFile[] = [];
     for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
       const path = join(dir, name);
       const read = yield* Effect.tryPromise({
         try: () => readFile(path, "utf8"),
         catch: () => new Error(`cannot read ${path}`),
-      }).pipe(Effect.either);
+      }).pipe(Effect.result);
       files.push({
         id: name.slice(0, -3),
         path,
-        text: read._tag === "Right" ? read.right : "",
-        readable: read._tag === "Right",
+        text: read._tag === "Success" ? read.success : "",
+        readable: read._tag === "Success",
       });
     }
     return files;

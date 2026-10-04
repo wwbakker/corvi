@@ -1,7 +1,7 @@
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { Cache, Settings } from "@corvi/contracts/capabilities";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
@@ -75,9 +75,9 @@ const noContent = (): Response => new Response(null, { status: 204 });
 
 const runEither = <A, E>(
   effect: Effect.Effect<A, E, Settings | Cache>,
-): Promise<Either.Either<A, E>> =>
+): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.either(Effect.provide(Effect.provideService(effect, Settings, runtimeConfig()), CacheLive)),
+    Effect.result(Effect.provide(Effect.provideService(effect, Settings, runtimeConfig()), CacheLive)),
   );
 
 /** What was sent as authorization, which is the whole of what basic auth is. */
@@ -228,9 +228,9 @@ test("jiraFetch maps Jira's errorMessages and errors onto one line", async () =>
   );
 
   const either = await runEither(jiraFetch("/rest/api/3/issue/PROJ-1", { site: SITE }));
-  expect(Either.isLeft(either)).toBe(true);
-  if (Either.isLeft(either)) {
-    expect(either.left.message).toBe("jira 400: Issue does not exist; is required");
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) {
+    expect(either.failure.message).toBe("jira 400: Issue does not exist; is required");
   }
 });
 
@@ -239,12 +239,12 @@ test("jiraFetch falls back to the first line, then the status text, for an unexp
 
   stubFetch(() => text("server exploded\nmore noise", 502, "Bad Gateway"));
   const firstLine = await runEither(jiraFetch("/x", { site: SITE }));
-  if (Either.isLeft(firstLine)) expect(firstLine.left.message).toBe("jira 502: server exploded");
+  if (Result.isFailure(firstLine)) expect(firstLine.failure.message).toBe("jira 502: server exploded");
 
   // An empty body has no first line, so the status text is the only thing left to say.
   stubFetch(() => text("", 500, "Internal Server Error"));
   const empty = await runEither(jiraFetch("/x", { site: SITE }));
-  if (Either.isLeft(empty)) expect(empty.left.message).toBe("jira 500: Internal Server Error");
+  if (Result.isFailure(empty)) expect(empty.failure.message).toBe("jira 500: Internal Server Error");
 });
 
 test("jiraFetch reports a failed request and a failed body read as BadRequestError", async () => {
@@ -254,8 +254,8 @@ test("jiraFetch reports a failed request and a failed body read as BadRequestErr
     throw new Error("connection refused");
   });
   const network = await runEither(jiraFetch("/x", { site: SITE }));
-  if (Either.isLeft(network)) {
-    expect(network.left.message).toBe("jira request failed: connection refused");
+  if (Result.isFailure(network)) {
+    expect(network.failure.message).toBe("jira request failed: connection refused");
   } else {
     throw new Error("expected the request to fail");
   }
@@ -270,15 +270,15 @@ test("jiraFetch reports a failed request and a failed body read as BadRequestErr
       }) as Response,
   );
   const body = await runEither(jiraFetch("/x", { site: SITE }));
-  if (Either.isLeft(body)) expect(body.left.message).toBe("jira response failed: body gone");
+  if (Result.isFailure(body)) expect(body.failure.message).toBe("jira response failed: body gone");
 });
 
 test("jiraFetch reads a non-JSON success body as a BadRequestError", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
   stubFetch(() => text("not json", 200));
   const either = await runEither(jiraFetch("/x", { site: SITE }));
-  expect(Either.isLeft(either)).toBe(true);
-  if (Either.isLeft(either)) expect(either.left.message.length).toBeGreaterThan(0);
+  expect(Result.isFailure(either)).toBe(true);
+  if (Result.isFailure(either)) expect(either.failure.message.length).toBeGreaterThan(0);
 });
 
 test("jiraFetch names the field that is not configured, and asks Jira nothing", async () => {
@@ -287,15 +287,15 @@ test("jiraFetch names the field that is not configured, and asks Jira nothing", 
 
   // Nothing at all.
   const noServer = await runEither(jiraFetch("/x"));
-  expect(Either.isLeft(noServer)).toBe(true);
-  if (Either.isLeft(noServer)) {
-    expect(noServer.left.message).toBe("no Jira server for this workspace — set Server in Settings");
+  expect(Result.isFailure(noServer)).toBe(true);
+  if (Result.isFailure(noServer)) {
+    expect(noServer.failure.message).toBe("no Jira server for this workspace — set Server in Settings");
   }
 
   // A server but no account.
   const noEmail = await runEither(jiraFetch("/x", { site: { server: SITE.server } }));
-  if (Either.isLeft(noEmail)) {
-    expect(noEmail.left.message).toBe(
+  if (Result.isFailure(noEmail)) {
+    expect(noEmail.failure.message).toBe(
       "no Jira account email for this workspace — set Account email in Settings",
     );
   } else {
@@ -307,8 +307,8 @@ test("jiraFetch names the field that is not configured, and asks Jira nothing", 
   const noToken = await runEither(
     jiraFetch("/x", { site: { server: SITE.server, email: SITE.email } }),
   );
-  if (Either.isLeft(noToken)) {
-    expect(noToken.left.message).toBe(
+  if (Result.isFailure(noToken)) {
+    expect(noToken.failure.message).toBe(
       "no Jira token for this workspace — set API token in Settings, or export JIRA_API_TOKEN",
     );
   } else {
@@ -327,14 +327,14 @@ test("jiraFetch takes the token from the site's own environment variable", async
 
   // The variable's name is the one the failure names, so a second site says its own.
   const either = await runEither(jiraFetch("/x", { site: { ...SITE, tokenEnv: "OTHER_JIRA_TOKEN" } }));
-  expect(Either.isLeft(either)).toBe(false);
+  expect(Result.isFailure(either)).toBe(false);
 
   setEnv("OTHER_JIRA_TOKEN", undefined);
   const missing = await runEither(
     jiraFetch("/x", { site: { server: SITE.server, email: SITE.email, tokenEnv: "OTHER_JIRA_TOKEN" } }),
   );
-  if (Either.isLeft(missing)) {
-    expect(missing.left.message).toBe(
+  if (Result.isFailure(missing)) {
+    expect(missing.failure.message).toBe(
       "no Jira token for this workspace — set API token in Settings, or export OTHER_JIRA_TOKEN",
     );
   } else {
@@ -372,8 +372,8 @@ test("a bare host is asked as https, and an address that is not one is a sentenc
 
   for (const server of ["not a host", "ftp://x.example", "https://"]) {
     const either = await runEither(jiraFetch("/x", { site: { server, email: SITE.email } }));
-    if (Either.isLeft(either)) {
-      expect(either.left.message).toBe(`"${server}" is not a server address — set Server in Settings`);
+    if (Result.isFailure(either)) {
+      expect(either.failure.message).toBe(`"${server}" is not a server address — set Server in Settings`);
     } else {
       throw new Error(`expected "${server}" to be refused`);
     }
@@ -523,16 +523,16 @@ test("listSprints says what is missing rather than which id it could not find", 
 
   // A workspace with no server at all is told that, not that its board is missing.
   const noServer = await runEither(listSprints({}));
-  if (Either.isLeft(noServer)) {
-    expect(noServer.left.message).toBe("no Jira server for this workspace — set Server in Settings");
+  if (Result.isFailure(noServer)) {
+    expect(noServer.failure.message).toBe("no Jira server for this workspace — set Server in Settings");
   } else {
     throw new Error("expected an unconfigured site to fail");
   }
 
   // A server, but nothing to find a board from.
   const noBoard = await runEither(listSprints({ server: SITE.server, email: SITE.email }));
-  if (Either.isLeft(noBoard)) {
-    expect(noBoard.left.message).toBe(
+  if (Result.isFailure(noBoard)) {
+    expect(noBoard.failure.message).toBe(
       "no Jira board for this workspace — set Project or Board in Settings",
     );
   } else {
@@ -563,8 +563,8 @@ test("a project with several boards is asked about rather than guessed, and none
 
   stubFetch(() => json({ values: [{ id: 1, name: "Alpha" }, { id: 2, name: "Beta" }] }));
   const several = await runEither(listSprints(site));
-  if (Either.isLeft(several)) {
-    expect(several.left.message).toBe(
+  if (Result.isFailure(several)) {
+    expect(several.failure.message).toBe(
       "project PROJ has 2 boards: Alpha (1), Beta (2) — set Board in Settings",
     );
   } else {
@@ -575,8 +575,8 @@ test("a project with several boards is asked about rather than guessed, and none
 
   stubFetch(() => json({ values: [] }));
   const none = await runEither(listSprints(site));
-  if (Either.isLeft(none)) {
-    expect(none.left.message).toBe("no board in project PROJ — set Board in Settings");
+  if (Result.isFailure(none)) {
+    expect(none.failure.message).toBe("no board in project PROJ — set Board in Settings");
   } else {
     throw new Error("expected a project with no board to be refused");
   }
@@ -856,15 +856,15 @@ test("createIssue requires a summary, then a site, then a project", async () => 
   stubFetch(() => text("never", 500));
 
   const noSummary = await runEither(createIssue({ summary: "   " }));
-  if (Either.isLeft(noSummary)) expect(noSummary.left.message).toBe("summary required");
+  if (Result.isFailure(noSummary)) expect(noSummary.failure.message).toBe("summary required");
   else throw new Error("expected a missing summary to fail");
   expect(fetchCalls.length).toBe(0);
 
   // Nothing configured: the answer is the site, not the project it cannot reach.
   runtimeConfig().workspaces = [bareWorkspace("bare-ws")];
   const noSite = await runEither(createIssue({ summary: "No site", workspace: "bare-ws" }));
-  if (Either.isLeft(noSite)) {
-    expect(noSite.left.message).toBe("no Jira server for this workspace — set Server in Settings");
+  if (Result.isFailure(noSite)) {
+    expect(noSite.failure.message).toBe("no Jira server for this workspace — set Server in Settings");
   } else {
     throw new Error("expected an unconfigured site to fail");
   }
@@ -873,8 +873,8 @@ test("createIssue requires a summary, then a site, then a project", async () => 
   // A site, but no project to create an issue in.
   runtimeConfig().workspaces = [jiraWorkspace("bare-ws", { project: "" })];
   const noProject = await runEither(createIssue({ summary: "No project", workspace: "bare-ws" }));
-  if (Either.isLeft(noProject)) {
-    expect(noProject.left.message).toBe("no Jira project for this workspace — set Project in Settings");
+  if (Result.isFailure(noProject)) {
+    expect(noProject.failure.message).toBe("no Jira project for this workspace — set Project in Settings");
   } else {
     throw new Error("expected a missing project to fail");
   }
@@ -913,8 +913,8 @@ test("moveIssue lists the available transitions when the name is not one of them
   stubFetch(() => json({ transitions: [{ id: "1", name: "To Do" }, { id: "2", name: "In Progress" }] }));
 
   const either = await runEither(moveIssue("PROJ-1", "Done", SITE));
-  if (Either.isLeft(either)) {
-    expect(either.left.message).toBe(
+  if (Result.isFailure(either)) {
+    expect(either.failure.message).toBe(
       'PROJ-1: cannot move to "Done" from here — available: To Do, In Progress',
     );
   } else {
@@ -924,8 +924,8 @@ test("moveIssue lists the available transitions when the name is not one of them
 
   stubFetch(() => json({}));
   const none = await runEither(moveIssue("PROJ-1", "Done", SITE));
-  if (Either.isLeft(none)) {
-    expect(none.left.message).toBe('PROJ-1: cannot move to "Done" from here — available: none');
+  if (Result.isFailure(none)) {
+    expect(none.failure.message).toBe('PROJ-1: cannot move to "Done" from here — available: none');
   } else {
     throw new Error("expected the move to fail");
   }
@@ -1111,9 +1111,9 @@ test("the wizard's create route refuses an empty summary and reports an unconfig
       }),
     ),
   );
-  if (Either.isLeft(either)) {
-    expect(either.left._tag).toBe("BadRequestError");
-    expect(either.left.message).toBe("no Jira server for this workspace — set Server in Settings");
+  if (Result.isFailure(either)) {
+    expect(either.failure._tag).toBe("BadRequestError");
+    expect(either.failure.message).toBe("no Jira server for this workspace — set Server in Settings");
   } else {
     throw new Error("expected the unconfigured site to fail the request");
   }
@@ -1141,9 +1141,9 @@ const runLink = <A, E>(effect: Effect.Effect<A, E, Capabilities>): Promise<A> =>
 /** The same, capturing a refusal instead of rejecting with it. */
 const runLinkEither = <A, E>(
   effect: Effect.Effect<A, E, Capabilities>,
-): Promise<Either.Either<A, E>> =>
+): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    Effect.either(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira"))),
+    Effect.result(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira"))),
   );
 
 test("the link route repoints a change", async () => {
@@ -1190,8 +1190,8 @@ test("the link route refuses a finished change: its completion already moved its
       { id: "PROJ-LINK-DONE" },
     ),
   );
-  if (Either.isLeft(either)) {
-    expect(either.left._tag).toBe("BadRequestError");
+  if (Result.isFailure(either)) {
+    expect(either.failure._tag).toBe("BadRequestError");
   } else {
     throw new Error("expected the finished change to refuse the write");
   }
@@ -1206,7 +1206,7 @@ test("the link route 404s an unknown change and refuses a body with no key", asy
       { id: "PROJ-LINK-GONE" },
     ),
   );
-  expect(Either.isLeft(missing) && missing.left._tag).toBe("NotFoundError");
+  expect(Result.isFailure(missing) && missing.failure._tag).toBe("NotFoundError");
 
   await runEffect(
     createChange({ id: "PROJ-LINK-KEY", state: "Ideation", checkouts: checkoutsOf([]) }),
@@ -1217,7 +1217,7 @@ test("the link route 404s an unknown change and refuses a body with no key", asy
       { id: "PROJ-LINK-KEY" },
     ),
   );
-  expect(Either.isLeft(blank) && blank.left._tag).toBe("BadRequestError");
+  expect(Result.isFailure(blank) && blank.failure._tag).toBe("BadRequestError");
 });
 
 // --- assign when linked, sprint when started ----------------------------------------------------

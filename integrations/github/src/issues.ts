@@ -187,7 +187,7 @@ export const createIssue = (
 
 /** Close the issue with a word about where the work landed. */
 const closeIssue = (
-  shell: Context.Tag.Service<typeof Shell>,
+  shell: Context.Service.Shape<typeof Shell>,
   repository: string,
   number: number,
   comment: string,

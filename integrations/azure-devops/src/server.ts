@@ -2,7 +2,7 @@ import { Effect, Schema } from "effect";
 import type { WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Settings, Shell, Workspace, invalidate, swr } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
-import type { Result } from "@corvi/contracts/capabilities";
+import type { ShellResult } from "@corvi/contracts/capabilities";
 import { azFor, type Az } from "./azure.ts";
 import { deploySettings, type DeploySettings } from "./deploySettings.ts";
 import { buildUrl, expectedDuration, versionOf, type Definition } from "./pipelines.ts";
@@ -52,11 +52,11 @@ const RunsSchema = Schema.Array(
     result: Schema.optional(Schema.NullOr(Schema.String)),
     // Always present from az, but tolerated as absent: the default keeps the field a plain
     // string without weakening the type.
-    sourceBranch: Schema.optionalWith(Schema.String, { default: () => "" }),
+    sourceBranch: Schema.String.pipe(Schema.withDecodingDefault(Effect.succeed(""))),
     startTime: Schema.optional(Schema.NullOr(Schema.String)),
     finishTime: Schema.optional(Schema.NullOr(Schema.String)),
     templateParameters: Schema.optional(
-      Schema.NullOr(Schema.Record({ key: Schema.String, value: Schema.String })),
+      Schema.NullOr(Schema.Record(Schema.String, Schema.String)),
     ),
     definition: Schema.optional(
       Schema.Struct({ id: Schema.optional(Schema.Number), name: Schema.optional(Schema.String) }),
@@ -66,14 +66,14 @@ const RunsSchema = Schema.Array(
 
 type Capabilities = Shell | Workspace | Cache | Settings;
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
-const shResult = (cmd: string[]): Effect.Effect<Result, never, Shell | Workspace> =>
+const shResult = (cmd: string[]): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 

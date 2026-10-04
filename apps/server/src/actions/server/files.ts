@@ -15,7 +15,7 @@
  * here like any other file. */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Either, Effect } from "effect";
+import { Result, Effect } from "effect";
 
 import { parseActionFile, splitFrontmatter } from "@corvi/actions/model";
 import { builtinActionsDir } from "@corvi/actions/node";
@@ -71,13 +71,13 @@ const readScope = (
     const names = yield* Effect.tryPromise({
       try: () => readdir(dir),
       catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+    }).pipe(Effect.catch(() => Effect.succeed([] as string[])));
     const files: ActionFileDto[] = [];
     for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
       const text = yield* Effect.tryPromise({
         try: () => readFile(join(dir, name), "utf8"),
         catch: () => new Error(`cannot read ${join(dir, name)}`),
-      }).pipe(Effect.catchAll(() => Effect.succeed("")));
+      }).pipe(Effect.catch(() => Effect.succeed("")));
       if (text === "") continue;
       const parsed = parseActionFile(text);
       files.push({
@@ -86,9 +86,9 @@ const readScope = (
         id: name.slice(0, -3),
         path: join(dir, name),
         text,
-        ...(Either.isRight(parsed)
-          ? { label: parsed.right.label }
-          : { problems: parsed.left.reasons }),
+        ...(Result.isSuccess(parsed)
+          ? { label: parsed.success.label }
+          : { problems: parsed.failure.reasons }),
       });
     }
     return files;
@@ -140,8 +140,8 @@ export const writeActionFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseActionFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>
@@ -225,8 +225,8 @@ export const writeRepositoryActionFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseActionFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>

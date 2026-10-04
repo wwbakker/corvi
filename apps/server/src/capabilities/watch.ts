@@ -1,4 +1,4 @@
-import { Effect, Exit, Option, Schedule, Stream } from "effect";
+import { Effect, Exit, Filter, Option, Schedule, Stream } from "effect";
 import { listChanges, readSidecar } from "../change/server/store.ts";
 import { isFinished, PLAN_FILE } from "@corvi/changes/record";
 import { textRevision } from "./files.ts";
@@ -46,9 +46,9 @@ const channel = (
   event: EventName,
   read: Effect.Effect<string, unknown>,
 ): Stream.Stream<News> =>
-  Stream.repeatEffectWithSchedule(
+  Stream.fromEffectSchedule(
     Effect.gen(function* () {
-      const payload = Option.fromNullable(
+      const payload = Option.fromNullOr(
         yield* Effect.orElseSucceed(read, () => null),
       );
       if (Option.isNone(payload)) return Option.none();
@@ -63,7 +63,7 @@ const channel = (
     // that came up within the watcher's first interval goes {} -> one window with no quiet tick
     // between, and a dedup on the event NAME would swallow it. See `watch` for the first-look
     // half of the same story.
-    Stream.filterMap((found: Option.Option<News>) => found),
+    Stream.filterMap(Filter.fromPredicateOption((found: Option.Option<News>) => found)),
   );
 
 /**
@@ -78,7 +78,7 @@ const channel = (
 type Attention = { previous: Map<string, boolean>; seeded: boolean };
 
 const windowsNews = (state: Attention): Stream.Stream<News> =>
-  Stream.repeatEffectWithSchedule(
+  Stream.fromEffectSchedule(
     Effect.gen(function* () {
       const read = yield* Effect.exit(allWindows());
       if (!Exit.isSuccess(read)) return []; // no host yet, or a read being written as we look

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { BadRequestError } from "@corvi/contracts/errors";
 import {
   pairRemoteWorkspace,
@@ -37,8 +37,8 @@ const pair = (input: {
   name?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
-}): Promise<Either.Either<PairedRemote, BadRequestError>> =>
-  Effect.runPromise(Effect.either(pairRemoteWorkspace(input)));
+}): Promise<Result.Result<PairedRemote, BadRequestError>> =>
+  Effect.runPromise(Effect.result(pairRemoteWorkspace(input)));
 
 test("pairing redeems the code and offers the remote's workspaces", async () => {
   const seen: string[] = [];
@@ -67,12 +67,12 @@ test("pairing redeems the code and offers the remote's workspaces", async () => 
   });
 
   const result = await pair({ url: remote.url, code: "abcd", name: "laptop" });
-  expect(result._tag).toBe("Right");
-  if (result._tag === "Right") {
-    expect(result.right.token).toBe("raw-token");
-    expect(result.right.device.id).toBe("dev-1");
+  expect(result._tag).toBe("Success");
+  if (result._tag === "Success") {
+    expect(result.success.token).toBe("raw-token");
+    expect(result.success.device.id).toBe("dev-1");
     // Only ids and names come back: the editor is choosing a target, not reading the remote.
-    expect(result.right.workspaces).toEqual([
+    expect(result.success.workspaces).toEqual([
       { id: "client", name: "Client" },
       { id: "personal", name: "Personal" },
     ]);
@@ -86,20 +86,20 @@ test("a code the remote refuses is a BadRequest carrying its reason", async () =
     Response.json({ error: "that pairing code has expired" }, { status: 400 }),
   );
   const result = await pair({ url: remote.url, code: "wrong" });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") {
-    expect(result.left).toBeInstanceOf(BadRequestError);
-    expect(result.left.message).toContain("that pairing code has expired");
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(result.failure).toBeInstanceOf(BadRequestError);
+    expect(result.failure.message).toContain("that pairing code has expired");
   }
   remote.stop();
 });
 
 test("a url that is not http(s) is refused before any request", async () => {
   const result = await pair({ url: "ftp://host.example/x", code: "abcd" });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") {
-    expect(result.left).toBeInstanceOf(BadRequestError);
-    expect(result.left.message).toContain("http");
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(result.failure).toBeInstanceOf(BadRequestError);
+    expect(result.failure.message).toContain("http");
   }
 });
 
@@ -112,8 +112,8 @@ test("a server that is not Corvi is a BadRequest, not a throw", async () => {
       }),
   );
   const result = await pair({ url: remote.url, code: "abcd" });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") expect(result.left).toBeInstanceOf(BadRequestError);
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") expect(result.failure).toBeInstanceOf(BadRequestError);
   remote.stop();
 });
 
@@ -123,8 +123,8 @@ test("an unreachable server is a BadRequest", async () => {
   const dead = `http://127.0.0.1:${probe.port}`;
   void probe.stop(true);
   const result = await pair({ url: dead, code: "abcd" });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") expect(result.left).toBeInstanceOf(BadRequestError);
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") expect(result.failure).toBeInstanceOf(BadRequestError);
 });
 
 test("a redirect is refused, not followed", async () => {
@@ -138,10 +138,10 @@ test("a redirect is refused, not followed", async () => {
   });
   const remote = serveRemote(() => Response.redirect(destination.url, 302));
   const result = await pair({ url: remote.url, code: "abcd" });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") {
-    expect(result.left).toBeInstanceOf(BadRequestError);
-    expect(result.left.message).toContain("redirect");
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(result.failure).toBeInstanceOf(BadRequestError);
+    expect(result.failure.message).toContain("redirect");
   }
   // The freshly minted token must never have reached the redirect target.
   expect(followed).toBe(false);
@@ -153,10 +153,10 @@ test("a hung remote is abandoned after the timeout", async () => {
   const remote = hungRemote();
   const started = Date.now();
   const result = await pair({ url: remote.url, code: "abcd", timeoutMs: 150 });
-  expect(result._tag).toBe("Left");
-  if (result._tag === "Left") {
-    expect(result.left).toBeInstanceOf(BadRequestError);
-    expect(result.left.message).toContain("did not answer");
+  expect(result._tag).toBe("Failure");
+  if (result._tag === "Failure") {
+    expect(result.failure).toBeInstanceOf(BadRequestError);
+    expect(result.failure.message).toContain("did not answer");
   }
   expect(Date.now() - started).toBeLessThan(5_000);
   remote.stop();
@@ -168,7 +168,7 @@ test("aborting the request cancels a hung remote", async () => {
   setTimeout(() => controller.abort(), 100);
   const started = Date.now();
   const result = await pair({ url: remote.url, code: "abcd", signal: controller.signal });
-  expect(result._tag).toBe("Left");
+  expect(result._tag).toBe("Failure");
   expect(Date.now() - started).toBeLessThan(5_000);
   remote.stop();
 });

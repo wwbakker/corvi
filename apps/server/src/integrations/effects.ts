@@ -1,4 +1,4 @@
-import { Effect, Either } from "effect";
+import { Effect, Result } from "effect";
 import { isFinished, type Change } from "@corvi/changes/record";
 import type { WidgetDto as Widget, WidgetItemDto as WidgetItem } from "@corvi/contracts/api";
 import { workspaceOf } from "../workspace/server/index.ts";
@@ -31,7 +31,7 @@ const asWorkspace = <A, E>(
  * it found the card, and the contract keeps the Card name-free. */
 export const statusOne = (name: string, card: Card, change: Change): Effect.Effect<Widget> =>
   Effect.gen(function* () {
-    const found = yield* Effect.either(
+    const found = yield* Effect.result(
       asWorkspace(
         change,
         card.status
@@ -40,8 +40,8 @@ export const statusOne = (name: string, card: Card, change: Change): Effect.Effe
         name,
       ),
     );
-    if (Either.isLeft(found)) {
-      const e = found.left;
+    if (Result.isFailure(found)) {
+      const e = found.failure;
       return {
         integration: name,
         title: card.title,
@@ -50,7 +50,7 @@ export const statusOne = (name: string, card: Card, change: Change): Effect.Effe
         items: [],
       };
     }
-    const widget = found.right;
+    const widget = found.success;
     return isFinished(change) ? { ...widget, items: readOnly(widget.items) } : widget;
   });
 
@@ -63,7 +63,7 @@ export const repoStatusOf = (
   repo: string,
 ): Effect.Effect<WidgetItem[]> =>
   Effect.gen(function* () {
-    const found = yield* Effect.either(
+    const found = yield* Effect.result(
       asWorkspace(
         change,
         card.repoStatus
@@ -72,8 +72,8 @@ export const repoStatusOf = (
         name,
       ),
     );
-    if (Either.isLeft(found)) {
-      const e = found.left;
+    if (Result.isFailure(found)) {
+      const e = found.failure;
       return [
         {
           label: repo.split("/").pop() ?? repo,
@@ -82,7 +82,7 @@ export const repoStatusOf = (
         },
       ];
     }
-    const items = found.right;
+    const items = found.success;
     return isFinished(change) ? readOnly(items) : items;
   });
 

@@ -24,7 +24,7 @@ export interface CommandInterface {
   }) => Effect.Effect<CommandResult, CommandError>
 }
 
-export class Command extends Context.Tag("corvi/Command")<Command, CommandInterface>() {}
+export class Command extends Context.Service<Command, CommandInterface>()("corvi/Command") {}
 
 /** The direct spawner, exported so a host whose process runner is already in context (the app's
  * Shell seam) can fall back to it instead of providing a second one. */

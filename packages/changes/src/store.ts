@@ -36,4 +36,4 @@ export interface StoreInterface {
   ) => Effect.Effect<boolean, ChangeFormatTooNew | RepositoryStoreError>
 }
 
-export class ChangeStore extends Context.Tag("corvi/ChangeStore")<ChangeStore, StoreInterface>() {}
+export class ChangeStore extends Context.Service<ChangeStore, StoreInterface>()("corvi/ChangeStore") {}
