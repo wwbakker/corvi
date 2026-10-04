@@ -216,7 +216,9 @@ export const layer = Layer.effect(
     ): Effect.Effect<string | undefined, NotARepository | CheckoutError> => {
       switch (repository.branch.kind) {
         case "current":
-          return Effect.succeed(undefined)
+          // An absent freshness source is `undefined` in a `string | undefined` channel, which
+          // `Effect.void` would widen to `void`.
+          return Effect.sync(() => undefined)
         case "change":
           return repository.base ? Effect.succeed(repository.base) : repositories.defaultBranch(source)
         case "existing":

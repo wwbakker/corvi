@@ -145,7 +145,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
           hasRemote: () => Effect.succeed(false),
           refExists: () => Effect.succeed(false),
           resolveExistingBranch: () => Effect.die(new Error("resolveExistingBranch is not scripted")),
-          defaultBranch: () => Effect.succeed(undefined),
+          defaultBranch: () => Effect.sync(() => undefined),
           fastForwardBranch: () => Effect.die(new Error("fastForwardBranch is not scripted")),
           provisionLinkedWorktree: () => Effect.void,
           provisionInPlace: () => Effect.succeed("created" as const),
@@ -177,9 +177,11 @@ const layerFor = (state: Script): Layer.Layer<ChangeLifecycle> =>
             Effect.gen(function* () {
               state.calls.push(`merge #${number}`)
               if (state.mergeFailure)
-                return yield* Effect.fail(
-                  new ProviderError({ provider: "github", operation: "merge", message: state.mergeFailure }),
-                )
+                return yield* new ProviderError({
+                  provider: "github",
+                  operation: "merge",
+                  message: state.mergeFailure,
+                })
               if (state.started) yield* Deferred.succeed(state.started, undefined)
               if (state.hold) yield* Deferred.await(state.hold)
               return `merged #${number}`
@@ -215,9 +217,7 @@ const run = <A, E>(
 ): Promise<Result.Result<A, E>> =>
   Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
 
-const lifecycle = Effect.gen(function* () {
-  return yield* ChangeLifecycle
-})
+const lifecycle = ChangeLifecycle
 
 const assessment = (
   state: Script,

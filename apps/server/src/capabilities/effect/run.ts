@@ -24,5 +24,6 @@ export const runRoute = (effect: Effect.Effect<Response, unknown>): Promise<Resp
     effect.pipe(
       Effect.catch((error) => Effect.succeed(toResponse(error))),
       Effect.catchDefect((defect) => Effect.succeed(toResponse(defect))),
-    ).pipe(Effect.provide(ShellLive)),
+      Effect.provide(ShellLive),
+    ),
   );

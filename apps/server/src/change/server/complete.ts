@@ -347,7 +347,7 @@ const runCompletion = (
         Effect.catch((error): Effect.Effect<never, IweError | ChangeStoreError, never> =>
           Effect.gen(function* () {
             yield* finalizeProgress(change.id, ref, errorDetail(error)).pipe(Effect.mapError(asIwe))
-            return yield* Effect.fail(asIwe(error))
+            return yield* asIwe(error)
           }),
         ),
       )
@@ -390,5 +390,5 @@ const runCompletion = (
       message: `cannot complete: ${outcome.reasons.map((reason) => reason.text).join("; ")}`,
     })
   }).pipe(
-    Effect.catch((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(error))),
+    Effect.mapError(asIwe),
   )

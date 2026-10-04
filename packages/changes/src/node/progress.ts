@@ -35,7 +35,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             const found = yield* Effect.tryPromise({
               try: () => readFile(join(dir, "change.json"), "utf8"),
               catch: (cause: unknown) => cause,
-            }).pipe(Effect.catch(() => Effect.succeed(undefined)))
+            }).pipe(Effect.catch(() => Effect.void))
             if (found !== undefined) return dir
           }
           // Not written yet: the journal starts the directory the change will be created in.
@@ -55,7 +55,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
         }).pipe(
           Effect.catch((cause: unknown) =>
             isNotFound(cause)
-              ? Effect.succeed(undefined)
+              ? Effect.void
               : Effect.fail(
                   new ChangeStoreError({
                     changeId: input.changeId,

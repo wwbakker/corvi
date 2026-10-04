@@ -130,7 +130,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             catch: (cause: unknown) => cause,
           }).pipe(
             Effect.catch((cause: unknown) =>
-              isNotFound(cause) ? Effect.succeed(undefined) : Effect.fail(storeError("read", `could not read ${path}`, cause)),
+              isNotFound(cause) ? Effect.void : Effect.fail(storeError("read", `could not read ${path}`, cause)),
             ),
           )
           if (text === undefined) return undefined

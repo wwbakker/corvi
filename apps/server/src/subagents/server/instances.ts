@@ -459,7 +459,7 @@ export const awaitReady = (
     const records = yield* listInstances(changeDir(change));
     const targets = input.ids.length === 0 ? records.map((record) => record.id) : [...input.ids];
     for (const id of targets) {
-      if (!records.some((record) => record.id === id)) return yield* Effect.fail(notFound(id));
+      if (!records.some((record) => record.id === id)) return yield* notFound(id);
     }
     if (targets.length === 0) return { status: "timeout" };
 

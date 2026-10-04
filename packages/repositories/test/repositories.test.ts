@@ -11,6 +11,11 @@ const repository = new Git.Repository({
   commonDirectory: AbsolutePath.make("/repo/.git"),
 })
 
+/** A scripted method's default answer: an effect that succeeds with `undefined` in a
+ * `T | undefined` channel. `Effect.void` would narrow that channel to `void`, so this keeps the
+ * `Git.Interface` return types exact. */
+const absent = (): Effect.Effect<undefined> => Effect.sync(() => undefined)
+
 interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
   readonly hasRemote?: Git.Interface["repo"]["hasRemote"]
@@ -42,21 +47,21 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
     Layer.provide(
       Layer.succeed(Git.Service, {
         repo: {
-          discover: script.discover ?? (() => Effect.succeed(undefined)),
+          discover: script.discover ?? absent,
           hasRemote: script.hasRemote ?? (() => Effect.succeed(false)),
-          remoteUrl: script.remoteUrl ?? (() => Effect.succeed(undefined)),
+          remoteUrl: script.remoteUrl ?? absent,
         },
         history: {
-          branch: script.branch ?? (() => Effect.succeed(undefined)),
-          head: script.head ?? (() => Effect.succeed(undefined)),
+          branch: script.branch ?? absent,
+          head: script.head ?? absent,
           branchExists: script.branchExists ?? (() => Effect.succeed(false)),
           refExists: script.refExists ?? (() => Effect.succeed(false)),
           resolveExistingBranch: script.resolveExistingBranch ?? (() => Effect.die(new Error("resolveExistingBranch is not scripted"))),
           isAncestor: script.isAncestor ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
-          defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
-          defaultBranch: script.defaultBranch ?? (() => Effect.succeed(undefined)),
-          upstreamTip: script.upstreamTip ?? (() => Effect.succeed(undefined)),
+          defaultRemoteBranch: script.defaultRemoteBranch ?? absent,
+          defaultBranch: script.defaultBranch ?? absent,
+          upstreamTip: script.upstreamTip ?? absent,
           upstreamCommits: script.upstreamCommits ?? (() => Effect.succeed([])),
         },
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },

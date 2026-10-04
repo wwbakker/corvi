@@ -335,10 +335,11 @@ export const versionOf = (
   project: string,
 ): Effect.Effect<string | undefined, never, Shell | Workspace | Cache> =>
   Effect.suspend(() => {
-    // Only successful builds produced an artifact worth naming.
-    if (run.status !== "completed" || run.result !== "succeeded") return Effect.succeed(undefined);
+    // Only successful builds produced an artifact worth naming. The absent answer is `undefined`
+    // in a `string | undefined` channel, so `Effect.void` would widen the public type.
+    if (run.status !== "completed" || run.result !== "succeeded") return Effect.sync(() => undefined);
     const pipelineId = run.definition?.id;
-    if (pipelineId === undefined) return Effect.succeed(undefined);
+    if (pipelineId === undefined) return Effect.sync(() => undefined);
     return Effect.flatMap(Cache, (cache) =>
       cache.swr(`az:version:${run.id}`, 24 * 60 * 60_000, findVersion(project, pipelineId, run.id)),
     );

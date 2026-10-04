@@ -431,7 +431,7 @@ const runSteps = (
           error: message,
         };
         yield* writeJournal(progress);
-        return yield* Effect.fail(outcome.failure);
+        return yield* outcome.failure;
       }
       progress = withStep(progress, { ...step, state: "done" });
       yield* writeJournal(progress);

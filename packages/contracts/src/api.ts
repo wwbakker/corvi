@@ -11,9 +11,8 @@ export const RepositoryViewSchema = Schema.Struct({
   state: Schema.Literals(["Concept", "Active", "Archived"]),
   checkoutLocation: Schema.String,
   checkout: Schema.Union([
-    Schema.Struct({ _tag: Schema.Literal("Missing") }),
-    Schema.Struct({
-      _tag: Schema.Literal("Present"),
+    Schema.TaggedStruct("Missing", {}),
+    Schema.TaggedStruct("Present", {
       branch: Schema.optional(Schema.String),
       head: Schema.optional(Schema.String),
     }),

@@ -277,13 +277,11 @@ export const issuesLayer = (workspace: WorkspaceShape): Layer.Layer<Issues, neve
 
 export const terminalSessionsLayer: Layer.Layer<TerminalSessions> = Layer.succeed(TerminalSessions, {
   stop: (changeId) =>
-    Effect.gen(function* () {
-      // Every terminal is a host session now (interactive shells, action runs and subagents), so
-      // one stop ends them all; a completed change keeps no shell running.
-      yield* Effect.tryPromise({
-        try: () => stopHostTerminals(changeId),
-        catch: (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
-      });
+    // Every terminal is a host session now (interactive shells, action runs and subagents), so
+    // one stop ends them all; a completed change keeps no shell running.
+    Effect.tryPromise({
+      try: () => stopHostTerminals(changeId),
+      catch: (error) => new TerminalError({ changeId, message: messageOf(error), cause: error }),
     }),
 })
 

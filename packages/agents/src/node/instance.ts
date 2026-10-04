@@ -58,7 +58,7 @@ const writeAtomic = (path: string, data: string): Effect.Effect<void, Error> =>
 
 const readText = (path: string): Effect.Effect<string | undefined> =>
   Effect.tryPromise({ try: () => readFile(path, "utf8"), catch: () => new Error(path) }).pipe(
-    Effect.catch(() => Effect.succeed(undefined)),
+    Effect.orElseSucceed(() => undefined),
   );
 
 /** The message files of one instance, numbered from their filenames and sorted. A file that

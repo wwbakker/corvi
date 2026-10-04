@@ -214,9 +214,7 @@ const layerFor = (state: Script): Layer.Layer<ChangeWork> =>
 const run = <A, E>(state: Script, program: Effect.Effect<A, E, ChangeWork>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(state))))
 
-const work = Effect.gen(function* () {
-  return yield* ChangeWork
-})
+const work = ChangeWork
 
 test("inspectChangeRepositories joins the change, its links, and the checkout facts", async () => {
   const expected = link("repo")
