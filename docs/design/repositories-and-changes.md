@@ -965,6 +965,8 @@ export const ProvisionedChangeSchema = Schema.Struct({
   change: ChangeWireSchema,
   provision: Schema.mutable(Schema.Array(ProvisionResultSchema)),
   refresh: Schema.mutable(Schema.Array(RefreshOutcomeSchema)),
+  // The change's directory; the create route sets it, the others may leave it absent.
+  changeDir: Schema.optional(Schema.String),
 })
 export type ProvisionedChangeDto = typeof ProvisionedChangeSchema.Type
 
