@@ -105,7 +105,8 @@ extensions fall back to stderr. The agent's own output is never touched.
   applications that support them. Shift-Tab also passes through.
 - The terminal owns the screen: drag to select (double-click a word, triple-click a line), and the
   wheel or the scrollbar scrolls back. The right-click menu offers Copy, Paste, Select all, Clear,
-  Find and Open link; middle-click pastes.
+  Find and Open link; middle-click pastes. When a mouse-aware program (pi) is running, hold
+  **Shift** (Linux) or **Option** (macOS) while dragging to select.
 - Copy with Ctrl-Shift-C or the platform's command key (Cmd-C on macOS, Super-C on Linux), or the
   terminal convention Ctrl-Insert; paste with Ctrl-Shift-V or Cmd-V / Super-V, or Shift-Insert.
   Ctrl-C remains the shell's interrupt shortcut.

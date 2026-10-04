@@ -1897,6 +1897,39 @@ button.create:hover:not(:disabled) {
   color: color-mix(in srgb, var(--text) 40%, transparent);
 }
 
+/* A hovered link's URL and the chord that opens it, in the sheet's surface language. The
+   linkifier draws the underline; this only closes the discoverability gap. It never takes the
+   pointer, so it cannot steal the click or the hover, and it sits under the menu (z-index 40). */
+.terminal-link-tooltip {
+  position: fixed;
+  z-index: 35;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(420px, calc(100vw - 16px));
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.terminal-link-tooltip-url {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.terminal-link-tooltip-hint {
+  color: color-mix(in srgb, var(--text) 55%, transparent);
+}
+
 /* The find bar floats over the top of the terminal; Escape or a click elsewhere closes it. */
 .terminal-find {
   position: absolute;
