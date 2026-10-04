@@ -93,6 +93,6 @@ const _configFileVocabularyMatchesSchema: ConfigFile = {} as ConfigFileVocabular
 /** The resolved shape: file, environment and defaults combined — `@corvi/configuration/config`'s
  * `Config`. Not a decoder of anything on disk (the resolved config is computed, never read); it
  * states the boundary a future CLI/IPC surface would emit, and pins the Workspace member to the
- * type. The azure-devops fields the core used to own are unknown keys now: the extension reads
- * them through its own legacy.ts, so they ride the preserve decode rather than this shape. */
+ * type. Fields a previous core owned ride the preserve decode as unknown keys rather than this
+ * shape. */
 export const Resolved = ResolvedSchema;

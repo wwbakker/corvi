@@ -37,7 +37,7 @@ import { assignIssue, moveIssueOnStart } from "@corvi/jira";
 import { assignTicketOnCreate, startTicket } from "../apps/server/src/change/tickets.ts";
 import { jiraFetch } from "@corvi/jira/jiraHttp";
 import { accountId } from "@corvi/jira/account";
-import { checkoutsOf, legacyConfig, runEffect, testTempDir  } from "./helpers.ts";
+import { checkoutsOf, runEffect, testTempDir  } from "./helpers.ts";
 
 /**
  * The Jira extension's server half, driven through a stubbed `fetch`. Every test states its site
@@ -137,10 +137,7 @@ const setEnv = (key: string, value: string | undefined): void => {
 };
 
 // The config object is shared by reference across the server; the tests mutate and restore it.
-// The preserved flat jira fields are typed for what they are by legacyConfig() in
-// test/helpers.ts, so the fallback these tests exercise reads them without a cast here.
 const originalWorkspaces = runtimeConfig().workspaces;
-const originalAssignee = legacyConfig().jiraAssignee;
 const originalExtensionSettings = runtimeConfig().extensionSettings;
 
 beforeEach(() => {
@@ -153,7 +150,6 @@ beforeEach(() => {
 
 afterEach(() => {
   runtimeConfig().workspaces = originalWorkspaces;
-  legacyConfig().jiraAssignee = originalAssignee;
   runtimeConfig().extensionSettings = originalExtensionSettings;
   globalThis.fetch = originalFetch;
   for (const [key, value] of originalEnv) setEnv(key, value);
@@ -414,23 +410,6 @@ test("siteOfWorkspace overrides the default site field by field", () => {
     tokenEnv: undefined,
     token: "own-token",
   });
-
-  // A workspace written before the bag answers from its `jira` object, the bag's fields first.
-  const legacy = {
-    settings: { extensionSettings: { jira: { project: "BAG" } } },
-    jira: { project: "LEGACY", board: "7", tokenEnv: "LEGACY_TOKEN", configFile: "/old.yml" },
-  };
-  expect(siteOfWorkspace(runtimeConfig(), legacy)).toEqual({
-    server: "https://default.example",
-    email: "default@example.com",
-    project: "BAG",
-    board: "7",
-    tokenEnv: "LEGACY_TOKEN",
-    token: undefined,
-  });
-
-  // `false` and a non-object are no site of their own, not a site with everything absent.
-  expect(siteOfWorkspace(runtimeConfig(), { jira: false }).project).toBe("DEF");
 });
 
 test("a workspace that names its own token variable does not inherit the default's token", () => {
@@ -472,33 +451,28 @@ test("siteOf and siteFor resolve a change's and an id's Jira", () => {
   expect(siteFor(runtimeConfig(), "nope").project).toBe("CLI");
 });
 
-test("globalOf resolves the one chain: env, then the workspace's bag, then the global bag, then the flat fields", () => {
-  const flat = {
-    jiraAssignee: "flat@example.com",
-    jiraStartTransition: "Start",
-    jiraDoneTransition: "Done",
-  };
-  expect(globalOf(flat)).toEqual({
-    assignee: "flat@example.com",
-    startTransition: "Start",
+test("globalOf resolves the one chain: env, then the workspace's bag, then the global bag, then the shipped default", () => {
+  // Nothing set anywhere: the shipped defaults answer.
+  expect(globalOf({})).toEqual({
+    assignee: "",
+    startTransition: "In Progress",
     doneTransition: "Done",
   });
 
-  // An empty string and a non-string bag value both mean "not set" and fall back to the field.
+  // An empty string and a non-string bag value both mean "not set" and fall back to the default.
   const bagged = {
-    ...flat,
     extensionSettings: {
       jira: { assignee: "bag@example.com", startTransition: "  ", doneTransition: ["Done", "Closed"] },
     },
   };
   expect(globalOf(bagged)).toEqual({
     assignee: "bag@example.com",
-    startTransition: "Start",
+    startTransition: "In Progress",
     doneTransition: "Done",
   });
 
   // A value with text is used as written: the trim is only the emptiness test.
-  const spaced = { ...flat, extensionSettings: { jira: { assignee: "  bag  " } } };
+  const spaced = { extensionSettings: { jira: { assignee: "  bag  " } } };
   expect(globalOf(spaced).assignee).toBe("  bag  ");
 
   // The workspace's bag sits above the global one, and a workspace that says nothing inherits.
@@ -508,7 +482,7 @@ test("globalOf resolves the one chain: env, then the workspace's bag, then the g
 
   // The environment variable beats every level below it — the page shows the field locked.
   setEnv("CORVI_JIRA_ASSIGNEE", "env@example.com");
-  expect(globalOf(flat).assignee).toBe("env@example.com");
+  expect(globalOf({}).assignee).toBe("env@example.com");
   expect(globalOf(bagged, own).assignee).toBe("env@example.com");
 });
 
@@ -771,8 +745,7 @@ test("a whole board view looks the board up once", async () => {
 
 test("createIssue creates the issue, assigns it and returns what the wizard selects", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws", { assignee: "" })];
   stubFetch((url, init) => {
     const method = init?.method ?? "GET";
     if (url.pathname === "/rest/api/3/myself") return json({ accountId: "acc-me" });
@@ -823,8 +796,7 @@ test("createIssue creates the issue, assigns it and returns what the wizard sele
 
 test("createIssue skips assignment when asked and omits an empty description", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig().jiraAssignee = "unused@example.com";
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws", { assignee: "unused@example.com" })];
   stubFetch((url, init) =>
     url.pathname === "/rest/api/3/issue" && init?.method === "POST"
       ? json({ key: "PROJ-10" })
@@ -845,8 +817,7 @@ test("createIssue skips assignment when asked and omits an empty description", a
 
 test("createIssue assigns a configured account id without looking anything up", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig().jiraAssignee = "5b10ac8d82e05b22cc7d4ef5";
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws", { assignee: "5b10ac8d82e05b22cc7d4ef5" })];
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-11" });
     if (url.pathname.endsWith("/assignee")) return noContent();
@@ -864,8 +835,7 @@ test("createIssue assigns a configured account id without looking anything up", 
 
 test("createIssue looks up a configured name and assigns the account it finds", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("create-ws")];
-  legacyConfig().jiraAssignee = "ada@example.com";
+  runtimeConfig().workspaces = [jiraWorkspace("create-ws", { assignee: "ada@example.com" })];
   stubFetch((url, init) => {
     if (url.pathname === "/rest/api/3/issue" && init?.method === "POST") return json({ key: "PROJ-12" });
     if (url.pathname === "/rest/api/3/user/search") return json([{ accountId: "acc-search", displayName: "Ada" }]);
@@ -1152,14 +1122,10 @@ test("the wizard's create route refuses an empty summary and reports an unconfig
 
 // --- shared vocabulary ------------------------------------------------------------------------
 
-test("ticketOf reads this extension's bag first and an early record's field second", () => {
-  const withLegacy = (value: string): Change =>
-    ({ ...change(), jira: value }) as unknown as Change;
-
-  expect(ticketOf({ ...withLegacy("OLD-1"), extensions: { jira: { key: "PROJ-1" } } })).toBe("PROJ-1");
-  // An empty bag entry does not shadow the field an early change record carries.
-  expect(ticketOf({ ...withLegacy("OLD-1"), extensions: { jira: {} } })).toBe("OLD-1");
-  expect(ticketOf(withLegacy("OLD-1"))).toBe("OLD-1");
+test("ticketOf reads the extension's own bag", () => {
+  expect(ticketOf({ ...change(), extensions: { jira: { key: "PROJ-1" } } })).toBe("PROJ-1");
+  // An empty bag carries no key.
+  expect(ticketOf({ ...change(), extensions: { jira: {} } })).toBeUndefined();
   expect(ticketOf(change())).toBeUndefined();
 });
 
@@ -1180,7 +1146,7 @@ const runLinkEither = <A, E>(
     Effect.either(Effect.provide(effect, capabilitiesLayer(workspaceById(undefined), "jira"))),
   );
 
-test("the link route repoints a change, and the new key answers past the legacy field", async () => {
+test("the link route repoints a change", async () => {
   const created = await runEffect(
     createChange({
       id: "PROJ-LINK",
@@ -1189,9 +1155,6 @@ test("the link route repoints a change, and the new key answers past the legacy 
       extensions: { jira: { key: "PROJ-1" } },
     }),
   );
-  // An early record's legacy field, so the repoint proves a written bag entry shadows it for
-  // good — the fallback never answers again.
-  await runEffect(writeChange({ ...created, jira: "OLD-1" } as unknown as Change));
 
   const response = await runLink(
     putLink.handler(
@@ -1291,8 +1254,7 @@ const startStub = (options: {
 
 test("a linked ticket is assigned to me from the moment it is linked", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("assign-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("assign-ws", { assignee: "" })];
   startStub({});
 
   const result = await runEffect(assignIssue(ticketed()));
@@ -1318,8 +1280,7 @@ test("a linked ticket is assigned to me from the moment it is linked", async () 
 
 test("creation reports a failed assignment instead of failing", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("assign-fail-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("assign-fail-ws", { assignee: "" })];
   stubFetch((url, init) =>
     url.pathname === "/rest/api/3/myself" && (init?.method ?? "GET") === "GET"
       ? json({ accountId: "acc-me" })
@@ -1337,8 +1298,7 @@ test("creation reports a failed assignment instead of failing", async () => {
 
 test("starting work takes a backlog ticket into the active sprint with the latest start date", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("start-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("start-ws", { assignee: "" })];
   startStub({
     sprints: [
       { id: 1, name: "Sprint 1", state: "active", startDate: "2026-01-01T00:00:00.000Z" },
@@ -1367,8 +1327,7 @@ test("starting work takes a backlog ticket into the active sprint with the lates
 
 test("only a backlog ticket moves: one already in a sprint stays put", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("start-sprinted-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("start-sprinted-ws", { assignee: "" })];
   startStub({ backlog: false, sprints: [{ id: 5, name: "Sprint 5", state: "active" }] });
 
   const result = await runEffect(moveIssueOnStart(ticketed()));
@@ -1378,8 +1337,7 @@ test("only a backlog ticket moves: one already in a sprint stays put", async () 
 
 test("with no active sprint the ticket stays in the backlog, and that is not a failure", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("no-sprint-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("no-sprint-ws", { assignee: "" })];
   startStub({ sprints: [] });
 
   const result = await runEffect(moveIssueOnStart(ticketed()));
@@ -1391,8 +1349,7 @@ test("with no active sprint the ticket stays in the backlog, and that is not a f
 
 test("a failed sprint move says what happened after the status moved", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("sprint-fail-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("sprint-fail-ws", { assignee: "" })];
   startStub({ sprints: [{ id: 2, name: "Sprint 2", state: "active" }], sprintMoveStatus: 500 });
 
   await expect(runEffect(moveIssueOnStart(ticketed()))).rejects.toThrow(
@@ -1406,8 +1363,7 @@ test("a failed sprint move says what happened after the status moved", async () 
 
 test("equal start dates fall to the later sprint id", async () => {
   setEnv("JIRA_API_TOKEN", "secret");
-  runtimeConfig().workspaces = [jiraWorkspace("tie-ws")];
-  legacyConfig().jiraAssignee = "";
+  runtimeConfig().workspaces = [jiraWorkspace("tie-ws", { assignee: "" })];
   startStub({
     sprints: [
       { id: 7, name: "Older id", state: "active", startDate: "2026-02-01T00:00:00.000Z" },

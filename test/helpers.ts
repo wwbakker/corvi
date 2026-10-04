@@ -18,7 +18,6 @@ import type { CliError } from "@corvi/contracts/errors";
 import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
-import type { LegacyFlatSettings } from "@corvi/jira/legacy";
 import type { Change } from "@corvi/changes/record";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
@@ -100,27 +99,8 @@ process.env.CORVI_CONFIG = join(ownRoot, "config.json");
 process.env.CORVI_CACHE = join(ownRoot, "cache.json");
 process.env.XDG_STATE_HOME = join(ownRoot, "state");
 
-/** The process's config snapshot, with the flat keys older files still carry: the preserve
- * decode keeps them on the object and `Config` does not type them. Production reads them where
- * it needs them in its own package (`@corvi/jira/legacy`'s fallback); a test that asserts they
- * survive a write reads them here, where the one cast lives. */
-export const legacyConfig = (): Config & LegacyFlatSettings =>
-  runtimeConfig() as Config & LegacyFlatSettings;
-
-/** The per-workspace legacy keys an older file still carries on an entry: the loader preserves
- * them on read and no production type declares them, so a test that asserts one survived reads
- * it here. */
-export type LegacyWorkspaceKeys = {
-  readonly jira?: unknown;
-  readonly azure?: unknown;
-};
-
-export const legacyWorkspace = (workspace: object): LegacyWorkspaceKeys =>
-  workspace as LegacyWorkspaceKeys;
-
-/** What a test may state on the config snapshot for a body: any resolved field, plus the
- * preserved flat keys `legacyConfig` reads. */
-export type RuntimeConfigPatch = Partial<Config> & LegacyFlatSettings;
+/** What a test may state on the config snapshot for a body: any resolved field. */
+export type RuntimeConfigPatch = Partial<Config>;
 
 /** Shut down a test server's terminal host, if one was started. The host outlives the server by
  * design, so a test that opened a terminal must end it explicitly or leave a pty owner behind.

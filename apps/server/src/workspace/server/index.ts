@@ -13,7 +13,6 @@ export {
   expandTilde,
   readFile,
   readFileSync,
-  setMigrator,
 } from "./config.ts";
 
 export { reloadConfig, reloadConfigSync, runtimeConfig } from "../../capabilities/runtime.ts";

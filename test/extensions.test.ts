@@ -106,20 +106,16 @@ test("a remote URL is read in every shape GitHub answers to", () => {
   expect(parse("/some/local/path")).toBeUndefined();
 });
 
-test("a change's ticket is read from the bag, and from the legacy field", () => {
+test("a change's ticket is read from the extension's bag", () => {
   const bag: Change = { id: "A", branch: "A", checkouts: checkoutsOf([]), extensions: { jira: { key: "PROJ-2" } }, createdAt: "" };
-  const legacy = { id: "B", branch: "B", checkouts: checkoutsOf([]), jira: "PROJ-1", createdAt: "" } as unknown as Change;
   const neither: Change = { id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" };
 
-  // Both are read: the bag is where the wizard writes, and the legacy field is what archived
-  // changes carry; it is no longer part of the Change type, but the decoder keeps it.
   expect(ticketOf(bag)).toBe("PROJ-2");
-  expect(ticketOf(legacy)).toBe("PROJ-1");
   expect(ticketOf(neither)).toBeUndefined();
 });
 
-test("a change.json with only the legacy jira field reads and keeps it across a rewrite", async () => {
-  const id = "PROJ-LEGACY-FILE";
+test("a change.json key the core no longer names survives a rewrite", async () => {
+  const id = "PROJ-UNKNOWN-FILE";
   const dir = changeDir({ id: id });
   await mkdir(dir, { recursive: true });
   await Bun.write(
@@ -131,9 +127,9 @@ test("a change.json with only the legacy jira field reads and keeps it across a 
     )}\n`,
   );
 
-  // The decoder preserves the key the core no longer types, so the extension still finds it...
+  // The decoder preserves the key the core no longer types...
   const read = await runEffect(readChange(id));
-  expect(ticketOf(read!)).toBe("PROJ-1");
+  expect((read as { jira?: unknown } | null)?.jira).toBe("PROJ-1");
 
   // ...and a rewrite serializes what the preserve decode kept: the field is not lost.
   await runEffect(writeChange(read!));
@@ -231,14 +227,7 @@ test("dashboard widgets follow the enablement", async () => {
 });
 
 test("a completion step is planned only when the change has something for it", () => {
-  // The jira planner: planned for a change with a ticket, absent without one, readable from
-  // either place the key may live.
-  const legacy = { id: "A", branch: "A", checkouts: checkoutsOf([]), createdAt: "", jira: "PROJ-1" } as unknown as Change;
-  expect(planIssueCompletion(legacy, runtimeConfig())).toEqual({
-    id: "jira",
-    label: "move PROJ-1 to Done",
-    state: "waiting",
-  });
+  // The jira planner: planned for a change with a ticket in its bag, absent without one.
   const withBag: Change = { id: "B", branch: "B", checkouts: checkoutsOf([]), createdAt: "", extensions: { jira: { key: "PROJ-2" } } };
   expect(planIssueCompletion(withBag, runtimeConfig())?.label).toBe("move PROJ-2 to Done");
   expect(planIssueCompletion({ id: "C", branch: "C", checkouts: checkoutsOf([]), createdAt: "" }, runtimeConfig())).toBeUndefined();

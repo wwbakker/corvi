@@ -1,6 +1,12 @@
-import { migrateExtensionSettings } from "./migrate.ts";
+// `loaded.ts` before `included.ts`: some included integrations reach back through the change
+// module to `selectors.ts`, which reads `loaded`, so entering `included` first would leave
+// `loaded` reading an uninitialized binding. The cycle:
+//   loaded -> included -> leftovers/server -> change/server/index -> start -> tickets -> selectors -> loaded
+// with a second bridge through git/index -> change/provisioning -> lifecycle-layer ->
+// terminals/server/index -> windows -> change/server/index.
+import "./loaded.ts";
 import { unknownIntegrationNames } from "./included.ts";
-import { runtimeConfig, setMigrator } from "../workspace/server/index.ts";
+import { runtimeConfig } from "../workspace/server/index.ts";
 
 /**
  * The included integrations' public face: the composed list (apps/server/src/integrations/included.ts) and
@@ -18,12 +24,6 @@ import { runtimeConfig, setMigrator } from "../workspace/server/index.ts";
  * and the name-bound `ExtensionStore` — so an integration's requirements arrive through the R
  * channel, with no ambient state and no bridging layer.
  */
-
-// The retired names fold into the integrations' own settings, in memory: hand-edited files land
-// normalized without a settings save. The config calls back here on every refill, so a settings
-// write migrates too (apps/server/src/settings/server/settings.ts migrates before writing).
-setMigrator(migrateExtensionSettings);
-migrateExtensionSettings(runtimeConfig().workspaces);
 
 // A workspace's enablement list is hand-editable; a name nothing answers for is a typo worth
 // saying once at startup rather than a silently dead surface.

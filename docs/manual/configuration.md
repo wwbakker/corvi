@@ -180,8 +180,7 @@ field: `server`, `email`, `project`, `board`, `token`, and `tokenEnv`. A workspa
 automatically selected for a project with one board; otherwise Corvi asks you to choose.
 
 Azure DevOps settings likewise support a workspace-specific organization/project. Empty values
-can fall back to `az devops configure`. Some existing flat settings remain readable as fallbacks;
-prefer the settings page and the structured keys above for new configuration.
+can fall back to `az devops configure`.
 
 ## Workspaces
 
