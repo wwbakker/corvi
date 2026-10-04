@@ -13,13 +13,16 @@ import { ID } from "@corvi/configuration/node";
 // A click can arrive before the page has mounted its handler — a fresh launch, a reload — so the
 // click is held until a callback exists. The preload runs before the page's own scripts, which is
 // what makes the window the event lands in still the one that will call back.
-let open: ((change: string, window: string) => void) | null = null;
-let pending: [change: string, window: string] | null = null;
+let open: ((change: string, window: string, source?: string) => void) | null = null;
+let pending: [change: string, window: string, source?: string] | null = null;
 
-ipcRenderer.on(`${ID}:open-window`, (_event, change: string, window: string) => {
-  if (open) open(change, window);
-  else pending = [change, window];
-});
+ipcRenderer.on(
+  `${ID}:open-window`,
+  (_event, change: string, window: string, source?: string) => {
+    if (open) open(change, window, source);
+    else pending = [change, window, source];
+  },
+);
 
 /** The window's platform for the page's chrome, which only tells macOS apart from the rest
  * (@corvi/web/chrome). Anything else lays out the same way, so it has one name here. */
@@ -42,9 +45,9 @@ const host: CorviHost = {
     // one click open the change twice.
     open = callback;
     if (pending) {
-      const [change, window] = pending;
+      const [change, window, source] = pending;
       pending = null;
-      callback(change, window);
+      callback(change, window, source);
     }
   },
   restart: () => {

@@ -214,9 +214,6 @@ function App(): JSX.Element {
   const change = (everything ?? []).find(
     (c) => c.id === selected && (c.source ?? "") === selectedSource,
   );
-  // A change by id and source, for a notification or a link that names both.
-  const sourceOfChange = (id: string): string =>
-    (everything ?? []).find((c) => c.id === id)?.source ?? "";
   const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
@@ -294,12 +291,12 @@ function App(): JSX.Element {
     setView({ name: "home" });
   };
 
-  // A notification click comes back through the host as a plain function: activate the window,
-  // then open the change and the window it was about. The window id is looked up in the
+  // A notification click comes back with the source it was about: activate the window, then open
+  // that source's change — resolved by (source, change), so a remote notice for a change that
+  // shares an id with a local one does not open the local one. The window id is looked up in the
   // live list, because the index it had when the notification was made may belong to another
   // window by the time it is clicked.
-  const openWindow = (change: string, windowId: string): void => {
-    const source = sourceOfChange(change);
+  const openWindow = (source: string, change: string, windowId: string): void => {
     const index = (terminals.windows[changeKey(source, change)] ?? []).find((w) => w.id === windowId)?.index;
     setWantsTerminal(true);
     setView({ name: "change", source, id: change, page: "terminals" });
@@ -311,7 +308,9 @@ function App(): JSX.Element {
     // The contract the host calls after a notification is clicked; the wrapper keeps the
     // registered function from going stale as the view changes. A real browser has no host, and
     // nothing to register.
-    hostOf()?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
+    hostOf()?.onOpenWindow((change, windowId, source) =>
+      openWindowRef.current(source ?? "", change, windowId),
+    );
   }, []);
 
   useEffect(() => {
@@ -390,6 +389,7 @@ function App(): JSX.Element {
       </button>
       <Notifier
         change={selected}
+        source={selectedSource}
         page={view.name === "change" ? view.page : "dashboard"}
         windows={selected ? (terminals.windows[changeKey(selectedSource, selected)] ?? []) : []}
         onOpen={openWindow}

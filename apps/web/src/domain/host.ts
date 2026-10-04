@@ -29,6 +29,10 @@ export type HostNotice = {
   change: string;
   /** The window's backing session id — stable across reordering, unlike the index. */
   window: string;
+  /** Which source the change belongs to: the local workspace id for a remote one, absent (or
+   * empty) for the local server. The click-back hands it to the page so a remote notice opens
+   * the remote change, not a local one that happens to share its id. */
+  source?: string;
 };
 
 /** The platforms the page's chrome has to tell apart: macOS keeps its traffic lights in the
@@ -43,8 +47,9 @@ export type CorviHost = {
   /** Show a notification. The host decides how; today that is Electron's `Notification`. */
   notify: (payload: HostNotice) => void;
   /** Register the click-back, called after a notification click raises the window. The page
-   * registers once, on mount, so its handler exists before any notice can arrive. */
-  onOpenWindow: (callback: (change: string, window: string) => void) => void;
+   * registers once, on mount, so its handler exists before any notice can arrive. `source` is
+   * the `HostNotice.source` the notification carried: absent for the local server. */
+  onOpenWindow: (callback: (change: string, window: string, source?: string) => void) => void;
   /** Whether right-clicking should show the browser's own menu. The setting lives in the server's
    * config, which the host does not read, so the page it is showing says so — on mount and whenever
    * it changes. */
