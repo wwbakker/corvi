@@ -51,14 +51,16 @@ jobs:
       - run: bun run test:unit
 
   e2e:
-    # The browser end-to-end files on their own, one file at a time: they are the most
-    # timing-sensitive part of the suite, so they get generous wait budgets
+    # The non-terminal browser end-to-end files on their own, one file at a time: they are the
+    # most timing-sensitive part of the suite, so they get generous wait budgets
     # (CORVI_TEST_WAIT_SCALE scales every wait deadline and test timeout) and one bounded
     # retry — a test that passes on retry still reads as a flake in the log, but it is not a
-    # red build. What a failed test saw is left in test-artifacts/ and uploaded below.
+    # red build. What a failed test saw is left in test-artifacts/ and uploaded below. The
+    # sibling below runs the terminal files; both must be required status checks in branch
+    # protection, or a terminal-only failure will not block a merge.
     runs-on: ubuntu-latest
     # More than the jobs above — retries and scaled waits — but still a budget before a hang
-    # is a failure: one pass of the three files takes a couple of minutes.
+    # is a failure: one pass of the non-terminal group takes a couple of minutes.
     timeout-minutes: 20
     env:
       CORVI_TEST_WAIT_SCALE: "3"
@@ -71,10 +73,38 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bash scripts/test-run.sh e2e --retry=2
+      - run: bun scripts/test-run.ts e2e-rest --retry=2
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: e2e-failure-screenshots
+          path: test-artifacts/
+          if-no-files-found: ignore
+
+  e2e-terminal:
+    # The terminal browser end-to-end files (test/terminal*.test.ts) on their own. Same setup,
+    # waits and retry as `e2e`, and its own artifact name — upload-artifact@v4 rejects a
+    # duplicate name within a single run. It must be a required status check alongside `e2e`
+    # in branch protection, or a terminal-only failure will not block a merge.
+    runs-on: ubuntu-latest
+    # More than the jobs above — retries and scaled waits — but still a budget before a hang
+    # is a failure: one pass of the terminal group takes a couple of minutes.
+    timeout-minutes: 20
+    env:
+      CORVI_TEST_WAIT_SCALE: "3"
+      CORVI_TEST_ARTIFACTS: test-artifacts
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: bun install --frozen-lockfile
+      - run: bunx playwright install --with-deps chromium
+      - run: bun scripts/test-run.ts e2e-terminal --retry=2
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-terminal-failure-screenshots
           path: test-artifacts/
           if-no-files-found: ignore
