@@ -2,55 +2,78 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 import { ChangeId } from "@corvi/contracts/changes";
 import type { WindowActionBodyDto } from "@corvi/contracts/api";
 import { apiClient, type Change } from "./api.ts";
+import { changeKey, clientFor, sourceOf, useSources, type Source } from "./sources.ts";
 import { useServerEvent } from "./events.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
 
 /**
  * Every change's terminal windows, and the two things you do to them.
  *
- * One request for all of them, because the navigation column lists the terminals of every change
- * at once — and no poller at all: the server watches the windows and says when they change. A poll would
- * only add requests for a thing that changes when you press a key in a terminal.
+ * One request per source for all of them, because the navigation column lists the terminals of
+ * every change at once — and no poller at all: each server watches its windows and says when they
+ * change. Windows are keyed by `changeKey(source, id)`, because two servers can mint the same
+ * change id.
  */
 export function useWindows(): {
   windows: Record<string, TerminalWindow[]>;
-  select: (id: string, index: number) => void;
-  create: (id: string) => Promise<void>;
-  move: (id: string, from: number, to: number) => void;
+  select: (source: string, id: string, index: number) => void;
+  create: (source: string, id: string) => Promise<void>;
+  move: (source: string, id: string, from: number, to: number) => void;
   refresh: () => Promise<void>;
 } {
+  const { sources } = useSources();
   const [windows, setWindows] = useState<Record<string, TerminalWindow[]>>({});
 
-  const load = useCallback(
-    () =>
-      apiClient
-        .terminals.list()
-        .then(setWindows)
-        .catch(() => {}), // no host yet: the next tick will find it
-    [],
-  );
+  const load = useCallback(async (): Promise<void> => {
+    // Settled per source: one unreachable remote must not stop the local windows from loading.
+    const results = await Promise.allSettled(
+      sources.map(async (source) => ({
+        source,
+        byChange: await clientFor(source.id).terminals.list(),
+      })),
+    );
+    const merged: Record<string, TerminalWindow[]> = {};
+    for (const result of results) {
+      if (result.status !== "fulfilled") continue;
+      for (const [id, list] of Object.entries(result.value.byChange)) {
+        merged[changeKey(result.value.source.id, id)] = list;
+      }
+    }
+    setWindows(merged);
+  }, [sources]);
 
   useEffect(() => {
-    void load();
+    void load().catch(() => {}); // no host yet: the next tick will find it
   }, [load]);
-  useServerEvent("windows", load);
+  // A remote event says which source changed, but refetching every source is simpler and still
+  // one request each; the result is a screen that is never stale, which matters more here than
+  // the few wasted reads. Stable callbacks: an inline arrow would resubscribe every render.
+  const reloadWindows = useCallback((): void => {
+    void load().catch(() => {});
+  }, [load]);
+  useServerEvent("windows", reloadWindows);
+  useServerEvent("source", reloadWindows);
 
   const act = useCallback(
-    (id: string, body: WindowActionBodyDto) =>
-      apiClient
+    (source: string, id: string, body: WindowActionBodyDto) =>
+      clientFor(source)
         .terminals.windowAction(ChangeId.make(id), body)
-        .then((next) => setWindows((all) => ({ ...all, [id]: next })))
+        .then((next) => setWindows((all) => ({ ...all, [changeKey(source, id)]: next })))
         .catch(() => {}),
     [],
   );
 
   return {
     windows,
-    select: useCallback((id: string, index: number) => void act(id, { action: "select", index }), [act]),
-    create: useCallback((id: string) => act(id, { action: "new" }), [act]),
+    select: useCallback(
+      (source: string, id: string, index: number) => void act(source, id, { action: "select", index }),
+      [act],
+    ),
+    create: useCallback((source: string, id: string) => act(source, id, { action: "new" }), [act]),
     /** Where a dragged tab landed: the window at `from` takes `to`'s place. */
     move: useCallback(
-      (id: string, from: number, to: number) => void act(id, { action: "move", from, to }),
+      (source: string, id: string, from: number, to: number) =>
+        void act(source, id, { action: "move", from, to }),
       [act],
     ),
     refresh: load,
@@ -60,11 +83,12 @@ export function useWindows(): {
 /**
  * Where the change you are looking at opens its terminal socket.
  *
- * Asked for only when a terminal is actually opened: the URL is the server's, and asking on
- * arrival is a request for every change you so much as looked at, which is not what opening a
+ * Asked for only when a terminal is actually opened: the URL is the owning server's, and asking
+ * on arrival is a request for every change you so much as looked at, which is not what opening a
  * dashboard means. A change needs no terminal at all some days.
  */
 export function useTerminal(
+  source: string,
   id: string | null,
   archived: boolean,
   wanted: boolean,
@@ -75,43 +99,62 @@ export function useTerminal(
   useEffect(() => {
     setUrl(null);
     setError(null);
-  }, [id]);
+  }, [source, id]);
 
   useEffect(() => {
     if (!id || archived || !wanted) return;
-    apiClient
+    clientFor(source)
       .terminals.url(ChangeId.make(id))
-      .then((r) => setUrl(r.url))
+      // The remote answers a path relative to its own origin; the page reaches it through the
+      // owning source's gateway prefix, so the socket stays same-origin.
+      .then((r) => setUrl(source === "" ? r.url : `${sourceOf(source).baseUrl}${r.url}`))
       .catch((e: Error) => setError(e.message));
-  }, [id, archived, wanted]);
+  }, [source, id, archived, wanted]);
 
   return { url, error };
 }
 
-/** Every change: the navigation column lists the active ones and the overview lists them all.
- * One request for both, made again when the server says the change files moved. */
+/** One source's changes, tagged with it. A remote source keeps only the changes of the workspace
+ * its config named: a change that names none belongs to the remote's default workspace. */
+const changesOf = async (source: Source): Promise<Change[]> => {
+  const changes = await clientFor(source.id).changes.list();
+  if (source.id === "") {
+    return changes.map((change) => ({ ...change, source: "" }));
+  }
+  return changes
+    .filter((change) => (change.workspace ?? "default") === (source.remoteWorkspace ?? "default"))
+    .map((change) => ({ ...change, source: source.id, workspace: source.id }));
+};
+
+/** Every change, local and remote: the navigation column lists the active ones and the overview
+ * lists them all. Made again when any server says its change files moved. */
 export function useChanges(): {
   changes: Change[] | undefined;
   setChanges: Dispatch<SetStateAction<Change[] | undefined>>;
   error: string | null;
   reload: () => Promise<void>;
 } {
+  const { sources } = useSources();
   const [changes, setChanges] = useState<Change[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(
-    () =>
-      apiClient
-        .changes.list()
-        .then(setChanges)
-        .catch((e: Error) => setError(e.message)),
-    [],
-  );
+  const reload = useCallback(async (): Promise<void> => {
+    // Settled per source: one unreachable remote returns nothing, and the local changes still do.
+    const results = await Promise.allSettled(sources.map(changesOf));
+    setChanges(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])));
+    const firstFailure = results.find((result) => result.status === "rejected");
+    setError(firstFailure?.status === "rejected" ? String(firstFailure.reason) : null);
+  }, [sources]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
-  useServerEvent("changes", reload);
+  // A remote event names its source; refetching every source is the simple, never-stale choice
+  // (the same one `useWindows` makes). Stable callbacks: an inline arrow resubscribes each
+  // render.
+  const reloadChanges = useCallback((): void => void reload(), [reload]);
+  useServerEvent("changes", reloadChanges);
+  useServerEvent("source", reloadChanges);
 
   return { changes, setChanges, error, reload };
 }

@@ -1,10 +1,9 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { makeWireClient } from "@corvi/client";
+import { useChangeWireClient } from "../../app-root/sources.ts";
 import { Schema } from "effect";
 import { CommitResultSchema, type CommitResult, type FileChange } from "@corvi/contracts/integrations/review";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 const commitResultsSchema = Schema.mutable(Schema.Array(CommitResultSchema));
 
 /** What the dialog is offered: the repositories with something in them, and their files. */
@@ -47,6 +46,7 @@ export function CommitDialog({
   /** Something was committed: the file lists are stale. */
   onCommitted: (results: CommitResult[]) => void;
 }): JSX.Element {
+  const wire = useChangeWireClient();
   const ref = useRef<HTMLDialogElement>(null);
   const [message, setMessage] = useState("");
   const [picked, setPicked] = useState<Set<string>>(new Set());

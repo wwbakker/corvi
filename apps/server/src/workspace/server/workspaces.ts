@@ -1,4 +1,6 @@
 import { runtimeConfig } from "../../capabilities/runtime.ts";
+import { redactRemoteTokens } from "../../settings/server/remoteSecrets.ts";
+import { redactSecrets, type SecretDeclarations } from "../../settings/server/secrets.ts";
 import type { WorkspaceDto as Workspace } from "@corvi/contracts/config";
 import type { EffectiveSettings } from "@corvi/configuration/config";
 import {
@@ -20,6 +22,14 @@ import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
  * that has neither. This is where "which client's world is this" turns into settings.
  */
 export const workspaces = (): Workspace[] => runtimeConfig().workspaces;
+
+/** The workspaces as the page may see them: every remote device token and every declared
+ * extension secret masked. The settings view redacts the same fields through the same two rules;
+ * this is the other read surface (`GET /api/workspaces`), and it must not leak what that one
+ * hides. */
+export const workspaceViews = (declarations: SecretDeclarations): Workspace[] =>
+  redactRemoteTokens(redactSecrets({ workspaces: runtimeConfig().workspaces }, declarations))
+    .workspaces ?? [];
 
 /** The workspace with this id, or the first one — where every change without one belongs. */
 export function workspaceById(id?: string): Workspace {

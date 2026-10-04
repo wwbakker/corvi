@@ -2,11 +2,11 @@ import { type JSX, useCallback, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import {
   aborted,
-  apiClient,
   type CardInfo,
   type Change,
   type WidgetItem,
 } from "../../app-root/api.ts";
+import { changeKey, useChangeClient, useSource } from "../../app-root/sources.ts";
 import { cached, putCached } from "../../app-root/cache.ts";
 import { useCardEditor } from "./CardEditor.tsx";
 import { usePolled } from "../../app-root/poll.ts";
@@ -39,7 +39,9 @@ export function PerRepoCard({
   /** The editor wrote the change: this is where it goes. */
   onSaved: (change: Change) => void;
 }): JSX.Element {
-  const key = (repo: string): string => `${changeId}:${info.name}:${repo}`;
+  const client = useChangeClient();
+  const source = useSource();
+  const key = (repo: string): string => `${changeKey(source, changeId)}:${info.name}:${repo}`;
   // undefined while that repository is still loading; seeded from the cache so coming back to a
   // change shows its last known rows immediately.
   const [items, setItems] = useState<Record<string, WidgetItem[] | undefined>>(() =>
@@ -50,7 +52,7 @@ export function PerRepoCard({
 
   const loadRepo = useCallback(
     (repo: string, signal?: AbortSignal): Promise<void> =>
-      apiClient
+      client
         .dashboard.cardRepo(ChangeId.make(changeId), info.name, repo, { signal })
         .then((r) => {
           putCached(key(repo), r.items);
@@ -77,7 +79,7 @@ export function PerRepoCard({
 
   const act = (repo: string, actionId: string, arg?: string): Promise<void> => {
     setBusy(repo);
-    return apiClient
+    return client
       .dashboard.cardRepoAction(ChangeId.make(changeId), info.name, actionId, arg)
       .then((r) => {
         putCached(key(repo), r.items);

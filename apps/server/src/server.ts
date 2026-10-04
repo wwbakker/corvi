@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
-import { setRuntime } from "./capabilities/runtime.ts";
+import { runtimeRemoteAccessStatus, setRuntime, setTailscalePublishedPort } from "./capabilities/runtime.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
@@ -12,6 +12,13 @@ import { actionsRoutes } from "./actions/routes.ts";
 import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
+import { devicesRoutes } from "./devices/routes.ts";
+import { gatewayRoutes } from "./gateway/routes.ts";
+import { gatewaySockets, isGatewaySocket, type GatewaySocket } from "./gateway/server/index.ts";
+import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
+import { makeRemoteEvents, type RemoteEvents } from "./remote-events/server.ts";
+import { tailscaleRoutes } from "./tailscale/routes.ts";
+import { readPublishedPort } from "./tailscale/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
@@ -41,6 +48,11 @@ const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
 
+// The port a previous run published through `tailscale serve`, read before the external listener
+// reconciles: a restart that follows a configured-port change while published still recognizes
+// the 443 mapping as its own and offers the one-click stop.
+setTailscalePublishedPort(readPublishedPort());
+
 // The server-owned screens persisted by the last run, loaded before the watcher or any page can
 // prune them: this is what keeps deep scrollback across a Corvi restart.
 loadSnapshots();
@@ -63,12 +75,19 @@ setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).
 // The port this server is listening on, once it is: the signal handler removes the discovery
 // record by it (see `./app-root/instance.ts`).
 let instancePort: number | undefined;
+// The optional external (remote-access) listener, stopped with the local one. Constructed after
+// the route table exists, below.
+let remoteAccess: RemoteAccess | undefined;
+// The remote-event subscriptions, stopped with everything else.
+let remoteEvents: RemoteEvents | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     // Flush the screens to the store before the server takes its pty attachments with it; the host
     // sessions (and the shells in them) stay for the next server.
     flushScreens();
     closeAttachments();
+    remoteAccess?.stop();
+    remoteEvents?.stop();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())
       .catch(() => {})
@@ -76,35 +95,74 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
-const server = await serve<TerminalSocket>({
+// One table per domain, each guarded as it is defined; composed here, where the server is. The
+// external listener serves the same table, so a route is never implemented twice.
+const routes: Record<string, unknown> = {
+  ...appRootRoutes,
+  ...identityRoutes,
+  ...appUpdateRoutes(appUpdate),
+  ...actionsRoutes,
+  ...changeRoutes,
+  ...repositoriesRoutes,
+  ...dashboardRoutes,
+  ...devicesRoutes,
+  ...gatewayRoutes,
+  ...eventsRoutes,
+  ...integrationRoutes,
+  ...settingsRoutes,
+  ...subagentsRoutes,
+  ...tailscaleRoutes,
+  ...terminalsRoutes,
+  ...workspaceRoutes,
+};
+// A socket is either a terminal session or a gateway bridge; the handlers dispatch on the
+// connection's own data, so both kinds share the one server and the one `ws` dependency.
+type ServerSocketData = TerminalSocket | GatewaySocket;
+
+const websocket = {
+  open: (ws: ServerWebSocket<ServerSocketData>) => {
+    if (isGatewaySocket(ws.data)) gatewaySockets.open(ws as ServerWebSocket<GatewaySocket>);
+    else terminalSockets.open(ws as ServerWebSocket<TerminalSocket>);
+  },
+  message: (ws: ServerWebSocket<ServerSocketData>, message: string | Uint8Array) => {
+    if (isGatewaySocket(ws.data)) {
+      gatewaySockets.message(ws as ServerWebSocket<GatewaySocket>, message);
+    } else {
+      terminalSockets.message(ws as ServerWebSocket<TerminalSocket>, message);
+    }
+  },
+  close: (ws: ServerWebSocket<ServerSocketData>) => {
+    if (isGatewaySocket(ws.data)) gatewaySockets.close(ws as ServerWebSocket<GatewaySocket>);
+    else terminalSockets.close(ws as ServerWebSocket<TerminalSocket>);
+  },
+};
+
+const server = await serve<ServerSocketData>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env[env("PORT")] ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
-  // One table per domain, each guarded as it is defined; composed here, where the server is.
-  routes: {
-    ...appRootRoutes,
-    ...identityRoutes,
-    ...appUpdateRoutes(appUpdate),
-    ...actionsRoutes,
-    ...changeRoutes,
-    ...repositoriesRoutes,
-    ...dashboardRoutes,
-    ...eventsRoutes,
-    ...integrationRoutes,
-    ...settingsRoutes,
-    ...subagentsRoutes,
-    ...terminalsRoutes,
-    ...workspaceRoutes,
-  },
-  websocket: {
-    open: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.open(ws),
-    message: (ws: ServerWebSocket<TerminalSocket>, message: string | Uint8Array) =>
-      terminalSockets.message(ws, message),
-    close: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.close(ws),
-  },
+  routes,
+  websocket,
 });
+
+// The external listener, off by default: a second loopback port `tailscale serve` publishes. It
+// serves the same page and routes, but every `/api/*` request must present a device token (the
+// redeem bootstrap excepted). The local listener keeps its tokenless behavior.
+//
+// The controller owns start/stop/reconcile so a settings save can toggle remote access without a
+// restart; a bind that fails is not fatal, and its reason is visible through the settings status.
+remoteAccess = makeRemoteAccess({ routes, websocket });
+setRuntime({ reconcileRemoteAccess: remoteAccess.reconcile });
+await Effect.runPromise(remoteAccess.reconcile());
+
+// The remote-event fan-in: one SSE subscription per configured remote workspace, re-emitted on
+// the local bus. The settings write reconciles it too, so adding a workspace needs no restart.
+remoteEvents = makeRemoteEvents();
+setRuntime({ reconcileRemoteEvents: remoteEvents.reconcile });
+await Effect.runPromise(remoteEvents.reconcile());
+const remoteStatus = runtimeRemoteAccessStatus();
 
 instancePort = server.port;
 // Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the
@@ -112,8 +170,12 @@ instancePort = server.port;
 await pruneInstanceRecords();
 // Before the readiness line, so a client that reads the line and immediately looks for the
 // record cannot lose the race.
-await writeInstanceRecord(server.url.toString(), server.port);
-console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
+await writeInstanceRecord(server.url.toString(), server.port, remoteStatus.url);
+console.log(
+  `${ID} on ${server.url}${remoteStatus.url ? ` (remote on ${remoteStatus.url})` : ""}${
+    restored ? ` (${restored} cached answers restored)` : ""
+  }`,
+);
 
 // The page is built on demand, and a failed build in production comes back as an empty 200 with
 // no error anywhere — in the app's window that is a black screen, with nothing to say why. Ask

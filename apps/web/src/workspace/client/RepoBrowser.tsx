@@ -1,4 +1,5 @@
 import { type JSX, useCallback, useEffect, useState } from "react";
+import type { CorviClient } from "@corvi/client";
 import { apiClient, type Branches, type Listing, type Selection } from "../../app-root/api.ts";
 import { DirectoryListing } from "./DirectoryListing.tsx";
 import { fetchListing } from "./repoListing.ts";
@@ -14,11 +15,15 @@ export function RepoBrowser({
   onRemove,
   onChange,
   workspace,
+  client = apiClient,
 }: {
   /** Repositories already chosen, with their mode and base branch. */
   selected: Selection[];
   /** Which context's repositories directory to open on; undefined is the global one. */
   workspace?: string;
+  /** The source to read through: the local server, or the gateway client of the workspace this
+   * browser is for. The workspace id above is the one THAT server knows the context by. */
+  client?: CorviClient;
   onAdd: (absolutePath: string) => void;
   onRemove: (absolutePath: string) => void;
   onChange: (absolutePath: string, patch: Partial<Selection>) => void;
@@ -35,11 +40,11 @@ export function RepoBrowser({
   // directory to browse, which is how "up" and a click on a name both work.
   const open = useCallback(
     (path: string | undefined, hidden: boolean): void => {
-      fetchListing({ path, workspace, hidden })
+      fetchListing({ path, workspace, hidden }, client)
         .then(setListing)
         .catch((e: Error) => setError(e.message));
     },
-    [workspace],
+    [workspace, client],
   );
   // Opens the start directory once and whenever the context changes; the hidden flag is read at
   // that moment, so a later tick refetches the directory on screen rather than resetting here.
@@ -56,12 +61,12 @@ export function RepoBrowser({
     for (const { path } of selected) {
       if (branches[path]) continue;
       setBranches((known) => ({ ...known, [path]: { branches: [] } })); // claim it, fetch once
-      apiClient
+      client
         .repositories.branches(path)
         .then((found) => setBranches((known) => ({ ...known, [path]: found })))
         .catch(() => {});
     }
-  }, [selected]);
+  }, [selected, client]);
 
   return (
     <div className="browser">

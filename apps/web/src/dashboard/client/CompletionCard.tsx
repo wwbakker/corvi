@@ -1,6 +1,7 @@
 import { type JSX, useEffect, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { apiClient, type Change, type CompletionProgress } from "../../app-root/api.ts";
+import { type Change, type CompletionProgress } from "../../app-root/api.ts";
+import { useChangeClient } from "../../app-root/sources.ts";
 import { StepPlan } from "../../app-root/StepPlan.tsx";
 
 /** The note a finished forced completion carries: what it overrode. Undefined while it is still
@@ -36,6 +37,7 @@ export function CompletionCard({
   /** The change is archived when the last step is done; the view above needs to know. */
   onFinished: (change: Change) => void;
 }): JSX.Element | null {
+  const client = useChangeClient();
   const [progress, setProgress] = useState<CompletionProgress | null>(null);
   const [retrying, setRetrying] = useState(false);
 
@@ -43,7 +45,7 @@ export function CompletionCard({
 
   useEffect(() => {
     const load = (): Promise<void> =>
-      apiClient
+      client
         .changes.completionProgress(ChangeId.make(changeId))
         .then(setProgress)
         .catch(() => {});
@@ -57,7 +59,7 @@ export function CompletionCard({
   // the dialog for them would un-waive nothing — the journal is where the mode lives.
   const retry = (): void => {
     setRetrying(true);
-    apiClient
+    client
       .changes.complete(ChangeId.make(changeId), retryBody(progress))
       .then(({ change }) => onFinished(change))
       .catch(() => {}) // the failure lands in the progress itself, which is where it belongs

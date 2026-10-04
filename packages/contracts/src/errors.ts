@@ -24,6 +24,13 @@ export class ConflictError extends Data.TaggedError("ConflictError")<{
   readonly needsForce?: boolean;
 }> {}
 
+/** The caller has asked too often in the current window; waiting is the only fix. The optional
+ * `retryAfterSeconds` becomes the response's `Retry-After` advice. */
+export class TooManyRequestsError extends Data.TaggedError("TooManyRequestsError")<{
+  readonly message: string;
+  readonly retryAfterSeconds?: number;
+}> {}
+
 /** Something on our side failed while serving a well-formed request. */
 export class InternalError extends Data.TaggedError("InternalError")<{
   readonly message: string;
@@ -48,14 +55,27 @@ export class DecodeError extends Data.TaggedError("DecodeError")<{
   readonly message: string;
 }> {}
 
-export type IweError = NotFoundError | BadRequestError | ConflictError | CliError | DecodeError | InternalError;
+export type IweError =
+  | NotFoundError
+  | BadRequestError
+  | ConflictError
+  | CliError
+  | DecodeError
+  | TooManyRequestsError
+  | InternalError;
 
 /** True when `e` is one of ours (and therefore has a status code waiting in http.ts). */
 export const isIweError = (e: unknown): e is IweError =>
   typeof e === "object" && e !== null && "_tag" in e &&
-  ["NotFoundError", "BadRequestError", "ConflictError", "CliError", "DecodeError", "InternalError"].includes(
-    (e as { _tag: unknown })._tag as string,
-  );
+  [
+    "NotFoundError",
+    "BadRequestError",
+    "ConflictError",
+    "CliError",
+    "DecodeError",
+    "TooManyRequestsError",
+    "InternalError",
+  ].includes((e as { _tag: unknown })._tag as string);
 
 /** The human-readable message for any of ours. */
 export const formatError = (e: IweError): string => e.message;

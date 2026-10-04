@@ -1,11 +1,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
-import { apiClient, type Change } from "./api.ts";
+import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
 import { CiIcon, TerminalIcon, AgentIcon, GearIcon, UpdateIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
+import { changeKey, clientFor } from "./sources.ts";
 import { draftLabel, type Draft } from "../wizard/draft.ts";
 import { getPref, setPref } from "./prefs.ts";
 import { ALL, type Workspace } from "../workspace/client/workspaces.ts";
@@ -130,8 +131,8 @@ export function Sidebar({
    * version is waiting, gray when there is none, hidden when this run cannot update at all. */
   update: AppUpdateStatus | null;
   onUpdate: () => void;
-  onOpenChange: (id: string) => void;
-  onSelectWindow: (id: string, index: number) => void;
+  onOpenChange: (change: Change) => void;
+  onSelectWindow: (change: Change, index: number) => void;
   /** Whether the narrow window's drawer is open: on a wide window the column is always there and
    * this changes nothing. */
   open: boolean;
@@ -149,16 +150,17 @@ export function Sidebar({
 
   // The same numbers the overview cards show, for the icons. One request per change, from the
   // cache on the server, and slowly: this is a glance, not a monitor.
-  const ids = active.map((c) => c.id).join("|");
+  const ids = active.map((c) => changeKey(c.source ?? "", c.id)).join("|");
   useEffect(() => {
     let alive = true;
     const load = (): void =>
-      active.forEach((c) =>
-        apiClient
+      active.forEach((c) => {
+        const key = changeKey(c.source ?? "", c.id);
+        clientFor(c.source ?? "")
           .changes.summary(ChangeId.make(c.id))
-          .then((s) => alive && setSummaries((all) => ({ ...all, [c.id]: s })))
-          .catch(() => {}),
-      );
+          .then((s) => alive && setSummaries((all) => ({ ...all, [key]: s })))
+          .catch(() => {});
+      });
     load();
     const timer = setInterval(load, 30_000);
     return () => {
@@ -194,25 +196,25 @@ export function Sidebar({
    * tabs' job (apps/web/src/terminals/client/WindowTabs.tsx): the column is for going to the ones there
    * are, and it says nothing about windows a change has not got. */
   const entry = (c: Change): JSX.Element => {
-    const mine = windows[c.id] ?? [];
-    const selected = c.id === current?.id;
+    const mine = windows[changeKey(c.source ?? "", c.id)] ?? [];
+    const selected = changeKey(c.source ?? "", c.id) === changeKey(current?.source ?? "", current?.id ?? "");
     // One thing is highlighted at a time. On a terminal that thing is the window, not the
     // change it belongs to: two highlights would be two answers to "where am I".
     const here = selected && page !== "terminals";
     return (
-      <div key={c.id} className="change-entry">
+      <div key={changeKey(c.source ?? "", c.id)} className="change-entry">
         <button
           // The bar down the left is the change's own state, in the usual colours.
           className={`entry sub change ${stateClass(c.state)}${here ? " current" : ""}`}
           title={c.branch}
-          onClick={() => onOpenChange(c.id)}
+          onClick={() => onOpenChange(c)}
         >
           {/* One line: the change's name, and how it is doing. The branch is the tooltip above,
               which is where the id has gone — it is what the branch starts with, and the row has
               room for one of the two. */}
           <span className="top">
             <span className="subject">{c.title ?? c.branch}</span>
-            <Icons summary={summaries[c.id]} />
+            <Icons summary={summaries[changeKey(c.source ?? "", c.id)]} />
           </span>
         </button>
 
@@ -230,7 +232,7 @@ export function Sidebar({
             // Focus is what a mousedown moves, and a terminal you cannot type in after
             // clicking is useless. Preventing the default keeps it in the terminal.
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onSelectWindow(c.id, w.index)}
+            onClick={() => onSelectWindow(c, w.index)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
               {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}

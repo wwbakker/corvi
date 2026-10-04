@@ -3,9 +3,52 @@
 ## Owns
 
 HTTP, SSE and WebSocket hosting, and the backend composition: the capability layer
-(`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/settings`,
-`src/terminals`, `src/workspace`, `src/wizard` server halves), and the included integrations
-(`src/integrations/**`: their server halves and the contract dispatch that exposes them).
+(`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/devices`,
+`src/settings`, `src/terminals`, `src/workspace`, `src/wizard` server halves), and the included
+integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
+them).
+
+`src/gateway` is the local server's reverse proxy to a remote workspace's server: it resolves
+`/remote/<source>/…` from the config, strips the prefix, injects the remote's device token,
+streams HTTP and SSE, and bridges the terminal WebSocket. It adds no auth of its own — it sits
+behind the same origin guard and, on the external listener, the same device-token authorizer. It
+drops the browser's Origin/Referer/Sec-Fetch-* on the way out (the remote's own guard would
+reject the local page's origin), refuses a redirect the remote tries to send it, and bounds the
+WebSocket bridge's buffering.
+
+`src/remote-events` is the event fan-in: it holds one SSE subscription per configured remote
+workspace (with its device token), re-emits what it hears on the local bus under the `source`
+envelope, reconnects with a bounded backoff, and reconciles from the settings write.
+
+`src/devices` owns device identity, pairing and token authentication. Pairing has two faces: the
+`pairing-codes/redeem` route returns the raw token for the gateway/CLI, and `pair` puts it in the
+HttpOnly cookie for the remote browser (which then bootstraps through `devices/session`). `src/remote-access` owns
+the external listener's lifecycle: `src/server.ts` installs it and the settings write reconciles
+it, so toggling remote access starts, stops or restarts the second loopback listener without a
+process restart. It serves the same route table with an `authorize` hook that requires a device
+token on every `/api/*` request, and on WebSocket upgrades, except the two pairing routes
+(`pairing-codes/redeem` and `pair`); the local listener stays tokenless. A bind failure degrades
+to local-only and is reported through
+the settings view's `remoteAccessStatus`. `src/capabilities/gate.ts` is the one semaphore the
+listener's reconcile and the Tailscale publish/unpublish routes share, so a click during a
+settings save cannot interleave a `tailscale serve` command with the reconcile's.
+`src/tailscale` publishes that loopback port with `tailscale serve` and reports the tailnet URL;
+it never runs `off` on a 443 tree that also holds someone else's handler, refuses to displace a
+mapping that is not ours, and tracks the port it published — persisting it in app state under the
+state directory — so unpublish still finds it after the configured port moves and a restart still
+recognizes its own mapping.
+
+A workspace may be remote (`remote: { url, workspace, token }`) instead of a local settings
+scope. `src/workspace` keeps the entry with the same per-item tolerance as any workspace and
+masks both its device token and every declared extension secret at both read surfaces
+(`GET /api/workspaces`, which shares the settings view's `redactSecrets`, and the settings view).
+A save that hands the mask back keeps the stored token — but only while `remote.url` and
+`remote.workspace` are unchanged; a changed target drops it and requires re-pairing. An omitted
+token keeps it too, while `token: ""` clears it (`settings/server/remoteSecrets.ts`). The settings
+page's pairing helper
+(`POST /api/workspaces/pair-remote`) runs on the local server: it validates the url, redeems the
+code on the remote through `@corvi/client` (never following a redirect) and answers with the
+device, its raw token — which the editor stores in its draft — and the remote's workspace list.
 
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 

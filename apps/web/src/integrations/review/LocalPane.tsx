@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { makeWireClient } from "@corvi/client";
+import { useChangeWireClient } from "../../app-root/sources.ts";
 import { Schema } from "effect";
 import { TextSchema } from "@corvi/contracts/api";
 import type { Change } from "../../domain/change.ts";
@@ -15,7 +15,6 @@ import {
 } from "@corvi/contracts/integrations/review";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 const commitResultsSchema = Schema.mutable(Schema.Array(CommitResultSchema));
 
 /** The word for a status letter, so a row reads as English rather than as porcelain. */
@@ -135,6 +134,7 @@ export function LocalPane({
   change: Change;
   workspace?: string;
 }): JSX.Element {
+  const wire = useChangeWireClient();
   const changeId = change.id;
   const repos = repoPathsOf(change);
   // What people write anyway, so it is there to edit rather than to type.

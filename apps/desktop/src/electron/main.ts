@@ -324,8 +324,13 @@ const present = (win: BrowserWindow): void => {
 /** Ask the page to open what the notice was about. A click can arrive while the page is loading,
  * in which case the message waits for `did-finish-load`; a click can also arrive before the page
  * has mounted its handler, which the preload's pending slot covers. */
-const openFromNotice = (win: BrowserWindow, change: string, window: string): void => {
-  const send = (): void => win.webContents.send(`${ID}:open-window`, change, window);
+const openFromNotice = (
+  win: BrowserWindow,
+  change: string,
+  window: string,
+  source: string,
+): void => {
+  const send = (): void => win.webContents.send(`${ID}:open-window`, change, window, source);
   if (win.webContents.isLoading()) win.webContents.once("did-finish-load", send);
   else send();
 };
@@ -334,7 +339,11 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
   if (!Notification.isSupported()) return;
   const change = body.change ?? "";
   const window = body.window ?? "";
-  const key = body.id || `${change}-${window}`;
+  // The source is part of a notice's identity: a local and a remote change can share an id, so
+  // the key keeps their banners apart as much as the page's own id does. The fallback uses the
+  // page's separator (a newline — hyphens are legal in ids and would collide).
+  const source = body.source ?? "";
+  const key = body.id || `${source}\n${change}\n${window}`;
   const options: Electron.NotificationConstructorOptions = {
     title: body.title || DEFAULT_TITLE,
     id: key,
@@ -363,7 +372,7 @@ const notify = (win: BrowserWindow, body: HostNotice): void => {
   });
   notice.on("click", () => {
     present(win);
-    if (change && window) openFromNotice(win, change, window);
+    if (change && window) openFromNotice(win, change, window, source);
   });
   notice.show();
 };

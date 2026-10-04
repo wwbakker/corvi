@@ -29,6 +29,8 @@ const globalConfig: Config = {
   extensions: ["jira"],
   extensionSettings: { jira: { project: "GLOBAL" } },
   env: { GH_CONFIG_DIR: "/global/gh", GIT_AUTHOR_NAME: "Global" },
+  devices: [],
+  remoteAccess: { enabled: false, port: 4110 },
   workspaces: [],
 };
 

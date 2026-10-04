@@ -10,7 +10,7 @@ import { type JSX, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
 import type { TerminalWindow } from "../domain/terminal.ts";
-import { apiClient } from "../app-root/api.ts";
+import { useChangeClient } from "../app-root/sources.ts";
 import { ActionsMenu, type Action } from "../app-root/ActionsMenu.tsx";
 
 /** What kind of window is on screen. The agent kind is the presented icon — the app's
@@ -61,6 +61,7 @@ export function RunMenu({
   /** The keyboard goes back to the terminal after a run. */
   onRan: () => void;
 }): JSX.Element {
+  const client = useChangeClient();
   const [actions, setActions] = useState<readonly ActionSummaryDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const active = windows.find((w) => w.active);
@@ -72,7 +73,7 @@ export function RunMenu({
 
   const run = (found: ActionSummaryDto): void => {
     onRan();
-    apiClient
+    client
       .actions.run(ChangeId.make(changeId), found.key, active?.id)
       .then((result) => say(noticeFor(found.label, result)))
       .catch((e: Error) => say(e.message));
@@ -103,7 +104,7 @@ export function RunMenu({
       <ActionsMenu
         actions={items}
         onOpen={() =>
-          apiClient
+          client
             .actions.list(ChangeId.make(changeId))
             .then(setActions)
             .catch((e: Error) => say(e.message))

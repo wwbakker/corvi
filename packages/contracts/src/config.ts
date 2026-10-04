@@ -7,6 +7,9 @@
  */
 import { Schema } from "effect"
 
+import { DeviceSchema } from "./devices.ts"
+
+
 /** One extension's settings bag: `extensionSettings[name][key]`, where a value is one string or a
  * list of strings. Shared by both levels; the core carries it without looking inside. */
 const ExtensionBag = Schema.mutable(
@@ -62,13 +65,34 @@ const settingsFields = {
 export const SettingsOverrides = Schema.Struct(settingsFields)
 export type SettingsOverridesDto = typeof SettingsOverrides.Type
 
-/** A context you work in: a client, or your own projects — an identity (`id`, `name`) and a
- * scope over the settings. Mirrors `@corvi/configuration/config`'s `Workspace`. */
+/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
+ * it has to be a word. */
+export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
+
+/** Where a remote workspace lives: the server that hosts it, the workspace's id there, and the
+ * device token this client presents to it. The token is a secret and is masked in every page
+ * read. Its settings live on the host, so `remote` and `settings` are mutually exclusive. */
+export const RemoteWorkspace = Schema.Struct({
+  /** The remote server's base URL; `problems()` requires http or https. */
+  url: Schema.String,
+  /** The workspace's id on the remote server (not this client's local id). */
+  workspace: WorkspaceId,
+  /** The device token this client presents to that server. */
+  token: Schema.optional(Schema.String),
+})
+export type RemoteWorkspaceDto = typeof RemoteWorkspace.Type
+
+/** A context you work in: a client, or your own projects — an identity (`id`, `name`) and either
+ * a scope over the settings or a remote workspace. Mirrors `@corvi/configuration/config`'s
+ * `Workspace`. */
 export const Workspace = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   /** This workspace's settings: the same shape as the global level, overriding it key by key. */
   settings: Schema.optional(SettingsOverrides),
+  /** Where this workspace is hosted, when it is not local. Mutually exclusive with `settings`:
+   * a remote workspace's settings live on the server that hosts it. */
+  remote: Schema.optional(RemoteWorkspace),
 })
 export type WorkspaceDto = typeof Workspace.Type
 
@@ -77,15 +101,33 @@ export type WorkspaceDto = typeof Workspace.Type
  * has not configured any gets this one. */
 export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" }
 
-/** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
- * it has to be a word. */
-export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
-
 /** A directory copied into a worktree is a name next to the code, not a path. */
 export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/))
 
 /** An environment variable name, for an `env` map. */
 export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
+
+/** The external listener: a second loopback port an authenticated remote client reaches, off by
+ * default. Top-level (like `devices`), not a workspace setting: remote access is this machine's
+ * trust, not a context's. The port is a real TCP port; the host is always loopback. */
+export const RemoteAccess = Schema.Struct({
+  enabled: Schema.Boolean,
+  port: Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(65535),
+  ),
+})
+export type RemoteAccessDto = typeof RemoteAccess.Type
+
+/** The port the external listener uses when the file does not name one. */
+export const DEFAULT_REMOTE_ACCESS_PORT = 4110
+
+/** What remote access is when nothing is configured: off, on the default port. */
+export const DEFAULT_REMOTE_ACCESS: RemoteAccessDto = {
+  enabled: false,
+  port: DEFAULT_REMOTE_ACCESS_PORT,
+}
 
 /** The config file's own shape, as it is written: the settings at the top level (where they are
  * the defaults every workspace inherits) and the workspaces beside them. Everything is optional
@@ -95,6 +137,14 @@ export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-
  * per-item tolerance rather than losing the whole file to one hand-mangled workspace. */
 export const ConfigFile = Schema.Struct({
   ...settingsFields,
+  /** The devices paired to this server, with only hashes of their tokens. Top-level rather
+   * than a setting: a device is this machine's trust, not a workspace's. Decoded loosely and
+   * filtered per item (`devicesFrom`), like `workspaces`: one hand-mangled device must not
+   * empty the rest of the config. */
+  devices: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
+  /** The external listener's settings. Decoded loosely and validated by `remoteAccessFrom`, so
+   * a hand-mangled port falls back to the default instead of emptying the config. */
+  remoteAccess: Schema.optional(Schema.Any),
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
 })
 export type ConfigFileDto = typeof ConfigFile.Type
@@ -118,6 +168,8 @@ export const Resolved = Schema.Struct({
   extensions: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
   extensionSettings: Schema.optional(ExtensionBag),
   env: EnvMap,
+  devices: Schema.mutable(Schema.Array(DeviceSchema)),
+  remoteAccess: RemoteAccess,
   workspaces: Schema.mutable(Schema.Array(Workspace)),
 })
 export type ResolvedDto = typeof Resolved.Type

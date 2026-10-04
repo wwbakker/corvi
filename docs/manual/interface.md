@@ -27,6 +27,31 @@ again. Leaving Settings with unsaved edits asks first however you go — clickin
 Opening a dashboard does not start a terminal. A terminal starts or attaches when opened. The
 new-window control creates another window, normally in the current window's working directory.
 
+## Settings
+
+The settings page edits the config file directly; [configuration](configuration.md) documents the
+keys and the scopes. Its scope bar holds **Global** and one tab per workspace, and the sections
+below the tabs depend on the scope. Three of them are immediate actions rather than settings:
+
+- **Remote access** (global scope): **Enable remote access** and the listener's **Port** ride the
+draft and are written by **Save**. The Tailscale block publishes the listener to the tailnet —
+**Publish to Tailscale** / **Stop publishing** — shows the published URL, and says why it cannot
+publish (not installed, not connected, 443 already in use, or a 443 tree shared with another
+handler, in which case it spells out the manual `tailscale serve --https=443 off`). See
+[remote access](install.md#remote-access).
+- **Devices** (global scope): create a short-lived, single-use **pairing code** — shown with its
+countdown — and list the paired devices with **Revoke**. No token is ever displayed. See
+[remote access](install.md#remote-access).
+- A **remote workspace**'s **Context** tab (one workspace scope): ticking **Hosted on another
+server** drops that workspace's local settings and shows its **Remote address**, **Remote
+workspace** and **Device token** fields, a **Pair** control (a pairing code and a device name)
+that runs the pairing against that server and fills the token, and — once paired — a picker of the
+remote's workspaces. Changing the address or the remote workspace id while a token is stored warns
+that the stored token no longer applies, and **Save** drops it, so the new target has to be paired
+again. A remote workspace has no other sections, because its settings live on the server that
+hosts it. Unticking the box switches it back to local; **Remove this context** deletes it. See
+[workspaces](configuration.md#workspaces).
+
 ## Change views
 
 A change's name, state, and actions remain accessible above its content. The **Plan** tab is

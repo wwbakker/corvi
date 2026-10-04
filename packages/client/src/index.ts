@@ -8,10 +8,12 @@
 import { makeActionsApi, type ActionsApi } from "./actions.ts"
 import { makeChangesApi, type ChangesApi } from "./changes.ts"
 import { makeDashboardApi, type DashboardApi } from "./dashboard.ts"
+import { makeDevicesApi, type DevicesApi } from "./devices.ts"
 import { makeRepositoriesApi, type RepositoriesApi } from "./repositories.ts"
 import { makeServerApi, type ServerApi } from "./server.ts"
 import { makeSettingsApi, type SettingsApi } from "./settings.ts"
 import { makeSubagentsApi, type SubagentsApi } from "./subagents.ts"
+import { makeTailscaleApi, type TailscaleApi } from "./tailscale.ts"
 import { makeTerminalsApi, type TerminalsApi } from "./terminals.ts"
 import { makeUpdateApi, type UpdateApi } from "./update.ts"
 import { makeWizardApi, type WizardApi } from "./wizard.ts"
@@ -21,6 +23,7 @@ import { transport, type ClientOptions } from "./transport.ts"
 export interface CorviClient {
   readonly changes: ChangesApi
   readonly dashboard: DashboardApi
+  readonly devices: DevicesApi
   readonly terminals: TerminalsApi
   readonly repositories: RepositoriesApi
   readonly wizard: WizardApi
@@ -28,6 +31,7 @@ export interface CorviClient {
   readonly settings: SettingsApi
   readonly actions: ActionsApi
   readonly subagents: SubagentsApi
+  readonly tailscale: TailscaleApi
   readonly update: UpdateApi
   readonly server: ServerApi
 }
@@ -37,6 +41,7 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
   return {
     changes: makeChangesApi(send),
     dashboard: makeDashboardApi(send),
+    devices: makeDevicesApi(send),
     terminals: makeTerminalsApi(send),
     repositories: makeRepositoriesApi(send),
     wizard: makeWizardApi(send),
@@ -44,6 +49,7 @@ export const makeCorviClient = (options: ClientOptions): CorviClient => {
     settings: makeSettingsApi(send),
     actions: makeActionsApi(send),
     subagents: makeSubagentsApi(send),
+    tailscale: makeTailscaleApi(send),
     update: makeUpdateApi(send),
     server: makeServerApi(send),
   }

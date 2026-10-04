@@ -16,6 +16,7 @@ import { moment } from "./moment.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
+import { changeKey, clientFor, SourceContext, SourcesProvider, useSources, WorkspaceSourceContext } from "./sources.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
 import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
@@ -31,6 +32,7 @@ import { useAppUpdate } from "../app-update/state.ts";
 import { hostOf } from "./host.ts";
 import { MenuIcon } from "./icons.tsx";
 import { useContextMenu } from "./contextMenu.ts";
+import { SessionGate } from "./SessionGate.tsx";
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { SettingsView } from "../settings/model.ts";
 import { ActionsPage } from "../actions/ActionsPage.tsx";
@@ -45,7 +47,7 @@ function Home({
   // undefined until the list has been read: "none yet" and "not known yet" are different things.
   changes: Change[] | undefined;
   error: string | null;
-  onOpen: (id: string) => void;
+  onOpen: (change: Change) => void;
   onNew: () => void;
 }): JSX.Element {
   // Three lists, because they are read for different reasons: what is still an idea, what is
@@ -79,7 +81,7 @@ function Home({
       )}
       <div className="change-cards">
         {ideas.map((c) => (
-          <ChangeCard key={c.id} change={c} onOpen={() => onOpen(c.id)} />
+          <ChangeCard key={changeKey(c.source ?? "", c.id)} change={c} onOpen={() => onOpen(c)} />
         ))}
       </div>
 
@@ -87,7 +89,7 @@ function Home({
       {changes && active.length === 0 && <p className="hint">nothing in progress</p>}
       <div className="change-cards">
         {active.map((c) => (
-          <ChangeCard key={c.id} change={c} onOpen={() => onOpen(c.id)} />
+          <ChangeCard key={changeKey(c.source ?? "", c.id)} change={c} onOpen={() => onOpen(c)} />
         ))}
       </div>
 
@@ -109,7 +111,7 @@ function Home({
             </thead>
             <tbody>
               {finished.map((c) => (
-                <tr key={c.id} onClick={() => onOpen(c.id)}>
+                <tr key={changeKey(c.source ?? "", c.id)} onClick={() => onOpen(c)}>
                   <td>{c.id}</td>
                   <td className="summary">{c.title ?? c.branch}</td>
                   <td className={stateClass(c.state)}>{c.state ?? "Completed"}</td>
@@ -127,13 +129,20 @@ function Home({
 }
 
 function App(): JSX.Element {
-  const [view, setViewState] = useState<View>(() => viewOf(window.location.pathname));
+  const [view, setViewState] = useState<View>(() =>
+    viewOf(window.location.pathname + window.location.search),
+  );
+  const { reload: reloadSources } = useSources();
   const { changes: everything, error, reload } = useChanges();
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
-  // The pages the sidebar offers in this context, from the server: which extensions exist and
-  // what they contribute is not the page's to know. Undefined ("All work") is the server's
-  // default context, which is what a request without a workspace gets.
-  const { pages, reload: reloadPages } = usePages(workspace?.id);
+  // The pages the sidebar offers in this context, from the context's own server: which extensions
+  // exist and what they contribute is not the page's to know. Undefined ("All work") is the local
+  // server's default context, which is what a request without a workspace gets. A remote
+  // workspace asks its own server through the gateway, naming its own id there (`remote.workspace`),
+  // which is also the id a page's own requests carry.
+  const pageClient = workspace?.remote ? clientFor(workspace.id) : apiClient;
+  const pageWorkspace = workspace?.remote ? workspace.remote.workspace : workspace?.id;
+  const { pages, reload: reloadPages } = usePages(pageWorkspace, pageClient);
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
   const changes = everything && ready ? inWorkspace(everything, chosen, workspaces) : undefined;
@@ -199,7 +208,12 @@ function App(): JSX.Element {
   const selected = view.name === "change" ? view.id : null;
   // Found among all of them, not the filtered list: a link to a change in another workspace
   // should open it rather than say it does not exist.
-  const change = (everything ?? []).find((c) => c.id === selected);
+  // The view names both halves of the identity, so a change the filter hides still opens, and a
+  // remote change sharing an id with a local one is not confused for it.
+  const selectedSource = view.name === "change" ? view.source : "";
+  const change = (everything ?? []).find(
+    (c) => c.id === selected && (c.source ?? "") === selectedSource,
+  );
   const onTerminal = view.name === "change" && (view.page === "terminals" || view.page === "subagents");
   // The plan is the tab's content and takes its frame, so its page gives up the padding the
   // way the terminal's does — the editor is the content area, exactly.
@@ -214,7 +228,7 @@ function App(): JSX.Element {
   useEffect(() => {
     if (onTerminal) setWantsTerminal(true);
   }, [onTerminal]);
-  const terminal = useTerminal(selected, Boolean(change?.completedAt), wantsTerminal);
+  const terminal = useTerminal(selectedSource, selected, Boolean(change?.completedAt), wantsTerminal);
 
   // Navigating pushes a history entry; Back and a reload both land on the same page. A page
   // with unsaved edits publishes a leave guard (app-root/navigation.ts); while it is dirty, the
@@ -229,12 +243,13 @@ function App(): JSX.Element {
   const [leaveSaving, setLeaveSaving] = useState(false);
 
   const applyView = (next: View): void => {
-    if (pathOf(next) !== window.location.pathname) window.history.pushState(null, "", pathOf(next));
+    if (pathOf(next) !== window.location.pathname + window.location.search)
+      window.history.pushState(null, "", pathOf(next));
     setViewState(next);
   };
   const setView = (next: View): void => {
     // Clicking the page you are on is not leaving it: the guard has nothing to say.
-    if (guard.current?.dirty && pathOf(next) !== window.location.pathname) {
+    if (guard.current?.dirty && pathOf(next) !== window.location.pathname + window.location.search) {
       setLeaving({ target: next, subject: guard.current.subject });
       return;
     }
@@ -276,15 +291,16 @@ function App(): JSX.Element {
     setView({ name: "home" });
   };
 
-  // A notification click comes back through the host as a plain function: activate the window,
-  // then open the change and the window it was about. The window id is looked up in the
+  // A notification click comes back with the source it was about: activate the window, then open
+  // that source's change — resolved by (source, change), so a remote notice for a change that
+  // shares an id with a local one does not open the local one. The window id is looked up in the
   // live list, because the index it had when the notification was made may belong to another
   // window by the time it is clicked.
-  const openWindow = (change: string, windowId: string): void => {
-    const index = (terminals.windows[change] ?? []).find((w) => w.id === windowId)?.index;
+  const openWindow = (source: string, change: string, windowId: string): void => {
+    const index = (terminals.windows[changeKey(source, change)] ?? []).find((w) => w.id === windowId)?.index;
     setWantsTerminal(true);
-    setView({ name: "change", id: change, page: "terminals" });
-    if (index !== undefined) terminals.select(change, index);
+    setView({ name: "change", source, id: change, page: "terminals" });
+    if (index !== undefined) terminals.select(source, change, index);
   };
   const openWindowRef = useRef(openWindow);
   openWindowRef.current = openWindow;
@@ -292,12 +308,14 @@ function App(): JSX.Element {
     // The contract the host calls after a notification is clicked; the wrapper keeps the
     // registered function from going stale as the view changes. A real browser has no host, and
     // nothing to register.
-    hostOf()?.onOpenWindow((change, windowId) => openWindowRef.current(change, windowId));
+    hostOf()?.onOpenWindow((change, windowId, source) =>
+      openWindowRef.current(source ?? "", change, windowId),
+    );
   }, []);
 
   useEffect(() => {
     const onPop = (): void => {
-      const next = viewOf(window.location.pathname, pagesRef.current);
+      const next = viewOf(window.location.pathname + window.location.search, pagesRef.current);
       if (guard.current?.dirty) {
         // The history pointer has already moved, so the guarded view's own URL is pushed back:
         // the page on screen stays the one the URL names, and the popped target waits in the
@@ -371,8 +389,9 @@ function App(): JSX.Element {
       </button>
       <Notifier
         change={selected}
+        source={selectedSource}
         page={view.name === "change" ? view.page : "dashboard"}
-        windows={selected ? (terminals.windows[selected] ?? []) : []}
+        windows={selected ? (terminals.windows[changeKey(selectedSource, selected)] ?? []) : []}
         onOpen={openWindow}
       />
       <UpdateNotice
@@ -387,7 +406,7 @@ function App(): JSX.Element {
         workspaces={workspaces}
         chosen={chosen}
         onChooseWorkspace={choose}
-        current={change ?? (selected ? ({ id: selected } as Change) : undefined)}
+        current={change ?? (selected ? ({ id: selected, source: selectedSource } as Change) : undefined)}
         page={view.name === "change" ? view.page : "dashboard"}
         windows={terminals.windows}
         onHome={() => setView({ name: "home" })}
@@ -410,11 +429,18 @@ function App(): JSX.Element {
         settings={view.name === "settings"}
         update={appUpdate.status}
         onUpdate={appUpdate.open}
-        onOpenChange={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
-        onSelectWindow={(id, index) => {
-          terminals.select(id, index);
+        onOpenChange={(c) =>
+          setView({
+            name: "change",
+            source: c.source ?? "",
+            id: c.id,
+            page: lastViewOf(changeKey(c.source ?? "", c.id)),
+          })
+        }
+        onSelectWindow={(c, index) => {
+          terminals.select(c.source ?? "", c.id, index);
           setWantsTerminal(true);
-          setView({ name: "change", id, page: "terminals" });
+          setView({ name: "change", source: c.source ?? "", id: c.id, page: "terminals" });
         }}
       />
       <main className={onTerminal || onPlan ? "content flush" : "content"}>
@@ -422,12 +448,23 @@ function App(): JSX.Element {
           <Home
             changes={changes}
             error={error}
-            onOpen={(id) => setView({ name: "change", id, page: lastViewOf(id) })}
+            onOpen={(c) =>
+              setView({
+                name: "change",
+                source: c.source ?? "",
+                id: c.id,
+                page: lastViewOf(changeKey(c.source ?? "", c.id)),
+              })
+            }
             onNew={() => setView({ name: "new" })}
           />
         )}
         {view.name === "ext-page" && (
-          <PageHost info={view} workspace={workspace?.id} />
+          // A page belongs to the workspace that is selected; the source tells its own requests
+          // which server to reach through the gateway, and the workspace prop names its id there.
+          <WorkspaceSourceContext.Provider value={workspace?.remote ? workspace.id : ""}>
+            <PageHost info={view} workspace={pageWorkspace} />
+          </WorkspaceSourceContext.Provider>
         )}
         {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
         {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
@@ -441,6 +478,8 @@ function App(): JSX.Element {
               reloadWorkspaces();
               reloadPages();
               reloadSettings();
+              // A save may have added or retargeted a remote workspace: the sources follow.
+              reloadSources();
             }}
           />
         )}
@@ -450,55 +489,62 @@ function App(): JSX.Element {
             workspace={workspace?.id}
             draft={draft}
             onChange={changeDraft}
-            onCreated={(c, provision) => {
+            onCreated={(c, provision, source) => {
               // Only a created change takes the draft: a refused create keeps the form.
               setDraft(undefined);
               void reload();
               // A new change opens on its Plan: the wizard just wrote it, and anything an old
               // record of this id left in the page's memory is not this change's.
-              forgetChange(c.id);
-              setView({ name: "change", id: c.id, page: "plan", provision });
+              forgetChange(changeKey(source, c.id));
+              // The source it was created in: a remote workspace's change routes to its server
+              // from here on, exactly as one read from its list does.
+              setView({ name: "change", source, id: c.id, page: "plan", provision });
             }}
             onDiscard={discardDraft}
           />
         )}
         {view.name === "change" && (
+          <SourceContext.Provider value={selectedSource}>
           <ChangeView
             // Keyed by the change: its state — the cached reads, the notes and plan being typed,
             // the widgets, the open terminal — belongs to one change. Reusing the instance across
             // a switch is what let the previous change's notes stay on screen after its read
             // came back, with nothing left to read them again (apps/web/src/change-page/client/ChangeView.tsx).
-            key={view.id}
+            key={changeKey(selectedSource, view.id)}
             id={view.id}
+            source={selectedSource}
             page={view.page}
             platform={platform}
             provision={view.provision}
             onOpenPage={(page) => setView({ ...view, page, provision: undefined })}
-            terminal={{ ...terminal, create: () => void terminals.create(view.id) }}
-            windows={terminals.windows[view.id] ?? []}
+            terminal={{ ...terminal, create: () => void terminals.create(selectedSource, view.id) }}
+            windows={terminals.windows[changeKey(selectedSource, view.id)] ?? []}
             onSelectWindow={(index) => {
-              terminals.select(view.id, index);
+              terminals.select(selectedSource, view.id, index);
               setWantsTerminal(true);
               // On the dashboard the tab is the way in: selecting a window you cannot see would
               // be a click that does nothing visible.
-              setView({ name: "change", id: view.id, page: "terminals" });
+              setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
             onFocusWindow={(index) => {
               // Focus the window without leaving the page: the Subagents page has the terminal
               // beside the conversation, so selecting there must not navigate.
-              terminals.select(view.id, index);
+              terminals.select(selectedSource, view.id, index);
               setWantsTerminal(true);
             }}
             onNewWindow={() => {
               // A session that has not started has nothing to add a window to: opening the
               // terminal makes its first window.
-              if ((terminals.windows[view.id] ?? []).length > 0) void terminals.create(view.id);
+              if ((terminals.windows[changeKey(selectedSource, view.id)] ?? []).length > 0) {
+                void terminals.create(selectedSource, view.id);
+              }
               setWantsTerminal(true);
-              setView({ name: "change", id: view.id, page: "terminals" });
+              setView({ name: "change", source: view.source, id: view.id, page: "terminals" });
             }}
-            onMoveWindow={(from, to) => terminals.move(view.id, from, to)}
+            onMoveWindow={(from, to) => terminals.move(selectedSource, view.id, from, to)}
             onChanged={reload}
           />
+          </SourceContext.Provider>
         )}
       </main>
       {leaving && (
@@ -529,6 +575,10 @@ function App(): JSX.Element {
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <SessionGate>
+      <SourcesProvider>
+        <App />
+      </SourcesProvider>
+    </SessionGate>
   </StrictMode>,
 );

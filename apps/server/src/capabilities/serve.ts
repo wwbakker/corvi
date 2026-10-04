@@ -18,9 +18,14 @@ import { WebSocketServer, type RawData, type WebSocket as WsSocket } from "ws";
  * shape `Bun.serve`'s `ServerWebSocket<T>` had, so the terminal socket's `ws.data` answers. */
 export type ServerWebSocket<Data> = WsSocket & { data: Data };
 
-/** What a handler's second argument offers: the one upgrade call the terminal proxy makes. */
+/** What a handler's second argument offers: the one upgrade call the terminal and gateway make.
+ * `onAbort` is called when the raw socket closes before the handshake completes (a client that
+ * sent `Upgrade` without valid WebSocket headers), so a bridge can tear down what it opened. */
 export type Server = {
-  upgrade: (request: Request, options?: { data?: unknown }) => boolean;
+  upgrade: (
+    request: Request,
+    options?: { data?: unknown; onAbort?: () => void },
+  ) => boolean;
 };
 
 type Handler = (
@@ -110,13 +115,15 @@ const headersOf = (req: IncomingMessage): Headers => {
   return headers;
 };
 
-const toRequest = (req: IncomingMessage, url: string): Request => {
+const toRequest = (req: IncomingMessage, url: string, signal?: AbortSignal): Request => {
   const method = req.method ?? "GET";
   const withBody = method !== "GET" && method !== "HEAD";
   return new Request(url, {
     method,
     headers: headersOf(req),
     body: withBody ? (Readable.toWeb(req) as unknown as BodyInit) : undefined,
+    // The signal a proxy forwards upstream: aborted when the client goes away.
+    ...(signal === undefined ? {} : { signal }),
     // Required by Node for a streaming request body; absent from the DOM type.
     duplex: "half",
   } as RequestInit & { duplex: "half" });
@@ -171,16 +178,28 @@ export type ServeOptions<Data> = {
   hostname?: string;
   routes: Record<string, unknown>;
   websocket?: WebSocketHandlers<Data>;
+  /** Called before routing, for plain requests and WebSocket upgrades alike. A returned Response
+   * refuses the request and is written as it is (401, 429, ...); undefined lets it through. The
+   * external listener supplies the device-token check here, so the route tables are shared with
+   * the tokenless local listener rather than duplicated. */
+  authorize?: (request: Request) => Response | undefined | Promise<Response | undefined>;
 };
 
-export type Serving = { url: URL; port: number; stop: () => void };
+export type Serving = {
+  url: URL;
+  port: number;
+  /** Whether the listener is still accepting connections (false once `stop` ran, or after an
+   * unexpected close). */
+  isListening: () => boolean;
+  stop: () => void;
+};
 
 /** The URL a request arrived on: what the Response's `url` is built from. */
 const requestUrl = (req: IncomingMessage): string =>
   `http://${req.headers.host ?? "127.0.0.1"}${req.url ?? "/"}`;
 
-/** A frame as the proxy expects it: text as it is, binary as bytes over a plain ArrayBuffer. */
-const frameOf = (data: RawData, isBinary: boolean): string | Uint8Array => {
+/** A frame as a bridge expects it: text as it is, binary as bytes over a plain ArrayBuffer. */
+export const frameOf = (data: RawData, isBinary: boolean): string | Uint8Array => {
   if (!isBinary) return data.toString();
   if (Buffer.isBuffer(data)) return new Uint8Array(data);
   if (data instanceof ArrayBuffer) return new Uint8Array(data);
@@ -196,8 +215,17 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   const noUpgrade: Server = { upgrade: () => false };
 
   const server = createServer((req, res) => {
+    // The request's own lifetime drives the upstream fetch: when the client hangs up, the
+    // signal aborts and a proxy stops pulling from the remote.
+    const controller = new AbortController();
+    res.once("close", () => controller.abort());
     void (async () => {
-      const request = toRequest(req, requestUrl(req));
+      const request = toRequest(req, requestUrl(req), controller.signal);
+      const refused = await options.authorize?.(request);
+      if (refused) {
+        await writeResponse(res, refused);
+        return;
+      }
       const found = match(routes, request.method, new URL(request.url).pathname);
       if (!found.handler) {
         res.writeHead(found.allowed.length ? 405 : 404, {
@@ -214,6 +242,9 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
       }
       await writeResponse(res, response);
     })().catch((error: unknown) => {
+      // A client that hung up aborts its request; that is the normal end of it, not a failure
+      // worth logging (or a 500 to write to a socket that is gone).
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       console.error("request failed:", error);
       if (!res.headersSent) res.writeHead(500);
       res.end();
@@ -235,6 +266,11 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
     const raw = socket as Socket;
     void (async () => {
       const request = toRequest(req, requestUrl(req));
+      const refused = await options.authorize?.(request);
+      if (refused) {
+        await writeRaw(raw, refused);
+        return;
+      }
       const found = match(routes, request.method, new URL(request.url).pathname);
       if (!found.handler) {
         raw.destroy();
@@ -245,7 +281,16 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
         upgrade: (_request, upgradeOptions) => {
           if (upgraded) return false;
           upgraded = true;
+          // `handleUpgrade` calls back only on a valid handshake; a bad one closes or destroys the
+          // raw socket without it. The raw close is the only signal a bridge gets to clean up.
+          let completed = false;
+          const onClose = (): void => {
+            if (!completed) upgradeOptions?.onAbort?.();
+          };
+          raw.once("close", onClose);
           wss.handleUpgrade(req, raw, head, (ws) => {
+            completed = true;
+            raw.removeListener("close", onClose);
             const connection = ws as ServerWebSocket<Data>;
             connection.data = upgradeOptions?.data as Data;
             ws.on("message", (data: RawData, isBinary: boolean) =>
@@ -278,6 +323,7 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   return {
     url: new URL(`http://${hostname}:${port}/`),
     port,
+    isListening: () => server.listening,
     stop: () => {
       wss.close();
       server.close();

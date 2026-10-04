@@ -1,7 +1,7 @@
 import { type JSX, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import { ClientError } from "@corvi/client";
-import { apiClient } from "../../app-root/api.ts";
+import { changeKey, useChangeClient } from "../../app-root/sources.ts";
 import { MarkdownEditor } from "../../editor/client/MarkdownEditor.tsx";
 import { documentKey } from "../../app-root/remember.ts";
 import { useSavedText } from "../../editor/client/useSavedText.ts";
@@ -25,18 +25,23 @@ import { useSavedText } from "../../editor/client/useSavedText.ts";
  */
 export function PlanPage({
   changeId,
+  source,
   readOnly = false,
 }: {
   changeId: string;
+  /** Which server owns the change: the plan file lives there. */
+  source: string;
   /** A finished change's plan is a record: readable, not editable. */
   readOnly?: boolean;
 }): JSX.Element {
+  const client = useChangeClient();
+  const key = changeKey(source, changeId);
   const { text, change, saved, flush, stale, reload, keepMine } = useSavedText({
-    key: `${changeId}:plan`,
+    key: `${key}:plan`,
     load: () =>
-      apiClient.changes.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
+      client.changes.plan(ChangeId.make(changeId)).then(({ text, revision }) => ({ text, revision })),
     save: (value, baseRevision) =>
-      apiClient
+      client
         .changes.writePlan(ChangeId.make(changeId), {
           text: value,
           ...(baseRevision !== undefined ? { baseRevision } : {}),
@@ -74,7 +79,7 @@ export function PlanPage({
         fill
         value={text}
         readOnly={readOnly}
-        remember={documentKey("plan", changeId)}
+        remember={documentKey("plan", key)}
         placeholder="What this change is, and how it might work. The agent reads and edits this file (PLAN.md)."
         onChange={change}
         onBlur={flush}

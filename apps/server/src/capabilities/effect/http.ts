@@ -8,10 +8,11 @@ import type { IweError } from "@corvi/contracts/errors";
  *
  * NotFoundError → 404, BadRequestError → 400, ConflictError → 409, CliError → 400, DecodeError →
  * 400 for a request body (the caller's mistake) but 500 for a file or CLI decode (ours),
- * InternalError → 500.
+ * TooManyRequestsError → 429, InternalError → 500.
  */
 
-const json = (data: unknown, status: number): Response => Response.json(data, { status });
+const json = (data: unknown, status: number, headers?: HeadersInit): Response =>
+  Response.json(data, { status, headers });
 
 const statusFor = (e: IweError): number => {
   switch (e._tag) {
@@ -25,14 +26,24 @@ const statusFor = (e: IweError): number => {
       return 400;
     case "DecodeError":
       return e.source === "request-body" ? 400 : 500;
+    case "TooManyRequestsError":
+      return 429;
     case "InternalError":
       return 500;
   }
 };
 
 /** Anything a route effect fails with becomes a Response — ours by taxonomy, anything else
- * (a defect that escaped, an untyped Error) as 400 with its message. */
+ * (a defect that escaped, an untyped Error) as 400 with its message. A rate-limit refusal also
+ * carries the `Retry-After` advice the error named. */
 export const toResponse = (e: unknown): Response => {
-  if (isIweError(e)) return json({ error: formatError(e) }, statusFor(e));
+  if (isIweError(e)) {
+    const retryAfter = e._tag === "TooManyRequestsError" && e.retryAfterSeconds !== undefined;
+    return json(
+      { error: formatError(e) },
+      statusFor(e),
+      retryAfter ? { "retry-after": String(e.retryAfterSeconds) } : undefined,
+    );
+  }
   return json({ error: e instanceof Error ? e.message : String(e) }, 400);
 };

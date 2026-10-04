@@ -1,12 +1,11 @@
 import { type JSX, useEffect, useMemo, useRef, useState } from "react";
-import { makeWireClient } from "@corvi/client";
+import { useChangeWireClient } from "../../app-root/sources.ts";
 import { ChangeWireSchema } from "@corvi/contracts/api";
 import { branchFor } from "../../domain/change.ts";
 import type { EditComponent, StepComponent } from "../client.tsx";
 import { BoardSchema, IssueSchema, type Board, type Issue } from "@corvi/contracts/integrations/jira";
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 
 /**
  * The jira extension's two screens: the wizard's step — the board, filtered and grouped, plus
@@ -106,6 +105,7 @@ export function IssueTable({
   /** What to say under the create button: the wizard's field is not the editor's. */
   hint?: string;
 }): JSX.Element {
+  const wire = useChangeWireClient();
   const [board, setBoard] = useState<Board>({ issues: [], sprints: [] });
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -302,6 +302,7 @@ export const step: StepComponent = ({ ctx }) => {
  * and the old ticket is left where it is.
  */
 export const edit: EditComponent = ({ change, workspace, open, onClose, onSaved }) => {
+  const wire = useChangeWireClient();
   const ref = useRef<HTMLDialogElement>(null);
   // The pick in the dialog — null while nothing new is picked. The current link stays marked
   // (the table falls back to it) but is not a pick, so OK stays shut until the link really

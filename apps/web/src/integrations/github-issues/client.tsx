@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { makeWireClient } from "@corvi/client";
+import { useChangeWireClient } from "../../app-root/sources.ts";
 import { Schema } from "effect";
 import { ChangeWireSchema } from "@corvi/contracts/api";
 import { branchFor, repoPathsOf } from "../../domain/change.ts";
@@ -27,7 +27,6 @@ type Listing = { repository?: string; issues: GitHubIssue[] };
 type Picked = { repo: string; repository?: string; issue: GitHubIssue };
 
 /** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 const ListingSchema = Schema.Struct({
   repository: Schema.optional(Schema.String),
   issues: Schema.mutable(Schema.Array(GitHubIssueSchema)),
@@ -132,6 +131,7 @@ function IssuePicker({
   /** What to say when there are no repositories to look in. */
   noRepositories?: string;
 }): JSX.Element {
+  const wire = useChangeWireClient();
   const [listing, setListing] = useState<Listing>();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -329,6 +329,7 @@ export const step: StepComponent = ({ ctx }) => {
  * new ref, and the old issue is left where it is.
  */
 export const edit: EditComponent = ({ change, workspace, open, onClose, onSaved }) => {
+  const wire = useChangeWireClient();
   const ref = useRef<HTMLDialogElement>(null);
   const current = change.extensions?.[KEY] as IssueRef | undefined;
   // The pick in the dialog — null while nothing new is picked. The current link stays marked

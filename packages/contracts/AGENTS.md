@@ -18,11 +18,24 @@ transport boundary.
 - `@corvi/contracts/paths`: `AbsolutePath`
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
 - `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
-  (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view, workspaces)
-- `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names
+  (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view — including
+  the external listener's `RemoteAccessStatus` — workspaces, and the remote-workspace pairing
+  helper: `PairRemoteWorkspaceRequest`/`Response` and `RemoteWorkspaceRef`)
+- `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, the
+  pairing create/redeem request and response schemas, and the cookie-only pair and session shapes
+- `@corvi/contracts/tailscale`: the external listener's Tailscale publication status
+  (`available`, `running`, `dnsName`, `publishedUrl`, `error`, and `blocked` — `mixed` or
+  `conflict` — when 443 cannot be published)
+- `@corvi/contracts/events`: the event names and the `source` envelope a remote workspace's
+  events are multiplexed under on `/api/events`
+- `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
+  remote workspaces (`RemoteWorkspace`: url, remote workspace id, device token), the devices
+  paired to this server, and the remote-access setting
 - `@corvi/contracts/errors`: the tagged failures (`NotFoundError`, `BadRequestError`,
-  `ConflictError`, `InternalError`, `CliError`, `DecodeError`), `IweError`, `isIweError`,
-  `formatError`
+  `ConflictError`, `InternalError`, `CliError`, `DecodeError`, `TooManyRequestsError`),
+  `IweError`, `isIweError`, `formatError`
+- `@corvi/contracts/instance`: the discovery record (`InstanceRecord`, carrying the external
+  listener's `remoteUrl` when remote access is on)
 - `@corvi/contracts/workspace`: the request-scoped `Workspace` tag (`corvi/Workspace`)
 - `@corvi/contracts/capabilities`: the capability tags (`Shell`, `Cache`, `Settings`, `Bus`,
   `ExtensionStore`, `Changes`, `GitFacts`), `swr` / `invalidate` (the `Cache` use helpers, with

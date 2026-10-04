@@ -15,7 +15,7 @@ export type View =
   | { name: "subagents" }
   | { name: "ext-page"; id: string; extension: string }
   | { name: "settings" }
-  | { name: "change"; id: string; page: Page; provision?: ProvisionResult[] };
+  | { name: "change"; source: string; id: string; page: Page; provision?: ProvisionResult[] };
 
 /** The URL is the view: /new, /changes/<id>[/<page>], /<page> for an extension's page,
  * everything else is home. The change's page segment is kept as it is — the core's `dashboard`
@@ -24,7 +24,13 @@ export type View =
  * plan, where it opens. The pages are the server's
  * (`/api/pages`), so a top-level path resolves only once they are known — until then it is
  * home, and the resolution is redone when they arrive. */
-export function viewOf(path: string, pages: { id: string; extension: string }[] = []): View {
+export function viewOf(location: string, pages: { id: string; extension: string }[] = []): View {
+  // The URL is a path and, for a change, a `source` query: the local server is `""`, and a
+  // remote change's local workspace id disambiguates an id two servers both minted.
+  const question = location.indexOf("?");
+  const path = question < 0 ? location : location.slice(0, question);
+  const search = question < 0 ? "" : location.slice(question + 1);
+  const source = new URLSearchParams(search).get("source") ?? "";
   if (path === "/new") return { name: "new" };
   if (path === "/actions") return { name: "actions" };
   if (path === "/subagents") return { name: "subagents" };
@@ -47,7 +53,7 @@ export function viewOf(path: string, pages: { id: string; extension: string }[] 
     return { name: "home" };
   }
   const page = m[2] ?? "plan";
-  return { name: "change", id: decodeURIComponent(m[1]!), page };
+  return { name: "change", source, id: decodeURIComponent(m[1]!), page };
 }
 
 export const pathOf = (view: View): string =>
@@ -62,7 +68,9 @@ export const pathOf = (view: View): string =>
           : view.name === "settings"
           ? "/settings"
           : view.name === "change"
-            ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}`
+            ? `/changes/${encodeURIComponent(view.id)}${view.page === "plan" ? "" : `/${view.page}`}${
+                view.source === "" ? "" : `?source=${encodeURIComponent(view.source)}`
+              }`
             : "/";
 
 /**

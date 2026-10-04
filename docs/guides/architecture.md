@@ -85,7 +85,7 @@ shell -> contracts
 workflows -> contracts, configuration, changes, repositories, terminals, agents
 integrations/* -> contracts, configuration, shell, relevant capability APIs, workflows/ports
 client -> contracts
-apps/server -> workflows, capabilities, integrations, contracts
+apps/server -> workflows, capabilities, integrations, contracts, client
 apps/web -> client, contracts, changes, terminals
 apps/desktop -> web's public host contract, contracts, configuration
 ```
@@ -122,6 +122,41 @@ when it represents a real concept, not merely to make a cycle disappear.
 Desktop starts the server as a process boundary, not by importing the server application. Its
 platform adapter implements the web app's host contract. Frontend features do not import integration
 backend packages, including their types; shared public values belong in contracts.
+
+## Remote access and remote workspaces
+
+A server binds loopback only. **Remote access** is a second loopback listener that `tailscale
+serve` publishes on the tailnet; the two listeners differ only in trust. The local listener is
+tokenless — being on the loopback port is the authorization. The external listener requires a
+paired device token on every `/api/*` request and WebSocket upgrade, as an `Authorization: Bearer`
+header (the gateway and CLI) or an `HttpOnly`, `Secure`, `SameSite=Strict` cookie (the remote
+page), with the two pairing routes (`/api/devices/pairing-codes/redeem` and `/api/devices/pair`)
+reachable without one. Trust is a property of
+the listener, not of the peer address: through `tailscale serve` every connection arrives from
+`127.0.0.1`. The capabilities live in `apps/server`: `src/devices` (identity, pairing, token
+hashing, the request authorizer), `src/remote-access` (the listener's lifecycle), `src/tailscale`
+(publishing it as a `serve` mapping and reporting the URL), `src/gateway` and `src/remote-events`.
+The last two are the page's way to a remote server, described next.
+
+The local server is also the **single origin** for its page and its gateway to remote servers. A
+workspace is **local** (a settings scope) or **remote** (a `remote` target on another server,
+with a device token). The page keeps relative URLs; for a remote workspace they go to
+`/remote/<source>/…`, which the gateway strips and forwards with the token, streaming SSE and
+bridging the terminal WebSocket. The fan-in holds one subscription per remote workspace and
+re-emits what it hears on the local bus under the `source` event, preserving the page's
+single-`EventSource` design. The page only ever talks to a remote through the gateway; the token
+never reaches it.
+
+Because two servers can mint the same change id, the browser identifies a change by
+`(source, changeId)`: change lists are merged and tagged with their source, and change-scoped
+reads, writes and terminal sockets route to the owning source. The network type is unchanged — a
+remote client is `makeCorviClient({ baseUrl: "/remote/<id>" })`. Contracts carry the shared
+shapes: the device record and pairing schemas, the Tailscale publication status, the `source`
+event envelope, and the config's `remoteAccess`, `devices` and `RemoteWorkspace`. `@corvi/client`
+adds the `workspaces.pairRemote` operation the settings editor calls — the local server performs
+the outbound redeem through the same client and returns the token for the draft — and the server's
+`src/workspace` keeps the remote entry with the same per-item tolerance, masking its device token
+and every declared extension secret at both read surfaces.
 
 ## Enforced package boundaries
 

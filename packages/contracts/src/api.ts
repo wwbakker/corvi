@@ -3,6 +3,7 @@ import { Schema } from "effect"
 
 import { BranchPlan, Change, ChangePhase, CheckoutLocation, DirectoryName, RepositoryId } from "./changes.ts"
 import { ConfigFile, Resolved, Workspace } from "./config.ts"
+import { DeviceViewSchema, PairingCodeSchema } from "./devices.ts"
 
 export const RepositoryViewSchema = Schema.Struct({
   repositoryId: RepositoryId,
@@ -491,11 +492,26 @@ export const ExtensionSettingSchema = Schema.Struct({
 })
 export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type
 
+/** The external listener's runtime status: the config says whether it should be on, this says
+ * whether it actually is. `error` explains a bind that failed, so the settings page can show why
+ * remote access is not reachable without the server failing to start. */
+export const RemoteAccessStatusSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  listening: Schema.Boolean,
+  /** The loopback port the listener is actually bound to (the ephemeral one for port 0). */
+  port: Schema.optional(Schema.Number),
+  url: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+})
+export type RemoteAccessStatusDto = typeof RemoteAccessStatusSchema.Type
+
 /** The settings page's read: the file as written, what is in effect, what is locked. */
 export const SettingsViewSchema = Schema.Struct({
   path: Schema.String,
   file: ConfigFile,
   effective: Resolved,
+  /** Whether the external listener the config asks for is actually running. */
+  remoteAccessStatus: RemoteAccessStatusSchema,
   overridden: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
   overriddenExtensions: Schema.mutable(
     Schema.Record({
@@ -522,6 +538,33 @@ export const WorkspacesResponseSchema = Schema.Struct({
   platform: Schema.Literal("mac", "linux", "other"),
 })
 export type WorkspacesResponseDto = typeof WorkspacesResponseSchema.Type
+
+/** The pairing helper's request: which remote server to pair with, and the code minted on it.
+ * The editor sends the url it is about to store, so a typo fails here rather than on save. */
+export const PairRemoteWorkspaceRequestSchema = Schema.Struct({
+  url: Schema.String,
+  code: PairingCodeSchema,
+  /** What the paired machine is called on the remote; absent or blank means a default. */
+  name: Schema.optional(Schema.String),
+})
+export type PairRemoteWorkspaceRequestDto = typeof PairRemoteWorkspaceRequestSchema.Type
+
+/** One workspace a remote server offers, for the editor's picker. Ids and names only: the
+ * editor is choosing a target, not reading the remote's configuration. */
+export const RemoteWorkspaceRefSchema = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+})
+export type RemoteWorkspaceRefDto = typeof RemoteWorkspaceRefSchema.Type
+
+/** What pairing answers: the device created on the remote, its raw token — which the editor
+ * puts into its draft, the only place it is ever shown — and the workspaces the remote offers. */
+export const PairRemoteWorkspaceResponseSchema = Schema.Struct({
+  device: DeviceViewSchema,
+  token: Schema.String,
+  workspaces: Schema.mutable(Schema.Array(RemoteWorkspaceRefSchema)),
+})
+export type PairRemoteWorkspaceResponseDto = typeof PairRemoteWorkspaceResponseSchema.Type
 
 /** What a server knows, for discovery: the changes in its root. The CLI probes this before it
  * trusts a candidate URL, and uses it to prefer the server that owns the change it was asked

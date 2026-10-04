@@ -23,14 +23,16 @@ import { writeAtomic } from "../capabilities/files.ts";
 const FILE_PREFIX = `${ID}-app-`;
 
 /** Write the record for a listening server. Best effort: a state directory that cannot be
- * written is a discovery inconvenience, never a reason to refuse to serve. */
-export const writeInstanceRecord = async (url: string, port: number): Promise<void> => {
+ * written is a discovery inconvenience, never a reason to refuse to serve. `remoteUrl` is the
+ * external listener when remote access is on, so a pairing client can discover it. */
+export const writeInstanceRecord = async (url: string, port: number, remoteUrl?: string): Promise<void> => {
   const path = instanceRecordPath(port);
   const record: InstanceRecord = {
     url,
     port,
     pid: process.pid,
     startedAt: new Date().toISOString(),
+    ...(remoteUrl === undefined ? {} : { remoteUrl }),
   };
   try {
     await mkdir(dirname(path), { recursive: true });

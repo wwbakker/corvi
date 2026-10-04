@@ -1,5 +1,4 @@
-import { mkdir, chmod, copyFile, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute } from "node:path";
+import { isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
 import type { Settings, SettingsView } from "@corvi/contracts/settings-view";
@@ -11,15 +10,26 @@ import {
   readFileSync,
   reloadConfig,
   expandTilde,
+  updateConfigFile,
+  devicesFrom,
+  remoteAccessFrom,
   DirectoryName,
   EnvVarName,
   WorkspaceId,
 } from "../../workspace/server/index.ts";
+import type { ConfigFile } from "../../workspace/server/index.ts";
 import { loaded } from "../../integrations/index.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
+import { redactDeviceHashes } from "./deviceSecrets.ts";
+import { keepStoredRemoteTokens, redactRemoteTokens } from "./remoteSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
-import { fs } from "../../capabilities/effect/support.ts";
+import { RemoteAccess } from "@corvi/contracts/config";
 import { invalidate } from "../../capabilities/cache.ts";
+import {
+  runtimeReconcileRemoteAccess,
+  runtimeReconcileRemoteEvents,
+  runtimeRemoteAccessStatus,
+} from "../../capabilities/runtime.ts";
 import { TOOLING } from "../../capabilities/os.ts";
 
 /**
@@ -41,12 +51,22 @@ export const settingsView = Effect.sync(() => settingsViewSync());
  * contract; the Effect form is settingsView above, which the server uses. */
 export const settingsViewSync = (): SettingsView => {
   const file = readFileSync();
+  // The file view gets the same tolerance the resolved config does: a hand-mangled device entry
+  // is dropped rather than spread into a bogus device on the page, and a malformed remote-access
+  // value is replaced by the default. A value the file does not have stays absent.
+  const viewFile: Settings = {
+    ...file,
+    ...(file.devices === undefined ? {} : { devices: devicesFrom(file.devices) }),
+    ...(file.remoteAccess === undefined ? {} : { remoteAccess: remoteAccessFrom(file.remoteAccess) }),
+  };
   return {
     path: configPath(),
-    // The page gets a copy with the extensions' secrets masked: it is given the file and what is
-    // in effect, and neither may carry a token (apps/server/src/settings/server/secrets.ts).
-    file: redactSecrets(file, loaded),
-    effective: redactSecrets(runtimeConfig(), loaded),
+    // The page gets a copy with the extensions' secrets and the remote device tokens masked: it
+    // is given the file and what is in effect, and neither may carry a credential.
+    file: redactRemoteTokens(redactDeviceHashes(redactSecrets(viewFile, loaded))),
+    effective: redactRemoteTokens(redactDeviceHashes(redactSecrets(runtimeConfig(), loaded))),
+    // Runtime, not file: whether the external listener the file asks for actually bound.
+    remoteAccessStatus: runtimeRemoteAccessStatus(),
     overridden: overriddenSettings(ENV_OVERRIDES),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
@@ -95,6 +115,12 @@ export function problems(next: Settings): string[] {
 
   scopeProblems(next);
 
+  // Remote access is top-level only, and its port must be a real one. An absent value is fine:
+  // it means off on the default port.
+  if (next.remoteAccess !== undefined && !Schema.is(RemoteAccess)(next.remoteAccess)) {
+    found.push("remoteAccess must name a port between 1 and 65535");
+  }
+
   const seen = new Set<string>();
   for (const workspace of next.workspaces ?? []) {
     const where = workspace.name || workspace.id || "a workspace";
@@ -105,11 +131,43 @@ export function problems(next: Settings): string[] {
       found.push(`two workspaces share the id "${workspace.id}"`);
     } else seen.add(workspace.id);
     if (!workspace.name?.trim()) found.push(`workspace "${workspace.id}" has no name`);
+
+    // A hand-edited file (or a buggy page) can put anything under `remote`: report it as a
+    // validation message rather than reading `.url` off a null and throwing out of the route.
+    const remote: unknown = workspace.remote;
+    if (remote !== undefined) {
+      if (typeof remote !== "object" || remote === null) {
+        found.push(`${where}: remote must be an object with a url and a workspace`);
+      } else {
+        const target = remote as { readonly url?: unknown; readonly workspace?: unknown };
+        // A remote workspace's settings live on the server that hosts it: carrying both would be
+        // two answers to the same question. Refused, not silently ignored.
+        if (workspace.settings !== undefined) {
+          found.push(`${where} is remote: it cannot also carry settings`);
+        }
+        if (typeof target.url !== "string" || !isHttpUrl(target.url)) {
+          found.push(`${where}: the remote url must be http or https`);
+        }
+        if (!Schema.is(WorkspaceId)(target.workspace)) {
+          found.push(`${where}: the remote workspace id must be a word`);
+        }
+      }
+    }
     scopeProblems(workspace.settings ?? {}, where);
   }
 
   return found;
 }
+
+/** A remote URL is a real http(s) URL: what the gateway will eventually proxy to. */
+const isHttpUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
 
 /** Values nobody set are left out, so the file stays a page of decisions rather than a dump of
  * every default. An empty string is "not set": that is what clearing a field on the page means. */
@@ -132,20 +190,6 @@ function prune(value: unknown): unknown {
  * locking and the empty-field-means-unset pruning still apply, and a masked secret is the stored
  * value rather than the mask (apps/server/src/settings/server/secrets.ts).
  */
-/** Keep one generation of the config beside it: `config.json.bak` holds what the next save
- * replaces. A first save has nothing to keep; anything else that stops the copy stops the save,
- * because overwriting the only copy of a file that may hold a token is not a failure worth
- * having. */
-const backupConfig = (): Promise<void> => {
-  const backup = `${configPath()}.bak`;
-  return copyFile(configPath(), backup).then(
-    () => chmod(backup, 0o600),
-    (e: NodeJS.ErrnoException) => {
-      if (e.code !== "ENOENT") throw e;
-    },
-  );
-};
-
 export const writeSettings = (
   next: Settings,
 ): Effect.Effect<SettingsView, BadRequestError> =>
@@ -155,18 +199,29 @@ export const writeSettings = (
       return yield* new BadRequestError({ message: wrong.join("; ") });
     }
 
+    // The read, merge and write are one serialized mutation: a device revoked between a page's
+    // load and its save must not be written back from the stale list the page was handed.
     // Secrets first, before anything is merged: a field the page sent back as a mask keeps what
-    // the file holds, and one it left alone stays cleared.
-    const stored = readFileSync();
-    const merged = prune({ ...stored, ...keepStoredSecrets(next, stored, loaded) }) as Settings;
-    yield* fs(() => mkdir(dirname(configPath()), { recursive: true }));
-    yield* fs(backupConfig);
-    // 0600 because the file may now hold a token: `writeFile`'s mode only applies when it creates
-    // the file, so an existing one is chmodded too rather than keeping whatever it had.
-    yield* fs(() => writeFile(configPath(), `${JSON.stringify(merged, null, 2)}\n`, { mode: 0o600 }));
-    yield* fs(() => chmod(configPath(), 0o600));
+    // the file holds, and one it left alone stays cleared. The same rule restores a remote
+    // workspace's device token.
+    yield* updateConfigFile((stored) => {
+      const kept = keepStoredRemoteTokens(keepStoredSecrets(next, stored, loaded), stored);
+      return prune({
+        ...stored,
+        ...kept,
+        // Devices are managed by the device API, never by a settings-page save: a page that
+        // sends the masked device list back leaves what is stored untouched.
+        devices: stored.devices,
+      }) as ConfigFile;
+    });
 
     yield* reloadConfig;
+    // Remote access is a listener, not just a value: a save that toggles it or moves its port
+    // brings the external listener in line now, without a restart.
+    yield* runtimeReconcileRemoteAccess();
+    // Remote workspaces' event subscriptions follow the same rule: a save that adds, removes or
+    // retargets one starts or stops its stream now.
+    yield* runtimeReconcileRemoteEvents();
     // Everything the CLIs answered was answered for the settings just replaced: another
     // organisation, another Jira site, another set of environments. Cheaper to ask again than to
     // reason about which.

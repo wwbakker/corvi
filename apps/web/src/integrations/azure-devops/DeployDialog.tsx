@@ -1,14 +1,12 @@
 import { type JSX, useEffect, useRef, useState } from "react";
-import { makeWireClient } from "@corvi/client";
 import { Schema } from "effect";
+import { useWorkspaceWireClient } from "../../app-root/sources.ts";
 import { moment } from "../../app-root/moment.ts";
 import { Progress } from "../../app-root/Progress.tsx";
 import { BuildableSchema, type Buildable } from "@corvi/contracts/integrations/azure-devops";
 
 export type { Buildable };
 
-/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 const buildablesSchema = Schema.mutable(Schema.Array(BuildableSchema));
 
 /**
@@ -41,6 +39,7 @@ export function DeployDialog({
   onClose: () => void;
   onStarted: (message: string) => void;
 }): JSX.Element {
+  const wire = useWorkspaceWireClient();
   const ref = useRef<HTMLDialogElement>(null);
   const [versions, setVersions] = useState<Buildable[] | null>(null);
   const [version, setVersion] = useState<string>("");
@@ -74,7 +73,7 @@ export function DeployDialog({
         setVersion((current) => current || (found.find((v) => v.version)?.version ?? ""));
       })
       .catch((e: Error) => setError(e.message));
-  }, [open, service]);
+  }, [open, service, wire, workspace]);
 
   // What is offered: the builds, plus whatever the row was already pointing at. A service whose
   // build pipeline is named differently — or has none — still has versions running somewhere,

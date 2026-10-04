@@ -13,6 +13,8 @@ export {
   expandTilde,
   readFile,
   readFileSync,
+  mutateConfigFile,
+  updateConfigFile,
 } from "./config.ts";
 
 export { reloadConfig, reloadConfigSync, runtimeConfig } from "../../capabilities/runtime.ts";
@@ -23,11 +25,14 @@ export {
   WorkspaceId,
   DirectoryName,
   EnvVarName,
+  devicesFrom,
+  remoteAccessFrom,
   workspacesFrom,
 } from "./schema.ts";
 
 export {
   workspaces,
+  workspaceViews,
   workspaceById,
   workspaceOf,
   settingsOf,
@@ -41,6 +46,8 @@ export {
   browse,
   remoteBranches,
 } from "./repos.ts";
+
+export { pairRemoteWorkspace, type PairedRemote } from "./pairRemote.ts";
 
 export type { DirectoryEntryDto as Entry } from "@corvi/contracts/api";
 

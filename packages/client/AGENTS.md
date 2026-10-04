@@ -2,8 +2,12 @@
 
 ## Owns
 
-Named network operations for browser consumers: requests, canonical schema decoding, and
-classified transport failures.
+Named network operations for browser consumers, by domain (`client.settings`, `client.devices`,
+`client.tailscale`, `client.changes`, …): requests, canonical schema decoding, and classified
+transport failures. The settings editor's pairing helper (`client.workspaces.pairRemote`) asks the
+local server to redeem a code on a remote one; the server implements that route itself, and its
+outbound exchange calls `devices.redeem` and `workspaces.list` through this same client rather
+than hand-rolling a fetch.
 
 ## Does not own
 
@@ -12,8 +16,9 @@ by callers (`api<T>(path)`-style generics are not part of the API).
 
 ## Public entrypoints
 
-- `@corvi/client`: `makeChangesClient`/`ChangesClient`, `makeWireClient`/`WireClient` (for
-  extension-local DTOs), `directoryListingQuery`, `ClientError` (status and structured body)
+- `@corvi/client`: `makeCorviClient`/`CorviClient` with the domain namespaces, `makeWireClient`/
+  `WireClient` (for extension-local DTOs), `directoryListingQuery`, `ClientError` (status and
+  structured body)
 
 ## Dependencies
 
