@@ -42,12 +42,22 @@ let tmp: string;
 let url: string;
 let server: ReturnType<typeof Bun.spawn>;
 let remote: Serving;
+/** A reachable server that fails every request: a remote workspace whose pages cannot be read. */
+let broken: Serving;
 let remotePaths: string[];
+/** The workspace ids the remote's azure-devops page route was asked for. */
+let remoteServices: string[];
+/** The workspace ids the remote's deploy and leftovers routes were asked for. */
+let remoteDeploys: string[];
+let remoteLeftovers: string[];
 
 beforeAll(async () => {
   if (!usable) return;
   tmp = await testTempDir("sources-page");
   remotePaths = [];
+  remoteServices = [];
+  remoteDeploys = [];
+  remoteLeftovers = [];
 
   // A fake remote server, reached only through the gateway. Its change names the remote's
   // `client` workspace, which is what the local config's remote workspace points at.
@@ -79,7 +89,70 @@ beforeAll(async () => {
         srv.upgrade(req, { data: {} as never })
           ? undefined
           : new Response("no upgrade", { status: 400 }),
+
+      // The remote's own page list, so a remote workspace's sidebar comes from the remote.
+      "/api/pages": {
+        GET: (req) => {
+          record(req);
+          return json({
+            pages: [
+              { id: "azure-devops", title: "Azure DevOps", extension: "azure-devops" },
+              { id: "leftovers", title: "Leftovers", extension: "leftovers" },
+            ],
+          });
+        },
+      },
+      // The remote's azure-devops page route. The workspace id it is asked for is the one the
+      // request must carry: the remote's own (`client`), never the local workspace's id.
+      "/api/ext/azure-devops/services": {
+        GET: (req) => {
+          remoteServices.push(new URL(req.url).searchParams.get("workspace") ?? "");
+          return json({
+            services: [
+              {
+                name: "remote-svc",
+                pipeline: { id: 1, name: "remote-svc-pipeline" },
+                environments: [
+                  { environment: "acceptance", version: "20260101.1", state: "ok", detail: "deployed" },
+                  { environment: "production", version: "20251201.1", state: "ok", detail: "deployed" },
+                ],
+              },
+            ],
+          });
+        },
+      },
+      "/api/ext/azure-devops/services/:service/versions": {
+        GET: () =>
+          json([
+            {
+              runId: 7,
+              buildNumber: "20260101.1",
+              version: "20260101.1",
+              branch: "main",
+              deployedTo: [],
+            },
+          ]),
+      },
+      "/api/ext/azure-devops/services/:service/deploy": {
+        POST: (req) => {
+          remoteDeploys.push(new URL(req.url).searchParams.get("workspace") ?? "");
+          return json({ runId: 99 });
+        },
+      },
+      "/api/ext/leftovers/list": {
+        GET: (req) => {
+          remoteLeftovers.push(new URL(req.url).searchParams.get("workspace") ?? "");
+          return json([]);
+        },
+      },
     }),
+  });
+
+  // A server that answers every request with a failure: the page list it would offer cannot be
+  // read, which is the case a stale list used to leak into.
+  broken = await serve<unknown>({
+    port: 0,
+    routes: guard({ "/*": () => new Response("that server is down", { status: 503 }) }),
   });
 
   writeFileSync(
@@ -91,6 +164,11 @@ beforeAll(async () => {
           id: "remote-client",
           name: "Remote client",
           remote: { url: `http://127.0.0.1:${remote.port}`, workspace: "client", token: "remote-token" },
+        },
+        {
+          id: "remote-down",
+          name: "Remote down",
+          remote: { url: `http://127.0.0.1:${broken.port}`, workspace: "client", token: "down-token" },
         },
       ],
     }),
@@ -117,6 +195,7 @@ afterAll(async () => {
   await browser?.close();
   server?.kill();
   remote?.stop();
+  broken?.stop();
   await stopRunHost(tmp);
   await rm(tmp, { recursive: true, force: true });
 });
@@ -188,6 +267,95 @@ test.skipIf(!usable)(
     // Nothing was created for the remote workspace locally.
     const created = (await (await fetch(`${url}/api/changes`)).json()) as { id: string }[];
     expect(created.every((change) => change.id === REMOTE_CHANGE.id)).toBe(true);
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "a remote workspace's extension page fetches through the gateway with the remote workspace id",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+
+    // The switcher on the remote workspace: its page list comes from the remote too.
+    await page.locator("button.workspace").click();
+    await page.getByText("Remote client", { exact: true }).click();
+    await page.getByRole("button", { name: "Azure DevOps" }).click();
+
+    // The remote saw the page's services request, named by its own workspace id — not the local
+    // workspace's id, which is the whole point of sending `remote.workspace`.
+    await until(async () => remoteServices.includes("client"), true, 10_000);
+    await page.getByText("remote-svc").waitFor();
+    expect(remoteServices).toContain("client");
+    expect(remoteServices).not.toContain("remote-client");
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "a local workspace's extension page still fetches from the local origin",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.locator("button.workspace").click();
+    await page.getByText("Local", { exact: true }).click();
+
+    const before = remoteServices.length;
+    await page.getByRole("button", { name: "Azure DevOps" }).click();
+    await page.getByRole("heading", { name: "Azure DevOps" }).waitFor();
+    // The local origin has answered (the page has nothing configured here, so it settles to empty
+    // or an error) and the remote's page route was never asked.
+    await page.getByText("loading…").waitFor({ state: "detached" });
+    expect(remoteServices.length).toBe(before);
+    expect(await page.getByText("remote-svc").count()).toBe(0);
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "the remote deploy and leftovers pages carry the remote workspace id",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.locator("button.workspace").click();
+    await page.getByText("Remote client", { exact: true }).click();
+
+    // The leftovers page's list request names the remote's own workspace, through the gateway.
+    await page.getByRole("button", { name: "Leftovers" }).click();
+    await until(async () => remoteLeftovers.includes("client"), true, 10_000);
+    expect(remoteLeftovers).not.toContain("remote-client");
+
+    // So does the deploy POST from the Azure DevOps page.
+    await page.getByRole("button", { name: "Azure DevOps" }).click();
+    await page.getByText("remote-svc").waitFor();
+    await page.getByRole("button", { name: "Deploy…" }).click();
+    await page.getByRole("button", { name: /^Deploy 20260101\.1 to acceptance$/ }).click();
+    await until(async () => remoteDeploys.includes("client"), true, 10_000);
+    expect(remoteDeploys).not.toContain("remote-client");
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "a workspace whose pages cannot be read shows none, not the previous workspace's",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+
+    // A workspace whose remote offers pages: its links are in the sidebar.
+    await page.locator("button.workspace").click();
+    await page.getByText("Remote client", { exact: true }).click();
+    await page.getByRole("button", { name: "Azure DevOps" }).waitFor();
+
+    // A workspace whose remote cannot be read: the previous workspace's links must not linger.
+    await page.locator("button.workspace").click();
+    await page.getByText("Remote down", { exact: true }).click();
+    await page.getByRole("button", { name: "Azure DevOps" }).waitFor({ state: "detached" });
+    expect(await page.getByRole("button", { name: "Leftovers" }).count()).toBe(0);
     await page.close();
   },
   60_000,

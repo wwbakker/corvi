@@ -1,11 +1,9 @@
 import { type JSX, useEffect, useState } from "react";
-import { makeWireClient } from "@corvi/client";
 import { Schema } from "effect";
+import { useWorkspaceWireClient } from "../../app-root/sources.ts";
 import type { PageComponent, PageProps } from "../client.tsx";
 import { LeftoverSchema, type Leftover } from "@corvi/contracts/integrations/leftovers";
 
-/** The transport: the page's classified `ClientError`, with this extension's own DTO. */
-const wire = makeWireClient({ baseUrl: "" });
 const leftoversSchema = Schema.mutable(Schema.Array(LeftoverSchema));
 
 const size = (kb: number): string =>
@@ -25,6 +23,9 @@ const size = (kb: number): string =>
  * `/api/leftovers` routes, which are gone.
  */
 export function LeftoversPage({ workspace }: PageProps): JSX.Element {
+  // The page's routes live on the server that hosts the workspace: the local origin, or the
+  // selected remote workspace's server through the gateway.
+  const wire = useWorkspaceWireClient();
   const [leftovers, setLeftovers] = useState<Leftover[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -38,7 +39,7 @@ export function LeftoversPage({ workspace }: PageProps): JSX.Element {
       .request("GET", `/ext/leftovers/list${query}`, leftoversSchema)
       .then(setLeftovers)
       .catch((e: Error) => setError(e.message));
-  }, [query]);
+  }, [query, wire]);
 
   const remove = (leftover: Leftover): void => {
     const name = leftover.name;

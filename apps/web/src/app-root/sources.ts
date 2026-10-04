@@ -71,6 +71,19 @@ const wireFor = (source: string): WireClient => {
 /** The source id a rendered change belongs to. */
 export const useSource = (): string => useContext(SourceContext);
 
+/** The source a workspace-scoped extension page is rendered for: `""` for the local server, a
+ * remote workspace's local id for a remote one. Unlike the change context (a change carries its
+ * own source), this is provided once around the page host, where the selection is; the page gets
+ * the workspace id to send as a prop — already the remote's own id there. */
+export const WorkspaceSourceContext = createContext<string>("");
+
+/** The source a rendered workspace page belongs to. */
+export const useWorkspaceSource = (): string => useContext(WorkspaceSourceContext);
+
+/** The extension-local transport for a workspace-scoped page: its own routes on the server that
+ * hosts the workspace, through the same gateway prefix as the core client. */
+export const useWorkspaceWireClient = (): WireClient => wireFor(useWorkspaceSource());
+
 /** The extension-local transport for the rendered change's source: an integration's browser half
  * reaches its own routes through the same gateway prefix as the core client. */
 export const useChangeWireClient = (): WireClient => wireFor(useSource());

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { CorviClient } from "@corvi/client";
 import { apiClient } from "../../app-root/api.ts";
 import { getPref, setPref } from "../../app-root/prefs.ts";
 import type { Platform } from "@corvi/terminals/model";
@@ -96,37 +97,39 @@ export type PageInfo = { id: string; title: string; extension: string };
  * (a settings save toggles enablement without changing the context, which is why the settings
  * page calls it). A fetch that fails keeps the last good pages rather than clearing them — no
  * answer yet is the previous answer still; the next fetch or event tick recovers. */
+/** The extension pages a context offers, from that context's own server: which extensions exist
+ * and what they contribute is not the page's to know. `client` is the workspace's source (the
+ * local `apiClient` here, a gateway client for a remote workspace), and `workspaceId` is the id
+ * to send THAT server — the remote's own id for a remote workspace. */
 export function usePages(
   workspaceId?: string,
-  enabled = true,
+  client: CorviClient = apiClient,
 ): { pages: PageInfo[]; reload: () => void } {
   const [pages, setPages] = useState<PageInfo[]>([]);
   useEffect(() => {
-    // A workspace on another server has no pages here: the gateway does not serve extension pages
-    // for remote workspaces yet, so ask nothing rather than the local server's answer.
-    if (!enabled) {
-      setPages([]);
-      return;
-    }
+    // The list belongs to one (source, workspace): switching either one must not keep showing
+    // another context's pages. Clear first, so an unreachable workspace shows none rather than
+    // the previous one's. The effect only re-runs when the key changes, so a reload for the same
+    // workspace keeps the last good list while the next fetch is in flight.
+    setPages([]);
     // Alive guards the context-change race: only the latest fetch may answer.
     let alive = true;
-    apiClient
+    client
       .workspaces.pages(workspaceId)
       .then((pages) => {
         if (alive) setPages(pages);
       })
-      .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
+      .catch(() => {}); // no answer yet: the list is empty rather than another context's
     return () => {
       alive = false;
     };
-  }, [workspaceId, enabled]);
+  }, [workspaceId, client]);
   const reload = useCallback(() => {
-    if (!enabled) return;
-    apiClient
+    client
       .workspaces.pages(workspaceId)
       .then(setPages)
       .catch(() => {}); // no answer yet: the last good pages stand, the next fetch recovers
-  }, [workspaceId, enabled]);
+  }, [workspaceId, client]);
   return { pages, reload };
 }
 

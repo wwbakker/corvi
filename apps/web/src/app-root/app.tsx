@@ -16,7 +16,7 @@ import { moment } from "./moment.ts";
 import { Sidebar } from "./Sidebar.tsx";
 import { forgetChange, lastViewOf } from "./remember.ts";
 import { useChanges, useTerminal, useWindows } from "./state.ts";
-import { changeKey, SourceContext, SourcesProvider, useSources } from "./sources.ts";
+import { changeKey, clientFor, SourceContext, SourcesProvider, useSources, WorkspaceSourceContext } from "./sources.ts";
 import { inWorkspace, usePages, useWorkspaces } from "../workspace/client/workspaces.ts";
 import { Wizard } from "../wizard/index.ts";
 import { applyPatch, EMPTY_DRAFT, type Draft, type DraftPatch } from "../wizard/draft.ts";
@@ -135,12 +135,14 @@ function App(): JSX.Element {
   const { reload: reloadSources } = useSources();
   const { changes: everything, error, reload } = useChanges();
   const { workspaces, chosen, choose, current: workspace, ready, platform, reload: reloadWorkspaces } = useWorkspaces();
-  // The pages the sidebar offers in this context, from the server: which extensions exist and
-  // what they contribute is not the page's to know. Undefined ("All work") is the server's
-  // default context, which is what a request without a workspace gets.
-  // A remote workspace's pages live on its own server; the gateway does not serve them yet, so
-  // they are not offered rather than showing the local server's pages under its name.
-  const { pages, reload: reloadPages } = usePages(workspace?.id, workspace?.remote === undefined);
+  // The pages the sidebar offers in this context, from the context's own server: which extensions
+  // exist and what they contribute is not the page's to know. Undefined ("All work") is the local
+  // server's default context, which is what a request without a workspace gets. A remote
+  // workspace asks its own server through the gateway, naming its own id there (`remote.workspace`),
+  // which is also the id a page's own requests carry.
+  const pageClient = workspace?.remote ? clientFor(workspace.id) : apiClient;
+  const pageWorkspace = workspace?.remote ? workspace.remote.workspace : workspace?.id;
+  const { pages, reload: reloadPages } = usePages(pageWorkspace, pageClient);
   // One context at a time: the lists, the overview and what a new change is made in. Undefined
   // until the contexts are known, which reads as "loading" rather than as "everything".
   const changes = everything && ready ? inWorkspace(everything, chosen, workspaces) : undefined;
@@ -457,20 +459,13 @@ function App(): JSX.Element {
             onNew={() => setView({ name: "new" })}
           />
         )}
-        {view.name === "ext-page" &&
-          (workspace?.remote !== undefined ? (
-            <div className="page">
-              <header>
-                <h2>Another server</h2>
-              </header>
-              <div className="error-banner">
-                This page belongs to a workspace on another server. Corvi's gateway does not serve
-                extension pages for remote workspaces yet.
-              </div>
-            </div>
-          ) : (
-            <PageHost info={view} workspace={workspace?.id} />
-          ))}
+        {view.name === "ext-page" && (
+          // A page belongs to the workspace that is selected; the source tells its own requests
+          // which server to reach through the gateway, and the workspace prop names its id there.
+          <WorkspaceSourceContext.Provider value={workspace?.remote ? workspace.id : ""}>
+            <PageHost info={view} workspace={pageWorkspace} />
+          </WorkspaceSourceContext.Provider>
+        )}
         {view.name === "actions" && <ActionsPage onGuard={onGuard} />}
         {view.name === "subagents" && <SubagentsPage onGuard={onGuard} />}
         {view.name === "settings" && (

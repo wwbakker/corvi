@@ -1,5 +1,5 @@
 import { type JSX, useEffect, useState } from "react";
-import { makeWireClient } from "@corvi/client";
+import { useWorkspaceWireClient } from "../../app-root/sources.ts";
 import type { PageComponent } from "../client.tsx";
 import { moment } from "../../app-root/moment.ts";
 import { DeployDialog } from "./DeployDialog.tsx";
@@ -8,8 +8,6 @@ import { ServicesResponseSchema, type Deployed, type Service } from "@corvi/cont
 
 export type { Deployed, Service };
 
-/** The transport: the page's classified `ClientError`, with this extension's own DTOs. */
-const wire = makeWireClient({ baseUrl: "" });
 
 /**
  * What is deployed where: one row per service, one column per environment.
@@ -22,6 +20,9 @@ const wire = makeWireClient({ baseUrl: "" });
  * it was given, and the newest run per environment is the truth about that environment.
  */
 export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Element {
+  // The extension's routes live on the server that hosts the workspace: the local origin, or the
+  // selected remote workspace's server through the gateway.
+  const wire = useWorkspaceWireClient();
   const [services, setServices] = useState<Service[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function AzureDevopsPage({ workspace }: { workspace?: string }): JSX.Elem
     // A deploy takes minutes, and this is a page you look at rather than watch.
     const timer = setInterval(load, 30_000);
     return () => clearInterval(timer);
-  }, [generation, workspace]);
+  }, [generation, workspace, wire]);
 
   // The environments every service has, in the order they are deployed to.
   const columns = services?.[0]?.environments.map((e) => e.environment) ?? [];
