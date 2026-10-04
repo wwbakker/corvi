@@ -90,6 +90,28 @@ export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/))
 /** An environment variable name, for an `env` map. */
 export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
 
+/** The external listener: a second loopback port an authenticated remote client reaches, off by
+ * default. Top-level (like `devices`), not a workspace setting: remote access is this machine's
+ * trust, not a context's. The port is a real TCP port; the host is always loopback. */
+export const RemoteAccess = Schema.Struct({
+  enabled: Schema.Boolean,
+  port: Schema.Number.pipe(
+    Schema.int(),
+    Schema.greaterThanOrEqualTo(1),
+    Schema.lessThanOrEqualTo(65535),
+  ),
+})
+export type RemoteAccessDto = typeof RemoteAccess.Type
+
+/** The port the external listener uses when the file does not name one. */
+export const DEFAULT_REMOTE_ACCESS_PORT = 4110
+
+/** What remote access is when nothing is configured: off, on the default port. */
+export const DEFAULT_REMOTE_ACCESS: RemoteAccessDto = {
+  enabled: false,
+  port: DEFAULT_REMOTE_ACCESS_PORT,
+}
+
 /** The config file's own shape, as it is written: the settings at the top level (where they are
  * the defaults every workspace inherits) and the workspaces beside them. Everything is optional
  * — an absent value means "the default", which is what an empty file means. This is also the
@@ -103,6 +125,9 @@ export const ConfigFile = Schema.Struct({
    * filtered per item (`devicesFrom`), like `workspaces`: one hand-mangled device must not
    * empty the rest of the config. */
   devices: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
+  /** The external listener's settings. Decoded loosely and validated by `remoteAccessFrom`, so
+   * a hand-mangled port falls back to the default instead of emptying the config. */
+  remoteAccess: Schema.optional(Schema.Any),
   workspaces: Schema.optional(Schema.mutable(Schema.Array(Schema.Any))),
 })
 export type ConfigFileDto = typeof ConfigFile.Type
@@ -127,6 +152,7 @@ export const Resolved = Schema.Struct({
   extensionSettings: Schema.optional(ExtensionBag),
   env: EnvMap,
   devices: Schema.mutable(Schema.Array(DeviceSchema)),
+  remoteAccess: RemoteAccess,
   workspaces: Schema.mutable(Schema.Array(Workspace)),
 })
 export type ResolvedDto = typeof Resolved.Type

@@ -18,7 +18,7 @@ import type {
   RedeemPairingCodeRequestDto,
   RedeemPairingCodeResponseDto,
 } from "@corvi/contracts/devices";
-import { BadRequestError, NotFoundError } from "@corvi/contracts/errors";
+import { BadRequestError, NotFoundError, TooManyRequestsError } from "@corvi/contracts/errors";
 import { PAIRING_CODE_TTL_MS, deviceViewOf, isDeviceActive } from "@corvi/configuration/devices";
 import {
   generateDeviceId,
@@ -27,6 +27,7 @@ import {
   hashDeviceToken,
 } from "@corvi/configuration/node/devices";
 import { mutateConfigFile, reloadConfig, runtimeConfig, updateConfigFile } from "../../workspace/server/index.ts";
+import { runtimeRedeemLimiter } from "../../capabilities/runtime.ts";
 
 /** Outstanding pairing codes, by code, with the epoch-millisecond instant each stops working.
  * In memory on purpose: a code is good for minutes and a restart forgetting it is the safe
@@ -57,27 +58,53 @@ export const createPairingCode = (): Effect.Effect<PairingCodeResponseDto> =>
     return { code, expiresAt: new Date(expiresAt).toISOString() };
   });
 
+/** Count one redemption attempt and refuse past the global cap. The route calls this before it
+ * reads the body, so a malformed or oversized unauthenticated body is counted too; per-code
+ * failures are checked later, once the code is known. */
+export const checkRedeemLimit = (): Effect.Effect<void, TooManyRequestsError> =>
+  Effect.gen(function* () {
+    const decision = runtimeRedeemLimiter().allowAttempt();
+    if (!decision.allowed) {
+      return yield* new TooManyRequestsError({
+        message: "too many pairing attempts; try again later",
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
+  });
+
 /** Redeem a pairing code: consume it, issue a token, and store only the token's hash. The raw
  * token is in the response and nowhere else.
  *
- * Rate limiting belongs on this path in 1.2, when the external listener makes it reachable
- * without a token; on the owner-only loopback listener it needs none. */
+ * Rate-limited because the external listener makes this the one route reachable without a token;
+ * the limiter lives in the process runtime so a test installs its own. */
 export const redeemPairingCode = (
   request: RedeemPairingCodeRequestDto,
-): Effect.Effect<RedeemPairingCodeResponseDto, BadRequestError> =>
+): Effect.Effect<RedeemPairingCodeResponseDto, BadRequestError | TooManyRequestsError> =>
   Effect.gen(function* () {
     // Normalize before the lookup: codes are minted uppercase, and a user retyping one should not
     // have to match its case.
     const code = request.code.trim().toUpperCase();
+    const limiter = runtimeRedeemLimiter();
+    // The per-code failure cap is checked before the first yield. The global attempt cap was
+    // already counted by `checkRedeemLimit`, before the route read the body.
+    const decision = limiter.allowCode(code);
+    if (!decision.allowed) {
+      return yield* new TooManyRequestsError({
+        message: "too many pairing attempts; try again later",
+        retryAfterSeconds: decision.retryAfterSeconds,
+      });
+    }
     // Consume the code (look up and delete) before the first yield, so two redemptions of the
     // same code cannot both succeed no matter how the scheduler interleaves them.
     const expiresAt = pairingCodes.get(code);
     if (expiresAt === undefined) {
+      limiter.failed(code);
       return yield* new BadRequestError({ message: "that pairing code is not valid" });
     }
     pairingCodes.delete(code);
     const now = yield* Clock.currentTimeMillis;
     if (expiresAt <= now) {
+      limiter.failed(code);
       return yield* new BadRequestError({ message: "that pairing code has expired" });
     }
     const token = generateDeviceToken();
@@ -94,6 +121,7 @@ export const redeemPairingCode = (
       devices: [...(file.devices ?? []), device],
     }));
     yield* reloadConfig;
+    limiter.succeeded(code);
     return { device: deviceViewOf(device), token };
   });
 

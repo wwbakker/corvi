@@ -80,7 +80,8 @@ export function guard<R extends string>(
 
 // --- Request helpers ----------------------------------------------------------
 
-export const json = (data: unknown, status = 200): Response => Response.json(data, { status });
+export const json = (data: unknown, status = 200, headers?: HeadersInit): Response =>
+  Response.json(data, { status, headers });
 
 /** Which context the page is in. Sent by the browser, because that is where the choice lives —
  * two windows open on two clients is a reasonable thing to want. */

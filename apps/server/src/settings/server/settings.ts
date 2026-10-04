@@ -12,6 +12,7 @@ import {
   expandTilde,
   updateConfigFile,
   devicesFrom,
+  remoteAccessFrom,
   DirectoryName,
   EnvVarName,
   WorkspaceId,
@@ -22,7 +23,9 @@ import { migrateExtensionSettings, migrateFileSettings } from "../../integration
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { redactDeviceHashes } from "./deviceSecrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
+import { RemoteAccess } from "@corvi/contracts/config";
 import { invalidate } from "../../capabilities/cache.ts";
+import { runtimeRemoteAccessStatus } from "../../capabilities/runtime.ts";
 import { TOOLING } from "../../capabilities/os.ts";
 
 /**
@@ -47,17 +50,22 @@ export const settingsViewSync = (): SettingsView => {
   // The file is handed over migrated, so the page edits — and writes back — the shape the
   // extensions read today, never the retired names the migration folds away.
   migrateFileSettings(file);
-  // The file view gets the same per-item device tolerance the resolved config does: a
-  // hand-mangled entry is dropped here rather than spread into a bogus device on the page. An
-  // absent list stays absent; a present one is filtered.
-  const viewFile: Settings =
-    file.devices === undefined ? file : { ...file, devices: devicesFrom(file.devices) };
+  // The file view gets the same tolerance the resolved config does: a hand-mangled device entry
+  // is dropped rather than spread into a bogus device on the page, and a malformed remote-access
+  // value is replaced by the default. A value the file does not have stays absent.
+  const viewFile: Settings = {
+    ...file,
+    ...(file.devices === undefined ? {} : { devices: devicesFrom(file.devices) }),
+    ...(file.remoteAccess === undefined ? {} : { remoteAccess: remoteAccessFrom(file.remoteAccess) }),
+  };
   return {
     path: configPath(),
     // The page gets a copy with the extensions' secrets masked: it is given the file and what is
     // in effect, and neither may carry a token (apps/server/src/settings/server/secrets.ts).
     file: redactDeviceHashes(redactSecrets(viewFile, loaded)),
     effective: redactDeviceHashes(redactSecrets(runtimeConfig(), loaded)),
+    // Runtime, not file: whether the external listener the file asks for actually bound.
+    remoteAccessStatus: runtimeRemoteAccessStatus(),
     overridden: overriddenSettings(ENV_OVERRIDES),
     overriddenExtensions: overriddenExtensionSettings(loaded),
     toolingDefault: TOOLING,
@@ -105,6 +113,12 @@ export function problems(next: Settings): string[] {
   };
 
   scopeProblems(next);
+
+  // Remote access is top-level only, and its port must be a real one. An absent value is fine:
+  // it means off on the default port.
+  if (next.remoteAccess !== undefined && !Schema.is(RemoteAccess)(next.remoteAccess)) {
+    found.push("remoteAccess must name a port between 1 and 65535");
+  }
 
   const seen = new Set<string>();
   for (const workspace of next.workspaces ?? []) {

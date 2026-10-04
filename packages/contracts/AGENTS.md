@@ -18,14 +18,17 @@ transport boundary.
 - `@corvi/contracts/paths`: `AbsolutePath`
 - `@corvi/contracts/changes`: `Change`, phases, `ChangeId`, repository link values
 - `@corvi/contracts/api`: `RepositoryView`/`StartOutcome` and the change record/page wire schemas
-  (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view, workspaces)
+  (`ChangeWireSchema`, summary, cards, tabs, widgets, repo states, text, settings view — including
+  the external listener's `RemoteAccessStatus` — workspaces)
 - `@corvi/contracts/devices`: the persisted device record, the hash-free `DeviceView`, and the
   pairing create/redeem request and response schemas
 - `@corvi/contracts/config`: the config file and resolved-config schemas, workspace ids/names,
-  the devices paired to this server
+  the devices paired to this server, and the remote-access setting
 - `@corvi/contracts/errors`: the tagged failures (`NotFoundError`, `BadRequestError`,
-  `ConflictError`, `InternalError`, `CliError`, `DecodeError`), `IweError`, `isIweError`,
-  `formatError`
+  `ConflictError`, `InternalError`, `CliError`, `DecodeError`, `TooManyRequestsError`),
+  `IweError`, `isIweError`, `formatError`
+- `@corvi/contracts/instance`: the discovery record (`InstanceRecord`, carrying the external
+  listener's `remoteUrl` when remote access is on)
 - `@corvi/contracts/workspace`: the request-scoped `Workspace` tag (`corvi/Workspace`)
 - `@corvi/contracts/capabilities`: the capability tags (`Shell`, `Cache`, `Settings`, `Bus`,
   `ExtensionStore`, `Changes`, `GitFacts`), `swr` / `invalidate` (the `Cache` use helpers, with

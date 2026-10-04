@@ -171,6 +171,11 @@ export type ServeOptions<Data> = {
   hostname?: string;
   routes: Record<string, unknown>;
   websocket?: WebSocketHandlers<Data>;
+  /** Called before routing, for plain requests and WebSocket upgrades alike. A returned Response
+   * refuses the request and is written as it is (401, 429, ...); undefined lets it through. The
+   * external listener supplies the device-token check here, so the route tables are shared with
+   * the tokenless local listener rather than duplicated. */
+  authorize?: (request: Request) => Response | undefined | Promise<Response | undefined>;
 };
 
 export type Serving = { url: URL; port: number; stop: () => void };
@@ -198,6 +203,11 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
   const server = createServer((req, res) => {
     void (async () => {
       const request = toRequest(req, requestUrl(req));
+      const refused = await options.authorize?.(request);
+      if (refused) {
+        await writeResponse(res, refused);
+        return;
+      }
       const found = match(routes, request.method, new URL(request.url).pathname);
       if (!found.handler) {
         res.writeHead(found.allowed.length ? 405 : 404, {
@@ -235,6 +245,11 @@ export const serve = async <Data>(options: ServeOptions<Data>): Promise<Serving>
     const raw = socket as Socket;
     void (async () => {
       const request = toRequest(req, requestUrl(req));
+      const refused = await options.authorize?.(request);
+      if (refused) {
+        await writeRaw(raw, refused);
+        return;
+      }
       const found = match(routes, request.method, new URL(request.url).pathname);
       if (!found.handler) {
         raw.destroy();

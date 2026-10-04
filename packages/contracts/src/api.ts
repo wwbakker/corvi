@@ -488,11 +488,24 @@ export const ExtensionSettingSchema = Schema.Struct({
 })
 export type ExtensionSettingDto = typeof ExtensionSettingSchema.Type
 
+/** The external listener's runtime status: the config says whether it should be on, this says
+ * whether it actually is. `error` explains a bind that failed, so the settings page can show why
+ * remote access is not reachable without the server failing to start. */
+export const RemoteAccessStatusSchema = Schema.Struct({
+  enabled: Schema.Boolean,
+  listening: Schema.Boolean,
+  url: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
+})
+export type RemoteAccessStatusDto = typeof RemoteAccessStatusSchema.Type
+
 /** The settings page's read: the file as written, what is in effect, what is locked. */
 export const SettingsViewSchema = Schema.Struct({
   path: Schema.String,
   file: ConfigFile,
   effective: Resolved,
+  /** Whether the external listener the config asks for is actually running. */
+  remoteAccessStatus: RemoteAccessStatusSchema,
   overridden: Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String })),
   overriddenExtensions: Schema.mutable(
     Schema.Record({

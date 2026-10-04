@@ -9,6 +9,7 @@
  */
 
 import type { Device } from "./devices.ts";
+import type { RemoteAccessDto } from "@corvi/contracts/config";
 
 /**
  * The settings, complete: every setting Corvi knows, in the one shape both levels hold. At the
@@ -139,6 +140,8 @@ export type Config = {
   /** The devices paired to this server. Stored with only a hash of each token; the resolved
    * snapshot carries the same records so a request can verify a presented token. */
   devices: Device[];
+  /** The external listener's resolved settings: off by default, always loopback. */
+  remoteAccess: RemoteAccessDto;
   /** The contexts you switch between. Never empty: when nothing is configured, the default
    * workspace stands in. Each one's `settings` holds its overrides. */
   workspaces: Workspace[];
@@ -153,6 +156,8 @@ export type Config = {
 export type ConfigFile = SettingsOverrides & {
   /** The devices paired to this server, as the file holds them; only token hashes are stored. */
   devices?: Device[];
+  /** The external listener, as the file holds it; absent means off on the default port. */
+  remoteAccess?: RemoteAccessDto;
   /** The contexts you switch between, as the file holds them. Decoded with the per-item
    * tolerance in `workspacesFrom`, so the schema sees them more loosely than this. */
   workspaces?: Workspace[];

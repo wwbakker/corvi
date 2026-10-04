@@ -1,12 +1,15 @@
 import { Schema } from "effect";
 import {
   ConfigFile as ConfigFileSchema,
+  DEFAULT_REMOTE_ACCESS,
   DirectoryName,
   EnvVarName,
+  RemoteAccess as RemoteAccessSchema,
   Resolved as ResolvedSchema,
   Workspace as WorkspaceSchema,
   WorkspaceId,
 } from "@corvi/contracts/config";
+import type { RemoteAccessDto } from "@corvi/contracts/config";
 import { DeviceSchema } from "@corvi/contracts/devices";
 import type { DeviceDto } from "@corvi/contracts/devices";
 import type {
@@ -79,6 +82,12 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 export const devicesFrom = (items: unknown): DeviceDto[] =>
   Array.isArray(items) ? items.filter((item): item is DeviceDto => Schema.is(DeviceSchema)(item)) : [];
 
+/** The remote-access setting, validated at the boundary: an object with a boolean `enabled` and
+ * a real TCP port. Anything else means "not configured" (off, default port) rather than a
+ * decode failure that would empty the file. */
+export const remoteAccessFrom = (value: unknown): RemoteAccessDto =>
+  Schema.is(RemoteAccessSchema)(value) ? value : DEFAULT_REMOTE_ACCESS;
+
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings page's
  * write shape (apps/server/src/settings/model.ts' `Settings`), and the two must not drift: the
@@ -89,8 +98,12 @@ export const ConfigFile = ConfigFileSchema;
  * so unknown keys survive into the settings merge. `workspaces` and `devices` are typed as they
  * are consumed (after the per-item tolerance) rather than as the schema sees them on the wire:
  * the file may hold entries load() will filter out, and that passthrough is deliberate. */
-export type ConfigFile = Omit<Schema.Schema.Type<typeof ConfigFile>, "workspaces" | "devices"> & {
+export type ConfigFile = Omit<
+  Schema.Schema.Type<typeof ConfigFile>,
+  "workspaces" | "devices" | "remoteAccess"
+> & {
   devices?: DeviceDto[];
+  remoteAccess?: RemoteAccessDto;
   workspaces?: WorkspaceShape[];
 };
 

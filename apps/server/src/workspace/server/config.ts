@@ -12,7 +12,7 @@ import {
   type Workspace,
 } from "@corvi/configuration/config";
 import { builtinActionBody } from "@corvi/actions/node";
-import { ConfigFile, devicesFrom, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
+import { ConfigFile, devicesFrom, foldWorkspaceSettings, remoteAccessFrom, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
@@ -259,6 +259,9 @@ export function readConfig(): Config {
     // anything is paired yet. Filtered per item, like workspaces: one bad entry must not cost
     // the rest of the file.
     devices: devicesFrom(file.devices),
+    // The external listener's settings, always present: an absent or malformed file value means
+    // off on the default port, not a decode failure.
+    remoteAccess: remoteAccessFrom(file.remoteAccess),
     // The global entries of the environment every CLI runs with, `~` expanded at use; a
     // workspace's own entries override them key by key (settingsFor).
     env: { ...(file.env ?? {}) },

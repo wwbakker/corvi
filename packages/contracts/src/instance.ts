@@ -13,5 +13,8 @@ export const InstanceRecordSchema = Schema.Struct({
   port: Schema.Number,
   pid: Schema.Number,
   startedAt: Schema.String,
+  /** The external listener's URL when remote access is on: a loopback address a `tailscale
+   * serve` publication forwards, or a caller the owning user has paired. Absent when off. */
+  remoteUrl: Schema.optional(Schema.String),
 })
 export type InstanceRecord = typeof InstanceRecordSchema.Type

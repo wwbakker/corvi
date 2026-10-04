@@ -27,6 +27,7 @@ export {
   DirectoryName,
   EnvVarName,
   devicesFrom,
+  remoteAccessFrom,
   workspacesFrom,
 } from "./schema.ts";
 

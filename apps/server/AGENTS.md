@@ -3,9 +3,16 @@
 ## Owns
 
 HTTP, SSE and WebSocket hosting, and the backend composition: the capability layer
-(`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/settings`,
-`src/terminals`, `src/workspace`, `src/wizard` server halves), and the included integrations
-(`src/integrations/**`: their server halves and the contract dispatch that exposes them).
+(`src/capabilities/**`), the feature modules (`src/change`, `src/dashboard`, `src/devices`,
+`src/settings`, `src/terminals`, `src/workspace`, `src/wizard` server halves), and the included
+integrations (`src/integrations/**`: their server halves and the contract dispatch that exposes
+them).
+
+`src/devices` owns device identity, pairing and token authentication. `src/server.ts` starts the
+optional external listener (a second loopback port, off by default) with the same route table
+and an `authorize` hook that requires a device token on every `/api/*` request, and on WebSocket
+upgrades, except the redeem bootstrap; the local listener stays tokenless. A bind failure
+degrades to local-only and is reported through the settings view's `remoteAccessStatus`.
 
 Public entrypoint: `src/server.ts` (`bun run dev`, `bun run start`).
 

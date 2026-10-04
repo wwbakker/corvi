@@ -1,9 +1,9 @@
 import { Effect } from "effect";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
-import { setRuntime } from "./capabilities/runtime.ts";
+import { runtimeConfig, setRemoteAccessStatus, setRuntime } from "./capabilities/runtime.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
-import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
+import { serve, type ServerWebSocket, type Serving } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
 import { appRootRoutes } from "./app-root/routes.ts";
 import { identityRoutes } from "./app-root/identity.ts";
@@ -13,6 +13,7 @@ import { changeRoutes } from "./change/routes.ts";
 import { repositoriesRoutes } from "./change/repositories-route.ts";
 import { dashboardRoutes } from "./dashboard/routes.ts";
 import { devicesRoutes } from "./devices/routes.ts";
+import { authorizeExternalRequest } from "./devices/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
@@ -73,12 +74,15 @@ setInterval(() => void Effect.runPromise(cache.save()).catch(() => {}), 30_000).
 // The port this server is listening on, once it is: the signal handler removes the discovery
 // record by it (see `./app-root/instance.ts`).
 let instancePort: number | undefined;
+// The optional external (remote-access) listener, stopped with the local one.
+let external: Serving | undefined;
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     // Flush the screens to the store before the server takes its pty attachments with it; the host
     // sessions (and the shells in them) stay for the next server.
     flushScreens();
     closeAttachments();
+    external?.stop();
     if (instancePort !== undefined) removeInstanceRecord(instancePort);
     void Effect.runPromise(cache.save())
       .catch(() => {})
@@ -86,36 +90,69 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
   });
 }
 
+// One table per domain, each guarded as it is defined; composed here, where the server is. The
+// external listener serves the same table, so a route is never implemented twice.
+const routes: Record<string, unknown> = {
+  ...appRootRoutes,
+  ...identityRoutes,
+  ...appUpdateRoutes(appUpdate),
+  ...actionsRoutes,
+  ...changeRoutes,
+  ...repositoriesRoutes,
+  ...dashboardRoutes,
+  ...devicesRoutes,
+  ...eventsRoutes,
+  ...integrationRoutes,
+  ...settingsRoutes,
+  ...subagentsRoutes,
+  ...terminalsRoutes,
+  ...workspaceRoutes,
+};
+const websocket = {
+  open: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.open(ws),
+  message: (ws: ServerWebSocket<TerminalSocket>, message: string | Uint8Array) =>
+    terminalSockets.message(ws, message),
+  close: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.close(ws),
+};
+
 const server = await serve<TerminalSocket>({
   // 4000 while developing; the app picks a fresh port at each launch, so the two never meet —
   // and nothing stale on a fixed port is ever mistaken for the app's server.
   port: Number(process.env[env("PORT")] ?? 4000),
   // Localhost only: the server acts as you, using your CLI credentials, so it has no auth of its own.
   hostname: "127.0.0.1",
-  // One table per domain, each guarded as it is defined; composed here, where the server is.
-  routes: {
-    ...appRootRoutes,
-    ...identityRoutes,
-    ...appUpdateRoutes(appUpdate),
-    ...actionsRoutes,
-    ...changeRoutes,
-    ...repositoriesRoutes,
-    ...dashboardRoutes,
-    ...devicesRoutes,
-    ...eventsRoutes,
-    ...integrationRoutes,
-    ...settingsRoutes,
-    ...subagentsRoutes,
-    ...terminalsRoutes,
-    ...workspaceRoutes,
-  },
-  websocket: {
-    open: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.open(ws),
-    message: (ws: ServerWebSocket<TerminalSocket>, message: string | Uint8Array) =>
-      terminalSockets.message(ws, message),
-    close: (ws: ServerWebSocket<TerminalSocket>) => terminalSockets.close(ws),
-  },
+  routes,
+  websocket,
 });
+
+// The external listener, off by default: a second loopback port `tailscale serve` publishes. It
+// serves the same page and routes, but every `/api/*` request must present a device token (the
+// redeem bootstrap excepted). The local listener keeps its tokenless behavior.
+//
+// A bind that fails (another instance, a stale listener) is not fatal: remote access is optional,
+// so the process keeps serving locally and the failure is visible through the settings status.
+const remoteAccess = runtimeConfig().remoteAccess;
+if (remoteAccess.enabled) {
+  try {
+    external = await serve<TerminalSocket>({
+      port: remoteAccess.port,
+      hostname: "127.0.0.1",
+      routes,
+      websocket,
+      authorize: authorizeExternalRequest,
+    });
+    setRemoteAccessStatus({ enabled: true, listening: true, url: external.url.toString() });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    setRemoteAccessStatus({ enabled: true, listening: false, error: message });
+    console.error(
+      `could not start the external listener on 127.0.0.1:${remoteAccess.port}: ${message}`,
+    );
+    console.error("remote access is unavailable until that port is free; serving locally.");
+  }
+} else {
+  setRemoteAccessStatus({ enabled: false, listening: false });
+}
 
 instancePort = server.port;
 // Sweep records a hard kill or a reboot left behind, then write this one: a client that reads the
@@ -123,8 +160,12 @@ instancePort = server.port;
 await pruneInstanceRecords();
 // Before the readiness line, so a client that reads the line and immediately looks for the
 // record cannot lose the race.
-await writeInstanceRecord(server.url.toString(), server.port);
-console.log(`${ID} on ${server.url}${restored ? ` (${restored} cached answers restored)` : ""}`);
+await writeInstanceRecord(server.url.toString(), server.port, external?.url.toString());
+console.log(
+  `${ID} on ${server.url}${external ? ` (remote on ${external.url})` : ""}${
+    restored ? ` (${restored} cached answers restored)` : ""
+  }`,
+);
 
 // The page is built on demand, and a failed build in production comes back as an empty 200 with
 // no error anywhere — in the app's window that is a black screen, with nothing to say why. Ask
