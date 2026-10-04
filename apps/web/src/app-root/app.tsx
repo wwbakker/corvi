@@ -489,14 +489,16 @@ function App(): JSX.Element {
             workspace={workspace?.id}
             draft={draft}
             onChange={changeDraft}
-            onCreated={(c, provision) => {
+            onCreated={(c, provision, source) => {
               // Only a created change takes the draft: a refused create keeps the form.
               setDraft(undefined);
               void reload();
               // A new change opens on its Plan: the wizard just wrote it, and anything an old
               // record of this id left in the page's memory is not this change's.
-              forgetChange(changeKey("", c.id));
-              setView({ name: "change", source: "", id: c.id, page: "plan", provision });
+              forgetChange(changeKey(source, c.id));
+              // The source it was created in: a remote workspace's change routes to its server
+              // from here on, exactly as one read from its list does.
+              setView({ name: "change", source, id: c.id, page: "plan", provision });
             }}
             onDiscard={discardDraft}
           />

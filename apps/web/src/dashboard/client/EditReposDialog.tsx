@@ -111,6 +111,7 @@ export function EditReposDialog({
       {error && <div className="error-banner">{error}</div>}
       <RepoBrowser
         workspace={workspace}
+        client={client}
         selected={draft}
         onAdd={(path) =>
           setDraft(has(path) ? draft : [...draft, { path, location: "new", branch: { kind: "change" } }])

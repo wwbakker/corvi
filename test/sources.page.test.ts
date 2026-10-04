@@ -50,6 +50,9 @@ let remoteServices: string[];
 /** The workspace ids the remote's deploy and leftovers routes were asked for. */
 let remoteDeploys: string[];
 let remoteLeftovers: string[];
+/** The workspace ids the remote's change-create route was asked for, and what it created. */
+let remoteCreates: string[];
+let createdChange: typeof REMOTE_CHANGE | undefined;
 
 beforeAll(async () => {
   if (!usable) return;
@@ -58,6 +61,7 @@ beforeAll(async () => {
   remoteServices = [];
   remoteDeploys = [];
   remoteLeftovers = [];
+  remoteCreates = [];
 
   // A fake remote server, reached only through the gateway. Its change names the remote's
   // `client` workspace, which is what the local config's remote workspace points at.
@@ -70,14 +74,42 @@ beforeAll(async () => {
       "/api/changes": {
         GET: (req) => {
           record(req);
-          return json([REMOTE_CHANGE]);
+          return json(createdChange ? [REMOTE_CHANGE, createdChange] : [REMOTE_CHANGE]);
+        },
+        // The wizard's create. The workspace in the body is the one the request names on the
+        // wire: a remote context must send ITS id, and the create must arrive here at all
+        // (the gateway prefix is what made it reachable).
+        POST: async (req) => {
+          const body = (await req.json()) as {
+            id: string;
+            title?: string;
+            branch?: string;
+            workspace?: string;
+            state?: string;
+          };
+          remoteCreates.push(body.workspace ?? "");
+          createdChange = {
+            ...REMOTE_CHANGE,
+            id: body.id,
+            branch: body.branch ?? body.id,
+            title: body.title ?? body.id,
+            workspace: body.workspace ?? REMOTE_CHANGE.workspace,
+            state: body.state ?? "Ideation",
+          };
+          return json({ change: createdChange, provision: [], refresh: [] }, 201);
         },
       },
       "/api/changes/:id": {
         GET: (req) => {
           record(req);
+          if (createdChange && req.params.id === createdChange.id) return json(createdChange);
           return json(REMOTE_CHANGE);
         },
+      },
+      // The wizard asks its own server which steps this context has; the remote's answer is the
+      // one that applies to a change made there.
+      "/api/wizard": {
+        GET: () => json({ steps: [], planTemplate: "" }),
       },
       "/api/changes/:id/terminal": {
         GET: (req) => {
@@ -254,25 +286,6 @@ test.skipIf(!usable)(
 );
 
 test.skipIf(!usable)(
-  "a remote workspace's wizard refuses local creation",
-  async () => {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    await page.goto(url, { waitUntil: "domcontentloaded" });
-    await page.locator("button.workspace").click();
-    await page.getByText("Remote client", { exact: true }).click();
-
-    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
-    await page.getByText("remote creation is not supported yet").waitFor();
-    expect(await page.getByRole("button", { name: "Create idea" }).isDisabled()).toBe(true);
-    // Nothing was created for the remote workspace locally.
-    const created = (await (await fetch(`${url}/api/changes`)).json()) as { id: string }[];
-    expect(created.every((change) => change.id === REMOTE_CHANGE.id)).toBe(true);
-    await page.close();
-  },
-  60_000,
-);
-
-test.skipIf(!usable)(
   "a remote workspace's extension page fetches through the gateway with the remote workspace id",
   async () => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
@@ -356,6 +369,68 @@ test.skipIf(!usable)(
     await page.getByText("Remote down", { exact: true }).click();
     await page.getByRole("button", { name: "Azure DevOps" }).waitFor({ state: "detached" });
     expect(await page.getByRole("button", { name: "Leftovers" }).count()).toBe(0);
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "creating a change in a remote workspace posts to the remote and lands on it there",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST") posts.push(request.url());
+    });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    // The switcher on the remote workspace: the wizard runs against its source.
+    await page.locator("button.workspace").click();
+    await page.getByText("Remote client", { exact: true }).click();
+
+    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Change id").fill("remote-created");
+    await page.getByRole("button", { name: "Create idea" }).click();
+
+    // The create went through the gateway to the remote, named by the remote's own workspace id.
+    await until(async () => remoteCreates.includes("client"), true, 10_000);
+    expect(remoteCreates).not.toContain("remote-client");
+    expect(posts.some((u) => u.includes("/remote/remote-client/api/changes"))).toBe(true);
+
+    // It landed on the created change, which the change page reads back from the remote.
+    await until(async () => page.url().includes("/changes/remote-created"), true, 10_000);
+    expect(page.url()).toContain("source=remote-client");
+    await until(
+      async () => remotePaths.includes("GET /api/changes/remote-created"),
+      true,
+      10_000,
+    );
+    await page.close();
+  },
+  60_000,
+);
+
+test.skipIf(!usable)(
+  "creating a change in a local workspace still posts locally and lands on it",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const posts: string[] = [];
+    page.on("request", (request) => {
+      if (request.method() === "POST") posts.push(request.url());
+    });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.locator("button.workspace").click();
+    await page.getByText("Local", { exact: true }).click();
+
+    await page.goto(`${url}/new`, { waitUntil: "domcontentloaded" });
+    await page.getByLabel("Change id").fill("local-created");
+    await page.getByRole("button", { name: "Create idea" }).click();
+
+    // The create stayed on the local origin, and the remote never saw it.
+    await until(async () => page.url().includes("/changes/local-created"), true, 10_000);
+    expect(posts.some((u) => u.includes("/api/changes") && !u.includes("/remote/"))).toBe(true);
+    expect(remoteCreates).not.toContain("local");
+    const changes = (await (await fetch(`${url}/api/changes`)).json()) as { id: string }[];
+    expect(changes.some((change) => change.id === "local-created")).toBe(true);
     await page.close();
   },
   60_000,

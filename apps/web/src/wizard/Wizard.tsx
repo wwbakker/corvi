@@ -1,5 +1,7 @@
 import { type JSX, type RefObject, useEffect, useRef, useState } from "react";
-import { apiClient, type Change, type Created, type Selection } from "../app-root/api.ts";
+import type { CorviClient } from "@corvi/client";
+import type { Change, Created, Selection } from "../app-root/api.ts";
+import { clientFor, SourceContext } from "../app-root/sources.ts";
 import { RepoBrowser } from "../workspace/client/RepoBrowser.tsx";
 import { StepHost, type StepContext, type StepInfo, type StepPick } from "../integrations/client.tsx";
 import type { Workspace } from "../workspace/client/workspaces.ts";
@@ -44,7 +46,7 @@ export function Wizard({
   draft: Draft;
   /** One patch to the draft; the App applies it to what it holds. */
   onChange: (patch: DraftPatch) => void;
-  onCreated: (change: Change, provision: Created["provision"]) => void;
+  onCreated: (change: Change, provision: Created["provision"], source: string) => void;
   /** Throw the draft away: nothing is written until "Create idea". */
   onDiscard: () => void;
 }): JSX.Element {
@@ -56,10 +58,14 @@ export function Wizard({
   // decision to the wizard, which keeps its own — defaulting to the first context, which is
   // what the server would assume anyway.
   const chosen = workspace ?? draft.picked ?? workspaces[0]?.id;
-  // A workspace on another server is a filter over that server's changes; the wizard creates on
-  // the machine it runs on, so creating here would land locally under the remote's name. Gated
-  // rather than routed: remote creation is a Phase 2 follow-up.
-  const remoteWorkspace = workspaces.find((w) => w.id === chosen)?.remote !== undefined;
+  // A context on another server is created in on that server: every read — the step spec, the
+  // repository browser, a provider's own board — and the create itself go through the gateway
+  // client for it, and the wire names ITS id for the workspace (`remote.workspace`), never this
+  // client's local id. A local context is the same with the local origin and its own id.
+  const remote = workspaces.find((w) => w.id === chosen)?.remote;
+  const source = remote ? (chosen ?? "") : "";
+  const wireWorkspace = remote?.workspace ?? chosen;
+  const client = clientFor(source);
 
   // Which steps this context has, and the plan template in effect there. Asked of the server,
   // because that is where the extensions, their enablement and the settings are known; asked
@@ -70,12 +76,8 @@ export function Wizard({
   useEffect(() => {
     let alive = true;
     setSteps(undefined);
-    if (remoteWorkspace) {
-      setSteps([]);
-      return;
-    }
-    apiClient
-      .wizard.spec(chosen)
+    client
+      .wizard.spec(wireWorkspace)
       .then((found) => {
         if (!alive) return;
         setSteps(found.steps);
@@ -85,7 +87,7 @@ export function Wizard({
     return () => {
       alive = false;
     };
-  }, [chosen, remoteWorkspace]);
+  }, [wireWorkspace, client]);
 
   // The template fills a fresh draft's plan once — while it is still empty — and never rewrites
   // the text you have. Its heading is the one a picked issue may replace (draft.ts).
@@ -120,16 +122,17 @@ export function Wizard({
   const create = (): void => {
     setBusy(true);
     setError(null);
-    apiClient
-      .changes.create(toChangeDraft(draft, chosen))
-      .then((created) => onCreated(created.change, created.provision))
+    client
+      .changes.create(toChangeDraft(draft, wireWorkspace))
+      .then((created) => onCreated(created.change, created.provision, source))
       .catch((e: Error) => setError(e.message))
       .finally(() => setBusy(false));
   };
 
   /** What the steps share, built from the draft: their prefill, the repositories picked so far,
-   * their pick's place in the form, and their own slot of the creation record. */
-  const ctx = stepContext(draft, chosen, onChange);
+   * their pick's place in the form, and their own slot of the creation record. The workspace is
+   * the one to name on the wire — the remote's own id for a remote context. */
+  const ctx = stepContext(draft, wireWorkspace, onChange);
   const title = firstHeading(plan);
 
   return (
@@ -140,19 +143,12 @@ export function Wizard({
         {/* Creating is possible once the required field is set — only the change id is
             required: repositories can be added now or after the work starts, and the plan can
             be empty. */}
-        <button className="primary" disabled={!id.trim() || busy || remoteWorkspace} onClick={create}>
+        <button className="primary" disabled={!id.trim() || busy} onClick={create}>
           {busy ? "Creating…" : "Create idea"}
         </button>
         <button onClick={onDiscard}>Discard</button>
       </header>
 
-      {remoteWorkspace && (
-        <div className="error-banner">
-          Changes are created on the machine that owns the workspace. This workspace is on another
-          server, so remote creation is not supported yet — switch to a local workspace to create
-          one here.
-        </div>
-      )}
       {error && <div className="error-banner">{error}</div>}
 
       <div className="wizard-body">
@@ -168,7 +164,13 @@ export function Wizard({
         <div className="wizard-sections">
           {!steps && <span className="hint">loading…</span>}
           {issueSteps.map((info) => (
-            <StepField key={info.id} info={info} ctx={ctx} pick={picks[info.extension]} />
+            <StepField
+              key={info.id}
+              info={info}
+              ctx={ctx}
+              pick={picks[info.extension]}
+              source={source}
+            />
           ))}
 
           <div className="form">
@@ -212,7 +214,8 @@ export function Wizard({
           </div>
 
           <ReposField
-            workspace={chosen}
+            workspace={wireWorkspace}
+            client={client}
             branchLabel={branch || id || "the change's branch"}
             repos={repos}
             onAdd={addRepo}
@@ -221,7 +224,13 @@ export function Wizard({
           />
 
           {repoSteps.map((info) => (
-            <StepField key={info.id} info={info} ctx={ctx} pick={picks[info.extension]} />
+            <StepField
+              key={info.id}
+              info={info}
+              ctx={ctx}
+              pick={picks[info.extension]}
+              source={source}
+            />
           ))}
         </div>
       </div>
@@ -251,10 +260,14 @@ function StepField({
   info,
   ctx,
   pick,
+  source,
 }: {
   info: StepInfo;
   ctx: StepContext;
   pick: StepPick | undefined;
+  /** The source this draft is being made in: the step's own provider reads go through it, so a
+   * remote context's Jira/GitHub board is the remote's. */
+  source: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useDialog(open);
@@ -276,7 +289,9 @@ function StepField({
       </div>
       <dialog ref={ref} className="wide" onClose={() => setOpen(false)}>
         <h3>{info.title}</h3>
-        <StepHost info={info} ctx={ctx} />
+        <SourceContext.Provider value={source}>
+          <StepHost info={info} ctx={ctx} />
+        </SourceContext.Provider>
         <div className="dialog-actions">
           <button type="button" onClick={() => setOpen(false)}>
             Close
@@ -292,6 +307,7 @@ function StepField({
  * or the repository's own checkout in place — and which branch it uses. */
 function ReposField({
   workspace,
+  client,
   branchLabel,
   repos,
   onAdd,
@@ -299,6 +315,9 @@ function ReposField({
   onChange,
 }: {
   workspace?: string;
+  /** The source to browse through: the local server, or the gateway client for a remote
+   * context. `workspace` is the id that server knows the context by. */
+  client: CorviClient;
   /** What a checkout on the change's own branch is called here: the branch the change named. */
   branchLabel: string;
   repos: Selection[];
@@ -355,6 +374,7 @@ function ReposField({
         </p>
         <RepoBrowser
           workspace={workspace}
+          client={client}
           selected={repos}
           onAdd={onAdd}
           onRemove={onRemove}
