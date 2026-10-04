@@ -196,6 +196,7 @@ const hostRaw = (record: WindowRecord, dir: string, session: SessionInfo | undef
   options: { ...agentOptions(status), ...commandOptions(record, session) },
   panes: [...record.panes],
   activePane: record.activePane,
+  subagent: (session?.metadata?.subagentId?.trim() ?? "") !== "",
 });
 
 /** The change's windows, presented. Rebuilds and persists the registry from the live host
