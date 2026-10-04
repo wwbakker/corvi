@@ -321,8 +321,9 @@ const openHostWindow = async (
   options: HostWindowOptions = {},
 ): Promise<string> => {
   const id = freshId();
-  // The first pane's session id is the window id, so a legacy single-pane record (whose id was
-  // its session id) is just a window with that one pane; a split pane gets its own id.
+  // The first pane's session id is the window id: that pane's session stays stable across a
+  // restart, so the registry rebuild re-associates the window by its first pane, and a split
+  // pane gets its own id.
   await openPane(changeId, id, id, dir, command, size, options);
   await activate(changeId, id, extra);
   return id;

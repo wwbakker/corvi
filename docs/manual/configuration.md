@@ -188,10 +188,6 @@ A workspace is a configured context such as a client or personal projects: an id
 `name`) and a `settings` scope over the same settings the global level holds. The settings page
 shows the two scopes as `Global` and one tab per workspace.
 
-Older files that put `repositoriesDirectory`, `extensions`, `extensionSettings` or `env` directly
-on a workspace entry keep working: they are read as that workspace's `settings` and folded there
-on the next save.
-
 The workspace switcher filters changes and available features. **All work** is a filter, not a
 workspace. With no configured workspace, Corvi supplies a default. Changes without a recorded
 workspace belong to the first workspace. A direct link can still open a change outside the

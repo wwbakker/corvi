@@ -63,10 +63,10 @@ const path = (): string => join(stateDir(), FILE);
 
 const empty = (): Persisted => ({ version: 1, changes: {}, closed: [] });
 
-/** Read the registry, treating anything unreadable as empty, and migrate a record written before
- * panes existed: its id was its session id, so it loads as a one-pane window whose window id is
- * that same string (which stays its id even if that pane later closes). A corrupt file is a
- * reset, not a server failure: the window labels are a convenience, never the shells themselves. */
+/** Read the registry, treating anything unreadable as empty. A corrupt file is a reset, not a
+ * server failure: the window labels are a convenience, never the shells themselves. Each
+ * change's records are parsed from the current shape; entries the parser cannot describe are
+ * dropped. */
 export const read = (): Persisted => {
   try {
     const parsed = JSON.parse(readFileSync(path(), "utf8")) as {
@@ -76,7 +76,7 @@ export const read = (): Persisted => {
     };
     if (parsed.version !== 1 || typeof parsed.changes !== "object" || parsed.changes === null) return empty();
     const changes: Record<string, WindowRecord[]> = {};
-    for (const [changeId, records] of Object.entries(parsed.changes)) changes[changeId] = migrateRecords(records);
+    for (const [changeId, records] of Object.entries(parsed.changes)) changes[changeId] = parseRecords(records);
     const closed = Array.isArray(parsed.closed)
       ? parsed.closed.filter((id): id is string => typeof id === "string")
       : [];
@@ -86,18 +86,23 @@ export const read = (): Persisted => {
   }
 };
 
-/** One persisted record, with the pane fields a file from before the pivot does not have. */
-export const migrateRecords = (records: unknown): WindowRecord[] => {
+/** One persisted record, parsed from the current shape. A record without an id, or without a
+ * non-empty list of string `panes`, is dropped: a file this parser cannot describe loses the
+ * entries, rather than inventing a window for them. */
+export const parseRecords = (records: unknown): WindowRecord[] => {
   if (!Array.isArray(records)) return [];
   const out: WindowRecord[] = [];
   for (const raw of records) {
     if (raw === null || typeof raw !== "object") continue;
     const record = raw as Partial<WindowRecord> & { readonly id?: unknown };
     if (typeof record.id !== "string") continue;
-    const panes =
-      Array.isArray(record.panes) && record.panes.length > 0 && record.panes.every((pane) => typeof pane === "string")
-        ? [...record.panes]
-        : [record.id];
+    if (
+      !Array.isArray(record.panes) ||
+      record.panes.length === 0 ||
+      !record.panes.every((pane) => typeof pane === "string")
+    )
+      continue;
+    const panes = [...record.panes];
     const activePane =
       typeof record.activePane === "string" && panes.includes(record.activePane) ? record.activePane : panes[0]!;
     out.push({

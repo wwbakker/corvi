@@ -9,7 +9,7 @@ import {
   type Workspace,
 } from "@corvi/configuration/config";
 import { builtinActionBody } from "@corvi/actions/node";
-import { ConfigFile, foldWorkspaceSettings, workspacesFrom } from "./schema.ts";
+import { ConfigFile, workspacesFrom } from "./schema.ts";
 import { ENV_OVERRIDES } from "../../settings/server/legacySettings.ts";
 import { resolveSetting } from "@corvi/configuration/settings";
 import { TOOLING } from "../../capabilities/os.ts";
@@ -44,13 +44,6 @@ const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "repositoriesDirect
  */
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
   Schema.decodeUnknown(Schema.parseJson(ConfigFile), { onExcessProperty: "preserve" })(text).pipe(
-    // The one shape: a workspace written before `settings` existed folds into it here, so
-    // everything downstream — resolution, the settings page's read, the write's secret lookup —
-    // sees the same shape a hand edit in either form would mean.
-    Effect.map((file) => {
-      for (const workspace of file.workspaces ?? []) foldWorkspaceSettings(workspace);
-      return file;
-    }),
     // Tolerance the manual documents: an invalid config file reads as "nothing configured".
     Effect.orElseSucceed(() => ({})),
   );
