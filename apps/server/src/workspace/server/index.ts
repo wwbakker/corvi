@@ -13,7 +13,6 @@ export {
   expandTilde,
   readFile,
   readFileSync,
-  setMigrator,
 } from "./config.ts";
 
 export { reloadConfig, reloadConfigSync, runtimeConfig } from "../../capabilities/runtime.ts";
@@ -43,6 +42,6 @@ export {
   remoteBranches,
 } from "./repos.ts";
 
-export type { Entry } from "../model.ts";
+export type { DirectoryEntryDto as Entry } from "@corvi/contracts/api";
 
 export { DEFAULT_WORKSPACE, type Config, type Workspace } from "@corvi/configuration/config";

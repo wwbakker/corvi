@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { describeChange, prDescription } from "../apps/server/src/change/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, fakeShell, runWithShell, type FakeShell  } from "./helpers.ts";
 
 /**

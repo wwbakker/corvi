@@ -51,7 +51,7 @@ const repoItem = (
     }];
   });
 
-/** The item-level variant of domain/widget.ts's `worst`: it reduces `WidgetItem[]` by their state, so a
+/** The item-level variant of `@corvi/contracts/display`'s `worst`: it reduces `WidgetItem[]` by their state, so a
  * card can pick a verdict from its own rows as well as from a list of states. */
 const worstItem = (items: WidgetItem[]): WidgetState =>
   items.some((i) => i.state === "error")

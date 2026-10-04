@@ -13,8 +13,8 @@ import {
   type Run,
 } from "@corvi/azure-devops/pipelines";
 import { azDefaults, azFor, type Az } from "@corvi/azure-devops/azure";
-import type { Change } from "../apps/server/src/domain/change.ts";
-import type { WidgetItem, WidgetState } from "../apps/server/src/domain/widget.ts";
+import type { Change } from "@corvi/changes/record";
+import type { WidgetItemDto, WidgetStateDto } from "@corvi/contracts/api";
 import { clearCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { checkoutsOf, fakeShell, runWithShell  } from "./helpers.ts";
@@ -454,12 +454,12 @@ test("pipelineItems nests each pipeline's newest runs under it", async () => {
   expect(count).toBe(3);
   expect(items.map((i) => i.label)).toEqual(["build-a", "build-b", "build-c"]);
 
-  const [a, b, c] = items as [WidgetItem, WidgetItem, WidgetItem];
+  const [a, b, c] = items as [WidgetItemDto, WidgetItemDto, WidgetItemDto];
   // The newest run decides the pipeline's own dot; the older failure keeps its own.
   expect(a.state).toBe("ok");
   expect(a.detail).toBeUndefined();
   expect(a.children!.map((child) => child.label)).toEqual(["405", "404"]);
-  expect(a.children!.map((child) => child.state)).toEqual(["ok", "error"] satisfies WidgetState[]);
+  expect(a.children!.map((child) => child.state)).toEqual(["ok", "error"] satisfies WidgetStateDto[]);
   expect(a.children![0]!.detail).toBe("succeeded");
   expect(a.children![1]!.detail).toBe("failed");
 

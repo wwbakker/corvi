@@ -1,8 +1,8 @@
 /** The first wired slice: the dashboard read of a change's repositories.
  *
  * Transport adapter only: it decodes the path, calls the workflow, encodes the DTO, and maps
- * domain failures to the transport taxonomy. The data comes from the legacy records through the
- * read-only projection until the association migration lands; writes stay disabled there.
+ * domain failures to the transport taxonomy. The data comes from the change store's repository
+ * links — the association surface, not the record-format migration — and this route reads only.
  */
 import { Effect, Layer } from "effect"
 

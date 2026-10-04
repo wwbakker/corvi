@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mergeRecords, migrateRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
+import { mergeRecords, parseRecords, type LiveWindow, type WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 
 /**
  * The registry's pure half: how persisted records and the live backings become one ordered list.
@@ -80,21 +80,13 @@ describe("window registry merge", () => {
   });
 });
 
-describe("registry migration", () => {
-  test("a record from before panes loads as a one-pane window whose id is its session id", () => {
-    const migrated = migrateRecords([
-      { id: "w-1", kind: "host", label: "One", active: true, activity: false, createdAt: "2026-01-01T00:00:00.000Z" },
-    ]);
-    expect(migrated).toHaveLength(1);
-    expect(migrated[0]?.id).toBe("w-1");
-    expect(migrated[0]?.panes).toEqual(["w-1"]);
-    expect(migrated[0]?.activePane).toBe("w-1");
-    expect(migrated[0]?.label).toBe("One");
-    expect(migrated[0]?.active).toBe(true);
-  });
-
+describe("registry records", () => {
   test("a malformed record is dropped, not guessed at", () => {
-    expect(migrateRecords([{ label: "no id" }, null, 3])).toEqual([]);
-    expect(migrateRecords("not an array")).toEqual([]);
+    // No id, no panes, an empty panes list, null and a primitive: each is dropped rather than
+    // guessed at.
+    expect(parseRecords([{ label: "no id" }, { id: "no panes" }, { id: "empty", panes: [] }, null, 3])).toEqual(
+      [],
+    );
+    expect(parseRecords("not an array")).toEqual([]);
   });
 });

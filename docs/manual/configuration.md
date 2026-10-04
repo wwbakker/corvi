@@ -180,18 +180,13 @@ field: `server`, `email`, `project`, `board`, `token`, and `tokenEnv`. A workspa
 automatically selected for a project with one board; otherwise Corvi asks you to choose.
 
 Azure DevOps settings likewise support a workspace-specific organization/project. Empty values
-can fall back to `az devops configure`. Some existing flat settings remain readable as fallbacks;
-prefer the settings page and the structured keys above for new configuration.
+can fall back to `az devops configure`.
 
 ## Workspaces
 
 A workspace is a configured context such as a client or personal projects: an identity (`id`,
 `name`) and a `settings` scope over the same settings the global level holds. The settings page
 shows the two scopes as `Global` and one tab per workspace.
-
-Older files that put `repositoriesDirectory`, `extensions`, `extensionSettings` or `env` directly
-on a workspace entry keep working: they are read as that workspace's `settings` and folded there
-on the next save.
 
 The workspace switcher filters changes and available features. **All work** is a filter, not a
 workspace. With no configured workspace, Corvi supplies a default. Changes without a recorded

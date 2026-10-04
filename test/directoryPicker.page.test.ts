@@ -56,7 +56,7 @@ beforeAll(async () => {
       repositoriesDirectory: startDir,
       workspaces: [
         { id: "default", name: "Default" },
-        { id: "client", name: "Client", repositoriesDirectory: clientDir },
+        { id: "client", name: "Client", settings: { repositoriesDirectory: clientDir } },
       ],
     }),
   );

@@ -30,7 +30,7 @@ import { BadRequestError } from "@corvi/contracts/errors";
 import { waiterCount } from "../apps/server/src/subagents/server/waiters.ts";
 import { AWAIT_INSTRUCTIONS } from "../apps/server/src/subagents/server/prompt.ts";
 import { changeDir } from "../apps/server/src/change/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { testTempDir, waitFor } from "./helpers.ts";
 
 /** A launcher that returns a fake window id, so create/open work without a host or a harness. The

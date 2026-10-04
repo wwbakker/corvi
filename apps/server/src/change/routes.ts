@@ -29,7 +29,7 @@ import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft, InvalidChangeEdit } from "./errors.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { textRevision } from "../capabilities/files.ts";
-import type { Change } from "../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { Changes } from "../integrations/api/capabilities.ts";
 import { announce } from "../capabilities/bus.ts";
 import { repoStates } from "../vendors/git.ts";

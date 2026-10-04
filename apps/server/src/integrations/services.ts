@@ -28,7 +28,7 @@ import {
   writeExtensionFile,
 } from "../change/server/store.ts";
 import { baseFor, checkoutFor, targetFor } from "../vendors/git.ts";
-import type { Change } from "../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config";
 
 /**

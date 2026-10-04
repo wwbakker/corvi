@@ -5,8 +5,6 @@ import type { ResolvedDto } from "@corvi/contracts/config";
 import { bagString, resolveSetting } from "@corvi/configuration/settings";
 import { jiraFetch, siteBaseUrl, siteCheck } from "./jiraHttp.ts";
 import { accountId } from "./account.ts";
-import { JIRA_ENV, legacyGlobalOf, legacySiteOfWorkspace, legacyTicketOf } from "./legacy.ts";
-import type { LegacyFlatSettings } from "./legacy.ts";
 import { workspaceById, workspaceOf } from "@corvi/configuration/workspaces";
 import { Cache, Settings, invalidate, swr } from "@corvi/contracts/capabilities";
 import { BadRequestError } from "@corvi/contracts/errors";
@@ -15,18 +13,20 @@ import type { Board, Issue, Sprint, TicketRef } from "@corvi/contracts/integrati
 
 export type { Issue, Sprint } from "@corvi/contracts/integrations/jira";
 
+/** The environment variables the extension's declared settings name, so the settings page's
+ * lock and the read below cannot drift apart. */
+export const JIRA_ENV = {
+  assignee: env("JIRA_ASSIGNEE"),
+  startTransition: env("JIRA_START_TRANSITION"),
+  doneTransition: env("JIRA_DONE_TRANSITION"),
+} as const;
+
 /**
- * The change's ticket key, from wherever this extension put it.
- *
- * The wizard's step writes the `extensions` bag; an early change record may carry the legacy
- * `jira` field instead, so both are read, the bag first. This is the one function that knows
- * about either, and the legacy read goes through `legacy.ts`, the one place that names it.
- * A written bag entry shadows the legacy field for good; clearing the link would have to remove
- * both, or the old key answers again through the fallback below.
+ * The change's ticket key, as this extension's own bag carries it.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export const ticketOf = (change: Change): string | undefined =>
-  (change.extensions?.["jira"] as TicketRef | undefined)?.key ?? legacyTicketOf(change);
+  (change.extensions?.["jira"] as TicketRef | undefined)?.key;
 
 /**
  * Which Jira: whose site, whose account, which project, which board.
@@ -54,10 +54,9 @@ export type Site = {
 
 /**
  * This workspace's Jira, from the settings this extension itself declares: the fields under
- * `workspace.settings.extensionSettings.jira`, which the settings page renders from `settings`,
- * and — for a workspace written before the bag — the legacy `workspace.jira` object, read through
- * `legacy.ts`. Either of those answers before the config root's bag, so a workspace overrides the
- * default site field by field.
+ * `workspace.settings.extensionSettings.jira`, which the settings page renders from `settings`.
+ * Those answer before the config root's bag, so a workspace overrides the default site field by
+ * field.
  *
  * The two token fields resolve as one decision rather than as two independent ones: a workspace
  * that names its own `tokenEnv` has said where its credential comes from, so it does not also
@@ -66,20 +65,15 @@ export type Site = {
  */
 export function siteOfWorkspace(settings: ResolvedDto, workspace: WorkspaceSource): Site {
   const own = workspace.settings?.extensionSettings?.jira;
-  const legacy = legacySiteOfWorkspace(workspace);
   const global = settings.extensionSettings?.jira;
-  const namesOwnVariable = own?.tokenEnv !== undefined || legacy.tokenEnv !== undefined;
-  // A token is never legacy: an early workspace's object could name a variable or a site, and the
-  // token was the environment's either way.
+  const namesOwnVariable = own?.tokenEnv !== undefined;
   const stored = bagString(own, "token");
-  // The server and the account have no legacy per-workspace form to answer from: they used to
-  // come out of the config file a legacy workspace named, and that file is not read any more.
   return {
     server: bagString(own, "server") ?? bagString(global, "server"),
     email: bagString(own, "email") ?? bagString(global, "email"),
-    project: bagString(own, "project") ?? legacy.project ?? bagString(global, "project"),
-    board: bagString(own, "board") ?? legacy.board ?? bagString(global, "board"),
-    tokenEnv: bagString(own, "tokenEnv") ?? legacy.tokenEnv ?? bagString(global, "tokenEnv"),
+    project: bagString(own, "project") ?? bagString(global, "project"),
+    board: bagString(own, "board") ?? bagString(global, "board"),
+    tokenEnv: bagString(own, "tokenEnv") ?? bagString(global, "tokenEnv"),
     token: stored ?? (namesOwnVariable ? undefined : bagString(global, "token")),
   };
 }
@@ -91,29 +85,25 @@ export const siteOf = (settings: ResolvedDto, change: { workspace?: string }): S
 export const siteFor = (settings: ResolvedDto, workspaceId?: string): Site =>
   siteOfWorkspace(settings, workspaceById(settings.workspaces, workspaceId));
 
-/** What `globalOf` reads from a config: this integration's own server-wide bag and the flat
- * fields older files still carry (`LegacyFlatSettings`). The resolved settings the `Settings`
- * capability holds and the app's `Config` both satisfy it, so a caller passes whichever it
- * holds, and a reader that states only these fields is a reader that typechecks as itself. */
+/** What `globalOf` reads from a config: this integration's own server-wide bag. The resolved
+ * settings the `Settings` capability holds and the app's `Config` both satisfy it, so a caller
+ * passes whichever it holds, and a reader that states only these fields is a reader that
+ * typechecks as itself. */
 export type GlobalSettings = {
   extensionSettings?: ResolvedDto["extensionSettings"];
-} & LegacyFlatSettings;
+};
 
 /** A workspace's own jira bag, as much of it as these reads need: `settings.extensionSettings.jira`
- * — the workspace's overrides of the declared settings — plus the legacy per-workspace `jira`
- * object a workspace written before the bag still carries. */
+ * — the workspace's overrides of the declared settings. */
 export type WorkspaceSource = {
   settings?: { extensionSettings?: Record<string, Record<string, string | string[]>> };
-  /** The legacy per-workspace site object, preserved on a workspace written before the bag. */
-  jira?: unknown;
 };
 
 /**
  * The settings this integration declares (assignee and the transitions), read back down the one
  * chain: the declared environment variable (CORVI_JIRA_ASSIGNEE and friends) wins at every
- * scope, then the workspace's bag entry, then the global bag, and finally the core's legacy flat
- * `jira*` fields — whose own resolution carries the default (`legacy.ts`). A bag value that is
- * not a string, or an empty one, is not set: empty means unset.
+ * scope, then the workspace's bag entry, then the global bag, and finally the shipped default.
+ * A bag value that is not a string, or an empty one, is not set: empty means unset.
  */
 // Pure and synchronous: nothing for an Effect to wrap.
 export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource): {
@@ -123,7 +113,6 @@ export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource):
 } {
   const own = workspace?.settings?.extensionSettings?.jira;
   const bag = settings.extensionSettings?.jira;
-  const legacy = legacyGlobalOf(settings);
   const field = (variable: string, key: string, fallback: string): string =>
     resolveSetting({
       env: variable,
@@ -132,9 +121,9 @@ export function globalOf(settings: GlobalSettings, workspace?: WorkspaceSource):
       fallback,
     });
   return {
-    assignee: field(JIRA_ENV.assignee, "assignee", legacy.assignee),
-    startTransition: field(JIRA_ENV.startTransition, "startTransition", legacy.startTransition),
-    doneTransition: field(JIRA_ENV.doneTransition, "doneTransition", legacy.doneTransition),
+    assignee: field(JIRA_ENV.assignee, "assignee", ""),
+    startTransition: field(JIRA_ENV.startTransition, "startTransition", "In Progress"),
+    doneTransition: field(JIRA_ENV.doneTransition, "doneTransition", "Done"),
   };
 }
 

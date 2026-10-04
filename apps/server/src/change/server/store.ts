@@ -2,11 +2,10 @@ import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
 import { readdir, mkdir, rename } from "node:fs/promises";
 import { Effect, ParseResult, Schema } from "effect";
-import type { Change } from "../../domain/change.ts";
-import { FORMAT_VERSION, PLAN_FILE } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
+import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
-import { LegacyChangeRecord, migrateRecord } from "@corvi/changes/legacy";
 import { Change as ChangeSchema } from "./schema.ts";
 import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -122,10 +121,8 @@ const guardFormat = (id: string): Effect.Effect<void, ChangeFormatTooNew> =>
   });
 
 // Decode with unknown keys preserved: a change.json carries whatever the code that wrote it
-// put there, and rewriting it must not drop fields another version added. A format-1 record is
-// projected to format 2 first (the one migration), so the schema only ever describes the
-// current shape. Failures become DecodeError with the ParseResult issues rendered one line per
-// problem, path included.
+// put there, and rewriting it must not drop fields another version added. Failures become
+// DecodeError with the ParseResult issues rendered one line per problem, path included.
 const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeError> =>
   Effect.gen(function* () {
     const raw = yield* Schema.decodeUnknown(
@@ -133,9 +130,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
     )(text).pipe(
       Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
     );
-    const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
-    const value = recordFormat >= FORMAT_VERSION ? raw : migrateRecord(raw);
-    return yield* Schema.decodeUnknown(ChangeSchema, { onExcessProperty: "preserve" })(value).pipe(
+    return yield* Schema.decodeUnknown(ChangeSchema, { onExcessProperty: "preserve" })(raw).pipe(
       Effect.mapError((error) => {
         const detail = ParseResult.ArrayFormatter.formatIssueSync(error.issue)
           .map((issue) => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message))
@@ -146,10 +141,7 @@ const decodeChange = (text: string, dir: string): Effect.Effect<Change, DecodeEr
   });
 
 /** Read one change's change.json through its Schema. `null` means no change.json in the change
- * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError. A
- * format-1 record is migrated and persisted here — atomically, so no record is ever
- * half-migrated; a persist that fails anyway is reported and never fatal, because the read
- * itself succeeded and the startup sweep will try again. */
+ * directory or the archive. A malformed or wrongly-shaped file is a typed DecodeError. */
 export const readChange = (id: string): Effect.Effect<Change | null, DecodeError> =>
   Effect.gen(function* () {
     const dir = yield* existingDir(id);
@@ -157,20 +149,6 @@ export const readChange = (id: string): Effect.Effect<Change | null, DecodeError
     const text = yield* Effect.tryPromise(() => file(join(dir, "change.json")).text()).pipe(
       Effect.orDie,
     );
-    const raw = yield* Schema.decodeUnknown(
-      Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-    )(text).pipe(
-      Effect.mapError(() => new DecodeError({ source: "file", message: `malformed change.json in ${dir}` })),
-    );
-    const recordFormat = typeof raw.formatVersion === "number" ? raw.formatVersion : 1;
-    if (recordFormat < FORMAT_VERSION) {
-      const migrated = migrateRecord(raw);
-      yield* fs(() => writeAtomic(join(dir, "change.json"), JSON.stringify(migrated, null, 2) + "\n")).pipe(
-        Effect.catchAllDefect((error) =>
-          Effect.sync(() => console.error(`could not migrate change.json in ${dir}:`, error)),
-        ),
-      );
-    }
     return yield* decodeChange(text, dir);
   });
 

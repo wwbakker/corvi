@@ -181,7 +181,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["apps/server/src/domain/**/*.{ts,tsx}", "apps/web/src/domain/**/*.{ts,tsx}"],
+    files: ["apps/web/src/domain/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     rules: {
       "no-restricted-imports": pureBoundary(["**/effect/errors.ts"]),

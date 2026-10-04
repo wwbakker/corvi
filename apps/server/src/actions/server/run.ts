@@ -13,7 +13,7 @@ import { deliverAction, type CandidateWindow, type DeliveryFailure } from "@corv
 import { renderActionBody } from "@corvi/actions/render";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
 import { BadRequestError } from "@corvi/contracts/errors";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { changeDir, factsFor } from "../../change/server/index.ts";
 import { checkoutFor } from "../../vendors/git.ts";
 import { configPath, settingsOf, workspaceOf } from "../../workspace/server/index.ts";

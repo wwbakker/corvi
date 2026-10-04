@@ -1,6 +1,6 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { checkoutsOf } from "./helpers.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { aborted } from "../apps/web/src/app-root/api.ts";
 import { stateClass } from "../apps/web/src/app-root/stateClass.ts";
 import { changeNav, resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";

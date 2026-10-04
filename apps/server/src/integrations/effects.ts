@@ -1,6 +1,6 @@
 import { Effect, Either } from "effect";
-import { isFinished, type Change } from "../domain/change.ts";
-import type { Widget, WidgetItem } from "../domain/widget.ts";
+import { isFinished, type Change } from "@corvi/changes/record";
+import type { WidgetDto as Widget, WidgetItemDto as WidgetItem } from "@corvi/contracts/api";
 import { workspaceOf } from "../workspace/server/index.ts";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { BadRequestError } from "@corvi/contracts/errors";

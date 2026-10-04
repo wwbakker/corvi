@@ -17,8 +17,8 @@ import {
 } from "../apps/server/src/change/server/index.ts";
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
 import { checkoutFor } from "../apps/server/src/vendors/git.ts";
-import { isIdeation, slugFor } from "../apps/server/src/domain/change.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import { isIdeation, slugFor } from "@corvi/changes/record";
+import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, runCancel, runEffect, runSetRepos, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
