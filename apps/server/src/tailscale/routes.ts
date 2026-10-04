@@ -9,6 +9,7 @@ import { Effect } from "effect";
 
 import { guard, json } from "../capabilities/web.ts";
 import { runRoute } from "../capabilities/effect/run.ts";
+import { inExternalGate } from "../capabilities/gate.ts";
 import { publishTailscale, tailscaleStatus, unpublishTailscale } from "./server/index.ts";
 
 export const tailscaleRoutes = guard({
@@ -17,13 +18,14 @@ export const tailscaleRoutes = guard({
   },
 
   // Publish `http://127.0.0.1:<remoteAccess.port>` at https 443. Refused with a message when 443
-  // already serves something else, or the external listener is not listening.
+  // already serves something else, or the external listener is not listening. Serialized with
+  // the listener's reconcile, so a click during a save cannot interleave a command with it.
   "/api/tailscale/publish": {
-    POST: () => runRoute(Effect.map(publishTailscale(), json)),
+    POST: () => runRoute(Effect.map(inExternalGate(publishTailscale()), json)),
   },
 
   // Remove only our own mapping; never `tailscale serve reset`.
   "/api/tailscale/unpublish": {
-    POST: () => runRoute(Effect.map(unpublishTailscale(), json)),
+    POST: () => runRoute(Effect.map(inExternalGate(unpublishTailscale()), json)),
   },
 });

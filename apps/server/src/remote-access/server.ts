@@ -12,6 +12,7 @@
 import { Effect, Either } from "effect";
 
 import { runtimeConfig, setRemoteAccessStatus } from "../capabilities/runtime.ts";
+import { inExternalGate } from "../capabilities/gate.ts";
 import { serve, type Serving, type WebSocketHandlers } from "../capabilities/serve.ts";
 import { authorizeExternalRequest } from "../devices/server/index.ts";
 import { reconcileTailscale } from "../tailscale/server/index.ts";
@@ -31,9 +32,10 @@ export const makeRemoteAccess = (options: {
 }): RemoteAccess => {
   let serving: Serving | undefined;
   let port: number | undefined;
-  // One reconcile at a time: a save that changes the port twice in quick succession must not
-  // leave the first listener running beside the second.
-  const gate = Effect.unsafeMakeSemaphore(1);
+
+  // One reconcile at a time, through the shared external gate: a save that changes the port twice
+  // in quick succession must not leave the first listener running beside the second, and a
+  // Tailscale click must not interleave with a reconcile's command.
 
   const start = (nextPort: number): Promise<Serving> =>
     serve<TerminalSocket>({
@@ -96,7 +98,7 @@ export const makeRemoteAccess = (options: {
     });
 
   return {
-    reconcile: (): Effect.Effect<void> => gate.withPermits(1)(reconcileOne()),
+    reconcile: (): Effect.Effect<void> => inExternalGate(reconcileOne()),
     stop: (): void => {
       serving?.stop();
       serving = undefined;

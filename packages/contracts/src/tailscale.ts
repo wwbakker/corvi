@@ -18,5 +18,9 @@ export const TailscaleStatusSchema = Schema.Struct({
   publishedUrl: Schema.optional(Schema.String),
   /** Why publication is unavailable (not installed, not connected, 443 already in use). */
   error: Schema.optional(Schema.String),
+  /** The 443 tree's shape when publication cannot proceed: `mixed` is our handler beside
+   * another's (a shared tree, which Corvi will not clear), `conflict` is another service's
+   * handler on 443. Absent when 443 is free, entirely ours, or not yet read. */
+  blocked: Schema.optional(Schema.Literal("mixed", "conflict")),
 })
 export type TailscaleStatusDto = typeof TailscaleStatusSchema.Type

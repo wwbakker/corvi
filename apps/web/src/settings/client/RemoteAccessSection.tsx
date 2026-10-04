@@ -70,7 +70,11 @@ export function RemoteAccessSection({
   };
 
   const published = tailscale?.publishedUrl;
-  const cannotPublish = !bindStatus.listening || busy || tailscale === undefined;
+  const blocked = tailscale?.blocked;
+  // Publishing is refused while a blocked state holds (a shared or foreign 443): the button is
+  // disabled and the reason is shown below, with the manual escape for the shared case.
+  const cannotPublish =
+    !bindStatus.listening || busy || tailscale === undefined || blocked !== undefined;
 
   return (
     <div className="form">
@@ -126,7 +130,15 @@ export function RemoteAccessSection({
             {!bindStatus.listening && <small>Save with remote access enabled first.</small>}
           </div>
         )}
-        {tailscale?.error && <p className="hint">{tailscale.error}</p>}
+        {tailscale?.error && (
+          <p className={blocked ? "error-banner" : "hint"}>{tailscale.error}</p>
+        )}
+        {blocked === "mixed" && (
+          <p className="hint">
+            Corvi will not remove a 443 tree it shares with another handler. Unpublish by hand with{" "}
+            <code>tailscale serve --https=443 off</code>, then publish again.
+          </p>
+        )}
         {error && <p className="error-banner">{error}</p>}
       </div>
     </div>

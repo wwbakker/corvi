@@ -105,3 +105,54 @@ test.skipIf(!usable)(
   },
   60_000,
 );
+
+test.skipIf(!usable)(
+  "a shared or foreign 443 is shown plainly, with the manual escape and a disabled Publish",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    // The Tailscale read is stubbed per state; only its body changes between the two.
+    let status: Record<string, unknown> = {
+      available: true,
+      running: true,
+      dnsName: "omarchy.tailnet.ts.net",
+      blocked: "mixed",
+      error: "port 443 also serves port 8080; Corvi will not remove a shared tree",
+    };
+    await page.route(
+      (u) => u.pathname === "/api/tailscale",
+      (route) =>
+        route.fulfill({ contentType: "application/json", body: JSON.stringify(status) }),
+    );
+    await page.goto(`${url}/settings`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("nav.tabs");
+    await page.getByRole("button", { name: "Remote access" }).click();
+
+    // The mixed state: our handler beside another's. The reason is shown, the manual command is
+    // spelled out, and Publish is refused.
+    await page.getByText("port 443 also serves port 8080").waitFor();
+    await page.getByText("tailscale serve --https=443 off").waitFor();
+    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(
+      true,
+    );
+
+    // The conflict state: another service holds 443. The reason is shown and Publish stays
+    // refused, and no manual off command is offered — there is nothing of ours to remove.
+    status = {
+      available: true,
+      running: true,
+      dnsName: "omarchy.tailnet.ts.net",
+      blocked: "conflict",
+      error: "port 443 already serves 8080; remove that mapping before publishing",
+    };
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.waitForSelector("nav.tabs");
+    await page.getByRole("button", { name: "Remote access" }).click();
+    await page.getByText("port 443 already serves 8080").waitFor();
+    expect(await page.getByText("tailscale serve --https=443 off").count()).toBe(0);
+    expect(await page.getByRole("button", { name: "Publish to Tailscale" }).isDisabled()).toBe(
+      true,
+    );
+    await page.close();
+  },
+  60_000,
+);

@@ -35,6 +35,7 @@ import {
   SERVE_EXTERNAL_PORT,
   type ServeMapping,
 } from "./parse.ts";
+import { persistPublishedPort } from "./publication.ts";
 
 /** One `tailscale` call whose failures are data: a missing binary is code 127 and a timeout is
  * the shell's own code, either way a `Result` the caller branches on. */
@@ -50,6 +51,13 @@ const readServeMappings = (): Effect.Effect<readonly ServeMapping[]> =>
     const result = yield* runTailscale(["serve", "status", "--json"]);
     return result.code === 0 ? parseServeMappings(result.stdout) : [];
   });
+
+/** Track the port Corvi published in the runtime, and remember it on disk so a restart recognizes
+ * the 443 mapping. Called on every publish and unpublish, never with anything else. */
+const remember = (port: number | undefined): void => {
+  setTailscalePublishedPort(port);
+  persistPublishedPort(port);
+};
 
 /** The port whose 443 mapping is Corvi's: what it published, else what the listener is bound to,
  * else what the config asks for. */
@@ -86,8 +94,10 @@ export const tailscaleStatus = (): Effect.Effect<TailscaleStatusDto> =>
     const decision = port === undefined ? { kind: "free" as const } : decideServe(yield* readServeMappings(), port);
     if (decision.kind === "published" && port !== undefined) {
       // The mapping is ours: remember which port, so a later unpublish finds it even if the
-      // configured port has changed since.
-      setTailscalePublishedPort(port);
+      // configured port has changed since — across a restart, too. A GET writing state is
+      // deliberate here: the serve configuration is the truth, and this is how a crash or a lost
+      // record re-adopts the mapping it names (rather than leaving the user to clear it by hand).
+      remember(port);
       return {
         available: true,
         running: true,
@@ -100,6 +110,7 @@ export const tailscaleStatus = (): Effect.Effect<TailscaleStatusDto> =>
         available: true,
         running: true,
         dnsName: parsed.dnsName,
+        blocked: "mixed",
         error: `port 443 also serves ${describeForeign(decision.foreignPorts)}; Corvi will not remove a shared tree`,
       };
     }
@@ -109,6 +120,7 @@ export const tailscaleStatus = (): Effect.Effect<TailscaleStatusDto> =>
         available: true,
         running: true,
         dnsName: parsed.dnsName,
+        blocked: "conflict",
         error: `port 443 already serves ${target}; remove that mapping before publishing`,
       };
     }
@@ -138,7 +150,7 @@ export const publishTailscale = (): Effect.Effect<TailscaleStatusDto, BadRequest
       return yield* new BadRequestError({ message: status.error ?? "tailscale is not connected" });
     }
     if (status.publishedUrl !== undefined) {
-      setTailscalePublishedPort(port);
+      remember(port);
       return status;
     }
     if (status.error !== undefined) return yield* new BadRequestError({ message: status.error });
@@ -149,7 +161,7 @@ export const publishTailscale = (): Effect.Effect<TailscaleStatusDto, BadRequest
         message: firstLine(result.stderr) || "tailscale serve failed",
       });
     }
-    setTailscalePublishedPort(port);
+    remember(port);
     return yield* tailscaleStatus();
   });
 
@@ -165,7 +177,7 @@ export const unpublishTailscale = (): Effect.Effect<TailscaleStatusDto, BadReque
     const foreign = at443.filter((mapping) => mapping.targetPort !== port);
 
     if (ours.length === 0) {
-      setTailscalePublishedPort(undefined);
+      remember(undefined);
       return yield* tailscaleStatus();
     }
     if (foreign.length > 0) {
@@ -180,7 +192,7 @@ export const unpublishTailscale = (): Effect.Effect<TailscaleStatusDto, BadReque
         message: firstLine(result.stderr) || "tailscale serve off failed",
       });
     }
-    setTailscalePublishedPort(undefined);
+    remember(undefined);
     return yield* tailscaleStatus();
   });
 

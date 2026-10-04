@@ -1,7 +1,7 @@
 import { Effect } from "effect";
 import { resolve } from "node:path";
 import { createCache } from "./capabilities/cache.ts";
-import { runtimeRemoteAccessStatus, setRuntime } from "./capabilities/runtime.ts";
+import { runtimeRemoteAccessStatus, setRuntime, setTailscalePublishedPort } from "./capabilities/runtime.ts";
 import { eventsRoutes } from "./capabilities/bus.ts";
 import { serve, type ServerWebSocket } from "./capabilities/serve.ts";
 import { integrationRoutes } from "./integrations/routes.ts";
@@ -18,6 +18,7 @@ import { gatewaySockets, isGatewaySocket, type GatewaySocket } from "./gateway/s
 import { makeRemoteAccess, type RemoteAccess } from "./remote-access/server.ts";
 import { makeRemoteEvents, type RemoteEvents } from "./remote-events/server.ts";
 import { tailscaleRoutes } from "./tailscale/routes.ts";
+import { readPublishedPort } from "./tailscale/server/index.ts";
 import { settingsRoutes } from "./settings/routes.ts";
 import { subagentsRoutes } from "./subagents/routes.ts";
 import { terminalsRoutes } from "./terminals/routes.ts";
@@ -46,6 +47,11 @@ putCliOnPath(resolve(import.meta.dirname, "../../.."), commandAvailable("corvi")
 const cache = createCache();
 const restored = await Effect.runPromise(cache.load());
 setRuntime({ cache });
+
+// The port a previous run published through `tailscale serve`, read before the external listener
+// reconciles: a restart that follows a configured-port change while published still recognizes
+// the 443 mapping as its own and offers the one-click stop.
+setTailscalePublishedPort(readPublishedPort());
 
 // The server-owned screens persisted by the last run, loaded before the watcher or any page can
 // prune them: this is what keeps deep scrollback across a Corvi restart.

@@ -1,13 +1,18 @@
+import { statSync, writeFileSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { Effect } from "effect";
 
 import { json } from "../apps/server/src/capabilities/web.ts";
+import { inExternalGate } from "../apps/server/src/capabilities/gate.ts";
 import {
   decideServe,
   parseServeMappings,
   parseTailscaleStatus,
+  persistPublishedPort,
+  publicationPath,
   publicUrlFor,
   publishTailscale,
+  readPublishedPort,
   reconcileTailscale,
   tailscaleStatus,
   unpublishTailscale,
@@ -181,6 +186,38 @@ describe("the tailscale operations", () => {
       const status = await runWithShell(shell, tailscaleStatus());
       expect(status.publishedUrl).toBeUndefined();
       expect(status.error).toContain("443 already serves 8080");
+    });
+  });
+
+  test("status flags a shared 443 as mixed and another service's as conflict", async () => {
+    await withBind(async () => {
+      // Our handler beside another path: a shared tree, which `off` would clear wholesale.
+      const shared = JSON.stringify({
+        Web: {
+          "host:443": {
+            Handlers: {
+              "/": { Proxy: "http://127.0.0.1:4110" },
+              "/admin": { Proxy: "http://127.0.0.1:8080" },
+            },
+          },
+        },
+      });
+      const mixed = await runWithShell(
+        fakeShell({ "tailscale status --json": STATUS, "tailscale serve status --json": shared }),
+        tailscaleStatus(),
+      );
+      expect(mixed.blocked).toBe("mixed");
+      expect(mixed.publishedUrl).toBeUndefined();
+      expect(mixed.error).toContain("also serves");
+
+      // Another service holds 443 and ours is not among the handlers.
+      const conflict = await runWithShell(
+        fakeShell({ "tailscale status --json": STATUS, "tailscale serve status --json": served(8080) }),
+        tailscaleStatus(),
+      );
+      expect(conflict.blocked).toBe("conflict");
+      expect(conflict.publishedUrl).toBeUndefined();
+      expect(conflict.error).toContain("443 already serves 8080");
     });
   });
 
@@ -368,6 +405,103 @@ describe("the tailscale operations", () => {
         expect(runtimeTailscalePublishedPort()).toBe(5000);
       });
     });
+  });
+
+  test("the published port is remembered across a restart", async () => {
+    await withBind(async () => {
+      try {
+        persistPublishedPort(undefined);
+        let mappings = "{}";
+        const shell = fakeShell((cmd) => {
+          const line = cmd.join(" ");
+          if (line === "tailscale status --json") return STATUS;
+          if (line === "tailscale serve status --json") return mappings;
+          if (line === "tailscale serve --bg 4110") {
+            mappings = served(4110);
+            return "";
+          }
+          if (line === "tailscale serve --https=443 off") {
+            mappings = "{}";
+            return "";
+          }
+          return undefined;
+        });
+
+        await runWithShell(shell, publishTailscale());
+        expect(runtimeTailscalePublishedPort()).toBe(4110);
+        // The record is owner-only, and on disk: what a restart reads back.
+        expect(statSync(publicationPath()).mode & 0o777).toBe(0o600);
+        expect(readPublishedPort()).toBe(4110);
+
+        // A restart: the runtime forgets, the file remembers.
+        setTailscalePublishedPort(undefined);
+        expect(runtimeTailscalePublishedPort()).toBeUndefined();
+        setTailscalePublishedPort(readPublishedPort());
+        expect(runtimeTailscalePublishedPort()).toBe(4110);
+
+        // Unpublish clears the record, so the next restart finds nothing to clean up.
+        await runWithShell(shell, unpublishTailscale());
+        expect(runtimeTailscalePublishedPort()).toBeUndefined();
+        expect(readPublishedPort()).toBeUndefined();
+      } finally {
+        persistPublishedPort(undefined);
+      }
+    });
+  });
+
+  test("a corrupt or out-of-range record reads as no record", () => {
+    try {
+      persistPublishedPort(4110); // creates the file (and its directory) first
+      const corrupt = (text: string): number | undefined => {
+        writeFileSync(publicationPath(), text);
+        return readPublishedPort();
+      };
+      // A hand-mangled file is no record, not a wrong port.
+      expect(corrupt(JSON.stringify({ port: 0 }))).toBeUndefined();
+      expect(corrupt(JSON.stringify({ port: 70000 }))).toBeUndefined();
+      expect(corrupt(JSON.stringify({ port: "4110" }))).toBeUndefined();
+      expect(corrupt("not json")).toBeUndefined();
+      // A real port is a record.
+      expect(corrupt(JSON.stringify({ port: 4110 }))).toBe(4110);
+    } finally {
+      persistPublishedPort(undefined);
+    }
+  });
+
+  test("a Tailscale click cannot interleave with a save's tracked-port change", async () => {
+    setTailscalePublishedPort(4110);
+    const events: string[] = [];
+    const save = Effect.gen(function* () {
+      events.push(`save:saw=${runtimeTailscalePublishedPort()}`);
+      yield* Effect.sleep("40 millis");
+      setTailscalePublishedPort(undefined);
+      events.push("save:cleared");
+    });
+    const click = Effect.gen(function* () {
+      events.push(`click:saw=${runtimeTailscalePublishedPort()}`);
+      setTailscalePublishedPort(5000);
+      events.push("click:published");
+    });
+    try {
+      await Effect.runPromise(
+        Effect.gen(function* () {
+          yield* Effect.fork(inExternalGate(save));
+          // Let the save take the gate and reach its sleep, where an unguarded click would slip in.
+          yield* Effect.sleep("5 millis");
+          yield* inExternalGate(click);
+        }),
+      );
+      // Serialized: the click read what the save left, not the stale 4110 it would have seen
+      // inside the save's window.
+      expect(events).toEqual([
+        "save:saw=4110",
+        "save:cleared",
+        "click:saw=undefined",
+        "click:published",
+      ]);
+    } finally {
+      setTailscalePublishedPort(undefined);
+    }
   });
 
   test("the status route answers the contract shape", async () => {
