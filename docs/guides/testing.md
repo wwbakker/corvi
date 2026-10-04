@@ -135,8 +135,9 @@ Current fixtures live in `test/helpers.ts`:
 - Spawn a test server as Node plus `apps/server/src/server.ts` and `--corvi-test-run=${testRun()}`; preserve
   the ownership marker when the entrypoint moves. Normal app/dev servers have no test marker.
 
-Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: the cleaner treats
-unowned entries there as leftovers.
+Do not invent unrelated paths under the reserved `$TMPDIR/corvi-` prefix: only
+`bun run test:clean --prune --all` treats unowned entries there as leftovers; the default leaks
+them rather than guess whose they are.
 
 Inspect first, then clean only the known run:
 
@@ -147,8 +148,9 @@ bun run test:clean --prune --run="$CORVI_TEST_RUN"
 ```
 
 Use a nonempty token actually recorded by the run; do not manufacture one to claim ownership.
-`--prune` also removes that run's leftover paths. Broad cleanup options are not a substitute for
-knowing which resources belong to a run.
+A bare `--prune` removes nothing — only an explicit `--run="…"` removes that run's leftover paths,
+and `--all` is the broad escape hatch. Broad cleanup options are not a substitute for knowing
+which resources belong to a run.
 
 ## Documentation checks
 

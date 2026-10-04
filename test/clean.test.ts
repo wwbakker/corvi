@@ -5,7 +5,9 @@ import {
   coversUnnamed,
   isRunToken,
   isTestCommand,
+  mayRemovePaths,
   tokenFromPath,
+  tokenFromPidFile,
   tokenOf,
 } from "../scripts/clean-test.ts";
 
@@ -39,6 +41,18 @@ test("a label that looks like a token is not one: the dot is the tell", () => {
   expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-abc.def-term-x/changes/PROJ")).toBe("abc.def");
 });
 
+test("a pid-file names its run; the path parser leaves pid-files to it", () => {
+  // `tokenFromPath` reads run directories, where the token is followed by `-` or `/`; a pid-file
+  // name ends the token in `.pid`, so only `tokenFromPidFile` reads it.
+  expect(tokenFromPidFile("corvi-1a2b.3c4d.pid")).toBe("1a2b.3c4d");
+  expect(tokenFromPidFile("corvi-abc.def.pid")).toBe("abc.def");
+  expect(tokenFromPidFile("corvi-term-abc.pid")).toBeUndefined();
+  expect(tokenFromPidFile("corvi-1a2b.3c4d")).toBeUndefined();
+  expect(tokenFromPath("corvi-1a2b.3c4d.pid")).toBeUndefined();
+  expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-1a2b.3c4d.pid")).toBeUndefined();
+  expect(tokenFromPath("/var/folders/tp/xyz/T/corvi-1a2b.3c4d-term-abc")).toBe("1a2b.3c4d");
+});
+
 test("a run token is two base36 words in full; a longer word is not a token", () => {
   // What `bun run test` mints (`date +%s.$$`) and what a lone test file mints (test/helpers.ts).
   expect(isRunToken("1789425651.393504")).toBe(true);
@@ -62,24 +76,26 @@ test("a purge naming its own run takes that run's leftovers and nothing else", (
   // run": a neighbour's live fixtures must not look like this run's business, whatever their
   // pid-files briefly say.
   const ownTrap = { all: false, run: "1a2b.3c4d" };
-  expect(coversRun(ownTrap, "1a2b.3c4d", true)).toBe(true); // its own, even still alive
-  expect(coversRun(ownTrap, "1a2b.3c4d", false)).toBe(true);
-  expect(coversRun(ownTrap, "9999.9999", false)).toBe(false); // a neighbour that looks gone
-  expect(coversUnnamed(ownTrap, true)).toBe(false); // unnamed, even on a quiet machine
+  expect(coversRun(ownTrap, "1a2b.3c4d")).toBe(true); // its own, whatever its pid-file says
+  expect(coversRun(ownTrap, "9999.9999")).toBe(false); // a neighbour, gone or not
+  expect(coversUnnamed(ownTrap)).toBe(false); // unnamed entries are never its business
+  expect(mayRemovePaths(ownTrap)).toBe(true); // --run is explicit, so it may remove
 });
 
-test("a purge with no run named takes only what is gone", () => {
+test("the default purge removes no paths, even on a quiet machine", () => {
   const byHand = { all: false, run: undefined };
-  expect(coversRun(byHand, "1a2b.3c4d", false)).toBe(true);
-  expect(coversRun(byHand, "1a2b.3c4d", true)).toBe(false);
-  expect(coversUnnamed(byHand, true)).toBe(true); // quiet machine: unnamed entries are strays
-  expect(coversUnnamed(byHand, false)).toBe(false);
+  // A run's liveness is read from one pid-file, and that guess once deleted a live neighbour's
+  // fixtures. So the default owns nothing: it leaks rather than guess, quiet or busy.
+  expect(coversRun(byHand, "1a2b.3c4d")).toBe(false);
+  expect(coversUnnamed(byHand)).toBe(false);
+  expect(mayRemovePaths(byHand)).toBe(false);
 });
 
 test("--all takes everything, unnamed included", () => {
   const everything = { all: true, run: undefined };
-  expect(coversRun(everything, "1a2b.3c4d", true)).toBe(true);
-  expect(coversUnnamed(everything, false)).toBe(true);
+  expect(coversRun(everything, "1a2b.3c4d")).toBe(true);
+  expect(coversUnnamed(everything)).toBe(true);
+  expect(mayRemovePaths(everything)).toBe(true);
 });
 
 test("every test that starts a server marks it for the cleaner", async () => {
