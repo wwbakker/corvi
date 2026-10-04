@@ -38,10 +38,10 @@ that arrived while you were looking elsewhere.
 
 ## Agent status and the reporter protocol
 
-An agent can say what it is doing in its session: **working** or **waiting** for you, who it is,
-what the session is called, and the first sentence of its last answer. Corvi uses that instead of
-the process name — `node` says nothing, and an idle agent is not counted as active work just
-because its process still exists.
+An agent can say what it is doing in its session: **working** or **waiting** for you (a subagent
+waits for its orchestrator), who it is, what the session is called, and the first sentence of its
+last answer. Corvi uses that instead of the process name — `node` says nothing, and an idle agent
+is not counted as active work just because its process still exists.
 
 The facts are the reporter protocol. A reporter is a small plugin inside the agent; the two
 included ones are `integrations/pi` and `integrations/opencode`. The reporter publishes through
@@ -54,7 +54,7 @@ not a pane; a crashed agent's status is cleared when its host session ends.
 
 | Fact | Values | Meaning |
 | --- | --- | --- |
-| status | `working` \| `waiting` | working: a run is in flight or retrying. waiting: settled and idle — it wants you. |
+| status | `working` \| `waiting` | working: a run is in flight or retrying. waiting: settled and idle — it wants you, unless it is a subagent, which wants its orchestrator (see [Attention notifications](#attention-notifications)). |
 | name | `pi` \| `opencode` | which agent reports from this session. |
 | session name | free text | the session's own name, once the agent has one. |
 | message | free text | the first sentence (at most 180 characters) of the last answer. |
@@ -62,7 +62,8 @@ not a pane; a crashed agent's status is cleared when its host session ends.
 Corvi's window strip reads those facts (as the `@agent_*` window options the presenter declares),
 through the CLI/HTTP store first and the host's OSC parse as the fallback: the session name
 becomes the window's label, the status colours the icon and decides whether a notification is
-owed (the edge from working to waiting), and the last sentence is the note beside the name. A
+owed (the edge from working to waiting, except for a subagent — see [Attention
+notifications](#attention-notifications)), and the last sentence is the note beside the name. A
 session whose reporter has not spoken — an old plugin, a plain shell — is presented as the
 terminal it plainly is. Anything else may read the facts too (the `corvi status` endpoint): the
 protocol is stated here for the included reporters, not as an extension mechanism for Corvi.
@@ -117,7 +118,10 @@ extensions fall back to stderr. The agent's own output is never touched.
 
 A transition from working to waiting can notify you when you are not actively looking at that
 window. Selecting the same change is not enough to suppress it if another view/window is active.
-Notification sound is configurable. With no connected page, there is no server-side OS notifier.
+A subagent never notifies: its settled turn is waiting for its orchestrator (`corvi subagent
+await`, the Subagents page), not for you, so it raises no attention edge — the window strip and the
+Subagents page still show its state. Notification sound is configurable. With no connected page,
+there is no server-side OS notifier.
 Several waiting windows can notify separately; each uses a stable window identity.
 
 ## Troubleshooting and safety
