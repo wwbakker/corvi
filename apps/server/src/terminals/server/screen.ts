@@ -77,6 +77,21 @@ export type Screen = {
 const absoluteCursor = (term: XTerm): string =>
   `\x1b[${term.buffer.active.cursorY + 1};${term.buffer.active.cursorX + 1}H`;
 
+/** The serialize addon re-emits `mouseTrackingMode` (`?1002h`) but has no branch for the mouse
+ * *encoding*, so a fresh xterm replaying the snapshot would fall back to the legacy DEFAULT (X10)
+ * encoding and route mouse input through `onBinary` even though the program enabled SGR. Re-assert
+ * the encoding the screen actually holds; DEFAULT needs nothing. `activeEncoding` has no public
+ * API, so it is read through the private core in this one place. */
+const mouseEncoding = (term: XTerm): string => {
+  if (term.modes.mouseTrackingMode === "none") return "";
+  const { activeEncoding } = (
+    term as unknown as { readonly _core: { readonly coreMouseService: { readonly activeEncoding: string } } }
+  )._core.coreMouseService;
+  if (activeEncoding === "SGR") return "\x1b[?1006h";
+  if (activeEncoding === "SGR_PIXELS") return "\x1b[?1016h";
+  return "";
+};
+
 /** One headless emulator at the page's grid. */
 export const makeScreen = (size: { readonly cols: number; readonly rows: number }): Screen => {
   const term = new Terminal({
@@ -138,7 +153,7 @@ export const makeScreen = (size: { readonly cols: number; readonly rows: number 
       const bytes = (text: string): number => new TextEncoder().encode(text).length;
       const draw = (scrollback: number): string => {
         const serialized = addon.serialize({ scrollback });
-        return serialized === "" ? "" : `${serialized}${absoluteCursor(term)}${SHOW_CURSOR}`;
+        return serialized === "" ? "" : `${serialized}${mouseEncoding(term)}${absoluteCursor(term)}${SHOW_CURSOR}`;
       };
       const full = draw(SCREEN_SCROLLBACK);
       // A screen larger than the cap is trimmed to its most recent rows, with a bounded number of
