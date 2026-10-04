@@ -14,7 +14,8 @@ import {
 } from "../apps/server/src/change/server/index.ts";
 import { repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../apps/server/src/vendors/git.ts";
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { ProvisionedChangeSchema, type ProvisionedChangeDto } from "@corvi/contracts/api";
 import type { Change } from "../apps/server/src/domain/change.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
@@ -72,6 +73,66 @@ test("create change, provision a worktree, report status, remove it", async () =
 
   await Effect.runPromise(gitRun(change, "remove", repo));
   expect((await Effect.runPromise(repoItem(change, repo))).state).toBe("none");
+});
+
+test("the create response names the new change's directory", async () => {
+  const { changeRoutes } = await import("../apps/server/src/change/routes.ts");
+  const route = changeRoutes["/api/changes"] as unknown as {
+    POST: (req: Request, srv: unknown) => Promise<Response>;
+  };
+  const create = async (body: unknown): Promise<ProvisionedChangeDto> => {
+    const response = await route.POST(
+      new Request("http://127.0.0.1:4000/api/changes", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+      undefined,
+    );
+    expect(response.status).toBe(201);
+    // Decoded as the client does it: the field is only usable if the contract keeps it.
+    return Schema.decodeUnknownSync(ProvisionedChangeSchema)(await response.json());
+  };
+
+  const provisioned = await create({ id: "PROJ-CHANGEDIR", state: "Ideation" });
+  expect(provisioned.change.id).toBe("PROJ-CHANGEDIR");
+  // The change's workspace changes root joined with the id: where its PLAN.md goes.
+  expect(provisioned.changeDir).toBe(join(process.env.CORVI_ROOT!, "PROJ-CHANGEDIR"));
+
+  // A workspace names a changes root of its own, and a change made in it is filed there rather
+  // than in the default root. The env override would win at every scope, so put it aside.
+  const env = { root: process.env.CORVI_ROOT, archive: process.env.CORVI_ARCHIVE_ROOT };
+  delete process.env.CORVI_ROOT;
+  delete process.env.CORVI_ARCHIVE_ROOT;
+  try {
+    await withRuntimeConfig(
+      {
+        changesRoot: join(tmp, "root-changes"),
+        archiveRoot: join(tmp, "root-archive"),
+        workspaces: [
+          {
+            id: "client",
+            name: "Client",
+            settings: {
+              changesRoot: join(tmp, "client-changes"),
+              archiveRoot: join(tmp, "client-archive"),
+            },
+          },
+        ],
+      },
+      async () => {
+        const workspaceChange = await create({
+          id: "PROJ-WORKSPACE",
+          state: "Ideation",
+          workspace: "client",
+        });
+        expect(workspaceChange.change.workspace).toBe("client");
+        expect(workspaceChange.changeDir).toBe(join(tmp, "client-changes", "PROJ-WORKSPACE"));
+      },
+    );
+  } finally {
+    process.env.CORVI_ROOT = env.root;
+    process.env.CORVI_ARCHIVE_ROOT = env.archive;
+  }
 });
 
 test("rejects duplicate ids, unsafe ids and changes without repositories", async () => {
