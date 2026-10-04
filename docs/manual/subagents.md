@@ -78,6 +78,8 @@ Nothing is restarted behind your back.
 
 Corvi's extension inside the harness is what carries the conversation. It parks on
 `corvi subagent next`, submits an inbound message as a genuine user turn through the harness's own
-API, and relays the settled reply back with `corvi subagent turn`. The extension is a thin shim:
-all protocol logic lives in the CLI and server, and everything is driven through the CLI, so a
-harness without the extension still works as a plain terminal — it just cannot reply.
+API, and relays the settled reply back with `corvi subagent turn`. A settled subagent turn does
+not raise a user notification; it waits for the orchestrator, which sees it through `corvi
+subagent await` and the Subagents page. The extension is a thin shim: all protocol logic lives in
+the CLI and server, and everything is driven through the CLI, so a harness without the extension
+still works as a plain terminal — it just cannot reply.

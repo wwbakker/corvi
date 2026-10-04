@@ -403,7 +403,9 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
   expect(shown?.icon).toBe("agent");
   expect(shown?.label).toBe("Review session");
   expect(shown?.note).toBe("Please review");
-  expect(shown?.attention).toBe(true);
+  // A subagent waits for its orchestrator (the Subagents page), not the user, so its waiting
+  // turn never raises an attention edge and never notifies.
+  expect(shown?.attention).toBe(false);
 
   // The relay: the first message is handed over once, an inbound send wakes the next, and the
   // settled reply is a turn.

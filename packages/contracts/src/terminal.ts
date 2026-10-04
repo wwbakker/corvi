@@ -23,6 +23,9 @@ export type RawWindow = {
   readonly panes: readonly string[];
   /** The focused pane's session id. */
   readonly activePane: string;
+  /** Whether this window is a Corvi subagent (a host session carrying `subagentId`). A subagent
+   * waits for its orchestrator, not the user; the presenter suppresses its attention. */
+  subagent?: boolean;
 };
 
 /** How a window is presented. The first presenter that answers a field wins; fields left out
