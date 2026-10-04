@@ -663,6 +663,25 @@ test.skipIf(!usable)("another change's terminal is another pty", async () => {
   await other.page.close();
 }, budget(120_000));
 
+test.skipIf(!usable)("a terminal open in two windows is taken over, not frozen", async () => {
+  const first = await openTerminal(id);
+  const second = await openTerminal(id);
+
+  // The second attach supersedes the first: the second is attached, and the first is told the
+  // terminal is open elsewhere instead of silently freezing on its last screen.
+  await second.page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+  await first.page.waitForSelector(".terminal-detached", { timeout: budget(30_000) });
+  expect(await first.page.locator(".terminal-screen[data-attached]").count()).toBe(0);
+
+  // Take over on the first: it re-attaches, and the second is the one detached now.
+  await first.page.getByRole("button", { name: "Take over" }).click();
+  await first.page.waitForSelector(".terminal-screen[data-attached]", { timeout: budget(30_000) });
+  await second.page.waitForSelector(".terminal-detached", { timeout: budget(30_000) });
+
+  await first.page.close();
+  await second.page.close();
+}, budget(120_000));
+
 test.skipIf(!usable)("a pane's environment is the user's, not the launcher's", async () => {
   const { page, dir } = await openTerminal(id);
   const out = join(dir, "pane-env.txt");

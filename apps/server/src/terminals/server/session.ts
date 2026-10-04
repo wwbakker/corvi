@@ -34,7 +34,8 @@
  *   - page to server: binary is what you typed; text is JSON control (`resize`);
  *   - server to page: binary is terminal output; text is JSON control (`snapshot` with the
  *     serialized screen, `reset` when the screen is empty, `exit` when the session is gone and no
- *     reconnect should follow).
+ *     reconnect should follow, `detached` when another window took the one live client and this
+ *     page must stop streaming until it takes the terminal back).
  */
 import type { HostClient } from "../host/client.ts";
 import { appendFileSync } from "node:fs";
@@ -109,7 +110,9 @@ type Subscriber = {
   readonly send: (chunk: Uint8Array) => void;
   /** The serialized screen and the host offset it covers, sent before any live byte. */
   readonly snapshot: (frame: { readonly data: string; readonly offset: number }) => void;
-  readonly onExit: () => void;
+  /** Why this subscriber is being let go: `"exit"` is the session ending (final), `"detached"`
+   * is another window taking the one live client (the pane can take it back). */
+  readonly onStop: (reason: "exit" | "detached") => void;
   /** Set when the page leaves before its attach finished, so a freshly attached screen is not
    * pinned by a socket that is already gone. */
   cancelled: boolean;
@@ -398,7 +401,7 @@ const finish = (hub: Hub): void => {
     hub.screen.dispose();
     hubs.delete(hub.key);
   }
-  for (const subscriber of subscribers) subscriber.onExit();
+  for (const subscriber of subscribers) subscriber.onStop("exit");
 };
 
 /** The exit of a session ends the hub whenever it happens, page or no page. An attach that is
@@ -561,7 +564,7 @@ const startServe = (hub: Hub, subscriber: Subscriber): void => {
   void serve(hub, subscriber).catch((error: unknown) => {
     logFailure(`serving ${hub.key} threw after its finally`, error);
     try {
-      subscriber.onExit();
+      subscriber.onStop("exit");
     } catch {
       // the page is already gone; the exit frame is best-effort
     }
@@ -580,12 +583,12 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     // One live client per hub, newest wins. An established subscriber may be the previous socket
     // still closing — the page switched away and back before the server processed the close — so a
     // reattach supersedes it instead of being refused, which would strand the returning pane on an
-    // `exit`. The superseded page is told the session is gone so it does not keep a stream it got no
-    // snapshot for. A genuine second tab is not distinguishable from this at the hub, so it
-    // supersedes too.
+    // `exit`. The superseded page is told it was detached — the terminal is another window's now,
+    // so it stops streaming but may take it back — not that the session is gone. A genuine second
+    // tab is not distinguishable from this at the hub, so it supersedes too.
     const superseded = [...hub.subscribers];
     hub.subscribers.clear();
-    for (const old of superseded) old.onExit();
+    for (const old of superseded) old.onStop("detached");
     // The host attach is deferred to the first view for a reprintable hub; for every other screen it
     // is already attached (`ensureScreen`) and this is a no-op.
     await ensureAttached(hub);
@@ -603,7 +606,7 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     try {
       await hub.screen.whenApplied(cutoff);
       if (subscriber.cancelled || hub.disposed === true) {
-        subscriber.onExit();
+        subscriber.onStop("exit");
         return;
       }
       const { data, offset } = hub.screen.serialize();
@@ -630,7 +633,7 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
     // drop a healthy hub's listener.
     logFailure(`serving ${hub.key} failed`, error);
     hub.subscribers.delete(subscriber);
-    subscriber.onExit();
+    subscriber.onStop("exit");
   } finally {
     hub.attachingPage = false;
     // Restart the unattended clock unless a subscriber is attached (`noteAttendance` clears it when
@@ -643,7 +646,7 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
         queuedNext = true;
         startServe(hub, queued);
       } else {
-        queued.onExit();
+        queued.onStop("exit");
       }
     }
   }
@@ -656,11 +659,13 @@ const serve = async (hub: Hub, subscriber: Subscriber): Promise<void> => {
  * would read as the session being gone. */
 const subscribe = (hub: Hub, subscriber: Subscriber): void => {
   if (hub.disposed === true) {
-    subscriber.onExit();
+    subscriber.onStop("exit");
     return;
   }
   if (hub.attachingPage === true) {
-    hub.queued?.onExit();
+    // The queued page is replaced by a newer one before it is ever served: that is a supersede,
+    // not a session end, so it is told it can take the terminal back.
+    hub.queued?.onStop("detached");
     hub.queued = subscriber;
     return;
   }
@@ -676,7 +681,7 @@ export type TerminalSession = {
   readonly attach: (
     send: (chunk: Uint8Array) => void,
     snapshot: (frame: { readonly data: string; readonly offset: number }) => void,
-    onExit: () => void,
+    onStop: (reason: "exit" | "detached") => void,
   ) => void;
   readonly write: (data: string | Uint8Array) => void;
   readonly resize: (cols: number, rows: number) => void;
@@ -774,9 +779,9 @@ export const openSession = async (
   return {
     sessionId,
     incarnation: hub.incarnation,
-    attach: (send, snapshot, onExit) => {
+    attach: (send, snapshot, onStop) => {
       if (subscriber !== undefined) return; // one live client per session (module comment)
-      subscriber = { send, snapshot, onExit, cancelled: false };
+      subscriber = { send, snapshot, onStop, cancelled: false };
       subscribe(hub, subscriber);
     },
     write: (data) => {
@@ -907,11 +912,13 @@ export const terminalSockets = {
         }
         ws.send(JSON.stringify({ type: "snapshot", data, incarnation: session.incarnation, sessionId: session.sessionId }));
       },
-      () => {
-        // The session is gone: tell the page so it does not reconnect into a new shell, then
-        // close. An abnormal close (the server died) carries no frame and the page retries.
+      (reason) => {
+        // Why the page is being let go: `exit` is final (do not reconnect), `detached` means
+        // another window took the one live client and this pane may take it back. Both are text
+        // control frames, so the gateway bridges them unchanged. An abnormal close (the server
+        // died) carries no frame and the page retries.
         try {
-          ws.send(JSON.stringify({ type: "exit" }));
+          ws.send(JSON.stringify({ type: reason }));
         } catch {
           // the socket is already closing
         }
