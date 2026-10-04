@@ -6,8 +6,7 @@
  * the plan path, each checkout's basename for the repository names). */
 import { basename, join } from "node:path";
 
-import type { Change } from "../../domain/change.ts";
-import { PLAN_FILE } from "../../domain/change.ts";
+import { PLAN_FILE, type Change } from "@corvi/changes/record";
 import { changeDir } from "./store.ts";
 
 export type ChangeFacts = {

@@ -1,7 +1,7 @@
 import { Effect } from "effect";
-import { worst } from "../../domain/widget.ts";
-import type { Change, ChangeSummary } from "../../domain/change.ts";
-import type { SummaryFact } from "../../domain/widget.ts";
+import { worst } from "@corvi/contracts/display";
+import type { Change, ChangeSummary } from "@corvi/changes/record";
+import type { SummaryFactDto } from "@corvi/contracts/api";
 import { listWindows } from "../../terminals/server/index.ts";
 import { includedSummaryContributors } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";
@@ -25,7 +25,7 @@ export const summaryOf = (change: Change): Effect.Effect<ChangeSummary, unknown>
     // terminals/server/presenter.ts says which windows are work.
     const windows = yield* listWindows(change.id);
     const busy = windows.filter((w) => w.busy).length;
-    const terminals: SummaryFact = {
+    const terminals: SummaryFactDto = {
       id: "terminals",
       label: busy > 0 ? `${busy} terminal process${busy === 1 ? "" : "es"} active` : "terminals idle",
       state: busy > 0 ? "ok" : "none",

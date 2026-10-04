@@ -21,7 +21,7 @@ import { refOf, refLabel } from "@corvi/contracts/integrations/github-issues";
 import { ticketOf } from "@corvi/jira/jira";
 import { unknownIntegrationNames } from "../apps/server/src/integrations/included.ts";
 import { runtimeConfig, reloadConfigSync, type Workspace } from "../apps/server/src/workspace/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 
 /**
  * A changes root of its own, because creating a change writes one.

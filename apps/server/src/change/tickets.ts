@@ -12,7 +12,7 @@ import { ticketOf } from "@corvi/jira/jira";
 import { messageOf } from "../capabilities/effect/support.ts";
 import { extensionsFor } from "../integrations/selectors.ts";
 import { capabilitiesLayer } from "../integrations/services.ts";
-import type { Change, ProvisionResult } from "../domain/change.ts";
+import type { Change, ProvisionResult } from "@corvi/changes/record";
 import { workspaceOf } from "../workspace/server/index.ts";
 
 // Pure and synchronous: nothing for an Effect to wrap.

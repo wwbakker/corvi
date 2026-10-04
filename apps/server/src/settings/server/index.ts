@@ -19,7 +19,7 @@ export {
  * the two halves and their tests name it once (`./secrets.ts`). */
 export { MASK } from "./secrets.ts";
 
-export type { Settings, SettingsView } from "../model.ts";
+export type { Settings, SettingsView } from "@corvi/contracts/settings-view";
 
 export {
   bagString,

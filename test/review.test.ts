@@ -8,7 +8,7 @@ import { changeTabsFor, dispatchIntegrationRoute } from "../apps/server/src/inte
 import { provisionRepositories } from "../apps/server/src/change/provisioning.ts";
 import { resolveChangePage } from "../apps/web/src/change-page/client/changeTabs.ts";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { CommitResult, LocalStatus } from "@corvi/contracts/integrations/review";
 import { checkoutsOf, runEffect, runSh  } from "./helpers.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";

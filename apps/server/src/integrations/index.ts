@@ -62,6 +62,6 @@ export {
 } from "./effects.ts";
 export { dispatchIntegrationRoute } from "./dispatch.ts";
 
-/** Re-exported for the contributors' convenience; the type lives in domain/change.ts with the
- * rest of the dashboard's vocabulary. */
-export type { CompletionStep } from "../domain/change.ts";
+/** Re-exported for the contributors' convenience; the type lives in `@corvi/changes/record`
+ * with the rest of the dashboard's vocabulary. */
+export type { CompletionStep } from "@corvi/changes/record";

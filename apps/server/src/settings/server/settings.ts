@@ -2,7 +2,7 @@ import { mkdir, chmod, copyFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
-import type { Settings, SettingsView } from "../model.ts";
+import type { Settings, SettingsView } from "@corvi/contracts/settings-view";
 import { overriddenExtensionSettings, overriddenSettings } from "@corvi/configuration/settings";
 import { ENV_OVERRIDES } from "./legacySettings.ts";
 import {

@@ -559,7 +559,7 @@ body.drawer-open {
   max-width: 100%;
 }
 
-/* The page's first row is also the window's title bar in the app (apps/server/src/domain/chrome.ts): one height
+/* The page's first row is also the window's title bar in the app (apps/web/src/domain/chrome.ts): one height
    everywhere, so it lines up with the column beside it and no row of tabs can make it taller than
    its neighbours. The panel colour is what says chrome rather than content, and it stays put while
    the page scrolls under it — as the change's own row does, just below. */
@@ -2676,7 +2676,7 @@ button.danger:disabled {
 /* The window's own row in the column, where macOS keeps its traffic lights: the switcher sits to
    their right, and the row is what you drag the window by. It stays put while the column scrolls,
    because the lights do. Nothing here applies in a browser, where the row is only the switcher's
-   wrapper and the column has no buttons to clear (apps/server/src/domain/chrome.ts). */
+   wrapper and the column has no buttons to clear (apps/web/src/domain/chrome.ts). */
 .hosted .sidebar {
   padding-top: 0;
 }

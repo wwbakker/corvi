@@ -9,7 +9,7 @@ import { Effect } from "effect";
 import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "../apps/server/src/domain/change.ts";
+import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/changes/record";
 
 /**
  * Cancelling is the other way a change ends, and the one with no undo button on the far side: it

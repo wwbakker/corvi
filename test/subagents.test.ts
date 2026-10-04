@@ -12,7 +12,7 @@ import {
   writeRepositorySubagentFile,
   writeSubagentFile,
 } from "../apps/server/src/subagents/server/files.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { configPath } from "../apps/server/src/workspace/server/index.ts";
 import { checkoutsOf, runEffect, runSh, testTempDir } from "./helpers.ts";
 

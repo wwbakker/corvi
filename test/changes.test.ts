@@ -16,7 +16,7 @@ import { repoItem, checkoutFor, currentBranch, unsafeToRemove } from "../apps/se
 import { gitRun, provisionRepositories, setRepos } from "../apps/server/src/change/provisioning.ts";
 import { Effect, Schema } from "effect";
 import { ProvisionedChangeSchema, type ProvisionedChangeDto } from "@corvi/contracts/api";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
 import type { PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import { checkoutsOf, runEffect, runSetRepos, runSh, withRuntimeConfig  } from "./helpers.ts";
@@ -454,7 +454,7 @@ test("an agent's own account of itself is read from the @agent_status pane optio
 });
 
 test("a change may be blocked, which is active but not workable", async () => {
-  const { CHANGE_STATES, isFinished } = await import("../apps/server/src/domain/change.ts");
+  const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");
   const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");
 
   // The lifecycle, which the select offers in this order and the lists sort by; the overview
@@ -479,7 +479,7 @@ test("a change may be blocked, which is active but not workable", async () => {
 });
 
 test("the icons take the worst of what the repositories say", async () => {
-  const { worst } = await import("../apps/server/src/domain/widget.ts");
+  const { worst } = await import("@corvi/contracts/display");
   // One red build is what you want to know about, so it decides the colour; then one running.
   expect(worst(["ok", "error", "pending"])).toBe("error");
   expect(worst(["ok", "pending", "ok"])).toBe("pending");

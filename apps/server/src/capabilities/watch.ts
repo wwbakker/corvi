@@ -1,6 +1,6 @@
 import { Effect, Exit, Option, Schedule, Stream } from "effect";
 import { listChanges, readSidecar } from "../change/server/store.ts";
-import { isFinished, PLAN_FILE } from "../domain/change.ts";
+import { isFinished, PLAN_FILE } from "@corvi/changes/record";
 import { textRevision } from "./files.ts";
 import { allWindows } from "../terminals/server/index.ts";
 import { runtimeConfig } from "../workspace/server/index.ts";

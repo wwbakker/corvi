@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 import { ChangeWireSchema } from "@corvi/contracts/api";
-import type { Change as ChangeShape } from "../../domain/change.ts";
+import type { Change as ChangeShape } from "@corvi/changes/record";
 
 /**
  * The change.json on disk — the JSON boundary of a change (apps/server/src/change/server/store.ts).

@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { branchFor } from "../apps/server/src/domain/change.ts";
+import { branchFor } from "@corvi/changes/record";
 import { issueFrom } from "@corvi/jira/jira";
 
 test("branch name derived from a picked issue", () => {

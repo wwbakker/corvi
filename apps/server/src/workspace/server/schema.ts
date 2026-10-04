@@ -73,7 +73,7 @@ const hasIdAndName = (w: unknown): w is WorkspaceShape =>
 
 /** The config file's own shape, as it is written. Everything is optional — an absent value
  * means "the default", which is what an empty file means. This is also the settings page's
- * write shape (apps/server/src/settings/model.ts' `Settings`), and the two must not drift: the
+ * write shape (`@corvi/contracts/settings-view`'s `Settings`), and the two must not drift: the
  * compile-time guards below pin this schema to @corvi/configuration/config' hand-written `ConfigFile`. */
 export const ConfigFile = ConfigFileSchema;
 

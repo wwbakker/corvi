@@ -19,7 +19,7 @@ import { toResponse } from "../apps/server/src/capabilities/effect/http.ts";
 import { swr } from "../apps/server/src/capabilities/cache.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { LegacyFlatSettings } from "@corvi/jira/legacy";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
 import { fileDiff, localChanges } from "../apps/server/src/integrations/review/server.ts";
 import type { LocalStatus } from "@corvi/contracts/integrations/review";
@@ -540,7 +540,7 @@ export const runSwr = <T>(key: string, ttl: number, work: () => Promise<T>): Pro
  * tagged union (apps/server/src/vendors/git.ts), and the tests read `{ change }` / `{ needsForce }`. */
 export const runSetRepos = async (
   ...args: Parameters<typeof setRepos>
-): Promise<{ change: import("../apps/server/src/domain/change.ts").Change } | { needsForce: string[] }> => {
+): Promise<{ change: import("@corvi/changes/record").Change } | { needsForce: string[] }> => {
   const result = await runEffect(setRepos(...args));
   return result._tag === "Done" ? { change: result.change } : { needsForce: result.needsForce };
 };

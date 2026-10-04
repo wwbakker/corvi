@@ -16,7 +16,7 @@ import {
   workspaceById,
   type Workspace,
 } from "../apps/server/src/workspace/server/index.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import jiraExtension from "@corvi/jira";
 import {
   boardIssues,

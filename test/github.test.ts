@@ -36,7 +36,7 @@ import { BusLive, CacheLive, ChangesLive, GitFactsLive, SettingsLive, capabiliti
 import { createChange, readChange, writeChange } from "../apps/server/src/change/server/index.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { Result } from "../apps/server/src/capabilities/shell.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, fakeShell, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
 
 /**

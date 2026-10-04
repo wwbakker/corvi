@@ -35,7 +35,7 @@ import {
   type Change,
   type CheckoutSpec,
   type ProvisionResult,
-} from "../domain/change.ts";
+} from "@corvi/changes/record";
 import { runtimeConfig } from "../workspace/server/index.ts";
 import {
   browseRepo,

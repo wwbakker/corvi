@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize } from "node:path";
 import { Effect } from "effect";
 import { expandTilde } from "./config.ts";
 import { runtimeConfig } from "../../capabilities/runtime.ts";
-import type { Entry } from "../model.ts";
+import type { DirectoryEntryDto as Entry } from "@corvi/contracts/api";
 import { remoteDefaultBranch } from "../../vendors/git.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { fs, shSoft } from "../../capabilities/effect/support.ts";
