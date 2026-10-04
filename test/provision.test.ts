@@ -18,7 +18,7 @@ import { deploySettingsOf } from "@corvi/azure-devops/deploySettings";
 import { readiness, headRef, waitingOnYou } from "@corvi/github/client";
 import { presentWindow, type PresentedWindow } from "../apps/server/src/terminals/server/index.ts";
 import type { RawWindow } from "../apps/server/src/integrations/types.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, runDeploy, runEffect, runSetRepos  } from "./helpers.ts";
 
 /**

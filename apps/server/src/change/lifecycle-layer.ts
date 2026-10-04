@@ -37,7 +37,7 @@ import {
  * without depending on the workflows package's own entry point. */
 export { TerminalSessions } from "@corvi/workflows/lifecycle"
 import { ChangeWork, layer as changeWorkCapabilityLayer } from "@corvi/workflows"
-import type { Change as LegacyChange, CompletionStep } from "../domain/change.ts"
+import type { Change as LegacyChange, CompletionStep } from "@corvi/changes/record"
 import type { Workspace as WorkspaceShape } from "@corvi/configuration/config"
 import { Shell } from "@corvi/shell"
 import { Workspace } from "@corvi/contracts/workspace"

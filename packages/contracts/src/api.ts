@@ -83,8 +83,8 @@ export const ChangeWireSchema = Schema.Struct({
   /** How many times the record has been written; absent on records written before revisioning,
    * which count as 0. Used for the lifecycle's optimistic concurrency check. */
   revision: Schema.optional(Schema.Number),
-  /** The record format's version. Absent is format 1 (the pre-checkouts record), which the
-   * store migrates on read; a record from a newer Corvi is read best-effort and never written. */
+  /** The record format's version. A record without it is read as the current shape; a record
+   * from a newer Corvi is read best-effort and never written. */
   formatVersion: Schema.optional(Schema.Number),
 })
 export type ChangeWireDto = typeof ChangeWireSchema.Type

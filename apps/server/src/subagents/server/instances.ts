@@ -54,7 +54,7 @@ import {
   newSubagentWindow,
   type LiveSubagent,
 } from "../../terminals/server/index.ts";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { resolveProfileFor } from "./run.ts";
 import { renderSubagentBody } from "./prompt.ts";
 import { notify, subscribe } from "./waiters.ts";

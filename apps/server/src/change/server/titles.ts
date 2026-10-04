@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type { Change } from "../../domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { listChanges, writeChange } from "./store.ts";
 import { includedTitleSources } from "../../integrations/overview.ts";
 import { capabilitiesLayer } from "../../integrations/services.ts";

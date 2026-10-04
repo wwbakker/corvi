@@ -90,7 +90,7 @@ export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-
 /** The config file's own shape, as it is written: the settings at the top level (where they are
  * the defaults every workspace inherits) and the workspaces beside them. Everything is optional
  * — an absent value means "the default", which is what an empty file means. This is also the
- * settings page's write shape (`apps/server/src/settings/model.ts`' `Settings`). `workspaces`
+ * settings page's write shape (`@corvi/contracts/settings-view`'s `Settings`). `workspaces`
  * passes through untouched and unvalidated, garbage entries included: load() applies the
  * per-item tolerance rather than losing the whole file to one hand-mangled workspace. */
 export const ConfigFile = Schema.Struct({

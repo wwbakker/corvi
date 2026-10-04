@@ -5,7 +5,7 @@ import { Effect } from "effect";
 
 import { writeActionFile } from "../apps/server/src/actions/server/files.ts";
 import { runActionFor } from "../apps/server/src/actions/server/run.ts";
-import type { Change } from "../apps/server/src/domain/change.ts";
+import type { Change } from "@corvi/changes/record";
 import { closeHostClient, hostClient } from "../apps/server/src/terminals/server/host.ts";
 import * as registry from "../apps/server/src/terminals/server/registry.ts";
 import { setStatus } from "../apps/server/src/terminals/server/status.ts";

@@ -8,6 +8,7 @@
         "@corvi/actions": "workspace:*",
         "@corvi/agents": "workspace:*",
         "@corvi/azure-devops": "workspace:*",
+        "@corvi/changes": "workspace:*",
         "@corvi/client": "workspace:*",
         "@corvi/configuration": "workspace:*",
         "@corvi/contracts": "workspace:*",

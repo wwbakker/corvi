@@ -2,7 +2,7 @@ import { test, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import type { Change, CompletionStep } from "../apps/server/src/domain/change.ts";
+import type { Change, CompletionStep } from "@corvi/changes/record";
 import {
   completeChange,
   completionOf,

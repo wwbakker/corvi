@@ -4,7 +4,7 @@ import {
   isFinished,
   type Change,
   type ChangeState,
-} from "../domain/change.ts";
+} from "@corvi/changes/record";
 import { allowedTransition } from "@corvi/changes/rules";
 import { InvalidChangeEdit } from "./errors.ts";
 

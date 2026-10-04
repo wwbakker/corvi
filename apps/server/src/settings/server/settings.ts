@@ -2,7 +2,7 @@ import { mkdir, chmod, copyFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
 import type { Config } from "@corvi/configuration/config";
-import type { Settings, SettingsView } from "../model.ts";
+import type { Settings, SettingsView } from "@corvi/contracts/settings-view";
 import { overriddenExtensionSettings, overriddenSettings } from "@corvi/configuration/settings";
 import { ENV_OVERRIDES } from "./legacySettings.ts";
 import {
@@ -16,7 +16,6 @@ import {
   WorkspaceId,
 } from "../../workspace/server/index.ts";
 import { loaded } from "../../integrations/index.ts";
-import { migrateExtensionSettings, migrateFileSettings } from "../../integrations/migrate.ts";
 import { keepStoredSecrets, redactSecrets } from "./secrets.ts";
 import { BadRequestError } from "@corvi/contracts/errors";
 import { fs } from "../../capabilities/effect/support.ts";
@@ -42,9 +41,6 @@ export const settingsView = Effect.sync(() => settingsViewSync());
  * contract; the Effect form is settingsView above, which the server uses. */
 export const settingsViewSync = (): SettingsView => {
   const file = readFileSync();
-  // The file is handed over migrated, so the page edits — and writes back — the shape the
-  // extensions read today, never the retired names the migration folds away.
-  migrateFileSettings(file);
   return {
     path: configPath(),
     // The page gets a copy with the extensions' secrets masked: it is given the file and what is
@@ -171,9 +167,6 @@ export const writeSettings = (
     yield* fs(() => chmod(configPath(), 0o600));
 
     yield* reloadConfig;
-    // The retired names fold into the extensions' own settings, in memory as on disk —
-    // a page save is also a migration.
-    migrateExtensionSettings(runtimeConfig().workspaces);
     // Everything the CLIs answered was answered for the settings just replaced: another
     // organisation, another Jira site, another set of environments. Cheaper to ask again than to
     // reason about which.

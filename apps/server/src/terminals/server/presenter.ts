@@ -1,4 +1,4 @@
-import type { TerminalWindow } from "../../domain/terminal.ts";
+import type { TerminalWindow } from "@corvi/contracts/terminal";
 import type { RawWindow, WindowPresentation } from "../../integrations/types.ts";
 import { agentsWindowPresenter } from "@corvi/agents/presenter";
 import { commandWindowPresenter } from "@corvi/terminals/presenter";

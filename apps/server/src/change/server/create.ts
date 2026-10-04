@@ -7,7 +7,7 @@ import {
   IDEATION,
   type Change,
   type ChangeDraft,
-} from "../../domain/change.ts";
+} from "@corvi/changes/record";
 import { DecodeError } from "@corvi/contracts/errors";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { ChangeAlreadyExists, InvalidChangeDraft } from "../errors.ts";

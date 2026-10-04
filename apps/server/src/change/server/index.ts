@@ -50,4 +50,4 @@ export { refreshTitles } from "./titles.ts";
 
 export { describeChange, prDescription } from "./description.ts";
 
-export { branchFor, PLAN_FILE, slugFor } from "../../domain/change.ts";
+export { branchFor, PLAN_FILE, slugFor } from "@corvi/changes/record";

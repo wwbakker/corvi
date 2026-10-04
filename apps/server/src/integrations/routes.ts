@@ -13,7 +13,7 @@ import {
   wizardStepsFor,
 } from "./index.ts";
 import { guard } from "../capabilities/web.ts";
-import { isFinished } from "../domain/change.ts";
+import { isFinished } from "@corvi/changes/record";
 import { workspaceById, workspaceOf, settingsOf } from "../workspace/server/index.ts";
 import {
   bodyAs,
