@@ -195,6 +195,42 @@ const pointAtGridRight = (page: Page): Promise<{ x: number; y: number } | null> 
     if (Math.abs(rect.width - term.cols * cellWidth) > 1) return null; // the fit has not settled
     return { x: rect.left + rect.width - 1, y: rect.top + rect.height / 2 };
   });
+/** The viewport point of the first cell of `needle` in the buffer, or null when it is not on screen.
+ * The linkifier maps a mousemove to a buffer cell, so hovering that point is what shows a link.
+ * The string index is treated as a column (`indexOf`), so this assumes no wide characters before
+ * the match — true for the ASCII URLs the tests use. */
+const hoverPointFor = (page: Page, needle: string): Promise<{ x: number; y: number } | null> =>
+  page.evaluate((text: string) => {
+    type Internals = {
+      rows?: number;
+      buffer?: {
+        active: {
+          length: number;
+          baseY: number;
+          getLine(y: number): { translateToString(trimRight?: boolean): string } | undefined;
+        };
+      };
+      _core?: {
+        screenElement?: HTMLElement;
+        _renderService?: { dimensions?: { css?: { cell?: { width?: number; height?: number } } } };
+      };
+    };
+    const term = (document.querySelector(".terminal-screen") as (HTMLElement & { corviTerminal?: Internals }) | null)?.corviTerminal;
+    const grid = term?._core?.screenElement;
+    const cell = term?._core?._renderService?.dimensions?.css?.cell;
+    if (!term?.buffer || !grid || !cell || cell.width === undefined || cell.height === undefined) return null;
+    const buffer = term.buffer.active;
+    for (let y = 0; y < buffer.length; y++) {
+      const line = buffer.getLine(y)?.translateToString(true) ?? "";
+      const at = line.indexOf(text);
+      if (at === -1) continue;
+      const row = y - buffer.baseY;
+      if (row < 0 || (term.rows !== undefined && row >= term.rows)) continue; // off the viewport
+      const rect = grid.getBoundingClientRect();
+      return { x: rect.left + (at + 0.5) * cell.width, y: rect.top + (row + 0.5) * cell.height };
+    }
+    return null;
+  }, needle);
 /** Wait until the shell's next prompt has enabled bracketed paste. A command that just finished has
  * printed its output but not necessarily redrawn the prompt's DEC mode yet; pasting before that
  * would send the text unbracketed and the shell would run it. */
@@ -830,6 +866,75 @@ test.skipIf(!usable)("the menu's Open link opens the selected URL", async () => 
   await until(async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0], "https://example.com/open-me", budget(10_000));
   await page.close();
 }, budget(60_000));
+
+test.skipIf(!usable)("a hovered link shows its URL and the platform's open hint", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/hover-me";
+  await typeUntilText(page, `echo ${url}`, "hover-me");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y);
+
+  const tooltip = page.locator(".terminal-link-tooltip");
+  await tooltip.waitFor({ timeout: 10_000 });
+  const text = await tooltip.innerText();
+  expect(text).toContain(url);
+  const isMac = await page.evaluate(() => /mac/i.test(navigator.platform));
+  expect(text).toContain(isMac ? "Cmd-click to open" : "Ctrl-click to open");
+
+  // Leaving the link hides it.
+  await page.mouse.move(5, 5);
+  await waitFor("the tooltip to hide", async () => (await page.locator(".terminal-link-tooltip").count()) === 0, budget(10_000));
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("a ctrl/cmd-click on a link opens it", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/ctrl-open";
+  await typeUntilText(page, `echo ${url}`, "ctrl-open");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.evaluate(() => {
+    (window as unknown as { __opened: string[] }).__opened = [];
+    (window as unknown as { open: (u: string) => null }).open = (u: string) => {
+      (window as unknown as { __opened: string[] }).__opened.push(u);
+      return null;
+    };
+  });
+  // Cmd on macOS (Ctrl+click is a secondary click there), Ctrl elsewhere. This guards the
+  // constructor that now also carries the tooltip callbacks.
+  const chord = (await page.evaluate(() => /mac/i.test(navigator.platform))) ? "Meta" : "Control";
+  await page.keyboard.down(chord);
+  await page.mouse.click(point!.x, point!.y);
+  await page.keyboard.up(chord);
+  expect(
+    await until(
+      async () => (await page.evaluate(() => (window as unknown as { __opened: string[] }).__opened))[0],
+      url,
+      budget(10_000),
+    ),
+  ).toBe(url);
+  await page.close();
+}, budget(90_000));
+
+test.skipIf(!usable)("opening the context menu clears the link tooltip", async () => {
+  const { page } = await openTerminal(id);
+  const url = "https://example.com/tooltip-menu";
+  await typeUntilText(page, `echo ${url}`, "tooltip-menu");
+  const point = await hoverPointFor(page, url);
+  expect(point).not.toBeNull();
+  await page.mouse.move(point!.x, point!.y);
+  await page.locator(".terminal-link-tooltip").waitFor({ timeout: 10_000 });
+
+  // A right click that does not move the pointer: the tooltip is cleared by the menu opening, not
+  // by the pointer leaving the link.
+  await page.evaluate(() => {
+    document.querySelector(".terminal-screen")?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 60, clientY: 60 }));
+  });
+  await page.locator(".terminal-menu").waitFor({ timeout: 10_000 });
+  await waitFor("the tooltip to clear", async () => (await page.locator(".terminal-link-tooltip").count()) === 0, budget(5_000));
+  await page.close();
+}, budget(90_000));
 
 test.skipIf(!usable)("the context-menu setting also silences the terminal's own menu", async () => {
   const current = (await fetch(`${url}/api/settings`).then((response) => response.json())) as { file: Record<string, unknown> };

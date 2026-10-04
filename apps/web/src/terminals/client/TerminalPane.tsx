@@ -221,6 +221,9 @@ export function TerminalPane({
   const [findOpen, setFindOpen] = useState(false);
   const [findText, setFindText] = useState("");
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  /** The link under the pointer: the URL and the point its tooltip is anchored at. */
+  const [linkTooltip, setLinkTooltip] = useState<{ url: string; x: number; y: number } | null>(null);
+  const linkTooltipRef = useRef<HTMLDivElement>(null);
 
   // A terminal that was fine when the tab opened can lose its session while you watch it, the way
   // a killed server does. The window list going empty and staying empty is what that looks like
@@ -278,11 +281,18 @@ export function TerminalPane({
     term.loadAddon(new ClipboardAddon(undefined, new QuietClipboardProvider()));
     const search = new SearchAddon();
     term.loadAddon(search);
-    // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection.
+    // Cmd/Ctrl+click opens a detected URL; a plain click is left for selection. A hover shows a
+    // tooltip — the URL and the chord — so the link's click affordance is discoverable.
     term.loadAddon(
-      new WebLinksAddon((event, uri) => {
-        if (event.ctrlKey || event.metaKey) window.open(uri, "_blank", "noopener");
-      }),
+      new WebLinksAddon(
+        (event, uri) => {
+          if (event.ctrlKey || event.metaKey) window.open(uri, "_blank", "noopener");
+        },
+        {
+          hover: (event, text) => setLinkTooltip({ url: text, x: event.clientX, y: event.clientY }),
+          leave: () => setLinkTooltip(null),
+        },
+      ),
     );
     term.open(element);
     try {
@@ -325,6 +335,9 @@ export function TerminalPane({
         clamping = false;
       }
     });
+    // A scroll moves the link out from under the pointer: the tooltip must not stay at a stale
+    // point over a line that has scrolled away.
+    const scroll = term.onScroll(() => setLinkTooltip(null));
     terminal.current = term;
     searchAddon.current = search;
     // The page tests read the buffer through the host element: xterm's WebGL canvas has no DOM
@@ -335,6 +348,8 @@ export function TerminalPane({
       input.dispose();
       binary.dispose();
       selection.dispose();
+      scroll.dispose();
+      setLinkTooltip(null);
       socket.current?.close();
       socket.current = null;
       openedFor.current = null;
@@ -580,10 +595,41 @@ export function TerminalPane({
     if (visible && !findOpen) terminal.current?.focus();
   }, [visible, url, focusRequest, findOpen]);
 
+  // A tooltip belongs to the link under the pointer in one pane: a window switch, a reconnect or
+  // a hidden-then-shown pane must not leave it over the new screen.
+  useEffect(() => {
+    setLinkTooltip(null);
+  }, [url, sessionId, visible]);
+
+  // Keep the tooltip inside the viewport. It anchors where the link was entered — xterm fires
+  // `hover` once per link, not per mousemove — so the point is fixed while the link is hovered.
+  // Before paint, so it never flashes off-screen.
+  useLayoutEffect(() => {
+    const element = linkTooltipRef.current;
+    if (!element || !linkTooltip) return;
+    // Measure the box at its real (post-move) size, not at wherever React last painted it: a
+    // shrink-to-fit box measured at the old point can flip the wrong way near an edge.
+    element.style.left = "0";
+    element.style.top = "0";
+    const margin = 8;
+    const gap = 14;
+    const rect = element.getBoundingClientRect();
+    let left = linkTooltip.x + gap;
+    let top = linkTooltip.y + gap;
+    if (left + rect.width > window.innerWidth - margin) left = linkTooltip.x - gap - rect.width;
+    if (left < margin) left = margin;
+    if (top + rect.height > window.innerHeight - margin) top = linkTooltip.y - gap - rect.height;
+    if (top < margin) top = margin;
+    element.style.left = `${left}px`;
+    element.style.top = `${top}px`;
+  }, [linkTooltip]);
+
   // The page's own menu: a right click belongs to the page, not the browser (a terminal has
   // nothing to Inspect), and it holds what a terminal's menu holds.
   const onContextMenu = useCallback((e: ReactMouseEvent): void => {
     e.preventDefault();
+    // The menu is the surface now: a tooltip under it would read as menu chrome.
+    setLinkTooltip(null);
     setMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
@@ -667,6 +713,19 @@ export function TerminalPane({
         data-attached={attached !== null && (sessionId === undefined || sessionId === null || attached === sessionId) ? "1" : undefined}
         onContextMenu={onContextMenu}
       />
+      {linkTooltip && (
+        <div
+          ref={linkTooltipRef}
+          className="terminal-link-tooltip"
+          role="tooltip"
+          style={{ left: linkTooltip.x, top: linkTooltip.y }}
+        >
+          <span className="terminal-link-tooltip-url">{linkTooltip.url}</span>
+          <span className="terminal-link-tooltip-hint">
+            {platform === "mac" ? "Cmd-click to open" : "Ctrl-click to open"}
+          </span>
+        </div>
+      )}
       {menu && (
         <div
           className="terminal-menu"
