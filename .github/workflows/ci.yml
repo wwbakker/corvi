@@ -73,7 +73,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bash scripts/test-run.sh e2e-rest --retry=2
+      - run: bun scripts/test-run.ts e2e-rest --retry=2
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -101,7 +101,7 @@ jobs:
           node-version: 24
       - run: bun install --frozen-lockfile
       - run: bunx playwright install --with-deps chromium
-      - run: bash scripts/test-run.sh e2e-terminal --retry=2
+      - run: bun scripts/test-run.ts e2e-terminal --retry=2
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
