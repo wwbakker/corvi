@@ -12,9 +12,10 @@ import { basename, join, resolve } from "node:path";
 
 import { instanceRecordPath } from "@corvi/configuration/node";
 import { InstanceRecordSchema } from "@corvi/contracts/instance";
+import { ClientError } from "@corvi/client";
 import { Schema } from "effect";
 
-import { run, COMMANDS, GROUP_HELP, needsChange, type Io } from "../apps/cli/src/main.ts";
+import { run, COMMANDS, GROUP_HELP, needsChange, repositoryForceRefusal, type Io } from "../apps/cli/src/main.ts";
 import { parseArgs } from "../apps/cli/src/args.ts";
 import { EXIT } from "../apps/cli/src/errors.ts";
 import { changeIdFromDirectory, changeIdIn, resolveChangeId } from "../apps/cli/src/change-context.ts";
@@ -403,6 +404,34 @@ test("needsChange is false for the change-less commands", () => {
   expect(needsChange(["change", "show"])).toBe(true);
 });
 
+test("a repository 409 is rewritten only when it carries a force question", () => {
+  // A too-new record's write conflict has no `needsForce`: the server's message and status must
+  // pass through, not become a `--force` sentence. `undefined` is what lets `report` do that.
+  expect(
+    repositoryForceRefusal(
+      new ClientError({
+        status: 409,
+        message: "written by a newer version of Corvi — upgrade to edit it",
+      }),
+    ),
+  ).toBeUndefined();
+  expect(
+    repositoryForceRefusal(
+      new ClientError({ status: 409, message: "Conflict", body: { needsForce: [] } }),
+    ),
+  ).toBeUndefined();
+
+  // A genuine force question names the checkouts and says `--force`; add can ask too.
+  const refusal = repositoryForceRefusal(
+    new ClientError({ status: 409, message: "Conflict", body: { needsForce: ["repo-two", "repo-three"] } }),
+  );
+  expect(refusal?.exitCode).toBe(EXIT.refused);
+  expect(refusal?.message).toContain("repo-two, repo-three");
+  expect(refusal?.message).toContain("--force");
+  // A non-409 is not a force question either.
+  expect(repositoryForceRefusal(new ClientError({ status: 500, message: "boom" }))).toBeUndefined();
+});
+
 test("change create validates before discovery: usage 2 beats an unreachable server, 3 is no server", async () => {
   // Isolate discovery: an empty state dir (no records, no pid-files) and an unreachable dev
   // default, so the only candidate is the address named and nothing can answer it.
@@ -450,6 +479,232 @@ test("a created change is listable afterwards", async () => {
   const list = capture();
   expect(await run(["--server", baseUrl, "change", "list", "--json"], list.io)).toBe(0);
   expect((JSON.parse(list.out.join("")) as { id: string }[]).map((change) => change.id)).toContain("CLI-LISTED");
+});
+
+test("change repository list shows the seeded checkout", async () => {
+  const list = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], list.io),
+  ).toBe(0);
+  const states = JSON.parse(list.out.join("")) as {
+    name: string;
+    path: string;
+    location: string;
+    branch: { kind: string };
+  }[];
+  expect(states.find((state) => state.name === basename(repo))).toMatchObject({
+    path: repo,
+    location: "original",
+    branch: { kind: "change" },
+  });
+});
+
+test("change repository add then list shows it, and remove by name drops it", async () => {
+  // A second real repository: `add` resolves the path and the server creates a worktree for it.
+  const second = join(tmp, "repository-two");
+  await runSh(["git", "init", "-b", "main", second]);
+  await writeFile(join(second, "README.md"), "two\n");
+  await runSh(["git", "add", "."], second);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], second);
+
+  const added = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", second, "--json"],
+      added.io,
+    ),
+  ).toBe(0);
+  // `--json` is the route shape: the change, what was provisioned and refreshed.
+  const body = JSON.parse(added.out.join("")) as {
+    change: { checkouts?: { path: string }[] };
+    provision: unknown[];
+    refresh: unknown[];
+  };
+  expect(body.provision).toBeArray();
+  expect(body.refresh).toBeArray();
+  expect(body.change.checkouts?.map((checkout) => checkout.path)).toContain(second);
+
+  const listed = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+  ).toBe(0);
+  expect((JSON.parse(listed.out.join("")) as { name: string }[]).map((state) => state.name)).toContain(
+    basename(second),
+  );
+
+  const removed = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(second), "--json"],
+      removed.io,
+    ),
+  ).toBe(0);
+  const after = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], after.io),
+  ).toBe(0);
+  expect((JSON.parse(after.out.join("")) as { name: string }[]).map((state) => state.name)).not.toContain(
+    basename(second),
+  );
+});
+
+test("change repository remove refuses an unknown name (4)", async () => {
+  const missing = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", "no-such-repo", "--json"],
+      missing.io,
+    ),
+  ).toBe(4);
+  expect(missing.err.join("")).toContain("no-such-repo");
+});
+
+test("change repository remove asks to force when the worktree has unpushed work (4)", async () => {
+  const third = join(tmp, "repository-three");
+  await runSh(["git", "init", "-b", "main", third]);
+  await writeFile(join(third, "README.md"), "three\n");
+  await runSh(["git", "add", "."], third);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], third);
+
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", third, "--json"],
+      capture().io,
+    ),
+  ).toBe(0);
+
+  // A commit only the worktree has: a removal would lose it, so the server asks first.
+  const worktree = join(tmp, "changes", CHANGE_ID, basename(third));
+  await writeFile(join(worktree, "work.txt"), "only here\n");
+  await runSh(["git", "add", "."], worktree);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "work"], worktree);
+
+  const refused = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(third), "--json"],
+      refused.io,
+    ),
+  ).toBe(4);
+  expect(refused.err.join("")).toContain("--force");
+
+  const forced = capture();
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "remove", basename(third), "--force", "--json"],
+      forced.io,
+    ),
+  ).toBe(0);
+});
+
+test("change repository flag rules are usage errors before any probe", async () => {
+  // Isolate discovery: nothing can answer, so a rule checked after it would show as exit 3.
+  const state = await testTempDir("cli-repo-usage");
+  const saved = process.env.XDG_STATE_HOME;
+  process.env.XDG_STATE_HOME = state;
+  try {
+    const base = ["--server", "http://127.0.0.1:1", "--change", CHANGE_ID, "change", "repository", "add", repo];
+    const cases: readonly (readonly [string[], string])[] = [
+      [[...base, "--location", "sideways"], "--location"],
+      [[...base, "--branch", "existing"], "--branch-name"],
+      [[...base, "--branch", "existing", "--branch-name", "   "], "--branch-name"],
+      [[...base, "--branch-name", "x"], "--branch-name"],
+      [[...base, "--branch", "current"], "new worktree"],
+    ];
+    for (const [argv, needle] of cases) {
+      const failed = capture();
+      expect(await run(argv, failed.io, { env: { CORVI_PORT: "1" } })).toBe(2);
+      expect(failed.err.join("")).toContain(needle);
+    }
+  } finally {
+    if (saved === undefined) delete process.env.XDG_STATE_HOME;
+    else process.env.XDG_STATE_HOME = saved;
+    await rm(state, { recursive: true, force: true });
+  }
+});
+
+test("change repository add upserts a path, and list prints the five fields", async () => {
+  const upsert = join(tmp, "repository-upsert");
+  await runSh(["git", "init", "-b", "main", upsert]);
+  await writeFile(join(upsert, "README.md"), "upsert\n");
+  await runSh(["git", "add", "."], upsert);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], upsert);
+
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", upsert, "--json"],
+      capture().io,
+    ),
+  ).toBe(0);
+  // The same path again with a base: it replaces the entry rather than appending a second one.
+  expect(
+    await run(
+      ["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", upsert, "--base", "main", "--json"],
+      capture().io,
+    ),
+  ).toBe(0);
+
+  const listed = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+  ).toBe(0);
+  const matching = (JSON.parse(listed.out.join("")) as { name: string; base?: string }[]).filter(
+    (state) => state.name === basename(upsert),
+  );
+  expect(matching).toHaveLength(1);
+  expect(matching[0]!.base).toBe("main");
+});
+
+test("change repository list prints name, location, branch, base and target", async () => {
+  const existing = join(tmp, "repository-existing");
+  await runSh(["git", "init", "-b", "main", existing]);
+  await writeFile(join(existing, "README.md"), "existing\n");
+  await runSh(["git", "add", "."], existing);
+  await runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", "init"], existing);
+  await runSh(["git", "branch", "feature"], existing);
+
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", existing,
+        "--branch", "existing", "--branch-name", "feature", "--base", "main", "--target", "main", "--json",
+      ],
+      capture().io,
+    ),
+  ).toBe(0);
+
+  const listed = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list"], listed.io),
+  ).toBe(0);
+  const line = listed.out
+    .join("\n")
+    .split("\n")
+    .find((one) => one.startsWith(basename(existing)));
+  expect(line).toBe(`${basename(existing)}\tnew\texisting:feature\tmain\tmain`);
+});
+
+test("change repository add supports the original/current pairing", async () => {
+  // The one location/branch cell the other cases leave out: a repository used where it is, on
+  // whatever branch it already has.
+  expect(
+    await run(
+      [
+        "--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "add", repo,
+        "--location", "original", "--branch", "current", "--force", "--json",
+      ],
+      capture().io,
+    ),
+  ).toBe(0);
+
+  const listed = capture();
+  expect(
+    await run(["--server", baseUrl, "--change", CHANGE_ID, "change", "repository", "list", "--json"], listed.io),
+  ).toBe(0);
+  const state = (
+    JSON.parse(listed.out.join("")) as { name: string; location: string; branch: { kind: string } }[]
+  ).find((one) => one.name === basename(repo));
+  expect(state).toMatchObject({ location: "original", branch: { kind: "current" } });
 });
 
 test("action list answers with the discoverable actions", async () => {
