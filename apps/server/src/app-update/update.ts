@@ -13,7 +13,7 @@
  * capability (a fast-forward exactly, never a merge), and the two Bun commands through the app's
  * shell, which is also the seam a test scripts them at.
  */
-import { Data, Effect, Exit } from "effect";
+import { Effect, Exit, Schema } from "effect";
 
 import { AbsolutePath } from "@corvi/contracts/paths";
 import type { CliError } from "@corvi/contracts/errors";
@@ -43,10 +43,14 @@ export type AppUpdateOptions = {
 };
 
 /** The update is refused right now; `reason` is what the dialog shows in place of the button. */
-export class UpdateRefused extends Data.TaggedError("UpdateRefused")<{ readonly reason: string }> {}
+export class UpdateRefused extends Schema.TaggedError<UpdateRefused>()("UpdateRefused", {
+  reason: Schema.String,
+}) {}
 
 /** Another update is already running; a second one would race it for the tree and the journal. */
-export class UpdateBusy extends Data.TaggedError("UpdateBusy")<{ readonly reason: string }> {}
+export class UpdateBusy extends Schema.TaggedError<UpdateBusy>()("UpdateBusy", {
+  reason: Schema.String,
+}) {}
 
 /** When this process started: an update that finished before it cannot be one whose restart is
  * still pending — the journal keeps its record across restarts on purpose. */

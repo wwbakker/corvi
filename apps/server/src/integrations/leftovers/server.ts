@@ -16,13 +16,9 @@ import type { Leftover } from "@corvi/contracts/integrations/leftovers";
  * The removal checks protect directories that still contain a change record.
  */
 
-/** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
-const badRequest = (message: string): BadRequestError => {
-  const error = new BadRequestError({ message });
-  (error as { message: string }).message = message;
-  return error;
-};
+/** A refusal of the taxonomy's 400. `Schema.TaggedError` populates `message` from the field, so
+ * the response carries the sentence. */
+const badRequest = (message: string): BadRequestError => new BadRequestError({ message });
 
 /** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so

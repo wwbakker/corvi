@@ -5,7 +5,7 @@
  * acknowledgement. The journal is written step by step, so a half-finished operation stays
  * legible from a page that was never open.
  */
-import { Context, Data, Effect, Layer, Ref, type Result } from "effect"
+import { Context, Effect, Layer, Ref, Schema, type Result } from "effect"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -20,30 +20,36 @@ import type {
 import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
 import { effectiveBranchOf } from "@corvi/changes/record"
 import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules"
-import type { Change, ChangeId, Repository, RepositoryRef } from "@corvi/contracts/changes"
+import { ChangeId } from "@corvi/contracts/changes"
+import type { Change, Repository, RepositoryRef } from "@corvi/contracts/changes"
 import { AbsolutePath } from "@corvi/contracts/paths"
 import type { BranchCleanup, RemovalAssessment } from "@corvi/repositories"
 import { CheckoutError, Repositories } from "@corvi/repositories"
 
-export class ChangeOperationInProgress extends Data.TaggedError("ChangeOperationInProgress")<{
-  readonly changeId: ChangeId
-  /** The sentence the user sees: an error without one reaches a transport boundary as an empty
-   * string, which is rendered as the error's type name instead. */
-  readonly message: string
-}> {}
+export class ChangeOperationInProgress extends Schema.TaggedError<ChangeOperationInProgress>()(
+  "ChangeOperationInProgress",
+  {
+    changeId: ChangeId,
+    /** The sentence the user sees: an error without one reaches a transport boundary as an empty
+     * string, which is rendered as the error's type name instead. */
+    message: Schema.String,
+  },
+) {}
 
-export class ProviderError extends Data.TaggedError("ProviderError")<{
-  readonly provider: string
-  readonly operation: string
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class ProviderError extends Schema.TaggedError<ProviderError>()("ProviderError", {
+  provider: Schema.String,
+  operation: Schema.String,
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
-export class TerminalError extends Data.TaggedError("TerminalError")<{
-  readonly changeId: ChangeId
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class TerminalError extends Schema.TaggedError<TerminalError>()("TerminalError", {
+  changeId: ChangeId,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export type AcknowledgementCode =
   | "review-pending"

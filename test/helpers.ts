@@ -4,7 +4,7 @@ import { cpus, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
-import { Data, Effect, Layer } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
@@ -407,7 +407,9 @@ export const runEffectWithTestClock = <A, E>(
 
 /** A typed stand-in for a failed vendor in a test: the language service forbids a global
  * `Error` in an Effect failure channel, and the code under test only reads its message. */
-export class TestError extends Data.TaggedError("TestError")<{ readonly message: string }> {}
+export class TestError extends Schema.TaggedError<TestError>()("TestError", {
+  message: Schema.String,
+}) {}
 
 /** A command a fake Shell was asked to run, in the order it was asked. */
 export type ShellCall = { cmd: readonly string[]; cwd?: string };

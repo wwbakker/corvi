@@ -209,13 +209,9 @@ export const fileDiff = (
     return r.stdout;
   });
 
-/** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
-const badRequest = (message: string): BadRequestError => {
-  const error = new BadRequestError({ message });
-  (error as { message: string }).message = message;
-  return error;
-};
+/** A refusal of the taxonomy's 400. `Schema.TaggedError` populates `message` from the field, so
+ * the response carries the sentence. */
+const badRequest = (message: string): BadRequestError => new BadRequestError({ message });
 
 /** The branch a checkout is on, which is what a push without an upstream should name. */
 const currentBranch = (

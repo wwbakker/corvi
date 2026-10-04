@@ -4,7 +4,7 @@
  * the operations this slice calls. `discover` keeps an error channel so a failed read is not
  * mistaken for absence. This entrypoint exposes only the port; the real adapter is `./node`.
  */
-import { Context, Data, Schema, type Effect } from "effect"
+import { Context, Schema, type Effect } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 
@@ -21,21 +21,24 @@ export type UpstreamState =
   | { readonly _tag: "Counted"; readonly ahead: number; readonly behind: number }
   | { readonly _tag: "Unavailable" }
 
-export class OperationError extends Data.TaggedError("Git.OperationError")<{
-  readonly operation:
-    | "discover"
-    | "checkout"
-    | "create"
-    | "remove"
-    | "status"
-    | "upstream"
-    | "integration"
-    | "merge"
-    | "pull"
-  readonly message: string
-  readonly directory?: string
-  readonly cause?: unknown
-}> {}
+export class OperationError extends Schema.TaggedError<OperationError>()("Git.OperationError", {
+  operation: Schema.Literals([
+    "discover",
+    "checkout",
+    "create",
+    "remove",
+    "status",
+    "upstream",
+    "integration",
+    "merge",
+    "pull",
+  ]),
+  message: Schema.String,
+  directory: Schema.optional(Schema.String),
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 /** A selected branch's attachment and freshness names, resolved from local Git metadata. */
 export type ExistingBranch = {

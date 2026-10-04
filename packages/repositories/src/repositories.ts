@@ -3,7 +3,7 @@
  * This capability does not know about changes or links: it receives a source, a destination,
  * and a branch. The checkout-method enum and its mapping belong to the caller.
  */
-import { Context, Data, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "./git.ts"
@@ -27,9 +27,9 @@ export type UpstreamFacts = {
   readonly remoteUrl?: string
 }
 
-export class NotARepository extends Data.TaggedError("NotARepository")<{
-  readonly directory: string
-}> {}
+export class NotARepository extends Schema.TaggedError<NotARepository>()("NotARepository", {
+  directory: Schema.String,
+}) {}
 
 /** One thing a removal would destroy, and the facts it was observed from. */
 export type RemovalReason = {
@@ -57,19 +57,22 @@ export type ForwardOutcome =
   | { readonly _tag: "Current" }
   | { readonly _tag: "LeftAlone"; readonly reason: string }
 
-export class CheckoutError extends Data.TaggedError("CheckoutError")<{
-  readonly operation:
-    | "inspect"
-    | "switch"
-    | "add-worktree"
-    | "remove-worktree"
-    | "fetch"
-    | "merge"
-    | "pull"
-  readonly directory: string
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class CheckoutError extends Schema.TaggedError<CheckoutError>()("CheckoutError", {
+  operation: Schema.Literals([
+    "inspect",
+    "switch",
+    "add-worktree",
+    "remove-worktree",
+    "fetch",
+    "merge",
+    "pull",
+  ]),
+  directory: Schema.String,
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export interface Interface {
   readonly inspectCheckout: (directory: AbsolutePath) => Effect.Effect<CheckoutInspection, CheckoutError>

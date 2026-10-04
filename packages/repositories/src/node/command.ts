@@ -2,13 +2,15 @@
  * tests script it. Never runs through a shell, so arguments stay arguments.
  */
 import { spawn } from "node:child_process"
-import { Context, Data, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Schema } from "effect"
 
-export class CommandError extends Data.TaggedError("CommandError")<{
-  readonly program: string
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class CommandError extends Schema.TaggedError<CommandError>()("CommandError", {
+  program: Schema.String,
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export interface CommandResult {
   readonly exitCode: number

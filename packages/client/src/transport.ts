@@ -4,19 +4,21 @@
  * the canonical contracts schema, so the server and the client cannot disagree silently, and a
  * failure is a classified `ClientError` rather than a bare `Error`.
  */
-import { Data, Schema } from "effect"
+import { Schema } from "effect"
 
 import type { DirectoryListingSpec } from "@corvi/contracts/api"
 import type { ChangeId } from "@corvi/contracts/changes"
 
-export class ClientError extends Data.TaggedError("ClientError")<{
-  readonly status?: number
-  readonly message: string
+export class ClientError extends Schema.TaggedError<ClientError>()("ClientError", {
+  status: Schema.optional(Schema.Number),
+  message: Schema.String,
   /** The server's error body when there was one, as it sent it: a 409 refusal and its reasons
    * live here, so a caller can act on more than the status. */
-  readonly body?: unknown
-  readonly cause?: unknown
-}> {}
+  body: Schema.optional(Schema.Unknown),
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export interface RequestOptions {
   readonly signal?: AbortSignal
