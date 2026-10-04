@@ -6,7 +6,7 @@ import { chromium, webkit, type Browser } from "playwright";
 
 import { serve, type Serving } from "../apps/server/src/capabilities/serve.ts";
 import { guard, json } from "../apps/server/src/capabilities/web.ts";
-import { closePages, requireFreshWebBundle, serverEnv, stopRunHost, testRun, testTempDir, until, waitForUrl } from "./helpers.ts";
+import { closePages, requireFreshWebBundle, serverEnv, stopRunHost, testRun, testTempDir, until, waitFor, waitForUrl } from "./helpers.ts";
 
 /**
  * A remote workspace in the one client: its change appears in the sidebar and the workspace
@@ -283,6 +283,57 @@ test.skipIf(!usable)(
     await page.close();
   },
   90_000,
+);
+
+test.skipIf(!usable)(
+  "switching the workspace keeps the open remote change and its source",
+  async () => {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    // The one read that says the page settled on the wrong server: the local twin shares the
+    // remote change's id, so a source dropped by the page list arriving reads it instead.
+    let localReads = 0;
+    let remoteReads = 0;
+    page.on("request", (request) => {
+      if (request.method() !== "GET") return;
+      // Both the local read and the gateway read end at this path; the gateway prefix is what
+      // tells them apart.
+      if (!new URL(request.url()).pathname.endsWith(`/api/changes/${REMOTE_CHANGE.id}`)) return;
+      if (request.url().includes("/remote/")) remoteReads += 1;
+      else localReads += 1;
+    });
+    await page.goto(url, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Remote idea" }).waitFor();
+
+    // Open the remote change; the local one shares its id, which is what makes the source the
+    // thing that decides who owns it.
+    await page.getByRole("button", { name: "Remote idea" }).click();
+    // A gate, not a loose poll: if the remote read never happens the test fails here, so the
+    // `localReads === 0` below means "read from the remote, not the local twin".
+    await waitFor("the remote change to be read", async () => remoteReads > 0, 10_000);
+    expect(await page.title()).toBe("Remote idea");
+
+    // A workspace switch refetches the page list. Wait for that fetch, because the page list's
+    // arrival is the effect that used to re-resolve the view and drop the source.
+    const chooseWorkspace = async (name: string): Promise<void> => {
+      await page.locator("button.workspace").click();
+      const pages = page.waitForResponse(
+        (response) => new URL(response.url()).pathname === "/api/pages",
+      );
+      await page.getByText(name, { exact: true }).click();
+      await pages;
+    };
+    await chooseWorkspace("Local");
+    await chooseWorkspace("All work");
+
+    // Still the remote change on screen, still read from the remote, and no missing-change
+    // error from having re-read the local twin.
+    expect(await page.title()).toBe("Remote idea");
+    expect(localReads).toBe(0);
+    const banners = await page.locator(".error-banner").allTextContents();
+    expect(banners.some((text) => text.includes("no such change"))).toBe(false);
+    await page.close();
+  },
+  60_000,
 );
 
 test.skipIf(!usable)(
