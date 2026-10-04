@@ -680,3 +680,23 @@ test("a legacy write moves the record's revision", async () => {
   expect((await readRecord()).revision).toBe(2);
   expect((await runEffect(readChange("revision-legacy")))?.title).toBe("Renamed by hand");
 });
+
+test("an unstamped record reads as the current shape and is not rewritten", async () => {
+  const path = join(changeDir({ id: "unstamped" }), "change.json");
+  const stored =
+    JSON.stringify({
+      id: "unstamped",
+      branch: "unstamped",
+      state: "Ideation",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      checkouts: [{ path: "/sources/one", location: "new", branch: { kind: "change" } }],
+    }) + "\n";
+  await Bun.write(path, stored);
+
+  const read = await runEffect(readChange("unstamped"));
+  // Read as the current shape, not migrated and not rejected: the missing stamp is not a fault.
+  expect(read?.state).toBe("Ideation");
+  expect(read?.formatVersion).toBeUndefined();
+  // Nothing was written back, so the record on disk is exactly as it was left.
+  expect(await Bun.file(path).text()).toBe(stored);
+});

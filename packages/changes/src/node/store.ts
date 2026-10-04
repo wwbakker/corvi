@@ -2,11 +2,10 @@
  *
  * The record is `<root>/<changeId>/change.json` with `formatVersion: 2`: the change's own
  * fields and one `checkouts` entry per source repository (the same spec the wire carries).
- * A record without `formatVersion` is format 1 and is migrated in place on its next read —
- * atomically, so no record is ever half-migrated. A record written by a newer Corvi is read
- * best-effort and never written: a format this version does not understand must not be
- * flattened into one it does. A phase transition to a terminal phase moves the directory into
- * the archive root of the pair it lives under.
+ * A record without `formatVersion` is read as the current shape. A record written by a newer
+ * Corvi is read best-effort and never written: a format this version does not understand must
+ * not be flattened into one it does. A phase transition to a terminal phase moves the
+ * directory into the archive root of the pair it lives under.
  *
  * The store spans several roots — one pair per settings scope — so a change stays wherever it
  * was made: reads and listing scan every pair, active before archived. Creation lands in the
@@ -37,7 +36,6 @@ import {
   ChangeStoreError,
   RepositoryStoreError,
 } from "../errors.ts"
-import { LegacyChangeRecord, migrateRecord } from "../legacy.ts"
 import { FORMAT_VERSION } from "../record.ts"
 import { repositoryFromSpec, specFromInput, specFromRepository } from "../rules.ts"
 import { ChangeStore } from "../store.ts"
@@ -123,35 +121,21 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           : Effect.void
       }
 
-      /** Read one record, migrating a format-1 record in place on the way (atomically). A
-       * record from a newer Corvi comes back as it decodes best-effort, and is never written.
-       * Callers hold the lock: a migration write must not race a patch. */
+      /** Read one record as it is stored. A record from a newer Corvi comes back as it decodes
+       * best-effort, and is never written. Callers hold the lock. */
       const readAt = (dir: string): Effect.Effect<StoredRecord | undefined, ChangeStoreError> =>
         Effect.gen(function* () {
-            const path = join(dir, "change.json")
-            const text = yield* Effect.tryPromise({
-              try: () => readFile(path, "utf8"),
-              catch: (cause: unknown) => cause,
-            }).pipe(
-              Effect.catchAll((cause: unknown) =>
-                isNotFound(cause) ? Effect.succeed(undefined) : Effect.fail(storeError("read", `could not read ${path}`, cause)),
-              ),
-            )
-            if (text === undefined) return undefined
-            const formatOf = yield* Schema.decodeUnknown(Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })))(text).pipe(
-              Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
-              Effect.orElseSucceed(() => 1),
-            )
-            if (formatOf >= FORMAT_VERSION) return yield* decodeRecord(text, path)
-            // Format 1: project it once and persist, so one shape exists on disk from then on.
-            const legacy = yield* Schema.decodeUnknown(Schema.parseJson(LegacyChangeRecord), {
-              onExcessProperty: "preserve",
-            })(text).pipe(
-              Effect.mapError((error) => storeError("read", `malformed change record at ${path}`, error)),
-            )
-            const migrated = migrateRecord(legacy as typeof legacy & Record<string, unknown>)
-            yield* writeAt(dir, migrated as StoredRecord)
-            return yield* decodeRecord(JSON.stringify(migrated), path)
+          const path = join(dir, "change.json")
+          const text = yield* Effect.tryPromise({
+            try: () => readFile(path, "utf8"),
+            catch: (cause: unknown) => cause,
+          }).pipe(
+            Effect.catchAll((cause: unknown) =>
+              isNotFound(cause) ? Effect.succeed(undefined) : Effect.fail(storeError("read", `could not read ${path}`, cause)),
+            ),
+          )
+          if (text === undefined) return undefined
+          return yield* decodeRecord(text, path)
         })
 
       /** Every directory this change may live in: each pair's active root first — the active
@@ -384,62 +368,3 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
       return { read, list, create, patch, listRepositories, addRepository, removeRepository }
     }),
   )
-
-/** The eager sweep: migrate every record under every scope's changes roots and archives once
- * at startup. Reading them through the store is the migration — a format-1 record is projected
- * and persisted on its next read — so this only has to touch each record. */
-export const migrateStoredRecords = (options: {
-  readonly roots: readonly RootPair[]
-}): Effect.Effect<void, ChangeStoreError> =>
-  Effect.gen(function* () {
-    const bases = options.roots.flatMap(({ root, archiveRoot }) => [root, archiveRoot])
-    for (const base of bases) {
-      const entries = yield* Effect.tryPromise({
-        try: () => readdir(base, { withFileTypes: true }),
-        catch: (cause: unknown) => cause,
-      }).pipe(
-        Effect.catchAll((cause: unknown) =>
-          isNotFound(cause)
-            ? Effect.succeed([])
-            : Effect.fail(storeError("read", `could not list ${base}`, cause)),
-        ),
-      )
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        const path = join(base, entry.name, "change.json")
-        const text = yield* Effect.tryPromise({
-          try: () => readFile(path, "utf8"),
-          catch: (cause: unknown) => cause,
-        }).pipe(
-          Effect.catchAll((cause: unknown) =>
-            isNotFound(cause)
-              ? Effect.succeed(undefined)
-              : Effect.fail(storeError("read", `could not read ${path}`, cause)),
-          ),
-        )
-        if (text === undefined) continue
-        const formatOf = yield* Schema.decodeUnknown(
-          Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
-        )(text).pipe(
-          Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
-          Effect.orElseSucceed(() => 1),
-        )
-        if (formatOf >= FORMAT_VERSION) continue
-        const legacy = yield* Schema.decodeUnknown(Schema.parseJson(LegacyChangeRecord), {
-          onExcessProperty: "preserve",
-        })(text).pipe(
-          Effect.mapError((error) => storeError("read", `malformed change record at ${path}`, error)),
-        )
-        const migrated = migrateRecord(legacy as typeof legacy & Record<string, unknown>)
-        const dir = join(base, entry.name)
-        const temp = `${path}.tmp`
-        yield* Effect.tryPromise({
-          try: async () => {
-            await writeFile(temp, JSON.stringify(migrated, null, 2) + "\n")
-            await rename(temp, path)
-          },
-          catch: (cause: unknown) => storeError("write", `could not migrate ${path}`, cause),
-        })
-      }
-    }
-  })

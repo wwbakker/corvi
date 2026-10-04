@@ -25,8 +25,8 @@ export type Change = ChangeWireDto;
 /** One repository's checkout spec, as the record and the wire carry it. */
 export type CheckoutSpec = CheckoutSpecDto;
 
-/** The record format this version writes. A record without `formatVersion` is format 1 and is
- * migrated on read; a record carrying more than this is read best-effort and never written. */
+/** The record format this version writes. A record without `formatVersion` is read as the
+ * current shape; a record carrying more than this is read best-effort and never written. */
 export const FORMAT_VERSION = 2;
 
 /**

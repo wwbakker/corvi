@@ -322,10 +322,9 @@ export const layer = Layer.effect(
 The store keeps one record per change, `change.json`, in the versioned format the record schema
 (`@corvi/contracts/api`'s `ChangeWireDto`) describes: the change's fields and one `checkouts`
 entry per source repository — the same spec the wire carries — stamped with `formatVersion`. A
-record without the stamp is format 1 and is migrated in place on its next read (atomically, and
-once at startup); a record carrying more than this version writes is read best-effort and never
-written — the downgrade fence refuses every write with `ChangeFormatTooNew`. A terminal
-transition archives the change directory.
+record without the stamp is read as the current shape; a record carrying more than this version
+writes is read best-effort and never written — the downgrade fence refuses every write with
+`ChangeFormatTooNew`. A terminal transition archives the change directory.
 
 # Repositories (Git)
 
