@@ -6,7 +6,7 @@
  * The vocabulary and the derivations are pure (`../instance`). */
 import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { Effect, Semaphore } from "effect";
+import { Effect, Schema, Semaphore } from "effect";
 
 import {
   messageFileOf,
@@ -21,6 +21,20 @@ import {
   type SubagentRole,
   type SubagentWithMessages,
 } from "../instance.ts";
+
+/** A failure of the instance store's file operations. The store is the only writer, so a
+ * failure is ours rather than a caller's; the consumer maps it to the same response it always
+ * did, and `message` is the sentence that mapping already showed. */
+export class SubagentStoreError extends Schema.TaggedError<SubagentStoreError>()(
+  "SubagentStoreError",
+  {
+    operation: Schema.Literals(["read", "write", "create", "append", "mutate", "claim"]),
+    message: Schema.String,
+    // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+    // preserves it exactly (on decode `Schema.Defect()` is lossy).
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 
 /** Where a change's subagents live, beside its plan. */
 export const subagentsDir = (changeDir: string): string => join(changeDir, "subagents");
@@ -46,20 +60,26 @@ const withLock = <A, E, R>(
 ): Effect.Effect<A, E, R> => lockFor(`${changeDir}\u0000${id}`).withPermits(1)(effect);
 
 /** The atomic write the record needs: a reader never sees half a file. */
-const writeAtomic = (path: string, data: string): Effect.Effect<void, Error> =>
+const writeAtomic = (path: string, data: string): Effect.Effect<void, SubagentStoreError> =>
   Effect.tryPromise({
     try: async () => {
       const temp = `${path}.${process.pid}.tmp`;
       await writeFile(temp, data);
       await rename(temp, path);
     },
-    catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+    catch: (cause) =>
+      new SubagentStoreError({
+        operation: "write",
+        message: cause instanceof Error ? cause.message : String(cause),
+        cause,
+      }),
   });
 
 const readText = (path: string): Effect.Effect<string | undefined> =>
-  Effect.tryPromise({ try: () => readFile(path, "utf8"), catch: () => new Error(path) }).pipe(
-    Effect.orElseSucceed(() => undefined),
-  );
+  Effect.tryPromise({
+    try: () => readFile(path, "utf8"),
+    catch: (cause) => new SubagentStoreError({ operation: "read", message: path, cause }),
+  }).pipe(Effect.orElseSucceed(() => undefined));
 
 /** The message files of one instance, numbered from their filenames and sorted. A file that
  * cannot be parsed is skipped: the server wrote it, so it is a damaged file rather than user
@@ -70,9 +90,10 @@ export const readMessages = (
 ): Effect.Effect<readonly SubagentMessage[]> =>
   Effect.gen(function* () {
     const dir = instanceDir(changeDir, id);
-    const names = yield* Effect.tryPromise({ try: () => readdir(dir), catch: () => new Error(dir) }).pipe(
-      Effect.catch(() => Effect.succeed([] as string[])),
-    );
+    const names = yield* Effect.tryPromise({
+      try: () => readdir(dir),
+      catch: (cause) => new SubagentStoreError({ operation: "read", message: dir, cause }),
+    }).pipe(Effect.orElseSucceed(() => [] as string[]));
     const messages: SubagentMessage[] = [];
     for (const name of names.sort()) {
       const file = messageFileOf(name);
@@ -107,9 +128,10 @@ export const listInstances = (
 ): Effect.Effect<readonly SubagentWithMessages[]> =>
   Effect.gen(function* () {
     const dir = subagentsDir(changeDir);
-    const names = yield* Effect.tryPromise({ try: () => readdir(dir), catch: () => new Error(dir) }).pipe(
-      Effect.catch(() => Effect.succeed([] as string[])),
-    );
+    const names = yield* Effect.tryPromise({
+      try: () => readdir(dir),
+      catch: (cause) => new SubagentStoreError({ operation: "read", message: dir, cause }),
+    }).pipe(Effect.orElseSucceed(() => [] as string[]));
     const instances: SubagentWithMessages[] = [];
     for (const name of names.sort()) {
       const found = yield* readInstance(changeDir, name);
@@ -122,7 +144,7 @@ export const listInstances = (
 export const createInstance = (
   changeDir: string,
   record: SubagentRecord,
-): Effect.Effect<void, Error> =>
+): Effect.Effect<void, SubagentStoreError> =>
   withLock(
     changeDir,
     record.id,
@@ -130,18 +152,29 @@ export const createInstance = (
       const dir = instanceDir(changeDir, record.id);
       const existing = yield* readText(join(dir, "session.json"));
       if (existing !== undefined) {
-        return yield* Effect.fail(new Error(`subagent "${record.id}" already exists`));
+        return yield* new SubagentStoreError({
+          operation: "create",
+          message: `subagent "${record.id}" already exists`,
+        });
       }
       yield* Effect.tryPromise({
         try: () => mkdir(dir, { recursive: true }),
-        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        catch: (cause) =>
+          new SubagentStoreError({
+            operation: "create",
+            message: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
       });
       yield* writeAtomic(join(dir, "session.json"), renderRecord(record));
     }),
   );
 
 /** Replace a record's file. Callers pass a record they read under the same lock. */
-export const writeRecord = (changeDir: string, record: SubagentRecord): Effect.Effect<void, Error> =>
+export const writeRecord = (
+  changeDir: string,
+  record: SubagentRecord,
+): Effect.Effect<void, SubagentStoreError> =>
   withLock(
     changeDir,
     record.id,
@@ -159,7 +192,7 @@ export const appendMessage = (
     readonly at: string;
     readonly pane?: string;
   },
-): Effect.Effect<SubagentMessage, Error> =>
+): Effect.Effect<SubagentMessage, SubagentStoreError> =>
   withLock(
     changeDir,
     id,
@@ -175,7 +208,12 @@ export const appendMessage = (
       const dir = instanceDir(changeDir, id);
       yield* Effect.tryPromise({
         try: () => mkdir(dir, { recursive: true }),
-        catch: (cause) => (cause instanceof Error ? cause : new Error(String(cause))),
+        catch: (cause) =>
+          new SubagentStoreError({
+            operation: "append",
+            message: cause instanceof Error ? cause.message : String(cause),
+            cause,
+          }),
       });
       yield* writeAtomic(join(dir, messageFileName(message.number, message.role)), renderMessage(message));
       return message;
@@ -210,13 +248,15 @@ export const mutateRecord = <A>(
   changeDir: string,
   id: string,
   fn: (record: SubagentWithMessages) => Mutation<A>,
-): Effect.Effect<A, Error> =>
+): Effect.Effect<A, SubagentStoreError> =>
   withLock(
     changeDir,
     id,
     Effect.gen(function* () {
       const record = yield* readInstance(changeDir, id);
-      if (record === null) return yield* Effect.fail(new Error(`no such subagent: ${id}`));
+      if (record === null) {
+        return yield* new SubagentStoreError({ operation: "mutate", message: `no such subagent: ${id}` });
+      }
       const mutation = fn(record);
       if (mutation.write) {
         yield* writeAtomic(join(instanceDir(changeDir, id), "session.json"), renderRecord(mutation.record));
@@ -239,13 +279,15 @@ export const appendMessageAndPatch = (
     readonly key?: string;
   },
   patch: (record: SubagentWithMessages, message: SubagentMessage) => SubagentRecord,
-): Effect.Effect<{ readonly message: SubagentMessage; readonly replayed: boolean }, Error> =>
+): Effect.Effect<{ readonly message: SubagentMessage; readonly replayed: boolean }, SubagentStoreError> =>
   withLock(
     changeDir,
     id,
     Effect.gen(function* () {
       const record = yield* readInstance(changeDir, id);
-      if (record === null) return yield* Effect.fail(new Error(`no such subagent: ${id}`));
+      if (record === null) {
+        return yield* new SubagentStoreError({ operation: "append", message: `no such subagent: ${id}` });
+      }
       if (input.key !== undefined) {
         const existing = record.messages.find((message) => message.key === input.key);
         if (existing) return { message: existing, replayed: true };
@@ -290,13 +332,15 @@ export const claimInbound = (
   id: string,
   at: string,
   redeliverAfter?: number,
-): Effect.Effect<Claim, Error> =>
+): Effect.Effect<Claim, SubagentStoreError> =>
   withLock(
     changeDir,
     id,
     Effect.gen(function* () {
       const record = yield* readInstance(changeDir, id);
-      if (record === null) return yield* Effect.fail(new Error(`no such subagent: ${id}`));
+      if (record === null) {
+        return yield* new SubagentStoreError({ operation: "claim", message: `no such subagent: ${id}` });
+      }
       if (record.inFlight !== undefined) {
         if (redeliverAfter !== undefined && redeliverAfter < record.inFlight) {
           const message = record.messages.find((one) => one.number === record.inFlight);
@@ -336,7 +380,7 @@ export const removeInstance = (changeDir: string, id: string): Effect.Effect<voi
 export const findCreatedByKey = (
   changeDir: string,
   key: string,
-): Effect.Effect<SubagentWithMessages | null, Error> =>
+): Effect.Effect<SubagentWithMessages | null, SubagentStoreError> =>
   withChangeLock(
     changeDir,
     Effect.gen(function* () {

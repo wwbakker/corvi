@@ -37,14 +37,10 @@ export const readJournal = (): Effect.Effect<OperationProgressDto | null, Update
   Effect.gen(function* () {
     const text = yield* Effect.tryPromise({
       try: () => readFile(path(), "utf8"),
-      catch: (cause: unknown) => cause,
+      catch: (cause) => new UpdateJournalError({ message: `could not read ${path()}`, cause }),
     }).pipe(
-      Effect.catch((cause: unknown) =>
-        isNotFound(cause)
-          ? Effect.succeed(null)
-          : Effect.fail(
-              new UpdateJournalError({ message: `could not read ${path()}`, cause }),
-            ),
+      Effect.catchTag("UpdateJournalError", (error) =>
+        isNotFound(error.cause) ? Effect.succeed(null) : Effect.fail(error),
       ),
     );
     if (text === null) return null;

@@ -132,8 +132,8 @@ export const writeSubagentFile = (
           // Owner-only, like the config file: a profile decides what an agent runs.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* subagentFiles();
   });
 
@@ -148,8 +148,8 @@ export const deleteSubagentFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* subagentFiles();
   });
 
@@ -215,8 +215,8 @@ export const writeRepositorySubagentFile = (
           // Owner-only, like the config file: a profile decides what an agent runs.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositorySubagentFiles(change);
   });
 
@@ -232,7 +232,7 @@ export const deleteRepositorySubagentFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositorySubagentFiles(change);
   });

@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
+import { InternalError } from "@corvi/contracts/errors";
 import {
   mergeActionFiles,
   type ActionFileInput,
@@ -55,14 +56,14 @@ const readScope = (
   Effect.gen(function* () {
     const names = yield* Effect.tryPromise({
       try: () => readdir(dir),
-      catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catch(() => Effect.succeed([] as string[])));
+      catch: (cause) => new InternalError({ message: `cannot read ${dir}` }),
+    }).pipe(Effect.orElseSucceed(() => [] as string[]));
     const files: ActionFileInput[] = [];
     for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
       const text = yield* Effect.tryPromise({
         try: () => readFile(join(dir, name), "utf8"),
-        catch: () => new Error(`cannot read ${join(dir, name)}`),
-      }).pipe(Effect.catch(() => Effect.succeed("")));
+        catch: (cause) => new InternalError({ message: `cannot read ${join(dir, name)}` }),
+      }).pipe(Effect.orElseSucceed(() => ""));
       if (text === "") continue;
       files.push({ id: name.slice(0, -3), source, origin, originLabel, text });
     }

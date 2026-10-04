@@ -127,10 +127,10 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           const path = join(dir, "change.json")
           const text = yield* Effect.tryPromise({
             try: () => readFile(path, "utf8"),
-            catch: (cause: unknown) => cause,
+            catch: (cause) => storeError("read", `could not read ${path}`, cause),
           }).pipe(
-            Effect.catch((cause: unknown) =>
-              isNotFound(cause) ? Effect.void : Effect.fail(storeError("read", `could not read ${path}`, cause)),
+            Effect.catchTag("ChangeStoreError", (error) =>
+              isNotFound(error.cause) ? Effect.void : Effect.fail(error),
             ),
           )
           if (text === undefined) return undefined
@@ -208,10 +208,10 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
             for (const base of bases) {
               const entries = yield* Effect.tryPromise({
                 try: () => readdir(base, { withFileTypes: true }),
-                catch: (cause: unknown) => cause,
+                catch: (cause) => storeError("read", `could not list ${base}`, cause),
               }).pipe(
-                Effect.catch((cause: unknown) =>
-                  isNotFound(cause) ? Effect.succeed([]) : Effect.fail(storeError("read", `could not list ${base}`, cause)),
+                Effect.catchTag("ChangeStoreError", (error) =>
+                  isNotFound(error.cause) ? Effect.succeed([]) : Effect.fail(error),
                 ),
               )
               for (const entry of entries) {
