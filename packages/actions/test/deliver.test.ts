@@ -162,7 +162,7 @@ test("a command in the shell you are on is pasted and submitted; nowhere is a re
   const failure = Effect.runSync(
     deliverAction(none.sessions, request({ action: { ...command, target: "active" }, candidates: [], text: "bun test" })).pipe(
       Effect.map(() => "ran"),
-      Effect.catchAll((e) => Effect.succeed("_tag" in e ? "refused" : "other")),
+      Effect.catch((e) => Effect.succeed("_tag" in e ? "refused" : "other")),
     ),
   );
   expect(failure).toBe("refused");

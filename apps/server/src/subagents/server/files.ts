@@ -15,7 +15,7 @@
  * same roots discovery walks. */
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Either, Effect } from "effect";
+import { Result, Effect } from "effect";
 
 import { builtinProfilesDir, readProfileScope } from "@corvi/agents/node";
 import { parseProfileFile } from "@corvi/agents/profile";
@@ -86,7 +86,7 @@ const listScope = (
         id: file.id,
         path: file.path,
         text: file.text,
-        ...(Either.isRight(parsed) ? { label: parsed.right.label } : { problems: parsed.left.reasons }),
+        ...(Result.isSuccess(parsed) ? { label: parsed.success.label } : { problems: parsed.failure.reasons }),
       };
     }),
   );
@@ -123,8 +123,8 @@ export const writeSubagentFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseProfileFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>
@@ -132,8 +132,8 @@ export const writeSubagentFile = (
           // Owner-only, like the config file: a profile decides what an agent runs.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* subagentFiles();
   });
 
@@ -148,8 +148,8 @@ export const deleteSubagentFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* subagentFiles();
   });
 
@@ -206,8 +206,8 @@ export const writeRepositorySubagentFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseProfileFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>
@@ -215,8 +215,8 @@ export const writeRepositorySubagentFile = (
           // Owner-only, like the config file: a profile decides what an agent runs.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositorySubagentFiles(change);
   });
 
@@ -232,7 +232,7 @@ export const deleteRepositorySubagentFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositorySubagentFiles(change);
   });

@@ -3,13 +3,13 @@
  * scripted Shell in context sees every command and the package's effects stay requirement-free.
  */
 import { CliError } from "@corvi/contracts/errors";
-import { Shell, type Result } from "@corvi/contracts/capabilities";
+import { Shell, type ShellResult } from "@corvi/contracts/capabilities";
 import { Workspace } from "@corvi/contracts/workspace";
 import { DEFAULT_WORKSPACE } from "@corvi/contracts/config";
 import { soft } from "@corvi/shell/cli";
 import { Effect, Option } from "effect";
 
-export type { Result };
+export type { ShellResult };
 
 const missing = (cmd: readonly string[]): CliError =>
   new CliError({
@@ -20,7 +20,7 @@ const missing = (cmd: readonly string[]): CliError =>
     message: `${cmd.join(" ")} failed: no Shell in context`,
   });
 
-export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
+export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult, CliError> =>
   Effect.gen(function* () {
     const shell = yield* Effect.serviceOption(Shell);
     if (Option.isNone(shell)) return yield* missing(cmd);
@@ -47,5 +47,5 @@ export const shOrThrow = (cmd: readonly string[], cwd?: string): Effect.Effect<s
     );
   });
 
-export const shSoft = (cmd: readonly string[], cwd?: string): Effect.Effect<Result> =>
+export const shSoft = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult> =>
   soft(sh(cmd, cwd));

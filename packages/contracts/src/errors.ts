@@ -1,4 +1,4 @@
-import { Data } from "effect";
+import { Schema } from "effect";
 
 /**
  * Error values consumed by the route response mapper. Each carries a display message.
@@ -9,51 +9,54 @@ import { Data } from "effect";
  */
 
 /** The thing asked about does not exist. */
-export class NotFoundError extends Data.TaggedError("NotFoundError")<{
-  readonly message: string;
-}> {}
+export class NotFoundError extends Schema.TaggedError<NotFoundError>()("NotFoundError", {
+  message: Schema.String,
+}) {}
 
 /** The request itself is wrong: bad id, bad state transition, missing field. */
-export class BadRequestError extends Data.TaggedError("BadRequestError")<{
-  readonly message: string;
-}> {}
+export class BadRequestError extends Schema.TaggedError<BadRequestError>()("BadRequestError", {
+  message: Schema.String,
+}) {}
 
 /** The current state forbids it; the caller may retry with force. */
-export class ConflictError extends Data.TaggedError("ConflictError")<{
-  readonly message: string;
-  readonly needsForce?: boolean;
-}> {}
+export class ConflictError extends Schema.TaggedError<ConflictError>()("ConflictError", {
+  message: Schema.String,
+  needsForce: Schema.optional(Schema.Boolean),
+}) {}
 
 /** The caller has asked too often in the current window; waiting is the only fix. The optional
  * `retryAfterSeconds` becomes the response's `Retry-After` advice. */
-export class TooManyRequestsError extends Data.TaggedError("TooManyRequestsError")<{
-  readonly message: string;
-  readonly retryAfterSeconds?: number;
-}> {}
+export class TooManyRequestsError extends Schema.TaggedError<TooManyRequestsError>()(
+  "TooManyRequestsError",
+  {
+    message: Schema.String,
+    retryAfterSeconds: Schema.optional(Schema.Number),
+  },
+) {}
 
 /** Something on our side failed while serving a well-formed request. */
-export class InternalError extends Data.TaggedError("InternalError")<{
-  readonly message: string;
-}> {}
+export class InternalError extends Schema.TaggedError<InternalError>()("InternalError", {
+  message: Schema.String,
+}) {}
 
 /** An external CLI (`git`, `gh`, `az`, ...) failed. What it said and what it cost.
  * `message` is what the UI shows — for `shOrThrow` that is `<cmd> failed: <stderr>`, for a
  * timeout `<cmd> timed out after N seconds` — and `formatError` hands it to the response
  * verbatim. */
-export class CliError extends Data.TaggedError("CliError")<{
-  readonly message: string;
-  readonly tool: string;
-  readonly command: string;
-  readonly stderr: string;
-  readonly exitCode: number;
-}> {}
+export class CliError extends Schema.TaggedError<CliError>()("CliError", {
+  message: Schema.String,
+  tool: Schema.String,
+  command: Schema.String,
+  stderr: Schema.String,
+  exitCode: Schema.Number,
+}) {}
 
 /** Schema validation failed. Where it failed decides its status code: a request body is the
  * caller's mistake; a file or CLI JSON on disk is ours. */
-export class DecodeError extends Data.TaggedError("DecodeError")<{
-  readonly source: "request-body" | "file" | "cli";
-  readonly message: string;
-}> {}
+export class DecodeError extends Schema.TaggedError<DecodeError>()("DecodeError", {
+  source: Schema.Literals(["request-body", "file", "cli"]),
+  message: Schema.String,
+}) {}
 
 export type IweError =
   | NotFoundError

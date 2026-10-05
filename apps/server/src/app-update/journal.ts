@@ -8,7 +8,7 @@
  * it from where it got to. Writes go through a temp file and a rename, so a crash leaves the old
  * journal rather than half of the new one.
  */
-import { Data, Effect, Schema } from "effect";
+import { Effect, Schema } from "effect";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -17,10 +17,15 @@ import { stateDir } from "@corvi/configuration/node";
 
 const FILE = "app-update.json";
 
-export class UpdateJournalError extends Data.TaggedError("UpdateJournalError")<{
-  readonly message: string;
-  readonly cause?: unknown;
-}> {}
+export class UpdateJournalError extends Schema.TaggedError<UpdateJournalError>()(
+  "UpdateJournalError",
+  {
+    message: Schema.String,
+    // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+    // preserves it exactly (on decode `Schema.Defect()` is lossy).
+    cause: Schema.optional(Schema.Unknown),
+  },
+) {}
 
 const isNotFound = (cause: unknown): boolean =>
   typeof cause === "object" && cause !== null && "code" in cause && (cause as { code?: string }).code === "ENOENT";
@@ -32,18 +37,14 @@ export const readJournal = (): Effect.Effect<OperationProgressDto | null, Update
   Effect.gen(function* () {
     const text = yield* Effect.tryPromise({
       try: () => readFile(path(), "utf8"),
-      catch: (cause: unknown) => cause,
+      catch: (cause) => new UpdateJournalError({ message: `could not read ${path()}`, cause }),
     }).pipe(
-      Effect.catchAll((cause: unknown) =>
-        isNotFound(cause)
-          ? Effect.succeed(null)
-          : Effect.fail(
-              new UpdateJournalError({ message: `could not read ${path()}`, cause }),
-            ),
+      Effect.catchTag("UpdateJournalError", (error) =>
+        isNotFound(error.cause) ? Effect.succeed(null) : Effect.fail(error),
       ),
     );
     if (text === null) return null;
-    return yield* Schema.decodeUnknown(Schema.parseJson(OperationProgressSchema))(text).pipe(
+    return yield* Schema.decodeUnknownEffect(Schema.fromJsonString(OperationProgressSchema))(text).pipe(
       Effect.orElseSucceed(() => null),
     );
   });

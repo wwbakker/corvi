@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { Effect } from "effect";
+import { dirname, join } from "node:path";
+import { Effect, Result } from "effect";
 
 import {
   appendMessage,
@@ -10,6 +10,8 @@ import {
   instanceDir,
   listInstances,
   readInstance,
+  removeInstance,
+  SubagentStoreError,
   writeRecord,
 } from "../src/node/instance.ts";
 import type { SubagentRecord } from "../src/instance.ts";
@@ -42,6 +44,22 @@ test("an instance is created, read back and listed", async () => {
     expect(read?.messages).toEqual([]);
     expect(await Effect.runPromise(readInstance(changeDir, "nope"))).toBeNull();
     expect((await Effect.runPromise(listInstances(changeDir))).map((i) => i.id)).toEqual(["s1"]);
+  });
+});
+
+test("removeInstance reports a typed store error when the directory cannot be removed", async () => {
+  await inTemp(async (changeDir) => {
+    // A regular file where the change directory should be makes `rm` reject with ENOTDIR rather
+    // than silently succeeding. It must be a typed failure, not a defect that escapes.
+    await mkdir(dirname(changeDir), { recursive: true });
+    await writeFile(changeDir, "not a directory");
+    const result = await Effect.runPromise(Effect.result(removeInstance(changeDir, "s1")));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SubagentStoreError);
+      expect(result.failure._tag).toBe("SubagentStoreError");
+      expect(result.failure.operation).toBe("remove");
+    }
   });
 });
 

@@ -205,6 +205,29 @@ test("a workspace key the core no longer names survives a settings save", async 
   expect(readBack()).toEqual({ project: "LEGACY", board: "B" });
 });
 
+test("the config file keeps prototype-named keys across a save", async () => {
+  // Written as text so `__proto__` is an own key, as JSON.parse gives it; a JSON-literal test
+  // helper would set the prototype instead and hide the bug.
+  await Bun.write(
+    file,
+    `{"notificationSound":true,"constructor":{"a":1},"toString":"keep-me",` +
+      `"__proto__":{"polluted":"yes"},"extra":1}`,
+  );
+  reloadConfigSync();
+  await runEffect(writeSettings({ notificationSound: false }));
+
+  const at = (value: Record<string, unknown>, key: string): unknown => value[key];
+  const written = JSON.parse(await readFile(file, "utf8")) as Record<string, unknown>;
+  expect(Object.hasOwn(written, "constructor")).toBe(true);
+  expect(at(written, "constructor")).toEqual({ a: 1 });
+  expect(Object.hasOwn(written, "toString")).toBe(true);
+  expect(at(written, "toString")).toBe("keep-me");
+  expect(Object.hasOwn(written, "__proto__")).toBe(true);
+  expect(at(written, "__proto__")).toEqual({ polluted: "yes" });
+  expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
+  expect(written.notificationSound).toBe(false);
+});
+
 test("a setting the environment overrides is reported as locked", async () => {
   process.env.CORVI_WORKTREE_COPY = ".idea";
   reloadConfigSync();

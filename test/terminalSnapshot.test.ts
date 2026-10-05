@@ -19,7 +19,7 @@ import {
 } from "../apps/server/src/terminals/server/snapshots.ts";
 import type { WindowRecord } from "../apps/server/src/terminals/server/registry.ts";
 import type { SessionInfo } from "../apps/server/src/terminals/server/host.ts";
-import { testTempDir, until, waitFor } from "./helpers.ts";
+import { budget, testTempDir, until, waitFor } from "./helpers.ts";
 
 /**
  * The server-owned screen and the hub's snapshot handshake, plus the (still-unused) snapshot
@@ -155,13 +155,13 @@ const runAndWait = async (
       previous = now;
       return stable;
     },
-    15_000,
+    budget(15_000),
   );
   session.write(command);
   await waitFor(
     "the host to emit the command's output",
     async () => (await lastSeq(session.sessionId)) >= previous + command.length + 12,
-    15_000,
+    budget(15_000),
   );
 };
 
@@ -209,7 +209,7 @@ test("a page gets the server's snapshot first, then the live bytes after its off
   await runAndWait(session, command);
   const first = fakeSocket(session);
   terminalSockets.open(first);
-  await waitFor("the snapshot frame", async () => control(first.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  await waitFor("the snapshot frame", async () => control(first.frames).some((frame) => frame.type === "snapshot"), budget(15_000));
   const opening = control(first.frames);
   expect(opening).toHaveLength(1);
   expect(opening[0]).toMatchObject({ type: "snapshot", incarnation: session.incarnation, sessionId: session.sessionId });
@@ -217,29 +217,29 @@ test("a page gets the server's snapshot first, then the live bytes after its off
 
   // Bytes produced after the snapshot arrive live, exactly once.
   session.write("echo SECOND_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the live bytes", async () => text(first.frames).includes("SECOND_1_MARK"), 15_000);
+  await waitFor("the live bytes", async () => text(first.frames).includes("SECOND_1_MARK"), budget(15_000));
   expect(text(first.frames).split("SECOND_1_MARK").length - 1).toBe(1);
-}, 30_000);
+}, budget(30_000));
 
 test("the backpressure bound closes a page that stops draining, without an exit", async () => {
   const session = await openSession("SNAP-BP", dir, { cols: 80, rows: 24 });
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
-  await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), 15_000);
+  await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), budget(15_000));
   // A send with the queue under the bound arms the steady-state bound.
   await runAndWait(session, "echo BP_ARM\n");
-  await waitFor("the armed chunk", async () => text(ws.frames).includes("BP_ARM"), 15_000);
+  await waitFor("the armed chunk", async () => text(ws.frames).includes("BP_ARM"), budget(15_000));
   expect(ws.closed()).toBe(false);
 
   // The page stops reading: the next live byte is not queued behind it without bound.
   ws.bufferedAmount = (1 << 20) + 1;
   session.write("echo BP_OVER\n");
-  await waitFor("the lagging socket to close", async () => ws.closed(), 15_000);
+  await waitFor("the lagging socket to close", async () => ws.closed(), budget(15_000));
   expect(ws.closeCount()).toBe(1);
   // No `exit`: the page must reconnect to a fresh snapshot, not treat the session as gone.
   expect(control(ws.frames).some((frame) => frame.type === "exit")).toBe(false);
   expect(text(ws.frames)).not.toContain("BP_OVER");
-}, 30_000);
+}, budget(30_000));
 
 test("the backpressure grace defers the close, then allows one per grace window", async () => {
   process.env.CORVI_BACKPRESSURE_GRACE_MS = "400";
@@ -249,32 +249,32 @@ test("the backpressure grace defers the close, then allows one per grace window"
     // Over the bound from the first live byte: a large snapshot draining on a slow link.
     ws.bufferedAmount = (1 << 20) + 1;
     terminalSockets.open(ws);
-    await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), 15_000);
+    await waitFor("the opening frame", async () => control(ws.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"), budget(15_000));
     session.write("echo BP_EARLY\n");
-    await waitFor("the chunk inside the grace", async () => text(ws.frames).includes("BP_EARLY"), 15_000);
+    await waitFor("the chunk inside the grace", async () => text(ws.frames).includes("BP_EARLY"), budget(15_000));
     expect(ws.closed()).toBe(false); // deferred: the snapshot is still draining
 
     await Bun.sleep(500); // past the grace
     session.write("echo BP_LATE\n");
-    await waitFor("the socket to close after the grace", async () => ws.closed(), 15_000);
+    await waitFor("the socket to close after the grace", async () => ws.closed(), budget(15_000));
     expect(ws.closeCount()).toBe(1);
     expect(control(ws.frames).some((frame) => frame.type === "exit")).toBe(false);
   } finally {
     delete process.env.CORVI_BACKPRESSURE_GRACE_MS;
   }
-}, 30_000);
+}, budget(30_000));
 
 test("a session that exits while attached tells the page before closing", async () => {
   const session = await openSession("SNAP-EXIT", dir, { cols: 80, rows: 24 });
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
   session.write("echo EXIT_$(( 0 + 1 ))_MARK\n");
-  await waitFor("the output", async () => text(ws.frames).includes("EXIT_1_MARK"), 15_000);
+  await waitFor("the output", async () => text(ws.frames).includes("EXIT_1_MARK"), budget(15_000));
 
   const client = await hostClient();
   await client.kill(session.sessionId);
-  await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), 15_000);
-}, 30_000);
+  await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), budget(15_000));
+}, budget(30_000));
 
 test("a second page over one session detaches the first with a detached frame, not an exit", async () => {
   const first = await openSession("SNAP-DETACHED", dir, { cols: 80, rows: 24 });
@@ -283,7 +283,7 @@ test("a second page over one session detaches the first with a detached frame, n
   await waitFor(
     "the first opening frame",
     async () => control(one.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
-    15_000,
+    budget(15_000),
   );
 
   // A second socket over the same session supersedes the first with a frame that says so, then
@@ -291,15 +291,15 @@ test("a second page over one session detaches the first with a detached frame, n
   const second = await openSession("SNAP-DETACHED", dir, { cols: 80, rows: 24 });
   const two = fakeSocket(second);
   terminalSockets.open(two);
-  await waitFor("the detached frame", async () => control(one.frames).some((frame) => frame.type === "detached"), 15_000);
+  await waitFor("the detached frame", async () => control(one.frames).some((frame) => frame.type === "detached"), budget(15_000));
   expect(control(one.frames).some((frame) => frame.type === "exit")).toBe(false);
   expect(one.closed()).toBe(true);
   await waitFor(
     "the second opening frame",
     async () => control(two.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
-    15_000,
+    budget(15_000),
   );
-}, 30_000);
+}, budget(30_000));
 
 test("a session that exits with no page releases its screen when not kept open", async () => {
   const session = await openSession("SNAP-DETACH", dir, { cols: 80, rows: 24 });
@@ -307,8 +307,8 @@ test("a session that exits with no page releases its screen when not kept open",
   const client = await hostClient();
   await client.kill(session.sessionId);
   // A non-kept-open window's frozen screen is not wanted; P2 owns the full policy.
-  await waitFor("the hub to clear on a detached exit", async () => hubStats().hubs === 0, 15_000);
-}, 30_000);
+  await waitFor("the hub to clear on a detached exit", async () => hubStats().hubs === 0, budget(15_000));
+}, budget(30_000));
 
 test("a dead kept-open window's screen is served on a later attach", async () => {
   const change = "SNAP-DEAD";
@@ -323,19 +323,19 @@ test("a dead kept-open window's screen is served on a later attach", async () =>
   await waitFor(
     "the command to finish",
     async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
-    15_000,
+    budget(15_000),
   );
 
   const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
-  await waitFor("the dead screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  await waitFor("the dead screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), budget(15_000));
   expect(control(ws.frames)[0]?.data).toContain("DEAD_1_MARK");
   // The session is dead and the page is told so, but the window asked to be kept open: its screen
   // stays for the next look rather than being evicted with the rest.
-  await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), 15_000);
+  await waitFor("the exit frame", async () => control(ws.frames).some((frame) => frame.type === "exit"), budget(15_000));
   expect(hubStats().hubs).toBe(1);
-}, 30_000);
+}, budget(30_000));
 
 test("a stored screen is seeded and the ring applies on top when the ring has a gap", async () => {
   const change = "SNAP-GAP";
@@ -350,7 +350,7 @@ test("a stored screen is seeded and the ring applies on top when the ring has a 
   await waitFor(
     "the command to finish",
     async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
-    15_000,
+    budget(15_000),
   );
   const incarnation = (await (await hostClient()).list()).find((entry) => entry.id === id)?.incarnation ?? 0;
 
@@ -368,11 +368,11 @@ test("a stored screen is seeded and the ring applies on top when the ring has a 
   const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
-  await waitFor("the seeded screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  await waitFor("the seeded screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), budget(15_000));
   const screen = String(control(ws.frames)[0]?.data ?? "");
   expect(screen).toContain("DEEP-SEED-MARK"); // the store's deep history survives the gap
   expect(screen).toContain("GAP-DONE"); // and the ring's tail landed on top
-}, 30_000);
+}, budget(30_000));
 
 test("the cadence persists a dirty screen", async () => {
   process.env.CORVI_SCREEN_CADENCE_MS = "300";
@@ -383,12 +383,12 @@ test("the cadence persists a dirty screen", async () => {
     await waitFor(
       "the store to fill",
       async () => (snapshotOf(session.sessionId, session.incarnation)?.data ?? "").includes("CADENCE_MARK"),
-      15_000,
+      budget(15_000),
     );
   } finally {
     delete process.env.CORVI_SCREEN_CADENCE_MS;
   }
-}, 30_000);
+}, budget(30_000));
 
 test("flushScreens writes a dirty screen synchronously", async () => {
   const session = await openSession("SNAP-FLUSH", dir, { cols: 80, rows: 24 });
@@ -396,7 +396,7 @@ test("flushScreens writes a dirty screen synchronously", async () => {
   await runAndWait(session, command);
   flushScreens();
   expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("FLUSH_MARK");
-}, 30_000);
+}, budget(30_000));
 
 test("an unattended screen is released and kept in the store", async () => {
   process.env.CORVI_SCREEN_IDLE_MS = "1500";
@@ -404,7 +404,7 @@ test("an unattended screen is released and kept in the store", async () => {
     const session = await openSession("SNAP-IDLE", dir, { cols: 80, rows: 24 });
     const command = "echo IDLE_MARK\n";
     await runAndWait(session, command);
-    await waitFor("the screen to be released", async () => hubStats().hubs === 0, 15_000);
+    await waitFor("the screen to be released", async () => hubStats().hubs === 0, budget(15_000));
     // The store keeps it, so a later attach reseeds rather than rebuilds; the shell itself is
     // untouched and still alive.
     expect(snapshotOf(session.sessionId, session.incarnation)?.data).toContain("IDLE_MARK");
@@ -412,7 +412,7 @@ test("an unattended screen is released and kept in the store", async () => {
   } finally {
     delete process.env.CORVI_SCREEN_IDLE_MS;
   }
-}, 30_000);
+}, budget(30_000));
 
 test("an unattended screen that never stops painting is still released", async () => {
   process.env.CORVI_SCREEN_IDLE_MS = "1500";
@@ -424,15 +424,15 @@ test("an unattended screen that never stops painting is still released", async (
     await waitFor(
       "the screen to be painting",
       async () => ((await (await hostClient()).list()).find((entry) => entry.id === session.sessionId)?.lastSeq ?? 0) > 1000,
-      15_000,
+      budget(15_000),
     );
-    await waitFor("the unattended screen to be released", async () => hubStats().hubs === 0, 15_000);
+    await waitFor("the unattended screen to be released", async () => hubStats().hubs === 0, budget(15_000));
     // The shell is untouched — only the server's screen and feed stopped.
     expect((await (await hostClient()).list()).some((entry) => entry.id === session.sessionId && entry.alive)).toBe(true);
   } finally {
     delete process.env.CORVI_SCREEN_IDLE_MS;
   }
-}, 30_000);
+}, budget(30_000));
 
 test("a seeded screen's applied offset never regresses when a ring byte lands behind it", async () => {
   const screen = makeScreen({ cols: 80, rows: 24 });
@@ -462,7 +462,7 @@ test("a persisted and reseeded hub resumes from the stored high-water, not the r
   await waitFor(
     "the command to finish",
     async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
-    15_000,
+    budget(15_000),
   );
   const incarnation = (await (await hostClient()).list()).find((entry) => entry.id === id)?.incarnation ?? 0;
   const emitted = (await (await hostClient()).list()).find((entry) => entry.id === id)?.lastSeq ?? 0;
@@ -481,16 +481,16 @@ test("a persisted and reseeded hub resumes from the stored high-water, not the r
   const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
   const snapshots: { data: string; offset: number }[] = [];
   session.attach(() => undefined, (frame) => snapshots.push(frame), () => undefined);
-  await waitFor("the seeded screen", async () => snapshots.length > 0, 15_000);
+  await waitFor("the seeded screen", async () => snapshots.length > 0, budget(15_000));
   expect(snapshots[0]?.data).toContain("DEEP-AT-H");
   expect(snapshots[0]?.offset).toBe(emitted);
-}, 30_000);
+}, budget(30_000));
 
 test("a stale session cannot attach after its screen was released", async () => {
   process.env.CORVI_SCREEN_IDLE_MS = "1500";
   try {
     const session = await openSession("SNAP-STALE", dir, { cols: 80, rows: 24 });
-    await waitFor("the screen to be released", async () => hubStats().hubs === 0, 15_000);
+    await waitFor("the screen to be released", async () => hubStats().hubs === 0, budget(15_000));
     // The session object predates the release; attaching now must be refused rather than touch
     // the disposed screen.
     let exited = false;
@@ -502,13 +502,13 @@ test("a stale session cannot attach after its screen was released", async () => 
         exited = true;
       },
     );
-    await until(async () => exited, true, 5_000);
+    await until(async () => exited, true, budget(5_000));
     expect(exited).toBe(true);
     expect(snapshots).toHaveLength(0);
   } finally {
     delete process.env.CORVI_SCREEN_IDLE_MS;
   }
-}, 30_000);
+}, budget(30_000));
 
 test("a window with no page captures its startup within the grace, before the ring evicts it", async () => {
   const change = "SNAP-NOPAGE";
@@ -526,16 +526,16 @@ test("a window with no page captures its startup within the grace, before the ri
   await waitFor(
     "the command to finish",
     async () => (await (await hostClient()).list()).some((entry) => entry.id === id && !entry.alive),
-    15_000,
+    budget(15_000),
   );
   const session = await openSession(change, changeDir, { cols: 80, rows: 24 }, id);
   const ws = fakeSocket(session);
   terminalSockets.open(ws);
-  await waitFor("the screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), 15_000);
+  await waitFor("the screen", async () => control(ws.frames).some((frame) => frame.type === "snapshot"), budget(15_000));
   const screen = String(control(ws.frames)[0]?.data ?? "");
   expect(screen).toContain("NO-PAGE-BASE-MARK"); // the startup draw, which the ring no longer holds
   expect(screen).toContain("NO-PAGE-TAIL"); // and the recent output
-}, 30_000);
+}, budget(30_000));
 
 test("an over-cap screen serializes to a truncated screen, never the empty sentinel", async () => {
   const screen = makeScreen({ cols: 500, rows: 50 });
@@ -567,7 +567,7 @@ test("an over-cap screen does not blank the page and does not drop the stored sc
   await waitFor(
     "the fill",
     async () => ((await (await hostClient()).list()).find((entry) => entry.id === session.sessionId)?.lastSeq ?? 0) > 2000000,
-    30_000,
+    budget(30_000),
   );
   await Bun.sleep(500);
   flushScreens();
@@ -579,9 +579,9 @@ test("an over-cap screen does not blank the page and does not drop the stored sc
     (frame) => snapshots.push(frame),
     () => undefined,
   );
-  await waitFor("the page snapshot", async () => snapshots.length > 0, 15_000);
+  await waitFor("the page snapshot", async () => snapshots.length > 0, budget(15_000));
   expect(snapshots[0]?.data).not.toBe("");
-}, 60_000);
+}, budget(60_000));
 
 test("a kept-open window's snapshot store entry survives its dead session; a plain dead one is pruned", () => {
   const record = (id: string, keepOpen: boolean): WindowRecord => ({
@@ -677,7 +677,7 @@ test("a store write that fails is reported and returns false, never throws", () 
   expect(stored).toBe(false);
   expect(errors.some((line) => line.includes("could not write the snapshot store"))).toBe(true);
   clearSnapshots(); // the failed write's in-memory entry goes with the rest
-}, 30_000);
+}, budget(30_000));
 
 test("a store write that fails is appended to CORVI_LOG when one is set", () => {
   const bad = join(dir, "not-a-directory-log");
@@ -699,4 +699,4 @@ test("a store write that fails is appended to CORVI_LOG when one is set", () => 
   expect(stored).toBe(false);
   expect(readFileSync(log, "utf8")).toContain("could not write the snapshot store");
   clearSnapshots();
-}, 30_000);
+}, budget(30_000));

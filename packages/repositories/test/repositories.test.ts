@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { Effect, Either, Layer } from "effect"
+import { Effect, Result, Layer } from "effect"
 
 import { AbsolutePath } from "@corvi/contracts/paths"
 import * as Git from "../src/git.ts"
@@ -10,6 +10,11 @@ const repository = new Git.Repository({
   gitDirectory: AbsolutePath.make("/repo/.git"),
   commonDirectory: AbsolutePath.make("/repo/.git"),
 })
+
+/** A scripted method's default answer: an effect that succeeds with `undefined` in a
+ * `T | undefined` channel. `Effect.void` would narrow that channel to `void`, so this keeps the
+ * `Git.Interface` return types exact. */
+const absent = (): Effect.Effect<undefined> => Effect.sync(() => undefined)
 
 interface GitScript {
   readonly discover?: Git.Interface["repo"]["discover"]
@@ -42,21 +47,21 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
     Layer.provide(
       Layer.succeed(Git.Service, {
         repo: {
-          discover: script.discover ?? (() => Effect.succeed(undefined)),
+          discover: script.discover ?? absent,
           hasRemote: script.hasRemote ?? (() => Effect.succeed(false)),
-          remoteUrl: script.remoteUrl ?? (() => Effect.succeed(undefined)),
+          remoteUrl: script.remoteUrl ?? absent,
         },
         history: {
-          branch: script.branch ?? (() => Effect.succeed(undefined)),
-          head: script.head ?? (() => Effect.succeed(undefined)),
+          branch: script.branch ?? absent,
+          head: script.head ?? absent,
           branchExists: script.branchExists ?? (() => Effect.succeed(false)),
           refExists: script.refExists ?? (() => Effect.succeed(false)),
-          resolveExistingBranch: script.resolveExistingBranch ?? (() => Effect.dieMessage("resolveExistingBranch is not scripted")),
+          resolveExistingBranch: script.resolveExistingBranch ?? (() => Effect.die(new Error("resolveExistingBranch is not scripted"))),
           isAncestor: script.isAncestor ?? (() => Effect.succeed(false)),
           upstream: script.upstream ?? (() => Effect.succeed({ _tag: "NoUpstream" } as const)),
-          defaultRemoteBranch: script.defaultRemoteBranch ?? (() => Effect.succeed(undefined)),
-          defaultBranch: script.defaultBranch ?? (() => Effect.succeed(undefined)),
-          upstreamTip: script.upstreamTip ?? (() => Effect.succeed(undefined)),
+          defaultRemoteBranch: script.defaultRemoteBranch ?? absent,
+          defaultBranch: script.defaultBranch ?? absent,
+          upstreamTip: script.upstreamTip ?? absent,
           upstreamCommits: script.upstreamCommits ?? (() => Effect.succeed([])),
         },
         status: { dirty: script.status ?? (() => Effect.succeed(false)) },
@@ -79,8 +84,8 @@ const layerFor = (script: GitScript): Layer.Layer<Repositories> =>
 const runEither = <A, E>(
   program: Effect.Effect<A, E, Repositories>,
   script: GitScript,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(layerFor(script))))
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(layerFor(script))))
 
 test("inspectCheckout reports Missing when the location holds no repository", async () => {
   const result = await runEither(
@@ -90,8 +95,8 @@ test("inspectCheckout reports Missing when the location holds no repository", as
     }),
     {},
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right).toEqual({ _tag: "Missing" })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success).toEqual({ _tag: "Missing" })
 })
 
 test("inspectCheckout reports the observed branch and head", async () => {
@@ -106,9 +111,9 @@ test("inspectCheckout reports the observed branch and head", async () => {
       head: () => Effect.succeed("abc123"),
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result))
-    expect(result.right).toEqual({ _tag: "Present", branch: "main", head: "abc123" })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result))
+    expect(result.success).toEqual({ _tag: "Present", branch: "main", head: "abc123" })
 })
 
 test("inspectCheckout treats a Git failure as an error, not absence", async () => {
@@ -121,10 +126,10 @@ test("inspectCheckout treats a Git failure as an error, not absence", async () =
       discover: () => Effect.fail(new Git.OperationError({ operation: "discover", message: "git is missing" })),
     },
   )
-  expect(result._tag).toBe("Left")
-  if (result._tag === "Left") {
-    expect(result.left._tag).toBe("CheckoutError")
-    if (result.left._tag === "CheckoutError") expect(result.left.operation).toBe("inspect")
+  expect(result._tag).toBe("Failure")
+  if (result._tag === "Failure") {
+    expect(result.failure._tag).toBe("CheckoutError")
+    if (result.failure._tag === "CheckoutError") expect(result.failure.operation).toBe("inspect")
   }
 })
 
@@ -147,8 +152,8 @@ test("fastForwardBranch advances exactly when git can, and never rewrites", asyn
       },
     },
   )
-  expect(Either.isRight(advanced)).toBe(true)
-  if (Either.isRight(advanced)) expect(advanced.right).toEqual({ _tag: "Advanced", to: "origin/main" })
+  expect(Result.isSuccess(advanced)).toBe(true)
+  if (Result.isSuccess(advanced)) expect(advanced.success).toEqual({ _tag: "Advanced", to: "origin/main" })
   expect(forwarded).toEqual(["origin/main"])
 
   const current = await runEither(
@@ -158,8 +163,8 @@ test("fastForwardBranch advances exactly when git can, and never rewrites", asyn
     }),
     { discover: () => Effect.succeed(repository), head: () => Effect.succeed("same") },
   )
-  expect(Either.isRight(current)).toBe(true)
-  if (Either.isRight(current)) expect(current.right).toEqual({ _tag: "Current" })
+  expect(Result.isSuccess(current)).toBe(true)
+  if (Result.isSuccess(current)) expect(current.success).toEqual({ _tag: "Current" })
 })
 
 test("fastForwardBranch leaves a checkout alone with git's own reason", async () => {
@@ -175,9 +180,9 @@ test("fastForwardBranch leaves a checkout alone with git's own reason", async ()
         Effect.fail(new Git.OperationError({ operation: "merge", message: "fatal: Not possible to fast-forward" })),
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result))
-    expect(result.right).toEqual({ _tag: "LeftAlone", reason: "fatal: Not possible to fast-forward" })
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result))
+    expect(result.success).toEqual({ _tag: "LeftAlone", reason: "fatal: Not possible to fast-forward" })
 })
 
 test("a dirty tree git refuses to clobber is left alone, not an error", async () => {
@@ -202,9 +207,9 @@ test("a dirty tree git refuses to clobber is left alone, not an error", async ()
       isAncestor: () => Effect.succeed(true),
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result))
-    expect(result.right).toEqual({
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result))
+    expect(result.success).toEqual({
       _tag: "LeftAlone",
       reason: "error: Your local changes to 'f.txt' would be overwritten by merge",
     })
@@ -226,10 +231,10 @@ test("a fast-forward that was possible and still failed is an error, not a refus
       isAncestor: () => Effect.succeed(true),
     },
   )
-  expect(result._tag).toBe("Left")
-  if (result._tag === "Left") {
-    expect(result.left._tag).toBe("CheckoutError")
-    if (result.left._tag === "CheckoutError") expect(result.left.message).toContain("index.lock")
+  expect(result._tag).toBe("Failure")
+  if (result._tag === "Failure") {
+    expect(result.failure._tag).toBe("CheckoutError")
+    if (result.failure._tag === "CheckoutError") expect(result.failure.message).toContain("index.lock")
   }
 })
 
@@ -251,7 +256,7 @@ test("removeWorktree passes the force decision through", async () => {
   expect(forces).toEqual([true])
 })
 
-const assess = (script: GitScript): Promise<Either.Either<RemovalAssessment, unknown>> =>
+const assess = (script: GitScript): Promise<Result.Result<RemovalAssessment, unknown>> =>
   runEither(
     Effect.gen(function* () {
       const repositories = yield* Repositories
@@ -262,8 +267,8 @@ const assess = (script: GitScript): Promise<Either.Either<RemovalAssessment, unk
 
 test("assessRemoval refuses a dirty worktree", async () => {
   const result = await assess({ discover: () => Effect.succeed(repository), status: () => Effect.succeed(true) })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Unsafe")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Unsafe")
 })
 
 test("assessRemoval acknowledges unpushed commits when the base cannot prove them", async () => {
@@ -273,11 +278,11 @@ test("assessRemoval acknowledges unpushed commits when the base cannot prove the
     defaultRemoteBranch: () => Effect.succeed("main"),
     integration: () => Effect.succeed(false),
   })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("NeedsAcknowledgement")
-    if (result.right._tag === "NeedsAcknowledgement")
-      expect(result.right.reasons[0]?.text).toBe("2 unpushed commit(s)")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("NeedsAcknowledgement")
+    if (result.success._tag === "NeedsAcknowledgement")
+      expect(result.success.reasons[0]?.text).toBe("2 unpushed commit(s)")
   }
 })
 
@@ -288,17 +293,17 @@ test("assessRemoval is safe when the base proves the branch landed", async () =>
     defaultRemoteBranch: () => Effect.succeed("main"),
     integration: () => Effect.succeed(true),
   })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Safe")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Safe")
 })
 
 test("assessRemoval acknowledges branches that were never pushed when unproven", async () => {
   const result = await assess({ discover: () => Effect.succeed(repository) })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("NeedsAcknowledgement")
-    if (result.right._tag === "NeedsAcknowledgement")
-      expect(result.right.reasons[0]?.text).toBe("commits that were never pushed")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("NeedsAcknowledgement")
+    if (result.success._tag === "NeedsAcknowledgement")
+      expect(result.success.reasons[0]?.text).toBe("commits that were never pushed")
   }
 })
 
@@ -308,8 +313,8 @@ test("assessRemoval is safe for an unpushed branch the base proves landed", asyn
     defaultRemoteBranch: () => Effect.succeed("main"),
     integration: () => Effect.succeed(true),
   })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right._tag).toBe("Safe")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success._tag).toBe("Safe")
 })
 
 test("assessRemoval treats an unreadable upstream comparison as not proven", async () => {
@@ -318,18 +323,18 @@ test("assessRemoval treats an unreadable upstream comparison as not proven", asy
     upstream: () => Effect.succeed({ _tag: "Unavailable" } as const),
     defaultRemoteBranch: () => Effect.succeed("main"),
   })
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) {
-    expect(result.right._tag).toBe("NeedsAcknowledgement")
-    if (result.right._tag === "NeedsAcknowledgement")
-      expect(result.right.reasons[0]?.text).toBe("the upstream comparison is unavailable")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) {
+    expect(result.success._tag).toBe("NeedsAcknowledgement")
+    if (result.success._tag === "NeedsAcknowledgement")
+      expect(result.success.reasons[0]?.text).toBe("the upstream comparison is unavailable")
   }
 })
 
 test("assessRemoval refuses a location that is not a repository", async () => {
   const result = await assess({})
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect((result.left as { _tag: string })._tag).toBe("NotARepository")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect((result.failure as { _tag: string })._tag).toBe("NotARepository")
 })
 
 test("removeBranchIfIntegrated deletes a branch the base proves landed", async () => {
@@ -353,8 +358,8 @@ test("removeBranchIfIntegrated deletes a branch the base proves landed", async (
       },
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right).toBe("deleted")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success).toBe("deleted")
   expect(deleted).toEqual(["feature"])
 })
 
@@ -374,8 +379,8 @@ test("removeBranchIfIntegrated keeps a branch the base cannot prove landed", asy
       integration: () => Effect.succeed(false),
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right).toBe("kept")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success).toBe("kept")
 })
 
 test("removeBranchIfIntegrated reports a branch that never existed as absent", async () => {
@@ -389,8 +394,8 @@ test("removeBranchIfIntegrated reports a branch that never existed as absent", a
     }),
     { discover: () => Effect.succeed(repository), branchExists: () => Effect.succeed(false) },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right).toBe("absent")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success).toBe("absent")
 })
 
 test("a branch that refuses deletion is reported kept, not failed", async () => {
@@ -410,8 +415,8 @@ test("a branch that refuses deletion is reported kept, not failed", async () => 
       deleteBranch: () => Effect.fail(new Git.OperationError({ operation: "remove", message: "checked out" })),
     },
   )
-  expect(Either.isRight(result)).toBe(true)
-  if (Either.isRight(result)) expect(result.right).toBe("kept")
+  expect(Result.isSuccess(result)).toBe(true)
+  if (Result.isSuccess(result)) expect(result.success).toBe("kept")
 })
 
 test("provisionLinkedWorktree attaches an existing branch", async () => {
@@ -435,7 +440,7 @@ test("provisionLinkedWorktree attaches an existing branch", async () => {
       },
     },
   )
-  expect(Either.isRight(result)).toBe(true)
+  expect(Result.isSuccess(result)).toBe(true)
   expect(added).toEqual([{ branch: "feature", create: false }])
 })
 
@@ -467,7 +472,7 @@ test("attach-only refuses a missing selection before any mutation", async () => 
       },
     },
   )
-  expect(Either.isLeft(result)).toBe(true)
+  expect(Result.isFailure(result)).toBe(true)
   expect(added).toEqual([])
   expect(asked).toBe(0)
 })
@@ -527,12 +532,12 @@ test("provisionLinkedWorktree leaves an existing checkout alone", async () => {
       },
     },
   )
-  expect(Either.isRight(result)).toBe(true)
+  expect(Result.isSuccess(result)).toBe(true)
   expect(added).toBe(0)
 })
 
 test("provisionInPlace reports already, dirty, switched and created", async () => {
-  const run = (script: GitScript): Promise<Either.Either<import("../src/repositories.ts").InPlaceOutcome, unknown>> =>
+  const run = (script: GitScript): Promise<Result.Result<import("../src/repositories.ts").InPlaceOutcome, unknown>> =>
     runEither(
       Effect.gen(function* () {
         const repositories = yield* Repositories
@@ -546,7 +551,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
     )
 
   const already = await run({ discover: () => Effect.succeed(repository), branch: () => Effect.succeed("feature") })
-  if (Either.isRight(already)) expect(already.right).toBe("already")
+  if (Result.isSuccess(already)) expect(already.success).toBe("already")
   else expect(true).toBe(false)
 
   const dirty = await run({
@@ -554,7 +559,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
     branch: () => Effect.succeed("main"),
     status: () => Effect.succeed(true),
   })
-  if (Either.isRight(dirty)) expect(dirty.right).toBe("skipped-dirty")
+  if (Result.isSuccess(dirty)) expect(dirty.success).toBe("skipped-dirty")
   else expect(true).toBe(false)
 
   const switched = await run({
@@ -562,7 +567,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
     branch: () => Effect.succeed("main"),
     branchExists: () => Effect.succeed(true),
   })
-  if (Either.isRight(switched)) expect(switched.right).toBe("switched")
+  if (Result.isSuccess(switched)) expect(switched.success).toBe("switched")
   else expect(true).toBe(false)
 
   const switchedTo: string[] = []
@@ -577,7 +582,7 @@ test("provisionInPlace reports already, dirty, switched and created", async () =
       return Effect.void
     },
   })
-  if (Either.isRight(created)) expect(created.right).toBe("created")
+  if (Result.isSuccess(created)) expect(created.success).toBe("created")
   else expect(true).toBe(false)
   expect(switchedTo).toEqual(["create:origin/main"])
 })

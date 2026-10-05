@@ -85,8 +85,9 @@ export const remoteAccessFrom = (value: unknown): RemoteAccessDto =>
  * compile-time guards below pin this schema to @corvi/configuration/config' hand-written `ConfigFile`. */
 export const ConfigFile = ConfigFileSchema;
 
-/** What the config file decodes to. Decode with `onExcessProperty: "preserve"` (readFile does)
- * so unknown keys survive into the settings merge. `workspaces` and `devices` are typed as they
+/** What the config file decodes to. Decode with the shared decode-then-merge
+ * (`@corvi/contracts/body`'s `decodePreserving`, which readFile uses) so unknown keys survive
+ * into the settings merge. `workspaces` and `devices` are typed as they
  * are consumed (after the per-item tolerance) rather than as the schema sees them on the wire:
  * the file may hold entries load() will filter out, and that passthrough is deliberate. */
 export type ConfigFile = Omit<

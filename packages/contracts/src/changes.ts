@@ -4,14 +4,14 @@ import { Schema } from "effect"
 export const ChangeId = Schema.String.pipe(Schema.brand("corvi/ChangeId"))
 export type ChangeId = typeof ChangeId.Type
 
-export const ChangePhase = Schema.Literal(
+export const ChangePhase = Schema.Literals([
   "Ideation",
   "Implementation",
   "Verification",
   "Blocked",
   "Completed",
   "Cancelled",
-)
+])
 export type ChangePhase = typeof ChangePhase.Type
 
 export class Change extends Schema.Class<Change>("Change")({
@@ -46,17 +46,17 @@ export type DirectoryName = typeof DirectoryName.Type
 
 /** Where a checkout lives: a worktree Corvi owns under the change (`new`), or the repository's
  * own checkout (`original`), which Corvi only links for reading. */
-export const CheckoutLocation = Schema.Literal("new", "original")
+export const CheckoutLocation = Schema.Literals(["new", "original"])
 export type CheckoutLocation = typeof CheckoutLocation.Type
 
 /** Which branch a checkout uses: the change's own (created from `base` when missing, attached
  * when present), the branch the checkout has right now (adopted untouched), or an existing
  * branch by name (attached or switched to; never created). */
-export const BranchPlan = Schema.Union(
+export const BranchPlan = Schema.Union([
   Schema.Struct({ kind: Schema.Literal("change") }),
   Schema.Struct({ kind: Schema.Literal("current") }),
   Schema.Struct({ kind: Schema.Literal("existing"), name: Schema.String }),
-)
+])
 export type BranchPlan = typeof BranchPlan.Type
 
 export class Repository extends Schema.Class<Repository>("Repository")({

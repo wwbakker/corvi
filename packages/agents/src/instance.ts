@@ -10,7 +10,7 @@
  * message is delivered and cleared when the reply settles. A claimed turn counts as working even
  * when the reporter's last published status is a stale `waiting`, so `inFlight` wins over the
  * reporter. `interrupted` is exactly "in flight and no live window". */
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 
 import {
   SubagentRecordSchema,
@@ -96,9 +96,9 @@ export const renderMessage = (message: SubagentMessage): string => {
 
 /** Parse one message file. Total: a damaged file is a reason, not a throw. The number is left at
  * zero; the caller sets it from the filename. */
-export const parseMessage = (text: string): Either.Either<SubagentMessage, readonly string[]> => {
+export const parseMessage = (text: string): Result.Result<SubagentMessage, readonly string[]> => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/.exec(text);
-  if (!match) return Either.left(["missing or unparseable frontmatter"]);
+  if (!match) return Result.fail(["missing or unparseable frontmatter"]);
   const fields: Record<string, string> = {};
   for (const line of (match[1] ?? "").split("\n")) {
     const at = line.indexOf(":");
@@ -107,10 +107,10 @@ export const parseMessage = (text: string): Either.Either<SubagentMessage, reado
   }
   const role = fields["from"];
   if (role !== "orchestrator" && role !== "user" && role !== "subagent") {
-    return Either.left(["from: must be orchestrator, user or subagent"]);
+    return Result.fail(["from: must be orchestrator, user or subagent"]);
   }
-  if (!fields["at"]) return Either.left(["at: required"]);
-  return Either.right({
+  if (!fields["at"]) return Result.fail(["at: required"]);
+  return Result.succeed({
     number: 0,
     role,
     at: fields["at"] ?? "",
@@ -121,17 +121,17 @@ export const parseMessage = (text: string): Either.Either<SubagentMessage, reado
 };
 
 /** Parse a `session.json` record. Total; a record from a newer Corvi still reads what it can. */
-export const parseRecord = (text: string): Either.Either<SubagentRecord, readonly string[]> => {
+export const parseRecord = (text: string): Result.Result<SubagentRecord, readonly string[]> => {
   let json: unknown;
   try {
     json = JSON.parse(text);
   } catch {
-    return Either.left(["session.json is not JSON"]);
+    return Result.fail(["session.json is not JSON"]);
   }
   try {
-    return Either.right(Schema.decodeUnknownSync(SubagentRecordSchema)(json));
+    return Result.succeed(Schema.decodeUnknownSync(SubagentRecordSchema)(json));
   } catch (error) {
-    return Either.left([error instanceof Error ? error.message : String(error)]);
+    return Result.fail([error instanceof Error ? error.message : String(error)]);
   }
 };
 

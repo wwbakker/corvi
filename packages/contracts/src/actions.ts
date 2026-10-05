@@ -5,15 +5,15 @@
 import { Schema } from "effect";
 
 /** What an action delivers: text for an agent, or a shell command. */
-export const ActionKind = Schema.Literal("prompt", "command");
+export const ActionKind = Schema.Literals(["prompt", "command"]);
 export type ActionKind = typeof ActionKind.Type;
 
 /** Where it goes: the pane you are on, the window an agent runs in, or a new window. */
-export const ActionTarget = Schema.Literal("active", "agent", "new");
+export const ActionTarget = Schema.Literals(["active", "agent", "new"]);
 export type ActionTarget = typeof ActionTarget.Type;
 
 /** Where the action's file was discovered. */
-export const ActionSource = Schema.Literal("builtin", "global", "workspace", "repository");
+export const ActionSource = Schema.Literals(["builtin", "global", "workspace", "repository"]);
 export type ActionSource = typeof ActionSource.Type;
 
 /** One action as the menu lists it. The key names the file's place, not its text: running one
@@ -57,7 +57,7 @@ export type RunActionResultDto = typeof RunActionResultSchema.Type;
 /** Where a page write lands: the global and workspace scopes beside the config file. A
  * repository file is written through the change-scoped routes (`…/action-files`) instead, and a
  * built-in is never saved over — the create flow's copy lands in the scope it is picked for. */
-export const ActionFileScope = Schema.Literal("global", "workspace");
+export const ActionFileScope = Schema.Literals(["global", "workspace"]);
 export type ActionFileScope = typeof ActionFileScope.Type;
 
 /** One action file as the page lists it: the file as written, and what it parses to — or why it

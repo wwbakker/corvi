@@ -7,7 +7,7 @@
  * vocabulary change without a docs change fails — which is the point, since the panel is how
  * users learn the vocabulary. */
 import { expect, test } from "bun:test";
-import { Either } from "effect";
+import { Result } from "effect";
 
 import { actionFieldDocs, type ActionFieldDoc } from "../src/fields.ts";
 import { parseActionFile, type Action } from "../src/model.ts";
@@ -16,14 +16,14 @@ const promptFile = (frontmatter: string): string => `---\n${frontmatter}\n---\nD
 
 const reasonsOf = (text: string): readonly string[] => {
   const parsed = parseActionFile(text);
-  if (Either.isRight(parsed)) throw new Error("expected the file to be refused");
-  return parsed.left.reasons;
+  if (Result.isSuccess(parsed)) throw new Error("expected the file to be refused");
+  return parsed.failure.reasons;
 };
 
 const parsedRight = (text: string): Action => {
   const parsed = parseActionFile(text);
-  if (Either.isLeft(parsed)) throw new Error(`expected the file to parse: ${parsed.left.reasons}`);
-  return parsed.right;
+  if (Result.isFailure(parsed)) throw new Error(`expected the file to parse: ${parsed.failure.reasons}`);
+  return parsed.success;
 };
 
 const docsOf = (name: string): ActionFieldDoc => {
@@ -76,7 +76,7 @@ test("the documented values are the ones the parser accepts, and no others", () 
               ...(name === "target" && choice === "new" ? ["start: pi"] : []),
             ];
       expect(
-        Either.isRight(parseActionFile(promptFile(lines.join("\n")))),
+        Result.isSuccess(parseActionFile(promptFile(lines.join("\n")))),
         `${name}: ${choice} must parse`,
       ).toBe(true);
     }

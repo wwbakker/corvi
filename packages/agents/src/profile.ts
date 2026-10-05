@@ -5,7 +5,7 @@
  * `Profile` or a list of reasons it is not, and a malformed file is listed with its reasons
  * rather than hidden. Model and effort are checked loosely on purpose — a model catalog changes
  * with the harness, so an unknown id is a runtime concern, never a parse failure. */
-import { Either, Schema } from "effect";
+import { Result, Schema } from "effect";
 import { parse as parseYaml } from "yaml";
 
 import { ChangePhase } from "@corvi/contracts/changes";
@@ -39,8 +39,8 @@ export type InvalidProfileFile = {
   readonly reasons: readonly string[];
 };
 
-const invalid = (...reasons: string[]): Either.Either<Profile, InvalidProfileFile> =>
-  Either.left({ reasons });
+const invalid = (...reasons: string[]): Result.Result<Profile, InvalidProfileFile> =>
+  Result.fail({ reasons });
 
 const isHarness = Schema.is(SubagentHarness);
 const isPhase = Schema.is(ChangePhase);
@@ -64,7 +64,7 @@ export const splitFrontmatter = (
 
 /** Parse one profile file. Unknown frontmatter keys are tolerated — a file may carry more than
  * this vocabulary uses — but every key it knows is checked. */
-export const parseProfileFile = (text: string): Either.Either<Profile, InvalidProfileFile> => {
+export const parseProfileFile = (text: string): Result.Result<Profile, InvalidProfileFile> => {
   const split = splitFrontmatter(text);
   if (!split || typeof split.fields !== "object" || split.fields === null) {
     return invalid("missing or unparseable YAML frontmatter");
@@ -102,7 +102,7 @@ export const parseProfileFile = (text: string): Either.Either<Profile, InvalidPr
 
   if (reasons.length > 0 || !harness) return invalid(...reasons);
 
-  return Either.right({
+  return Result.succeed({
     label,
     harness,
     model: model ?? undefined,

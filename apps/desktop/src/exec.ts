@@ -4,9 +4,9 @@
  */
 import { spawn } from "node:child_process";
 
-export type Result = { code: number; stdout: string; stderr: string };
+export type ShellResult = { code: number; stdout: string; stderr: string };
 
-export const sh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
+export const sh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>
   new Promise((resolve) => {
     const [tool, ...args] = cmd;
     if (tool === undefined) {

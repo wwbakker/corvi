@@ -56,7 +56,7 @@ export const subagentsRoutes = guard({
       runRoute(
         Effect.gen(function* () {
           const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknown(SubagentFileRefSchema)(params).pipe(
+          const ref = yield* Schema.decodeUnknownEffect(SubagentFileRefSchema)(params).pipe(
             Effect.mapError(() => new BadRequestError({ message: "scope and id are required" })),
           );
           return json(yield* deleteSubagentFile(ref));
@@ -85,7 +85,7 @@ export const subagentsRoutes = guard({
       withChange(req.params.id, (change) =>
         Effect.gen(function* () {
           const params = Object.fromEntries(new URL(req.url).searchParams);
-          const ref = yield* Schema.decodeUnknown(SubagentRepositoryFileRefSchema)(params).pipe(
+          const ref = yield* Schema.decodeUnknownEffect(SubagentRepositoryFileRefSchema)(params).pipe(
             Effect.mapError(() => new BadRequestError({ message: "repository and id are required" })),
           );
           return json(yield* deleteRepositorySubagentFile(change, ref));

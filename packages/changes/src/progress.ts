@@ -17,4 +17,4 @@ export interface ProgressInterface {
   }) => Effect.Effect<void, ChangeFormatTooNew | ChangeStoreError>
 }
 
-export class OperationProgress extends Context.Tag("corvi/OperationProgress")<OperationProgress, ProgressInterface>() {}
+export class OperationProgress extends Context.Service<OperationProgress, ProgressInterface>()("corvi/OperationProgress") {}

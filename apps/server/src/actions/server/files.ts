@@ -15,7 +15,7 @@
  * here like any other file. */
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { Either, Effect } from "effect";
+import { Result, Effect } from "effect";
 
 import { parseActionFile, splitFrontmatter } from "@corvi/actions/model";
 import { builtinActionsDir } from "@corvi/actions/node";
@@ -28,7 +28,7 @@ import type {
   ActionRepositoryFileWriteDto,
   ActionRepositoryFilesResponseDto,
 } from "@corvi/contracts/actions";
-import { BadRequestError } from "@corvi/contracts/errors";
+import { BadRequestError, InternalError } from "@corvi/contracts/errors";
 import type { Change } from "@corvi/changes/record";
 import { configPath, runtimeConfig, settingsOf } from "../../workspace/server/index.ts";
 import { actionRootsFor } from "./run.ts";
@@ -70,14 +70,14 @@ const readScope = (
   Effect.gen(function* () {
     const names = yield* Effect.tryPromise({
       try: () => readdir(dir),
-      catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+      catch: (cause) => new InternalError({ message: `cannot read ${dir}` }),
+    }).pipe(Effect.orElseSucceed(() => [] as string[]));
     const files: ActionFileDto[] = [];
     for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
       const text = yield* Effect.tryPromise({
         try: () => readFile(join(dir, name), "utf8"),
-        catch: () => new Error(`cannot read ${join(dir, name)}`),
-      }).pipe(Effect.catchAll(() => Effect.succeed("")));
+        catch: (cause) => new InternalError({ message: `cannot read ${join(dir, name)}` }),
+      }).pipe(Effect.orElseSucceed(() => ""));
       if (text === "") continue;
       const parsed = parseActionFile(text);
       files.push({
@@ -86,9 +86,9 @@ const readScope = (
         id: name.slice(0, -3),
         path: join(dir, name),
         text,
-        ...(Either.isRight(parsed)
-          ? { label: parsed.right.label }
-          : { problems: parsed.left.reasons }),
+        ...(Result.isSuccess(parsed)
+          ? { label: parsed.success.label }
+          : { problems: parsed.failure.reasons }),
       });
     }
     return files;
@@ -140,8 +140,8 @@ export const writeActionFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseActionFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>
@@ -149,10 +149,8 @@ export const writeActionFile = (
           // Owner-only, like the config file: an action can run anything.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(
-      Effect.mapError((e) => new BadRequestError({ message: e.message })),
-    );
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* actionFiles();
   });
 
@@ -167,8 +165,8 @@ export const deleteActionFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* actionFiles();
   });
 
@@ -225,8 +223,8 @@ export const writeRepositoryActionFile = (
       return yield* new BadRequestError({ message: `"${body.id}" is not a file name Corvi can use` });
     }
     const parsed = parseActionFile(body.text);
-    if (Either.isLeft(parsed)) {
-      return yield* new BadRequestError({ message: parsed.left.reasons.join("; ") });
+    if (Result.isFailure(parsed)) {
+      return yield* new BadRequestError({ message: parsed.failure.reasons.join("; ") });
     }
     yield* Effect.tryPromise({
       try: () =>
@@ -234,8 +232,8 @@ export const writeRepositoryActionFile = (
           // Owner-only, like the config file: an action can run anything.
           writeFile(join(dir, `${body.id}.md`), body.text, { mode: 0o600 }),
         ),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositoryActionFiles(change);
   });
 
@@ -251,7 +249,7 @@ export const deleteRepositoryActionFile = (
     }
     yield* Effect.tryPromise({
       try: () => rm(join(dir, `${ref.id}.md`), { force: true }),
-      catch: (e) => new Error(String(e)),
-    }).pipe(Effect.mapError((e) => new BadRequestError({ message: e.message })));
+      catch: (e) => new BadRequestError({ message: String(e) }),
+    });
     return yield* repositoryActionFiles(change);
   });

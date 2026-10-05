@@ -5,7 +5,7 @@
  * acknowledgement. The journal is written step by step, so a half-finished operation stays
  * legible from a page that was never open.
  */
-import { Context, Data, Effect, Layer, Ref, type Either } from "effect"
+import { Context, Effect, Layer, Ref, Schema, type Result } from "effect"
 
 import { ChangeService } from "@corvi/changes/changes"
 import { ChangeRepositories } from "@corvi/changes/repositories"
@@ -20,30 +20,36 @@ import type {
 import { OperationProgress, type OperationStep } from "@corvi/changes/progress"
 import { effectiveBranchOf } from "@corvi/changes/record"
 import { checkoutLocationOf, isTerminal } from "@corvi/changes/rules"
-import type { Change, ChangeId, Repository, RepositoryRef } from "@corvi/contracts/changes"
+import { ChangeId } from "@corvi/contracts/changes"
+import type { Change, Repository, RepositoryRef } from "@corvi/contracts/changes"
 import { AbsolutePath } from "@corvi/contracts/paths"
 import type { BranchCleanup, RemovalAssessment } from "@corvi/repositories"
 import { CheckoutError, Repositories } from "@corvi/repositories"
 
-export class ChangeOperationInProgress extends Data.TaggedError("ChangeOperationInProgress")<{
-  readonly changeId: ChangeId
-  /** The sentence the user sees: an error without one reaches a transport boundary as an empty
-   * string, which is rendered as the error's type name instead. */
-  readonly message: string
-}> {}
+export class ChangeOperationInProgress extends Schema.TaggedError<ChangeOperationInProgress>()(
+  "ChangeOperationInProgress",
+  {
+    changeId: ChangeId,
+    /** The sentence the user sees: an error without one reaches a transport boundary as an empty
+     * string, which is rendered as the error's type name instead. */
+    message: Schema.String,
+  },
+) {}
 
-export class ProviderError extends Data.TaggedError("ProviderError")<{
-  readonly provider: string
-  readonly operation: string
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class ProviderError extends Schema.TaggedError<ProviderError>()("ProviderError", {
+  provider: Schema.String,
+  operation: Schema.String,
+  message: Schema.String,
+  // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
+  // preserves it exactly (on decode `Schema.Defect()` is lossy).
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
-export class TerminalError extends Data.TaggedError("TerminalError")<{
-  readonly changeId: ChangeId
-  readonly message: string
-  readonly cause?: unknown
-}> {}
+export class TerminalError extends Schema.TaggedError<TerminalError>()("TerminalError", {
+  changeId: ChangeId,
+  message: Schema.String,
+  cause: Schema.optional(Schema.Unknown),
+}) {}
 
 export type AcknowledgementCode =
   | "review-pending"
@@ -130,7 +136,7 @@ export interface PullRequestsInterface {
   readonly outstanding: (change: Change) => Effect.Effect<readonly OutstandingPullRequest[], ProviderError>
 }
 
-export class PullRequests extends Context.Tag("corvi/workflows/PullRequests")<PullRequests, PullRequestsInterface>() {}
+export class PullRequests extends Context.Service<PullRequests, PullRequestsInterface>()("corvi/workflows/PullRequests") {}
 
 export interface IssuesInterface {
   /** The completion steps this change's integrations plan, in order; empty when none apply. The
@@ -145,17 +151,17 @@ export interface IssuesInterface {
   readonly current: (change: Change) => Effect.Effect<readonly string[], ProviderError>
 }
 
-export class Issues extends Context.Tag("corvi/workflows/Issues")<Issues, IssuesInterface>() {}
+export class Issues extends Context.Service<Issues, IssuesInterface>()("corvi/workflows/Issues") {}
 
 export interface TerminalSessionsInterface {
   /** Stops the session this change owns; never one chosen by name, port, or resemblance. */
   readonly stop: (changeId: ChangeId) => Effect.Effect<void, TerminalError>
 }
 
-export class TerminalSessions extends Context.Tag("corvi/workflows/TerminalSessions")<
+export class TerminalSessions extends Context.Service<
   TerminalSessions,
   TerminalSessionsInterface
->() {}
+>()("corvi/workflows/TerminalSessions") {}
 
 export interface Interface {
   readonly assessCompletion: (
@@ -205,7 +211,7 @@ export interface Interface {
   >
 }
 
-export class ChangeLifecycle extends Context.Tag("corvi/workflows/ChangeLifecycle")<ChangeLifecycle, Interface>() {}
+export class ChangeLifecycle extends Context.Service<ChangeLifecycle, Interface>()("corvi/workflows/ChangeLifecycle") {}
 
 const ideaReason = (change: Change): LifecycleReason => ({
   code: "idea",
@@ -296,10 +302,10 @@ export const layer = Layer.effect(
           : branchOf(change, link)
         return yield* repositories.assessRemoval({ worktree, branch })
       }).pipe(
-          Effect.either,
+          Effect.result,
           Effect.flatMap((assessed): Effect.Effect<RemovalOutcome, CheckoutError> => {
-            if (assessed._tag === "Right") return Effect.succeed(assessed.right)
-            const failure = assessed.left
+            if (assessed._tag === "Success") return Effect.succeed(assessed.success)
+            const failure = assessed.failure
             if (failure._tag === "NotARepository") return Effect.succeed({ _tag: "Gone" } as const)
             return Effect.fail(failure)
           }),
@@ -428,13 +434,13 @@ export const layer = Layer.effect(
     ): Effect.Effect<A, E | ChangeFormatTooNew | ChangeStoreError, R> =>
       Effect.gen(function* () {
         yield* record(changeId, { id, label, state: "running" })
-        const attempt: Either.Either<A, E> = yield* work.pipe(Effect.either)
-        if (attempt._tag === "Left") {
-          yield* record(changeId, { id, label, state: "failed", detail: detailOf(attempt.left) })
-          return yield* Effect.fail(attempt.left)
+        const attempt: Result.Result<A, E> = yield* work.pipe(Effect.result)
+        if (attempt._tag === "Failure") {
+          yield* record(changeId, { id, label, state: "failed", detail: detailOf(attempt.failure) })
+          return yield* Effect.fail(attempt.failure)
         }
         yield* record(changeId, { id, label, state: "done" })
-        return attempt.right
+        return attempt.success
       })
 
     const assessCompletion = Effect.fn("ChangeLifecycle.assessCompletion")(function* (
@@ -600,17 +606,17 @@ export const layer = Layer.effect(
                     } satisfies LifecycleOutcome)
               }
             }
-            const removal = yield* Effect.either(
+            const removal = yield* Effect.result(
               removeCheckout(AbsolutePath.make(checkoutLocationOf(change, link))),
             )
-            if (removal._tag === "Left") {
+            if (removal._tag === "Failure") {
               yield* record(change.changeId, {
                 id: "worktrees",
                 label: "remove the worktrees",
                 state: "failed",
-                detail: detailOf(removal.left),
+                detail: detailOf(removal.failure),
               })
-              return yield* removal.left
+              return yield* removal.failure
             }
             if (createdBranch(link)) yield* cleanupBranch(change, link)
           }
@@ -676,18 +682,18 @@ export const layer = Layer.effect(
           yield* record(change.changeId, { id: "terminal", label: "close the terminal", state: "waiting" })
           yield* record(change.changeId, { id: "archive", label: "archive the change", state: "waiting" })
           yield* record(change.changeId, { id: "loose", label: "collect the loose ends", state: "running" })
-          const outstanding = yield* pullRequests.outstanding(change).pipe(Effect.either)
-          if (outstanding._tag === "Right") {
-            for (const pullRequest of outstanding.right)
+          const outstanding = yield* pullRequests.outstanding(change).pipe(Effect.result)
+          if (outstanding._tag === "Success") {
+            for (const pullRequest of outstanding.success)
               loose.push(
                 `pull request #${pullRequest.number} is still open in ${pullRequest.repository.repositoryId}`,
               )
           } else {
             loose.push("could not read the open pull requests")
           }
-          const issue = yield* issues.current(change).pipe(Effect.either)
-          if (issue._tag === "Right") {
-            loose.push(...issue.right)
+          const issue = yield* issues.current(change).pipe(Effect.result)
+          if (issue._tag === "Success") {
+            loose.push(...issue.success)
           } else {
             loose.push("could not read the issue")
           }

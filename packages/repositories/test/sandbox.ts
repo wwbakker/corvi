@@ -45,7 +45,7 @@ export type FixtureShape = {
   readonly makeRepo: (name: string) => Promise<string>
 }
 
-export class Fixture extends Context.Tag("corvi/test/Fixture")<Fixture, FixtureShape>() {}
+export class Fixture extends Context.Service<Fixture, FixtureShape>()("corvi/test/Fixture") {}
 
 const makeFixture = async (): Promise<FixtureShape> => {
   // macOS: `$TMPDIR` is a symlink (`/var/...` is `/private/var/...`) and git reports the physical
@@ -79,7 +79,7 @@ const makeFixture = async (): Promise<FixtureShape> => {
 /** The fixture is a scoped resource: its finalizer is registered the moment it is acquired, so the
  * deadline's interruption runs it instead of leaving the temp root to a hook that a timed-out body
  * can outlive. */
-export const sandboxLayer: Layer.Layer<Fixture> = Layer.scoped(
+export const sandboxLayer: Layer.Layer<Fixture> = Layer.effect(
   Fixture,
   Effect.acquireRelease(Effect.promise(makeFixture), (f) =>
     Effect.promise(() => rm(f.tmp, { recursive: true, force: true })),

@@ -11,9 +11,9 @@
  * `tailscale` commands on the way. A hung `tailscale` CLI therefore delays a save by the shell's
  * own timeout: waiting for the gate is the intended trade, and the timeout is what bounds it.
  */
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 
-const gate = Effect.unsafeMakeSemaphore(1);
+const gate = Semaphore.makeUnsafe(1);
 
 /** Run `effect` with the gate held: callers run one at a time, in the order they arrive. */
 export const inExternalGate = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, R> =>

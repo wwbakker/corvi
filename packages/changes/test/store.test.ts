@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, expect, test } from "bun:test"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect, Either, Layer } from "effect"
+import { Effect, Result, Layer } from "effect"
 
 import {
   ChangeId,
@@ -38,8 +38,8 @@ const services = (at: string): Layer.Layer<ChangeService | ChangeRepositories> =
 
 const runEither = <A, E>(
   program: Effect.Effect<A, E, ChangeService | ChangeRepositories>,
-): Promise<Either.Either<A, E>> =>
-  Effect.runPromise(program.pipe(Effect.either, Effect.provide(services(root))))
+): Promise<Result.Result<A, E>> =>
+  Effect.runPromise(program.pipe(Effect.result, Effect.provide(services(root))))
 
 const create = (
   id: string,
@@ -99,11 +99,41 @@ test("a created change round-trips and lists as active", async () => {
   expect(result.active.map((change) => change.changeId)).toContain(ChangeId.make("roundtrip"))
 })
 
+test("a change.json carrying prototype-named keys survives a transition write", async () => {
+  const id = "prototype-keys"
+  const dir = join(root, id)
+  await mkdir(dir, { recursive: true })
+  // Written as text so `__proto__` is an own key, as JSON.parse gives it.
+  await writeFile(
+    join(dir, "change.json"),
+    `{"id":${JSON.stringify(id)},"state":"Ideation","constructor":{"a":1},` +
+      `"toString":"keep-me","__proto__":{"polluted":"yes"},"extra":1}`,
+  )
+
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const changes = yield* ChangeService
+      return yield* changes.transitionTo(ChangeId.make(id), "Implementation")
+    }).pipe(Effect.provide(services(root))),
+  )
+
+  const at = (value: Record<string, unknown>, key: string): unknown => value[key]
+  const written = JSON.parse(await readFile(join(dir, "change.json"), "utf8")) as Record<string, unknown>
+  expect(Object.hasOwn(written, "constructor")).toBe(true)
+  expect(at(written, "constructor")).toEqual({ a: 1 })
+  expect(Object.hasOwn(written, "toString")).toBe(true)
+  expect(at(written, "toString")).toBe("keep-me")
+  expect(Object.hasOwn(written, "__proto__")).toBe(true)
+  expect(at(written, "__proto__")).toEqual({ polluted: "yes" })
+  expect(Object.getPrototypeOf(written)).toBe(Object.prototype)
+  expect(written.state).toBe("Implementation")
+})
+
 test("a duplicate change id is refused", async () => {
   await Effect.runPromise(create("duplicate").pipe(Effect.provide(services(root))))
   const result = await runEither(create("duplicate"))
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeIdTaken")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeIdTaken")
 })
 
 test("transitions follow the rules and terminal phases set completedAt", async () => {
@@ -115,8 +145,8 @@ test("transitions follow the rules and terminal phases set completedAt", async (
       return yield* changes.transitionTo(ChangeId.make("lifecycle"), "Verification")
     }),
   )
-  expect(Either.isLeft(invalid)).toBe(true)
-  if (Either.isLeft(invalid)) expect(invalid.left._tag).toBe("InvalidTransition")
+  expect(Result.isFailure(invalid)).toBe(true)
+  if (Result.isFailure(invalid)) expect(invalid.failure._tag).toBe("InvalidTransition")
 
   const result = await Effect.runPromise(
     Effect.gen(function* () {
@@ -168,8 +198,8 @@ test("a duplicate directory name is refused", async () => {
   await Effect.runPromise(create("duplicate-name").pipe(Effect.provide(services(root))))
   await Effect.runPromise(addRepository("duplicate-name", "repo").pipe(Effect.provide(services(root))))
   const result = await runEither(addRepository("duplicate-name", "repo"))
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("DuplicateDirectoryName")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("DuplicateDirectoryName")
 })
 
 test("removing an unknown link is refused", async () => {
@@ -183,14 +213,14 @@ test("removing an unknown link is refused", async () => {
       })
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("RepositoryNotFound")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("RepositoryNotFound")
 })
 
 test("adding a link to an unknown change is a store error", async () => {
   const result = await runEither(addRepository("no-such-change", "repo"))
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("RepositoryStoreError")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("RepositoryStoreError")
 })
 
 test("links survive a phase transition and a fresh store layer", async () => {
@@ -219,10 +249,10 @@ test("a malformed record is a typed store error, not absence", async () => {
     Effect.gen(function* () {
       const changes = yield* ChangeService
       return yield* changes.getChange(id)
-    }).pipe(Effect.either, Effect.provide(services(brokenRoot))),
+    }).pipe(Effect.result, Effect.provide(services(brokenRoot))),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeStoreError")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeStoreError")
 })
 
 test("a transition to an unknown change is ChangeNotFound", async () => {
@@ -232,8 +262,8 @@ test("a transition to an unknown change is ChangeNotFound", async () => {
       return yield* changes.transitionTo(ChangeId.make("absent"), "Implementation")
     }),
   )
-  expect(Either.isLeft(result)).toBe(true)
-  if (Either.isLeft(result)) expect(result.left._tag).toBe("ChangeNotFound")
+  expect(Result.isFailure(result)).toBe(true)
+  if (Result.isFailure(result)) expect(result.failure._tag).toBe("ChangeNotFound")
 })
 
 test("links persist as checkout specs with the record format stamped", async () => {
@@ -335,26 +365,26 @@ test("a record from a newer Corvi reads best-effort and refuses every write", as
     Effect.gen(function* () {
       const changes = yield* ChangeService
       return yield* changes.transitionTo(ChangeId.make("newer"), "Implementation")
-    }).pipe(Effect.either, Effect.provide(services(fencedRoot))),
+    }).pipe(Effect.result, Effect.provide(services(fencedRoot))),
   )
-  expect(Either.isLeft(refused)).toBe(true)
-  if (Either.isLeft(refused)) expect(refused.left._tag).toBe("ChangeFormatTooNew")
+  expect(Result.isFailure(refused)).toBe(true)
+  if (Result.isFailure(refused)) expect(refused.failure._tag).toBe("ChangeFormatTooNew")
 
   const linkRefused = await Effect.runPromise(
-    addRepository("newer", "more").pipe(Effect.either, Effect.provide(services(fencedRoot))),
+    addRepository("newer", "more").pipe(Effect.result, Effect.provide(services(fencedRoot))),
   )
-  expect(Either.isLeft(linkRefused) && linkRefused.left._tag).toBe("ChangeFormatTooNew")
+  expect(Result.isFailure(linkRefused) && linkRefused.failure._tag).toBe("ChangeFormatTooNew")
   // The refusal is the sentence the page shows, not just the tag.
-  if (Either.isLeft(refused) && refused.left._tag === "ChangeFormatTooNew") {
-    expect(refused.left.message).toContain("newer version of Corvi")
+  if (Result.isFailure(refused) && refused.failure._tag === "ChangeFormatTooNew") {
+    expect(refused.failure.message).toContain("newer version of Corvi")
   }
   // Nothing was written: the record a newer Corvi left is exactly as it was.
   expect(JSON.parse(await Bun.file(path).text()).formatVersion).toBe(3)
 })
 
-const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Either.Either<A, E>> =>
+const runStore = <A, E>(program: Effect.Effect<A, E, ChangeStore>): Promise<Result.Result<A, E>> =>
   Effect.runPromise(
-    program.pipe(Effect.either, Effect.provide(storeLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))),
+    program.pipe(Effect.result, Effect.provide(storeLayer({ roots: [{ root, archiveRoot: `${root}-archive` }] }))),
   )
 
 test("a write moves the revision, and a stale writer is refused", async () => {
@@ -380,12 +410,12 @@ test("a write moves the revision, and a stale writer is refused", async () => {
       })
     }),
   )
-  expect(Either.isLeft(stale) && stale.left._tag).toBe("ChangeConflict")
-  if (Either.isLeft(stale) && stale.left._tag === "ChangeConflict") {
-    expect(stale.left.expected).toBe(1)
-    expect(stale.left.actual).toBe(2)
+  expect(Result.isFailure(stale) && stale.failure._tag).toBe("ChangeConflict")
+  if (Result.isFailure(stale) && stale.failure._tag === "ChangeConflict") {
+    expect(stale.failure.expected).toBe(1)
+    expect(stale.failure.actual).toBe(2)
     // The sentence the user sees, not just the tag: an empty one renders as the type name.
-    expect(stale.left.message).toContain("revision")
+    expect(stale.failure.message).toContain("revision")
   }
 })
 
@@ -398,14 +428,14 @@ test("concurrent transitions cannot both win", async () => {
         Effect.gen(function* () {
           const changes = yield* ChangeService
           return yield* changes.transitionTo(ChangeId.make("racy"), "Implementation")
-        }).pipe(Effect.either),
+        }).pipe(Effect.result),
       { concurrency: "unbounded" },
     ).pipe(Effect.provide(services(root))),
   )
-  expect(outcomes.filter((outcome) => Either.isRight(outcome))).toHaveLength(1)
+  expect(outcomes.filter((outcome) => Result.isSuccess(outcome))).toHaveLength(1)
   // The losers read the same revision (conflict) or read the winner's phase (invalid).
-  for (const outcome of outcomes.filter((outcome) => Either.isLeft(outcome))) {
-    expect(["ChangeConflict", "InvalidTransition"]).toContain((outcome.left as { _tag: string })._tag)
+  for (const outcome of outcomes.filter((outcome) => Result.isFailure(outcome))) {
+    expect(["ChangeConflict", "InvalidTransition"]).toContain((outcome.failure as { _tag: string })._tag)
   }
   const read = await runEither(
     Effect.gen(function* () {
@@ -413,5 +443,5 @@ test("concurrent transitions cannot both win", async () => {
       return yield* changes.getChange(ChangeId.make("racy"))
     }),
   )
-  expect(Either.isRight(read) && read.right.phase).toBe("Implementation")
+  expect(Result.isSuccess(read) && read.success.phase).toBe("Implementation")
 })

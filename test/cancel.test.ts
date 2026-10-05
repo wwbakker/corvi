@@ -8,7 +8,7 @@ import { provisionRepositories } from "../apps/server/src/change/provisioning.ts
 import { Effect } from "effect";
 import { checkoutsOf, runCancel, runEffect, runSh, TestError  } from "./helpers.ts";
 import { cancelChange } from "../apps/server/src/change/server/index.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/changes/record";
 
 /**
@@ -18,7 +18,7 @@ import { byWorkOrder, isFinished, CHANGE_STATES, type Change } from "@corvi/chan
  */
 let tmp: string;
 
-const commit = (repo: string, message: string): Promise<Result> =>
+const commit = (repo: string, message: string): Promise<ShellResult> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 async function clonedRepo(name: string): Promise<string> {

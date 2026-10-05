@@ -2,8 +2,8 @@
  *
  * One settings shape runs through it: `SettingsOverrides` is the whole set of settings, at the
  * global level and again inside a workspace where every key overrides the global one. Decode
- * keeps unknown keys (`onExcessProperty: "preserve"` at the decode sites): a hand-edited key
- * Corvi does not know about belongs to a version that does.
+ * keeps unknown keys (the shared decode-then-merge at the decode sites): a hand-edited key Corvi
+ * does not know about belongs to a version that does.
  */
 import { Schema } from "effect"
 
@@ -12,20 +12,10 @@ import { DeviceSchema } from "./devices.ts"
 
 /** One extension's settings bag: `extensionSettings[name][key]`, where a value is one string or a
  * list of strings. Shared by both levels; the core carries it without looking inside. */
-const ExtensionBag = Schema.mutable(
-  Schema.Record({
-    key: Schema.String,
-    value: Schema.mutable(
-      Schema.Record({
-        key: Schema.String,
-        value: Schema.Union(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
-      }),
-    ),
-  }),
-)
+const ExtensionBag = Schema.Record(Schema.String, Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.Union([Schema.String, Schema.mutable(Schema.Array(Schema.String))])))))
 
 /** A map of environment variables added to every CLI run: `env[name] = value`. */
-const EnvMap = Schema.mutable(Schema.Record({ key: Schema.String, value: Schema.String }))
+const EnvMap = Schema.Record(Schema.String, Schema.mutableKey(Schema.String))
 
 /** The settings, complete: every setting Corvi knows, at any level. Each key is optional — an
  * absent value means "not set", and the next level down answers (inside a workspace: the global
@@ -67,7 +57,7 @@ export type SettingsOverridesDto = typeof SettingsOverrides.Type
 
 /** A workspace id ends up in cache keys and in `?workspace=`, and a change records it forever:
  * it has to be a word. */
-export const WorkspaceId = Schema.String.pipe(Schema.pattern(/^[\w.-]+$/))
+export const WorkspaceId = Schema.String.pipe(Schema.check(Schema.isPattern(/^[\w.-]+$/)))
 
 /** Where a remote workspace lives: the server that hosts it, the workspace's id there, and the
  * device token this client presents to it. The token is a secret and is masked in every page
@@ -102,10 +92,10 @@ export type WorkspaceDto = typeof Workspace.Type
 export const DEFAULT_WORKSPACE: WorkspaceDto = { id: "default", name: "Default workspace" }
 
 /** A directory copied into a worktree is a name next to the code, not a path. */
-export const DirectoryName = Schema.String.pipe(Schema.pattern(/^[^/\\]+$/))
+export const DirectoryName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[^/\\]+$/)))
 
 /** An environment variable name, for an `env` map. */
-export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-9_]*$/))
+export const EnvVarName = Schema.String.pipe(Schema.check(Schema.isPattern(/^[A-Za-z_][A-Za-z0-9_]*$/)))
 
 /** The external listener: a second loopback port an authenticated remote client reaches, off by
  * default. Top-level (like `devices`), not a workspace setting: remote access is this machine's
@@ -113,9 +103,11 @@ export const EnvVarName = Schema.String.pipe(Schema.pattern(/^[A-Za-z_][A-Za-z0-
 export const RemoteAccess = Schema.Struct({
   enabled: Schema.Boolean,
   port: Schema.Number.pipe(
-    Schema.int(),
-    Schema.greaterThanOrEqualTo(1),
-    Schema.lessThanOrEqualTo(65535),
+    Schema.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+      Schema.isLessThanOrEqualTo(65535),
+    ),
   ),
 })
 export type RemoteAccessDto = typeof RemoteAccess.Type

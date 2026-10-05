@@ -4,7 +4,7 @@
  * scope's roots. */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { join } from "node:path"
-import { Effect, Layer, Schema } from "effect"
+import { Effect, Layer, Schema, Semaphore } from "effect"
 
 import type { ChangeId } from "@corvi/contracts/changes"
 import { OperationStepSchema } from "@corvi/contracts/api"
@@ -22,7 +22,7 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
   Layer.effect(
     OperationProgress,
     Effect.gen(function* () {
-      const lock = yield* Effect.makeSemaphore(1)
+      const lock = yield* Semaphore.make(1)
       /** Every directory this change may live in: each pair's active root first, then each
        * pair's archive. The journal goes beside the record it fences on. */
       const dirsFor = (changeId: ChangeId): string[] => [
@@ -34,8 +34,14 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           for (const dir of dirsFor(changeId)) {
             const found = yield* Effect.tryPromise({
               try: () => readFile(join(dir, "change.json"), "utf8"),
-              catch: (cause: unknown) => cause,
-            }).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+              catch: (cause) =>
+                new ChangeStoreError({
+                  changeId,
+                  operation: "read",
+                  message: `could not read ${join(dir, "change.json")}`,
+                  cause,
+                }),
+            }).pipe(Effect.orElseSucceed(() => undefined))
             if (found !== undefined) return dir
           }
           // Not written yet: the journal starts the directory the change will be created in.
@@ -51,26 +57,23 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
         // left exactly as a newer Corvi left it, journal included.
         const recordText = yield* Effect.tryPromise({
           try: () => readFile(join(dir, "change.json"), "utf8"),
-          catch: (cause: unknown) => cause,
+          catch: (cause) =>
+            new ChangeStoreError({
+              changeId: input.changeId,
+              operation: "read",
+              message: `could not read the change record for ${input.changeId}`,
+              cause,
+            }),
         }).pipe(
-          Effect.catchAll((cause: unknown) =>
-            isNotFound(cause)
-              ? Effect.succeed(undefined)
-              : Effect.fail(
-                  new ChangeStoreError({
-                    changeId: input.changeId,
-                    operation: "read",
-                    message: `could not read the change record for ${input.changeId}`,
-                    cause,
-                  }),
-                ),
+          Effect.catchTag("ChangeStoreError", (error) =>
+            isNotFound(error.cause) ? Effect.void : Effect.fail(error),
           ),
         )
         const recordFormat =
           recordText === undefined
             ? FORMAT_VERSION
-            : yield* Schema.decodeUnknown(
-                Schema.parseJson(Schema.Record({ key: Schema.String, value: Schema.Unknown })),
+            : yield* Schema.decodeUnknownEffect(
+                Schema.fromJsonString(Schema.Record(Schema.String, Schema.Unknown)),
               )(recordText).pipe(
                 Effect.map((raw) => (typeof raw.formatVersion === "number" ? raw.formatVersion : 1)),
                 Effect.orElseSucceed(() => 1),
@@ -88,22 +91,19 @@ export const layer = (options: { readonly roots: readonly RootPair[] }): Layer.L
           Effect.gen(function* () {
             const existing = yield* Effect.tryPromise({
               try: () => readFile(path, "utf8"),
-              catch: (cause: unknown) => cause,
+              catch: (cause) =>
+                new ChangeStoreError({
+                  changeId: input.changeId,
+                  operation: "read",
+                  message: `could not read ${path}`,
+                  cause,
+                }),
             }).pipe(
-              Effect.catchAll((cause: unknown) =>
-                isNotFound(cause)
-                  ? Effect.succeed("[]")
-                  : Effect.fail(
-                      new ChangeStoreError({
-                        changeId: input.changeId,
-                        operation: "read",
-                        message: `could not read ${path}`,
-                        cause,
-                      }),
-                    ),
+              Effect.catchTag("ChangeStoreError", (error) =>
+                isNotFound(error.cause) ? Effect.succeed("[]") : Effect.fail(error),
               ),
             )
-            const steps = yield* Schema.decodeUnknown(Schema.parseJson(Steps))(existing).pipe(
+            const steps = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Steps))(existing).pipe(
               Effect.mapError(
                 (error) =>
                   new ChangeStoreError({

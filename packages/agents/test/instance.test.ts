@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { Either } from "effect";
+import { Result } from "effect";
 
 import {
   latestMessage,
@@ -31,16 +31,16 @@ test("message files name the number and the role, and read back", () => {
 test("a message round-trips through its file", () => {
   const original = { ...message(1, "orchestrator", "line one\nline two"), pane: "%3" };
   const parsed = parseMessage(renderMessage(original));
-  expect(Either.isRight(parsed)).toBe(true);
-  if (Either.isRight(parsed)) {
-    expect({ ...parsed.right, number: 1 }).toEqual(original);
+  expect(Result.isSuccess(parsed)).toBe(true);
+  if (Result.isSuccess(parsed)) {
+    expect({ ...parsed.success, number: 1 }).toEqual(original);
   }
 });
 
 test("a damaged message file is a reason, not a throw", () => {
-  expect(Either.isLeft(parseMessage("no frontmatter"))).toBe(true);
-  expect(Either.isLeft(parseMessage("---\nfrom: nobody\nat: t\n---\nbody"))).toBe(true);
-  expect(Either.isLeft(parseMessage("---\nfrom: user\n---\nbody"))).toBe(true);
+  expect(Result.isFailure(parseMessage("no frontmatter"))).toBe(true);
+  expect(Result.isFailure(parseMessage("---\nfrom: nobody\nat: t\n---\nbody"))).toBe(true);
+  expect(Result.isFailure(parseMessage("---\nfrom: user\n---\nbody"))).toBe(true);
 });
 
 test("numbering continues past the highest message", () => {

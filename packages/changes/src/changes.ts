@@ -23,7 +23,7 @@ export interface Interface {
   ) => Effect.Effect<Change, ChangeNotFound | InvalidTransition | ChangeConflict | ChangeFormatTooNew | ChangeStoreError>
 }
 
-export class ChangeService extends Context.Tag("corvi/ChangeService")<ChangeService, Interface>() {}
+export class ChangeService extends Context.Service<ChangeService, Interface>()("corvi/ChangeService") {}
 
 const now = (): string => new Date().toISOString()
 

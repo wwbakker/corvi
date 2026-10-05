@@ -3,6 +3,7 @@ import { readFileSync as readFileNodeSync } from "node:fs";
 import { chmod, copyFile, mkdir } from "node:fs/promises";
 import { dirname, join, isAbsolute } from "node:path";
 import { Effect, Schema } from "effect";
+import { decodePreserving } from "@corvi/contracts/body";
 import { writeAtomic } from "../../capabilities/files.ts";
 import { fs } from "../../capabilities/effect/support.ts";
 import {
@@ -46,7 +47,8 @@ const defaults: Pick<Config, "changesRoot" | "archiveRoot" | "repositoriesDirect
  * Everything async (the settings page's write path) composes the same Effect.
  */
 const decodeConfigFile = (text: string): Effect.Effect<ConfigFile> =>
-  Schema.decodeUnknown(Schema.parseJson(ConfigFile), { onExcessProperty: "preserve" })(text).pipe(
+  Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown))(text).pipe(
+    Effect.flatMap((raw) => decodePreserving(ConfigFile, raw)),
     // Tolerance the manual documents: an invalid config file reads as "nothing configured".
     Effect.orElseSucceed(() => ({})),
   );
@@ -58,7 +60,7 @@ export const readFile = (path: string = configPath()): Effect.Effect<ConfigFile>
     return yield* decodeConfigFile(text);
   }).pipe(
     // Same tolerance, for a file that cannot be read at all: nothing configured.
-    Effect.catchAll(() => Effect.succeed({})),
+    Effect.catch(() => Effect.succeed({})),
   );
 
 /** What is in the file, as it is written. Invalid JSON reads as "nothing configured", which is

@@ -4,13 +4,14 @@ import { cpus, loadavg, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright";
 import { isRunToken, runPidPath } from "../scripts/clean-test.ts";
-import { Data, Effect, Layer, TestClock, TestContext } from "effect";
+import { Effect, Layer, Schema } from "effect";
+import { TestClock, TestConsole } from "effect/testing";
 import type { Workspace } from "../apps/server/src/workspace/server/index.ts";
 import { runtimeConfig, type Config } from "../apps/server/src/workspace/server/index.ts";
 import { capabilitiesLayer } from "../apps/server/src/integrations/services.ts";
 import type { Capabilities } from "../apps/server/src/integrations/api/capabilities.ts";
 import { setRepos } from "../apps/server/src/change/provisioning.ts";
-import { sh, type Result } from "../apps/server/src/capabilities/shell.ts";
+import { sh, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
 import { CacheLive, ChangesLive, GitFactsLive, SettingsLive } from "../apps/server/src/integrations/services.ts";
@@ -394,16 +395,21 @@ export const runEffectWithTestClock = <A, E>(
   effect: Effect.Effect<A, E, never>,
 ): Promise<A> =>
   Effect.runPromise(
-    Effect.zipRight(TestClock.setTime(Date.now()), effect).pipe(
+    Effect.andThen(TestClock.setTime(Date.now()), effect).pipe(
       Effect.provide(
-        Layer.merge(TestContext.TestContext, capabilitiesLayer(workspaceById(undefined))),
+        Layer.merge(
+          Layer.mergeAll(TestConsole.layer, TestClock.layer()),
+          capabilitiesLayer(workspaceById(undefined)),
+        ),
       ),
     ),
   );
 
 /** A typed stand-in for a failed vendor in a test: the language service forbids a global
  * `Error` in an Effect failure channel, and the code under test only reads its message. */
-export class TestError extends Data.TaggedError("TestError")<{ readonly message: string }> {}
+export class TestError extends Schema.TaggedError<TestError>()("TestError", {
+  message: Schema.String,
+}) {}
 
 /** A command a fake Shell was asked to run, in the order it was asked. */
 export type ShellCall = { cmd: readonly string[]; cwd?: string };
@@ -418,17 +424,17 @@ export type FakeShell = {
   run: (
     cmd: readonly string[],
     opts?: { cwd?: string },
-  ) => Effect.Effect<Result, CliError, WorkspaceTag>;
+  ) => Effect.Effect<ShellResult, CliError, WorkspaceTag>;
 };
 
 /** Build a scripted Shell (see `FakeShell`). */
 export const fakeShell = (
   responses:
-    | Record<string, string | Partial<Result>>
-    | ((cmd: readonly string[]) => string | Partial<Result> | undefined) = {},
+    | Record<string, string | Partial<ShellResult>>
+    | ((cmd: readonly string[]) => string | Partial<ShellResult> | undefined) = {},
 ): FakeShell => {
   const calls: ShellCall[] = [];
-  const answer = (cmd: readonly string[]): Result => {
+  const answer = (cmd: readonly string[]): ShellResult => {
     const scripted = typeof responses === "function" ? responses(cmd) : responses[cmd.join(" ")];
     if (scripted === undefined) return { code: 0, stdout: "", stderr: "" };
     if (typeof scripted === "string") return { code: 0, stdout: scripted, stderr: "" };
@@ -480,8 +486,8 @@ export const runRouteWithShell = (
   Effect.runPromise(
     Effect.provide(
       effect.pipe(
-        Effect.catchAll((error) => Effect.succeed(toResponse(error))),
-        Effect.catchAllDefect((defect) => Effect.succeed(toResponse(defect))),
+        Effect.catch((error) => Effect.succeed(toResponse(error))),
+        Effect.catchDefect((defect) => Effect.succeed(toResponse(defect))),
       ),
       Layer.mergeAll(
         Layer.succeed(Shell, shell),
@@ -496,10 +502,10 @@ export const runRouteWithShell = (
 
 /** One CLI call, Promise-shaped for the tests: a timed-out CLI is exit code 124, so tests
  * branch on `code` exactly as the server does. */
-export const runSh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
+export const runSh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>
   runEffect(
     sh(cmd, cwd).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     ),
   );
 

@@ -24,7 +24,7 @@ import type { CommitRequest } from "@corvi/contracts/integrations/review";
 /** The commit the page sends: one message, the files ticked in each repository. */
 const CommitBody = Schema.Struct({
   message: Schema.String,
-  files: Schema.Record({ key: Schema.String, value: Schema.mutable(Schema.Array(Schema.String)) }),
+  files: Schema.Record(Schema.String, Schema.mutable(Schema.Array(Schema.String))),
 });
 const PushBody = Schema.Struct({
   repos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),

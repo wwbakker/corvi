@@ -27,12 +27,12 @@ export const assignTicketOnCreate = (change: Change): Effect.Effect<ProvisionRes
     const workspace = workspaceOf(change);
     const assigned = yield* assignIssue(change).pipe(
       Effect.provide(capabilitiesLayer(workspace, "jira")),
-      Effect.either,
+      Effect.result,
     );
     return [
-      assigned._tag === "Right"
-        ? { integration: "jira", ok: true, detail: assigned.right.detail }
-        : { integration: "jira", ok: false, error: messageOf(assigned.left) },
+      assigned._tag === "Success"
+        ? { integration: "jira", ok: true, detail: assigned.success.detail }
+        : { integration: "jira", ok: false, error: messageOf(assigned.failure) },
     ];
   });
 
@@ -44,15 +44,15 @@ export const startTicket = (change: Change): Effect.Effect<ProvisionResult[]> =>
     const workspace = workspaceOf(change);
     const moved = yield* moveIssueOnStart(change).pipe(
       Effect.provide(capabilitiesLayer(workspace, "jira")),
-      Effect.either,
+      Effect.result,
     );
     return [
-      moved._tag === "Right"
+      moved._tag === "Success"
         ? {
             integration: "jira",
             ok: true,
-            ...(moved.right.detail ? { detail: moved.right.detail } : {}),
+            ...(moved.success.detail ? { detail: moved.success.detail } : {}),
           }
-        : { integration: "jira", ok: false, error: messageOf(moved.left) },
+        : { integration: "jira", ok: false, error: messageOf(moved.failure) },
     ];
   });

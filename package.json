@@ -16,7 +16,7 @@
       "integrations/*"
     ],
     "catalog": {
-      "effect": "^3.22.2"
+      "effect": "4.0.0"
     }
   },
   "engines": {

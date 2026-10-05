@@ -137,6 +137,71 @@ test("a change.json key the core no longer names survives a rewrite", async () =
   expect(again.jira).toBe("PROJ-1");
 });
 
+test("a nested change.json key the core no longer names survives a rewrite", async () => {
+  const id = "PROJ-UNKNOWN-NESTED";
+  const dir = changeDir({ id: id });
+  await mkdir(dir, { recursive: true });
+  await Bun.write(
+    join(dir, "change.json"),
+    `${JSON.stringify(
+      {
+        id,
+        branch: id,
+        checkouts: [{ path: "/tmp/x", location: "new", branch: { kind: "change" }, legacy: true }],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  // The decoder keeps an unknown key inside a nested struct (a newer version's checkout field),
+  // not just at the record's top level.
+  const read = await runEffect(readChange(id));
+  const checkouts = (read as { checkouts?: Record<string, unknown>[] } | null)?.checkouts ?? [];
+  expect(checkouts[0]?.legacy).toBe(true);
+
+  await runEffect(writeChange(read!));
+  const again = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as {
+    checkouts: Record<string, unknown>[];
+  };
+  expect(again.checkouts[0]?.legacy).toBe(true);
+});
+
+test("a change.json carrying prototype-named keys round-trips them as own keys", async () => {
+  const id = "PROJ-PROTOTYPE";
+  const dir = changeDir({ id: id });
+  await mkdir(dir, { recursive: true });
+  // Written as text (not an object literal) so `__proto__` is an own key, as JSON.parse gives it.
+  await Bun.write(
+    join(dir, "change.json"),
+    `{"id":${JSON.stringify(id)},"branch":${JSON.stringify(id)},` +
+      `"createdAt":"2026-01-01T00:00:00.000Z",` +
+      `"constructor":{"a":1},"toString":"keep-me","__proto__":{"polluted":"yes"},"extra":1}`,
+  );
+
+  const at = (value: Record<string, unknown>, key: string): unknown => value[key];
+  const read = (await runEffect(readChange(id))) as unknown as Record<string, unknown>;
+  expect(Object.hasOwn(read, "constructor")).toBe(true);
+  expect(at(read, "constructor")).toEqual({ a: 1 });
+  expect(Object.hasOwn(read, "toString")).toBe(true);
+  expect(at(read, "toString")).toBe("keep-me");
+  expect(Object.hasOwn(read, "__proto__")).toBe(true);
+  expect(at(read, "__proto__")).toEqual({ polluted: "yes" });
+  expect(Object.getPrototypeOf(read)).toBe(Object.prototype);
+
+  await runEffect(writeChange(read as unknown as Change));
+  const written = JSON.parse(await Bun.file(join(dir, "change.json")).text()) as Record<string, unknown>;
+  expect(Object.hasOwn(written, "constructor")).toBe(true);
+  expect(at(written, "constructor")).toEqual({ a: 1 });
+  expect(Object.hasOwn(written, "toString")).toBe(true);
+  expect(at(written, "toString")).toBe("keep-me");
+  expect(Object.hasOwn(written, "__proto__")).toBe(true);
+  expect(at(written, "__proto__")).toEqual({ polluted: "yes" });
+  expect(Object.getPrototypeOf(written)).toBe(Object.prototype);
+});
+
+
 test("an extension's issue is named by repository and number, and read from the bag", () => {
   const change: Change = {
     id: "A",

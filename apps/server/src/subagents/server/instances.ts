@@ -16,7 +16,7 @@
  * derived after a reboot, so it is written when `next` hands a message over and cleared when the
  * reply settles.
  */
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 
 import { launchOf } from "@corvi/agents/harness";
 import {
@@ -68,11 +68,11 @@ const now = (): string => new Date().toISOString();
 /** One open per subagent at a time: two concurrent opens would otherwise both see "not live" and
  * launch two host sessions for one id. An in-process lock is enough, since the server is the only
  * writer of the instances. */
-const openLocks = new Map<string, Effect.Semaphore>();
-const openLock = (key: string): Effect.Semaphore => {
+const openLocks = new Map<string, Semaphore.Semaphore>();
+const openLock = (key: string): Semaphore.Semaphore => {
   let lock = openLocks.get(key);
   if (lock === undefined) {
-    lock = Effect.unsafeMakeSemaphore(1);
+    lock = Semaphore.makeUnsafe(1);
     openLocks.set(key, lock);
   }
   return lock;
@@ -83,7 +83,7 @@ type Live = LiveSubagent;
 /** The live subagent host sessions of a change, keyed by subagent id. A host that is not running
  * is an empty map: presence is best-effort, never a request failure. */
 const liveBySubagent = (changeId: string): Effect.Effect<Map<string, Live>> =>
-  liveSubagents(changeId).pipe(Effect.catchAll(() => Effect.succeed(new Map<string, Live>())));
+  liveSubagents(changeId).pipe(Effect.catch(() => Effect.succeed(new Map<string, Live>())));
 
 /** The `viewOf` input for a live entry (or its absence): one projection, so `toDto` and
  * `awaitReady` cannot disagree about presence or the reporter's status. */
@@ -265,9 +265,21 @@ export const createSubagent = (
           (current) => current,
         ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
         // The launcher can still fail after the files exist: roll back so a failed create leaves
-        // nothing behind, and a retry starts clean.
+        // nothing behind, and a retry starts clean. A cleanup failure is logged, not surfaced:
+        // the launcher's refusal is what the caller must see, not the rollback's.
         const window = yield* launcher(change, record).pipe(
-          Effect.catchAll((failure) => Effect.zipRight(removeInstance(dir, id), Effect.fail(failure))),
+          Effect.catch((failure) =>
+            Effect.andThen(
+              removeInstance(dir, id).pipe(
+                Effect.catch((cleanup) =>
+                  Effect.sync(() =>
+                    console.error(`could not roll back subagent ${id}:`, cleanup),
+                  ),
+                ),
+              ),
+              Effect.fail(failure),
+            ),
+          ),
         );
         yield* opened(change, id, window);
         return yield* refreshSubagent(change, id);
@@ -299,7 +311,7 @@ export const closeSubagent = (
   Effect.gen(function* () {
     const record = yield* requireInstance(change, id);
     if (record.window !== undefined) {
-      yield* killHostWindow(change.id, record.window).pipe(Effect.catchAll(() => Effect.void));
+      yield* killHostWindow(change.id, record.window).pipe(Effect.catch(() => Effect.void));
     }
     yield* mutateRecord(changeDir(change), id, (current) => ({
       write: true,
@@ -309,7 +321,7 @@ export const closeSubagent = (
         log: [...current.log, { kind: "closed", at: now() }],
       },
       result: undefined,
-    })).pipe(Effect.catchAll(() => Effect.void));
+    })).pipe(Effect.catch(() => Effect.void));
     yield* notify(change.id, id, { kind: "lost", id });
     yield* Effect.sync(() => announce("windows"));
     return yield* refreshSubagent(change, id);
@@ -459,7 +471,7 @@ export const awaitReady = (
     const records = yield* listInstances(changeDir(change));
     const targets = input.ids.length === 0 ? records.map((record) => record.id) : [...input.ids];
     for (const id of targets) {
-      if (!records.some((record) => record.id === id)) return yield* Effect.fail(notFound(id));
+      if (!records.some((record) => record.id === id)) return yield* notFound(id);
     }
     if (targets.length === 0) return { status: "timeout" };
 
@@ -477,7 +489,7 @@ export const awaitReady = (
             const entry = live.get(id);
             const attached = entry !== undefined;
             const record = yield* requireInstance(change, id).pipe(
-              Effect.catchAll(() => Effect.succeed(null)),
+              Effect.catch(() => Effect.succeed(null)),
             );
             if (record === null) {
               return { done: true as const, result: { status: "lost" as const, id } };

@@ -79,7 +79,7 @@ export function outcomeOf(result: MergeResult): { waiting: boolean; note?: strin
 export function pollResult(code: number, stdout: string): MergeResult | undefined {
   if (code !== 0) return undefined;
   try {
-    const parsed = Schema.decodeUnknownSync(Schema.parseJson(MergeResultSchema))(stdout);
+    const parsed = Schema.decodeUnknownSync(Schema.fromJsonString(MergeResultSchema))(stdout);
     return parsed.status ? (parsed as MergeResult) : undefined;
   } catch {
     return undefined;
@@ -128,7 +128,7 @@ export const mergeStacked = (
     // 409 means a merge request already exists; its uuid comes back all the same, so poll that one.
     // An unknown status is handled by outcomeOf's default branch, so the decode tolerates one.
     const submitted = (yield* Effect.orElseSucceed(
-      Schema.decodeUnknown(Schema.parseJson(MergeResultSchema))(submit.stdout || "{}"),
+      Schema.decodeUnknownEffect(Schema.fromJsonString(MergeResultSchema))(submit.stdout || "{}"),
       () => ({ status: "failed" }),
     )) as MergeResult;
     if (submit.code !== 0 && !submitted.details?.uuid) {

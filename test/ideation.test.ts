@@ -20,7 +20,7 @@ import { checkoutFor } from "../apps/server/src/vendors/git.ts";
 import { isIdeation, slugFor } from "@corvi/changes/record";
 import type { Change } from "@corvi/changes/record";
 import { checkoutsOf, runCancel, runEffect, runSetRepos, runSh  } from "./helpers.ts";
-import type { Result } from "../apps/server/src/capabilities/shell.ts";
+import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 
 /**
  * The ideation stage: an idea is created with a title and a plan and nothing else — no branch,
@@ -30,7 +30,7 @@ import type { Result } from "../apps/server/src/capabilities/shell.ts";
 
 let tmp: string;
 
-const commit = (repo: string, message: string): Promise<Result> =>
+const commit = (repo: string, message: string): Promise<ShellResult> =>
   runSh(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-m", message], repo);
 
 async function clonedRepo(name: string): Promise<string> {

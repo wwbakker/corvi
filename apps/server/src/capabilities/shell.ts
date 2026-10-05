@@ -15,13 +15,13 @@ import { Effect, Option } from "effect";
 import { CliError } from "@corvi/contracts/errors";
 import { Workspace } from "@corvi/contracts/workspace";
 import { DEFAULT_WORKSPACE, type Workspace as WorkspaceConfig } from "@corvi/configuration/config";
-import { Shell, type Result } from "@corvi/shell";
+import { Shell, type ShellResult } from "@corvi/shell";
 import { makeNodeShell, type TraceEntry } from "@corvi/shell/node";
 import { childEnv } from "./env.ts";
 import { settingsOf } from "../workspace/server/workspaces.ts";
 import { env } from "@corvi/configuration/node";
 
-export type { Result };
+export type { ShellResult };
 
 /** Calls, and what they cost, when CORVI_TRACE is set. The dashboard's cost is almost entirely
  * these processes, and which of them is expensive is not something to guess at. */
@@ -62,10 +62,10 @@ export const shWithEnv = (
   cmd: readonly string[],
   cwd: string | undefined,
   variables: Record<string, string>,
-): Effect.Effect<Result, CliError> => nodeShell.run(cmd, { cwd, env: variables });
+): Effect.Effect<ShellResult, CliError> => nodeShell.run(cmd, { cwd, env: variables });
 
 /** One CLI call, bounded by the shared semaphore: non-zero exit codes are a successful
- * `Result` — callers branch on `code`; the `CliError` channel is only for a timeout.
+ * `ShellResult` — callers branch on `code`; the `CliError` channel is only for a timeout.
  *
  * A `Shell` service in context wins: delegation is what lets a test script every command the
  * core runs. The live Shell layer runs `shWithEnv` (not this), so there is no recursion. The
@@ -74,7 +74,7 @@ export const shWithEnv = (
  * With no Shell in context the call runs the node shell directly, exactly as before, so
  * startup and cache code keep working with none. The tag is read, not required, so this stays
  * runnable where no workspace exists. */
-export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<Result, CliError> =>
+export const sh = (cmd: readonly string[], cwd?: string): Effect.Effect<ShellResult, CliError> =>
   Effect.gen(function* () {
     const shell = yield* Effect.serviceOption(Shell);
     const workspace = yield* Effect.serviceOption(Workspace);

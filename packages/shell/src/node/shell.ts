@@ -9,9 +9,9 @@ import { spawn as childSpawn } from "node:child_process";
 import { Readable } from "node:stream";
 
 import { CliError } from "@corvi/contracts/errors";
-import { Duration, Effect, Either } from "effect";
+import { Duration, Effect, Result, Semaphore } from "effect";
 
-import type { Result } from "../shell.ts";
+import type { ShellResult } from "../shell.ts";
 
 /** Calls, and what they cost, when the host asks for tracing. The dashboard's cost is almost
  * entirely these processes, and which of them is expensive is not something to guess at. */
@@ -40,7 +40,7 @@ export interface NodeShellShape {
   readonly run: (
     cmd: readonly string[],
     opts?: { readonly cwd?: string; readonly env?: Readonly<Record<string, string>> },
-  ) => Effect.Effect<Result, CliError>;
+  ) => Effect.Effect<ShellResult, CliError>;
 }
 
 /** CLIs colour their errors even when not on a TTY; those codes would end up in the UI. */
@@ -80,16 +80,16 @@ const text = async (stream: Readable | null): Promise<string> => {
 
 export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
   /** The one gate every CLI call passes through. */
-  const gate = Effect.runSync(Effect.makeSemaphore(options.parallel));
+  const gate = Semaphore.makeUnsafe(options.parallel);
 
   const spawn = (
     cmd: readonly string[],
     cwd: string | undefined,
     variables: Readonly<Record<string, string>>,
-  ): Effect.Effect<Result, CliError> =>
+  ): Effect.Effect<ShellResult, CliError> =>
     Effect.gen(function* () {
       const started = options.trace ? Number(process.hrtime.bigint()) : 0;
-      const spawned = yield* Effect.either(
+      const spawned = yield* Effect.result(
         Effect.try({
           try: () => {
             const [tool, ...args] = cmd;
@@ -103,13 +103,13 @@ export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
           catch: (e) => (e instanceof Error ? e.message : String(e)),
         }),
       );
-      if (Either.isLeft(spawned)) {
+      if (Result.isFailure(spawned)) {
         // A missing tool, or a working directory that is not there any more — a repository moved
         // or deleted out from under a change. That is a failed command, not a broken server: every
         // caller already knows what to do with a non-zero code, and none of them expect a throw.
-        return { code: 127, stdout: "", stderr: spawned.left };
+        return { code: 127, stdout: "", stderr: spawned.failure };
       }
-      const proc = spawned.right;
+      const proc = spawned.success;
       // A command that cannot start — not on PATH, no execute permission, a working directory
       // that is gone — emits `error` rather than exiting, and an unhandled one would take the
       // server down. 127 is what a shell says for "command not found", and every caller already
@@ -140,7 +140,7 @@ export const makeNodeShell = (options: NodeShellOptions): NodeShellShape => {
           ? read.pipe(
               killHook,
               Effect.timeout(Duration.seconds(seconds)),
-              Effect.catchTag("TimeoutException", () =>
+              Effect.catchTag("TimeoutError", () =>
                 Effect.fail(failCli(cmd, `${cmd.join(" ")} timed out after ${seconds} seconds`, 124)),
               ),
             )

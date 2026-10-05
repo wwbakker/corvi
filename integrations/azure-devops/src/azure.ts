@@ -53,14 +53,14 @@ const globalAzure = (settings: Config): AzureSite => azureOf({}, settings);
  * keyed without a workspace: every workspace falls back to the same CLI configuration. Tests
  * reset it with `clearCache`, like every other cached answer. */
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
 const shResult = (cmd: string[]): Effect.Effect<{ code: number; stdout: string }, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 

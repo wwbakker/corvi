@@ -22,7 +22,7 @@ export interface Interface {
   ) => Effect.Effect<void, ChangeFormatTooNew | RepositoryNotFound | RepositoryStoreError>
 }
 
-export class ChangeRepositories extends Context.Tag("corvi/ChangeRepositories")<ChangeRepositories, Interface>() {}
+export class ChangeRepositories extends Context.Service<ChangeRepositories, Interface>()("corvi/ChangeRepositories") {}
 
 export const layer = Layer.effect(
   ChangeRepositories,

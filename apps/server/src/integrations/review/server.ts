@@ -5,7 +5,7 @@ import {
   CliError,
 } from "@corvi/contracts/errors";
 import { Changes, Shell, Workspace } from "../api/capabilities.ts";
-import type { Result } from "../../capabilities/shell.ts";
+import type { ShellResult } from "../../capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
 import type {
   CommitRequest,
@@ -93,14 +93,14 @@ export const aheadIn = (stdout: string): number | undefined => {
 export const trackedIn = (stdout: string): boolean =>
   /^# branch\.upstream \S/m.test(stdout.replaceAll("\0", "\n"));
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
-const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result, never, Shell | Workspace> =>
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd, { cwd }).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 
@@ -209,13 +209,9 @@ export const fileDiff = (
     return r.stdout;
   });
 
-/** errors.ts's Data.TaggedError leaves `message` empty; the taxonomy requires each error to
- * carry a human-readable message, so set it explicitly (as sh.ts's failCli does). */
-const badRequest = (message: string): BadRequestError => {
-  const error = new BadRequestError({ message });
-  (error as { message: string }).message = message;
-  return error;
-};
+/** A refusal of the taxonomy's 400. `Schema.TaggedError` populates `message` from the field, so
+ * the response carries the sentence. */
+const badRequest = (message: string): BadRequestError => new BadRequestError({ message });
 
 /** The branch a checkout is on, which is what a push without an upstream should name. */
 const currentBranch = (

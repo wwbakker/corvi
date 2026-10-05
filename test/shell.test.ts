@@ -71,7 +71,7 @@ test("a CLI spawn inherits neither the launcher's variables nor passes them to t
 });
 
 test("soft: a CliError with an empty stderr still reports its message", async () => {
-  // The Result-branching contract keeps the sentence: "no Shell in context" and a timeout name
+  // The ShellResult-branching contract keeps the sentence: "no Shell in context" and a timeout name
   // themselves in `message`, not `stderr`, and dropping it here hands the page an empty line —
   // which the transport boundary then renders as the error's type name.
   const result = await Effect.runPromise(

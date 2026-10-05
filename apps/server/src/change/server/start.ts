@@ -70,7 +70,7 @@ const startBody = (change: Change): Effect.Effect<Started, IweError> =>
         const outcome = yield* work
           .startChange(ChangeId.make(change.id))
           .pipe(
-            Effect.catchAll((error): Effect.Effect<never, IweError> => Effect.fail(asIwe(change, error))),
+            Effect.mapError((error): IweError => asIwe(change, error)),
           );
 
         return yield* finishCheckouts(change, outcome.reports);

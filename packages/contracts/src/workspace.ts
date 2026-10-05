@@ -11,4 +11,4 @@ import type { WorkspaceDto } from "./config.ts";
  * read it with `Effect.serviceOption` and fall back to no workspace, hence an empty env
  * override (the app's `apps/server/src/capabilities/shell.ts`).
  */
-export class Workspace extends Context.Tag("corvi/Workspace")<Workspace, WorkspaceDto>() {}
+export class Workspace extends Context.Service<Workspace, WorkspaceDto>()("corvi/Workspace") {}

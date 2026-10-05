@@ -3,7 +3,7 @@ import type { ChangeWireDto as Change } from "@corvi/contracts/api";
 import type { WidgetItemDto as WidgetItem, WidgetStateDto as WidgetState } from "@corvi/contracts/api";
 import { Cache, Changes, GitFacts, Shell, Workspace } from "@corvi/contracts/capabilities";
 import { cliJson } from "@corvi/shell/cli";
-import type { Result } from "@corvi/contracts/capabilities";
+import type { ShellResult } from "@corvi/contracts/capabilities";
 
 export type Check = {
   name: string;
@@ -33,14 +33,14 @@ const checkState = (bucket: string): WidgetState =>
     | WidgetState
     | undefined ?? "none";
 
-/** The Result-branching contract: the one failure `Shell` can raise here is a timeout, which
+/** The ShellResult-branching contract: the one failure `Shell` can raise here is a timeout, which
  * surfaces as a failed command (exit code 124) rather than a failure of the operation, so
  * everything downstream branches on `code`. */
-const shResult = (cmd: string[], cwd?: string): Effect.Effect<Result, never, Shell | Workspace> =>
+const shResult = (cmd: string[], cwd?: string): Effect.Effect<ShellResult, never, Shell | Workspace> =>
   Effect.gen(function* () {
     const shell = yield* Shell;
     return yield* shell.run(cmd, { cwd }).pipe(
-      Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+      Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
     );
   });
 

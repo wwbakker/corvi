@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { Workspace } from "@corvi/contracts/workspace";
-import { sh as runCli, type Result } from "../apps/server/src/capabilities/shell.ts";
+import { sh as runCli, type ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 
 /**
@@ -11,11 +11,11 @@ import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
  * shape scripts branch on (a timed-out CLI is exit code 124). The server itself never uses this:
  * its callers run in a request.
  */
-export const sh = (cmd: readonly string[], cwd?: string): Promise<Result> =>
+export const sh = (cmd: readonly string[], cwd?: string): Promise<ShellResult> =>
   Effect.runPromise(
     Effect.provide(
       runCli(cmd, cwd).pipe(
-        Effect.catchAll((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
+        Effect.catch((e) => Effect.succeed({ code: e.exitCode, stdout: "", stderr: e.stderr })),
       ),
       Layer.succeed(Workspace, workspaceById(undefined)),
     ),

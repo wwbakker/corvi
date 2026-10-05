@@ -344,7 +344,7 @@ const workable = (issues: Issue[]): Issue[] => {
  * to type a change id by hand. */
 const readBoard = (site: Site): Effect.Effect<Board, never, Cache> =>
   Effect.map(
-    Effect.catchAll(
+    Effect.catch(
       Effect.gen(function* () {
         const sprints = yield* listSprints(site);
         const groups = yield* Effect.all(
@@ -515,7 +515,7 @@ export const issuesByKeys = (
     return yield* swr(
       `jira:${siteKey(site)}:keys:${[...keys].sort().join(",")}`,
       ISSUE_TTL,
-      Effect.catchAll(
+      Effect.catch(
         search(`key in (${keys.join(",")})`, site, keys.length),
         () => Effect.succeed([] as Issue[]),
       ).pipe(

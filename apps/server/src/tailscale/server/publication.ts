@@ -16,9 +16,11 @@ import { ID, stateDir } from "@corvi/configuration/node";
  * something else) is no record rather than a wrong one. */
 const Publication = Schema.Struct({
   port: Schema.Number.pipe(
-    Schema.int(),
-    Schema.greaterThanOrEqualTo(1),
-    Schema.lessThanOrEqualTo(65535),
+    Schema.check(
+      Schema.isInt(),
+      Schema.isGreaterThanOrEqualTo(1),
+      Schema.isLessThanOrEqualTo(65535),
+    ),
   ),
 });
 

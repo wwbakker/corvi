@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 
+import { InternalError } from "@corvi/contracts/errors";
 import { mergeProfileFiles, type ProfileDiscovery, type ProfileFileInput } from "../discovery.ts";
 
 /** Where the shipped profiles live: the package's own `builtins/`, read-only files in the same
@@ -34,20 +35,20 @@ export const readProfileScope = (dir: string): Effect.Effect<readonly ProfileSco
   Effect.gen(function* () {
     const names = yield* Effect.tryPromise({
       try: () => readdir(dir),
-      catch: () => new Error(`cannot read ${dir}`),
-    }).pipe(Effect.catchAll(() => Effect.succeed([] as string[])));
+      catch: (cause) => new InternalError({ message: `cannot read ${dir}` }),
+    }).pipe(Effect.orElseSucceed(() => [] as string[]));
     const files: ProfileScopeFile[] = [];
     for (const name of names.filter((n) => n.endsWith(".md")).sort()) {
       const path = join(dir, name);
       const read = yield* Effect.tryPromise({
         try: () => readFile(path, "utf8"),
-        catch: () => new Error(`cannot read ${path}`),
-      }).pipe(Effect.either);
+        catch: (cause) => new InternalError({ message: `cannot read ${path}` }),
+      }).pipe(Effect.result);
       files.push({
         id: name.slice(0, -3),
         path,
-        text: read._tag === "Right" ? read.right : "",
-        readable: read._tag === "Right",
+        text: read._tag === "Success" ? read.success : "",
+        readable: read._tag === "Success",
       });
     }
     return files;

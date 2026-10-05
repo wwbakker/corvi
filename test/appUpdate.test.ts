@@ -306,7 +306,7 @@ test("a second update while one runs is refused, not raced", async () => {
   const inner = fakeShell();
   const gated: FakeShell = {
     calls: inner.calls,
-    run: (cmd, opts) => Effect.zipRight(Effect.promise(() => gate), inner.run(cmd, opts)),
+    run: (cmd, opts) => Effect.andThen(Effect.promise(() => gate), inner.run(cmd, opts)),
   };
   // The start answers at once; the background run is held at the first Bun command.
   const started = await run(gated, startUpdate(options(f)));
@@ -318,9 +318,9 @@ test("a second update while one runs is refused, not raced", async () => {
     if (Date.now() > deadline) throw new Error("the update never reached the install step");
     await Bun.sleep(50);
   }
-  const second = await run(fakeShell(), Effect.either(startUpdate(options(f))));
-  expect(second._tag).toBe("Left");
-  if (second._tag === "Left") expect(second.left._tag).toBe("UpdateBusy");
+  const second = await run(fakeShell(), Effect.result(startUpdate(options(f))));
+  expect(second._tag).toBe("Failure");
+  if (second._tag === "Failure") expect(second.failure._tag).toBe("UpdateBusy");
   release();
   const record = await settled();
   expect(record.steps.map((s) => s.state)).toEqual(["done", "done", "done"]);
