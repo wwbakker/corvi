@@ -265,9 +265,21 @@ export const createSubagent = (
           (current) => current,
         ).pipe(Effect.mapError((error) => new BadRequestError({ message: error.message })));
         // The launcher can still fail after the files exist: roll back so a failed create leaves
-        // nothing behind, and a retry starts clean.
+        // nothing behind, and a retry starts clean. A cleanup failure is logged, not surfaced:
+        // the launcher's refusal is what the caller must see, not the rollback's.
         const window = yield* launcher(change, record).pipe(
-          Effect.catch((failure) => Effect.andThen(removeInstance(dir, id), Effect.fail(failure))),
+          Effect.catch((failure) =>
+            Effect.andThen(
+              removeInstance(dir, id).pipe(
+                Effect.catch((cleanup) =>
+                  Effect.sync(() =>
+                    console.error(`could not roll back subagent ${id}:`, cleanup),
+                  ),
+                ),
+              ),
+              Effect.fail(failure),
+            ),
+          ),
         );
         yield* opened(change, id, window);
         return yield* refreshSubagent(change, id);

@@ -28,7 +28,7 @@ import {
 export class SubagentStoreError extends Schema.TaggedError<SubagentStoreError>()(
   "SubagentStoreError",
   {
-    operation: Schema.Literals(["read", "write", "create", "append", "mutate", "claim"]),
+    operation: Schema.Literals(["read", "write", "create", "append", "mutate", "claim", "remove"]),
     message: Schema.String,
     // The cause is an opaque in-process throwable that is never serialized; `Schema.Unknown`
     // preserves it exactly (on decode `Schema.Defect()` is lossy).
@@ -365,13 +365,22 @@ export const claimInbound = (
 
 /** Remove an instance's directory. Used to roll back a create whose launcher failed, so a failed
  * create leaves nothing behind. */
-export const removeInstance = (changeDir: string, id: string): Effect.Effect<void> =>
+export const removeInstance = (
+  changeDir: string,
+  id: string,
+): Effect.Effect<void, SubagentStoreError> =>
   withLock(
     changeDir,
     id,
-    // `Effect.promise` puts a rejected `rm` in the defect channel, not the typed one, so a typed
-    // `catch` here would be dead code. A real removal failure remains a defect that escapes.
-    Effect.promise(() => rm(instanceDir(changeDir, id), { recursive: true, force: true })),
+    Effect.tryPromise({
+      try: () => rm(instanceDir(changeDir, id), { recursive: true, force: true }),
+      catch: (cause) =>
+        new SubagentStoreError({
+          operation: "remove",
+          message: cause instanceof Error ? cause.message : String(cause),
+          cause,
+        }),
+    }),
   );
 
 /** The record of an instance created with an idempotency key, if one exists: the create route

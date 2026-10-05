@@ -27,7 +27,7 @@ import {
 } from "@corvi/github/issues";
 import githubIssues from "@corvi/github/issues";
 import { refOf } from "@corvi/contracts/integrations/github-issues";
-import { clearCache } from "../apps/server/src/capabilities/cache.ts";
+import { clearCache, defaultCache } from "../apps/server/src/capabilities/cache.ts";
 import { runtimeConfig } from "../apps/server/src/workspace/server/index.ts";
 import { Shell } from "@corvi/shell";
 import { Workspace as WorkspaceTag } from "@corvi/contracts/workspace";
@@ -37,7 +37,7 @@ import { createChange, readChange, writeChange } from "../apps/server/src/change
 import { workspaceById } from "../apps/server/src/workspace/server/index.ts";
 import type { ShellResult } from "../apps/server/src/capabilities/shell.ts";
 import type { Change } from "@corvi/changes/record";
-import { checkoutsOf, fakeShell, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
+import { checkoutsOf, fakeShell, runSwr, runWithShell, testTempDir, type FakeShell  } from "./helpers.ts";
 
 /**
  * `@corvi/github/client` and the github-issues extension, driven through the fake-Shell
@@ -644,6 +644,30 @@ test("createPr: no worktree and a failed push both stop before a pull request ex
   const failed = await runEither(shell, createPr(change(), repo));
   expect(Result.isFailure(failed)).toBe(true);
   if (Result.isFailure(failed)) expect(failed.failure._tag).toBe("CliError");
+});
+
+test("createPr forgets the change's cached pull-request reads", async () => {
+  const repo = "/repos/create-invalidate";
+  const own = "gh:pr:PROJ-1:";
+  // `PROJ-10` is a strict prefix of `PROJ-1` only without the trailing colon; a prefix match
+  // that forgot the colon would drop this change's reads too.
+  const prefixSibling = "gh:pr:PROJ-10:";
+  const unrelated = "gh:pr:OTHER:";
+  // Populate every prefix the capability reads through (`CacheLive` wraps `defaultCache`).
+  await runSwr(own, 60_000, async () => "cached");
+  await runSwr(prefixSibling, 60_000, async () => "sibling");
+  await runSwr(unrelated, 60_000, async () => "other");
+  expect(defaultCache.ageOf(own)).not.toBeUndefined();
+  expect(defaultCache.ageOf(prefixSibling)).not.toBeUndefined();
+  expect(defaultCache.ageOf(unrelated)).not.toBeUndefined();
+
+  await runWithShell(ghShell({ repo }), createPr(change(), repo));
+
+  // Opening the pull request made the cached answer wrong: it is forgotten. A change whose id
+  // merely starts the same and an unrelated change both keep their cached reads.
+  expect(defaultCache.ageOf(own)).toBeUndefined();
+  expect(defaultCache.ageOf(prefixSibling)).not.toBeUndefined();
+  expect(defaultCache.ageOf(unrelated)).not.toBeUndefined();
 });
 
 // --- github-issues: pure parsing --------------------------------------------------------------

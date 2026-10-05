@@ -576,7 +576,7 @@ const isStacked = (
 export const createPr = (
   change: Change,
   repo: string,
-): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts> =>
+): Effect.Effect<void, BadRequestError | CliError, Changes | GitFacts | Cache> =>
   Effect.gen(function* () {
     const worktree = yield* Effect.flatMap(Changes, (changes) => changes.checkout(change, repo));
     const branch = yield* effectiveBranchName(change, repo, worktree);
@@ -598,6 +598,6 @@ export const createPr = (
       if (number) yield* stackOnBase(worktree, target!, number);
     }
     // The cached answer says there is no pull request, and it was right until a moment ago.
-    invalidate(`gh:pr:${change.id}`);
+    yield* invalidate(`gh:pr:${change.id}:`);
   });
 
