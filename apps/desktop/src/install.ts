@@ -7,7 +7,7 @@
  *
  * The window is one Electron main process (apps/desktop/src/electron/main.ts) on both platforms. The
  * install builds it into a bundle: a macOS `.app` (apps/desktop/src/mac.ts) or, on Linux, a desktop
- * entry, an icon and a launcher (apps/desktop/src/linux.ts). Result way, clicking it starts the app's
+ * entry, an icon and a launcher (apps/desktop/src/linux.ts). Either way, clicking it starts the app's
  * own server — on a fresh port, picked at launch, so what it starts is always its own — and
  * shows the page. It is still only a window onto the same HTTP server any browser can open,
  * which is the point: the app is a convenience, not the product.

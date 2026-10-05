@@ -283,7 +283,7 @@ test("a second page over one session detaches the first with a detached frame, n
   await waitFor(
     "the first opening frame",
     async () => control(one.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
-    15_000,
+    budget(15_000),
   );
 
   // A second socket over the same session supersedes the first with a frame that says so, then
@@ -291,15 +291,15 @@ test("a second page over one session detaches the first with a detached frame, n
   const second = await openSession("SNAP-DETACHED", dir, { cols: 80, rows: 24 });
   const two = fakeSocket(second);
   terminalSockets.open(two);
-  await waitFor("the detached frame", async () => control(one.frames).some((frame) => frame.type === "detached"), 15_000);
+  await waitFor("the detached frame", async () => control(one.frames).some((frame) => frame.type === "detached"), budget(15_000));
   expect(control(one.frames).some((frame) => frame.type === "exit")).toBe(false);
   expect(one.closed()).toBe(true);
   await waitFor(
     "the second opening frame",
     async () => control(two.frames).some((frame) => frame.type === "snapshot" || frame.type === "reset"),
-    15_000,
+    budget(15_000),
   );
-}, 30_000);
+}, budget(30_000));
 
 test("a session that exits with no page releases its screen when not kept open", async () => {
   const session = await openSession("SNAP-DETACH", dir, { cols: 80, rows: 24 });
