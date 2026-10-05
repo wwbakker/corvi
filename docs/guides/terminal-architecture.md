@@ -51,9 +51,12 @@ opaque to it and is how the server re-associates windows after a restart.
   and releases a screen no page has looked at for a short grace (10 s) — output does not postpone
   it, which is the CPU bound for unattended windows. It coalesces host output per event-loop turn
   into one screen write and one socket send, and re-syncs a page that falls too far behind rather
-  than buffering it without bound. Server→page control is `snapshot` (the replay), `reset` (an
-  empty screen) and `exit`; the page sends binary keystrokes and `resize`. It resizes the pty and
-  the screen to the page's grid on attach, and detaching never kills the shell.
+  than buffering it without bound. One live page per session: a newer attach supersedes the older
+  one, which is told `detached` — the terminal is open elsewhere and can be taken back — where a
+  real session end is `exit`. Server→page control is `snapshot` (the replay), `reset` (an empty
+  screen), `exit` (final) and `detached` (superseded); the page sends binary keystrokes and
+  `resize`. It resizes the pty and the screen to the page's grid on attach, and detaching never
+  kills the shell.
 - `screen.ts` — the headless screen: a `@xterm/headless` terminal per `(sessionId, incarnation)`
   at the page's grid with 5,000 rows of scrollback, the serialize addon, a monotonic applied host
   offset, `seed(data, offset)` for a stored screen, and a 1 MiB serialization trim.

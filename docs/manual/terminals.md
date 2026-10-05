@@ -15,6 +15,11 @@ the server keeps, which also survives a Corvi restart). Completing or cancelling
 explicitly stops its sessions before archiving
 it.
 
+One window holds a session at a time. Opening the same terminal in a second window attaches there
+and tells the first window it has been taken over: the first keeps its last screen, says the
+terminal is open in another window, and offers **Take over** — which re-attaches it and, in turn,
+detaches the second. This also covers two tabs on one machine; neither screen freezes silently.
+
 This persistence is not a promise to restore processes after a machine reboot or to resume an
 agent conversation. Those are separate planned capabilities.
 

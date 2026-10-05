@@ -1840,6 +1840,9 @@ button.create:hover:not(:disabled) {
 /* The terminal fills what is left of the window: the frame takes the space, the hint takes the
  * line it needs, and nothing is left over at the bottom. */
 .terminal {
+  /* The detached overlay is positioned against the frame; the screen keeps its last-good size
+     underneath it. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1968,6 +1971,43 @@ button.create:hover:not(:disabled) {
 
 .terminal-gone code {
   color: var(--warn);
+}
+
+/* Another window holds this terminal's one live client. The screen underneath is the last good
+   one, frozen; the overlay says who has it and offers to take it back. */
+.terminal-detached {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: color-mix(in srgb, var(--well) 82%, transparent);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.terminal-detached p {
+  margin: 0;
+}
+
+.terminal-detached button {
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: default;
+}
+
+.terminal-detached button:hover {
+  background: var(--hover);
 }
 
 .keys {

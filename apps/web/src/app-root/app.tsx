@@ -331,12 +331,19 @@ function App(): JSX.Element {
   }, []);
 
   // The pages are the server's, and they may arrive after the first view was resolved: a link
-  // or a reload on /azure-devops reads as home until then. Once known, the URL is re-read — the
-  // URL is the truth, and this only ever makes it match.
+  // or a reload on /azure-devops reads as home until then. Once known, the whole URL is re-read
+  // (search included, as the initial state and popstate do). Only the views whose existence
+  // depends on the page list are re-resolved: a change view does not, and rebuilding it would
+  // drop the `?source=` that names its server and the transient `provision` a creation just put
+  // on it — neither of which the URL can restore.
   const pagesRef = useRef(pages);
   pagesRef.current = pages;
   useEffect(() => {
-    setViewState(viewOf(window.location.pathname, pages));
+    setViewState((current) =>
+      current.name === "home" || current.name === "ext-page"
+        ? viewOf(window.location.pathname + window.location.search, pages)
+        : current,
+    );
   }, [pages]);
 
   // What the OS calls this window: the change's name, where Mission Control, the Dock menu and

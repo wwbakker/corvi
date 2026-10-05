@@ -212,6 +212,10 @@ export function TerminalPane({
   const mounted = useRef(true);
   /** The session told the page it is gone: a close after this is final, not a server restart. */
   const sessionGone = useRef(false);
+  /** Another window took this terminal's one live client: the pane stops streaming and offers to
+   * take it back, rather than treating the close as the session ending. */
+  const detachedRef = useRef(false);
+  const [detached, setDetached] = useState(false);
   /** Bumped to trigger a reconnect attempt after the backoff. */
   const [reconnect, setReconnect] = useState(0);
   /** Bumped when the terminal instance is recreated, so the socket effect reconnects after its
@@ -373,6 +377,18 @@ export function TerminalPane({
     else if (ws.readyState === WebSocket.CONNECTING) pendingResize.current = size;
   }, []);
 
+  /** Take the terminal back from the window that took it: forget the detach, close whatever socket
+   * is left, and reconnect — the fresh attach supersedes the other window in turn. */
+  const takeOver = useCallback((): void => {
+    const ws = socket.current;
+    socket.current = null;
+    ws?.close();
+    detachedRef.current = false;
+    setDetached(false);
+    reconnectAttempt.current = 0;
+    setReconnect((n) => n + 1);
+  }, []);
+
   // The font size can change without rebuilding the terminal, which would lose the screen.
   useEffect(() => {
     const term = terminal.current;
@@ -398,6 +414,12 @@ export function TerminalPane({
     // The URL names the change, the id names the pane: a different change or a different tab
     // needs a different pty. The server keeps the screen of the one being left.
     const target = `${url ?? ""}#${sessionId ?? ""}`;
+    // A detach belongs to the pane the other window took; naming a different pane is a fresh
+    // start, not the window that took this one.
+    if (detachedRef.current && openedFor.current !== target) {
+      detachedRef.current = false;
+      setDetached(false);
+    }
     if (socket.current && openedFor.current !== target) {
       // Only the unnamed first connect may be renamed: the server resolved the active pane for it,
       // and the window list then names that same pane, so a reconnect would drop keystrokes in the
@@ -417,6 +439,8 @@ export function TerminalPane({
       }
     }
     if (!url || !visible) return;
+    // The other window holds the one live client: stay off the socket until the page takes it back.
+    if (detachedRef.current) return;
     const term = terminal.current;
     if (!term || !host.current) return;
     if (socket.current) return;
@@ -446,6 +470,12 @@ export function TerminalPane({
           // The server's screen, replayed into a fresh terminal, then the live bytes after it.
           term.reset();
           term.write(value.data);
+        } else if (value.type === "detached") {
+          // Another window took the one live client: the close that follows is deliberate, not the
+          // session ending, so show the take-over affordance and do not reconnect.
+          detachedRef.current = true;
+          setDetached(true);
+          setAttached(null);
         } else if (value.type === "exit") {
           // The session is gone: the close that follows is final, not a restart to retry.
           sessionGone.current = true;
@@ -460,9 +490,11 @@ export function TerminalPane({
     // the size it now has.
     ws.onopen = () => {
       if (socket.current !== ws) return; // a superseded socket
-      // A live connection resets the backoff and clears any earlier "gone" answer.
+      // A live connection resets the backoff and clears any earlier "gone" or "detached" answer.
       reconnectAttempt.current = 0;
       sessionGone.current = false;
+      detachedRef.current = false;
+      setDetached(false);
       if (!pendingResize.current) return;
       ws.send(JSON.stringify({ type: "resize", ...pendingResize.current }));
       pendingResize.current = null;
@@ -476,7 +508,9 @@ export function TerminalPane({
       socketSession.current = null;
       setAttached(null);
       pendingResize.current = null;
-      if (sessionGone.current || !mounted.current) return;
+      // A detached close is deliberate: the other window has it, and this pane waits for the
+      // take-over rather than racing it for the connection.
+      if (detachedRef.current || sessionGone.current || !mounted.current) return;
       reconnectAttempt.current = Math.min(reconnectAttempt.current + 1, 6);
       const delay = Math.min(500 * 2 ** (reconnectAttempt.current - 1), 5000);
       reconnectTimer.current = setTimeout(() => {
@@ -673,6 +707,12 @@ export function TerminalPane({
         <div className="terminal-gone">
           The terminal session for this change is gone: the shells in it, and anything that was
           running in them, are lost. Reload this page to start a fresh session.
+        </div>
+      )}
+      {detached && (
+        <div className="terminal-detached">
+          <p>This terminal is open in another window. Taking it over will detach that window.</p>
+          <button onClick={takeOver}>Take over</button>
         </div>
       )}
       {error && <div className="error-banner">{error}</div>}
