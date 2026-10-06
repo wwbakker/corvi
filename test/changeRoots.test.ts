@@ -1,12 +1,15 @@
 import { test, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { Effect, Result } from "effect";
+import { DecodeError, InternalError } from "@corvi/contracts/errors";
 import {
   archiveChange,
   changeDir,
   createChange,
   listChanges,
+  listChangesStrict,
   readChange,
 } from "../apps/server/src/change/server/index.ts";
 import { runEffect, withRuntimeConfig, type RuntimeConfigPatch } from "./helpers.ts";
@@ -23,6 +26,22 @@ let tmp: string;
 beforeAll(async () => {
   tmp = await mkdtemp(join(tmpdir(), "corvi-change-roots-"));
 });
+
+/** Run with the suite's `CORVI_ROOT`/`CORVI_ARCHIVE_ROOT` set aside, so a roots patch is what
+ * decides where the store looks. */
+const withoutEnvRoots = async <T>(body: () => Promise<T>): Promise<T> => {
+  const env = { root: process.env.CORVI_ROOT, archive: process.env.CORVI_ARCHIVE_ROOT };
+  delete process.env.CORVI_ROOT;
+  delete process.env.CORVI_ARCHIVE_ROOT;
+  try {
+    return await body();
+  } finally {
+    if (env.root === undefined) delete process.env.CORVI_ROOT;
+    else process.env.CORVI_ROOT = env.root;
+    if (env.archive === undefined) delete process.env.CORVI_ARCHIVE_ROOT;
+    else process.env.CORVI_ARCHIVE_ROOT = env.archive;
+  }
+};
 
 afterAll(async () => {
   await rm(tmp, { recursive: true, force: true });
@@ -47,10 +66,7 @@ const roots = (): RuntimeConfigPatch => ({
 test("each workspace's root holds its own changes, and lookup spans them all", async () => {
   // CORVI_ROOT and CORVI_ARCHIVE_ROOT win at every scope by design, and the suite sets them:
   // put them aside so the workspaces' roots are the ones being tested.
-  const env = { root: process.env.CORVI_ROOT, archive: process.env.CORVI_ARCHIVE_ROOT };
-  delete process.env.CORVI_ROOT;
-  delete process.env.CORVI_ARCHIVE_ROOT;
-  try {
+  await withoutEnvRoots(async () => {
     await withRuntimeConfig(roots(), async () => {
       // A change is created in its workspace's root…
       const mine = await runEffect(
@@ -107,10 +123,43 @@ test("each workspace's root holds its own changes, and lookup spans them all", a
       ).resolves.toBe(true);
       await expect(Bun.file(join(tmp, "changes", "ROOT-OLD")).exists()).resolves.toBe(false);
     });
-  } finally {
-    if (env.root === undefined) delete process.env.CORVI_ROOT;
-    else process.env.CORVI_ROOT = env.root;
-    if (env.archive === undefined) delete process.env.CORVI_ARCHIVE_ROOT;
-    else process.env.CORVI_ARCHIVE_ROOT = env.archive;
-  }
+  });
+});
+
+test("a root that cannot be read fails the strict listing where the best-effort one is empty", async () => {
+  await withoutEnvRoots(async () => {
+    // A regular file where a changes root should be: `readdir` rejects with ENOTDIR, which is
+    // not ENOENT, so the monitor's strict read must fail rather than report "no changes".
+    const root = join(tmp, "root-is-a-file");
+    await mkdir(dirname(root), { recursive: true });
+    await writeFile(root, "not a directory");
+    await withRuntimeConfig(
+      { changesRoot: root, archiveRoot: join(tmp, "unreadable-archive"), workspaces: [] },
+      async () => {
+        expect(await runEffect(listChanges())).toEqual([]);
+        const result = await runEffect(Effect.result(listChangesStrict()));
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(InternalError);
+      },
+    );
+  });
+});
+
+test("an undecodable change.json fails the strict listing where the best-effort one skips it", async () => {
+  await withoutEnvRoots(async () => {
+    const root = join(tmp, "strict-changes");
+    await mkdir(join(root, "BAD"), { recursive: true });
+    await writeFile(join(root, "BAD", "change.json"), "{ not json");
+    await withRuntimeConfig(
+      { changesRoot: root, archiveRoot: join(tmp, "strict-archive"), workspaces: [] },
+      async () => {
+        // The page skips the damaged record so one bad file cannot take the listing down...
+        expect(await runEffect(listChanges())).toEqual([]);
+        // ...but the monitor must fail, because the change could hold a working agent.
+        const result = await runEffect(Effect.result(listChangesStrict()));
+        expect(Result.isFailure(result)).toBe(true);
+        if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(DecodeError);
+      },
+    );
+  });
 });

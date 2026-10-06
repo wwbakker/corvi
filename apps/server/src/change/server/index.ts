@@ -26,6 +26,7 @@ export {
   setExtensionData,
   archiveChange,
   listChanges,
+  listChangesStrict,
 } from "./store.ts";
 
 export { factsFor, type ChangeFacts } from "./facts.ts";

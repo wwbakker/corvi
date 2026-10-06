@@ -34,8 +34,10 @@ import {
   pendingInbound,
   readInstance,
   listInstances,
+  listInstancesStrict,
   mutateRecord,
   removeInstance,
+  SubagentStoreError,
   writeRecord,
   withCreateLock,
 } from "@corvi/agents/node";
@@ -46,6 +48,7 @@ import type {
   SubagentAwaitResponseDto,
 } from "@corvi/contracts/subagents";
 import { BadRequestError, ConflictError, NotFoundError } from "@corvi/contracts/errors";
+import type { CommandFailure } from "@corvi/terminals/model";
 import { announce } from "../../capabilities/bus.ts";
 import { changeDir, factsFor } from "../../change/server/index.ts";
 import {
@@ -135,6 +138,18 @@ export const listSubagents = (change: Change): Effect.Effect<readonly SubagentIn
   Effect.gen(function* () {
     const records = yield* listInstances(changeDir(change));
     const live = yield* liveBySubagent(change.id);
+    return records.map((record) => toDto(record, live.get(record.id)));
+  });
+
+/** The subagent views, read strictly for the power monitor: an unreadable store or host is a
+ * failure, not an empty list, because "no subagents" would let the machine power off. The page's
+ * own `listSubagents` stays best-effort. */
+export const listSubagentsStrict = (
+  change: Change,
+): Effect.Effect<readonly SubagentInstanceDto[], SubagentStoreError | CommandFailure> =>
+  Effect.gen(function* () {
+    const records = yield* listInstancesStrict(changeDir(change));
+    const live = yield* liveSubagents(change.id);
     return records.map((record) => toDto(record, live.get(record.id)));
   });
 

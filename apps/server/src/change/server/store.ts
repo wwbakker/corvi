@@ -1,13 +1,13 @@
 import { join, dirname, isAbsolute, relative, resolve } from "node:path";
 import type { Dirent } from "node:fs";
-import { readdir, mkdir, rename } from "node:fs/promises";
+import { readdir, readFile, mkdir, rename } from "node:fs/promises";
 import { Effect, Schema } from "effect";
 import type { Change } from "@corvi/changes/record";
 import { FORMAT_VERSION, PLAN_FILE } from "@corvi/changes/record";
 import { ChangeId } from "@corvi/contracts/changes";
 import { ChangeFormatTooNew } from "@corvi/changes/errors";
 import { Change as ChangeSchema } from "./schema.ts";
-import { BadRequestError, DecodeError, NotFoundError } from "@corvi/contracts/errors";
+import { BadRequestError, DecodeError, InternalError, NotFoundError } from "@corvi/contracts/errors";
 import { decodePreserving, formatIssues } from "@corvi/contracts/body";
 import { fs } from "../../capabilities/effect/support.ts";
 import { file, write, writeAtomic } from "../../capabilities/files.ts";
@@ -345,5 +345,75 @@ export const listChanges = (): Effect.Effect<Change[]> =>
       { concurrency: "unbounded" },
     );
     const byId = new Map(changes.flat().map((c) => [c.id, c]));
+    return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  });
+
+/** Whether a filesystem failure is "the path is not there" — the one read error a strict read
+ * treats as "nothing to read" rather than a failure. */
+const isMissing = (cause: unknown): boolean =>
+  typeof cause === "object" && cause !== null && (cause as { code?: unknown }).code === "ENOENT";
+
+const describeCause = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+/** The directory names under one root, read strictly: a root that does not exist yet is empty,
+ * any other read failure propagates. */
+const directoriesInStrict = (dir: string): Effect.Effect<readonly string[], InternalError> =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true });
+        return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
+      } catch (cause) {
+        if (isMissing(cause)) return [] as string[];
+        throw cause;
+      }
+    },
+    catch: (cause) => new InternalError({ message: `cannot read ${dir}: ${describeCause(cause)}` }),
+  });
+
+/** One change.json, read strictly: a missing file is `undefined`, any other read failure is an
+ * error. */
+const readChangeTextStrict = (path: string): Effect.Effect<string | undefined, InternalError> =>
+  Effect.tryPromise({
+    try: async () => {
+      try {
+        return await readFile(path, "utf8");
+      } catch (cause) {
+        if (isMissing(cause)) return undefined;
+        throw cause;
+      }
+    },
+    catch: (cause) => new InternalError({ message: `cannot read ${path}: ${describeCause(cause)}` }),
+  });
+
+/** Read one change by id, strictly for the power monitor: an absent change is null, but an
+ * unreadable or undecodable change.json propagates instead of reading as "no change". */
+const readChangeStrict = (id: string): Effect.Effect<Change | null, DecodeError | InternalError> =>
+  Effect.gen(function* () {
+    for (const dir of candidatesFor(id)) {
+      const text = yield* readChangeTextStrict(join(dir, "change.json"));
+      if (text === undefined) continue;
+      return yield* decodeChange(text, dir);
+    }
+    return null;
+  });
+
+/** The changes, read strictly for the power monitor: a root, or a `change.json`, that cannot be
+ * read is an error rather than "no changes", because a hidden change could hide a working agent
+ * and let the countdown run. The dedup and ordering match `listChanges`, and the page's own
+ * best-effort listing stays exactly as it is. */
+export const listChangesStrict = (): Effect.Effect<Change[], DecodeError | InternalError> =>
+  Effect.gen(function* () {
+    const listings = yield* Effect.forEach(
+      changePairs().flatMap(({ root, archiveRoot }) => [root, archiveRoot]),
+      directoriesInStrict,
+      { concurrency: "unbounded" },
+    );
+    const names = [...new Set(listings.flat())];
+    const changes = yield* Effect.forEach(names, readChangeStrict, { concurrency: "unbounded" });
+    const byId = new Map(
+      changes.flatMap((change) => (change === null ? [] : [change])).map((change) => [change.id, change]),
+    );
     return [...byId.values()].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   });

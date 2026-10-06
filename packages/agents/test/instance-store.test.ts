@@ -9,6 +9,7 @@ import {
   createInstance,
   instanceDir,
   listInstances,
+  listInstancesStrict,
   readInstance,
   removeInstance,
   SubagentStoreError,
@@ -44,6 +45,39 @@ test("an instance is created, read back and listed", async () => {
     expect(read?.messages).toEqual([]);
     expect(await Effect.runPromise(readInstance(changeDir, "nope"))).toBeNull();
     expect((await Effect.runPromise(listInstances(changeDir))).map((i) => i.id)).toEqual(["s1"]);
+  });
+});
+
+test("listInstancesStrict fails where listInstances reads as empty", async () => {
+  await inTemp(async (changeDir) => {
+    // A regular file where the subagents directory would be: `readdir` rejects with ENOTDIR. The
+    // page's best-effort list treats an unreadable store as empty; the monitor's strict read must
+    // not, because "no subagents" could power a machine off.
+    await mkdir(dirname(changeDir), { recursive: true });
+    await writeFile(changeDir, "not a directory");
+    expect(await Effect.runPromise(listInstances(changeDir))).toEqual([]);
+    const result = await Effect.runPromise(Effect.result(listInstancesStrict(changeDir)));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) expect(result.failure).toBeInstanceOf(SubagentStoreError);
+  });
+});
+
+test("listInstancesStrict fails on a corrupt record where listInstances reads as empty", async () => {
+  await inTemp(async (changeDir) => {
+    const dir = instanceDir(changeDir, "s1");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "session.json"), "{ not json");
+    // A damaged record is skipped by the page's best-effort list...
+    expect(await Effect.runPromise(listInstances(changeDir))).toEqual([]);
+    // ...but the monitor's strict read must fail, naming the path and the parse reason, since a
+    // damaged record could hold the very in-flight turn the tick waits on.
+    const result = await Effect.runPromise(Effect.result(listInstancesStrict(changeDir)));
+    expect(Result.isFailure(result)).toBe(true);
+    if (Result.isFailure(result)) {
+      expect(result.failure).toBeInstanceOf(SubagentStoreError);
+      expect(result.failure.message).toContain("session.json");
+      expect(result.failure.message).toContain("not JSON");
+    }
   });
 });
 

@@ -21,11 +21,13 @@ export const PowerAgentSchema = Schema.Struct({
 export type PowerAgent = typeof PowerAgentSchema.Type
 
 /** What a page reads to draw the countdown and the agents it is waiting on. `deadline` is the
- * ISO instant the power command runs, present only while `counting-down`; `agents` is the
+ * ISO instant the power command runs, present only while `counting-down`; `error` is the last
+ * power-off failure, so a failed command is surfaced instead of disappearing; `agents` is the
  * server-computed list the control shows and the monitor waits on, so both read one list. */
 export const PowerStateSchema = Schema.Struct({
   phase: PowerPhase,
   deadline: Schema.optional(Schema.String),
+  error: Schema.optional(Schema.String),
   agents: Schema.Array(PowerAgentSchema),
 })
 export type PowerStateDto = typeof PowerStateSchema.Type
