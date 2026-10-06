@@ -16,9 +16,14 @@ import { commandWindowPresenter } from "@corvi/terminals/presenter";
 /** Shells: a window sitting at a prompt is idle, whatever the shell is called. */
 const SHELLS = ["zsh", "bash", "sh", "fish", "-zsh", "-bash"];
 
-/** One window as the page sees it, with the busy fact the overview counts — presentational
- * to the page, but the server's own accounting travels with it too. */
-export type PresentedWindow = TerminalWindow & { busy: boolean };
+/** One window as the page sees it, plus the server-only accounting the overview and the power
+ * control read: `busy` (is anything running) and the explicit agent pair `agent`/`working`.
+ * These extras are ignored on the wire, exactly as `busy` is. */
+export type PresentedWindow = TerminalWindow & {
+  busy: boolean;
+  working: boolean;
+  agent: boolean;
+};
 
 /** What the merge has gathered from the presenters before the core's defaults compose it:
  * fields the presenters left undefined fall through to later presenters, then to here. */
@@ -33,6 +38,8 @@ const merged = (raw: RawWindow): WindowPresentation =>
       icon: acc.icon ?? answer.icon,
       state: acc.state ?? answer.state,
       busy: acc.busy ?? answer.busy,
+      working: acc.working ?? answer.working,
+      agent: acc.agent ?? answer.agent,
       attention: acc.attention ?? answer.attention,
       note: acc.note ?? answer.note,
     };
@@ -72,6 +79,10 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     attention: raw.subagent === true ? false : (said.attention ?? false),
     note: said.note,
     busy: said.busy ?? (Boolean(raw.command) && !SHELLS.includes(raw.command)),
+    // A subagent's host window is not the agent: its own view carries the activity, so the
+    // window never blocks, exactly as it never wants the user.
+    agent: raw.subagent === true ? false : (said.agent ?? false),
+    working: raw.subagent === true ? false : (said.working ?? false),
     panes: raw.panes,
     activePane: raw.activePane,
   };
