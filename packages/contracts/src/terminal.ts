@@ -39,8 +39,8 @@ export type WindowPresentation = {
   running?: string;
   /** One line about what is happening, for a tooltip or a status bar. */
   detail?: string;
-  /** Which icon to draw — a name the page knows ("terminal", "agent"); unknown names fall
-   * back to the terminal glyph. */
+  /** Which icon to draw — a name the page knows ("terminal", "agent", "subagent"); unknown
+   * names fall back to the terminal glyph. */
   icon?: string;
   /** The icon's colour: "ok" when it is working, "idle" at a prompt. */
   state?: "ok" | "idle";
@@ -53,6 +53,13 @@ export type WindowPresentation = {
    * just answered, instead of only that it stopped. */
   note?: string;
 };
+
+/** Which presented icon names an agent — a reporting agent or a subagent. The action targeting
+ * reads it on both halves to decide whether a window takes a prompt or a shell command; the
+ * window renders draw the names themselves. One decision, so the two action callers cannot
+ * drift. */
+export const isAgentIcon = (icon: string | undefined): boolean =>
+  icon === "agent" || icon === "subagent";
 
 /** Says how a window is presented: which facts to read for it, and what those facts mean. Pure —
  * plain window data in, plain data out — so it runs wherever the windows are listed, with no

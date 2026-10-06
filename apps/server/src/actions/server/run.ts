@@ -12,6 +12,7 @@ import { resolveBriefTemplate, type DiscoveredAction } from "@corvi/actions/disc
 import { deliverAction, type CandidateWindow, type DeliveryFailure } from "@corvi/actions/deliver";
 import { renderActionBody } from "@corvi/actions/render";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
+import { isAgentIcon } from "@corvi/contracts/terminal";
 import { BadRequestError } from "@corvi/contracts/errors";
 import type { Change } from "@corvi/changes/record";
 import { changeDir, factsFor } from "../../change/server/index.ts";
@@ -124,7 +125,7 @@ export const runActionFor = (
     const candidates: readonly CandidateWindow[] = windows.map((window) => ({
       window: window.id,
       label: window.label,
-      kind: window.icon === "agent" ? "agent" : "plain",
+      kind: isAgentIcon(window.icon) ? "agent" : "plain",
       active: window.active,
     }));
     const delivery = yield* deliverAction(actionSessions, {

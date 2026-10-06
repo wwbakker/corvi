@@ -453,6 +453,31 @@ test("an agent's own account of itself is read from the @agent_status pane optio
   expect(presented({ "@agent_status": "busy" })).toMatchObject({ label: "example-api - (node)", icon: "terminal", state: "idle" });
 });
 
+test("a subagent presents the subagent glyph, from the host session and not the reporter", async () => {
+  const { presentWindow } = await import("../apps/server/src/terminals/server/index.ts");
+  const shown = (over: Partial<RawWindow>): PresentedWindow =>
+    presentWindow({
+      index: 0,
+      id: "@1",
+      name: "",
+      command: "node",
+      active: true,
+      activity: false,
+      directory: "example-api",
+      named: false,
+      options: {},
+      panes: ["@1"],
+      activePane: "@1",
+      ...over,
+    });
+  // The host session's `subagentId` is the fact; a subagent that never reports is still one.
+  expect(shown({ subagent: true }).icon).toBe("subagent");
+  // A reporter saying "agent" does not turn a subagent back into an agent.
+  expect(shown({ subagent: true, options: { "@agent_status": "working" } }).icon).toBe("subagent");
+  // A reporting window that is not a subagent keeps the agent glyph.
+  expect(shown({ options: { "@agent_status": "working" } }).icon).toBe("agent");
+});
+
 test("a change may be blocked, which is active but not workable", async () => {
   const { CHANGE_STATES, isFinished } = await import("@corvi/changes/record");
   const { stateClass } = await import("../apps/web/src/app-root/stateClass.ts");

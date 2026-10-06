@@ -369,6 +369,7 @@ export type WizardResponseDto = typeof WizardResponseSchema.Type
 export const PageInfoSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
+  icon: Schema.optional(Schema.String),
   extension: Schema.String,
 })
 export type PageInfoDto = typeof PageInfoSchema.Type

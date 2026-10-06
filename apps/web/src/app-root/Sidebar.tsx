@@ -2,7 +2,7 @@ import { type JSX, useEffect, useRef, useState } from "react";
 import { ChangeId } from "@corvi/contracts/changes";
 import type { Change } from "./api.ts";
 import { stateClass } from "./stateClass.ts";
-import { CiIcon, TerminalIcon, AgentIcon, GearIcon, UpdateIcon } from "./icons.tsx";
+import { CiIcon, GearIcon, UpdateIcon, WindowIcon } from "./icons.tsx";
 import { byWorkOrder, IDEATION, isFinished, isIdeation, type ChangeSummary } from "../domain/change.ts";
 import { TRAFFIC_LIGHTS } from "../domain/chrome.ts";
 import type { TerminalWindow } from "../domain/terminal.ts";
@@ -111,8 +111,9 @@ export function Sidebar({
   /** Whether the wizard is the page open: the draft row is current then, and the overview is
    * not. */
   wizard: boolean;
-  /** The pages the server says this context has, under Changes: one entry per page. */
-  pages: { id: string; title: string }[];
+  /** The pages the server says this context has, under Changes: one entry per page. The icon is
+   * the page's own glyph name, when it declared one. */
+  pages: { id: string; title: string; icon?: string }[];
   onPage: (id: string) => void;
   /** The id of the extension page that is open, when one is: it belongs to no change. */
   extPage?: string;
@@ -235,7 +236,7 @@ export function Sidebar({
             onClick={() => onSelectWindow(c, w.index)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
-              {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
+              <WindowIcon icon={w.icon} title={w.label} />
             </span>
             <span className="label">{w.label}</span>
             {/* Not for the window you are looking at: you see its output already. */}

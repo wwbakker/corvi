@@ -65,7 +65,10 @@ export const presentWindow = (raw: RawWindow): PresentedWindow => {
     // A split window is still one tab; the count says it holds more than one pane.
     label: raw.panes.length > 1 ? `${label} (${raw.panes.length} panes)` : label,
     detail: said.detail ?? `${raw.name} (${raw.command}) in ${raw.directory}`,
-    icon: said.icon ?? "terminal",
+    // A subagent is a subagent because the host session says so (`metadata.subagentId`), not
+    // because a reporter spoke up: a silent subagent still gets its own glyph. The reporter's
+    // "agent" only stands for a reporting window that is not one.
+    icon: raw.subagent === true ? "subagent" : (said.icon ?? "terminal"),
     state: said.state ?? "idle",
     active: raw.active,
     activity: raw.activity,

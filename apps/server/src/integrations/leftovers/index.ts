@@ -16,7 +16,7 @@ export default {
   title: "Leftovers",
 
   // The page URL is the id: /leftovers.
-  pages: [{ id: "leftovers", title: "Leftovers" }],
+  pages: [{ id: "leftovers", title: "Leftovers", icon: "leftovers" }],
 
   routes: [
     {

@@ -1,5 +1,5 @@
 import { type JSX, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { AgentIcon, TerminalIcon } from "../../app-root/icons.tsx";
+import { TerminalIcon, WindowIcon } from "../../app-root/icons.tsx";
 import type { Platform } from "@corvi/terminals/model";
 import type { TerminalWindow } from "../../domain/terminal.ts";
 import type { Page } from "../../app-root/Sidebar.tsx";
@@ -114,7 +114,7 @@ export function WindowTabs({
             onClick={() => onSelectWindow(w.index)}
           >
             <span className={w.state === "ok" ? "state-ok" : "state-idle"}>
-              {w.icon === "agent" ? <AgentIcon title={w.label} /> : <TerminalIcon title={w.label} />}
+              <WindowIcon icon={w.icon} title={w.label} />
             </span>
             <span className="label">{w.label}</span>
             {/* Not for the window you are looking at: you see its output already. */}

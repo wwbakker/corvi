@@ -89,7 +89,7 @@ export function useWorkspaces(): {
 
 /** One page the sidebar offers, as the server names it: the extension it belongs to travels
  * with it, because that is who renders it. */
-export type PageInfo = { id: string; title: string; extension: string };
+export type PageInfo = { id: string; title: string; icon?: string; extension: string };
 
 /** The pages a context's sidebar offers, asked of the server (`/api/pages`) — that is where
  * the extensions and their enablement are known, so this is the same question the wizard asks

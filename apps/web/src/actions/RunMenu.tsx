@@ -9,16 +9,18 @@ import { type JSX, useState } from "react";
 
 import { ChangeId } from "@corvi/contracts/changes";
 import type { ActionSummaryDto, RunActionResultDto } from "@corvi/contracts/actions";
+import { isAgentIcon } from "@corvi/contracts/terminal";
 import type { TerminalWindow } from "../domain/terminal.ts";
 import { useChangeClient } from "../app-root/sources.ts";
 import { ActionsMenu, type Action } from "../app-root/ActionsMenu.tsx";
 
 /** What kind of window is on screen. The agent kind is the presented icon — the app's
- * presenters read pi's own `@agent_status` for it. */
+ * presenters read pi's own `@agent_status` for it, and a subagent carries the subagent glyph
+ * but is still an agent: it takes a prompt, not a shell command. */
 export type WindowKind = "agent" | "plain";
 
 export const kindOf = (window?: TerminalWindow): WindowKind =>
-  window?.icon === "agent" ? "agent" : "plain";
+  isAgentIcon(window?.icon) ? "agent" : "plain";
 
 /** Which actions this window may run. `agent` and `new` targets are offered anywhere; an
  * `active` target only where its delivery makes sense — a prompt into the agent you are looking

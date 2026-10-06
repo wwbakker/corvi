@@ -47,7 +47,15 @@ export type Card = {
 
 /** A page the sidebar offers: served at `/<id>`, rendered by the integration's client half
  * exporting `page`. The page exists for a workspace when the integration does. */
-export type Page = { id: string; title: string };
+export type Page = {
+  id: string;
+  title: string;
+  /** The glyph the sidebar draws for this page, from the names the core knows (the integration
+   * declares the name; the core owns the glyph). An extension may only use a name the core
+   * knows — an unknown name falls back to the generic page glyph, exactly as an absent one
+   * does. Rendering the name as a glyph is the web app's job, not the integration's. */
+  icon?: string;
+};
 
 /** A tab an integration adds to a change's page, beside the core's Dashboard. The tab exists
  * for a workspace when the integration does, and its client half exports `tab`. */

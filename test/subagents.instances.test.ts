@@ -414,8 +414,9 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
   expect(session?.metadata?.subagentId).toBe(created.id);
   expect(session?.metadata?.change).toBe(own.id);
 
-  // The reporter's status (the CLI/HTTP store) reaches the window presenter: agent icon, the
-  // session name as the label, the last message as the note.
+  // The reporter's status (the CLI/HTTP store) reaches the window presenter: the session name
+  // as the label, the last message as the note. The host session's `subagentId` names the glyph:
+  // a reporting subagent is still a subagent, not a plain agent.
   setStatus(entry!.window, session!.incarnation, {
     state: "waiting",
     name: "pi",
@@ -424,7 +425,7 @@ test("a subagent on a host session is discovered, presented, relays, and closes"
     at: new Date().toISOString(),
   });
   const shown = (await listWindowsAsync(own.id)).find((window) => window.id === entry!.window);
-  expect(shown?.icon).toBe("agent");
+  expect(shown?.icon).toBe("subagent");
   expect(shown?.label).toBe("Review session");
   expect(shown?.note).toBe("Please review");
   // A subagent waits for its orchestrator (the Subagents page), not the user, so its waiting

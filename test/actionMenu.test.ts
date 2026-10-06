@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { applicableActions, noticeFor } from "../apps/web/src/actions/RunMenu.tsx";
+import { applicableActions, kindOf, noticeFor } from "../apps/web/src/actions/RunMenu.tsx";
+import { isAgentIcon } from "@corvi/contracts/terminal";
 import type { ActionSummaryDto } from "@corvi/contracts/actions";
 import type { TerminalWindow } from "../apps/web/src/domain/terminal.ts";
 
@@ -32,12 +33,23 @@ const anywhere = action({ key: "global:new", label: "New", kind: "command", targ
 
 test("an active target is offered where its delivery makes sense", () => {
   const agent = tab({ icon: "agent" });
+  const subagent = tab({ icon: "subagent" });
   const shell = tab({ icon: "terminal" });
-  // A prompt goes to the agent you are looking at; a command goes to a plain shell.
+  // A prompt goes to the agent you are looking at; a command goes to a plain shell. A subagent
+  // carries its own glyph but is still an agent window.
   expect(applicableActions([promptActive, commandActive, anywhere], agent)).toEqual([promptActive, anywhere]);
+  expect(kindOf(subagent)).toBe("agent");
+  expect(applicableActions([promptActive, commandActive, anywhere], subagent)).toEqual([promptActive, anywhere]);
   expect(applicableActions([promptActive, commandActive, anywhere], shell)).toEqual([commandActive, anywhere]);
   // With nothing on screen, only the targets that name their own window.
   expect(applicableActions([promptActive, commandActive, anywhere], undefined)).toEqual([anywhere]);
+});
+
+test("the agent-icon predicate is the one place the kind reads", () => {
+  expect(isAgentIcon("agent")).toBe(true);
+  expect(isAgentIcon("subagent")).toBe(true);
+  expect(isAgentIcon("terminal")).toBe(false);
+  expect(isAgentIcon(undefined)).toBe(false);
 });
 
 test("the notice names the window it went to and what happened there", () => {
